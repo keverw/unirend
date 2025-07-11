@@ -1,0 +1,57 @@
+{
+  "name": "unirend",
+  "version": "0.0.1",
+  "description": "A lightweight toolkit for working with both SSG (Static Site Generation) and SSR (Server-Side Rendering) in your Vite + React projects.",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "bun run update-readme && bun run update-changelog && tsup",
+    "test": "bun test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,scss,md,html}\"",
+    "lint": "eslint src --ext .ts",
+    "update-readme": "markdown-toc-gen update README.md && bun run scripts/update-readme-version.ts",
+    "update-changelog": "markdown-toc-gen update changelog.md"
+  },
+  "keywords": [
+    "ssg",
+    "ssr",
+    "vite",
+    "react",
+    "typescript"
+  ],
+  "author": "Kevin Whitman (https://github.com/keverw)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/keverw/strataline"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.13",
+    "@types/node": "^20.10.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.55.0",
+    "markdown-toc-gen": "^1.2.0",
+    "prettier": "^3.5.3",
+    "tsup": "^8.4.0",
+    "typescript": "^5.3.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "dependencies": {}
+}
