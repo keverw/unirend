@@ -11,5 +11,8 @@ export default defineConfig({
     // Mark peer dependencies as external so they won't be bundled
     "react",
     "react-dom",
+    "react-helmet-async",
+    "react-router",
+    "vite",
   ],
 });

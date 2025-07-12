@@ -1,5 +1,6 @@
 import React from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
+import { wrapRouter } from "./internal/wrapAppElement";
 
 /**
  * Result type indicating how the app was mounted
@@ -10,10 +11,26 @@ import { createRoot, hydrateRoot } from "react-dom/client";
 export type MountAppResult = "hydrated" | "rendered" | "not_found";
 
 /**
- * Intelligently mounts a React app by detecting whether to hydrate or render.
+ * Options for mounting the app
+ */
+export type MountAppOptions = {
+  /**
+   * Whether to wrap the app element with React.StrictMode
+   * @default true
+   */
+  strictMode?: boolean;
+  /**
+   * Optional custom wrapper function for additional providers
+   * Applied after HelmetProvider but before StrictMode (StrictMode is always outermost)
+   */
+  wrapApp?: (node: React.ReactNode) => React.ReactElement;
+};
+
+/**
+ * Intelligently mounts a React Router-based app by detecting whether to hydrate or render.
  *
- * This function provides a unified API for mounting React apps that works seamlessly
- * across different rendering contexts:
+ * This is the primary function for client-side mounting in unirend. It provides a unified,
+ * opinionated API that works seamlessly across different rendering contexts:
  * - SSR/SSG: Hydrates pre-rendered HTML content
  * - SPA: Creates a fresh root and renders the app
  *
@@ -21,15 +38,29 @@ export type MountAppResult = "hydrated" | "rendered" | "not_found";
  * which indicates pre-rendered content that should be hydrated rather than replaced.
  *
  * @param containerId - The ID of the root DOM element (e.g., "root", "app")
- * @param appElement - Your complete React app element, including providers, router, etc.
+ * @param router - Your React Router instance
+ * @param options - Optional configuration for mounting behavior
  * @returns MountAppResult indicating the mounting strategy used or if it failed
  *
  * @example
  * ```typescript
  * import { mountApp } from 'unirend';
- * import App from './App';
+ * import { createBrowserRouter } from 'react-router';
+ * import { routes } from './routes';
  *
- * const result = mountApp('root', <App />);
+ * const router = createBrowserRouter(routes);
+ * const result = mountApp('root', router);
+ *
+ * // With custom providers
+ * const customWrapper = (node) => (
+ *   <ThemeProvider>
+ *     <StateProvider>
+ *       {node}
+ *     </StateProvider>
+ *   </ThemeProvider>
+ * );
+ * 
+ * const result = mountApp('root', router, { wrapApp: customWrapper });
  *
  * if (result === 'hydrated') {
  *   console.log('Hydrated SSR content');
@@ -42,30 +73,33 @@ export type MountAppResult = "hydrated" | "rendered" | "not_found";
  */
 export function mountApp(
   containerId: string,
-  appElement: React.ReactElement,
+  router: any, // Using any to avoid importing specific router types
+  options: MountAppOptions = {},
 ): MountAppResult {
   // Attempt to find the container element in the DOM
   const container = document.getElementById(containerId);
 
   // Early return if container doesn't exist
   if (!container) {
-    console.error(`[Unirend] Container with id "${containerId}" not found.`);
     return "not_found";
   }
+
+  // Wrap the router with configured options
+  const wrappedAppElement = wrapRouter(router, options);
 
   // Check if container has existing content (indicates SSR/SSG)
   // firstElementChild is more reliable than innerHTML for detecting pre-rendered content
   if (container.firstElementChild) {
     // Container has existing elements - this is likely SSR/SSG content
     // Use hydrateRoot to preserve the existing DOM and attach React event handlers
-    hydrateRoot(container, appElement);
+    hydrateRoot(container, wrappedAppElement);
 
     return "hydrated";
   } else {
     // Container is empty - this is SPA mode or development
     // Use createRoot to render the app from scratch
     const root = createRoot(container);
-    root.render(appElement);
+    root.render(wrappedAppElement);
 
     return "rendered";
   }
