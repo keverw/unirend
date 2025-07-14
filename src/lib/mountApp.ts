@@ -37,7 +37,7 @@ export type MountAppOptions = {
  * The detection is based on whether the container already has child elements,
  * which indicates pre-rendered content that should be hydrated rather than replaced.
  *
- * @param containerId - The ID of the root DOM element (e.g., "root", "app")
+ * @param containerID - The ID of the root DOM element (e.g., "root", "app")
  * @param router - Your React Router instance
  * @param options - Optional configuration for mounting behavior
  * @returns MountAppResult indicating the mounting strategy used or if it failed
@@ -59,7 +59,7 @@ export type MountAppOptions = {
  *     </StateProvider>
  *   </ThemeProvider>
  * );
- * 
+ *
  * const result = mountApp('root', router, { wrapApp: customWrapper });
  *
  * if (result === 'hydrated') {
@@ -72,12 +72,12 @@ export type MountAppOptions = {
  * ```
  */
 export function mountApp(
-  containerId: string,
+  containerID: string,
   router: any, // Using any to avoid importing specific router types
   options: MountAppOptions = {},
 ): MountAppResult {
   // Attempt to find the container element in the DOM
-  const container = document.getElementById(containerId);
+  const container = document.getElementById(containerID);
 
   // Early return if container doesn't exist
   if (!container) {

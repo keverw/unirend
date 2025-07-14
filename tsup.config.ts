@@ -14,5 +14,7 @@ export default defineConfig({
     "react-helmet-async",
     "react-router",
     "vite",
+    // Regular dependencies
+    "cheerio",
   ],
 });

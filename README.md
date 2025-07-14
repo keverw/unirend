@@ -63,7 +63,7 @@ const result = mountApp('root', router, { strictMode: false });
 
 **API:**
 
-- `mountApp(containerId: string, router: Router, options?: MountAppOptions): MountAppResult`
+- `mountApp(containerID: string, router: Router, options?: MountAppOptions): MountAppResult`
 - Returns: `"hydrated"` | `"rendered"` | `"not_found"`
 
 **Options:**
