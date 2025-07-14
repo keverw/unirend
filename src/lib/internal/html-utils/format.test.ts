@@ -2,37 +2,62 @@ import { describe, it, expect } from "bun:test";
 import * as cheerio from "cheerio";
 import { prettifyHtml, processTemplate } from "./format";
 
+// Helper: split output by new lines (trim the trailing \n added by prettifyHtml)
+// and assert that each expected line appears in the output **in the given order**.
+// This lets us verify ordering (and indentation) without listing every boilerplate line (html, head, body wrappers, etc.).
+function expectLinesInOrder(result: string, expected: string[]) {
+  const lines = result.trimEnd().split("\n");
+
+  // Walk through the output ensuring each expected line appears after the previous one
+  let searchStart = 0;
+  for (const expectedLine of expected) {
+    // Find the first occurrence of the expected line after `searchStart`
+    const idx = lines.slice(searchStart).findIndex((l) => l === expectedLine);
+    expect(idx).not.toBe(-1);
+
+    // Move search start pointer past the found index
+    searchStart += idx + 1;
+  }
+}
+
 describe("prettifyHtml", () => {
   it("should format simple HTML correctly", () => {
     const $ = cheerio.load("<div>Hello World</div>");
     const result = prettifyHtml($);
 
-    expect(result).toContain("<div>");
-    expect(result).toContain("Hello World");
-    expect(result).toContain("</div>");
+    expectLinesInOrder(result, [
+      "    <div>",
+      "      Hello World",
+      "    </div>",
+    ]);
   });
 
   it("should format nested HTML with proper indentation", () => {
     const $ = cheerio.load("<div><p>Hello</p><span>World</span></div>");
     const result = prettifyHtml($);
 
-    expect(result).toContain("<div>");
-    expect(result).toContain("<p>");
-    expect(result).toContain("Hello");
-    expect(result).toContain("<span>");
-    expect(result).toContain("World");
-    expect(result).toContain("</div>");
-    // Check that content is properly indented
-    expect(result).toMatch(/\s+<p>/);
-    expect(result).toMatch(/\s+<span>/);
+    expectLinesInOrder(result, [
+      "    <div>",
+      "      <p>",
+      "        Hello",
+      "      </p>",
+      "      <span>",
+      "        World",
+      "      </span>",
+      "    </div>",
+    ]);
   });
 
   it("should handle self-closing tags", () => {
     const $ = cheerio.load("<div><img src='test.jpg' alt='test'/><br/></div>");
     const result = prettifyHtml($);
 
-    expect(result).toContain('<img src="test.jpg" alt="test"/>');
-    expect(result).toContain("<br/>");
+    expectLinesInOrder(result, [
+      "    <div>",
+      '      <img src="test.jpg" alt="test"/>',
+      "      <br/>",
+      "    </div>",
+    ]);
   });
 
   it("should handle attributes correctly", () => {
@@ -41,17 +66,25 @@ describe("prettifyHtml", () => {
     );
     const result = prettifyHtml($);
 
-    expect(result).toContain('<div class="container" id="main">');
-    expect(result).toContain("<p data-test>");
-    expect(result).toContain("Content");
+    expectLinesInOrder(result, [
+      '    <div class="container" id="main">',
+      "      <p data-test>",
+      "        Content",
+      "      </p>",
+      "    </div>",
+    ]);
   });
 
   it("should handle empty tags", () => {
     const $ = cheerio.load("<div><p></p><span></span></div>");
     const result = prettifyHtml($);
 
-    expect(result).toContain("<p></p>");
-    expect(result).toContain("<span></span>");
+    expectLinesInOrder(result, [
+      "    <div>",
+      "      <p></p>",
+      "      <span></span>",
+      "    </div>",
+    ]);
   });
 
   it("should handle comments", () => {
@@ -60,19 +93,34 @@ describe("prettifyHtml", () => {
     );
     const result = prettifyHtml($);
 
-    expect(result).toContain("<!-- This is a comment -->");
-    expect(result).toContain("<p>");
-    expect(result).toContain("Content");
+    expectLinesInOrder(result, [
+      "    <div>",
+      "      <!-- This is a comment -->",
+      "      <p>",
+      "        Content",
+      "      </p>",
+      "    </div>",
+    ]);
   });
 
   it("should handle root element specially (single line content)", () => {
     const $ = cheerio.load('<div id="root"><span>App Content</span></div>');
     const result = prettifyHtml($);
 
-    // Root element should keep content on single line
-    expect(result).toContain('<div id="root"><span>');
-    expect(result).toContain("App Content");
-    expect(result).toContain("</span></div>");
+    expectLinesInOrder(result, [
+      '    <div id="root"><span>App Content</span></div>',
+    ]);
+  });
+
+  it("should handle custom containerID", () => {
+    const $ = cheerio.load(
+      '<div id="app-container"><header><h1>Title</h1></header><main><p>Content</p></main></div>',
+    );
+    const result = prettifyHtml($, "app-container");
+
+    expectLinesInOrder(result, [
+      '    <div id="app-container"><header><h1>Title</h1></header><main><p>Content</p></main></div>',
+    ]);
   });
 
   it("should handle mixed content types", () => {
@@ -480,5 +528,37 @@ describe("processTemplate", () => {
     expect(result).toContain("Content");
     expect(result).toContain("</header><main>");
     expect(result).toContain("</main></div>");
+  });
+});
+
+describe("processTemplate with custom containerID", () => {
+  it("should handle custom containerID in processTemplate", () => {
+    const html = `
+      <html>
+        <body>
+          <div id="my-app">
+            <header>
+              <h1>Title</h1>
+            </header>
+            <main>
+              <p>Content</p>
+            </main>
+          </div>
+          <script src="app.js"></script>
+        </body>
+      </html>
+    `;
+
+    const result = processTemplate(html, false, undefined, "my-app");
+
+    // Should format my-app element on single line
+    expectLinesInOrder(result, [
+      '    <div id="my-app"><header><h1>Title</h1></header><main><p>Content</p></main></div>',
+    ]);
+
+    // Should move script after my-app element
+    const myAppEndIndex = result.indexOf("</div>");
+    const scriptIndex = result.indexOf('src="app.js"');
+    expect(scriptIndex).toBeGreaterThan(myAppEndIndex);
   });
 });
