@@ -1,5 +1,9 @@
 import { SSRServer } from "./internal/SSRServer";
 import { ServeSSRDevOptions, ServeSSRProdOptions } from "./types";
+import {
+  checkAndLoadManifest,
+  getServerEntryFromManifest,
+} from "./internal/fs-utils";
 
 /**
  * Development server handler for SSR applications using Vite's HMR and middleware.
@@ -31,17 +35,43 @@ export async function serveSSRDev(
  * duplicate bundling of the server entry point.
  *
  * @param buildDir Directory containing built assets (HTML template, static files, manifest, etc.)
- * @param importFn Dynamic import function that returns a module with a render function.
- *                 This should point to the built/bundled server entry file, not the source file.
- *                 (e.g. () => import('./dist/server/entry-server.js'))
- * @param options Production SSR options
+ * @param options Production SSR options, including serverEntry to specify which entry file to use
  */
 
 export async function serveSSRProd(
   buildDir: string,
-  importFn: () => Promise<{ render: (req: Request) => Promise<Response> }>,
   options: ServeSSRProdOptions = {},
 ): Promise<SSRServer> {
+  // Load the manifest
+  const manifestResult = await checkAndLoadManifest(buildDir);
+
+  if (!manifestResult.success || !manifestResult.manifest) {
+    throw new Error(`Failed to load Vite manifest: ${manifestResult.error}`);
+  }
+
+  // Find the server entry in the manifest
+  const serverEntry = options.serverEntry || "entry-server";
+  const entryResult = await getServerEntryFromManifest(
+    manifestResult.manifest,
+    buildDir,
+    serverEntry,
+  );
+
+  if (!entryResult.success || !entryResult.entryPath) {
+    throw new Error(`Failed to find server entry: ${entryResult.error}`);
+  }
+
+  // Create the import function
+  const importFn = async () => {
+    try {
+      return await import(entryResult.entryPath as string);
+    } catch (error) {
+      throw new Error(
+        `Failed to import server entry from ${entryResult.entryPath}: ${error}`,
+      );
+    }
+  };
+
   return new SSRServer({
     mode: "production",
     buildDir,

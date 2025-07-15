@@ -28,6 +28,12 @@ export interface ServeSSRDevOptions extends ServeSSROptions {
 }
 
 export interface ServeSSRProdOptions extends ServeSSROptions {
+  /**
+   * Name of the server entry file to look for in the Vite manifest
+   * Defaults to "entry-server" if not provided
+   */
+  serverEntry?: string;
+}
 
 /**
  * Options for Static Site Generation
@@ -43,6 +49,11 @@ export interface SSGOptions {
    * This element will be formatted inline to prevent hydration issues
    */
   containerID?: string;
+  /**
+   * Name of the server entry file to look for in the Vite manifest
+   * Defaults to "entry-server" if not provided
+   */
+  serverEntry?: string;
 }
 
 /**
@@ -100,6 +111,6 @@ export interface SSGPagesReport {
 export interface SSGReport {
   /** Fatal error if the process failed before page generation */
   fatalError?: Error;
-  /** Page generation reports (may be empty if fatal error occurred) */
-  pagesReport?: SSGPagesReport;
+  /** Page generation reports (always present, even on error) */
+  pagesReport: SSGPagesReport;
 }

@@ -90,8 +90,73 @@ This supports React Router Data Loaders, including some special properties used 
 
 ### Prepare for SSG
 
-1. Create a entry-ssg.tsx file in the src directory.
-2. Create a render function that is exported from entry-ssg.tsx.
+**Static Site Generation (SSG)** allows you to pre-render your React pages at build time, creating static HTML files that can be served by any web server.
+
+#### 1. Build with SSR Manifest
+
+**Important:** You must build your project with the `--ssrManifest` flag to generate the manifest file that unirend uses to locate your server entry:
+
+```bash
+# Build with SSR manifest (required for SSG)
+vite build --ssrManifest
+```
+
+#### 2. Create a Generation Script
+
+Create a script to generate your static pages using the `generateSSG` function:
+
+> 💡 **Tip:** For a more comprehensive example with detailed error handling and reporting, see [`demos/ssg/generate.ts`](./demos/ssg/generate.ts) in this repository.
+
+```typescript
+import { generateSSG } from "unirend";
+import path from "path";
+
+async function main() {
+  const buildDir = path.resolve(__dirname, "dist");
+
+  const pages = [
+    { path: "/", filename: "index.html" },
+    { path: "/about", filename: "about.html" },
+    { path: "/contact", filename: "contact.html" },
+  ];
+
+  const options = {
+    serverEntry: "entry-server", // Default, customize if needed
+    frontendAppConfig: {
+      apiUrl: "https://api.example.com",
+    },
+  };
+
+  const result = await generateSSG(buildDir, pages, options);
+
+  if (result.fatalError) {
+    console.error("SSG generation failed:", result.fatalError.message);
+    process.exit(1);
+  }
+
+  console.log(
+    `Generated ${result.pagesReport.successCount} pages successfully!`,
+  );
+}
+
+main().catch(console.error);
+```
+
+#### 3. Add to Build Process
+
+Add the generation script to your package.json:
+
+```json
+{
+  "scripts": {
+    "build": "vite build --ssrManifest",
+    "generate": "bun run generate.ts",
+    "build-and-generate": "npm run build && npm run generate"
+  }
+}
+```
+
+**Note:** The `--ssrManifest` flag is required because unirend automatically detects your server entry file from the Vite manifest, eliminating the need to manually specify import paths.
 
 ### Prepare for SSR
 
