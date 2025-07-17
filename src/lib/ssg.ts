@@ -3,7 +3,11 @@ import path from "path";
 import {
   checkAndLoadManifest,
   getServerEntryFromManifest,
+  readHTMLFile,
+  readJSONFile,
+  writeJSONFile,
 } from "./internal/fs-utils";
+import { processTemplate } from "./internal/html-utils/format";
 
 /**
  * Creates a complete SSGReport with proper typing and defaults
@@ -47,7 +51,7 @@ function createSSGReport({
  *
  * @param buildDir Directory containing built assets (HTML template, static files, manifest, etc.)
  * @param pages Array of pages to generate, each with a path and output filename
- * @param options Additional options for the SSG process, including frontendAppConfig and serverEntry
+ * @param options Additional options for the SSG process, including frontendAppConfig and serverEntry (defaults to "entry-ssg")
  * @returns Promise that resolves to a detailed report of the generation process
  */
 
@@ -63,24 +67,29 @@ export async function generateSSG(
   const errorCount = 0;
   const notFoundCount = 0;
 
-  // Load the manifest
-  const manifestResult = await checkAndLoadManifest(buildDir);
+  // Load the server manifest and find the server entry
+  const serverEntry = options.serverEntry || "entry-ssg";
+  const serverBuildDir = path.join(buildDir, "server");
 
-  if (!manifestResult.success || !manifestResult.manifest) {
+  // Load the server's regular manifest
+  const serverManifestResult = await checkAndLoadManifest(
+    serverBuildDir,
+    false,
+  );
+
+  if (!serverManifestResult.success || !serverManifestResult.manifest) {
     return createSSGReport({
       buildDir,
       startTime,
       fatalError: new Error(
-        `Failed to load Vite manifest: ${manifestResult.error}`,
+        `Failed to load server manifest: ${serverManifestResult.error}`,
       ),
     });
   }
 
-  // Find the server entry in the manifest
-  const serverEntry = options.serverEntry || "entry-server";
-  const entryResult = await getServerEntryFromManifest(
-    manifestResult.manifest,
-    buildDir,
+  const entryResult = getServerEntryFromManifest(
+    serverManifestResult.manifest,
+    serverBuildDir,
     serverEntry,
   );
 
@@ -105,6 +114,111 @@ export async function generateSSG(
     }
   };
 
+  // Check for .unirend-ssg.json file in client folder
+  // This stores the process html template
+  const clientBuildDir = path.join(buildDir, "client");
+  const unirendSsgPath = path.join(clientBuildDir, ".unirend-ssg.json");
+
+  const ssgConfigResult = await readJSONFile(unirendSsgPath);
+
+  // If there's an error reading/parsing the config file, treat it as fatal
+  // Note: file not existing is not an error, only read/parse errors are fatal
+  if (ssgConfigResult.error) {
+    return createSSGReport({
+      buildDir,
+      startTime,
+      fatalError: new Error(
+        `Failed to read or parse .unirend-ssg.json config file: ${ssgConfigResult.error}`,
+      ),
+    });
+  }
+
+  let htmlTemplate: string;
+
+  if (ssgConfigResult.exists && ssgConfigResult.data) {
+    // Found the unirend SSG config file - use cached template
+    const template = ssgConfigResult.data.template;
+    if (typeof template === "string") {
+      htmlTemplate = template;
+      // Using cached template from .unirend-ssg.json
+    } else {
+      return createSSGReport({
+        buildDir,
+        startTime,
+        fatalError: new Error(
+          "Invalid .unirend-ssg.json: template key is not a string",
+        ),
+      });
+    }
+  } else {
+    // No config file found, read the HTML template and create config if needed
+    // Read the HTML template from client build directory
+    const templatePath = path.join(clientBuildDir, "index.html");
+    const templateResult = await readHTMLFile(templatePath);
+
+    if (!templateResult.exists) {
+      return createSSGReport({
+        buildDir,
+        startTime,
+        fatalError: new Error(
+          `HTML template not found at ${templatePath}. Make sure to run the client build first.`,
+        ),
+      });
+    }
+
+    if (templateResult.error) {
+      return createSSGReport({
+        buildDir,
+        startTime,
+        fatalError: new Error(
+          `Failed to read HTML template: ${templateResult.error}`,
+        ),
+      });
+    }
+
+    // Process the template with SSG options
+    // Assert that content exists since we've already checked templateResult.exists and !templateResult.error
+    const templateContent = templateResult.content as string;
+
+    const processedTemplate = processTemplate(
+      templateContent,
+      false, // isDevelopment = false for SSG
+      options.frontendAppConfig,
+      options.containerID,
+    );
+
+    // Store the processed template for future use
+    htmlTemplate = processedTemplate;
+
+    // Write the processed template to .unirend-ssg.json with timestamp
+    const ssgConfig = {
+      template: processedTemplate,
+      generatedAt: new Date().toISOString(),
+    };
+
+    const writeResult = await writeJSONFile(unirendSsgPath, ssgConfig);
+    if (!writeResult.success) {
+      return createSSGReport({
+        buildDir,
+        startTime,
+        fatalError: new Error(
+          `Failed to write .unirend-ssg.json: ${writeResult.error}`,
+        ),
+      });
+    }
+  }
+
+  // At this point, htmlTemplate contains the processed HTML template
+  // ready for page generation (either from cache or freshly processed)
+
+  // Validate that we have a template to work with
+  if (!htmlTemplate || htmlTemplate.length === 0) {
+    return createSSGReport({
+      buildDir,
+      startTime,
+      fatalError: new Error("HTML template is empty or invalid"),
+    });
+  }
   return createSSGReport({
     buildDir,
     startTime,

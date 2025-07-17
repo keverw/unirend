@@ -25,18 +25,15 @@ The `mountApp` function is the primary, opinionated way to mount React Router-ba
 
 **How it works:** If the container has existing child elements (SSR/SSG content), it hydrates. If empty (SPA/development), it renders fresh.
 
-**Opinionated & Router-First:** Pass your router directly - unirend handles RouterProvider, HelmetProvider, StrictMode, and any custom providers you need.
+**Opinionated & Type-Safe:** Pass your routes directly - unirend handles creating the router, RouterProvider, HelmetProvider, StrictMode, and any custom providers you need.
 
 ```typescript
 import { mountApp } from 'unirend';
-import { createBrowserRouter } from 'react-router';
+import { type RouteObject } from 'react-router';
 import { routes } from './routes';
 
-// Create your router
-const router = createBrowserRouter(routes);
-
-// Mount the app - automatically wraps with RouterProvider, HelmetProvider, and StrictMode
-const result = mountApp('root', router);
+// Pass your routes directly - mountApp creates the router internally
+const result = mountApp('root', routes);
 
 if (result === 'hydrated') {
   console.log('✅ Hydrated SSR/SSG content');
@@ -55,15 +52,15 @@ const customWrapper = (node) => (
   </MyThemeProvider>
 );
 
-const result = mountApp('root', router, { wrapApp: customWrapper });
+const result = mountApp('root', routes, { wrapApp: customWrapper });
 
 // Disable StrictMode if needed
-const result = mountApp('root', router, { strictMode: false });
+const result = mountApp('root', routes, { strictMode: false });
 ```
 
 **API:**
 
-- `mountApp(containerID: string, router: Router, options?: MountAppOptions): MountAppResult`
+- `mountApp(containerID: string, routes: RouteObject[], options?: MountAppOptions): MountAppResult`
 - Returns: `"hydrated"` | `"rendered"` | `"not_found"`
 
 **Options:**
@@ -96,12 +93,91 @@ This supports React Router Data Loaders, including some special properties used 
 
 **Important:** You must build your project with the `--ssrManifest` flag to generate the manifest file that unirend uses to locate your server entry:
 
-```bash
-# Build with SSR manifest (required for SSG)
-vite build --ssrManifest
+## Guide
+
+### Prepare Client Frontend
+
+1. Create a vite + React project, like normal. Define your routes using React Router's `RouteObject[]` format.
+2. Rename your module in the `index.html` file to something like `entry-client` and update the reference.
+3. In your client entry point, use `mountApp` instead of `createRoot`, passing your routes directly:
+
+```typescript
+// entry-client.tsx
+import { mountApp } from 'unirend';
+import { routes } from './routes';
+
+// Pass routes directly - mountApp handles creating the router
+mountApp('root', routes, {
+  strictMode: true,
+  // Optional: Add custom wrappers for additional providers
+  // wrapApp: (node) => <ThemeProvider>{node}</ThemeProvider>
+});
 ```
 
-#### 2. Create a Generation Script
+### Prepare Vite Config and Entry Points
+
+**Vite Configuration:** Make sure your `vite.config.ts` includes `manifest: true` to ensure both builds generate manifests:
+
+```typescript
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+  build: {
+    manifest: true, // Required for unirend to locate built files
+  },
+});
+```
+
+**Build Structure:** Both SSG and SSR require building client and server separately:
+
+- **Client build**: Contains static assets, client-side code, regular manifest, and SSR manifest (intended for pre-loading)
+- **Server build**: Contains the server-side rendering entry point and server manifest
+
+## Choose Your Rendering Strategy
+
+### 1. Create Server Entry Point
+
+Create a server entry file that exports a render function:
+
+- **For SSG**: Create `entry-ssg.tsx`
+- **For SSR**: Create `entry-server.tsx`
+
+```typescript
+import { unirendBaseRender, type IRenderRequest } from "unirend";
+import { routes } from "./routes";
+
+export async function render(renderRequest: IRenderRequest) {
+  // Pass routes directly - unirendBaseRender handles the rest
+  return await unirendBaseRender(renderRequest, routes, {
+    strictMode: true,
+    // Optional: Add custom wrappers for additional providers
+    // wrapApp: (node) => <StateProvider>{node}</StateProvider>
+  });
+}
+```
+
+### 2. Build Commands
+
+```bash
+# Build client (contains static assets, regular manifest, and SSR manifest)
+vite build --outDir build/client --base=/ --ssrManifest
+
+# Build server entry (contains the rendering code)
+# For SSG:
+vite build --outDir build/server --ssr src/entry-ssg.tsx
+# For SSR:
+vite build --outDir build/server --ssr src/entry-server.tsx
+```
+
+## Implementation
+
+### For SSG (Static Site Generation)
+
+**Static Site Generation (SSG)** allows you to pre-render your React pages at build time, creating static HTML files that can be served by any web server.
+
+#### Create Generation Script
 
 Create a script to generate your static pages using the `generateSSG` function:
 
@@ -142,7 +218,24 @@ async function main() {
 main().catch(console.error);
 ```
 
-#### 3. Add to Build Process
+#### Template Caching
+
+Unirend automatically caches the processed HTML template in `.unirend-ssg.json` within your client build directory. This serves two important purposes:
+
+1. **Performance**: Avoids re-processing the template on subsequent generation runs
+2. **Template preservation**: Keeps a copy of the original `index.html` in case you overwrite it with generated pages
+
+- **First run**: Processes the HTML template (formatting and preparation) and creates the cache file
+- **Subsequent runs**: Uses the cached processed template, preserving your source `index.html`
+
+**Important:** Vite's default behavior is to clean the output directory on each build (`build.emptyOutDir: true`). This means:
+
+- The cache file is cleared on each `vite build` command
+- Template processing happens fresh after each build
+- This ensures the cache stays in sync with your latest build
+
+If you've disabled `emptyOutDir` in your Vite config, the cache will persist between builds. While this improves performance, make sure to rebuild when you change your HTML template or app configuration.
+
 
 Add the generation script to your package.json:
 
@@ -155,10 +248,6 @@ Add the generation script to your package.json:
   }
 }
 ```
-
-**Note:** The `--ssrManifest` flag is required because unirend automatically detects your server entry file from the Vite manifest, eliminating the need to manually specify import paths.
-
-### Prepare for SSR
 
 ## Development
 

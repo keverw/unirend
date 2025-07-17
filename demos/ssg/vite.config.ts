@@ -7,5 +7,6 @@ export default defineConfig({
   root: ".", // Current directory (demos/ssg)
   build: {
     outDir: "build",
+    manifest: true, // Always generate manifest.json
   },
 });

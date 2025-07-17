@@ -1,5 +1,6 @@
 import React from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
+import { createBrowserRouter, type RouteObject } from "react-router";
 import { wrapRouter } from "./internal/wrapAppElement";
 
 /**
@@ -38,18 +39,16 @@ export type MountAppOptions = {
  * which indicates pre-rendered content that should be hydrated rather than replaced.
  *
  * @param containerID - The ID of the root DOM element (e.g., "root", "app")
- * @param router - Your React Router instance
+ * @param routes - Your React Router routes configuration
  * @param options - Optional configuration for mounting behavior
  * @returns MountAppResult indicating the mounting strategy used or if it failed
  *
  * @example
  * ```typescript
  * import { mountApp } from 'unirend';
- * import { createBrowserRouter } from 'react-router';
  * import { routes } from './routes';
  *
- * const router = createBrowserRouter(routes);
- * const result = mountApp('root', router);
+ * const result = mountApp('root', routes);
  *
  * // With custom providers
  * const customWrapper = (node) => (
@@ -60,7 +59,7 @@ export type MountAppOptions = {
  *   </ThemeProvider>
  * );
  *
- * const result = mountApp('root', router, { wrapApp: customWrapper });
+ * const result = mountApp('root', routes, { wrapApp: customWrapper });
  *
  * if (result === 'hydrated') {
  *   console.log('Hydrated SSR content');
@@ -73,7 +72,7 @@ export type MountAppOptions = {
  */
 export function mountApp(
   containerID: string,
-  router: any, // Using any to avoid importing specific router types
+  routes: RouteObject[],
   options: MountAppOptions = {},
 ): MountAppResult {
   // Attempt to find the container element in the DOM
@@ -83,6 +82,9 @@ export function mountApp(
   if (!container) {
     return "not_found";
   }
+
+  // Create browser router from routes
+  const router = createBrowserRouter(routes);
 
   // Wrap the router with configured options
   const wrappedAppElement = wrapRouter(router, options);

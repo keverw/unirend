@@ -12,11 +12,6 @@ export interface IRenderResult {
  */
 interface ServeSSROptions {
   /**
-   * Optional configuration object to be injected into the frontend app
-   * Will be serialized and injected as window.__APP_CONFIG__
-   */
-  frontendAppConfig?: Record<string, any>;
-  /**
    * ID of the container element (defaults to "root")
    * This element will be formatted inline to prevent hydration issues
    */
@@ -28,6 +23,17 @@ export interface ServeSSRDevOptions extends ServeSSROptions {
 }
 
 export interface ServeSSRProdOptions extends ServeSSROptions {
+  /**
+   * Optional configuration object to be injected into the frontend app
+   * Will be serialized and injected as window.__APP_CONFIG__
+   *
+   * NOTE: This only works in production builds. In development with Vite,
+   * use environment variables (import.meta.env) or other dev-time config methods.
+   * Your app should check for window.__APP_CONFIG__ and fallback to dev defaults:
+   *
+   * const apiUrl = window.__APP_CONFIG__?.apiUrl || 'http://localhost:3001';
+   */
+  frontendAppConfig?: Record<string, unknown>;
   /**
    * Name of the server entry file to look for in the Vite manifest
    * Defaults to "entry-server" if not provided
@@ -43,7 +49,7 @@ export interface SSGOptions {
    * Optional configuration object to be injected into the frontend app
    * Will be serialized and injected as window.__APP_CONFIG__
    */
-  frontendAppConfig?: Record<string, any>;
+  frontendAppConfig?: Record<string, unknown>;
   /**
    * ID of the container element (defaults to "root")
    * This element will be formatted inline to prevent hydration issues
@@ -57,14 +63,41 @@ export interface SSGOptions {
 }
 
 /**
- * Represents a page to be generated during SSG (Static Site Generation)
+ * Base interface for pages to be generated
  */
-export interface IPageWanted {
-  /** The URL path for the page */
-  path: string;
+export interface IGeneratorPageBase {
   /** The output filename for the generated HTML */
   filename: string;
 }
+
+/**
+ * SSG page - server-side rendered at build time
+ */
+export interface ISSGPage extends IGeneratorPageBase {
+  /** Type of page generation */
+  type: "ssg";
+  /** The URL path for the page (required for SSG) */
+  path: string;
+}
+
+/**
+ * SPA page - client-side rendered with custom metadata
+ */
+export interface ISPAPage extends IGeneratorPageBase {
+  /** Type of page generation */
+  type: "spa";
+  /** Custom title for the SPA page */
+  title?: string;
+  /** Custom meta description for the SPA page */
+  description?: string;
+  /** Additional meta tags as key-value pairs */
+  meta?: Record<string, string>;
+}
+
+/**
+ * Union type for all page types
+ */
+export type IPageWanted = ISSGPage | ISPAPage;
 
 /**
  * Status code for a generated page
@@ -74,7 +107,9 @@ export type SSGPageStatus = "success" | "not_found" | "error";
 /**
  * Report for a single generated page
  */
-export interface SSGPageReport extends IPageWanted {
+export interface SSGPageReport {
+  /** The page that was processed */
+  page: IPageWanted;
   /** Status of the generation */
   status: SSGPageStatus;
   /** Full path to the generated file (if successful) */

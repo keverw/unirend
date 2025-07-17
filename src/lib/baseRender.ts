@@ -1,7 +1,12 @@
 import { IRenderRequest, IRenderResult } from "./types";
 import { type ReactNode } from "react";
+import {
+  createStaticRouter,
+  createStaticHandler,
+  type RouteObject,
+} from "react-router";
+import { wrapStaticRouter } from "./internal/wrapAppElement";
 
-export function unirendBaseRender(
   renderRequest: IRenderRequest,
   element: ReactNode,
 ): IRenderResult {

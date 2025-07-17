@@ -1,6 +1,6 @@
 import React from "react";
 import { HelmetProvider } from "react-helmet-async";
-import { RouterProvider } from "react-router";
+import { RouterProvider, StaticRouterProvider } from "react-router";
 
 /**
  * Options for wrapping app elements with various React wrappers
@@ -110,5 +110,38 @@ export function wrapRouter(
   options: WrapAppElementOptions = {},
 ): React.ReactElement {
   const routerElement = <RouterProvider router={router} />;
+  return wrapAppElement(routerElement, options);
+}
+
+/**
+ * Wraps a Static Router instance with the standard app wrappers for SSR/SSG scenarios
+ * This is a convenience function for server-side rendering
+ *
+ * @param router - The Static Router instance
+ * @param context - The static router context
+ * @param options - Configuration options for wrapping
+ * @returns The wrapped StaticRouterProvider element
+ *
+ * @example
+ * ```tsx
+ * import { wrapStaticRouter } from 'unirend';
+ * import { createStaticRouter } from 'react-router';
+ *
+ * const router = createStaticRouter(routes, context);
+ * const wrappedApp = wrapStaticRouter(router, context);
+ *
+ * // With custom providers
+ * const customWrapper = (node) => <MyProvider>{node}</MyProvider>;
+ * const wrappedApp = wrapStaticRouter(router, context, { wrapApp: customWrapper });
+ * ```
+ */
+export function wrapStaticRouter(
+  router: any, // Using any to avoid importing specific router types
+  context: any, // Using any to avoid importing specific context types
+  options: WrapAppElementOptions = {},
+): React.ReactElement {
+  const routerElement = (
+    <StaticRouterProvider router={router} context={context} />
+  );
   return wrapAppElement(routerElement, options);
 }

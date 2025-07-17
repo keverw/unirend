@@ -25,9 +25,15 @@
     "update-readme": "markdown-toc-gen update README.md && bun run scripts/update-readme-version.ts",
     "update-changelog": "markdown-toc-gen update changelog.md",
     "ssg-dev": "cd demos/ssg && vite",
-    "ssg-build": "cd demos/ssg && vite build",
+    "ssg-build-client": "cd demos/ssg && vite build --outDir build/client --base=/ --ssrManifest",
+    "ssg-build-server": "cd demos/ssg && vite build --outDir build/server --ssr src/entry-ssg.tsx",
+    "ssg-build": "bun run ssg-build-client && bun run ssg-build-server",
+    "ssg-generate": "cd demos/ssg && bun run generate.ts",
+    "ssg-build-and-generate": "bun run ssg-build && bun run ssg-generate",
     "ssr-dev": "cd demos/ssr && vite",
-    "ssr-build": "cd demos/ssr && vite build"
+    "ssr-build-client": "cd demos/ssr && vite build --outDir build/client --base=/ --ssrManifest",
+    "ssr-build-server": "cd demos/ssr && vite build --outDir build/server --ssr src/entry-server.tsx",
+    "ssr-build": "bun run ssr-build-client && bun run ssr-build-server"
   },
   "keywords": [
     "ssg",

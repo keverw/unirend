@@ -51,7 +51,7 @@ export async function serveSSRProd(
 
   // Find the server entry in the manifest
   const serverEntry = options.serverEntry || "entry-server";
-  const entryResult = await getServerEntryFromManifest(
+  const entryResult = getServerEntryFromManifest(
     manifestResult.manifest,
     buildDir,
     serverEntry,
