@@ -6,7 +6,6 @@ import {
   SSGPageReport,
   SSGReport,
   SSGLogger,
-  consoleLogger,
 } from "./types";
 import path from "path";
 import {
@@ -87,7 +86,9 @@ export async function generateSSG(
 
   // Load the server manifest and find the server entry
   const serverEntry = options.serverEntry || "entry-ssg";
-  const serverBuildDir = path.join(buildDir, "server");
+  const serverFolderName = options.serverFolderName || "server";
+  const clientFolderName = options.clientFolderName || "client";
+  const serverBuildDir = path.join(buildDir, serverFolderName);
 
   // Load the server's regular manifest
   const serverManifestResult = await checkAndLoadManifest(
@@ -134,7 +135,7 @@ export async function generateSSG(
 
   // Check for .unirend-ssg.json file in client folder
   // This stores the process html template
-  const clientBuildDir = path.join(buildDir, "client");
+  const clientBuildDir = path.join(buildDir, clientFolderName);
   const unirendSsgPath = path.join(clientBuildDir, ".unirend-ssg.json");
 
   const ssgConfigResult = await readJSONFile(unirendSsgPath);
@@ -304,7 +305,7 @@ export async function generateSSG(
         );
 
         // Write the HTML file to the client directory (where assets are)
-        const clientBuildDir = path.join(buildDir, "client");
+        const clientBuildDir = path.join(buildDir, clientFolderName);
         const outputPath = path.join(clientBuildDir, page.filename);
         const writeResult = await writeHTMLFile(outputPath, htmlToWrite);
 
@@ -413,7 +414,7 @@ export async function generateSSG(
       );
 
       // Write the HTML file to the client directory (where assets are)
-      const clientBuildDir = path.join(buildDir, "client");
+      const clientBuildDir = path.join(buildDir, clientFolderName);
       const outputPath = path.join(clientBuildDir, page.filename);
       const writeResult = await writeHTMLFile(outputPath, htmlToWrite);
 

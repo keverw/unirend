@@ -89,13 +89,13 @@ export interface SSGLogger {
 }
 
 /**
- * Pre-built console logger for convenience
+ * Pre-built console logger for SSG with prefixed messages
  * Use this if you want basic console logging during SSG
  */
-export const consoleLogger: SSGLogger = {
-  info: (message: string) => console.log(message),
-  warn: (message: string) => console.warn(message),
-  error: (message: string) => console.error(message),
+export const SSGConsoleLogger: SSGLogger = {
+  info: (message: string) => console.log(`[SSG Info] ${message}`),
+  warn: (message: string) => console.warn(`[SSG Warn] ${message}`),
+  error: (message: string) => console.error(`[SSG Error] ${message}`),
 };
 
 /**
@@ -122,6 +122,16 @@ export interface SSGOptions {
    * Defaults to console if not provided
    */
   logger?: SSGLogger;
+  /**
+   * Name of the client folder within buildDir
+   * Defaults to "client" if not provided
+   */
+  clientFolderName?: string;
+  /**
+   * Name of the server folder within buildDir
+   * Defaults to "server" if not provided
+   */
+  serverFolderName?: string;
 }
 
 /**
