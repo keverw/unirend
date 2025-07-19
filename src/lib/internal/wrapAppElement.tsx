@@ -1,6 +1,11 @@
-import React from "react";
-import { HelmetProvider } from "react-helmet-async";
-import { RouterProvider, StaticRouterProvider } from "react-router";
+import React, { type ReactNode } from "react";
+import { HelmetProvider, type HelmetServerState } from "react-helmet-async";
+import {
+  type DataRouter,
+  RouterProvider,
+  StaticRouterProvider,
+  type StaticHandlerContext,
+} from "react-router";
 
 /**
  * Options for wrapping app elements with various React wrappers
@@ -16,132 +21,133 @@ export type WrapAppElementOptions = {
    * When provided, will be passed to HelmetProvider
    * @default undefined (creates new context automatically)
    */
-  helmetContext?: any;
+  helmetContext?: unknown;
   /**
-   * Optional custom wrapper function for additional providers
+   * Optional custom wrapper component for additional providers
    * Applied after HelmetProvider but before StrictMode (StrictMode is always outermost)
+   * Must be a React component that accepts children
    */
-  wrapApp?: (node: React.ReactNode) => React.ReactElement;
+  wrapProviders?: React.ComponentType<{ children: ReactNode }>;
 };
 
 /**
- * Generic function to wrap a React element with various wrappers based on options.
- * This function can be extended to support additional wrappers in the future.
- *
- * @param appElement - The React element to wrap
- * @param options - Configuration options for wrapping
- * @returns The wrapped React element
- *
- * @example
- * ```tsx
- * import { wrapAppElement } from 'unirend';
- * import App from './App';
- *
- * // With StrictMode (default) and automatic HelmetProvider
- * const wrappedApp = wrapAppElement(<App />, { strictMode: true });
- *
- * // Without StrictMode but with HelmetProvider
- * const unwrappedApp = wrapAppElement(<App />, { strictMode: false });
- *
- * // With custom helmet context for SSR
- * const helmetContext = {};
- * const ssrApp = wrapAppElement(<App />, { helmetContext });
- *
- * // With custom wrapper for additional providers
- * const customWrapper = (node) => <MyProvider>{node}</MyProvider>;
- * const wrappedApp = wrapAppElement(<App />, { wrapApp: customWrapper });
- * ```
+ * Conditional StrictMode wrapper component
  */
-export function wrapAppElement(
-  appElement: React.ReactElement,
-  options: WrapAppElementOptions = {},
-): React.ReactElement {
-  const { strictMode = true, helmetContext, wrapApp } = options;
-
-  let wrappedElement = appElement;
-
-  // Always wrap with HelmetProvider (required for helmet functionality)
-  // If helmetContext is provided (SSR), use it; otherwise let HelmetProvider create its own (when it's undefined client-side)
-  if (helmetContext) {
-    wrappedElement = (
-      <HelmetProvider context={helmetContext}>{wrappedElement}</HelmetProvider>
-    );
-  } else {
-    wrappedElement = <HelmetProvider>{wrappedElement}</HelmetProvider>;
+function ConditionalStrictMode({
+  enabled,
+  children,
+}: {
+  enabled: boolean;
+  children: ReactNode;
+}) {
+  if (enabled) {
+    return <React.StrictMode>{children}</React.StrictMode>;
   }
 
-  // Apply custom wrapper if provided (after HelmetProvider, before StrictMode)
-  // StrictMode should always be the outermost wrapper
-  if (wrapApp) {
-    wrappedElement = wrapApp(wrappedElement);
-  }
-
-  // Apply StrictMode wrapper if enabled (outermost wrapper)
-  if (strictMode) {
-    wrappedElement = <React.StrictMode>{wrappedElement}</React.StrictMode>;
-  }
-
-  return wrappedElement;
+  return <>{children}</>;
 }
 
 /**
- * Wraps a React Router instance with the standard app wrappers
- * This is a convenience function for router-based apps
+ * Helmet wrapper component that handles both client and server cases
+ */
+function HelmetWrapper({
+  context,
+  children,
+}: {
+  context?: { helmet?: HelmetServerState };
+  children: ReactNode;
+}) {
+  return <HelmetProvider context={context}>{children}</HelmetProvider>;
+}
+
+/**
+ * Custom wrapper component handler
+ */
+function CustomWrapper({
+  WrapComponent,
+  children,
+}: {
+  WrapComponent?: React.ComponentType<{ children: ReactNode }>;
+  children: ReactNode;
+}) {
+  if (WrapComponent) {
+    return <WrapComponent>{children}</WrapComponent>;
+  }
+
+  return <>{children}</>;
+}
+
+/**
+ * Core unified wrapper function that applies the standard app wrapper chain
+ * This ensures EXACTLY the same wrapping order between client and server:
+ * StrictMode (outermost) > HelmetProvider (BOTH) > wrapProviders > RouterElement (innermost)
  *
- * @param router - The React Router instance
+ * The key insight is that client and server should render identically:
+ * - Router type (RouterProvider vs StaticRouterProvider) - different
+ * - HelmetProvider - SAME on both, but server gets context, client gets undefined
+ *
+ * @param routerElement - The router element (RouterProvider or StaticRouterProvider)
+ * @param options - Configuration options for wrapping
+ * @param helmetContext - Optional Helmet context for server-side rendering
+ * @returns The wrapped React element
+ */
+
+function createAppWrapper(
+  routerElement: React.ReactElement,
+  options: WrapAppElementOptions = {},
+  helmetContext?: { helmet?: HelmetServerState },
+): React.ReactElement {
+  const { strictMode = true, wrapProviders } = options;
+
+  return (
+    <ConditionalStrictMode enabled={strictMode}>
+      <HelmetWrapper context={helmetContext}>
+        <CustomWrapper WrapComponent={wrapProviders}>
+          {routerElement}
+        </CustomWrapper>
+      </HelmetWrapper>
+    </ConditionalStrictMode>
+  );
+}
+
+/**
+ * CLIENT-SIDE: Wraps a Browser Router with the standard app wrappers
+ * Uses RouterProvider with HelmetProvider (no context)
+ *
+ * @param router - The Browser Router instance
  * @param options - Configuration options for wrapping
  * @returns The wrapped RouterProvider element
- *
- * @example
- * ```tsx
- * import { wrapRouter } from 'unirend';
- * import { createBrowserRouter } from 'react-router';
- *
- * const router = createBrowserRouter(routes);
- * const wrappedApp = wrapRouter(router);
- *
- * // With custom providers
- * const customWrapper = (node) => <MyProvider>{node}</MyProvider>;
- * const wrappedApp = wrapRouter(router, { wrapApp: customWrapper });
- * ```
  */
+
 export function wrapRouter(
-  router: any, // Using any to avoid importing specific router types
+  router: DataRouter,
   options: WrapAppElementOptions = {},
 ): React.ReactElement {
   const routerElement = <RouterProvider router={router} />;
-  return wrapAppElement(routerElement, options);
+  return createAppWrapper(routerElement, options);
 }
 
 /**
- * Wraps a Static Router instance with the standard app wrappers for SSR/SSG scenarios
- * This is a convenience function for server-side rendering
+ * SERVER-SIDE: Wraps a Static Router with the standard app wrappers
+ * Uses StaticRouterProvider with HelmetProvider (with context)
  *
  * @param router - The Static Router instance
  * @param context - The static router context
  * @param options - Configuration options for wrapping
+ * @param helmetContext - Helmet context for server-side rendering
  * @returns The wrapped StaticRouterProvider element
- *
- * @example
- * ```tsx
- * import { wrapStaticRouter } from 'unirend';
- * import { createStaticRouter } from 'react-router';
- *
- * const router = createStaticRouter(routes, context);
- * const wrappedApp = wrapStaticRouter(router, context);
- *
- * // With custom providers
- * const customWrapper = (node) => <MyProvider>{node}</MyProvider>;
- * const wrappedApp = wrapStaticRouter(router, context, { wrapApp: customWrapper });
- * ```
  */
+
 export function wrapStaticRouter(
-  router: any, // Using any to avoid importing specific router types
-  context: any, // Using any to avoid importing specific context types
+  router: Parameters<typeof StaticRouterProvider>[0]["router"],
+  context: StaticHandlerContext,
   options: WrapAppElementOptions = {},
+  helmetContext?: { helmet?: HelmetServerState },
 ): React.ReactElement {
   const routerElement = (
     <StaticRouterProvider router={router} context={context} />
   );
-  return wrapAppElement(routerElement, options);
+
+  // Pass helmetContext = server-side (includes HelmetProvider)
+  return createAppWrapper(routerElement, options, helmetContext);
 }

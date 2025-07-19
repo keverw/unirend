@@ -189,3 +189,27 @@ export async function writeJSONFile(
     };
   }
 }
+
+/**
+ * Writes HTML content to a file
+ * @param filePath Path to the HTML file to write
+ * @param content HTML content to write to the file
+ * @returns Result object with success status and optional error
+ */
+export async function writeHTMLFile(
+  filePath: string,
+  content: string,
+): Promise<WriteResult> {
+  try {
+    await fs.writeFile(filePath, content, "utf-8");
+
+    return {
+      success: true,
+    };
+  } catch (error: unknown) {
+    return {
+      success: false,
+      error: `Failed to write HTML file ${filePath}: ${error}`,
+    };
+  }
+}

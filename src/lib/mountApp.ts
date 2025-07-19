@@ -21,10 +21,11 @@ export type MountAppOptions = {
    */
   strictMode?: boolean;
   /**
-   * Optional custom wrapper function for additional providers
+   * Optional custom wrapper component for additional providers
    * Applied after HelmetProvider but before StrictMode (StrictMode is always outermost)
+   * Must be a React component that accepts children
    */
-  wrapApp?: (node: React.ReactNode) => React.ReactElement;
+  wrapProviders?: React.ComponentType<{ children: React.ReactNode }>;
 };
 
 /**

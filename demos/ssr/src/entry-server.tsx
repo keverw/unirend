@@ -16,6 +16,6 @@ export async function render(renderRequest: IRenderRequest) {
   // including static handler/router creation, helmet context, StrictMode, and RouterProvider
   return await unirendBaseRender(renderRequest, routes, {
     strictMode: true, // Enable StrictMode for SSR
-    // wrapApp: (node) => <CustomProvider>{node}</CustomProvider>, // Optional custom wrapper
+    // wrapProviders: ({ children }) => <CustomProvider>{children}</CustomProvider>, // Optional custom wrapper
   });
 }

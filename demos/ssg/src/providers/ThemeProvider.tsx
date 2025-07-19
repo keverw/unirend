@@ -1,16 +1,11 @@
-import {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  ReactNode,
-} from "react";
+import { createContext, useContext, useState, useEffect } from "react";
 
 type Theme = "light" | "dark";
 
 interface ThemeContextType {
   theme: Theme;
   toggleTheme: () => void;
+  isHydrated: boolean;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -25,49 +20,37 @@ export function useTheme() {
   return context;
 }
 
-interface ThemeProviderProps {
-  children: ReactNode;
-}
-
-export function ThemeProvider({ children }: ThemeProviderProps) {
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  // Start with light as default, but will be synced from html class immediately
   const [theme, setTheme] = useState<Theme>("light");
   const [isHydrated, setIsHydrated] = useState(false);
 
-  // Initialize theme from localStorage after hydration to avoid conflicts
+  // Read initial theme from html class (set by inline script) instead of localStorage
   useEffect(() => {
-    const savedTheme = localStorage.getItem("theme") as Theme;
-
-    if (savedTheme && (savedTheme === "light" || savedTheme === "dark")) {
-      setTheme(savedTheme);
+    const htmlClass = document.documentElement.className;
+    if (htmlClass.includes("theme-dark")) {
+      setTheme("dark");
+    } else {
+      setTheme("light");
     }
 
+    // Mark as hydrated after theme is synced
     setIsHydrated(true);
   }, []);
 
-  // Save theme to localStorage whenever it changes
+  // Save theme to localStorage and update html class when theme changes
   useEffect(() => {
-    if (isHydrated) {
-      localStorage.setItem("theme", theme);
-    }
-  }, [theme, isHydrated]);
+    localStorage.setItem("theme", theme);
+    document.documentElement.className = `theme-${theme}`;
+  }, [theme]);
 
   const toggleTheme = () => {
     setTheme((prevTheme) => (prevTheme === "light" ? "dark" : "light"));
   };
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
-      <div
-        className={`theme-${theme}`}
-        style={{
-          minHeight: "100vh",
-          // Prevent flash of wrong theme during hydration
-          opacity: isHydrated ? 1 : 0,
-          transition: isHydrated ? "opacity 0.1s ease-in-out" : "none",
-        }}
-      >
-        {children}
-      </div>
+    <ThemeContext.Provider value={{ theme, toggleTheme, isHydrated }}>
+      {children}
     </ThemeContext.Provider>
   );
 }

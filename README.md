@@ -44,15 +44,15 @@ if (result === 'hydrated') {
 }
 
 // With custom providers
-const customWrapper = (node) => (
+const customProviders = ({ children }) => (
   <MyThemeProvider>
     <MyStateProvider>
-      {node}
+      {children}
     </MyStateProvider>
   </MyThemeProvider>
 );
 
-const result = mountApp('root', routes, { wrapApp: customWrapper });
+const result = mountApp('root', routes, { wrapProviders: customProviders });
 
 // Disable StrictMode if needed
 const result = mountApp('root', routes, { strictMode: false });
@@ -67,9 +67,11 @@ const result = mountApp('root', routes, { strictMode: false });
 
 - `strictMode?: boolean` - Whether to wrap with React.StrictMode (default: `true`)
 
-- `wrapApp?: (node: React.ReactNode) => React.ReactElement` - Custom wrapper function for additional providers
+- `wrapProviders?: React.ComponentType<{ children: React.ReactNode }>` - Custom wrapper component for additional providers (should be pure context providers only - no HTML rendering to avoid hydration issues)
 
-**Benefits:** Opinionated simplicity, router-first design, automatic provider management, seamless SSR/SSG/SPA support.
+**Benefits:** Opinionated simplicity, type-safe routes, automatic router creation, automatic provider management, seamless SSR/SSG/SPA support.
+
+**Important:** Keep `wrapProviders` components pure (context providers only). Avoid rendering HTML elements like `<div>` or applying styles directly in these providers, as this can cause hydration mismatches between server and client. Instead, use route layouts or separate components for HTML structure and styling.
 
 ## Base Render
 
@@ -103,8 +105,8 @@ This supports React Router Data Loaders, including some special properties used 
 
 ```typescript
 // entry-client.tsx
-import { mountApp } from 'unirend';
-import { routes } from './routes';
+import { mountApp } from "unirend";
+import { routes } from "./routes";
 
 // Pass routes directly - mountApp handles creating the router
 mountApp('root', routes, {
@@ -113,6 +115,29 @@ mountApp('root', routes, {
   // wrapApp: (node) => <ThemeProvider>{node}</ThemeProvider>
 });
 ```
+
+4. **Important:** Add SSR/SSG comment markers to your `index.html` template:
+
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Your App</title>
+    <!--ss-head-->
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  </head>
+  <body>
+    <div id="root"><!--ss-outlet--></div>
+    <script type="module" src="/src/entry-client.tsx"></script>
+  </body>
+</html>
+```
+
+- `<!--ss-head-->`: Marks where server/SSG-rendered head content will be injected
+- `<!--ss-outlet-->`: Marks where server/SSG-rendered body content will be injected
+- These comments are preserved during processing and are required for SSR/SSG to work properly
 
 ### Prepare Vite Config and Entry Points
 

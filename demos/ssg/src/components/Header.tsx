@@ -2,7 +2,7 @@ import { Link } from "react-router";
 import { useTheme } from "../providers/ThemeProvider";
 
 export function Header() {
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, isHydrated } = useTheme();
 
   return (
     <header className="header">
@@ -23,12 +23,14 @@ export function Header() {
             </li>
           </ul>
         </nav>
-        <button
-          onClick={toggleTheme}
-          style={{ fontSize: "1.2rem", marginLeft: "1rem" }}
-        >
-          {theme === "light" ? "🌙" : "☀️"} {theme}
-        </button>
+        {isHydrated && (
+          <button
+            onClick={toggleTheme}
+            style={{ fontSize: "1.2rem", marginLeft: "1rem" }}
+          >
+            {theme === "light" ? "🌙" : "☀️"} {theme}
+          </button>
+        )}
       </div>
     </header>
   );

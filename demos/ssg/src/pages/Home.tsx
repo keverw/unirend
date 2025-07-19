@@ -22,9 +22,9 @@ const Home: React.FC = () => {
         <div className="hero">
           <h1>Welcome to Unirend SSG Demo</h1>
           <p className="hero-subtitle">
-            This demo shows how to use custom providers with the wrapApp option.
-            Try the theme toggle in the header to see it in action! Current
-            theme: <strong>{theme}</strong>
+            This demo shows how to use custom providers with the wrapProviders
+            option. Try the theme toggle in the header to see it in action!
+            Current theme: <strong>{theme}</strong>
           </p>
         </div>
 
@@ -37,7 +37,7 @@ const Home: React.FC = () => {
             <li>Full TypeScript support out of the box</li>
             <li>Modern build tooling and optimizations</li>
             <li>Unified approach to SSG and SSR</li>
-            <li>🎨 Custom providers via wrapApp option</li>
+            <li>🎨 Custom providers via wrapProviders option</li>
           </ul>
         </div>
 

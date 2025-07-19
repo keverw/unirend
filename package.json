@@ -30,6 +30,7 @@
     "ssg-build": "bun run ssg-build-client && bun run ssg-build-server",
     "ssg-generate": "cd demos/ssg && bun run generate.ts",
     "ssg-build-and-generate": "bun run ssg-build && bun run ssg-generate",
+    "ssg-serve": "cd demos/ssg && bun run serve.ts",
     "ssr-dev": "cd demos/ssr && vite",
     "ssr-build-client": "cd demos/ssr && vite build --outDir build/client --base=/ --ssrManifest",
     "ssr-build-server": "cd demos/ssr && vite build --outDir build/server --ssr src/entry-server.tsx",

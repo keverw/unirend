@@ -1,17 +1,14 @@
-import { mountApp } from "../../../src";
+import { mountApp } from "../../../src/lib/mountApp";
 import { ThemeProvider } from "./providers/ThemeProvider";
 import "./index.css";
 
 // Import shared routes
 import { routes } from "./routes";
 
-// Custom wrapper function to add ThemeProvider
-const wrapWithTheme = (node: React.ReactNode) => (
-  <ThemeProvider>{node}</ThemeProvider>
-);
-
-// Mount the app with custom provider and log the result
-const result = mountApp("root", routes, { wrapApp: wrapWithTheme });
+// Mount the app with ThemeProvider
+const result = mountApp("root", routes, {
+  wrapProviders: ThemeProvider,
+});
 
 if (result === "hydrated") {
   console.log("✅ Hydrated SSR/SSG content");

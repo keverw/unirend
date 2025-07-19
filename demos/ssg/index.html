@@ -6,6 +6,14 @@
     <!--ss-head-->
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Apply theme immediately to prevent flash
+      (function () {
+        const savedTheme = localStorage.getItem("theme");
+        const theme = savedTheme === "dark" ? "dark" : "light";
+        document.documentElement.className = `theme-${theme}`;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"><!--ss-outlet--></div>

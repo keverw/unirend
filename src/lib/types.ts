@@ -1,11 +1,46 @@
 export type renderType = "ssg" | "ssr";
 export interface IRenderRequest {
   type: renderType;
+  fetchRequest: Request;
 }
 
-export interface IRenderResult {
-  html: string;
+/**
+ * Base interface for render results with a discriminated union type
+ */
+interface IRenderResultBase {
+  resultType: "page" | "response";
 }
+
+/**
+ * Page result containing HTML content
+ */
+export interface IRenderPageResult extends IRenderResultBase {
+  resultType: "page";
+  html: string;
+  preloadLinks: string;
+  helmet?: {
+    title: { toString(): string };
+    meta: { toString(): string };
+    link: { toString(): string };
+  };
+  statusCode?: number;
+  errorDetails?: string;
+  ssOnlyData?: Record<string, unknown>;
+}
+
+/**
+ * Response result wrapping a standard Response object
+ * Used for redirects, errors, or any other non-HTML responses
+ */
+export interface IRenderResponseResult extends IRenderResultBase {
+  resultType: "response";
+  response: Response;
+}
+
+/**
+ * Union type for all possible render results
+ */
+export type IRenderResult = IRenderPageResult | IRenderResponseResult;
 
 /**
  * Base options for SSR
@@ -42,6 +77,28 @@ export interface ServeSSRProdOptions extends ServeSSROptions {
 }
 
 /**
+ * Logger interface for SSG process
+ */
+export interface SSGLogger {
+  /** Log info messages */
+  info: (message: string) => void;
+  /** Log warning messages */
+  warn: (message: string) => void;
+  /** Log error messages */
+  error: (message: string) => void;
+}
+
+/**
+ * Pre-built console logger for convenience
+ * Use this if you want basic console logging during SSG
+ */
+export const consoleLogger: SSGLogger = {
+  info: (message: string) => console.log(message),
+  warn: (message: string) => console.warn(message),
+  error: (message: string) => console.error(message),
+};
+
+/**
  * Options for Static Site Generation
  */
 export interface SSGOptions {
@@ -60,6 +117,11 @@ export interface SSGOptions {
    * Defaults to "entry-server" if not provided
    */
   serverEntry?: string;
+  /**
+   * Optional logger for the SSG process
+   * Defaults to console if not provided
+   */
+  logger?: SSGLogger;
 }
 
 /**

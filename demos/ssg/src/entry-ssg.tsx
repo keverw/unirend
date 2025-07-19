@@ -1,4 +1,7 @@
 import { unirendBaseRender, type IRenderRequest } from "../../../src";
+import { ThemeProvider } from "./providers/ThemeProvider";
+
+// Import shared routes
 import { routes } from "./routes";
 
 /**
@@ -16,6 +19,6 @@ export async function render(renderRequest: IRenderRequest) {
   // including static handler/router creation, helmet context, StrictMode, and RouterProvider
   return await unirendBaseRender(renderRequest, routes, {
     strictMode: true, // Enable StrictMode for SSG
-    // wrapApp: (node) => <CustomProvider>{node}</CustomProvider>, // Optional custom wrapper
+    wrapProviders: ThemeProvider, // Wrap with ThemeProvider
   });
 }

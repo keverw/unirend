@@ -116,6 +116,7 @@
 .theme-dark .footer {
   background-color: #2d2d2d !important;
   border-top: 1px solid #404040 !important;
+  color: rgba(255, 255, 255, 0.87) !important;
 }
 
 * {
@@ -199,14 +200,13 @@ body {
   font-size: 3.5rem;
   font-weight: 800;
   margin: 0 0 1.5rem 0;
-  color: #ffffff;
-  text-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  /* color and text-shadow are handled by theme classes */
 }
 
 .hero-subtitle {
   font-size: 1.3rem;
   margin-bottom: 3rem;
-  color: rgba(255, 255, 255, 0.9);
+  /* color is handled by theme classes */
   max-width: 600px;
   margin-left: auto;
   margin-right: auto;
@@ -338,6 +338,16 @@ button {
 button:focus,
 button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
+}
+
+/* Loading animation */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Responsive design */
