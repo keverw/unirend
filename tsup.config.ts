@@ -29,6 +29,7 @@ export default defineConfig([
       "react-router",
       "vite",
       "fastify",
+      "fastify-plugin",
       "@fastify/middie",
       "cheerio",
     ],

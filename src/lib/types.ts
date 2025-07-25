@@ -246,6 +246,15 @@ export interface ServeSSRProdOptions extends ServeSSROptions {
    * Defaults to "entry-server" if not provided
    */
   serverEntry?: string;
+  /**
+   * Configuration for the static file router middleware
+   * Used to serve static assets in production mode
+   *
+   * - If not provided: defaults will be used based on the build directory
+   * - If set to `false`: static router will be disabled (useful for CDN setups)
+   * - If set to an object: custom configuration will be used
+   */
+  staticRouter?: StaticRouterOptions | false;
 }
 
 /**
@@ -395,4 +404,41 @@ export interface SSGReport {
   fatalError?: Error;
   /** Page generation reports (always present, even on error) */
   pagesReport: SSGPagesReport;
+}
+
+/**
+ * Configuration for a folder in the static router folderMap
+ */
+export interface FolderConfig {
+  /** Path to the directory */
+  path: string;
+  /** Whether to detect and use immutable caching for fingerprinted assets */
+  detectImmutableAssets?: boolean;
+}
+
+/**
+ * Options for the static router middleware
+ * Used to serve static files in production SSR mode
+ */
+export interface StaticRouterOptions {
+  /** Exact URL → absolute file path (optional) */
+  singleAssetMap?: Record<string, string>;
+  /** URL prefix → absolute directory path (as string) or folder config object */
+  folderMap?: Record<string, string | FolderConfig>;
+  /** Maximum size (in bytes) for hashing & in-memory caching; default 5 MB */
+  smallFileMaxSize?: number;
+  /** Maximum number of entries in ETag/content caches; default 100 */
+  cacheEntries?: number;
+  /** Maximum total memory size (in bytes) for content cache; default 50 MB */
+  contentCacheMaxSize?: number;
+  /** Maximum number of entries in the stat cache; default 250 */
+  statCacheEntries?: number;
+  /** TTL in milliseconds for negative stat cache entries; default 30 seconds */
+  negativeCacheTtl?: number;
+  /** TTL in milliseconds for positive stat cache entries; default 1 hour */
+  positiveCacheTtl?: number;
+  /** Custom Cache-Control header; default 'public, max-age=0, must-revalidate' */
+  cacheControl?: string;
+  /** Cache-Control header for immutable fingerprinted assets; default 'public, max-age=31536000, immutable' */
+  immutableCacheControl?: string;
 }

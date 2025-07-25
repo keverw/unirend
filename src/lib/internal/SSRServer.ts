@@ -4,6 +4,7 @@ import {
   ServeSSRDevOptions,
   ServeSSRProdOptions,
   SSRDevPaths,
+  StaticRouterOptions,
 } from "../types";
 import {
   readHTMLFile,
@@ -23,6 +24,7 @@ import type {
 import type { ViteDevServer } from "vite";
 import { createControlledInstance } from "./server-utils";
 import { generateDefault500ErrorPage } from "./errorPageUtils";
+import StaticRouterPlugin from "./middleware/static-router";
 
 type SSRServerConfigDev = {
   mode: "development";
@@ -182,6 +184,34 @@ export class SSRServer {
       }
       // Production Server Middleware (Production Only)
       else {
+        // Check if static router is disabled (useful for CDN setups)
+        // If staticRouter is false, skip static file serving (CDN setup)
+        if (this.config.options.staticRouter !== false) {
+          // Configure and register the static router plugin for serving assets
+          const clientBuildAssetDir = path.join(
+            this.config.buildDir,
+            this.clientFolderName,
+            "assets",
+          );
+
+          // Use the static router configuration provided by the user, or use the default
+          const staticRouterConfig: StaticRouterOptions = this.config.options
+            .staticRouter || {
+            // Default: just serve the assets folder with immutable caching
+            folderMap: {
+              "/assets": {
+                path: clientBuildAssetDir,
+                detectImmutableAssets: true, // Enable immutable caching for hashed assets
+              },
+            },
+          };
+
+          // Register the static router plugin
+          await this.fastifyInstance.register(
+            StaticRouterPlugin,
+            staticRouterConfig,
+          );
+        }
       }
 
       // This handler will catch all requests

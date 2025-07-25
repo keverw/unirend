@@ -86,6 +86,7 @@
     "@fastify/middie": "^9.0.0"
   },
   "dependencies": {
-    "cheerio": "^1.1.0"
+    "cheerio": "^1.1.0",
+    "fastify-plugin": "^5.0.1"
   }
 }
