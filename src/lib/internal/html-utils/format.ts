@@ -1,4 +1,4 @@
-import * as cheerio from "cheerio";
+import type * as cheerio from "cheerio";
 
 /*
  * NOTE: This file uses @ts-expect-error on certain node type checks.
@@ -146,12 +146,14 @@ export function prettifyHtml(
   return html;
 }
 
-export function processTemplate(
+export async function processTemplate(
   html: string,
   isDevelopment: boolean,
   appConfig?: Record<string, unknown>,
   containerID = "root",
-): string {
+): Promise<string> {
+  // Dynamic import to prevent bundling in client builds
+  const cheerio = await import("cheerio");
   const $ = cheerio.load(html);
 
   // Remove title tags from head

@@ -1,4 +1,14 @@
 export type renderType = "ssg" | "ssr";
+import type {
+  FastifyRequest,
+  FastifyLoggerOptions,
+  FastifyReply,
+  FastifyPluginAsync,
+  FastifyPluginCallback,
+  FastifySchema,
+  preHandlerHookHandler,
+} from "fastify";
+
 export interface IRenderRequest {
   type: renderType;
   fetchRequest: Request;
@@ -8,7 +18,7 @@ export interface IRenderRequest {
  * Base interface for render results with a discriminated union type
  */
 interface IRenderResultBase {
-  resultType: "page" | "response";
+  resultType: "page" | "response" | "render-error";
 }
 
 /**
@@ -24,7 +34,7 @@ export interface IRenderPageResult extends IRenderResultBase {
     link: { toString(): string };
   };
   statusCode?: number;
-  errorDetails?: string;
+  errorDetails?: Error;
   ssOnlyData?: Record<string, unknown>;
 }
 
@@ -38,9 +48,118 @@ export interface IRenderResponseResult extends IRenderResultBase {
 }
 
 /**
+ * Error result containing error information
+ * Used when rendering fails with an exception
+ */
+export interface IRenderErrorResult extends IRenderResultBase {
+  resultType: "render-error";
+  error: Error;
+}
+
+/**
  * Union type for all possible render results
  */
-export type IRenderResult = IRenderPageResult | IRenderResponseResult;
+export type IRenderResult =
+  | IRenderPageResult
+  | IRenderResponseResult
+  | IRenderErrorResult;
+
+/**
+ * Required paths for SSR development server
+ */
+export interface SSRDevPaths {
+  /** Path to the server entry file (e.g. "./src/entry-server.tsx") */
+  serverEntry: string;
+  /** Path to the HTML template file (e.g. "./index.html") */
+  template: string;
+  /** Path to the Vite config file (e.g. "./vite.config.ts") */
+  viteConfig: string;
+}
+
+/**
+ * Plugin registration function type
+ * Plugins get access to a controlled subset of Fastify functionality
+ */
+export type SSRPlugin = (
+  fastify: ControlledFastifyInstance,
+  options: PluginOptions,
+) => Promise<void> | void;
+
+/**
+ * Fastify hook names that plugins can register
+ * Includes common lifecycle hooks plus string for custom hooks
+ */
+export type FastifyHookName =
+  | "onRequest"
+  | "preHandler"
+  | "onSend"
+  | "onResponse"
+  | "onError"
+  | string;
+
+/**
+ * Controlled Fastify instance interface for plugins
+ * Exposes safe methods while preventing access to destructive operations
+ */
+export interface ControlledFastifyInstance {
+  /** Register plugins and middleware */
+  register: <Options extends Record<string, unknown> = Record<string, never>>(
+    plugin: FastifyPluginAsync<Options> | FastifyPluginCallback<Options>,
+    opts?: Options,
+  ) => Promise<void>;
+  /** Add custom hooks */
+  addHook: (
+    hookName: FastifyHookName,
+    handler: (
+      request: FastifyRequest,
+      reply: FastifyReply,
+      ...args: unknown[]
+    ) => Promise<unknown> | unknown,
+  ) => void;
+  /** Add decorators to request/reply objects */
+  decorate: (property: string, value: unknown) => void;
+  decorateRequest: (property: string, value: unknown) => void;
+  decorateReply: (property: string, value: unknown) => void;
+  /** Access to route registration with constraints */
+  route: (opts: SafeRouteOptions) => void;
+  get: (path: string, handler: RouteHandler) => void;
+  post: (path: string, handler: RouteHandler) => void;
+  put: (path: string, handler: RouteHandler) => void;
+  delete: (path: string, handler: RouteHandler) => void;
+  patch: (path: string, handler: RouteHandler) => void;
+}
+
+/**
+ * Safe route options that prevent catch-all conflicts
+ */
+export interface SafeRouteOptions {
+  method: string | string[];
+  url: string;
+  handler: RouteHandler;
+  preHandler?: preHandlerHookHandler | preHandlerHookHandler[];
+  schema?: FastifySchema;
+  config?: unknown;
+  constraints?: {
+    /** Only allow specific hosts, no wildcards that could conflict with SSR */
+    host?: string;
+    /** Only allow specific versions */
+    version?: string;
+  };
+}
+
+export type RouteHandler = (
+  request: FastifyRequest,
+  reply: FastifyReply,
+) => Promise<void | unknown> | void | unknown;
+
+/**
+ * Plugin options passed to each plugin
+ */
+export interface PluginOptions {
+  mode: "development" | "production";
+  isDevelopment: boolean;
+  buildDir?: string;
+}
 
 /**
  * Base options for SSR
@@ -51,7 +170,60 @@ interface ServeSSROptions {
    * This element will be formatted inline to prevent hydration issues
    */
   containerID?: string;
-  onRequest?: (req: Request) => void | Promise<void>;
+  /**
+   * Array of plugins to register with the server
+   * Plugins get access to a controlled Fastify instance
+   */
+  plugins?: SSRPlugin[];
+  /**
+   * Name of the client folder within buildDir
+   * Defaults to "client" if not provided
+   */
+  clientFolderName?: string;
+  /**
+   * Name of the server folder within buildDir
+   * Defaults to "server" if not provided
+   */
+  serverFolderName?: string;
+  /**
+   * Custom 500 error page handler
+   * Called when SSR rendering fails with an error
+   * @param request The Fastify request object
+   * @param error The error that occurred
+   * @param isDevelopment Whether running in development mode
+   * @returns HTML string for the error page
+   */
+  get500ErrorPage?: (
+    request: FastifyRequest,
+    error: Error,
+    isDevelopment: boolean,
+  ) => string | Promise<string>;
+  /**
+   * Curated Fastify options for SSR server configuration
+   * Only exposes safe options that won't conflict with SSR setup
+   */
+  fastifyOptions?: {
+    /**
+     * Enable/configure Fastify logging
+     * @example true | false | { level: 'info' } | { level: 'warn', prettyPrint: true }
+     */
+    logger?: boolean | FastifyLoggerOptions;
+    /**
+     * Trust proxy headers (useful for deployment behind load balancers)
+     * @default false
+     */
+    trustProxy?: boolean | string | string[] | number;
+    /**
+     * Maximum request body size in bytes
+     * @default 1048576 (1MB)
+     */
+    bodyLimit?: number;
+    /**
+     * Keep-alive timeout in milliseconds
+     * @default 72000 (72 seconds)
+     */
+    keepAliveTimeout?: number;
+  };
 }
 
 export interface ServeSSRDevOptions extends ServeSSROptions {
@@ -93,8 +265,11 @@ export interface SSGLogger {
  * Use this if you want basic console logging during SSG
  */
 export const SSGConsoleLogger: SSGLogger = {
+  // eslint-disable-next-line no-console
   info: (message: string) => console.log(`[SSG Info] ${message}`),
+  // eslint-disable-next-line no-console
   warn: (message: string) => console.warn(`[SSG Warn] ${message}`),
+  // eslint-disable-next-line no-console
   error: (message: string) => console.error(`[SSG Error] ${message}`),
 };
 

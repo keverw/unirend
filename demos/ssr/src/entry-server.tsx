@@ -1,4 +1,4 @@
-import { unirendBaseRender, type IRenderRequest } from "../../../src";
+import { unirendBaseRender, type IRenderRequest } from "../../../src/server";
 import { routes } from "./routes";
 
 /**

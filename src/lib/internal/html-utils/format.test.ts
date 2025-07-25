@@ -174,7 +174,7 @@ describe("prettifyHtml", () => {
 });
 
 describe("processTemplate", () => {
-  it("should remove title tags from head", () => {
+  it("should remove title tags from head", async () => {
     const html = `
       <html>
         <head>
@@ -187,13 +187,13 @@ describe("processTemplate", () => {
       </html>
     `;
 
-    const result = processTemplate(html, false);
+    const result = await processTemplate(html, false);
 
     expect(result).not.toContain("<title>");
     expect(result).not.toContain("Test Title");
   });
 
-  it("should add development comment when isDevelopment is true", () => {
+  it("should add development comment when isDevelopment is true", async () => {
     const html = `
       <html>
         <body>
@@ -202,13 +202,13 @@ describe("processTemplate", () => {
       </html>
     `;
 
-    const result = processTemplate(html, true);
+    const result = await processTemplate(html, true);
 
     expect(result).toContain("React hydration relies on data attributes");
     expect(result).toContain('<div id="root">Content</div>');
   });
 
-  it("should not add development comment when isDevelopment is false", () => {
+  it("should not add development comment when isDevelopment is false", async () => {
     const html = `
       <html>
         <body>
@@ -217,13 +217,13 @@ describe("processTemplate", () => {
       </html>
     `;
 
-    const result = processTemplate(html, false);
+    const result = await processTemplate(html, false);
 
     expect(result).not.toContain("React hydration relies on data attributes");
     expect(result).toContain('<div id="root">Content</div>');
   });
 
-  it("should remove meta tags except apple-mobile-web-app-title", () => {
+  it("should remove meta tags except apple-mobile-web-app-title", async () => {
     const html = `
       <html>
         <head>
@@ -237,14 +237,14 @@ describe("processTemplate", () => {
       </html>
     `;
 
-    const result = processTemplate(html, false);
+    const result = await processTemplate(html, false);
 
     expect(result).not.toContain('name="description"');
     expect(result).not.toContain('name="viewport"');
     expect(result).toContain('name="apple-mobile-web-app-title"');
   });
 
-  it("should move scripts after root element", () => {
+  it("should move scripts after root element", async () => {
     const html = `
       <html>
         <head>
@@ -257,7 +257,7 @@ describe("processTemplate", () => {
       </html>
     `;
 
-    const result = processTemplate(html, false);
+    const result = await processTemplate(html, false);
 
     // Scripts should be after the root element
     const rootIndex = result.indexOf('<div id="root">');
@@ -269,7 +269,7 @@ describe("processTemplate", () => {
     expect(result).toContain('src="footer.js"');
   });
 
-  it("should add app config as first script when provided", () => {
+  it("should add app config as first script when provided", async () => {
     const html = `
       <html>
         <body>
@@ -280,7 +280,7 @@ describe("processTemplate", () => {
     `;
 
     const appConfig = { apiUrl: "https://api.example.com", debug: true };
-    const result = processTemplate(html, false, appConfig);
+    const result = await processTemplate(html, false, appConfig);
 
     expect(result).toContain("window.__APP_CONFIG__");
     expect(result).toContain('"apiUrl":"https://api.example.com"');
@@ -292,7 +292,7 @@ describe("processTemplate", () => {
     expect(configIndex).toBeLessThan(appJsIndex);
   });
 
-  it("should escape < characters in app config", () => {
+  it("should escape < characters in app config", async () => {
     const html = `
       <html>
         <body>
@@ -302,13 +302,13 @@ describe("processTemplate", () => {
     `;
 
     const appConfig = { htmlContent: "<script>alert('xss')</script>" };
-    const result = processTemplate(html, false, appConfig);
+    const result = await processTemplate(html, false, appConfig);
 
     expect(result).toContain("\\u003c");
     expect(result).not.toContain("<script>alert");
   });
 
-  it("should remove comments that don't start with ss- but preserve ss- comments", () => {
+  it("should remove comments that don't start with ss- but preserve ss- comments", async () => {
     const html = `
       <html>
         <body>
@@ -324,7 +324,7 @@ describe("processTemplate", () => {
       </html>
     `;
 
-    const result = processTemplate(html, false);
+    const result = await processTemplate(html, false);
 
     // Regular comments should be removed
     expect(result).not.toContain("Regular comment");
@@ -344,7 +344,7 @@ describe("processTemplate", () => {
     expect(result).toContain('<div id="root">');
   });
 
-  it("should handle ss- comments with various spacing and normalize them", () => {
+  it("should handle ss- comments with various spacing and normalize them", async () => {
     const html = `
       <html>
         <body>
@@ -356,7 +356,7 @@ describe("processTemplate", () => {
       </html>
     `;
 
-    const result = processTemplate(html, false);
+    const result = await processTemplate(html, false);
 
     // All variations should be preserved and normalized
     expect(result).toContain("ss-outlet");
@@ -375,7 +375,7 @@ describe("processTemplate", () => {
     expect(result).toContain("<!--ss-outlet-->");
   });
 
-  it("should normalize ss- comments by removing leading/trailing spaces", () => {
+  it("should normalize ss- comments by removing leading/trailing spaces", async () => {
     const html = `
       <html>
         <body>
@@ -386,7 +386,7 @@ describe("processTemplate", () => {
       </html>
     `;
 
-    const result = processTemplate(html, false);
+    const result = await processTemplate(html, false);
 
     // Should contain normalized comments without extra spaces
     expect(result).toContain("<!--ss-special-comment-->");
@@ -397,7 +397,7 @@ describe("processTemplate", () => {
     expect(result).not.toContain("<!-- ss-another -->");
   });
 
-  it("should handle HTML without root element", () => {
+  it("should handle HTML without root element", async () => {
     const html = `
       <html>
         <body>
@@ -407,7 +407,7 @@ describe("processTemplate", () => {
       </html>
     `;
 
-    const result = processTemplate(html, false);
+    const result = await processTemplate(html, false);
 
     // Script should be appended to body when no root element exists
     expect(result).toContain('src="app.js"');
@@ -415,16 +415,16 @@ describe("processTemplate", () => {
     expect(result).toContain("Content");
   });
 
-  it("should handle empty HTML", () => {
+  it("should handle empty HTML", async () => {
     const html = "<html><body></body></html>";
 
-    const result = processTemplate(html, false);
+    const result = await processTemplate(html, false);
 
     expect(result).toContain("<html>");
     expect(result).toContain("<body>");
   });
 
-  it("should handle multiple script tags correctly", () => {
+  it("should handle multiple script tags correctly", async () => {
     const html = `
       <html>
         <head>
@@ -439,7 +439,7 @@ describe("processTemplate", () => {
       </html>
     `;
 
-    const result = processTemplate(html, false);
+    const result = await processTemplate(html, false);
 
     expect(result).toContain('src="lib1.js"');
     expect(result).toContain('src="lib2.js"');
@@ -455,7 +455,7 @@ describe("processTemplate", () => {
     expect(lib2Index).toBeGreaterThan(rootEndIndex);
   });
 
-  it("should preserve script order with app config first", () => {
+  it("should preserve script order with app config first", async () => {
     const html = `
       <html>
         <body>
@@ -467,7 +467,7 @@ describe("processTemplate", () => {
     `;
 
     const appConfig = { test: true };
-    const result = processTemplate(html, false, appConfig);
+    const result = await processTemplate(html, false, appConfig);
 
     const configIndex = result.indexOf("window.__APP_CONFIG__");
     const firstJsIndex = result.indexOf('src="first.js"');
@@ -477,7 +477,7 @@ describe("processTemplate", () => {
     expect(firstJsIndex).toBeLessThan(secondJsIndex);
   });
 
-  it("should handle complex nested HTML structure", () => {
+  it("should handle complex nested HTML structure", async () => {
     const html = `
       <html>
         <head>
@@ -501,7 +501,7 @@ describe("processTemplate", () => {
       </html>
     `;
 
-    const result = processTemplate(html, true);
+    const result = await processTemplate(html, true);
 
     // Should remove title and description meta
     expect(result).not.toContain("<title>");
@@ -532,7 +532,7 @@ describe("processTemplate", () => {
 });
 
 describe("processTemplate with custom containerID", () => {
-  it("should handle custom containerID in processTemplate", () => {
+  it("should handle custom containerID in processTemplate", async () => {
     const html = `
       <html>
         <body>
@@ -549,7 +549,7 @@ describe("processTemplate with custom containerID", () => {
       </html>
     `;
 
-    const result = processTemplate(html, false, undefined, "my-app");
+    const result = await processTemplate(html, false, undefined, "my-app");
 
     // Should format my-app element on single line
     expectLinesInOrder(result, [

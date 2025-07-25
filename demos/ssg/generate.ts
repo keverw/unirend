@@ -1,5 +1,4 @@
-import { generateSSG } from "../../src/lib/ssg";
-import { SSGConsoleLogger } from "../../src/lib/types";
+import { generateSSG, SSGConsoleLogger } from "../../src/server";
 import path from "path";
 
 /**

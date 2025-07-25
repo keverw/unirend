@@ -79,12 +79,10 @@ export async function unirendBaseRender(
     context = await handler.query(renderRequest.fetchRequest);
   } catch (e) {
     console.error("Error querying static handler:", e);
-    // Re-throw or handle as a 500 error Response
+    // Return error result instead of generic 500 response
     return {
-      resultType: "response",
-      response: new Response("Internal Server Error querying router", {
-        status: 500,
-      }),
+      resultType: "render-error",
+      error: e instanceof Error ? e : new Error(String(e)),
     };
   }
 
@@ -125,7 +123,7 @@ export async function unirendBaseRender(
 
   // ---> Get the status code from the context BEFORE rendering
   let statusCode = context.statusCode || 200; // Default to 200 if no error/response
-  let errorDetails = null;
+  let errorDetails: Error | undefined = undefined;
 
   const ssOnlyData: Record<string, unknown> = {};
 
@@ -153,15 +151,8 @@ export async function unirendBaseRender(
         statusCode = error.status;
       }
 
-      // Extract error details - first try message
-      if (error.message) {
-        errorDetails = error.message;
-      }
-
-      // Extract stack trace if available (overrides message)
-      if (error.stack) {
-        errorDetails = error.stack;
-      }
+      // Use the error object directly
+      errorDetails = error;
 
       break; // Handle the first error we find
     }
@@ -181,17 +172,20 @@ export async function unirendBaseRender(
 
       // Check for our API envelope error object
       if (data?.error) {
-        // set to message if there is one
-        if (data.error.message) {
-          errorDetails = data.error.message;
-          foundDataInThisEntry = true;
+        // Create Error object from the envelope
+        const errorMessage = data.error.message || "Unknown error";
+        const errorObj = new Error(errorMessage);
+
+        // Add stack trace if available
+        if (data.error.details?.stacktrace) {
+          errorObj.stack = data.error.details.stacktrace;
         }
 
-        // set to stacktrace if there is one overwriting the message
-        if (data.error.details?.stacktrace) {
-          errorDetails = data.error.details.stacktrace;
-          foundDataInThisEntry = true;
-        }
+        // Mark this as an API envelope error
+        (errorObj as any).source = "api-envelope";
+
+        errorDetails = errorObj;
+        foundDataInThisEntry = true;
       }
 
       // If we found relevant data in this entry, we can break

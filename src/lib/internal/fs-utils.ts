@@ -213,3 +213,42 @@ export async function writeHTMLFile(
     };
   }
 }
+
+/**
+ * Validates that all required development paths exist
+ * @param paths SSRDevPaths object containing serverEntry, template, and viteConfig paths
+ * @returns Result object with success status and error details for any missing files
+ */
+export async function validateDevPaths(paths: {
+  serverEntry: string;
+  template: string;
+  viteConfig: string;
+}): Promise<{ success: boolean; errors: string[] }> {
+  const errors: string[] = [];
+
+  // Check server entry file
+  try {
+    await fs.access(paths.serverEntry);
+  } catch {
+    errors.push(`Server entry file not found: ${paths.serverEntry}`);
+  }
+
+  // Check template file
+  try {
+    await fs.access(paths.template);
+  } catch {
+    errors.push(`Template file not found: ${paths.template}`);
+  }
+
+  // Check vite config file
+  try {
+    await fs.access(paths.viteConfig);
+  } catch {
+    errors.push(`Vite config file not found: ${paths.viteConfig}`);
+  }
+
+  return {
+    success: errors.length === 0,
+    errors,
+  };
+}

@@ -3,14 +3,16 @@
   "version": "0.0.1",
   "type": "module",
   "description": "A lightweight toolkit for working with both SSG (Static Site Generation) and SSR (Server-Side Rendering) in your Vite + React projects.",
-  "main": "dist/index.js",
-  "module": "dist/index.mjs",
-  "types": "dist/index.d.ts",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+    "./client": {
+      "types": "./dist/client/client.d.ts",
+      "import": "./dist/client/client.mjs",
+      "require": "./dist/client/client.js"
+    },
+    "./server": {
+      "types": "./dist/server/server.d.ts",
+      "import": "./dist/server/server.mjs",
+      "require": "./dist/server/server.js"
     }
   },
   "files": [
@@ -34,7 +36,9 @@
     "ssr-dev": "cd demos/ssr && vite",
     "ssr-build-client": "cd demos/ssr && vite build --outDir build/client --base=/ --ssrManifest",
     "ssr-build-server": "cd demos/ssr && vite build --outDir build/server --ssr src/entry-server.tsx",
-    "ssr-build": "bun run ssr-build-client && bun run ssr-build-server"
+    "ssr-build": "bun run ssr-build-client && bun run ssr-build-server",
+    "ssr-serve-dev": "cd demos/ssr && bun run serve.ts dev",
+    "ssr-serve-prod": "cd demos/ssr && bun run serve.ts prod"
   },
   "keywords": [
     "ssg",
@@ -47,11 +51,14 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/keverw/strataline"
+    "url": "https://github.com/keverw/unirend"
   },
   "devDependencies": {
     "@eslint/js": "^9.31.0",
+    "@fastify/middie": "^9.0.0",
+    "@fastify/multipart": "^9.0.3",
     "@types/bun": "^1.2.13",
+    "@types/cheerio": "^0.22.35",
     "@types/node": "^20.10.0",
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
@@ -59,6 +66,7 @@
     "@typescript-eslint/parser": "^6.13.0",
     "@vitejs/plugin-react": "^4.3.4",
     "eslint": "^9.31.0",
+    "fastify": "^5.0.0",
     "markdown-toc-gen": "^1.2.0",
     "prettier": "^3.5.3",
     "react-helmet-async": "^2.0.0",
@@ -66,15 +74,16 @@
     "tsup": "^8.4.0",
     "typescript": "^5.3.0",
     "typescript-eslint": "^8.36.0",
-    "vite": "^7.0.4",
-    "@types/cheerio": "^0.22.35"
+    "vite": "^7.0.4"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",
     "react-dom": "^18.0.0 || ^19.0.0",
     "react-helmet-async": "^2.0.0",
     "react-router": "^7.0.0",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "fastify": "^5.0.0",
+    "@fastify/middie": "^9.0.0"
   },
   "dependencies": {
     "cheerio": "^1.1.0"

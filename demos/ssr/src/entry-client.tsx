@@ -1,4 +1,4 @@
-import { mountApp } from "../../../src";
+import { mountApp } from "../../../src/client";
 import "./index.css";
 
 // Import shared routes

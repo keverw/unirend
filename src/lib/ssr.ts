@@ -1,28 +1,28 @@
 import { SSRServer } from "./internal/SSRServer";
-import { ServeSSRDevOptions, ServeSSRProdOptions } from "./types";
+import { ServeSSRDevOptions, ServeSSRProdOptions, SSRDevPaths } from "./types";
 import {
   checkAndLoadManifest,
   getServerEntryFromManifest,
 } from "./internal/fs-utils";
+import path from "path";
 
 /**
  * Development server handler for SSR applications using Vite's HMR and middleware.
  * Simplifies dev workflow while preserving React Router SSR consistency.
  *
- * For development, we take a string path to the source entry file which will be processed
- * by Vite's dev server with HMR support.
+ * For development, we integrate with Vite's dev server for HMR support and middleware mode.
  *
- * @param serverSourceEntryPath String path to the source entry file (e.g. "./src/entry-server.tsx")
+ * @param paths Required file paths for development server setup
  * @param options Development SSR options
  */
 
 export async function serveSSRDev(
-  serverSourceEntryPath: string,
+  paths: SSRDevPaths,
   options: ServeSSRDevOptions = {},
 ): Promise<SSRServer> {
   return new SSRServer({
     mode: "development",
-    serverSourceEntryPath,
+    paths,
     options,
   });
 }
@@ -42,8 +42,12 @@ export async function serveSSRProd(
   buildDir: string,
   options: ServeSSRProdOptions = {},
 ): Promise<SSRServer> {
-  // Load the manifest
-  const manifestResult = await checkAndLoadManifest(buildDir);
+  // Get folder names from options with defaults
+  const serverFolderName = options.serverFolderName || "server";
+  const serverBuildDir = path.join(buildDir, serverFolderName);
+
+  // Load the manifest from the server build directory
+  const manifestResult = await checkAndLoadManifest(serverBuildDir);
 
   if (!manifestResult.success || !manifestResult.manifest) {
     throw new Error(`Failed to load Vite manifest: ${manifestResult.error}`);
@@ -53,7 +57,7 @@ export async function serveSSRProd(
   const serverEntry = options.serverEntry || "entry-server";
   const entryResult = getServerEntryFromManifest(
     manifestResult.manifest,
-    buildDir,
+    serverBuildDir,
     serverEntry,
   );
 

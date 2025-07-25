@@ -199,7 +199,7 @@ export async function generateSSG(
     // Assert that content exists since we've already checked templateResult.exists and !templateResult.error
     const templateContent = templateResult.content as string;
 
-    const processedTemplate = processTemplate(
+    const processedTemplate = await processTemplate(
       templateContent,
       false, // isDevelopment = false for SSG
       options.frontendAppConfig,
@@ -365,6 +365,8 @@ export async function generateSSG(
           const statusText =
             renderResult.response.statusText || "Unknown error";
           errorDetails = `Non-page response (${status}): ${statusText}`;
+        } else if (renderResult.resultType === "render-error") {
+          errorDetails = `Render error: ${renderResult.error.message}`;
         } else {
           const resultType = (renderResult as any).resultType || "unknown";
           errorDetails = `Unexpected render result type: ${resultType}`;

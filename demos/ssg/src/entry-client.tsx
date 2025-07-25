@@ -1,4 +1,4 @@
-import { mountApp } from "../../../src/lib/mountApp";
+import { mountApp } from "../../../src/client";
 import { ThemeProvider } from "./providers/ThemeProvider";
 import "./index.css";
 
