@@ -1,6 +1,6 @@
 import React from "react";
-import { Link } from "react-router";
 import { Helmet } from "react-helmet-async";
+import { Link } from "react-router";
 
 const Home: React.FC = () => {
   return (
@@ -12,27 +12,6 @@ const Home: React.FC = () => {
           content="Welcome to the Unirend SSR demo homepage"
         />
       </Helmet>
-
-      <header className="header">
-        <div className="header-content">
-          <Link to="/" className="logo">
-            Unirend
-          </Link>
-          <nav>
-            <ul className="nav">
-              <li>
-                <Link to="/">Home</Link>
-              </li>
-              <li>
-                <Link to="/about">About</Link>
-              </li>
-              <li>
-                <Link to="/contact">Contact</Link>
-              </li>
-            </ul>
-          </nav>
-        </div>
-      </header>
 
       <main className="main-content">
         <h1 className="hero-title">Welcome to Unirend</h1>
@@ -61,13 +40,63 @@ const Home: React.FC = () => {
             framework capabilities and start creating today!
           </p>
         </div>
-      </main>
 
-      <footer className="footer">
-        <div className="footer-content">
-          <p>Built with ❤️ and modern web technologies</p>
+        <div className="card">
+          <h2>🧪 Test Route Error Boundary</h2>
+          <p>
+            Test the custom error boundary system with client-side navigation:
+          </p>
+          <div
+            style={{
+              display: "flex",
+              gap: "1rem",
+              marginTop: "1rem",
+              justifyContent: "center",
+            }}
+          >
+            <Link
+              to="/nonexistent-page"
+              style={{
+                display: "inline-block",
+                padding: "0.75rem 1.5rem",
+                backgroundColor: "#ff6b6b",
+                color: "white",
+                textDecoration: "none",
+                borderRadius: "0.5rem",
+                fontWeight: "500",
+                transition: "background-color 0.2s",
+              }}
+            >
+              Test 404 Error
+            </Link>
+            <Link
+              to="/test-error-thrown"
+              style={{
+                display: "inline-block",
+                padding: "0.75rem 1.5rem",
+                backgroundColor: "#ffa500",
+                color: "white",
+                textDecoration: "none",
+                borderRadius: "0.5rem",
+                fontWeight: "500",
+                transition: "background-color 0.2s",
+              }}
+            >
+              Test Application Error
+            </Link>
+          </div>
+          <p
+            style={{
+              fontSize: "0.875rem",
+              color: "rgba(255, 255, 255, 0.8)",
+              marginTop: "0.5rem",
+              textAlign: "center",
+            }}
+          >
+            These links use client-side navigation to test error boundaries.
+          </p>
         </div>
-      </footer>
+      </main>
     </>
   );
 };

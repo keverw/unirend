@@ -34,4 +34,16 @@ export default defineConfig([
       "cheerio",
     ],
   },
+
+  // Shared router utilities (client + server)
+  {
+    entry: ["src/router-utils.ts"],
+    outDir: "dist/router-utils",
+    format: ["cjs", "esm"],
+    dts: true,
+    splitting: false,
+    sourcemap: true,
+    clean: true, // Safe to clean since it's in its own subdirectory
+    external: ["react", "react-router"],
+  },
 ]);

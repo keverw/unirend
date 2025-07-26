@@ -1,5 +1,4 @@
 import React from "react";
-import { Link } from "react-router";
 import { Helmet } from "react-helmet-async";
 
 const About: React.FC = () => {
@@ -12,27 +11,6 @@ const About: React.FC = () => {
           content="Learn about the Unirend framework and this demo"
         />
       </Helmet>
-
-      <header className="header">
-        <div className="header-content">
-          <Link to="/" className="logo">
-            Unirend
-          </Link>
-          <nav>
-            <ul className="nav">
-              <li>
-                <Link to="/">Home</Link>
-              </li>
-              <li>
-                <Link to="/about">About</Link>
-              </li>
-              <li>
-                <Link to="/contact">Contact</Link>
-              </li>
-            </ul>
-          </nav>
-        </div>
-      </header>
 
       <main className="main-content">
         <h1 className="hero-title">About Unirend</h1>
@@ -73,12 +51,6 @@ const About: React.FC = () => {
           </p>
         </div>
       </main>
-
-      <footer className="footer">
-        <div className="footer-content">
-          <p>Built with ❤️ and modern web technologies</p>
-        </div>
-      </footer>
     </>
   );
 };

@@ -13,6 +13,11 @@
       "types": "./dist/server/server.d.ts",
       "import": "./dist/server/server.mjs",
       "require": "./dist/server/server.js"
+    },
+    "./router-utils": {
+      "types": "./dist/router-utils/router-utils.d.ts",
+      "import": "./dist/router-utils/router-utils.mjs",
+      "require": "./dist/router-utils/router-utils.js"
     }
   },
   "files": [

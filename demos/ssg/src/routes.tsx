@@ -6,8 +6,8 @@ import Dashboard from "./pages/Dashboard";
 import App from "./pages/App";
 import NotFound from "./pages/NotFound";
 
-// Simple layout component - theme is handled by body class
-function AppLayout() {
+// Simple App component - theme is handled by body class
+function App() {
   return (
     <div style={{ minHeight: "100vh" }}>
       <Outlet />
@@ -18,7 +18,7 @@ function AppLayout() {
 export const routes: RouteObject[] = [
   {
     path: "/",
-    element: <AppLayout />,
+    element: <App />,
     children: [
       {
         index: true,
