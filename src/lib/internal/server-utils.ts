@@ -16,11 +16,13 @@ import {
  * Creates a controlled wrapper around the Fastify instance
  * This prevents plugins from accessing dangerous methods
  * @param fastifyInstance The real Fastify instance
+ * @param disableRootWildcard Whether to disable root wildcard routes (e.g., "*" or "/*")
  * @returns Controlled interface for plugins
  */
 
 export function createControlledInstance(
   fastifyInstance: FastifyInstance,
+  disableRootWildcard: boolean,
 ): ControlledFastifyInstance {
   return {
     register: <Options extends Record<string, unknown> = Record<string, never>>(
@@ -75,9 +77,9 @@ export function createControlledInstance(
       );
     },
     get: (path: string, handler: RouteHandler) => {
-      if (path === "*" || path.includes("*")) {
+      if (disableRootWildcard && (path === "*" || path === "/*")) {
         throw new Error(
-          "Plugins cannot register catch-all GET routes that would conflict with SSR rendering",
+          "Plugins cannot register root wildcard GET routes that would conflict with SSR rendering",
         );
       }
       return fastifyInstance.get(path, handler);

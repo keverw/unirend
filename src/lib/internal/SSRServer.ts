@@ -16,7 +16,6 @@ import { processTemplate } from "./html-utils/format";
 import { injectContent } from "./html-utils/inject";
 import path from "path";
 import type {
-  FastifyInstance,
   FastifyRequest,
   FastifyReply,
   FastifyServerOptions,
@@ -25,6 +24,7 @@ import type { ViteDevServer } from "vite";
 import { createControlledInstance } from "./server-utils";
 import { generateDefault500ErrorPage } from "./errorPageUtils";
 import StaticRouterPlugin from "./middleware/static-router";
+import { BaseServer } from "./BaseServer";
 
 type SSRServerConfigDev = {
   mode: "development";
@@ -46,10 +46,8 @@ type SSRServerConfig = SSRServerConfigDev | SSRServerConfigProd;
  * Not intended to be used directly by library consumers
  */
 
-export class SSRServer {
+export class SSRServer extends BaseServer {
   private config: SSRServerConfig;
-  private isListening: boolean = false;
-  private fastifyInstance: FastifyInstance | null = null;
   private clientFolderName: string;
   private serverFolderName: string;
   private cachedRenderFunction:
@@ -62,6 +60,7 @@ export class SSRServer {
    * @param config Server configuration object
    */
   constructor(config: SSRServerConfig) {
+    super();
     this.config = config;
 
     // Set folder names with defaults
@@ -72,14 +71,14 @@ export class SSRServer {
   /**
    * Start the SSR server listening on the specified port and host
    *
-   * @param port Port number to listen on
-   * @param host Optional host to bind to (defaults to localhost)
+   * @param port Port number to listen on (defaults to 3000)
+   * @param host Host to bind to (defaults to localhost)
    * @returns Promise that resolves when server is listening
    */
-  async listen(port: number, host?: string): Promise<void> {
-    if (this.isListening) {
+  async listen(port: number = 3000, host: string = "localhost"): Promise<void> {
+    if (this._isListening) {
       throw new Error(
-        "Server is already listening. Call close() first before listening again.",
+        "SSRServer is already listening. Call stop() first before listening again.",
       );
     }
 
@@ -160,7 +159,7 @@ export class SSRServer {
         this.config.options.plugins &&
         this.config.options.plugins.length > 0
       ) {
-        await this.registerPlugins(this.fastifyInstance);
+        await this.registerPlugins();
       }
 
       // --- Vite Dev Server Middleware (Development Only) ---
@@ -427,52 +426,46 @@ export class SSRServer {
         },
       );
 
+      // Start the server
       await this.fastifyInstance.listen({
         port,
         host: host || "localhost",
       });
 
-      this.isListening = true;
+      this._isListening = true;
     } catch (error) {
-      this.isListening = false;
+      this._isListening = false;
       this.fastifyInstance = null;
       throw error;
     }
   }
 
   /**
-   * Close the server if it's currently listening
+   * Stop the server if it's currently listening
    */
-  async close(): Promise<void> {
-    if (this.fastifyInstance && this.isListening) {
+  async stop(): Promise<void> {
+    if (this.fastifyInstance && this._isListening) {
       await this.fastifyInstance.close();
-      this.isListening = false;
+      this._isListening = false;
       this.fastifyInstance = null;
     }
   }
 
   /**
-   * Check if the server is currently listening
-   */
-  get listening(): boolean {
-    return this.isListening;
-  }
-
-  /**
    * Register plugins with controlled access to Fastify instance
-   * @param fastifyInstance The Fastify instance to register plugins with
    * @private
    */
-  private async registerPlugins(
-    fastifyInstance: FastifyInstance,
-  ): Promise<void> {
-    // If no plugins are provided, return early
-    if (!this.config.options.plugins) {
+  private async registerPlugins(): Promise<void> {
+    // If no fastify instance or plugins are provided, return early
+    if (!this.fastifyInstance || !this.config.options.plugins) {
       return;
     }
 
     // Create controlled instance wrapper
-    const controlledInstance = createControlledInstance(fastifyInstance);
+    const controlledInstance = createControlledInstance(
+      this.fastifyInstance,
+      true,
+    );
 
     // Plugin options to pass to each plugin
     const pluginOptions = {

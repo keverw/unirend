@@ -35,6 +35,7 @@ export type {
   SSGReport,
   SSGPageReport,
   IPageWanted,
+  APIServerOptions,
 } from "./lib/types";
 
 // Server-safe constants
@@ -47,8 +48,10 @@ export type {
   PluginOptions,
 } from "./lib/types";
 export type { SSRServer } from "./lib/internal/SSRServer";
+export type { APIServer } from "./lib/internal/APIServer";
 
 // Server-safe functions
 export { serveSSRDev, serveSSRProd } from "./lib/ssr";
 export { generateSSG } from "./lib/ssg";
 export { unirendBaseRender } from "./lib/baseRender";
+export { serveAPI } from "./lib/api";

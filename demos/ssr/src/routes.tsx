@@ -1,4 +1,5 @@
 import { RouteObject, Outlet } from "react-router";
+import { APIResponseHelpers } from "../../../src/lib/api-envelope/response-helpers";
 import RouteErrorBoundary from "../../../src/lib/router-utils/RouteErrorBoundary";
 import Home from "./pages/Home";
 import About from "./pages/About";
@@ -6,12 +7,24 @@ import Contact from "./pages/Contact";
 import AppLayout from "./components/AppLayout";
 import CustomNotFound from "./components/CustomNotFound";
 import CustomApplicationError from "./components/CustomApplicationError";
+import GenericError from "./components/GenericError";
+import { useDataloaderEnvelopeError } from "../../../src/lib/router-utils/useDataloaderEnvelopeError";
 
 // App layout component that passes Outlet to AppLayout as children
 function App() {
+  const { hasError, is404, errorResponse } = useDataloaderEnvelopeError();
+
   return (
     <AppLayout>
+      {hasError ? (
+        is404 ? (
+          <CustomNotFound data={errorResponse} />
+        ) : (
+          <GenericError data={errorResponse} />
+        )
+      ) : (
       <Outlet />
+      )}
     </AppLayout>
   );
 }

@@ -1,25 +1,23 @@
-import { Helmet } from "react-helmet-async";
+import React from "react";
 import { PageErrorResponse } from "../../../../src/lib/api-envelope/api-envelope-types";
+import { Helmet } from "react-helmet-async";
 
-interface CustomNotFoundProps {
-  error?: unknown;
-  data?: PageErrorResponse | null;
+interface GenericErrorProps {
+  data: PageErrorResponse | null;
 }
 
-/**
- * Custom 404 component for the SSR demo
- * This shows how to create a branded NotFound component
- */
-export default function CustomNotFound({
-  error: _error,
-  data,
-}: CustomNotFoundProps) {
-  // Use envelope data if available, otherwise use defaults
-  const title =
-    data?.meta?.page?.title || "404 - Page Not Found - Unirend SSR Demo";
-  const description =
-    data?.meta?.page?.description ||
-    "The page you are looking for does not exist.";
+const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
+  const title = data?.meta?.page?.title || "Error - Unirend SSR Demo";
+  const description = data?.meta?.page?.description || "An error occurred.";
+  const message =
+    data?.error?.message || "Something went wrong. Please try again later.";
+  const requestID = data?.request_id;
+
+  // Only set detailsToShow in development mode, and prioritize stacktrace over message
+  const detailsToShow =
+    process.env.NODE_ENV !== "production"
+      ? (data?.error?.details?.stacktrace as string | undefined) || message
+      : null;
 
   return (
     <>
@@ -27,6 +25,7 @@ export default function CustomNotFound({
         <title>{title}</title>
         <meta name="description" content={description} />
       </Helmet>
+
       <main
         className="main-content"
         style={{
@@ -37,26 +36,48 @@ export default function CustomNotFound({
         }}
       >
         <div className="card">
+          <div style={{ marginBottom: "1.5rem" }}>
+            <div
+              style={{
+                fontSize: "4rem",
+                fontWeight: "800",
+                margin: "0 0 1rem 0",
+                color: "#ffffff",
+              }}
+            >
+              ⚠️
+            </div>
+          </div>
+
           <h1
             style={{
-              fontSize: "4rem",
+              fontSize: "2rem",
               fontWeight: "800",
-              margin: "0 0 1rem 0",
               color: "#ffffff",
+              marginBottom: "1rem",
             }}
           >
-            404
+            Error Code: {data?.error?.code?.toUpperCase() || "UNKNOWN"}
           </h1>
-          <h2 style={{ marginBottom: "1rem" }}>Page Not Found</h2>
+
           <p
             style={{
               color: "rgba(255, 255, 255, 0.9)",
-              marginBottom: "2rem",
+              marginBottom: "0.75rem",
               fontSize: "1.1rem",
             }}
           >
-            Oops! The page you're looking for seems to have wandered off. The
-            page doesn't exist or has been moved. Let's get you back on track!
+            {message}
+          </p>
+
+          <p
+            style={{
+              color: "rgba(255, 255, 255, 0.8)",
+              marginBottom: "2rem",
+              fontSize: "1rem",
+            }}
+          >
+            Please try again later or contact support if the problem persists.
           </p>
 
           <div
@@ -142,8 +163,47 @@ export default function CustomNotFound({
               Contact
             </a>
           </div>
+
+          {/* Display details (stacktrace or message) in development mode if available */}
+          {detailsToShow && (
+            <div
+              style={{
+                marginTop: "1.5rem",
+                textAlign: "left",
+                padding: "1rem",
+                background: "rgba(0, 0, 0, 0.2)",
+                border: "1px solid rgba(255, 255, 255, 0.2)",
+                borderRadius: "8px",
+                overflow: "auto",
+                maxHeight: "200px",
+                fontSize: "0.875rem",
+                fontFamily: "monospace",
+                lineHeight: 1.4,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                color: "rgba(255, 255, 255, 0.9)",
+              }}
+            >
+              {detailsToShow}
+            </div>
+          )}
+
+          {/* Display request ID inside the container */}
+          {requestID && (
+            <div
+              style={{
+                marginTop: "2rem",
+                fontSize: "0.875rem",
+                color: "rgba(255, 255, 255, 0.7)",
+              }}
+            >
+              Request ID: {requestID}
+            </div>
+          )}
         </div>
       </main>
     </>
   );
-}
+};
+
+export default GenericError;

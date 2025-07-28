@@ -46,4 +46,16 @@ export default defineConfig([
     clean: true, // Safe to clean since it's in its own subdirectory
     external: ["react", "react-router"],
   },
+
+  // API envelope types and helpers (universal)
+  {
+    entry: ["src/api-envelope.ts"],
+    outDir: "dist/api-envelope",
+    format: ["cjs", "esm"],
+    dts: true,
+    splitting: false,
+    sourcemap: true,
+    clean: true, // Safe to clean since it's in its own subdirectory
+    external: [], // No external dependencies for pure types and helpers
+  },
 ]);

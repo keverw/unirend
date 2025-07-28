@@ -43,7 +43,8 @@
     "ssr-build-server": "cd demos/ssr && vite build --outDir build/server --ssr src/entry-server.tsx",
     "ssr-build": "bun run ssr-build-client && bun run ssr-build-server",
     "ssr-serve-dev": "cd demos/ssr && bun run serve.ts dev",
-    "ssr-serve-prod": "cd demos/ssr && bun run serve.ts prod"
+    "ssr-serve-prod": "cd demos/ssr && bun run serve.ts prod",
+    "api-demo": "bun run demos/api-server-demo.ts"
   },
   "keywords": [
     "ssg",

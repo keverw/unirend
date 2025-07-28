@@ -257,6 +257,66 @@ export interface ServeSSRProdOptions extends ServeSSROptions {
   staticRouter?: StaticRouterOptions | false;
 }
 
+// ============================================================================
+// API Server Types
+// ============================================================================
+
+/**
+ * Options for configuring the API server
+ */
+export interface APIServerOptions {
+  /**
+   * Array of plugins to register with the server
+   * Plugins get access to a controlled Fastify instance with full wildcard support
+   */
+  plugins?: SSRPlugin[];
+  /**
+   * Custom error handler for API routes
+   * Called when an unhandled error occurs in API routes
+   * @param request The Fastify request object
+   * @param error The error that occurred
+   * @param isDevelopment Whether running in development mode
+   * @returns object to send as error response
+   */
+  errorHandler?: (
+    request: FastifyRequest,
+    error: Error,
+    isDevelopment: boolean,
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>;
+  /**
+   * Whether to run in development mode
+   * Affects error reporting and logging behavior
+   * @default false
+   */
+  isDevelopment?: boolean;
+  /**
+   * Curated Fastify options for API server configuration
+   * Only exposes safe options that won't conflict with API setup
+   */
+  fastifyOptions?: {
+    /**
+     * Enable/configure Fastify logging
+     * @example true | false | { level: 'info' } | { level: 'warn', prettyPrint: true }
+     */
+    logger?: boolean | FastifyLoggerOptions;
+    /**
+     * Trust proxy headers (useful for deployment behind load balancers)
+     * @default false
+     */
+    trustProxy?: boolean | string | string[] | number;
+    /**
+     * Maximum request body size in bytes
+     * @default 1048576 (1MB)
+     */
+    bodyLimit?: number;
+    /**
+     * Keep-alive timeout in milliseconds
+     * @default 72000 (72 seconds)
+     */
+    keepAliveTimeout?: number;
+  };
+}
+
 /**
  * Logger interface for SSG process
  */
