@@ -21,7 +21,13 @@ import type {
   FastifyServerOptions,
 } from "fastify";
 import type { ViteDevServer } from "vite";
-import { createControlledInstance } from "./server-utils";
+import {
+  createControlledInstance,
+  isAPIRequest,
+  isPageDataRequest,
+  createDefaultAPIErrorResponse,
+  createDefaultAPINotFoundResponse,
+} from "./server-utils";
 import { generateDefault500ErrorPage } from "./errorPageUtils";
 import StaticRouterPlugin from "./middleware/static-router";
 import { BaseServer } from "./BaseServer";
@@ -146,10 +152,26 @@ export class SSRServer extends BaseServer {
             vite.ssrFixStacktrace(error);
           }
 
-          // If the response hasn't been sent, send a custom 500 error page.
+          // If the response hasn't been sent, determine response type
           if (!reply.sent) {
-            const errorPage = await this.generate500ErrorPage(request, error);
-            reply.code(500).header("Content-Type", "text/html").send(errorPage);
+            // Check if this is an API request (if APIHandling is enabled)
+            const rawPath = request.url.split("?")[0];
+            const apiPrefix = this.config.options.APIHandling?.prefix ?? "/api";
+            const isAPI =
+              apiPrefix !== false && isAPIRequest(rawPath, apiPrefix);
+
+            if (isAPI) {
+              // Handle API error with JSON response
+              await this.handleAPIError(request, reply, error, apiPrefix);
+            } else {
+              // Handle SSR error with HTML response
+              const errorPage = await this.generate500ErrorPage(request, error);
+
+              reply
+                .code(500)
+                .header("Content-Type", "text/html")
+                .send(errorPage);
+            }
           }
         },
       );
@@ -217,6 +239,17 @@ export class SSRServer extends BaseServer {
       this.fastifyInstance.get(
         "*",
         async (request: FastifyRequest, reply: FastifyReply) => {
+          // (if APIHandling is enabled), Check if this is an API request that should return 404 JSON instead of SSR
+          const rawPath = request.url.split("?")[0];
+          const apiPrefix = this.config.options.APIHandling?.prefix ?? "/api";
+          const isAPI = apiPrefix !== false && isAPIRequest(rawPath, apiPrefix);
+
+          if (isAPI) {
+            // This is an API request that didn't match any route - return 404 JSON
+            return this.handleAPINotFound(request, reply, apiPrefix);
+          }
+
+          // Continue with SSR handling for non-API requests
           // Load and call the actual render function from the server entry
           // Signature should be: (renderRequest: IRenderRequest) => Promise<IRenderResult>
           let render: (renderRequest: IRenderRequest) => Promise<IRenderResult>;
@@ -681,5 +714,108 @@ export class SSRServer extends BaseServer {
       );
       return generateDefault500ErrorPage(request, error, isDevelopment);
     }
+  }
+
+  /**
+   * Handles API errors with JSON responses using envelope pattern
+   * @param request The Fastify request object
+   * @param reply The Fastify reply object
+   * @param error The error that occurred
+   * @param apiPrefix The API prefix to remove from path
+   * @private
+   */
+  private async handleAPIError(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    error: Error,
+    apiPrefix: string,
+  ): Promise<void> {
+    const isDevelopment = this.config.mode === "development";
+    const statusCode = 500;
+
+    // Remove API prefix to check for page-data pattern
+    const rawPath = request.url.split("?")[0];
+    const pathWithoutAPI = rawPath.startsWith(apiPrefix)
+      ? rawPath.slice(apiPrefix.length)
+      : rawPath;
+    const isPage = isPageDataRequest(pathWithoutAPI);
+
+    reply.status(statusCode);
+
+    // Check for custom API error handler if provided
+    if (this.config.options.APIHandling?.errorHandler) {
+      try {
+        const customResponse = await Promise.resolve(
+          this.config.options.APIHandling.errorHandler(
+            request,
+            error,
+            isDevelopment,
+            isPage,
+          ),
+        );
+
+        return reply.send(customResponse);
+      } catch (handlerError) {
+        // If custom handler fails, fall back to default
+        this.fastifyInstance?.log.error(
+          "[API Error Handler Error]:",
+          handlerError,
+        );
+      }
+    }
+
+    // Default API error response using shared utility
+    const response = createDefaultAPIErrorResponse(
+      request,
+      error,
+      isDevelopment,
+      apiPrefix,
+    );
+    return reply.send(response);
+  }
+
+  /**
+   * Handles API 404 not found responses with JSON envelopes
+   * @param request The Fastify request object
+   * @param reply The Fastify reply object
+   * @param apiPrefix The API prefix to remove from path
+   * @private
+   */
+  private async handleAPINotFound(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    apiPrefix: string,
+  ): Promise<void> {
+    const statusCode = 404;
+
+    // Remove API prefix to check for page-data pattern
+    const rawPath = request.url.split("?")[0];
+    const pathWithoutAPI = rawPath.startsWith(apiPrefix)
+      ? rawPath.slice(apiPrefix.length)
+      : rawPath;
+    const isPage = isPageDataRequest(pathWithoutAPI);
+
+    reply.status(statusCode);
+
+    // Check for custom API not-found handler
+    if (this.config.options.APIHandling?.notFoundHandler) {
+      try {
+        const customResponse = await Promise.resolve(
+          this.config.options.APIHandling.notFoundHandler(request, isPage),
+        );
+
+        return reply.send(customResponse);
+      } catch (handlerError) {
+        // If custom handler fails, fall back to default
+        this.fastifyInstance?.log.error(
+          "[API Not Found Handler Error]:",
+          handlerError,
+        );
+      }
+    }
+
+    // Default API not-found response using shared utility
+    const response = createDefaultAPINotFoundResponse(request, apiPrefix);
+    return reply.send(response);
   }
 }

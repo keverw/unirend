@@ -199,6 +199,45 @@ interface ServeSSROptions {
     isDevelopment: boolean,
   ) => string | Promise<string>;
   /**
+   * API handling configuration for mixed SSR+API servers
+   * When enabled, requests matching the prefix will be treated as API requests
+   * and receive JSON error responses instead of HTML error pages
+   */
+  APIHandling?: {
+    /**
+     * URL prefix for API routes (e.g., "/api")
+     * Set to false to disable API detection entirely
+     * @default "/api"
+     */
+    prefix?: string | false;
+    /**
+     * Custom error handler for API routes
+     * Called when an unhandled error occurs in API routes
+     * @param request The Fastify request object
+     * @param error The error that occurred
+     * @param isDevelopment Whether running in development mode
+     * @param isPage Whether this is a page-data request (after removing API prefix)
+     * @returns JSON object to send as error response
+     */
+    errorHandler?: (
+      request: FastifyRequest,
+      error: Error,
+      isDevelopment: boolean,
+      isPage?: boolean,
+    ) => Record<string, unknown> | Promise<Record<string, unknown>>;
+    /**
+     * Custom handler for API requests that did not match any route (404)
+     * If provided, overrides the built-in envelope handler for API routes
+     * @param request The Fastify request object
+     * @param isPage Whether this is a page-data request (after removing API prefix)
+     * @returns JSON object to send as the 404 response
+     */
+    notFoundHandler?: (
+      request: FastifyRequest,
+      isPage?: boolean,
+    ) => Record<string, unknown> | Promise<Record<string, unknown>>;
+  };
+  /**
    * Curated Fastify options for SSR server configuration
    * Only exposes safe options that won't conflict with SSR setup
    */
@@ -276,12 +315,25 @@ export interface APIServerOptions {
    * @param request The Fastify request object
    * @param error The error that occurred
    * @param isDevelopment Whether running in development mode
+   * @param isPage Whether this is a page request (matches /page_data or /v(/d+)/page_data pattern)
    * @returns object to send as error response
    */
   errorHandler?: (
     request: FastifyRequest,
     error: Error,
     isDevelopment: boolean,
+    isPage?: boolean,
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>;
+  /**
+   * Custom handler for requests that did not match any route (404)
+   * If provided, overrides the built-in envelope handler.
+   * @param request The Fastify request object
+   * @param isPage Whether this is a page-data request
+   * @returns Object to send as the 404 JSON response
+   */
+  notFoundHandler?: (
+    request: FastifyRequest,
+    isPage?: boolean,
   ) => Record<string, unknown> | Promise<Record<string, unknown>>;
   /**
    * Whether to run in development mode

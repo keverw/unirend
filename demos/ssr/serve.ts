@@ -56,6 +56,10 @@ function logServerStartup(mode: "dev" | "prod", host: string, port: number) {
   console.log(
     `   POST http://${host}:${port}/api/upload/media (10MB max, media files)`,
   );
+  console.log("\n🔄 Mixed SSR+API handling:");
+  console.log(`   GET  http://${host}:${port}/api/not-found (API 404 envelope)`);
+  console.log(`   GET  http://${host}:${port}/api/page_data/not-found (Page 404 envelope)`);
+  console.log(`   GET  http://${host}:${port}/not-found (SSR 404 page)`);
 }
 
 // Example plugin for API routes and request logging

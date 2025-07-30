@@ -18,14 +18,15 @@ async function runAPIServerDemo() {
         console.log("📦 Registering API plugin with options:", pluginOptions);
 
         // Root wildcard route - this would be blocked in SSR servers!
-        fastify.get("*", async (request, _reply) => {
-          return {
-            message: "Catch-all route - this works in API servers!",
-            path: request.url,
-            method: request.method,
-            timestamp: new Date().toISOString(),
-          };
-        });
+        // commented out to test 404 handling
+        // fastify.get("*", async (request, _reply) => {
+        //   return {
+        //     message: "Catch-all route - this works in API servers!",
+        //     path: request.url,
+        //     method: request.method,
+        //     timestamp: new Date().toISOString(),
+        //   };
+        // });
 
         // API wildcard routes
         fastify.get("/api/*", async (request, _reply) => {
@@ -63,20 +64,62 @@ async function runAPIServerDemo() {
             server: "unirend-api",
           };
         });
+
+        // Error testing routes
+        fastify.get("/api/error", async (_request, _reply) => {
+          throw new Error("This is a test error!");
+        });
+
+        fastify.get("/api/error/500", async (_request, _reply) => {
+          const error = new Error("Custom 500 error") as Error & {
+            statusCode?: number;
+          };
+          error.statusCode = 500;
+          throw error;
+        });
+
+        fastify.get("/api/error/400", async (_request, _reply) => {
+          const error = new Error("Bad request error") as Error & {
+            statusCode?: number;
+          };
+          error.statusCode = 400;
+          throw error;
+        });
+
+        // Page-data error route (to test envelope detection)
+        fastify.get("/page_data/error", async (_request, _reply) => {
+          throw new Error("Page data error!");
+        });
       },
     ],
-    errorHandler: (request, error, isDevelopment) => {
-      console.error("🚨 API Error:", error.message);
+    // errorHandler: (request, error, isDevelopment) => {
+    //   console.error("🚨 API Error:", error.message);
 
-      return {
-        error: true,
-        message: error.message,
-        path: request.url,
-        method: request.method,
-        timestamp: new Date().toISOString(),
-        ...(isDevelopment && { stack: error.stack }),
-      };
-    },
+    //   return {
+    //     error: true,
+    //     message: error.message,
+    //     path: request.url,
+    //     method: request.method,
+    //     timestamp: new Date().toISOString(),
+    //     ...(isDevelopment && { stack: error.stack }),
+    //   };
+    // },
+    // notFoundHandler: (request, isPage) => {
+    //   console.log("🔍 Custom 404 Handler:", request.url, "isPage:", isPage);
+
+    //   return {
+    //     error: true,
+    //     code: "not_found",
+    //     message: `Custom 404: ${isPage ? "Page" : "Resource"} not found`,
+    //     path: request.url,
+    //     method: request.method,
+    //     isPageRequest: isPage,
+    //     timestamp: new Date().toISOString(),
+    //     suggestion: isPage
+    //       ? "Try checking the page route or data loader"
+    //       : "Check the API endpoint URL",
+    //   };
+    // },
     fastifyOptions: {
       logger: {
         level: "info",
@@ -90,15 +133,27 @@ async function runAPIServerDemo() {
 
     console.log("✅ API Server started successfully!");
     console.log("🌐 Try these endpoints:");
+    console.log("\n📋 Working routes:");
     console.log("   GET  http://localhost:3001/health");
     console.log("   GET  http://localhost:3001/api/users");
     console.log("   POST http://localhost:3001/api/users");
     console.log("   GET  http://localhost:3001/api/anything (wildcard)");
-    console.log("   GET  http://localhost:3001/anything (catch-all)");
-    console.log("\n💡 Notice: Root wildcard (*) routes work in API servers!");
+    console.log("\n🚨 Error testing routes:");
+    console.log("   GET  http://localhost:3001/api/error (throws error)");
+    console.log("   GET  http://localhost:3001/api/error/500 (custom 500)");
+    console.log("   GET  http://localhost:3001/api/error/400 (custom 400)");
     console.log(
-      "   This would be blocked in SSR servers to prevent conflicts.",
+      "   GET  http://localhost:3001/page_data/error (page envelope)",
     );
+    console.log("\n🔍 404 testing routes:");
+    console.log("   GET  http://localhost:3001/not-found (API 404 envelope)");
+    console.log(
+      "   GET  http://localhost:3001/page_data/not-found (Page 404 envelope)",
+    );
+    console.log(
+      "\n💡 Notice: Wildcard route commented out to test 404 handling!",
+    );
+    console.log("   Uncomment the wildcard to see catch-all behavior.");
 
     // Keep the demo running for a bit
     console.log("\n⏱️  Demo will run for 30 seconds...");

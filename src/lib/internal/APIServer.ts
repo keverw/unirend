@@ -1,5 +1,10 @@
 import fastify, { type FastifyServerOptions } from "fastify";
-import { createControlledInstance } from "./server-utils";
+import {
+  createControlledInstance,
+  isPageDataRequest,
+  createDefaultAPIErrorResponse,
+  createDefaultAPINotFoundResponse,
+} from "./server-utils";
 import type { APIServerOptions } from "../types";
 import { BaseServer } from "./BaseServer";
 
@@ -60,6 +65,8 @@ export class APIServer extends BaseServer {
 
       // Register global error handler
       this.setupErrorHandler();
+      // Register not-found handler
+      this.setupNotFoundHandler();
 
       // Register plugins if provided
       if (this.options.plugins && this.options.plugins.length > 0) {
@@ -102,7 +109,79 @@ export class APIServer extends BaseServer {
     }
 
     this.fastifyInstance.setErrorHandler(async (error, request, reply) => {
+      // Determine if the incoming request is for page data (SSR loader)
+      const rawPath = request.url.split("?")[0];
+
+      // Determine if the incoming request is for page data (SSR loader)
+      // Matches both exact endpoints and paths with parameters:
+      // /page_data, /page_data/foo, /v1/page_data, /v1/page_data/user/123, etc.
+      const isPage = isPageDataRequest(rawPath);
+
       // Use custom error handler if provided
+      if (this.options.errorHandler) {
+        try {
+          const errorResponse = await this.options.errorHandler(
+            request,
+            error,
+            this.options.isDevelopment ?? false,
+            isPage,
+          );
+
+          // Set status code if provided in response
+          const statusCode =
+            (errorResponse as Record<string, unknown> & { statusCode?: number })
+              .statusCode || 500;
+          reply.status(statusCode);
+
+          return errorResponse;
+        } catch (handlerError) {
+          // Fallback if custom error handler fails
+          this.fastifyInstance?.log.error(
+            "Error handler failed:",
+            handlerError,
+          );
+        }
+      }
+
+      // Default error response using shared utility
+      const statusCode = error.statusCode || 500;
+      reply.status(statusCode);
+
+      return createDefaultAPIErrorResponse(
+        request,
+        error,
+        this.options.isDevelopment ?? false,
+      );
+    });
+  }
+
+  /**
+   * Setup a default 404 handler that returns standardized envelopes
+   * @private
+   */
+  private setupNotFoundHandler(): void {
+    if (!this.fastifyInstance) {
+      return;
+    }
+
+    this.fastifyInstance.setNotFoundHandler(async (request, reply) => {
+      const rawPath = request.url.split("?")[0];
+      const isPage = isPageDataRequest(rawPath);
+
+      const statusCode = 404;
+      reply.status(statusCode);
+
+      // If user provided custom not-found handler, use it
+      if (this.options.notFoundHandler) {
+        const custom = await Promise.resolve(
+          this.options.notFoundHandler(request, isPage),
+        );
+
+        return reply.send(custom);
+      }
+
+      const response = createDefaultAPINotFoundResponse(request);
+      return reply.send(response);
     });
   }
 
