@@ -15,5 +15,11 @@ export { useDataloaderEnvelopeError } from "./lib/router-utils/useDataLoaderEnve
 export {
   createPageLoader,
   createDefaultPageLoaderConfig,
-  PageLoaderConfig,
 } from "./lib/router-utils/pageDataLoader";
+export {
+  PageLoaderConfig,
+  ErrorDefaults,
+  BaseErrorDefinition,
+  FullErrorDefinition,
+  CustomStatusCodeHandler,
+} from "./lib/router-utils/pageDataLoader-types";
