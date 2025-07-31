@@ -36,6 +36,7 @@
  *   loginUrl: '/auth/login',
  *   returnToParam: 'redirect_to', // Custom query param name for login redirects
  *   isDevelopment: true, // Explicitly set for Bun/Deno compatibility
+ *   timeoutMs: 15000, // Custom timeout in milliseconds (default: 10000)
  *   generateFallbackRequestID: (context) => `myapp_${context}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
  *   connectionErrorMessages: {
  *     server: 'API service unavailable. Please try again later.',
@@ -189,6 +190,7 @@ import {
 import {
   createBaseHeaders,
   decorateWithSsrOnlyData,
+  fetchWithTimeout,
   isSafeRedirect,
 } from "./pageDataLoader-utils";
 import { PageLoaderConfig, PageLoaderOptions } from "./pageDataLoader-types";
@@ -199,6 +201,7 @@ import {
   DEFAULT_RETURN_TO_PARAM,
   DEFAULT_PAGE_DATA_ENDPOINT,
   DEFAULT_FALLBACK_REQUEST_ID_GENERATOR,
+  DEFAULT_TIMEOUT_MS,
 } from "./pageDataLoader-consts";
 
 // Debug flag to enable/disable logging in the page loader
@@ -223,6 +226,7 @@ export function createDefaultPageLoaderConfig(
     loginUrl: DEFAULT_LOGIN_URL,
     returnToParam: DEFAULT_RETURN_TO_PARAM,
     generateFallbackRequestID: DEFAULT_FALLBACK_REQUEST_ID_GENERATOR,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
   };
 }
 
@@ -800,12 +804,16 @@ export async function pageLoader({
         headers.set("Accept-Language", acceptLanguage);
       }
 
-      const response = await fetch(apiEndpoint, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(requestBody),
-        redirect: "manual", // Don't automatically follow redirects
-      });
+      const response = await fetchWithTimeout(
+        apiEndpoint,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(requestBody),
+          redirect: "manual", // Don't automatically follow redirects
+        },
+        config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      );
 
       return processApiResponse(response, config);
     } else {
@@ -827,13 +835,17 @@ export async function pageLoader({
       }
 
       // On client side, we include credentials: 'include' to allow cookies to be sent
-      const response = await fetch(apiEndpoint, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(requestBody),
-        credentials: "include", // This allows cookies to be sent with the request
-        redirect: "manual", // Don't automatically follow redirects
-      });
+      const response = await fetchWithTimeout(
+        apiEndpoint,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(requestBody),
+          credentials: "include", // This allows cookies to be sent with the request
+          redirect: "manual", // Don't automatically follow redirects
+        },
+        config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      );
 
       return processApiResponse(response, config);
     }
@@ -852,10 +864,12 @@ export async function pageLoader({
       errorMessage.includes("fetch failed") ||
       errorMessage.includes("Unable to connect") ||
       errorMessage.includes("ECONNREFUSED") ||
-      errorMessage.includes("NetworkError");
+      errorMessage.includes("NetworkError") ||
+      errorMessage.includes("Request timeout after"); // Treat timeout as connection error
 
     // Create appropriate message based on server/client context
     let friendlyMessage = errorMessage;
+
     if (isConnectionError) {
       friendlyMessage = isServer
         ? config.connectionErrorMessages?.server ||

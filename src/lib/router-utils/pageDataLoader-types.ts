@@ -94,6 +94,15 @@ export interface PageLoaderConfig {
   /** Query parameter name for return URL in login redirects (default: "return_to") */
   returnToParam?: string;
   /**
+   * Timeout in milliseconds for API requests
+   *
+   * Defaults to 10000ms (10 seconds). Set to 0 to disable timeout.
+   * Uses AbortController to cancel requests that exceed the timeout.
+   *
+   * @default 10000
+   */
+  timeoutMs?: number;
+  /**
    * Function to generate fallback request IDs when none is provided in error responses
    * Called when creating error responses that don't have a request_id from the API
    * @param context - The context for the request ID ("error" or "redirect")
