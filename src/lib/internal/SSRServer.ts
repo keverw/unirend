@@ -19,6 +19,7 @@ import type {
   FastifyRequest,
   FastifyReply,
   FastifyServerOptions,
+  FastifyError,
 } from "fastify";
 import type { ViteDevServer } from "vite";
 import {
@@ -31,6 +32,10 @@ import {
 import { generateDefault500ErrorPage } from "./errorPageUtils";
 import StaticRouterPlugin from "./middleware/static-router";
 import { BaseServer } from "./BaseServer";
+import {
+  DataLoaderServerHandlerHelpers,
+  type PageDataHandler,
+} from "./DataLoaderServerHandlerHelpers";
 
 type SSRServerConfigDev = {
   mode: "development";
@@ -59,6 +64,7 @@ export class SSRServer extends BaseServer {
   private cachedRenderFunction:
     | ((renderRequest: IRenderRequest) => Promise<IRenderResult>)
     | null = null;
+  private pageDataHandlers!: DataLoaderServerHandlerHelpers;
 
   /**
    * Creates a new SSR server instance
@@ -72,6 +78,9 @@ export class SSRServer extends BaseServer {
     // Set folder names with defaults
     this.clientFolderName = config.options.clientFolderName || "client";
     this.serverFolderName = config.options.serverFolderName || "server";
+
+    // Initialize page data handlers (available immediately for handler registration)
+    this.pageDataHandlers = new DataLoaderServerHandlerHelpers();
   }
 
   /**
@@ -183,6 +192,12 @@ export class SSRServer extends BaseServer {
       ) {
         await this.registerPlugins();
       }
+
+      // Register page data handler routes with Fastify
+      this.pageDataHandlers.registerRoutes(
+        this.fastifyInstance,
+        this.config.options.pageDataHandlers,
+      );
 
       // --- Vite Dev Server Middleware (Development Only) ---
       let vite: ViteDevServer | null = null;
@@ -485,6 +500,41 @@ export class SSRServer extends BaseServer {
   }
 
   /**
+   * Register a page data handler for the specified page type
+   * Provides method overloading for versioned and non-versioned handlers
+   */
+  registerDataLoaderHandler(pageType: string, handler: PageDataHandler): void;
+  registerDataLoaderHandler(
+    pageType: string,
+    version: number,
+    handler: PageDataHandler,
+  ): void;
+  registerDataLoaderHandler(
+    pageType: string,
+    versionOrHandler: number | PageDataHandler,
+    handler?: PageDataHandler,
+  ): void {
+    if (typeof versionOrHandler === "number") {
+      // Called with version: registerDataLoaderHandler(pageType, version, handler)
+      if (!handler) {
+        throw new Error("Handler is required when version is specified");
+      }
+
+      this.pageDataHandlers.registerDataLoaderHandler(
+        pageType,
+        versionOrHandler,
+        handler,
+      );
+    } else {
+      // Called without version: registerDataLoaderHandler(pageType, handler)
+      this.pageDataHandlers.registerDataLoaderHandler(
+        pageType,
+        versionOrHandler,
+      );
+    }
+  }
+
+  /**
    * Register plugins with controlled access to Fastify instance
    * @private
    */
@@ -731,7 +781,6 @@ export class SSRServer extends BaseServer {
     apiPrefix: string,
   ): Promise<void> {
     const isDevelopment = this.config.mode === "development";
-    const statusCode = 500;
 
     // Remove API prefix to check for page-data pattern
     const rawPath = request.url.split("?")[0];
@@ -739,8 +788,6 @@ export class SSRServer extends BaseServer {
       ? rawPath.slice(apiPrefix.length)
       : rawPath;
     const isPage = isPageDataRequest(pathWithoutAPI);
-
-    reply.status(statusCode);
 
     // Check for custom API error handler if provided
     if (this.config.options.APIHandling?.errorHandler) {
@@ -754,6 +801,10 @@ export class SSRServer extends BaseServer {
           ),
         );
 
+        // Extract status code from envelope response
+        const statusCode = customResponse.status_code || 500;
+        reply.status(statusCode);
+
         return reply.send(customResponse);
       } catch (handlerError) {
         // If custom handler fails, fall back to default
@@ -764,6 +815,10 @@ export class SSRServer extends BaseServer {
       }
     }
 
+    // Default case
+    const statusCode = (error as FastifyError).statusCode || 500;
+    reply.status(statusCode);
+
     // Default API error response using shared utility
     const response = createDefaultAPIErrorResponse(
       request,
@@ -771,6 +826,7 @@ export class SSRServer extends BaseServer {
       isDevelopment,
       apiPrefix,
     );
+
     return reply.send(response);
   }
 
@@ -786,8 +842,6 @@ export class SSRServer extends BaseServer {
     reply: FastifyReply,
     apiPrefix: string,
   ): Promise<void> {
-    const statusCode = 404;
-
     // Remove API prefix to check for page-data pattern
     const rawPath = request.url.split("?")[0];
     const pathWithoutAPI = rawPath.startsWith(apiPrefix)
@@ -795,14 +849,16 @@ export class SSRServer extends BaseServer {
       : rawPath;
     const isPage = isPageDataRequest(pathWithoutAPI);
 
-    reply.status(statusCode);
-
     // Check for custom API not-found handler
     if (this.config.options.APIHandling?.notFoundHandler) {
       try {
         const customResponse = await Promise.resolve(
           this.config.options.APIHandling.notFoundHandler(request, isPage),
         );
+
+        // Extract status code from envelope response
+        const statusCode = customResponse.status_code || 404;
+        reply.status(statusCode);
 
         return reply.send(customResponse);
       } catch (handlerError) {
@@ -813,6 +869,10 @@ export class SSRServer extends BaseServer {
         );
       }
     }
+
+    // Default case
+    const statusCode = 404;
+    reply.status(statusCode);
 
     // Default API not-found response using shared utility
     const response = createDefaultAPINotFoundResponse(request, apiPrefix);

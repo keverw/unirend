@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Helmet } from "react-helmet-async";
 
 interface CustomApplicationErrorProps {
@@ -14,6 +15,14 @@ export default function CustomApplicationError({
   const errorMessage =
     error instanceof Error ? error.message : "An unexpected error occurred";
   const isDevelopment = process.env.NODE_ENV === "development";
+
+  // Scroll to top when error component mounts
+  useEffect(() => {
+    window.scrollTo({
+      top: 0,
+      behavior: "instant",
+    });
+  }, []);
 
   return (
     <>

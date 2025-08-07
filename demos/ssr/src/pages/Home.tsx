@@ -9,7 +9,7 @@ const Home: React.FC = () => {
         <title>Home - Unirend SSR Demo</title>
         <meta
           name="description"
-          content="Welcome to the Unirend SSR demo homepage"
+          content="Welcome to the Unirend SSR demo showcasing server-side rendering capabilities"
         />
       </Helmet>
 
@@ -54,35 +54,11 @@ const Home: React.FC = () => {
               justifyContent: "center",
             }}
           >
-            <Link
-              to="/nonexistent-page"
-              style={{
-                display: "inline-block",
-                padding: "0.75rem 1.5rem",
-                backgroundColor: "#ff6b6b",
-                color: "white",
-                textDecoration: "none",
-                borderRadius: "0.5rem",
-                fontWeight: "500",
-                transition: "background-color 0.2s",
-              }}
-            >
+            <Link to="/nonexistent-page" className="demo-button btn-coral">
               Test 404 Error
             </Link>
-            <Link
-              to="/test-error-thrown"
-              style={{
-                display: "inline-block",
-                padding: "0.75rem 1.5rem",
-                backgroundColor: "#ffa500",
-                color: "white",
-                textDecoration: "none",
-                borderRadius: "0.5rem",
-                fontWeight: "500",
-                transition: "background-color 0.2s",
-              }}
-            >
-              Test Application Error
+            <Link to="/test-error-thrown" className="demo-button btn-orange">
+              Test Application Error (Thrown to Trigger Error Boundary)
             </Link>
           </div>
           <p
@@ -94,6 +70,85 @@ const Home: React.FC = () => {
             }}
           >
             These links use client-side navigation to test error boundaries.
+          </p>
+        </div>
+
+        <div className="card">
+          <h2>📊 Test Page Data Loaders</h2>
+          <p>
+            Test the page data loader system with debug information display:
+          </p>
+          <div
+            style={{
+              display: "flex",
+              gap: "1rem",
+              marginTop: "1rem",
+              justifyContent: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <Link to="/test-page-loader" className="demo-button btn-teal">
+              Basic Page Loader
+            </Link>
+            <Link to="/test-page-loader/123" className="demo-button btn-blue">
+              With ID Parameter
+            </Link>
+            <Link
+              to="/test-page-loader/456?search=demo&filter=active"
+              className="demo-button btn-green"
+            >
+              With ID + Query Params
+            </Link>
+          </div>
+          <p
+            style={{
+              fontSize: "0.875rem",
+              color: "rgba(255, 255, 255, 0.8)",
+              marginTop: "0.5rem",
+              textAlign: "center",
+            }}
+          >
+            These routes demonstrate page data loading with different parameter
+            combinations.
+          </p>
+        </div>
+
+        {/* Error Handling Demo Section */}
+        <div className="card">
+          <h2 style={{ color: "#ff6b6b", marginBottom: "1rem" }}>
+            🚨 Error Handling Tests
+          </h2>
+          <div
+            style={{
+              display: "flex",
+              gap: "1rem",
+              flexWrap: "wrap",
+              justifyContent: "center",
+              marginBottom: "1rem",
+            }}
+          >
+            <Link to="/test-500" className="demo-button btn-red">
+              500 Error (From API server directly, if already loaded will inline
+              the error as a generic one, else will show app error like if it
+              was by the boundary)
+            </Link>
+            <Link to="/test-stacktrace" className="demo-button btn-orange-alt">
+              Error with Stacktrace
+            </Link>
+            <Link to="/test-generic-error" className="demo-button btn-yellow">
+              Generic Error (400)
+            </Link>
+          </div>
+          <p
+            style={{
+              fontSize: "0.875rem",
+              color: "rgba(255, 255, 255, 0.8)",
+              marginTop: "0.5rem",
+              textAlign: "center",
+            }}
+          >
+            These routes demonstrate error handling with different error types
+            and status codes.
           </p>
         </div>
       </main>

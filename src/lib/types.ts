@@ -8,6 +8,12 @@ import type {
   FastifySchema,
   preHandlerHookHandler,
 } from "fastify";
+import type { PageDataHandlersConfig } from "./internal/DataLoaderServerHandlerHelpers";
+import type {
+  APIErrorResponse,
+  PageErrorResponse,
+  BaseMeta,
+} from "./api-envelope/api-envelope-types";
 
 export interface IRenderRequest {
   type: renderType;
@@ -163,8 +169,9 @@ export interface PluginOptions {
 
 /**
  * Base options for SSR
+ * @template M Custom meta type extending BaseMeta for error/notFound handlers
  */
-interface ServeSSROptions {
+interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
   /**
    * ID of the container element (defaults to "root")
    * This element will be formatted inline to prevent hydration issues
@@ -175,6 +182,12 @@ interface ServeSSROptions {
    * Plugins get access to a controlled Fastify instance
    */
   plugins?: SSRPlugin[];
+  /**
+   * Configuration for page data handlers
+   * Page data handlers are always available via registerDataLoaderHandler() method
+   * This config customizes the endpoint path, versioning, and defaults
+   */
+  pageDataHandlers?: PageDataHandlersConfig;
   /**
    * Name of the client folder within buildDir
    * Defaults to "client" if not provided
@@ -213,29 +226,63 @@ interface ServeSSROptions {
     /**
      * Custom error handler for API routes
      * Called when an unhandled error occurs in API routes
+     *
+     * REQUIRED: Must return a proper API or Page envelope response according to api-envelope-structure.md
+     * - For API requests (isPage=false): Return APIErrorResponse envelope
+     * - For Page requests (isPage=true): Return PageErrorResponse envelope
+     *
+     * Required envelope fields:
+     * - status: "error"
+     * - status_code: HTTP status code (400, 401, 404, 500, etc.)
+     * - request_id: Unique request identifier
+     * - type: "api" for API requests, "page" for page data requests
+     * - data: null (always null for error responses)
+     * - meta: Object containing metadata (page metadata required for page type)
+     * - error: Object with { code, message, details? }
+     *
      * @param request The Fastify request object
      * @param error The error that occurred
      * @param isDevelopment Whether running in development mode
      * @param isPage Whether this is a page-data request (after removing API prefix)
-     * @returns JSON object to send as error response
+     * @returns Proper API or Page error envelope response
      */
     errorHandler?: (
       request: FastifyRequest,
       error: Error,
       isDevelopment: boolean,
       isPage?: boolean,
-    ) => Record<string, unknown> | Promise<Record<string, unknown>>;
+    ) =>
+      | APIErrorResponse<M>
+      | PageErrorResponse<M>
+      | Promise<APIErrorResponse<M> | PageErrorResponse<M>>;
     /**
      * Custom handler for API requests that did not match any route (404)
      * If provided, overrides the built-in envelope handler for API routes
+     *
+     * REQUIRED: Must return a proper API or Page envelope response according to api-envelope-structure.md
+     * - For API requests (isPage=false): Return APIErrorResponse envelope with status_code: 404
+     * - For Page requests (isPage=true): Return PageErrorResponse envelope with status_code: 404
+     *
+     * Required envelope fields:
+     * - status: "error"
+     * - status_code: 404
+     * - request_id: Unique request identifier
+     * - type: "api" for API requests, "page" for page data requests
+     * - data: null (always null for error responses)
+     * - meta: Object containing metadata (page metadata required for page type)
+     * - error: Object with { code: "not_found", message, details? }
+     *
      * @param request The Fastify request object
      * @param isPage Whether this is a page-data request (after removing API prefix)
-     * @returns JSON object to send as the 404 response
+     * @returns Proper API or Page error envelope response with 404 status
      */
     notFoundHandler?: (
       request: FastifyRequest,
       isPage?: boolean,
-    ) => Record<string, unknown> | Promise<Record<string, unknown>>;
+    ) =>
+      | APIErrorResponse<M>
+      | PageErrorResponse<M>
+      | Promise<APIErrorResponse<M> | PageErrorResponse<M>>;
   };
   /**
    * Curated Fastify options for SSR server configuration
@@ -265,10 +312,15 @@ interface ServeSSROptions {
   };
 }
 
-export interface ServeSSRDevOptions extends ServeSSROptions {
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface ServeSSRDevOptions<M extends BaseMeta = BaseMeta>
+  extends ServeSSROptions<M> {
+  // Currently no development-specific options
+  // This is a placeholder for any future development-specific options
 }
 
-export interface ServeSSRProdOptions extends ServeSSROptions {
+export interface ServeSSRProdOptions<M extends BaseMeta = BaseMeta>
+  extends ServeSSROptions<M> {
   /**
    * Optional configuration object to be injected into the frontend app
    * Will be serialized and injected as window.__APP_CONFIG__
@@ -302,39 +354,79 @@ export interface ServeSSRProdOptions extends ServeSSROptions {
 
 /**
  * Options for configuring the API server
+ * @template M Custom meta type extending BaseMeta for error/notFound handlers
  */
-export interface APIServerOptions {
+export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
   /**
    * Array of plugins to register with the server
    * Plugins get access to a controlled Fastify instance with full wildcard support
    */
   plugins?: SSRPlugin[];
   /**
+   * Configuration for page data handlers
+   * Enables automatic registration of page data endpoints that work with the frontend pageDataLoader
+   */
+  pageDataHandlers?: PageDataHandlersConfig;
+  /**
    * Custom error handler for API routes
    * Called when an unhandled error occurs in API routes
+   *
+   * REQUIRED: Must return a proper API or Page envelope response according to api-envelope-structure.md
+   * - For API requests (isPage=false): Return APIErrorResponse envelope
+   * - For Page requests (isPage=true): Return PageErrorResponse envelope
+   *
+   * Required envelope fields:
+   * - status: "error"
+   * - status_code: HTTP status code (400, 401, 404, 500, etc.)
+   * - request_id: Unique request identifier
+   * - type: "api" for API requests, "page" for page data requests
+   * - data: null (always null for error responses)
+   * - meta: Object containing metadata (page metadata required for page type)
+   * - error: Object with { code, message, details? }
+   *
    * @param request The Fastify request object
    * @param error The error that occurred
    * @param isDevelopment Whether running in development mode
    * @param isPage Whether this is a page request (matches /page_data or /v(/d+)/page_data pattern)
-   * @returns object to send as error response
+   * @returns Proper API or Page error envelope response
    */
   errorHandler?: (
     request: FastifyRequest,
     error: Error,
     isDevelopment: boolean,
     isPage?: boolean,
-  ) => Record<string, unknown> | Promise<Record<string, unknown>>;
+  ) =>
+    | APIErrorResponse<M>
+    | PageErrorResponse<M>
+    | Promise<APIErrorResponse<M> | PageErrorResponse<M>>;
   /**
    * Custom handler for requests that did not match any route (404)
    * If provided, overrides the built-in envelope handler.
+   *
+   * REQUIRED: Must return a proper API or Page envelope response according to api-envelope-structure.md
+   * - For API requests (isPage=false): Return APIErrorResponse envelope with status_code: 404
+   * - For Page requests (isPage=true): Return PageErrorResponse envelope with status_code: 404
+   *
+   * Required envelope fields:
+   * - status: "error"
+   * - status_code: 404
+   * - request_id: Unique request identifier
+   * - type: "api" for API requests, "page" for page data requests
+   * - data: null (always null for error responses)
+   * - meta: Object containing metadata (page metadata required for page type)
+   * - error: Object with { code: "not_found", message, details? }
+   *
    * @param request The Fastify request object
    * @param isPage Whether this is a page-data request
-   * @returns Object to send as the 404 JSON response
+   * @returns Proper API or Page error envelope response with 404 status
    */
   notFoundHandler?: (
     request: FastifyRequest,
     isPage?: boolean,
-  ) => Record<string, unknown> | Promise<Record<string, unknown>>;
+  ) =>
+    | APIErrorResponse<M>
+    | PageErrorResponse<M>
+    | Promise<APIErrorResponse<M> | PageErrorResponse<M>>;
   /**
    * Whether to run in development mode
    * Affects error reporting and logging behavior

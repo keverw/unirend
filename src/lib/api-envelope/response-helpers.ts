@@ -45,12 +45,9 @@ export class APIResponseHelpers {
   }): APISuccessResponse<T, M> {
     const { request, data, statusCode = 200, meta } = params;
 
-    const defaultMeta: BaseMeta = {
-      page: {
-        title: "",
-        description: "",
-      },
-    };
+    // API responses should not include page metadata by default
+    // Only include meta if explicitly provided
+    const defaultMeta = {} as M;
 
     return {
       status: "success",
@@ -58,7 +55,7 @@ export class APIResponseHelpers {
       request_id: (request as { requestID?: string }).requestID ?? "unknown",
       type: "api",
       data,
-      meta: { ...(defaultMeta as M), ...(meta as Partial<M>) } as M,
+      meta: { ...defaultMeta, ...(meta as Partial<M>) } as M,
       error: null,
     };
   }
@@ -83,14 +80,9 @@ export class APIResponseHelpers {
     const { request, statusCode, errorCode, errorMessage, errorDetails, meta } =
       params;
 
-    // Default meta ensures the required `page` object exists. Users can merge
-    // their own additional meta via the `meta` parameter.
-    const defaultMeta: BaseMeta = {
-      page: {
-        title: "",
-        description: "",
-      },
-    };
+    // API responses should not include page metadata by default
+    // Only include meta if explicitly provided
+    const defaultMeta = {} as M;
 
     return {
       status: "error",
@@ -98,7 +90,7 @@ export class APIResponseHelpers {
       request_id: (request as { requestID?: string }).requestID ?? "unknown",
       type: "api",
       data: null,
-      meta: { ...(defaultMeta as M), ...(meta as Partial<M>) } as M,
+      meta: { ...defaultMeta, ...(meta as Partial<M>) } as M,
       error: {
         code: errorCode,
         message: errorMessage,
@@ -296,5 +288,78 @@ export class APIResponseHelpers {
     response: APIResponseEnvelope<T, M> | PageResponseEnvelope<T, M>,
   ): response is PageResponseEnvelope<T, M> {
     return response.type === "page";
+  }
+
+  /**
+   * Validates that an unknown value is a proper envelope object
+   * This is a catch-all validation function that checks for proper envelope structure
+   * without requiring specific typing - useful for runtime validation of handler responses
+   */
+  public static isValidEnvelope(
+    result: unknown,
+  ): result is PageResponseEnvelope | APIResponseEnvelope {
+    if (!result || typeof result !== "object") {
+      return false;
+    }
+
+    const envelope = result as Record<string, unknown>;
+
+    // Check required fields
+    const hasStatus =
+      typeof envelope.status === "string" &&
+      ["success", "error", "redirect"].includes(envelope.status);
+
+    const hasStatusCode = typeof envelope.status_code === "number";
+
+    const hasType =
+      typeof envelope.type === "string" &&
+      ["api", "page"].includes(envelope.type);
+
+    const hasRequestID = typeof envelope.request_id === "string";
+    const hasMeta = envelope.meta && typeof envelope.meta === "object";
+
+    // Basic structure validation
+    if (!hasStatus || !hasStatusCode || !hasType || !hasRequestID || !hasMeta) {
+      return false;
+    }
+
+    // Validate meta has required page field ONLY for page type envelopes
+    // API type envelopes do not require page metadata
+    if (envelope.type === "page") {
+      const meta = envelope.meta as Record<string, unknown>;
+
+      if (!meta.page || typeof meta.page !== "object") {
+        return false;
+      }
+
+      const page = meta.page as Record<string, unknown>;
+
+      if (
+        typeof page.title !== "string" ||
+        typeof page.description !== "string"
+      ) {
+        return false;
+      }
+    }
+
+    // Status-specific validation
+    if (envelope.status === "success") {
+      return envelope.data !== undefined && envelope.error === null;
+    } else if (envelope.status === "error") {
+      return (
+        envelope.data === null &&
+        envelope.error !== null &&
+        typeof envelope.error === "object"
+      );
+    } else if (envelope.status === "redirect") {
+      return (
+        envelope.data === null &&
+        envelope.error === null &&
+        envelope.redirect !== null &&
+        typeof envelope.redirect === "object"
+      );
+    }
+
+    return false;
   }
 }

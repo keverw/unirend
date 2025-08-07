@@ -7,6 +7,10 @@ import {
 } from "./server-utils";
 import type { APIServerOptions } from "../types";
 import { BaseServer } from "./BaseServer";
+import {
+  DataLoaderServerHandlerHelpers,
+  type PageDataHandler,
+} from "./DataLoaderServerHandlerHelpers";
 
 /**
  * API Server class for creating JSON API servers with plugin support
@@ -14,6 +18,7 @@ import { BaseServer } from "./BaseServer";
  */
 export class APIServer extends BaseServer {
   private options: APIServerOptions;
+  private pageDataHandlers!: DataLoaderServerHandlerHelpers;
 
   constructor(options: APIServerOptions = {}) {
     super();
@@ -21,6 +26,9 @@ export class APIServer extends BaseServer {
       isDevelopment: false,
       ...options,
     };
+
+    // Initialize page data handlers (available immediately for handler registration)
+    this.pageDataHandlers = new DataLoaderServerHandlerHelpers();
   }
 
   /**
@@ -73,6 +81,12 @@ export class APIServer extends BaseServer {
         await this.registerPlugins();
       }
 
+      // Register page data handler routes with Fastify
+      this.pageDataHandlers.registerRoutes(
+        this.fastifyInstance,
+        this.options.pageDataHandlers,
+      );
+
       // Start the server
       await this.fastifyInstance.listen({
         port,
@@ -96,6 +110,41 @@ export class APIServer extends BaseServer {
       await this.fastifyInstance.close();
       this._isListening = false;
       this.fastifyInstance = null;
+    }
+  }
+
+  /**
+   * Register a page data handler for the specified page type
+   * Provides method overloading for versioned and non-versioned handlers
+   */
+  registerDataLoaderHandler(pageType: string, handler: PageDataHandler): void;
+  registerDataLoaderHandler(
+    pageType: string,
+    version: number,
+    handler: PageDataHandler,
+  ): void;
+  registerDataLoaderHandler(
+    pageType: string,
+    versionOrHandler: number | PageDataHandler,
+    handler?: PageDataHandler,
+  ): void {
+    if (typeof versionOrHandler === "number") {
+      // Called with version: registerDataLoaderHandler(pageType, version, handler)
+      if (!handler) {
+        throw new Error("Handler is required when version is specified");
+      }
+
+      this.pageDataHandlers.registerDataLoaderHandler(
+        pageType,
+        versionOrHandler,
+        handler,
+      );
+    } else {
+      // Called without version: registerDataLoaderHandler(pageType, handler)
+      this.pageDataHandlers.registerDataLoaderHandler(
+        pageType,
+        versionOrHandler,
+      );
     }
   }
 
@@ -127,10 +176,8 @@ export class APIServer extends BaseServer {
             isPage,
           );
 
-          // Set status code if provided in response
-          const statusCode =
-            (errorResponse as Record<string, unknown> & { statusCode?: number })
-              .statusCode || 500;
+          // Extract status code from envelope response
+          const statusCode = errorResponse.status_code || 500;
           reply.status(statusCode);
 
           return errorResponse;
@@ -143,15 +190,17 @@ export class APIServer extends BaseServer {
         }
       }
 
-      // Default error response using shared utility
+      // Default case
       const statusCode = error.statusCode || 500;
       reply.status(statusCode);
 
-      return createDefaultAPIErrorResponse(
+      const response = createDefaultAPIErrorResponse(
         request,
         error,
         this.options.isDevelopment ?? false,
       );
+
+      return reply.send(response);
     });
   }
 
@@ -168,17 +217,22 @@ export class APIServer extends BaseServer {
       const rawPath = request.url.split("?")[0];
       const isPage = isPageDataRequest(rawPath);
 
-      const statusCode = 404;
-      reply.status(statusCode);
-
       // If user provided custom not-found handler, use it
       if (this.options.notFoundHandler) {
         const custom = await Promise.resolve(
           this.options.notFoundHandler(request, isPage),
         );
 
+        // Extract status code from envelope response
+        const statusCode = custom.status_code || 404;
+        reply.status(statusCode);
+
         return reply.send(custom);
       }
+
+      // Default case
+      const statusCode = 404;
+      reply.status(statusCode);
 
       const response = createDefaultAPINotFoundResponse(request);
       return reply.send(response);

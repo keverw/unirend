@@ -1,6 +1,10 @@
-import { RouteObject, Outlet } from "react-router";
-import { APIResponseHelpers } from "../../../src/lib/api-envelope/response-helpers";
+import { RouteObject, Outlet, useLoaderData, useParams } from "react-router";
+import { Helmet } from "react-helmet-async";
 import RouteErrorBoundary from "../../../src/lib/router-utils/RouteErrorBoundary";
+import {
+  createPageLoader,
+  createDefaultPageLoaderConfig,
+} from "../../../src/router-utils";
 import Home from "./pages/Home";
 import About from "./pages/About";
 import Contact from "./pages/Contact";
@@ -23,11 +27,76 @@ function App() {
           <GenericError data={errorResponse} />
         )
       ) : (
-      <Outlet />
+        <Outlet />
       )}
     </AppLayout>
   );
 }
+
+// Component to display page data JSON with proper layout and SEO
+const PageDataDisplay = () => {
+  const data = useLoaderData();
+  const params = useParams();
+
+  // Extract meta information for document title
+  const title = data?.meta?.page?.title || "Test Page Data";
+  const description =
+    data?.meta?.page?.description || "Test page response data";
+
+  return (
+    <>
+      <Helmet>
+        <title>{title}</title>
+        <meta name="description" content={description} />
+      </Helmet>
+
+      <main className="main-content">
+        <h1 className="hero-title">
+          {params.id ? `Test Page Data (ID: ${params.id})` : "Test Page Data"}
+        </h1>
+        <p className="hero-subtitle">
+          Debug page showing page data loader request and response details
+        </p>
+
+        <div className="card">
+          <h2>📋 Page Metadata</h2>
+          <p>
+            <strong>Title:</strong> {title}
+          </p>
+          <p>
+            <strong>Description:</strong> {description}
+          </p>
+        </div>
+
+        <div className="card">
+          <h2>🔍 Full Response Data</h2>
+          <pre
+            style={{
+              backgroundColor: "rgba(255, 255, 255, 0.1)",
+              padding: "1rem",
+              borderRadius: "0.5rem",
+              fontSize: "0.875rem",
+              overflow: "auto",
+              textAlign: "left",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              maxHeight: "70vh",
+              border: "1px solid rgba(255, 255, 255, 0.2)",
+            }}
+          >
+            {JSON.stringify(data, null, 2)}
+          </pre>
+        </div>
+      </main>
+    </>
+  );
+};
+
+// Shared page loader config
+const pageLoaderConfig = {
+  ...createDefaultPageLoaderConfig("http://localhost:3000"),
+  pageDataEndpoint: "/api/v1/page_data",
+};
 
 export const routes: RouteObject[] = [
   {
@@ -52,6 +121,17 @@ export const routes: RouteObject[] = [
         path: "contact",
         element: <Contact />,
       },
+      // test routes
+      {
+        path: "test-page-loader",
+        element: <PageDataDisplay />,
+        loader: createPageLoader(pageLoaderConfig, "test"),
+      },
+      {
+        path: "test-page-loader/:id",
+        element: <PageDataDisplay />,
+        loader: createPageLoader(pageLoaderConfig, "test"),
+      },
       {
         path: "test-error-thrown",
         element: null,
@@ -60,6 +140,28 @@ export const routes: RouteObject[] = [
             "Simulated error thrown from test-error-thrown loader",
           );
         },
+      },
+      {
+        path: "test-500",
+        element: null, // Should show an error handled by the App.tsx file
+        loader: createPageLoader(pageLoaderConfig, "test-500"),
+      },
+      {
+        path: "test-stacktrace",
+        element: null, // Should show an error handled by the App.tsx file
+        loader: createPageLoader(pageLoaderConfig, "test-stacktrace"),
+      },
+      {
+        path: "test-generic-error",
+        element: null, // Should show an error handled by the App.tsx file
+        loader: createPageLoader(pageLoaderConfig, "test-generic-error"),
+      },
+      // 404 handler route
+      {
+        // have the code before the outlet detect not found or generic errors instead
+        path: "*",
+        element: null,
+        loader: createPageLoader(pageLoaderConfig, "not-found"),
       },
     ],
   },

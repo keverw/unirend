@@ -5,6 +5,7 @@
       "name": "unirend",
       "dependencies": {
         "cheerio": "^1.1.0",
+        "fastify-plugin": "^5.0.1",
       },
       "devDependencies": {
         "@eslint/js": "^9.31.0",

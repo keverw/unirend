@@ -1,8 +1,19 @@
-import { Link } from "react-router";
+import { useEffect } from "react";
+import { Link, useLocation } from "react-router";
 import { useTheme } from "../providers/ThemeProvider";
 
 export function Header() {
   const { theme, toggleTheme, isHydrated } = useTheme();
+  const location = useLocation();
+
+  // Scroll to top when route changes
+  useEffect(() => {
+    // Regular pages scroll to top
+    window.scrollTo({
+      top: 0,
+      behavior: "instant",
+    });
+  }, [location.pathname]);
 
   return (
     <header className="header">

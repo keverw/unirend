@@ -6,6 +6,7 @@
  */
 
 import { serveAPI, type APIServerOptions } from "../src/server";
+// import { APIResponseHelpers } from "../src/api-envelope"; // Uncomment when using custom handlers
 
 async function runAPIServerDemo() {
   console.log("🚀 Starting API Server Demo...\n");
@@ -92,33 +93,85 @@ async function runAPIServerDemo() {
         });
       },
     ],
-    // errorHandler: (request, error, isDevelopment) => {
+    // errorHandler: (request, error, isDevelopment, isPage) => {
     //   console.error("🚨 API Error:", error.message);
 
-    //   return {
-    //     error: true,
-    //     message: error.message,
-    //     path: request.url,
-    //     method: request.method,
-    //     timestamp: new Date().toISOString(),
-    //     ...(isDevelopment && { stack: error.stack }),
-    //   };
+    //   // Return proper envelope response based on request type
+    //   if (isPage) {
+    //     // Page data request - return PageErrorResponse
+    //     return APIResponseHelpers.createPageErrorResponse({
+    //       request,
+    //       statusCode: 500,
+    //       errorCode: "internal_server_error",
+    //       errorMessage: error.message,
+    //       pageMetadata: {
+    //         title: "Server Error",
+    //         description:
+    //           "An internal server error occurred while processing your request",
+    //       },
+    //       errorDetails: {
+    //         path: request.url,
+    //         method: request.method,
+    //         timestamp: new Date().toISOString(),
+    //         ...(isDevelopment && { stack: error.stack }),
+    //       },
+    //     });
+    //   } else {
+    //     // API request - return APIErrorResponse
+    //     return APIResponseHelpers.createAPIErrorResponse({
+    //       request,
+    //       statusCode: 500,
+    //       errorCode: "internal_server_error",
+    //       errorMessage: error.message,
+    //       errorDetails: {
+    //         path: request.url,
+    //         method: request.method,
+    //         timestamp: new Date().toISOString(),
+    //         ...(isDevelopment && { stack: error.stack }),
+    //       },
+    //     });
+    //   }
     // },
     // notFoundHandler: (request, isPage) => {
     //   console.log("🔍 Custom 404 Handler:", request.url, "isPage:", isPage);
 
-    //   return {
-    //     error: true,
-    //     code: "not_found",
-    //     message: `Custom 404: ${isPage ? "Page" : "Resource"} not found`,
-    //     path: request.url,
-    //     method: request.method,
-    //     isPageRequest: isPage,
-    //     timestamp: new Date().toISOString(),
-    //     suggestion: isPage
-    //       ? "Try checking the page route or data loader"
-    //       : "Check the API endpoint URL",
-    //   };
+    //   // Return proper envelope response based on request type
+    //   if (isPage) {
+    //     // Page data request - return PageErrorResponse
+    //     return APIResponseHelpers.createPageErrorResponse({
+    //       request,
+    //       statusCode: 404,
+    //       errorCode: "not_found",
+    //       errorMessage: `Page data endpoint not found: ${request.url}`,
+    //       pageMetadata: {
+    //         title: "Page Not Found",
+    //         description: "The requested page data could not be found",
+    //       },
+    //       errorDetails: {
+    //         path: request.url,
+    //         method: request.method,
+    //         isPageRequest: true,
+    //         timestamp: new Date().toISOString(),
+    //         suggestion:
+    //           "Try checking the page route or data loader configuration",
+    //       },
+    //     });
+    //   } else {
+    //     // API request - return APIErrorResponse
+    //     return APIResponseHelpers.createAPIErrorResponse({
+    //       request,
+    //       statusCode: 404,
+    //       errorCode: "not_found",
+    //       errorMessage: `API endpoint not found: ${request.url}`,
+    //       errorDetails: {
+    //         path: request.url,
+    //         method: request.method,
+    //         isPageRequest: false,
+    //         timestamp: new Date().toISOString(),
+    //         suggestion: "Check the API endpoint URL and method",
+    //       },
+    //     });
+    //   }
     // },
     fastifyOptions: {
       logger: {

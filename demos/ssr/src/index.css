@@ -194,6 +194,115 @@ a:hover {
   color: #ff6b6b;
 }
 
+/* Demo Button Styles */
+.demo-button {
+  display: inline-block;
+  padding: 0.75rem 1.5rem;
+  color: white;
+  text-decoration: none;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  border: none;
+  cursor: pointer;
+}
+
+.demo-button:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Error Boundary Buttons */
+.btn-coral {
+  background-color: #ff6b6b;
+}
+
+.btn-coral:hover {
+  background-color: #e55a5a;
+  color: white !important;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+}
+
+.btn-orange {
+  background-color: #ffa726;
+}
+
+.btn-orange:hover {
+  background-color: #e6951f;
+  color: white !important;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Page Data Loader Buttons */
+.btn-teal {
+  background-color: #4ecdc4;
+}
+
+.btn-teal:hover {
+  background-color: #45b8b0;
+  color: white !important;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+}
+
+.btn-blue {
+  background-color: #45b7d1;
+}
+
+.btn-blue:hover {
+  background-color: #3ea5bc;
+  color: white !important;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+}
+
+.btn-green {
+  background-color: #96ceb4;
+}
+
+.btn-green:hover {
+  background-color: #85b9a2;
+  color: white !important;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Error Handling Test Buttons */
+.btn-red {
+  background-color: #ff6b6b;
+}
+
+.btn-red:hover {
+  background-color: #e55a5a;
+  color: white !important;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+}
+
+.btn-orange-alt {
+  background-color: #ff8e53;
+}
+
+.btn-orange-alt:hover {
+  background-color: #e67f4a;
+  color: white !important;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+}
+
+.btn-yellow {
+  background-color: #ffb74d;
+}
+
+.btn-yellow:hover {
+  background-color: #e6a444;
+  color: white !important;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
   .header-content {

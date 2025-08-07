@@ -59,12 +59,12 @@ export interface PageLoaderConfig {
   /** Base URL for the API server (e.g., "http://localhost:3001" or "https://api.example.com") */
   apiBaseUrl: string;
   /**
-   * Page data endpoint path (e.g., "/v1/page_data" or "/api/page_data")
+   * Page data endpoint path (e.g., "/api/v1/page_data" or "/api/page_data")
    *
    * This path will be appended to the apiBaseUrl to form the complete endpoint URL.
    * The pageType will be appended to this path: `{apiBaseUrl}{pageDataEndpoint}/{pageType}`
    *
-   * @default "/v1/page_data"
+   * @default "/api/v1/page_data"
    */
   pageDataEndpoint?: string;
   /** Default error constants for common scenarios */

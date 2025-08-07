@@ -9,7 +9,7 @@
  * How it works:
  * 1. Each route uses createPageLoader(config, pageType) to create a loader for that route
  * 2. The pageLoader makes a POST request to {apiBaseUrl}{pageDataEndpoint}/{pageType} with route params and query params
- *    (default endpoint: /v1/page_data/{pageType}, configurable via pageDataEndpoint option)
+ *    (default endpoint: /api/v1/page_data/{pageType}, configurable via pageDataEndpoint option)
  * 3. The API server handles the request and returns data in a standardized response format
  * 4. The loader processes the response, handling errors, redirects, and authentication
  *
@@ -32,7 +32,7 @@
  * // Or create a custom configuration with your own titles/branding
  * const customConfig = {
  *   apiBaseUrl: 'https://api.myapp.com',
- *   pageDataEndpoint: '/api/page_data', // Custom page data endpoint (default: '/v1/page_data')
+ *   pageDataEndpoint: '/api/v1/page_data', // Custom page data endpoint (default: '/api/v1/page_data')
  *   loginUrl: '/auth/login',
  *   returnToParam: 'redirect_to', // Custom query param name for login redirects
  *   isDevelopment: true, // Explicitly set for Bun/Deno compatibility

@@ -68,7 +68,7 @@ export const DEFAULT_CONNECTION_ERROR_MESSAGES = {
 
 export const DEFAULT_LOGIN_URL = "/login";
 export const DEFAULT_RETURN_TO_PARAM = "return_to";
-export const DEFAULT_PAGE_DATA_ENDPOINT = "/v1/page_data";
+export const DEFAULT_PAGE_DATA_ENDPOINT = "/api/v1/page_data";
 export const DEFAULT_TIMEOUT_MS = 10000; // 10 seconds
 
 /**
