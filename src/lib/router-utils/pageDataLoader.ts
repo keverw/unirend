@@ -837,8 +837,18 @@ export async function pageLoader({
             );
           }
 
-          // Use a safe, user-facing message; do not expose internal error messages
-          const message = config.errorDefaults.internalError.message;
+          // Choose a clearer message for internal handler timeouts vs. generic internal errors
+          const isHandlerTimeout =
+            internalError instanceof Error &&
+            (internalError as unknown as { errorCode?: string }).errorCode ===
+              "handler_timeout";
+
+          // Safe, user-facing messages; do not expose internal error messages
+          // For internal timeouts, reuse the server connection error message if provided
+          const message = isHandlerTimeout
+            ? config.connectionErrorMessages?.server ||
+              DEFAULT_CONNECTION_ERROR_MESSAGES.server
+            : config.errorDefaults.internalError.message;
 
           // Return a 500 error envelope immediately to avoid reattempt via HTTP
           return decorateWithSsrOnlyData(
@@ -855,6 +865,14 @@ export async function pageLoader({
                       name: internalError.name,
                       message: internalError.message,
                       stack: internalError.stack,
+                      ...(isHandlerTimeout
+                        ? {
+                            errorCode: "handler_timeout",
+                            timeoutMs: (
+                              internalError as unknown as { timeoutMs?: number }
+                            ).timeoutMs,
+                          }
+                        : {}),
                     }
                   : { value: String(internalError) }
                 : undefined,
