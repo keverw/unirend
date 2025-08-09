@@ -15,7 +15,7 @@ const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
 
   // Only set detailsToShow in development mode, and prioritize stacktrace over message
   const detailsToShow =
-    process.env.NODE_ENV !== "production"
+    process.env.NODE_ENV === "development"
       ? (data?.error?.details?.stacktrace as string | undefined) || message
       : null;
 

@@ -73,13 +73,15 @@ export interface PageLoaderConfig {
    * Whether the application is running in development mode
    *
    * When true, detailed error information (like stack traces and error details)
-   * will be included in error responses. When false, only user-friendly messages
-   * are included for security.
+   * may be included in error responses. When false, only user-friendly messages
+   * are included for security. On the server, if provided, the SSR server's
+   * isDevelopment flag is authoritative; otherwise this value is used. As a
+   * final fallback, NODE_ENV === "development" is treated as development.
    *
-   * Defaults to checking process.env.NODE_ENV !== "production" if not explicitly set,
-   * but you should explicitly set this for better Bun/Deno compatibility.
+   * Defaults to checking process.env.NODE_ENV === "development" if not explicitly set,
+   * but you should explicitly set this for better Bun/Deno compatibility and clarity.
    *
-   * @default process.env.NODE_ENV !== "production"
+   * @default process.env.NODE_ENV === "development"
    */
   isDevelopment?: boolean;
   /** Connection error messages for network failures */

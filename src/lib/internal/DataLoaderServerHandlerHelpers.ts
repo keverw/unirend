@@ -8,10 +8,22 @@ import { APIResponseHelpers } from "../api-envelope/response-helpers";
 
 /**
  * Parameters passed to page data handlers with shortcuts to common fields
+ *
+ * Handlers should treat these params as the authoritative routing context
+ * (route_params, query_params, request_path, original_url) produced by the
+ * page data loader. Do not reconstruct routing info from the Fastify request.
+ *
+ * The Fastify request represents the original HTTP request and should be used
+ * only for transport/ambient data (cookies, headers, IP, auth tokens, etc.).
+ * During SSR, this is the same request that initiated the page render; after
+ * hydration, client-side page data loader calls will include their own
+ * transport context as appropriate.
  */
 export interface PageDataHandlerParams {
   pageType: string;
   version?: number;
+  /** Indicates how the handler was invoked: via HTTP route or internal short-circuit */
+  invocation_origin: "http" | "internal";
   // Shortcuts to common page data loader fields (extracted from request.body)
   route_params: Record<string, string>;
   query_params: Record<string, string>;
@@ -36,8 +48,8 @@ export interface PageDataHandlersConfig {
 /**
  * Handler function type for page data endpoints
  *
- * @param request - The Fastify request object (for cookies, headers, etc.)
- * @param params - Page data information with shortcuts to common fields
+ * @param request - The Fastify request object (original request). Use for cookies, headers, IP, etc.
+ * @param params - Page data context (preferred for page routing: path, query, route params)
  * @returns A PageResponseEnvelope (recommended) or APIResponseEnvelope (will be converted)
  *
  * **Recommendation**: Return PageResponseEnvelope for optimal performance and control.
@@ -45,12 +57,25 @@ export interface PageDataHandlersConfig {
  * adds overhead and may not preserve all metadata as intended.
  */
 export type PageDataHandler<T = unknown, M extends BaseMeta = BaseMeta> = (
-  request: FastifyRequest,
+  /** Original HTTP request (for cookies/headers/IP/auth) */
+  originalRequest: FastifyRequest,
   params: PageDataHandlerParams,
 ) =>
   | Promise<PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M>>
   | PageResponseEnvelope<T, M>
   | APIResponseEnvelope<T, M>;
+
+/**
+ * Result returned from callHandler()
+ */
+export interface CallHandlerResult<T = unknown, M extends BaseMeta = BaseMeta> {
+  /** Whether a handler exists for the given page type */
+  exists: boolean;
+  /** Version that was used when invoking the handler (if it exists) */
+  version?: number;
+  /** The envelope returned by the handler when successful */
+  result?: PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M>;
+}
 
 /**
  * Helper class for registering page data handlers on server instances
@@ -65,6 +90,27 @@ export type PageDataHandler<T = unknown, M extends BaseMeta = BaseMeta> = (
 export class DataLoaderServerHandlerHelpers {
   // Map<pageType, Map<version, handler>> - version defaults to 1 if not specified
   private handlersByPageType = new Map<string, Map<number, PageDataHandler>>();
+
+  /**
+   * Returns the latest (highest) version registered for a given page type
+   */
+  private getLatestVersion(pageType: string): number | undefined {
+    const versionMap = this.handlersByPageType.get(pageType);
+
+    if (!versionMap || versionMap.size === 0) {
+      return undefined;
+    }
+
+    let latestVersion = -Infinity;
+
+    for (const version of versionMap.keys()) {
+      if (version > latestVersion) {
+        latestVersion = version;
+      }
+    }
+
+    return Number.isFinite(latestVersion) ? latestVersion : undefined;
+  }
 
   /**
    * Register a page data handler without explicit version (uses default version if versioned)
@@ -174,6 +220,7 @@ export class DataLoaderServerHandlerHelpers {
             const result = await handler(request, {
               pageType,
               version,
+              invocation_origin: "http",
               // Shortcuts to common page data loader fields
               route_params:
                 (requestBody.route_params as Record<string, string>) || {},
@@ -234,6 +281,134 @@ export class DataLoaderServerHandlerHelpers {
         });
       }
     }
+  }
+
+  /**
+   * Programmatically invoke the latest registered handler for a page type.
+   *
+   * - Selects the highest version registered for the provided page type
+   * - Supports an optional timeout (milliseconds). On timeout, throws an Error
+   *   (mirrors fetch-style timeout behavior).
+   * - Returns an object indicating existence and the handler's envelope when available
+   */
+  public async callHandler<
+    T = unknown,
+    M extends BaseMeta = BaseMeta,
+  >(options: {
+    /** Original HTTP request (for cookies/headers/IP/auth) */
+    originalRequest: FastifyRequest;
+    pageType: string;
+    /** Timeout in milliseconds; if omitted or <= 0, no timeout is applied */
+    timeoutMs?: number;
+    /** Route params from the router (must match pageDataLoader's route_params) */
+    routeParams: Record<string, string>;
+    /** Query params from the URL (must match pageDataLoader's query_params) */
+    queryParams: Record<string, string>;
+    /** Request path (must match pageDataLoader's request_path) */
+    requestPath: string;
+    /** Original URL (must match pageDataLoader's original_url) */
+    originalUrl: string;
+  }): Promise<CallHandlerResult<T, M>> {
+    const {
+      originalRequest,
+      pageType,
+      timeoutMs,
+      routeParams,
+      queryParams,
+      requestPath,
+      originalUrl,
+    } = options;
+
+    const versionMap = this.handlersByPageType.get(pageType);
+    if (!versionMap || versionMap.size === 0) {
+      return { exists: false };
+    }
+
+    const latestVersion = this.getLatestVersion(pageType);
+    if (latestVersion === undefined) {
+      return { exists: false };
+    }
+
+    const handlerUncast = versionMap.get(latestVersion);
+    if (!handlerUncast) {
+      return { exists: false };
+    }
+
+    const handler = handlerUncast as PageDataHandler<T, M>;
+
+    const finalParams: PageDataHandlerParams = {
+      pageType,
+      version: latestVersion,
+      invocation_origin: "internal",
+      route_params: routeParams,
+      query_params: queryParams,
+      request_path: requestPath,
+      original_url: originalUrl,
+    };
+
+    const invocation = Promise.resolve(handler(originalRequest, finalParams));
+
+    // Build a single promise that either resolves to the handler result or rejects on timeout
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    const resultPromise: Promise<
+      PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M>
+    > =
+      // Check if a timeout is specified
+      !timeoutMs || timeoutMs <= 0
+        ? // No timeout specified, return the handler result immediately
+          // Handler promise when no timer is specified
+          (invocation as Promise<
+            PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M>
+          >)
+        : // If a timeout is specified, race the handler promise with a timer promise
+          (Promise.race([
+            // Handler promise
+            invocation,
+            // Timer promise
+            new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(() => {
+                const error = new Error(`Request timeout after ${timeoutMs}ms`);
+                (error as unknown as { pageType: string }).pageType = pageType;
+                (error as unknown as { version: number }).version =
+                  latestVersion;
+                (error as unknown as { timeoutMs: number }).timeoutMs =
+                  timeoutMs as number;
+                (error as unknown as { errorCode: string }).errorCode =
+                  "handler_timeout";
+                reject(error);
+              }, timeoutMs);
+            }),
+          ]) as Promise<
+            PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M>
+          >);
+
+    // Ensure the timeout is cleared regardless of timeout path
+    const result = await resultPromise.finally(() => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    });
+
+    // Validate once regardless of timeout path
+    if (!APIResponseHelpers.isValidEnvelope(result)) {
+      const error = new Error(
+        `Handler for page type "${pageType}" returned invalid response envelope`,
+      );
+      (error as unknown as { pageType: string }).pageType = pageType;
+      (error as unknown as { version: number }).version = latestVersion;
+      (error as unknown as { handlerResponse: unknown }).handlerResponse =
+        result;
+      (
+        error as unknown as { handlerResponseType: string }
+      ).handlerResponseType =
+        typeof result === "object" ? "invalid_object" : typeof result;
+      (error as unknown as { errorCode: string }).errorCode =
+        "invalid_handler_response";
+      throw error;
+    }
+
+    return { exists: true, version: latestVersion, result };
   }
 
   /**

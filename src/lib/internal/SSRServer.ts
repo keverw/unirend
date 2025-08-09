@@ -5,6 +5,7 @@ import {
   ServeSSRProdOptions,
   SSRDevPaths,
   StaticRouterOptions,
+  type SSRHelper,
 } from "../types";
 import {
   readHTMLFile,
@@ -337,6 +338,26 @@ export class SSRServer extends BaseServer {
               signal: AbortSignal.timeout(5000),
             },
           );
+
+          // Attach SSRHelper for server-only access in loaders
+          const ssrHelper: SSRHelper = {
+            fastifyRequest: request,
+            handlers: this.pageDataHandlers,
+            isDevelopment: this.config.mode === "development",
+          } as const;
+
+          try {
+            Object.defineProperty(fetchRequest, "SSRHelper", {
+              value: ssrHelper,
+              enumerable: false,
+              configurable: false,
+              writable: false,
+            });
+          } catch {
+            // If defineProperty fails for any reason, fallback to direct assignment
+            (fetchRequest as unknown as { SSRHelper?: SSRHelper }).SSRHelper =
+              ssrHelper;
+          }
 
           // --- Render the App ---
           try {

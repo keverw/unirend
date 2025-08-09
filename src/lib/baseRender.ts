@@ -10,6 +10,9 @@ import { wrapStaticRouter } from "./internal/wrapAppElement";
 import { renderToString } from "react-dom/server";
 import { type HelmetServerState } from "react-helmet-async";
 
+// Debug flag to enable/disable logging in the base renderer
+const DEBUG_BASE_RENDER = false; // Set to false in a production release
+
 /**
  * Options for base rendering, simplified API
  */
@@ -78,7 +81,11 @@ export async function unirendBaseRender(
   try {
     context = await handler.query(renderRequest.fetchRequest);
   } catch (e) {
-    console.error("Error querying static handler:", e);
+    if (DEBUG_BASE_RENDER) {
+      // eslint-disable-next-line no-console
+      console.error("Error querying static handler:", e);
+    }
+
     // Return error result instead of generic 500 response
     return {
       resultType: "render-error",
@@ -90,7 +97,8 @@ export async function unirendBaseRender(
   // If the handler returns a Response, it's a redirect or error, pass it along
   if (context instanceof Response) {
     // Log redirects for debugging
-    if (context.status >= 300 && context.status < 400) {
+    if (DEBUG_BASE_RENDER && context.status >= 300 && context.status < 400) {
+      // eslint-disable-next-line no-console
       console.log(`Redirecting to: ${context.headers.get("Location")}`);
     }
 
@@ -104,10 +112,13 @@ export async function unirendBaseRender(
 
   // Ensure context is not undefined or null before proceeding
   if (!context) {
-    console.error(
-      "Static handler query returned undefined context for request:",
-      renderRequest.fetchRequest.url,
-    );
+    if (DEBUG_BASE_RENDER) {
+      // eslint-disable-next-line no-console
+      console.error(
+        "Static handler query returned undefined context for request:",
+        renderRequest.fetchRequest.url,
+      );
+    }
 
     // When throwing here, it won't return RenderResult, but the catch block
     // in server.ts handles this. This throw is correct.
@@ -182,7 +193,7 @@ export async function unirendBaseRender(
         }
 
         // Mark this as an API envelope error
-        (errorObj as any).source = "api-envelope";
+        (errorObj as Error & { source?: string }).source = "api-envelope";
 
         errorDetails = errorObj;
         foundDataInThisEntry = true;
@@ -200,7 +211,7 @@ export async function unirendBaseRender(
     router,
     context,
     {
-    strictMode: options.strictMode,
+      strictMode: options.strictMode,
       wrapProviders: options.wrapProviders,
     },
     helmetContext,

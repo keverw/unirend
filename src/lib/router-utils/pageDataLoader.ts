@@ -187,6 +187,7 @@ import {
   BaseMeta,
   ErrorDetails,
 } from "../api-envelope/api-envelope-types";
+import type { SSRHelper } from "../types";
 import {
   createBaseHeaders,
   decorateWithSsrOnlyData,
@@ -593,7 +594,7 @@ async function processApiResponse(
                   responseData?.meta,
                   // If in development mode, include error details
                   (config.isDevelopment ??
-                    process.env.NODE_ENV !== "production")
+                    process.env.NODE_ENV === "development")
                     ? responseData?.error?.details
                     : undefined,
                 ),
@@ -732,11 +733,24 @@ export async function pageLoader({
   config,
 }: PageLoaderOptions): Promise<PageResponseEnvelope> {
   const isServer = typeof window === "undefined";
+  // Unified development mode flag derived in order of precedence:
+  // 1) SSRHelper (authoritative on server), 2) config.isDevelopment, 3) NODE_ENV
+  const ssrHelper = (request as unknown as { SSRHelper?: SSRHelper }).SSRHelper;
+
+  const isDevelopment =
+    (isServer ? ssrHelper?.isDevelopment : undefined) ??
+    config.isDevelopment ??
+    process.env.NODE_ENV === "development";
 
   // Get the API server URL (already normalized)
   const apiBaseUrl = config.apiBaseUrl;
   const pageDataEndpoint =
     config.pageDataEndpoint || DEFAULT_PAGE_DATA_ENDPOINT;
+
+  // Single source of truth for the external page-data URL
+  // Note: Internal short-circuit calls do NOT rely on this URL; they reuse the
+  // same routing context we place in requestBody (route_params, query_params,
+  // request_path, original_url) to ensure consistency.
   const apiEndpoint = `${apiBaseUrl}${pageDataEndpoint}/${pageType}`;
 
   // build the request body
@@ -762,7 +776,92 @@ export async function pageLoader({
   try {
     if (isServer) {
       if (DEBUG_PAGE_LOADER) {
-        console.log(`Server side data fetching for ${pageType} page`);
+        const ssrHelper = (request as unknown as { SSRHelper?: SSRHelper })
+          .SSRHelper;
+        const hasInternalHandler = !!ssrHelper?.handlers?.hasHandler(pageType);
+
+        console.log("[pageLoader] server-side data fetching decision", {
+          pageType,
+          ssrHelperAttached: !!ssrHelper,
+          hasInternalHandler,
+          strategy: hasInternalHandler
+            ? "internal_short_circuit"
+            : "http_fetch",
+        });
+      }
+
+      // If SSRHelper is available (not undefined) and there is a registered handler, try internal call first before falling back to HTTP fetch
+      if (ssrHelper?.handlers?.hasHandler(pageType)) {
+        // Note: internal_short_circuit selected
+
+        try {
+          const outcome = await ssrHelper.handlers.callHandler({
+            originalRequest: ssrHelper.fastifyRequest,
+            pageType,
+            timeoutMs: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+            // Pass the exact same data that would be in the POST body
+            routeParams: requestBody.route_params,
+            queryParams: requestBody.query_params,
+            requestPath: requestBody.request_path,
+            originalUrl: requestBody.original_url,
+          });
+
+          if (outcome.exists && outcome.result) {
+            // Internal handler returned an envelope
+            const result = outcome.result as PageResponseEnvelope;
+
+            if (result.type === "page") {
+              if (
+                result.status === "redirect" &&
+                result.type === "page" &&
+                result.redirect
+              ) {
+                return processRedirectResponse(
+                  config,
+                  result as unknown as Record<string, unknown>,
+                  {},
+                );
+              }
+
+              return decorateWithSsrOnlyData(result, {});
+            }
+          } else if (DEBUG_PAGE_LOADER) {
+            // No internal handler; fall back to HTTP fetch
+            console.warn(`[pageLoader] fallback to http_fetch for ${pageType}`);
+          }
+        } catch (internalError) {
+          if (DEBUG_PAGE_LOADER) {
+            console.error(
+              `[pageLoader] Internal handler error for ${pageType}; converting to 500 error`,
+              internalError,
+            );
+          }
+
+          // Use a safe, user-facing message; do not expose internal error messages
+          const message = config.errorDefaults.internalError.message;
+
+          // Return a 500 error envelope immediately to avoid reattempt via HTTP
+          return decorateWithSsrOnlyData(
+            createErrorResponse(
+              config,
+              500,
+              config.errorDefaults.internalError.code,
+              message,
+              undefined,
+              undefined,
+              isDevelopment
+                ? internalError instanceof Error
+                  ? {
+                      name: internalError.name,
+                      message: internalError.message,
+                      stack: internalError.stack,
+                    }
+                  : { value: String(internalError) }
+                : undefined,
+            ),
+            {},
+          );
+        }
       }
 
       // Set to JSON and copy relevant headers from ssr request to api server

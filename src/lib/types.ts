@@ -8,7 +8,10 @@ import type {
   FastifySchema,
   preHandlerHookHandler,
 } from "fastify";
-import type { PageDataHandlersConfig } from "./internal/DataLoaderServerHandlerHelpers";
+import type {
+  PageDataHandlersConfig,
+  DataLoaderServerHandlerHelpers,
+} from "./internal/DataLoaderServerHandlerHelpers";
 import type {
   APIErrorResponse,
   PageErrorResponse,
@@ -18,6 +21,16 @@ import type {
 export interface IRenderRequest {
   type: renderType;
   fetchRequest: Request;
+}
+
+/**
+ * Helper object attached to SSR Fetch Request for server-only context
+ */
+export interface SSRHelper {
+  fastifyRequest: FastifyRequest;
+  handlers: DataLoaderServerHandlerHelpers;
+  /** True when SSR server is running in development mode */
+  isDevelopment?: boolean;
 }
 
 /**

@@ -211,6 +211,7 @@ function registerPageDataHandlers(server: SSRServer) {
           message: "Test page data handler response",
           pageType: params.pageType,
           version: params.version,
+          invocation_origin: params.invocation_origin,
           timestamp: new Date().toISOString(),
           request: {
             method: request.method,
@@ -259,6 +260,7 @@ function registerPageDataHandlers(server: SSRServer) {
             "This is a simulated 500 error response (not a thrown error)",
           details: {
             context: "This is a simulated 500 error response for testing",
+            invocation_origin: _params.invocation_origin,
             timestamp: new Date().toISOString(),
           },
         },
@@ -300,6 +302,7 @@ function registerPageDataHandlers(server: SSRServer) {
           details: {
             context:
               "This is a simulated error response that includes a stacktrace",
+            invocation_origin: params.invocation_origin,
             timestamp: new Date().toISOString(),
             stacktrace,
           },
@@ -330,6 +333,7 @@ function registerPageDataHandlers(server: SSRServer) {
           details: {
             context:
               "This is a demo of a generic error page that is not a 404 or a 500",
+            invocation_origin: _params.invocation_origin,
             timestamp: new Date().toISOString(),
           },
         },
@@ -362,6 +366,7 @@ function registerPageDataHandlers(server: SSRServer) {
           message: "The requested resource was not found",
           details: {
             context: `The requested path '${requestPath}' could not be found`,
+            invocation_origin: params.invocation_origin,
             timestamp: new Date().toISOString(),
           },
         },
@@ -786,16 +791,16 @@ const requestTrackingPlugin: SSRPlugin = async (
   console.log(`🔍 Registering request tracking plugin (${options.mode} mode)`);
 
   // Add request ID decorator
-  fastify.decorateRequest("requestId", null);
+  fastify.decorateRequest("requestID", null);
 
   // Add custom hook for request IDs
   fastify.addHook("onRequest", async (request, reply) => {
     // Generate unique request ID for tracking
-    const requestWithId = request as FastifyRequest & { requestId: string };
-    requestWithId.requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const requestWithId = request as FastifyRequest & { requestID: string };
+    requestWithId.requestID = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // Add request ID to response headers for debugging/tracing
-    reply.header("X-Request-ID", requestWithId.requestId);
+    reply.header("X-Request-ID", requestWithId.requestID);
 
     // Optional: Add environment info in development
     if (options.isDevelopment) {
