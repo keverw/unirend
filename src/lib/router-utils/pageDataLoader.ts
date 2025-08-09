@@ -186,6 +186,7 @@ import {
   RedirectInfo,
   BaseMeta,
   ErrorDetails,
+  APIResponseEnvelope,
 } from "../api-envelope/api-envelope-types";
 import type { SSRHelper } from "../types";
 import {
@@ -194,7 +195,14 @@ import {
   fetchWithTimeout,
   isSafeRedirect,
 } from "./pageDataLoader-utils";
-import { PageLoaderConfig, PageLoaderOptions } from "./pageDataLoader-types";
+import {
+  PageLoaderConfig,
+  PageLoaderOptions,
+  LocalPageHandler,
+  LocalPageHandlerParams,
+  LocalPageLoaderConfig,
+} from "./pageDataLoader-types";
+import { APIResponseHelpers } from "../api-envelope/response-helpers";
 import {
   DEFAULT_CONNECTION_ERROR_MESSAGES,
   DEFAULT_ERROR_DEFAULTS,
@@ -232,9 +240,34 @@ export function createDefaultPageLoaderConfig(
 }
 
 // Define a factory function to create page loaders with specific page types
-export function createPageLoader(config: PageLoaderConfig, pageType: string) {
-  return ({ request, params }: LoaderFunctionArgs) =>
-    pageLoader({ request, params, pageType, config });
+export function createPageLoader(
+  config: PageLoaderConfig,
+  pageType: string,
+): (args: LoaderFunctionArgs) => Promise<unknown>;
+export function createPageLoader(
+  config: LocalPageLoaderConfig,
+  handler: LocalPageHandler,
+): (args: LoaderFunctionArgs) => Promise<unknown>;
+export function createPageLoader(
+  config: PageLoaderConfig | LocalPageLoaderConfig,
+  pageTypeOrHandler: string | LocalPageHandler,
+) {
+  // If the pageTypeOrHandler is a string, create a page loader that uses the page type
+  if (typeof pageTypeOrHandler === "string") {
+    const pageType = pageTypeOrHandler;
+    return ({ request, params }: LoaderFunctionArgs) =>
+      pageLoader({
+        request,
+        params,
+        pageType,
+        config: config as PageLoaderConfig,
+      });
+  }
+
+  // If the pageTypeOrHandler is a LocalPageHandler, create a page loader that uses the handler
+  const handler = pageTypeOrHandler as LocalPageHandler;
+  return (args: LoaderFunctionArgs) =>
+    localPageLoader(config as LocalPageLoaderConfig, handler, args);
 }
 
 /**
@@ -245,7 +278,7 @@ export function createPageLoader(config: PageLoaderConfig, pageType: string) {
  * contains fields from the original API response that should be preserved (like account info).
  */
 function createErrorResponse(
-  config: PageLoaderConfig,
+  config: PageLoaderConfig | LocalPageLoaderConfig,
   statusCode: number,
   errorCode: string,
   message: string,
@@ -364,7 +397,7 @@ function tryCustomStatusHandler(
 }
 
 async function processRedirectResponse(
-  config: PageLoaderConfig,
+  config: PageLoaderConfig | LocalPageLoaderConfig,
   responseData: Record<string, unknown>,
   ssrOnlyData: Record<string, unknown>,
 ): Promise<PageResponseEnvelope> {
@@ -726,7 +759,7 @@ async function processApiResponse(
 /**
  * Main page loader function that handles data fetching for a specific page type
  */
-export async function pageLoader({
+async function pageLoader({
   request,
   params,
   pageType,
@@ -762,6 +795,7 @@ export async function pageLoader({
     routeParams[key] = value || "";
   }
 
+  // Assemble the request body
   const requestBody = {
     route_params: routeParams, // react router params
     query_params: Object.fromEntries(
@@ -1005,6 +1039,170 @@ export async function pageLoader({
         friendlyMessage,
       ),
       {}, // No SSR-only data for failed fetches
+    );
+  }
+}
+
+/**
+ * Local page loader (framework does not perform HTTP)
+ *
+ * Purpose:
+ * - Run a page data handler locally without the framework doing an HTTP fetch
+ * - Preserve the same ergonomics as the normal loader: timeout handling,
+ *   redirect support, envelope validation, and consistent error envelopes
+ *
+ * Notes:
+ * - Your handler may still perform its own fetch/database calls; the timeout
+ *   here applies to the entire handler execution
+ * - The handler receives `LocalPageHandlerParams` (no Fastify request object)
+ * - `invocation_origin` is set to "local" for debugging
+ * - Timeout uses `config.timeoutMs` (0 disables); timeout message mirrors the
+ *   HTTP path by using `connectionErrorMessages.server` when available
+ */
+async function localPageLoader<T = unknown, M extends BaseMeta = BaseMeta>(
+  config: LocalPageLoaderConfig,
+  handler: LocalPageHandler<T, M>,
+  { request, params }: LoaderFunctionArgs,
+): Promise<unknown> {
+  const url = new URL(request.url);
+
+  // Convert params to ensure all values are strings
+  const routeParams: Record<string, string> = {};
+  for (const [key, value] of Object.entries(params)) {
+    routeParams[key] = value || "";
+  }
+
+  // Assemble the local handler params with origin and routing context
+  const localParams: LocalPageHandlerParams = {
+    pageType: "local",
+    invocation_origin: "local",
+    route_params: routeParams,
+    query_params: Object.fromEntries(url.searchParams.entries()),
+    request_path: url.pathname,
+    original_url: request.url,
+  };
+
+  // Configure timeout (0 disables)
+  const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  // Defer invocation to the microtask queue and normalize to a Promise.
+  // Using Promise.resolve().then(() => ...) ensures synchronous throws from
+  // the handler become Promise rejections instead of escaping before our
+  // timeout race is set up. Non-Promise returns are treated as resolved values.
+  const invocation = Promise.resolve().then(() => handler(localParams));
+
+  // Attach a no-op catch when using a timeout to prevent a possible
+  // unhandledRejection if the timeout "wins" and the handler later rejects.
+  if (timeoutMs && timeoutMs > 0) {
+    void invocation.catch(() => {});
+  }
+
+  // Track the timeout ID to ensure it is cleared regardless of timeout path
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  // Build a single promise that either resolves to the handler result or rejects on timeout
+  const resultPromise: Promise<PageResponseEnvelope | APIResponseEnvelope> =
+    // Check if a timeout is specified
+    !timeoutMs || timeoutMs <= 0
+      ? // No timeout specified, return the handler result immediately
+        // Handler promise when no timer is specified
+        (invocation as Promise<PageResponseEnvelope | APIResponseEnvelope>)
+      : // If a timeout is specified, race the handler promise with a timer promise
+        (Promise.race([
+          // Handler promise
+          invocation,
+          // Timer promise
+          new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => {
+              const error = new Error(`Request timeout after ${timeoutMs}ms`);
+              (error as unknown as { errorCode: string }).errorCode =
+                "handler_timeout";
+              (error as unknown as { timeoutMs: number }).timeoutMs = timeoutMs;
+              reject(error);
+            }, timeoutMs);
+          }),
+        ]) as Promise<PageResponseEnvelope | APIResponseEnvelope>);
+
+  try {
+    // Ensure timer cleared regardless of outcome
+    const result = await resultPromise.finally(() => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    });
+
+    // Validate that the handler returned a proper envelope object
+    if (!APIResponseHelpers.isValidEnvelope(result)) {
+      return createErrorResponse(
+        config,
+        500,
+        config.errorDefaults.invalidResponse.code,
+        config.errorDefaults.invalidResponse.message,
+      );
+    }
+
+    // Handle API-style redirect envelopes (status: "redirect")
+    if (
+      result.status === "redirect" &&
+      result.type === "page" &&
+      result.redirect
+    ) {
+      return processRedirectResponse(
+        config,
+        result as unknown as Record<string, unknown>,
+        {},
+      );
+    }
+
+    // Success or error envelopes are returned as-is and decorated
+    return decorateWithSsrOnlyData(result as PageResponseEnvelope, {});
+  } catch (internalError) {
+    // Determine dev mode (mirrors pageLoader)
+    const isDevelopment =
+      typeof process !== "undefined"
+        ? process.env.NODE_ENV === "development"
+        : config.isDevelopment === true;
+
+    // Identify timeout errors produced by the race above
+    const isHandlerTimeout =
+      internalError instanceof Error &&
+      (internalError as unknown as { errorCode?: string }).errorCode ===
+        "handler_timeout";
+
+    // Friendly message parity with HTTP fetch timeouts
+    const message = isHandlerTimeout
+      ? config.connectionErrorMessages?.server ||
+        DEFAULT_CONNECTION_ERROR_MESSAGES.server
+      : config.errorDefaults.internalError.message;
+
+    // Build a standardized page error envelope
+    return decorateWithSsrOnlyData(
+      createErrorResponse(
+        config,
+        500,
+        config.errorDefaults.internalError.code,
+        message,
+        undefined,
+        undefined,
+        isDevelopment
+          ? internalError instanceof Error
+            ? {
+                name: internalError.name,
+                message: internalError.message,
+                stack: internalError.stack,
+                ...(isHandlerTimeout
+                  ? {
+                      errorCode: "handler_timeout",
+                      timeoutMs: (
+                        internalError as unknown as { timeoutMs?: number }
+                      ).timeoutMs,
+                    }
+                  : {}),
+              }
+            : { value: String(internalError) }
+          : undefined,
+      ),
+      {},
     );
   }
 }

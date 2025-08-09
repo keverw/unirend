@@ -269,6 +269,18 @@ a:hover {
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
 }
 
+/* Local Loader Demo Button */
+.btn-purple {
+  background-color: #8e44ad;
+}
+
+.btn-purple:hover {
+  background-color: #7d3aa0;
+  color: white !important;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+}
+
 /* Error Handling Test Buttons */
 .btn-red {
   background-color: #ff6b6b;

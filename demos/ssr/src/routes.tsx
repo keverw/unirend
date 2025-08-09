@@ -123,6 +123,48 @@ export const routes: RouteObject[] = [
       },
       // test routes
       {
+        path: "test-local-loader",
+        element: <PageDataDisplay />,
+        loader: createPageLoader(pageLoaderConfig, async (params) => {
+          // Simple local-only loader example
+          return {
+            status: "success" as const,
+            status_code: 200,
+            request_id: `local_${Date.now()}`,
+            type: "page" as const,
+            data: {
+              message: "Local page loader response (no HTTP)",
+              pageType: params.pageType,
+              invocation_origin: params.invocation_origin,
+              request: {
+                route_params: params.route_params,
+                query_params: params.query_params,
+                request_path: params.request_path,
+                original_url: params.original_url,
+              },
+            },
+            meta: {
+              page: {
+                title: "Local Loader Demo",
+                description:
+                  "This page demonstrates a local-only page loader without HTTP",
+              },
+            },
+            error: null,
+          };
+        }),
+      },
+      {
+        path: "test-local-loader-throws",
+        element: <PageDataDisplay />,
+        loader: createPageLoader(pageLoaderConfig, async (_params) => {
+          // Simulated error thrown from a local-only loader
+          throw new Error(
+            "Simulated error thrown from local page loader (no HTTP)",
+          );
+        }),
+      },
+      {
         path: "test-page-loader",
         element: <PageDataDisplay />,
         loader: createPageLoader(pageLoaderConfig, "test"),

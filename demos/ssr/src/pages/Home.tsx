@@ -99,6 +99,15 @@ const Home: React.FC = () => {
             >
               With ID + Query Params
             </Link>
+            <Link to="/test-local-loader" className="demo-button btn-purple">
+              Local Page Loader (no HTTP)
+            </Link>
+            <Link
+              to="/test-local-loader-throws"
+              className="demo-button btn-purple"
+            >
+              Local Loader That Throws
+            </Link>
           </div>
           <p
             style={{

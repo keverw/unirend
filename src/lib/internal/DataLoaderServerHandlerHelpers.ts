@@ -336,6 +336,7 @@ export class DataLoaderServerHandlerHelpers {
 
     const handler = handlerUncast as PageDataHandler<T, M>;
 
+    // Assemble the request body
     const finalParams: PageDataHandlerParams = {
       pageType,
       version: latestVersion,
@@ -346,11 +347,24 @@ export class DataLoaderServerHandlerHelpers {
       original_url: originalUrl,
     };
 
-    const invocation = Promise.resolve(handler(originalRequest, finalParams));
+    // Defer invocation to the microtask queue and normalize to a Promise.
+    // Using Promise.resolve().then(() => ...) ensures synchronous throws from
+    // the handler become Promise rejections instead of escaping before our
+    // timeout race is set up. Non-Promise returns are treated as resolved values.
+    const invocation = Promise.resolve().then(() =>
+      handler(originalRequest, finalParams),
+    );
 
-    // Build a single promise that either resolves to the handler result or rejects on timeout
+    // Attach a no-op catch when using a timeout to prevent a possible
+    // unhandledRejection if the timeout "wins" and the handler later rejects.
+    if (timeoutMs && timeoutMs > 0) {
+      void invocation.catch(() => {});
+    }
+
+    // Track the timeout ID to ensure it is cleared regardless of timeout path
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
+    // Build a single promise that either resolves to the handler result or rejects on timeout
     const resultPromise: Promise<
       PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M>
     > =
@@ -390,7 +404,7 @@ export class DataLoaderServerHandlerHelpers {
       }
     });
 
-    // Validate once regardless of timeout path
+    // Validate that the handler returned a proper envelope object
     if (!APIResponseHelpers.isValidEnvelope(result)) {
       const error = new Error(
         `Handler for page type "${pageType}" returned invalid response envelope`,

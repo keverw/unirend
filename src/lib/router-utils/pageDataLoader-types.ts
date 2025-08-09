@@ -1,6 +1,7 @@
 import {
   BaseMeta,
   PageResponseEnvelope,
+  APIResponseEnvelope,
 } from "../api-envelope/api-envelope-types";
 
 /**
@@ -236,6 +237,21 @@ export interface PageLoaderConfig {
   statusCodeHandlers?: Record<string | number, CustomStatusCodeHandler>;
 }
 
+/**
+ * Narrower configuration for local-only page loaders (no framework HTTP fetch).
+ * Includes only the fields actually used by the local loader path.
+ */
+export type LocalPageLoaderConfig = Pick<
+  PageLoaderConfig,
+  | "errorDefaults"
+  | "isDevelopment"
+  | "connectionErrorMessages"
+  | "timeoutMs"
+  | "generateFallbackRequestID"
+  | "allowedRedirectOrigins"
+  | "transformErrorMeta"
+>;
+
 // Options interface for the page loader
 export interface PageLoaderOptions {
   request: Request;
@@ -243,3 +259,29 @@ export interface PageLoaderOptions {
   pageType: string;
   config: PageLoaderConfig;
 }
+
+// ---------------------------------------------------------------------------
+// Local Page Loader (where no HTTP request is made) types
+// ---------------------------------------------------------------------------
+
+export interface LocalPageHandlerParams {
+  /** Logical page type for the local handler */
+  pageType: string | "local";
+  /** Origin indicator for debugging */
+  invocation_origin: "local";
+  /** Router params */
+  route_params: Record<string, string>;
+  /** URL query params */
+  query_params: Record<string, string>;
+  /** Pathname portion of the request URL */
+  request_path: string;
+  /** Full request URL string */
+  original_url: string;
+}
+
+export type LocalPageHandler<T = unknown, M extends BaseMeta = BaseMeta> = (
+  params: LocalPageHandlerParams,
+) =>
+  | Promise<PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M>>
+  | PageResponseEnvelope<T, M>
+  | APIResponseEnvelope<T, M>;
