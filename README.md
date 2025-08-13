@@ -85,6 +85,13 @@ mountApp("root", routes, {
 
 For more details on mounting, options, and best practices (including why providers should not render HTML), see [docs/mount-app-helper.md](docs/mount-app-helper.md).
 
+Note on React Router Import:
+
+- React Router is a peer dependency and required.
+- Unirend targets React Router v7+ where browser APIs are provided by `react-router`. Use `react-router` consistently for imports (e.g., `Link`, `NavLink`, `useLocation`). Do not mix with `react-router-dom` in the same codebase.
+- If your scaffold or AI template used `react-router-dom`, search/replace those imports to `react-router` as part of preparation.
+- Do not create your own browser router in the client. Export `routes: RouteObject[]` and let `mountApp` handle `createBrowserRouter(routes)` and hydration.
+
 ### Prepare Vite Config and Entry Points
 
 **Vite Configuration:** Make sure your `vite.config.ts` includes `manifest: true` to ensure both builds generate manifests:
@@ -351,19 +358,17 @@ Config options (local path):
 ### Using Loaders in React Router (Applies to Both Types):
 
 ```ts
-import { createBrowserRouter } from "react-router-dom";
-import { homeLoader } from "./loaders"; // from createPageLoader(config, "home")
+import type { RouteObject } from "react-router";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import { createPageLoader, createDefaultPageLoaderConfig } from "unirend/router-utils";
 
 const config = createDefaultPageLoaderConfig("http://localhost:3001");
-const dashboardLoader = createPageLoader(config, "dashboard");
 
-export const router = createBrowserRouter([
-  { path: "/", loader: homeLoader, element: <Home /> },
-  { path: "/dashboard", loader: dashboardLoader, element: <Dashboard /> },
-]);
+export const routes: RouteObject[] = [
+  { path: "/", loader: createPageLoader(config, "home"), element: <Home /> },
+  { path: "/dashboard", loader: createPageLoader(config, "dashboard"), element: <Dashboard /> },
+];
 ```
 
 ### Data Loader Error Transformation and Additional Config

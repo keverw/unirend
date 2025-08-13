@@ -171,11 +171,11 @@
  * const profileLoader = createPageLoader(config, 'profile');
  *
  * // Use in React Router
- * const router = createBrowserRouter([
+ * export const routes: RouteObject[] = [
  *   { path: '/', loader: homeLoader, element: <HomePage /> },
  *   { path: '/dashboard', loader: dashboardLoader, element: <DashboardPage /> },
  *   { path: '/profile/:id', loader: profileLoader, element: <ProfilePage /> },
- * ]);
+ * ];
  * ```
  */
 
