@@ -274,9 +274,14 @@ export class APIServer extends BaseServer {
     };
 
     // Register each plugin
-    for (const plugin of this.options.plugins) {
+    for (const pluginEntry of this.options.plugins) {
       try {
-        await plugin(controlledInstance, pluginOptions);
+        const plugin =
+          typeof pluginEntry === "function" ? pluginEntry : pluginEntry.plugin;
+        const userOptions =
+          typeof pluginEntry === "function" ? undefined : pluginEntry.options;
+
+        await plugin(controlledInstance, { ...pluginOptions, userOptions });
       } catch (error) {
         this.fastifyInstance?.log.error("Failed to register plugin:", error);
         throw new Error(

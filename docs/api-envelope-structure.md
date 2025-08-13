@@ -82,11 +82,11 @@ Note:
 To set proper request IDs, add a plugin to your server that assigns a `requestID` property to the Fastify request object:
 
 ```typescript
-import { type SSRPlugin } from "unirend/server";
+import { type ServerPlugin } from "unirend/server";
 import { randomUUID } from "crypto";
 
 // Example plugin for request ID generation
-const requestIdPlugin: SSRPlugin = async (fastify, options) => {
+const requestIdPlugin: ServerPlugin = async (fastify, options) => {
   fastify.addHook("onRequest", async (request, reply) => {
     // Always generate a unique request ID
     (request as { requestID?: string }).requestID = randomUUID();

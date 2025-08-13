@@ -6,7 +6,7 @@
 - [Basic Usage](#basic-usage)
 - [Migration from onRequest Hook](#migration-from-onrequest-hook)
 - [Plugin Interface](#plugin-interface)
-  - [SSRPlugin Type](#ssrplugin-type)
+  - [ServerPlugin Type](#serverplugin-type)
   - [PluginOptions](#pluginoptions)
   - [ControlledFastifyInstance Methods](#controlledfastifyinstance-methods)
     - [Route Registration](#route-registration)
@@ -15,6 +15,7 @@
     - [Decorators](#decorators)
 - [Example Plugins](#example-plugins)
   - [API Routes Plugin](#api-routes-plugin)
+  - [Plugin-specific user options](#plugin-specific-user-options)
   - [Authentication Plugin](#authentication-plugin)
   - [File Upload Plugin](#file-upload-plugin)
   - [Security Plugin](#security-plugin)
@@ -61,10 +62,10 @@ While preventing dangerous operations that could break SSR:
 ## Basic Usage
 
 ```typescript
-import { serveSSRDev, type SSRPlugin } from "unirend/server";
+import { serveSSRDev, type ServerPlugin } from "unirend/server";
 
 // Define a plugin
-const myPlugin: SSRPlugin = async (fastify, options) => {
+const myPlugin: ServerPlugin = async (fastify, options) => {
   // Add custom routes
   fastify.get("/api/status", async () => {
     return { status: "ok", mode: options.mode };
@@ -102,7 +103,7 @@ const server = await serveSSRDev(paths, {
 **New way (recommended):**
 
 ```typescript
-const requestLoggingPlugin: SSRPlugin = async (fastify) => {
+const requestLoggingPlugin: ServerPlugin = async (fastify) => {
   fastify.addHook("onRequest", async (request, reply) => {
     console.log(`${request.method} ${request.url}`);
     reply.header("X-Powered-By", "My App");
@@ -117,10 +118,10 @@ const server = await serveSSRDev(paths, {
 
 ## Plugin Interface
 
-### SSRPlugin Type
+### ServerPlugin Type
 
 ```typescript
-type SSRPlugin = (
+type ServerPlugin = (
   fastify: ControlledFastifyInstance,
   options: PluginOptions,
 ) => Promise<void> | void;
@@ -194,7 +195,7 @@ fastify.decorate("db", databaseConnection);
 ### API Routes Plugin
 
 ```typescript
-const apiRoutesPlugin: SSRPlugin = async (fastify, options) => {
+const apiRoutesPlugin: ServerPlugin = async (fastify, options) => {
   // Health check endpoint
   fastify.get("/api/health", async () => ({
     status: "ok",
@@ -229,10 +230,34 @@ const apiRoutesPlugin: SSRPlugin = async (fastify, options) => {
 };
 ```
 
+### Plugin-specific user options
+
+You can supply per-plugin user options when registering plugins. Use either a bare function or an object entry with an `options` field. The provided options are available as `options.userOptions` inside the plugin.
+
+```typescript
+import { serveSSRDev, type ServerPlugin } from "unirend/server";
+
+const loggerPlugin: ServerPlugin = async (fastify, options) => {
+  const level = (options.userOptions?.level as string) || "info";
+  fastify.addHook("onRequest", async () => {
+    if (level === "debug") {
+      // ... extra logging
+    }
+  });
+};
+
+const server = await serveSSRDev(paths, {
+  plugins: [
+    loggerPlugin, // bare plugin
+    { plugin: loggerPlugin, options: { level: "debug" } }, // with user options
+  ],
+});
+```
+
 ### Authentication Plugin
 
 ```typescript
-const authPlugin: SSRPlugin = async (fastify, options) => {
+const authPlugin: ServerPlugin = async (fastify, options) => {
   // Decorate request with user
   fastify.decorateRequest("user", null);
 
@@ -265,7 +290,7 @@ const authPlugin: SSRPlugin = async (fastify, options) => {
 ### File Upload Plugin
 
 ```typescript
-const fileUploadPlugin: SSRPlugin = async (fastify, options) => {
+const fileUploadPlugin: ServerPlugin = async (fastify, options) => {
   console.log(`📁 Registering file upload plugin (${options.mode} mode)`);
 
   try {
@@ -327,7 +352,7 @@ const fileUploadPlugin: SSRPlugin = async (fastify, options) => {
 ### Security Plugin
 
 ```typescript
-const securityPlugin: SSRPlugin = async (fastify, options) => {
+const securityPlugin: ServerPlugin = async (fastify, options) => {
   // Add request ID for tracing
   fastify.decorateRequest("requestID", null);
 
@@ -437,7 +462,7 @@ fastify.post("/api/data", async (request, reply) => {
 ### 3. Use Environment-Specific Logic
 
 ```typescript
-const myPlugin: SSRPlugin = async (fastify, options) => {
+const myPlugin: ServerPlugin = async (fastify, options) => {
   if (options.isDevelopment) {
     // Development-only features
     fastify.get("/api/debug", debugHandler);
@@ -453,7 +478,7 @@ const myPlugin: SSRPlugin = async (fastify, options) => {
 You can also branch inside request handlers using an environment flag on the request:
 
 ```typescript
-const envAwarePlugin: SSRPlugin = async (fastify, options) => {
+const envAwarePlugin: ServerPlugin = async (fastify, options) => {
   fastify.get("/api/env", async (request) => {
     const isDev = (request as FastifyRequest & { isDevelopment?: boolean })
       .isDevelopment;
@@ -549,14 +574,14 @@ fastify.get("*", handler);
 Many Fastify ecosystem plugins work seamlessly:
 
 ```typescript
-const corsPlugin: SSRPlugin = async (fastify) => {
+const corsPlugin: ServerPlugin = async (fastify) => {
   await fastify.register(require("@fastify/cors"), {
     origin: ["https://yourdomain.com"],
     credentials: true,
   });
 };
 
-const rateLimitPlugin: SSRPlugin = async (fastify) => {
+const rateLimitPlugin: ServerPlugin = async (fastify) => {
   await fastify.register(require("@fastify/rate-limit"), {
     max: 100,
     timeWindow: "1 minute",
@@ -569,7 +594,7 @@ const rateLimitPlugin: SSRPlugin = async (fastify) => {
 Plugin registration errors are caught and reported:
 
 ```typescript
-const faultyPlugin: SSRPlugin = async (fastify) => {
+const faultyPlugin: ServerPlugin = async (fastify) => {
   throw new Error("Something went wrong!");
 };
 

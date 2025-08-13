@@ -99,10 +99,18 @@ export interface SSRDevPaths {
  * Plugin registration function type
  * Plugins get access to a controlled subset of Fastify functionality
  */
-export type SSRPlugin = (
+export type ServerPlugin = (
   fastify: ControlledFastifyInstance,
   options: PluginOptions,
 ) => Promise<void> | void;
+
+/**
+ * Entry in the plugins array. Supports either a bare plugin function,
+ * or an object providing user options specific to that plugin.
+ */
+export type ServerPluginEntry =
+  | ServerPlugin
+  | { plugin: ServerPlugin; options?: Record<string, unknown> };
 
 /**
  * Fastify hook names that plugins can register
@@ -187,6 +195,8 @@ export interface PluginOptions {
   mode: "development" | "production";
   isDevelopment: boolean;
   buildDir?: string;
+  /** Optional user-provided options when registered as an object entry */
+  userOptions?: Record<string, unknown>;
 }
 
 /**
@@ -229,7 +239,7 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    * Array of plugins to register with the server
    * Plugins get access to a controlled Fastify instance
    */
-  plugins?: SSRPlugin[];
+  plugins?: ServerPluginEntry[];
   /**
    * Configuration for page data handlers
    * Page data handlers are always available via registerDataLoaderHandler() method
@@ -409,7 +419,7 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    * Array of plugins to register with the server
    * Plugins get access to a controlled Fastify instance with full wildcard support
    */
-  plugins?: SSRPlugin[];
+  plugins?: ServerPluginEntry[];
   /**
    * Configuration for page data handlers
    * Enables automatic registration of page data endpoints that work with the frontend pageDataLoader

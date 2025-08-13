@@ -13,7 +13,7 @@
 import {
   serveSSRDev,
   serveSSRProd,
-  type SSRPlugin,
+  type ServerPlugin,
   type SSRServer,
   type PluginOptions,
   ControlledFastifyInstance,
@@ -439,7 +439,7 @@ function logServerStartup(mode: "dev" | "prod", host: string, port: number) {
 }
 
 // Example plugin for API routes and request logging
-const apiRoutesPlugin: SSRPlugin = async (
+const apiRoutesPlugin: ServerPlugin = async (
   fastify: ControlledFastifyInstance,
   options: PluginOptions,
 ) => {
@@ -649,7 +649,7 @@ async function handleFileUpload(
 }
 
 // Example plugin for file uploads with real @fastify/multipart integration
-const fileUploadPlugin: SSRPlugin = async (
+const fileUploadPlugin: ServerPlugin = async (
   fastify: ControlledFastifyInstance,
   options: PluginOptions,
 ) => {
@@ -795,7 +795,7 @@ TRUE PER-REQUEST STREAMING VALIDATION:
 };
 
 // Example plugin for request tracking and decorators
-const requestTrackingPlugin: SSRPlugin = async (
+const requestTrackingPlugin: ServerPlugin = async (
   fastify: ControlledFastifyInstance,
   options: PluginOptions,
 ) => {

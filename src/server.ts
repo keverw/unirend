@@ -43,7 +43,8 @@ export { SSGConsoleLogger } from "./lib/types";
 
 export type {
   SSRDevPaths,
-  SSRPlugin,
+  ServerPlugin,
+  ServerPluginEntry,
   ControlledFastifyInstance,
   PluginOptions,
 } from "./lib/types";
