@@ -4,7 +4,6 @@
 
 - [Overview](#overview)
 - [Basic Usage](#basic-usage)
-- [Migration from onRequest Hook](#migration-from-onrequest-hook)
 - [Plugin Interface](#plugin-interface)
   - [ServerPlugin Type](#serverplugin-type)
   - [PluginOptions](#pluginoptions)
@@ -57,7 +56,7 @@ While preventing dangerous operations that could break SSR:
 - ❌ Cannot access destructive Fastify methods
 - ❌ Cannot interfere with the main SSR request handler
 
-> **Note:** The plugin system replaces the old `onRequest` hook option. Use plugins with `fastify.addHook("onRequest", ...)` for the same functionality with much more flexibility.
+Use plugins to register routes, hooks, decorators, and third-party integrations. For example, add hooks with `fastify.addHook("onRequest", ...)` inside a plugin.
 
 ## Basic Usage
 
@@ -81,38 +80,6 @@ const myPlugin: ServerPlugin = async (fastify, options) => {
 const server = await serveSSRDev(paths, {
   plugins: [myPlugin],
   // ... other options
-});
-```
-
-## Migration from onRequest Hook
-
-If you were using the old `onRequest` option, here's how to migrate to plugins:
-
-**Old way (deprecated):**
-
-```typescript
-const server = await serveSSRDev(paths, {
-  onRequest: async (request, reply) => {
-    console.log(`${request.method} ${request.url}`);
-    reply.header("X-Powered-By", "My App");
-    (request as any).startTime = Date.now();
-  },
-});
-```
-
-**New way (recommended):**
-
-```typescript
-const requestLoggingPlugin: ServerPlugin = async (fastify) => {
-  fastify.addHook("onRequest", async (request, reply) => {
-    console.log(`${request.method} ${request.url}`);
-    reply.header("X-Powered-By", "My App");
-    (request as any).startTime = Date.now();
-  });
-};
-
-const server = await serveSSRDev(paths, {
-  plugins: [requestLoggingPlugin],
 });
 ```
 

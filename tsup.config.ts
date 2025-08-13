@@ -47,10 +47,10 @@ export default defineConfig([
     external: ["react", "react-router"],
   },
 
-  // Public middlewares (server-side)
+  // Public plugins (server-side)
   {
-    entry: ["src/middleware.ts"],
-    outDir: "dist/middleware",
+    entry: ["src/plugins.ts"],
+    outDir: "dist/plugins",
     format: ["cjs", "esm"],
     dts: true,
     splitting: false,

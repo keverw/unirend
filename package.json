@@ -19,10 +19,10 @@
       "import": "./dist/router-utils/router-utils.mjs",
       "require": "./dist/router-utils/router-utils.js"
     },
-    "./middleware": {
-      "types": "./dist/middleware/middleware.d.ts",
-      "import": "./dist/middleware/middleware.mjs",
-      "require": "./dist/middleware/middleware.js"
+    "./plugins": {
+      "types": "./dist/plugins/plugins.d.ts",
+      "import": "./dist/plugins/plugins.mjs",
+      "require": "./dist/plugins/plugins.js"
     },
     "./api-envelope": {
       "types": "./dist/api-envelope/api-envelope.d.ts",
