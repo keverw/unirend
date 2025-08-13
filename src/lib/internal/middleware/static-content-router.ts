@@ -6,6 +6,21 @@ import crypto from "node:crypto";
 import LRUCache from "../lru-cache";
 import type { StaticContentRouterOptions } from "../../types";
 
+// Helper to normalize URL prefixes: ensure leading and trailing slash
+function normalizePrefix(prefix: string): string {
+  let p = prefix || "/";
+
+  if (!p.startsWith("/")) {
+    p = "/" + p;
+  }
+
+  if (!p.endsWith("/")) {
+    p = p + "/";
+  }
+
+  return p;
+}
+
 /**
  * A Fastify plugin that serves only explicitly mapped static files or directories,
  * without globbing or scanning the entire public folder on every request.
@@ -38,24 +53,34 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
     immutableCacheControl = "public, max-age=31536000, immutable",
   } = options;
 
-  // Process folder map to normalize config objects
+  // Normalize singleAssetMap keys to ensure leading slash for lookups
+  const normalizedSingleAssetMap = new Map<string, string>();
+
+  for (const [key, value] of Object.entries(singleAssetMap)) {
+    const normalizedKey = key.startsWith("/") ? key : "/" + key;
+    normalizedSingleAssetMap.set(normalizedKey, value);
+  }
+
+  // Process folder map to normalize config objects (prefix normalization included)
   const normalizedFolderMap = new Map<
     string,
     { path: string; detectImmutableAssets: boolean }
   >();
-  Object.entries(folderMap).forEach(([prefix, config]) => {
+  for (const [prefix, config] of Object.entries(folderMap)) {
+    const normalizedPrefix = normalizePrefix(prefix);
+
     if (typeof config === "string") {
-      normalizedFolderMap.set(prefix, {
+      normalizedFolderMap.set(normalizedPrefix, {
         path: config,
         detectImmutableAssets: false,
       });
     } else {
-      normalizedFolderMap.set(prefix, {
+      normalizedFolderMap.set(normalizedPrefix, {
         path: config.path,
         detectImmutableAssets: config.detectImmutableAssets ?? false,
       });
     }
-  });
+  }
 
   // Define a minimal stat info interface with only the properties we actually use
   interface MinimalStatInfo {
@@ -102,15 +127,16 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
 
       const rawUrl = req.raw.url || "/";
 
-      // Strip off query string, hash, etc.
-      const url = rawUrl.split("?")[0].split("#")[0];
+      // Strip off query string, hash, etc., and ensure a single leading slash for matching
+      const cleanedUrl = rawUrl.split("?")[0].split("#")[0];
+      const url = cleanedUrl.startsWith("/") ? cleanedUrl : "/" + cleanedUrl;
 
       let resolved = "";
       let detectImmutable = false;
 
       // 1. Try singleAssetMap first (exact URL → file)
-      if (Object.prototype.hasOwnProperty.call(singleAssetMap, url)) {
-        resolved = singleAssetMap[url];
+      if (normalizedSingleAssetMap.has(url)) {
+        resolved = normalizedSingleAssetMap.get(url) as string;
       }
       // 2. If not matched, try folderMap (URL prefix → directory)
       else {
@@ -125,13 +151,17 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
           if (folderConfig) {
             // Calculate file path relative to the matched prefix
             const relativePath = url.slice(folder.length);
+            // Guard against absolute path behavior if a leading slash sneaks in
+            const safeRelativePath = relativePath.startsWith("/")
+              ? relativePath.slice(1)
+              : relativePath;
 
             // Only allow files that don't contain '..' to prevent directory traversal
             if (
-              !relativePath.includes("../") &&
-              !relativePath.includes("..\\")
+              !safeRelativePath.includes("../") &&
+              !safeRelativePath.includes("..\\")
             ) {
-              resolved = path.join(folderConfig.path, relativePath);
+              resolved = path.join(folderConfig.path, safeRelativePath);
               detectImmutable = folderConfig.detectImmutableAssets;
             }
           }

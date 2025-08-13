@@ -183,9 +183,10 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
     - `cacheControl?: string`: Default Cache‑Control header
     - `immutableCacheControl?: string`: Cache‑Control for hashed/immutable assets
   - Path matching notes:
-    - `singleAssetMap` keys must match the raw URL path including the leading slash (e.g., `/favicon.ico`).
-    - `folderMap` uses prefix matching against the raw path. Prefer prefixes with a trailing slash (e.g., `/assets/`) so the relative slice does not begin with `/`.
-    - Example: with prefix `/assets/`, the URL `/assets/app.js` maps to `<folder>/app.js`. If you use `/assets` (no trailing slash), the relative slice can start with `/` and may be treated as absolute by `path.join` on POSIX.
+    - `singleAssetMap` keys are normalized to include a leading slash (you may provide with or without it).
+    - `folderMap` prefixes are normalized to ensure both leading and trailing slash, so `/assets` and `assets/` are treated as `/assets/`.
+    - The incoming request URL is normalized to ensure a leading slash before matching.
+    - The relative path slice is guarded against accidental leading `/` to prevent absolute path resolution on POSIX.
 
 ### Header and Cookies Forwarding
 

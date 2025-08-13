@@ -74,6 +74,11 @@ All response envelopes include these common properties:
 
 The `request_id` field is automatically populated by the unirend response helpers. By default, it will be set to "unknown" unless you configure request ID generation in your SSR or API server plugins.
 
+Note:
+
+- Server-side helpers intentionally default to `"unknown"` instead of generating a random ID when one is not present on the incoming `FastifyRequest`. This makes missing instrumentation obvious and avoids inventing server IDs that cannot be correlated across systems.
+- Separately, the page data loader has its own fallback request ID generator used only when transforming responses that are missing a `request_id` or when network/timeout errors occur. See the loader config option `generateFallbackRequestID` and the default described below.
+
 To set proper request IDs, add a plugin to your server that assigns a `requestID` property to the Fastify request object:
 
 ```typescript
