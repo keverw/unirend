@@ -108,6 +108,9 @@ const Home: React.FC = () => {
             >
               Local Loader That Throws
             </Link>
+            <Link to="/test-local-nonstd" className="demo-button btn-gray">
+              Local Loader (418 Teapot)
+            </Link>
           </div>
           <p
             style={{

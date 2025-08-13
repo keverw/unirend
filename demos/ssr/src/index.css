@@ -315,6 +315,18 @@ a:hover {
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
 }
 
+/* Local Non-standard Status Demo Button */
+.btn-gray {
+  background-color: #95a5a6;
+}
+
+.btn-gray:hover {
+  background-color: #7f8c8d;
+  color: white !important;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
   .header-content {

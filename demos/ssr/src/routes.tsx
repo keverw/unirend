@@ -165,6 +165,32 @@ export const routes: RouteObject[] = [
         }),
       },
       {
+        path: "test-local-nonstd",
+        element: <PageDataDisplay />,
+        loader: createPageLoader(pageLoaderConfig, async () => {
+          // Local-only loader returning a non-standard HTTP status code.
+          // Note: Cookies cannot be set from local loaders since there is no HTTP response;
+          // use the HTTP-backed loader (API fetch) if you need to set cookies via Set-Cookie.
+          return {
+            status: "error" as const,
+            status_code: 418, // Non-standard status code (I'm a teapot)
+            request_id: `local_${Date.now()}`,
+            type: "page" as const,
+            data: null,
+            meta: {
+              page: {
+                title: "I'm a Teapot",
+                description: "Non-standard status demo from local loader",
+              },
+            },
+            error: {
+              code: "teapot",
+              message: "I'm a teapot",
+            },
+          };
+        }),
+      },
+      {
         path: "test-page-loader",
         element: <PageDataDisplay />,
         loader: createPageLoader(pageLoaderConfig, "test"),

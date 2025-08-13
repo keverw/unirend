@@ -18,19 +18,24 @@
       "types": "./dist/router-utils/router-utils.d.ts",
       "import": "./dist/router-utils/router-utils.mjs",
       "require": "./dist/router-utils/router-utils.js"
+    },
+    "./api-envelope": {
+      "types": "./dist/api-envelope/api-envelope.d.ts",
+      "import": "./dist/api-envelope/api-envelope.mjs",
+      "require": "./dist/api-envelope/api-envelope.js"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "bun run update-readme && bun run update-changelog && tsup",
+    "build": "bun run update-docs && tsup",
     "test": "bun test",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,scss,md,html}\"",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
-    "update-readme": "markdown-toc-gen update README.md && bun run scripts/update-readme-version.ts",
-    "update-changelog": "markdown-toc-gen update changelog.md",
+    "update-docs": "markdown-toc-gen update README.md && bun run scripts/update-readme-version.ts && markdown-toc-gen update changelog.md && markdown-toc-gen update docs/api-envelope-structure.md && markdown-toc-gen update docs/error-handling.md && markdown-toc-gen update docs/mount-app-helper.md && markdown-toc-gen update docs/base-render.md && markdown-toc-gen update docs/ssg.md && markdown-toc-gen update docs/ssr.md && markdown-toc-gen update docs/server-plugins.md && bun run format:docs",
+    "format:docs": "prettier --write README.md changelog.md \"docs/**/*.md\"",
     "ssg-dev": "cd demos/ssg && vite",
     "ssg-build-client": "cd demos/ssg && vite build --outDir build/client --base=/ --ssrManifest",
     "ssg-build-server": "cd demos/ssg && vite build --outDir build/server --ssr src/entry-ssg.tsx",

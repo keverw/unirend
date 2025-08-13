@@ -37,6 +37,10 @@ import {
   DataLoaderServerHandlerHelpers,
   type PageDataHandler,
 } from "./DataLoaderServerHandlerHelpers";
+import {
+  filterIncomingCookieHeader as applyCookiePolicyToCookieHeader,
+  filterSetCookieHeaderValues as applyCookiePolicyToSetCookie,
+} from "./cookie-utils";
 
 type SSRServerConfigDev = {
   mode: "development";
@@ -67,6 +71,10 @@ export class SSRServer extends BaseServer {
     | null = null;
   private pageDataHandlers!: DataLoaderServerHandlerHelpers;
 
+  // Cookie forwarding policy (computed from options for quick checks)
+  private cookieAllowList?: Set<string>;
+  private cookieBlockList?: Set<string> | true;
+
   /**
    * Creates a new SSR server instance
    *
@@ -82,6 +90,20 @@ export class SSRServer extends BaseServer {
 
     // Initialize page data handlers (available immediately for handler registration)
     this.pageDataHandlers = new DataLoaderServerHandlerHelpers();
+
+    // Initialize cookie forwarding policy
+    const allow = config.options.cookieForwarding?.allowCookieNames;
+    const block = config.options.cookieForwarding?.blockCookieNames;
+
+    this.cookieAllowList =
+      Array.isArray(allow) && allow.length > 0 ? new Set(allow) : undefined;
+    // Support block = true (block all)
+    this.cookieBlockList =
+      block === true
+        ? true
+        : Array.isArray(block) && block.length > 0
+          ? new Set(block)
+          : undefined;
   }
 
   /**
@@ -333,6 +355,20 @@ export class SSRServer extends BaseServer {
                   );
                 }
 
+                // Apply cookie forwarding policy to inbound Cookie header
+                const originalCookieHeader = headers.get("cookie");
+                const filteredCookieHeader = applyCookiePolicyToCookieHeader(
+                  originalCookieHeader || undefined,
+                  this.cookieAllowList,
+                  this.cookieBlockList,
+                );
+
+                if (filteredCookieHeader && filteredCookieHeader.length > 0) {
+                  headers.set("cookie", filteredCookieHeader);
+                } else {
+                  headers.delete("cookie");
+                }
+
                 return headers;
               })(),
               signal: AbortSignal.timeout(5000),
@@ -376,7 +412,13 @@ export class SSRServer extends BaseServer {
 
               // set cookies on reply
               if (Array.isArray(cookies)) {
-                for (const cookie of cookies) {
+                const filteredCookies = applyCookiePolicyToSetCookie(
+                  cookies as string[],
+                  this.cookieAllowList,
+                  this.cookieBlockList,
+                );
+
+                for (const cookie of filteredCookies) {
                   reply.header("Set-Cookie", cookie);
                 }
               }
@@ -430,7 +472,19 @@ export class SSRServer extends BaseServer {
                   key.toLowerCase().startsWith("location") ||
                   key.toLowerCase().startsWith("set-cookie")
                 ) {
-                  reply.header(key, value);
+                  if (key.toLowerCase().startsWith("set-cookie")) {
+                    const filtered = applyCookiePolicyToSetCookie(
+                      value,
+                      this.cookieAllowList,
+                      this.cookieBlockList,
+                    );
+
+                    for (const v of filtered) {
+                      reply.header("Set-Cookie", v);
+                    }
+                  } else {
+                    reply.header(key, value);
+                  }
                 }
               }
 

@@ -191,6 +191,32 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    */
   containerID?: string;
   /**
+   * Cookie forwarding controls for SSR
+   *
+   * Controls which cookies are forwarded:
+   * - from client request → SSR loaders (via the Fetch `Cookie` header)
+   * - from backend/server → client (via `Set-Cookie` headers)
+   *
+   * Behavior:
+   * - If both arrays are empty or undefined, all cookies are allowed
+   * - If `allowCookieNames` is non-empty, only cookies with those names are allowed
+   * - `blockCookieNames` is always applied and will block those cookies even if in allow list
+   */
+  cookieForwarding?: {
+    /**
+     * Cookie names that are allowed to be forwarded.
+     * If provided and non-empty, only these cookie names will be forwarded.
+     */
+    allowCookieNames?: string[];
+    /**
+     * Cookie names that must never be forwarded (takes precedence over allow list).
+     *
+     * You can also set this to `true` to block ALL cookies from being forwarded.
+     * When `true`, no cookies will be forwarded regardless of `allowCookieNames`.
+     */
+    blockCookieNames?: string[] | true;
+  };
+  /**
    * Array of plugins to register with the server
    * Plugins get access to a controlled Fastify instance
    */

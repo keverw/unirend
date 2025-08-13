@@ -198,6 +198,7 @@ import {
   LocalPageHandler,
   LocalPageHandlerParams,
   LocalPageLoaderConfig,
+  ErrorDefaults,
 } from "./pageDataLoader-types";
 import { APIResponseHelpers } from "../api-envelope/response-helpers";
 import {
@@ -226,11 +227,20 @@ import {
 export function createDefaultPageLoaderConfig(
   apiBaseUrl: string,
 ): PageLoaderConfig {
+  // Deep-clone nested defaults to avoid shared references
+  const errorDefaultsClone: ErrorDefaults = JSON.parse(
+    JSON.stringify(DEFAULT_ERROR_DEFAULTS),
+  ) as ErrorDefaults;
+
+  const connectionErrorMessagesClone = {
+    ...DEFAULT_CONNECTION_ERROR_MESSAGES,
+  } as const;
+
   return {
     apiBaseUrl,
     pageDataEndpoint: DEFAULT_PAGE_DATA_ENDPOINT,
-    errorDefaults: DEFAULT_ERROR_DEFAULTS,
-    connectionErrorMessages: DEFAULT_CONNECTION_ERROR_MESSAGES,
+    errorDefaults: errorDefaultsClone,
+    connectionErrorMessages: connectionErrorMessagesClone,
     loginUrl: DEFAULT_LOGIN_URL,
     returnToParam: DEFAULT_RETURN_TO_PARAM,
     generateFallbackRequestID: DEFAULT_FALLBACK_REQUEST_ID_GENERATOR,
@@ -668,6 +678,12 @@ async function localPageLoader<T = unknown, M extends BaseMeta = BaseMeta>(
     }
 
     // Success or error envelopes are returned as-is and decorated
+    // Note:
+    // - Status codes provided by the handler's envelope (status_code) are preserved.
+    //   The SSR base renderer will read loaderData and set the HTTP status accordingly.
+    // - SSR-only cookies are NOT available in the local path because there is no HTTP
+    //   response to extract Set-Cookie headers from. If you need to set cookies, use
+    //   the HTTP-backed loader path (API fetch) so cookies can be forwarded via __ssOnly.
     return decorateWithSsrOnlyData(result as PageResponseEnvelope, {});
   } catch (internalError) {
     // Determine dev mode (mirrors pageLoader)

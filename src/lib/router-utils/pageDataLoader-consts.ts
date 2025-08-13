@@ -1,7 +1,7 @@
 import { ErrorDefaults } from "./pageDataLoader-types";
 
 // Debug flag to enable/disable logging in the page loader
-export const DEBUG_PAGE_LOADER = true; // Set to false in a production release
+export const DEBUG_PAGE_LOADER = false; // Set to false in a production release
 
 /**
  * Internal default values - not exported publicly, used for fallbacks and createDefaultPageLoaderConfig
