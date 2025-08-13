@@ -4,7 +4,7 @@ import {
   ServeSSRDevOptions,
   ServeSSRProdOptions,
   SSRDevPaths,
-  StaticRouterOptions,
+  StaticContentRouterOptions,
   type SSRHelper,
 } from "../types";
 import {
@@ -31,7 +31,7 @@ import {
   createDefaultAPINotFoundResponse,
 } from "./server-utils";
 import { generateDefault500ErrorPage } from "./errorPageUtils";
-import StaticRouterPlugin from "./middleware/static-router";
+import StaticContentRouterPlugin from "./middleware/static-content-router";
 import { BaseServer } from "./BaseServer";
 import {
   DataLoaderServerHandlerHelpers,
@@ -244,8 +244,8 @@ export class SSRServer extends BaseServer {
       // Production Server Middleware (Production Only)
       else {
         // Check if static router is disabled (useful for CDN setups)
-        // If staticRouter is false, skip static file serving (CDN setup)
-        if (this.config.options.staticRouter !== false) {
+        // If staticContentRouter config is false, skip static file serving (CDN setup)
+        if (this.config.options.staticContentRouter !== false) {
           // Configure and register the static router plugin for serving assets
           const clientBuildAssetDir = path.join(
             this.config.buildDir,
@@ -254,8 +254,8 @@ export class SSRServer extends BaseServer {
           );
 
           // Use the static router configuration provided by the user, or use the default
-          const staticRouterConfig: StaticRouterOptions = this.config.options
-            .staticRouter || {
+          const staticContentRouterConfig: StaticContentRouterOptions = this
+            .config.options.staticContentRouter || {
             // Default: just serve the assets folder with immutable caching
             folderMap: {
               "/assets": {
@@ -267,8 +267,8 @@ export class SSRServer extends BaseServer {
 
           // Register the static router plugin
           await this.fastifyInstance.register(
-            StaticRouterPlugin,
-            staticRouterConfig,
+            StaticContentRouterPlugin,
+            staticContentRouterConfig,
           );
         }
       }

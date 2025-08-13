@@ -30,7 +30,7 @@ import path from "path";
 
 async function main() {
   // Point to the build directory (contains both client/ and server/ subdirectories)
-  const buildDir = path.resolve(process.cwd(), "build");
+  const buildDir = path.resolve(__dirname, "build");
 
   const pages = [
     // Server-rendered (SSG) pages

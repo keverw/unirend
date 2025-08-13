@@ -167,10 +167,10 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
   - Injects `window.__APP_CONFIG__` into the page (production only).
 - `serverEntry?: string`
   - Name of the server entry in manifest (default `"entry-server"`).
-- `staticRouter?: StaticRouterOptions | false`
+- `staticContentRouter?: StaticContentRouterOptions | false`
   - Serves static assets (images, CSS, JS) in production. Not related to React Router’s StaticRouter.
   - Set to `false` to disable built‑in static serving (e.g., when using a CDN).
-  - Options (StaticRouterOptions):
+  - Options (StaticContentRouterOptions):
     - `singleAssetMap?: Record<string, string>`: Exact URL → absolute file path
     - `folderMap?: Record<string, string | FolderConfig>`: URL prefix → directory path (or folder config)
       - `FolderConfig`: `{ path: string; detectImmutableAssets?: boolean }`

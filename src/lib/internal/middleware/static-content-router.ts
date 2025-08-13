@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "node:crypto";
 import LRUCache from "../lru-cache";
-import type { StaticRouterOptions } from "../../types";
+import type { StaticContentRouterOptions } from "../../types";
 
 /**
  * A Fastify plugin that serves only explicitly mapped static files or directories,
@@ -22,10 +22,9 @@ import type { StaticRouterOptions } from "../../types";
  *   or directory traversal beyond the intended public paths.
  */
 
-const StaticRouterPlugin: FastifyPluginAsync<StaticRouterOptions> = async (
-  fastify,
-  options,
-) => {
+const StaticContentRouterPlugin: FastifyPluginAsync<
+  StaticContentRouterOptions
+> = async (fastify, options) => {
   const {
     singleAssetMap = {},
     folderMap = {},
@@ -423,6 +422,6 @@ function getMime(file: string): string {
   return mimeTypes[ext] || "application/octet-stream";
 }
 
-export default fp(StaticRouterPlugin, {
+export default fp(StaticContentRouterPlugin, {
   name: "static-router",
 });

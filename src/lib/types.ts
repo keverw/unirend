@@ -384,7 +384,7 @@ export interface ServeSSRProdOptions<M extends BaseMeta = BaseMeta>
    * - If set to `false`: static router will be disabled (useful for CDN setups)
    * - If set to an object: custom configuration will be used
    */
-  staticRouter?: StaticRouterOptions | false;
+  staticContentRouter?: StaticContentRouterOptions | false;
 }
 
 // ============================================================================
@@ -663,7 +663,7 @@ export interface FolderConfig {
  * Options for the static router middleware
  * Used to serve static files in production SSR mode
  */
-export interface StaticRouterOptions {
+export interface StaticContentRouterOptions {
   /** Exact URL → absolute file path (optional) */
   singleAssetMap?: Record<string, string>;
   /** URL prefix → absolute directory path (as string) or folder config object */
