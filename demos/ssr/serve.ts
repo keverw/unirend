@@ -202,6 +202,11 @@ function registerPageDataHandlers(server: SSRServer) {
   server.registerDataLoaderHandler(
     "test",
     async (request: FastifyRequest, params: PageDataHandlerParams) => {
+      const devFlag = (request as FastifyRequest & { isDevelopment?: boolean })
+        .isDevelopment;
+
+      const environment = devFlag ? "development" : "production";
+
       return {
         status: "success" as const,
         status_code: 200,
@@ -213,6 +218,7 @@ function registerPageDataHandlers(server: SSRServer) {
           version: params.version,
           invocation_origin: params.invocation_origin,
           timestamp: new Date().toISOString(),
+          server_isDevelopment: !!devFlag,
           request: {
             method: request.method,
             url: request.url,
@@ -231,6 +237,11 @@ function registerPageDataHandlers(server: SSRServer) {
               : "Test Page Data",
             description:
               "Debug page showing page data loader request and response details",
+          },
+          app: {
+            version: "1.0.0",
+            environment,
+            buildTime: new Date().toISOString(),
           },
         },
         error: null,

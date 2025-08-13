@@ -71,6 +71,15 @@ export class APIServer extends BaseServer {
 
       this.fastifyInstance = fastify(fastifyOptions);
 
+      // Decorate Fastify instance and requests with environment info
+      const mode: "development" | "production" = this.options.isDevelopment
+        ? "development"
+        : "production";
+      const isDevelopment = mode === "development";
+      this.fastifyInstance.decorate("mode", mode);
+      this.fastifyInstance.decorate("isDevelopment", isDevelopment);
+      this.fastifyInstance.decorateRequest("isDevelopment", isDevelopment);
+
       // Register global error handler
       this.setupErrorHandler();
       // Register not-found handler

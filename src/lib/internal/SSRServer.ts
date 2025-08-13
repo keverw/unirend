@@ -163,6 +163,12 @@ export class SSRServer extends BaseServer {
 
       this.fastifyInstance = fastify(fastifyOptions);
 
+      // Decorate Fastify instance and requests with environment info
+      const isDevelopment = this.config.mode === "development";
+      this.fastifyInstance.decorate("mode", this.config.mode);
+      this.fastifyInstance.decorate("isDevelopment", isDevelopment);
+      this.fastifyInstance.decorateRequest("isDevelopment", isDevelopment);
+
       // --- Setup Global Error Handling ---
       // IMPORTANT: The global error handler must be registered *before* any plugins
       // or routes. This ensures it can catch errors that occur during plugin

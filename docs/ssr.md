@@ -15,6 +15,7 @@
   - [Options (shared)](#options-shared)
   - [Options (prod-only)](#options-prod-only)
   - [Header and Cookies Forwarding](#header-and-cookies-forwarding)
+  - [Environment flag in handlers](#environment-flag-in-handlers)
   - [Page Data Handlers and Versioning](#page-data-handlers-and-versioning)
   - [Short-Circuit Data Handlers](#short-circuit-data-handlers)
 - [Standalone API (APIServer)](#standalone-api-apiserver)
@@ -232,6 +233,27 @@ Unirend forwards a curated set of headers and supports configurable cookie forwa
   - Notes about values:
     - Empty cookie values (e.g., `name=`) are allowed and forwarded if the name passes policy
     - Name-based filtering only; attributes on `Set-Cookie` are preserved as-is
+
+### Environment flag in handlers
+
+Within your request handlers (including page data handlers), you can check a boolean environment flag on the request to tailor behavior:
+
+```ts
+server.registerDataLoaderHandler("example", (request, params) => {
+  const isDev = (request as FastifyRequest & { isDevelopment?: boolean })
+    .isDevelopment;
+  return APIResponseHelpers.createPageSuccessResponse({
+    request,
+    data: { environment: isDev ? "development" : "production" },
+    pageMetadata: { title: "Env", description: "Env demo" },
+  });
+});
+```
+
+Notes:
+
+- On the SSR server this reflects whether the server is running in development or production mode.
+- On the API server this reflects `options.isDevelopment` (defaults to false).
 
 ### Page Data Handlers and Versioning
 

@@ -448,6 +448,20 @@ const myPlugin: SSRPlugin = async (fastify, options) => {
 };
 ```
 
+**Note**: Use `options.isDevelopment`/`options.mode` for registration-time decisions (what your plugin registers). For per-request branching inside handlers or middleware, read `request.isDevelopment`.
+
+You can also branch inside request handlers using an environment flag on the request:
+
+```typescript
+const envAwarePlugin: SSRPlugin = async (fastify, options) => {
+  fastify.get("/api/env", async (request) => {
+    const isDev = (request as FastifyRequest & { isDevelopment?: boolean })
+      .isDevelopment;
+    return { mode: isDev ? "development" : "production" };
+  });
+};
+```
+
 ### 4. Validate Input
 
 ```typescript

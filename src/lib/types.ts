@@ -173,6 +173,15 @@ export type RouteHandler = (
 
 /**
  * Plugin options passed to each plugin
+ *
+ * Environment information available at plugin registration time.
+ *
+ * Notes:
+ * - Use these fields inside your plugin setup to decide what to REGISTER
+ *   (e.g., which routes, which hooks). This is registration-time context.
+ * - For per-request branching inside handlers/middleware, read
+ *   `request.isDevelopment` (decorated by the servers). Both reflect the same
+ *   underlying mode; they serve different scopes.
  */
 export interface PluginOptions {
   mode: "development" | "production";

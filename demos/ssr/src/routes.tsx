@@ -69,6 +69,15 @@ const PageDataDisplay = () => {
         </div>
 
         <div className="card">
+          <h2>🧭 Environment</h2>
+          <p>
+            <strong>Mode:</strong>{" "}
+            {data?.meta?.app?.environment ||
+              (import.meta.env.DEV ? "development" : "production")}
+          </p>
+        </div>
+
+        <div className="card">
           <h2>🔍 Full Response Data</h2>
           <pre
             style={{
