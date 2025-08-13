@@ -47,6 +47,18 @@ export default defineConfig([
     external: ["react", "react-router"],
   },
 
+  // Public middlewares (server-side)
+  {
+    entry: ["src/middleware.ts"],
+    outDir: "dist/middleware",
+    format: ["cjs", "esm"],
+    dts: true,
+    splitting: false,
+    sourcemap: true,
+    clean: true, // Safe to clean since it's in its own subdirectory
+    external: ["fastify"],
+  },
+
   // API envelope types and helpers (universal)
   {
     entry: ["src/api-envelope.ts"],

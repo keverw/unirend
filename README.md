@@ -2,6 +2,8 @@
 
 **Unirend** is a lightweight toolkit for working with both **SSG (Static Site Generation)** and **SSR (Server-Side Rendering)** in your **Vite + React projects**. The name is a blend of “unified” and “render,” reflecting its goal to unify your build-time and runtime rendering workflows in a single, clean API.
 
+Unirend helps you ship SEO-friendly pages and accurate social sharing previews by rendering content at build-time or server-time where needed. You can take a standard Vite + React project and, by changing a few files, convert over to an SSG or SSR project with minimal configuration. The focus is on small, focused building blocks rather than a heavyweight, all-in-one framework.
+
 > ⚠️ **Note:** This package is currently in active development and **not yet ready for production use.**
 
 <!-- toc -->
@@ -16,6 +18,9 @@
     - [4. Frontend App Config Pattern](#4-frontend-app-config-pattern)
 - [SSG (Static Site Generation)](#ssg-static-site-generation)
 - [SSR (Server-Side Rendering)](#ssr-server-side-rendering)
+- [Demos](#demos)
+  - [SSG demo: Build and Serve](#ssg-demo-build-and-serve)
+  - [SSR demo: Dev and Prod](#ssr-demo-dev-and-prod)
 - [Data Loaders](#data-loaders)
   - [Page Type Handler (Fetch/Short-Circuit) Data Loader](#page-type-handler-fetchshort-circuit-data-loader)
   - [Local Data Loader](#local-data-loader)
@@ -203,6 +208,68 @@ After completing the Common Setup, see the dedicated guide for Static Site Gener
 After completing the Common Setup, see the dedicated guide for Server-Side Rendering:
 
 - [docs/ssr.md](docs/ssr.md)
+
+## Demos
+
+Runable, self-contained examples live under `demos/` and are wired to root-level scripts (no need to cd):
+
+- `demos/ssg` — SSG example (build, generate, serve)
+- `demos/ssr` — SSR example (dev and production)
+
+Runtime note: Demo scripts use Bun to run TypeScript directly (e.g., `bun run ...`). You can use Node-based alternatives as well (e.g., transpile with `tsc`, use `ts-node`, or write equivalent JavaScript). The Unirend SSG/SSR APIs are runtime-agnostic; Vite is used for dev/build, but the server pieces run on standard Node runtimes, too.
+
+### SSG demo: Build and Serve
+
+Files live in `demos/ssg`.
+
+From the repo root (using package scripts):
+
+```bash
+# Build client and server for SSG
+bun run ssg-build
+
+# Generate static HTML files using the built server entry
+bun run ssg-generate
+
+# Or do both in one step
+bun run ssg-build-and-generate
+
+# Serve the generated site (simple static file server)
+bun run ssg-serve
+```
+
+Notes:
+
+- `generate.ts` calls `generateSSG` with a mix of SSG and SPA pages and can inject `frontendAppConfig`.
+- `serve.ts` serves the contents of `build/client` with basic caching and a 404 page.
+- See [docs/ssg.md](docs/ssg.md) for concepts behind the workflow.
+
+### SSR demo: Dev and Prod
+
+Files live in `demos/ssr`.
+
+From the repo root (using package scripts):
+
+```bash
+# Development (Vite HMR + source entry)
+bun run ssr-serve-dev
+
+# Production: build client and server, then run prod server
+bun run ssr-build
+bun run ssr-serve-prod
+```
+
+What this shows:
+
+- Registering SSR plugins (routes, hooks, decorators), aligned with `docs/server-plugins.md`.
+- API/SSR coexistence: API routes under `/api/*` are handled first; unmatched ones return JSON envelopes. Other GETs fall through to SSR.
+- Optional custom 500 page example (commented in `demos/ssr/serve.ts`).
+
+Related references:
+
+- `docs/server-plugins.md` for the controlled plugin API (`ControlledFastifyInstance`).
+- `src/lib/internal/SSRServer.ts` for SSR internals (error handling, API distinction, catch-all GET).
+- `src/lib/internal/APIServer.ts` for standalone API mode using the same envelope conventions.
 
 ## Data Loaders
 

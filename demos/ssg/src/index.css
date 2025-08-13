@@ -42,6 +42,14 @@
   color: #213547 !important;
 }
 
+.theme-light .nav a.active {
+  background: #e9ecef !important;
+  border-color: #ced4da !important;
+  color: #213547 !important;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
 .theme-light .card {
   background: #ffffff !important;
   backdrop-filter: none !important;
@@ -185,6 +193,15 @@ body {
   border-color: rgba(255, 255, 255, 0.3);
   color: #ffffff;
   transform: translateY(-2px);
+}
+
+/* Active link (dark theme default) */
+.nav a.active {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.5);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 /* Main content */

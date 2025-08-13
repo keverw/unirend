@@ -1,41 +1,39 @@
 import React from "react";
-import { Link, useLocation } from "react-router";
+import { NavLink } from "react-router";
 
 const Header: React.FC = () => {
-  const location = useLocation();
-
-  const isActive = (path: string) => {
-    if (path === "/") {
-      return location.pathname === "/";
-    }
-    return location.pathname === path;
-  };
-
   return (
     <header className="header">
       <div className="header-content">
-        <Link to="/" className="logo">
+        <NavLink to="/" className="logo" end>
           Unirend
-        </Link>
+        </NavLink>
         <nav>
           <ul className="nav">
             <li>
-              <Link to="/" className={isActive("/") ? "active" : ""}>
+              <NavLink
+                to="/"
+                end
+                className={({ isActive }) => (isActive ? "active" : "")}
+              >
                 Home
-              </Link>
+              </NavLink>
             </li>
             <li>
-              <Link to="/about" className={isActive("/about") ? "active" : ""}>
+              <NavLink
+                to="/about"
+                className={({ isActive }) => (isActive ? "active" : "")}
+              >
                 About
-              </Link>
+              </NavLink>
             </li>
             <li>
-              <Link
+              <NavLink
                 to="/contact"
-                className={isActive("/contact") ? "active" : ""}
+                className={({ isActive }) => (isActive ? "active" : "")}
               >
                 Contact
-              </Link>
+              </NavLink>
             </li>
           </ul>
         </nav>

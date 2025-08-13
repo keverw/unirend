@@ -36,7 +36,7 @@ const About: React.FC = () => {
             <li>Built on top of Vite for lightning-fast development</li>
             <li>Seamless React ecosystem compatibility</li>
             <li>TypeScript-first development experience</li>
-            <li>Zero-config setup with sensible defaults</li>
+            <li>Minimal configuration with sensible defaults</li>
             <li>Optimized production builds</li>
           </ul>
         </div>
