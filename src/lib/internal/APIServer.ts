@@ -285,6 +285,7 @@ export class APIServer extends BaseServer {
       this.fastifyInstance,
       false,
       this.apiRoutes.apiShortcuts,
+      this.pageDataHandlers.pageLoaderShortcuts,
     );
 
     // Plugin options to pass to each plugin

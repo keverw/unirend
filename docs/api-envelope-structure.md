@@ -86,10 +86,14 @@ import { type ServerPlugin } from "unirend/server";
 import { randomUUID } from "crypto";
 
 // Example plugin for request ID generation
-const requestIdPlugin: ServerPlugin = async (fastify, options) => {
-  fastify.addHook("onRequest", async (request, reply) => {
+const requestIdPlugin: ServerPlugin = async (pluginHost, options) => {
+  pluginHost.addHook("onRequest", async (request, reply) => {
     // Always generate a unique request ID
     (request as { requestID?: string }).requestID = randomUUID();
+  });
+  pluginHost.addHook("onSend", async (request, reply, payload) => {
+    reply.header("X-Request-ID", (request as { requestID?: string }).requestID);
+    return payload;
   });
 };
 ```

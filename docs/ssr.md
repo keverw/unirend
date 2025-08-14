@@ -370,7 +370,7 @@ When page data handlers are registered on the same `SSRServer` instance instead 
 
 ### Generic API Routes
 
-You can register versioned generic API routes using the server’s `.api` shortcuts surface (available on both `SSRServer` and `APIServer`, and inside plugins as `fastify.api`). These return standardized API envelopes and automatically set the HTTP response status to `status_code`.
+You can register versioned generic API routes using the server’s `.api` shortcuts surface (available on both `SSRServer` and `APIServer`, and inside plugins as `pluginHost.api`). These return standardized API envelopes and automatically set the HTTP response status to `status_code`.
 
 ```ts
 import { APIResponseHelpers } from "unirend/api-envelope";

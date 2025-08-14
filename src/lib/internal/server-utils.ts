@@ -150,6 +150,7 @@ export function createControlledInstance(
   fastifyInstance: FastifyInstance,
   disableRootWildcard: boolean,
   apiShortcuts: unknown,
+  pageLoaderShortcuts: unknown,
 ): ControlledFastifyInstance {
   return {
     register: <Options extends Record<string, unknown> = Record<string, never>>(
@@ -220,6 +221,7 @@ export function createControlledInstance(
     patch: (path: string, handler: RouteHandler) =>
       fastifyInstance.patch(path, handler),
     api: apiShortcuts,
+    pageLoader: pageLoaderShortcuts,
   };
 }
 

@@ -7,12 +7,13 @@
 - [Plugin Interface](#plugin-interface)
   - [ServerPlugin Type](#serverplugin-type)
   - [PluginOptions](#pluginoptions)
-  - [ControlledFastifyInstance Methods](#controlledfastifyinstance-methods)
+  - [Plugin Host Methods (ControlledFastifyInstance)](#plugin-host-methods-controlledfastifyinstance)
     - [Route Registration](#route-registration)
     - [Plugin Registration](#plugin-registration)
     - [Hooks](#hooks)
     - [Decorators](#decorators)
-    - [API Shortcuts (envelope helpers)](#api-shortcuts-envelope-helpers)
+    - [API Shortcuts (Envelope Helpers)](#api-shortcuts-envelope-helpers)
+    - [Page Data Loader Registration](#page-data-loader-registration)
 - [Example Plugins](#example-plugins)
   - [API Routes Plugin](#api-routes-plugin)
   - [Plugin-specific user options](#plugin-specific-user-options)
@@ -33,6 +34,7 @@
 - [Integration with Third-Party Plugins](#integration-with-third-party-plugins)
 - [Error Handling](#error-handling)
 - [Testing Your Plugins](#testing-your-plugins)
+- [Lifecycle and Persistence](#lifecycle-and-persistence)
 
 <!-- tocstop -->
 
@@ -57,7 +59,7 @@ While preventing dangerous operations that could break SSR:
 - ❌ Cannot access destructive Fastify methods
 - ❌ Cannot interfere with the main SSR request handler
 
-Use plugins to register routes, hooks, decorators, and third-party integrations. For example, add hooks with `fastify.addHook("onRequest", ...)` inside a plugin.
+Use plugins to register routes, hooks, decorators, and third-party integrations. For example, add hooks with `pluginHost.addHook("onRequest", ...)` inside a plugin.
 
 ## Basic Usage
 
@@ -65,14 +67,14 @@ Use plugins to register routes, hooks, decorators, and third-party integrations.
 import { serveSSRDev, type ServerPlugin } from "unirend/server";
 
 // Define a plugin
-const myPlugin: ServerPlugin = async (fastify, options) => {
+const myPlugin: ServerPlugin = async (pluginHost, options) => {
   // Add custom routes
-  fastify.get("/api/status", async () => {
+  pluginHost.get("/api/status", async () => {
     return { status: "ok", mode: options.mode };
   });
 
   // Add hooks
-  fastify.addHook("preHandler", async (request, reply) => {
+  pluginHost.addHook("preHandler", async (request, reply) => {
     console.log(`Request: ${request.method} ${request.url}`);
   });
 };
@@ -105,20 +107,20 @@ interface PluginOptions {
 }
 ```
 
-### ControlledFastifyInstance Methods
+### Plugin Host Methods (ControlledFastifyInstance)
 
 #### Route Registration
 
 ```typescript
 // HTTP methods (no catch-all routes allowed)
-fastify.get(path, handler);
-fastify.post(path, handler);
-fastify.put(path, handler);
-fastify.delete(path, handler);
-fastify.patch(path, handler);
+pluginHost.get(path, handler);
+pluginHost.post(path, handler);
+pluginHost.put(path, handler);
+pluginHost.delete(path, handler);
+pluginHost.patch(path, handler);
 
 // General route registration with constraints
-fastify.route({
+pluginHost.route({
   method: "GET",
   url: "/api/users/:id",
   handler: async (request, reply) => {
@@ -131,16 +133,16 @@ fastify.route({
 
 ```typescript
 // Register third-party plugins
-await fastify.register(somePlugin, options);
+await pluginHost.register(somePlugin, options);
 ```
 
 #### Hooks
 
 ```typescript
 // Add lifecycle hooks (except conflicting ones)
-fastify.addHook("onRequest", handler);
-fastify.addHook("preHandler", handler);
-fastify.addHook("onSend", handler);
+pluginHost.addHook("onRequest", handler);
+pluginHost.addHook("preHandler", handler);
+pluginHost.addHook("onSend", handler);
 // ... other Fastify hooks
 
 // ⚠️ Important: Headers must be set before response is sent
@@ -151,22 +153,22 @@ fastify.addHook("onSend", handler);
 
 ```typescript
 // Add properties to request/reply objects
-fastify.decorateRequest("userId", null);
-fastify.decorateReply("setUser", function (user) {
+pluginHost.decorateRequest("userId", null);
+pluginHost.decorateReply("setUser", function (user) {
   /* ... */
 });
-fastify.decorate("db", databaseConnection);
+pluginHost.decorate("db", databaseConnection);
 ```
 
 #### API Shortcuts (Envelope Helpers)
 
 ```typescript
 // Register versioned API endpoints that must return the standardized envelopes
-// Available helpers: fastify.api.get | post | put | delete | patch
+// Available helpers: pluginHost.api.get | post | put | delete | patch
 
 import { APIResponseHelpers } from "unirend/api-envelope";
 
-fastify.api.get("demo/echo/:id", async (request, reply, params) => {
+pluginHost.api.get("demo/echo/:id", async (request, reply, params) => {
   // Build and return an API envelope; status taken from status_code
   return APIResponseHelpers.createAPISuccessResponse({
     request,
@@ -181,7 +183,7 @@ fastify.api.get("demo/echo/:id", async (request, reply, params) => {
 });
 
 // Explicit version example
-fastify.api.post("demo/items", 2, async (request, reply, params) => {
+pluginHost.api.post("demo/items", 2, async (request, reply, params) => {
   const body = request.body as Record<string, unknown>;
   return APIResponseHelpers.createAPISuccessResponse({
     request,
@@ -194,9 +196,10 @@ fastify.api.post("demo/items", 2, async (request, reply, params) => {
 Notes:
 
 - These helpers enforce the API envelope contract and derive the HTTP status from `status_code` in the returned envelope.
-- Use raw `fastify.get/post/...` when you need to return non-JSON responses; `fastify.api.*` is for JSON envelopes only, to keep things consistent.
-- Wildcard endpoints are only allowed via `fastify.api.*` when your `apiEndpointPrefix` is non-root (default is `"/api"`); raw Fastify wildcard routes are blocked to avoid conflicts with SSR.
-- For the full `params` shape passed to `fastify.api.*` handlers, see Generic API Routes in `docs/ssr.md`.
+- Use raw `pluginHost.get/post/...` when you need to return non-JSON responses; `pluginHost.api.*` is for JSON envelopes only, to keep things consistent.
+- Wildcard endpoints are only allowed via `pluginHost.api.*` when your `apiEndpointPrefix` is non-root (default is `"/api"`); raw wildcard routes on the host are blocked to avoid conflicts with SSR.
+- For the full `params` shape passed to `pluginHost.api.*` handlers, see Generic API Routes in `docs/ssr.md`.
+- Duplicate registrations for the API same method + endpoint + version: last registration wins. Prefer centralizing your API shortcut registrations to avoid surprises; use distinct versions when you need multiple version handlers.
 
 Notes:
 
@@ -204,21 +207,45 @@ Notes:
 - Endpoints are mounted under `apiEndpoints.apiEndpointPrefix` and, when `versioned` is true, under `/v{n}`.
 - Status is taken from `status_code` in the returned API envelope.
 
+#### Page Data Loader Registration
+
+Register page data handlers from a plugin using the pageLoader shortcut. Last registration wins for the same `pageType` + `version`.
+
+```typescript
+// Unversioned handler (defaults to version 1 when versioning is enabled)
+pluginHost.pageLoader.register("home", (request, reply, params) => {
+  return APIResponseHelpers.createPageSuccessResponse({
+    request,
+    data: { message: "home", version: params.version },
+    pageMetadata: { title: "Home" },
+  });
+});
+
+// Explicit version
+pluginHost.pageLoader.register("home", 2, (request, reply, params) => {
+  return APIResponseHelpers.createPageSuccessResponse({
+    request,
+    data: { message: "home v2", version: params.version },
+    pageMetadata: { title: "Home v2" },
+  });
+});
+```
+
 ## Example Plugins
 
 ### API Routes Plugin
 
 ```typescript
-const apiRoutesPlugin: ServerPlugin = async (fastify, options) => {
+const apiRoutesPlugin: ServerPlugin = async (pluginHost, options) => {
   // Health check endpoint
-  fastify.get("/api/health", async () => ({
+  pluginHost.get("/api/health", async () => ({
     status: "ok",
     timestamp: new Date().toISOString(),
     mode: options.mode,
   }));
 
   // Contact form endpoint
-  fastify.post("/api/contact", async (request) => {
+  pluginHost.post("/api/contact", async (request) => {
     const body = request.body as any;
 
     // Process contact form
@@ -228,13 +255,13 @@ const apiRoutesPlugin: ServerPlugin = async (fastify, options) => {
   });
 
   // Request timing
-  fastify.addHook("preHandler", async (request) => {
+  pluginHost.addHook("preHandler", async (request) => {
     if (request.url.startsWith("/api/")) {
       (request as any).startTime = Date.now();
     }
   });
 
-  fastify.addHook("onSend", async (request, reply, payload) => {
+  pluginHost.addHook("onSend", async (request, reply, payload) => {
     if (request.url.startsWith("/api/") && (request as any).startTime) {
       const duration = Date.now() - (request as any).startTime;
       reply.header("X-Response-Time", `${duration}ms`);
@@ -251,9 +278,9 @@ You can supply per-plugin user options when registering plugins. Use either a ba
 ```typescript
 import { serveSSRDev, type ServerPlugin } from "unirend/server";
 
-const loggerPlugin: ServerPlugin = async (fastify, options) => {
+const loggerPlugin: ServerPlugin = async (pluginHost, options) => {
   const level = (options.userOptions?.level as string) || "info";
-  fastify.addHook("onRequest", async () => {
+  pluginHost.addHook("onRequest", async () => {
     if (level === "debug") {
       // ... extra logging
     }
@@ -271,12 +298,12 @@ const server = await serveSSRDev(paths, {
 ### Authentication Plugin
 
 ```typescript
-const authPlugin: ServerPlugin = async (fastify, options) => {
+const authPlugin: ServerPlugin = async (pluginHost, options) => {
   // Decorate request with user
-  fastify.decorateRequest("user", null);
+  pluginHost.decorateRequest("user", null);
 
   // Authentication hook for API routes
-  fastify.addHook("preHandler", async (request, reply) => {
+  pluginHost.addHook("preHandler", async (request, reply) => {
     if (request.url.startsWith("/api/protected/")) {
       const token = request.headers.authorization?.replace("Bearer ", "");
 
@@ -294,7 +321,7 @@ const authPlugin: ServerPlugin = async (fastify, options) => {
   });
 
   // Protected route example
-  fastify.get("/api/protected/profile", async (request) => {
+  pluginHost.get("/api/protected/profile", async (request) => {
     const user = (request as any).user;
     return { user: user.profile };
   });
@@ -304,20 +331,20 @@ const authPlugin: ServerPlugin = async (fastify, options) => {
 ### File Upload Plugin
 
 ```typescript
-const fileUploadPlugin: ServerPlugin = async (fastify, options) => {
+const fileUploadPlugin: ServerPlugin = async (pluginHost, options) => {
   console.log(`📁 Registering file upload plugin (${options.mode} mode)`);
 
   try {
     // Register multipart plugin for file uploads
     // Install: npm install @fastify/multipart
     const multipart = await import("@fastify/multipart");
-    await fastify.register(multipart.default, {
+    await pluginHost.register(multipart.default, {
       limits: {
         fileSize: 10 * 1024 * 1024, // 10MB limit
       },
     });
 
-    fastify.post("/api/upload", async (request, reply) => {
+    pluginHost.post("/api/upload", async (request, reply) => {
       try {
         // After @fastify/multipart is registered, request.file() becomes available
         const data = await (request as any).file();
@@ -352,7 +379,7 @@ const fileUploadPlugin: ServerPlugin = async (fastify, options) => {
     console.warn("   Run: npm install @fastify/multipart");
 
     // Provide a placeholder endpoint that explains the missing dependency
-    fastify.post("/api/upload", async (request, reply) => {
+    pluginHost.post("/api/upload", async (request, reply) => {
       return reply.code(501).send({
         error: "File upload not available",
         message: "Install @fastify/multipart to enable file uploads",
@@ -366,16 +393,16 @@ const fileUploadPlugin: ServerPlugin = async (fastify, options) => {
 ### Security Plugin
 
 ```typescript
-const securityPlugin: ServerPlugin = async (fastify, options) => {
+const securityPlugin: ServerPlugin = async (pluginHost, options) => {
   // Add request ID for tracing
-  fastify.decorateRequest("requestID", null);
+  pluginHost.decorateRequest("requestID", null);
 
-  fastify.addHook("onRequest", async (request) => {
+  pluginHost.addHook("onRequest", async (request) => {
     (request as any).requestID = generateRequestId();
   });
 
   // Security headers
-  fastify.addHook("onSend", async (request, reply, payload) => {
+  pluginHost.addHook("onSend", async (request, reply, payload) => {
     if (!options.isDevelopment) {
       reply.header("X-Frame-Options", "DENY");
       reply.header("X-Content-Type-Options", "nosniff");
@@ -448,18 +475,18 @@ Always prefix your API routes to avoid conflicts with SSR routes:
 
 ```typescript
 // ✅ Good
-fastify.get("/api/users", handler);
-fastify.post("/api/auth/login", handler);
+pluginHost.get("/api/users", handler);
+pluginHost.post("/api/auth/login", handler);
 
 // ❌ Bad - could conflict with SSR pages
-fastify.get("/users", handler);
-fastify.get("/login", handler);
+pluginHost.get("/users", handler);
+pluginHost.get("/login", handler);
 ```
 
 ### 2. Handle Errors Gracefully
 
 ```typescript
-fastify.post("/api/data", async (request, reply) => {
+pluginHost.post("/api/data", async (request, reply) => {
   try {
     const result = await processData(request.body);
     return result;
@@ -476,13 +503,13 @@ fastify.post("/api/data", async (request, reply) => {
 ### 3. Use Environment-Specific Logic
 
 ```typescript
-const myPlugin: ServerPlugin = async (fastify, options) => {
+const myPlugin: ServerPlugin = async (pluginHost, options) => {
   if (options.isDevelopment) {
     // Development-only features
-    fastify.get("/api/debug", debugHandler);
+    pluginHost.get("/api/debug", debugHandler);
   } else {
     // Production-only features
-    fastify.addHook("onRequest", rateLimitHook);
+    pluginHost.addHook("onRequest", rateLimitHook);
   }
 };
 ```
@@ -492,8 +519,8 @@ const myPlugin: ServerPlugin = async (fastify, options) => {
 You can also branch inside request handlers using an environment flag on the request:
 
 ```typescript
-const envAwarePlugin: ServerPlugin = async (fastify, options) => {
-  fastify.get("/api/env", async (request) => {
+const envAwarePlugin: ServerPlugin = async (pluginHost, options) => {
+  pluginHost.get("/api/env", async (request) => {
     const isDev = (request as FastifyRequest & { isDevelopment?: boolean })
       .isDevelopment;
     return { mode: isDev ? "development" : "production" };
@@ -504,7 +531,7 @@ const envAwarePlugin: ServerPlugin = async (fastify, options) => {
 ### 4. Validate Input
 
 ```typescript
-fastify.post(
+pluginHost.post(
   "/api/users",
   {
     schema: {
@@ -532,7 +559,7 @@ fastify.post(
 ❌ **Wrong - will cause "headers already sent" errors:**
 
 ```typescript
-fastify.addHook("onSend", async (request, reply, payload) => {
+pluginHost.addHook("onSend", async (request, reply, payload) => {
   reply.header("X-Request-ID", request.id); // ❌ Too late!
   return payload;
 });
@@ -541,12 +568,12 @@ fastify.addHook("onSend", async (request, reply, payload) => {
 ✅ **Correct - set headers before response is sent:**
 
 ```typescript
-fastify.addHook("onRequest", async (request, reply) => {
+pluginHost.addHook("onRequest", async (request, reply) => {
   reply.header("X-Request-ID", request.id); // ✅ Perfect timing
 });
 
 // Or in preHandler
-fastify.addHook("preHandler", async (request, reply) => {
+pluginHost.addHook("preHandler", async (request, reply) => {
   reply.header("X-Custom-Header", "value"); // ✅ Also works
 });
 ```
@@ -561,11 +588,11 @@ These operations will throw errors:
 
 ```typescript
 // ❌ Cannot register catch-all routes
-fastify.get("*", handler); // Error!
-fastify.route({ url: "*", handler }); // Error!
+pluginHost.get("*", handler); // Error!
+pluginHost.route({ url: "*", handler }); // Error!
 
 // ❌ Cannot register conflicting hooks
-fastify.addHook("onRoute", handler); // Error!
+pluginHost.addHook("onRoute", handler); // Error!
 ```
 
 ### Route Conflicts
@@ -574,13 +601,13 @@ The SSR handler uses a catch-all GET route (`*`) that runs last. Your plugin rou
 
 ```typescript
 // ✅ This works - specific route matched before SSR catch-all
-fastify.get("/api/users", handler);
+pluginHost.get("/api/users", handler);
 
 // ✅ This also works - different HTTP method
-fastify.post("/some-page", handler);
+pluginHost.post("/some-page", handler);
 
 // ❌ This would conflict if you tried to register it (but it's prevented)
-fastify.get("*", handler);
+pluginHost.get("*", handler);
 ```
 
 ## Integration with Third-Party Plugins
@@ -588,15 +615,15 @@ fastify.get("*", handler);
 Many Fastify ecosystem plugins work seamlessly:
 
 ```typescript
-const corsPlugin: ServerPlugin = async (fastify) => {
-  await fastify.register(require("@fastify/cors"), {
+const corsPlugin: ServerPlugin = async (pluginHost) => {
+  await pluginHost.register(require("@fastify/cors"), {
     origin: ["https://yourdomain.com"],
     credentials: true,
   });
 };
 
-const rateLimitPlugin: ServerPlugin = async (fastify) => {
-  await fastify.register(require("@fastify/rate-limit"), {
+const rateLimitPlugin: ServerPlugin = async (pluginHost) => {
+  await pluginHost.register(require("@fastify/rate-limit"), {
     max: 100,
     timeWindow: "1 minute",
   });
@@ -642,3 +669,14 @@ expect(response.statusCode).toBe(200);
 ```
 
 This plugin system gives you the flexibility to extend your SSR server while maintaining the reliability and performance of the core SSR functionality.
+
+## Lifecycle and Persistence
+
+- The plugin host’s shortcuts are framework-managed and persist on the server instance:
+  - `pluginHost.api.*` and `pluginHost.pageLoader.register(...)` write into Unirend’s internal registries. They persist across `stop()`/`listen()` cycles on the same server object (last registration wins for duplicates).
+  - These are applied to the Fastify instance during `listen()` when routes are mounted, after plugins are registered.
+- The direct Fastify-style methods are per Fastify instance:
+  - `pluginHost.get/post/put/delete/patch/route/addHook/register` are invoked against the underlying Fastify instance, which is created fresh on each `listen()` call. Your plugin function is run on each `listen()`, so these routes/hooks are re-registered each time.
+- Prefer deterministic plugin setup:
+  - Declare routes and handlers during server startup (inside your plugin function). Adding/removing routes dynamically at runtime can make behavior unpredictable across stop()/listen() cycles and may not persist after a restart as intended.
+  - If you need feature flags, keep the registrations stable and branch inside handlers instead of changing route registration.

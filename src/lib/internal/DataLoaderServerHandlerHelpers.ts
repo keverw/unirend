@@ -80,6 +80,32 @@ export class DataLoaderServerHandlerHelpers {
   // Map<pageType, Map<version, handler>> - version defaults to 1 if not specified
   private handlersByPageType = new Map<string, Map<number, PageDataHandler>>();
 
+  // ---------------------------------------------------------------------------
+  // Shortcuts API for registration (mirrors APIRoutesServerHelpers style)
+  // ---------------------------------------------------------------------------
+  public readonly pageLoader = {
+    register: (
+      pageType: string,
+      versionOrHandler: number | PageDataHandler,
+      handlerMaybe?: PageDataHandler,
+    ): void => {
+      if (typeof versionOrHandler === "number") {
+        this.registerDataLoaderHandler(
+          pageType,
+          versionOrHandler,
+          handlerMaybe as PageDataHandler,
+        );
+      } else {
+        this.registerDataLoaderHandler(pageType, versionOrHandler);
+      }
+    },
+  } as const;
+
+  /** Expose only the lightweight shortcuts surface for external consumers */
+  public get pageLoaderShortcuts() {
+    return this.pageLoader;
+  }
+
   /**
    * Returns the latest (highest) version registered for a given page type
    */
@@ -150,14 +176,7 @@ export class DataLoaderServerHandlerHelpers {
       this.handlersByPageType.set(pageType, versionMap);
     }
 
-    // Check for conflicts
-    if (versionMap.has(version)) {
-      throw new Error(
-        `Handler for page type "${pageType}" version ${version} is already registered`,
-      );
-    }
-
-    // Store the handler
+    // Last registration wins for the same pageType + version
     versionMap.set(version, actualHandler);
   }
 

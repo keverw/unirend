@@ -171,18 +171,7 @@ export class APIRoutesServerHelpers<
       normalizedEndpoint,
     );
 
-    if (versionMap.has(version)) {
-      throw new Error(
-        "Handler already registered for " +
-          httpMethod +
-          " " +
-          normalizedEndpoint +
-          " (version " +
-          version +
-          ")",
-      );
-    }
-
+    // Last registration wins for the same method + endpoint + version
     versionMap.set(version, handler);
   }
 

@@ -655,6 +655,7 @@ export class SSRServer extends BaseServer {
       this.fastifyInstance,
       true,
       this.apiRoutes.apiShortcuts,
+      this.pageDataHandlers.pageLoaderShortcuts,
     );
 
     // Plugin options to pass to each plugin
