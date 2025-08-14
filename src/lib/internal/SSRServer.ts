@@ -166,10 +166,8 @@ export class SSRServer extends BaseServer {
 
       this.fastifyInstance = fastify(fastifyOptions);
 
-      // Decorate Fastify instance and requests with environment info
+      // Decorate requests with environment info (per-request)
       const isDevelopment = this.config.mode === "development";
-      this.fastifyInstance.decorate("mode", this.config.mode);
-      this.fastifyInstance.decorate("isDevelopment", isDevelopment);
       this.fastifyInstance.decorateRequest("isDevelopment", isDevelopment);
 
       // --- Setup Global Error Handling ---
