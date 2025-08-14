@@ -51,10 +51,9 @@ export type {
 export type { SSRServer } from "./lib/internal/SSRServer";
 export type { APIServer } from "./lib/internal/APIServer";
 // only export the config type as class not used internally
-export type {
-  PageDataHandlersConfig,
-  PageDataHandler,
-} from "./lib/internal/DataLoaderServerHandlerHelpers";
+export type { PageDataHandler } from "./lib/internal/DataLoaderServerHandlerHelpers";
+export type { APIRouteHandler } from "./lib/internal/APIRoutesServerHelpers";
+export type { APIEndpointConfig } from "./lib/types";
 
 // Server-safe functions
 export { serveSSRDev, serveSSRProd } from "./lib/ssr";

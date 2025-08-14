@@ -51,13 +51,6 @@ interface DemoMeta extends BaseMeta {
  * This uses custom DemoMeta type for richer error responses
  */
 function createSharedConfig() {
-  // Shared page data handlers configuration
-  const pageDataHandlers = {
-    endpoint: "page_data",
-    versioned: true,
-    defaultVersion: 1,
-  };
-
   // Shared API handling configuration
   const APIHandling = {
     prefix: "/api", // API routes prefix
@@ -187,7 +180,12 @@ function createSharedConfig() {
   };
 
   return {
-    pageDataHandlers,
+    apiEndpoints: {
+      apiEndpointPrefix: "/api",
+      versioned: true,
+      defaultVersion: 1,
+      pageDataEndpoint: "page_data",
+    },
     APIHandling,
     containerID: "root" as const,
   };
@@ -435,6 +433,13 @@ function logServerStartup(mode: "dev" | "prod", host: string, port: number) {
   );
   console.log(
     `   GET  http://${host}:${port}/test-page-loader/123 (test page data with ID)`,
+  );
+  console.log("\n🧰 Custom API shortcut routes:");
+  console.log(
+    `   GET  http://${host}:${port}/api/v1/demo/echo/123 (API shortcuts demo)`,
+  );
+  console.log(
+    `   GET  http://${host}:${port}/api/v1/demo/bad-envelope (invalid envelope demo)`,
   );
 }
 
@@ -888,6 +893,28 @@ async function startServer() {
 
       // Register page data handlers for debugging
       registerPageDataHandlers(server);
+
+      // Register a generic API route using versioned API shortcuts
+      // Demonstrates server.api.get/post helpers and envelope response helpers
+      server.api.get("demo/echo/:id", async (request) => {
+        return APIResponseHelpers.createAPISuccessResponse({
+          request,
+          data: {
+            message: "Hello from API shortcuts",
+            id: (request.params as Record<string, unknown>).id,
+            query: request.query,
+          },
+          statusCode: 200,
+        });
+      });
+
+      // Intentionally invalid envelope demo for validation behavior
+      server.api.get("demo/bad-envelope", async (_request) => {
+        // This will throw at runtime due to invalid envelope validation
+        return { invalid: true } as unknown as ReturnType<
+          typeof APIResponseHelpers.createAPISuccessResponse
+        >;
+      });
 
       await server.listen(PORT, HOST);
       logServerStartup("dev", HOST, PORT);

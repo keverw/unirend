@@ -5,6 +5,7 @@ import type {
   BaseMeta,
 } from "../api-envelope/api-envelope-types";
 import { APIResponseHelpers } from "../api-envelope/response-helpers";
+import type { APIEndpointConfig } from "../types";
 
 /**
  * Parameters passed to page data handlers with shortcuts to common fields
@@ -29,20 +30,6 @@ export interface PageDataHandlerParams {
   query_params: Record<string, string>;
   request_path: string;
   original_url: string;
-}
-
-/**
- * Configuration for page data endpoints
- */
-export interface PageDataHandlersConfig {
-  /** Endpoint prefix that comes before version/endpoint (default: "/api") */
-  endpointPrefix?: string;
-  /** Base endpoint name for page data (default: "page_data") */
-  endpoint?: string;
-  /** Whether to enable versioning (default: true, matches frontend expectations) */
-  versioned?: boolean;
-  /** Default version when versioning is enabled (default: 1) */
-  defaultVersion?: number;
 }
 
 /**
@@ -178,16 +165,32 @@ export class DataLoaderServerHandlerHelpers {
    */
   registerRoutes(
     fastify: FastifyInstance,
-    config: PageDataHandlersConfig = {},
+    config: APIEndpointConfig = {},
   ): void {
     // Apply defaults to config
-    const resolvedConfig = {
-      endpointPrefix: "/api",
-      endpoint: "page_data",
+    const resolvedConfig: Required<
+      Pick<
+        APIEndpointConfig,
+        | "apiEndpointPrefix"
+        | "versioned"
+        | "defaultVersion"
+        | "pageDataEndpoint"
+      >
+    > = {
+      apiEndpointPrefix: "/api",
       versioned: true,
       defaultVersion: 1,
+      pageDataEndpoint: "page_data",
       ...config,
-    };
+    } as unknown as Required<
+      Pick<
+        APIEndpointConfig,
+        | "apiEndpointPrefix"
+        | "versioned"
+        | "defaultVersion"
+        | "pageDataEndpoint"
+      >
+    >;
 
     // Iterate over all page types and their versions
     for (const [pageType, versionMap] of this.handlersByPageType) {
@@ -206,9 +209,9 @@ export class DataLoaderServerHandlerHelpers {
         let endpointPath: string;
 
         if (resolvedConfig.versioned) {
-          endpointPath = `${resolvedConfig.endpointPrefix}/v${version}/${resolvedConfig.endpoint}/${pageType}`;
+          endpointPath = `${resolvedConfig.apiEndpointPrefix}/v${version}/${resolvedConfig.pageDataEndpoint}/${pageType}`;
         } else {
-          endpointPath = `${resolvedConfig.endpointPrefix}/${resolvedConfig.endpoint}/${pageType}`;
+          endpointPath = `${resolvedConfig.apiEndpointPrefix}/${resolvedConfig.pageDataEndpoint}/${pageType}`;
         }
 
         // Register the POST route with Fastify

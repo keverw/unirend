@@ -18,6 +18,7 @@
   - [Environment flag in handlers](#environment-flag-in-handlers)
   - [Page Data Handlers and Versioning](#page-data-handlers-and-versioning)
   - [Short-Circuit Data Handlers](#short-circuit-data-handlers)
+  - [Generic API Routes](#generic-api-routes)
 - [Standalone API (APIServer)](#standalone-api-apiserver)
   - [Basic usage](#basic-usage)
   - [Options](#options)
@@ -100,8 +101,8 @@ async function main() {
     },
     {
       // Optional: same options surface as production where applicable
-      // e.g., pageDataHandlers, APIHandling, containerID, plugins, fastifyOptions
-      // pageDataHandlers: { endpoint: "page_data", versioned: true, defaultVersion: 1 },
+      // e.g., apiEndpoints, APIHandling, containerID, plugins, fastifyOptions
+      // apiEndpoints: { apiEndpointPrefix: "/api", versioned: true, defaultVersion: 1, pageDataEndpoint: "page_data" },
       // APIHandling: { prefix: "/api" },
       // plugins: [myPlugin],
       // fastifyOptions: { logger: true },
@@ -144,8 +145,9 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
 
 ### Options (shared)
 
-- `pageDataHandlers?: PageDataHandlersConfig`
-  - Configure page data loader endpoint and versioning (e.g., `endpoint: "page_data"`, `versioned: true`, `defaultVersion`).
+- `apiEndpoints?: APIEndpointConfig`
+  - Shared versioned endpoint configuration used by page data and generic API routes.
+  - For page data handlers, set `pageDataEndpoint` (default: `"page_data"`).
 - `APIHandling?: { prefix?: string | false; errorHandler?; notFoundHandler? }`
   - `prefix` (default `"/api"`) determines which paths are treated as API. Set `false` to disable API handling.
   - `errorHandler` and `notFoundHandler` return standardized API/Page error envelopes instead of HTML based context.
@@ -257,11 +259,11 @@ Notes:
 
 ### Page Data Handlers and Versioning
 
-The server can automatically expose versioned and non‑versioned page data endpoints based on your configuration:
+The server can automatically expose versioned and non‑versioned page data endpoints based on your `apiEndpoints` configuration:
 
-- Endpoint base: `pageDataHandlers.endpoint` (default: `"page_data"`)
-- Versioning: when `pageDataHandlers.versioned: true`, routes are exposed under `/v{n}/` using `defaultVersion` as the implicit fallback
-- Endpoint prefix: controlled by `pageDataHandlers.endpointPrefix` (default: `"/api"`)
+- Endpoint base: `apiEndpoints.pageDataEndpoint` (default: `"page_data"`)
+- Versioning: when `apiEndpoints.versioned: true`, routes are exposed under `/v{n}/` using `defaultVersion` as the implicit fallback
+- Endpoint prefix: controlled by `apiEndpoints.apiEndpointPrefix` (default: `"/api"`)
 
 Handler signature and return type:
 
@@ -318,12 +320,12 @@ server.registerDataLoaderHandler("test", 2, function (request, params) {
 });
 ```
 
-With defaults (`pageDataHandlers.endpointPrefix = "/api"`, `pageDataHandlers.endpoint = "page_data"`, `versioned = true`), the following endpoints are available after the registration above:
+With defaults (`apiEndpoints.apiEndpointPrefix = "/api"`, `apiEndpoints.pageDataEndpoint = "page_data"`, `versioned = true`), the following endpoints are available after the registration above:
 
 - `POST /api/v1/page_data/test` → invokes version 1 handler
 - `POST /api/v2/page_data/test` → invokes version 2 handler
 
-If you disable versioning (`pageDataHandlers.versioned = false`), a single non‑versioned endpoint is exposed instead:
+If you disable versioning (`apiEndpoints.versioned = false`), a single non‑versioned endpoint is exposed instead:
 
 - `POST /api/page_data/test` → invokes the registered handler
 
@@ -348,6 +350,43 @@ Return a standardized Page Response Envelope. Status codes in the envelope are p
 
 When page data handlers are registered on the same `SSRServer` instance instead of a standalone API server, SSR can directly invoke the handler (short-circuit) instead of performing an HTTP fetch. The data loader passes the same routing context (`route_params`, `query_params`, `request_path`, `original_url`) to ensure consistent behavior. Use the HTTP path when you need cookie propagation to/from a backend API.
 
+### Generic API Routes
+
+You can register versioned generic API routes using the server’s `.api` shortcuts surface (available on both `SSRServer` and `APIServer`, and inside plugins as `fastify.api`). These return standardized API envelopes and automatically set the HTTP response status to `status_code`.
+
+```ts
+import { APIResponseHelpers } from "unirend/api-envelope";
+
+// Register a simple GET endpoint at /api/v1/demo/echo/:id (with defaults)
+server.api.get("demo/echo/:id", async (request) => {
+  return APIResponseHelpers.createAPISuccessResponse({
+    request,
+    data: {
+      message: "Hello from API shortcuts",
+      id: (request.params as Record<string, unknown>).id,
+      query: request.query,
+    },
+    statusCode: 200,
+  });
+});
+
+// Versioned registration example (explicit version 2)
+server.api.post("demo/items", 2, async (request) => {
+  const body = request.body as Record<string, unknown>;
+  return APIResponseHelpers.createAPISuccessResponse({
+    request,
+    data: { created: true, version: 2, body },
+    statusCode: 201,
+  });
+});
+```
+
+Notes:
+
+- Endpoints are mounted under `apiEndpoints.apiEndpointPrefix` and optionally `/v{n}` when `versioned` is true.
+- SSR servers disallow wildcard endpoints at root prefix; use a non-root prefix like `/api` to allow wildcards.
+- Handlers must return a valid API envelope. Status codes are taken from `status_code`.
+
 ## Standalone API (APIServer)
 
 The `APIServer` is a JSON API server with the same plugin surface. It’s intended for AJAX/fetch endpoints and can also host page data handlers for your page data endpoint if hosting the API endpoints as a standalone server.
@@ -359,8 +398,8 @@ import { serveAPI } from "unirend/server";
 
 async function main() {
   const api = serveAPI({
-    // Optional: page data handlers hosted on API server
-    // pageDataHandlers: { endpoint: "page_data", versioned: true, defaultVersion: 1 },
+    // Optional: versioned endpoints configuration
+    // apiEndpoints: { apiEndpointPrefix: "/api", versioned: true, defaultVersion: 1, pageDataEndpoint: "page_data" },
     // Optional: plugins for custom routes, hooks, decorators
     // plugins: [myApiPlugin],
     // Optional: isDevelopment flag (affects error output/logging)
@@ -381,7 +420,7 @@ main().catch(console.error);
 ### Options
 
 - `plugins?: ServerPluginEntry[]`
-- `pageDataHandlers?: PageDataHandlersConfig`
+- `apiEndpoints?: APIEndpointConfig`
 - `errorHandler?(request, error, isDevelopment, isPage?)`
   - Return a standardized API/Page envelope (JSON), not HTML
 - `notFoundHandler?(request, isPage?)`

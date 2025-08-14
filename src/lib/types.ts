@@ -8,10 +8,7 @@ import type {
   FastifySchema,
   preHandlerHookHandler,
 } from "fastify";
-import type {
-  PageDataHandlersConfig,
-  DataLoaderServerHandlerHelpers,
-} from "./internal/DataLoaderServerHandlerHelpers";
+import type { DataLoaderServerHandlerHelpers } from "./internal/DataLoaderServerHandlerHelpers";
 import type {
   APIErrorResponse,
   PageErrorResponse,
@@ -154,6 +151,8 @@ export interface ControlledFastifyInstance {
   put: (path: string, handler: RouteHandler) => void;
   delete: (path: string, handler: RouteHandler) => void;
   patch: (path: string, handler: RouteHandler) => void;
+  /** API route registration shortcuts for versioned endpoints */
+  api?: unknown;
 }
 
 /**
@@ -178,6 +177,21 @@ export type RouteHandler = (
   request: FastifyRequest,
   reply: FastifyReply,
 ) => Promise<void | unknown> | void | unknown;
+
+/**
+ * Shared configuration for versioned API endpoint groups
+ * Used by helpers that register versioned endpoints (page data, generic API routes, etc.)
+ */
+export interface APIEndpointConfig {
+  /** Endpoint prefix that comes before version/endpoint (default: "/api") */
+  apiEndpointPrefix?: string;
+  /** Whether to enable versioning (default: true) */
+  versioned?: boolean;
+  /** Default version when versioning is enabled (default: 1) */
+  defaultVersion?: number;
+  /** Base endpoint name for page data handlers (default: "page_data"). Used by SSR/APIServer's page-data registration only. */
+  pageDataEndpoint?: string;
+}
 
 /**
  * Plugin options passed to each plugin
@@ -241,11 +255,10 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    */
   plugins?: ServerPluginEntry[];
   /**
-   * Configuration for page data handlers
-   * Page data handlers are always available via registerDataLoaderHandler() method
-   * This config customizes the endpoint path, versioning, and defaults
+   * Configuration for versioned API endpoints (shared by page data and generic API routes)
+   * For page data handler endpoints, set pageDataEndpoint (default: "page_data")
    */
-  pageDataHandlers?: PageDataHandlersConfig;
+  apiEndpoints?: APIEndpointConfig;
   /**
    * Name of the client folder within buildDir
    * Defaults to "client" if not provided
@@ -421,10 +434,10 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    */
   plugins?: ServerPluginEntry[];
   /**
-   * Configuration for page data handlers
-   * Enables automatic registration of page data endpoints that work with the frontend pageDataLoader
+   * Configuration for versioned API endpoints (shared by page data and generic API routes)
+   * For page data handler endpoints, set pageDataEndpoint (default: "page_data")
    */
-  pageDataHandlers?: PageDataHandlersConfig;
+  apiEndpoints?: APIEndpointConfig;
   /**
    * Custom error handler for API routes
    * Called when an unhandled error occurs in API routes

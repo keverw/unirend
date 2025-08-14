@@ -37,6 +37,7 @@ import {
   DataLoaderServerHandlerHelpers,
   type PageDataHandler,
 } from "./DataLoaderServerHandlerHelpers";
+import { APIRoutesServerHelpers } from "./APIRoutesServerHelpers";
 import {
   filterIncomingCookieHeader as applyCookiePolicyToCookieHeader,
   filterSetCookieHeaderValues as applyCookiePolicyToSetCookie,
@@ -70,6 +71,7 @@ export class SSRServer extends BaseServer {
     | ((renderRequest: IRenderRequest) => Promise<IRenderResult>)
     | null = null;
   private pageDataHandlers!: DataLoaderServerHandlerHelpers;
+  private apiRoutes!: APIRoutesServerHelpers;
 
   // Cookie forwarding policy (computed from options for quick checks)
   private cookieAllowList?: Set<string>;
@@ -88,8 +90,9 @@ export class SSRServer extends BaseServer {
     this.clientFolderName = config.options.clientFolderName || "client";
     this.serverFolderName = config.options.serverFolderName || "server";
 
-    // Initialize page data handlers (available immediately for handler registration)
+    // Initialize helpers (available immediately for handler registration)
     this.pageDataHandlers = new DataLoaderServerHandlerHelpers();
+    this.apiRoutes = new APIRoutesServerHelpers();
 
     // Initialize cookie forwarding policy
     const allow = config.options.cookieForwarding?.allowCookieNames;
@@ -223,9 +226,23 @@ export class SSRServer extends BaseServer {
       }
 
       // Register page data handler routes with Fastify
-      this.pageDataHandlers.registerRoutes(
+      this.pageDataHandlers.registerRoutes(this.fastifyInstance, {
+        apiEndpointPrefix: this.config.options.apiEndpoints?.apiEndpointPrefix,
+        versioned: this.config.options.apiEndpoints?.versioned,
+        defaultVersion: this.config.options.apiEndpoints?.defaultVersion,
+        pageDataEndpoint: this.config.options.apiEndpoints?.pageDataEndpoint,
+      });
+
+      // Register generic API routes (if any were added programmatically)
+      this.apiRoutes.registerRoutes(
         this.fastifyInstance,
-        this.config.options.pageDataHandlers,
+        {
+          apiEndpointPrefix:
+            this.config.options.apiEndpoints?.apiEndpointPrefix,
+          versioned: this.config.options.apiEndpoints?.versioned,
+          defaultVersion: this.config.options.apiEndpoints?.defaultVersion,
+        },
+        { allowWildcardAtRoot: false },
       );
 
       // --- Vite Dev Server Middleware (Development Only) ---
@@ -581,6 +598,14 @@ export class SSRServer extends BaseServer {
   }
 
   /**
+   * Public API shortcuts for registering versioned generic API routes
+   * Usage: server.api.get("users/:id", handler) or server.api.get("users/:id", 2, handler)
+   */
+  public get api() {
+    return this.apiRoutes.apiShortcuts;
+  }
+
+  /**
    * Register a page data handler for the specified page type
    * Provides method overloading for versioned and non-versioned handlers
    */
@@ -629,6 +654,7 @@ export class SSRServer extends BaseServer {
     const controlledInstance = createControlledInstance(
       this.fastifyInstance,
       true,
+      this.apiRoutes.apiShortcuts,
     );
 
     // Plugin options to pass to each plugin

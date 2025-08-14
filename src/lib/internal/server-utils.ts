@@ -148,6 +148,7 @@ export function createDefaultAPINotFoundResponse(
 export function createControlledInstance(
   fastifyInstance: FastifyInstance,
   disableRootWildcard: boolean,
+  apiShortcuts: unknown,
 ): ControlledFastifyInstance {
   return {
     register: <Options extends Record<string, unknown> = Record<string, never>>(
@@ -217,5 +218,6 @@ export function createControlledInstance(
       fastifyInstance.delete(path, handler),
     patch: (path: string, handler: RouteHandler) =>
       fastifyInstance.patch(path, handler),
+    api: apiShortcuts,
   };
 }

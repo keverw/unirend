@@ -11,6 +11,7 @@ import {
   DataLoaderServerHandlerHelpers,
   type PageDataHandler,
 } from "./DataLoaderServerHandlerHelpers";
+import { APIRoutesServerHelpers } from "./APIRoutesServerHelpers";
 
 /**
  * API Server class for creating JSON API servers with plugin support
@@ -19,6 +20,7 @@ import {
 export class APIServer extends BaseServer {
   private options: APIServerOptions;
   private pageDataHandlers!: DataLoaderServerHandlerHelpers;
+  private apiRoutes!: APIRoutesServerHelpers;
 
   constructor(options: APIServerOptions = {}) {
     super();
@@ -27,8 +29,9 @@ export class APIServer extends BaseServer {
       ...options,
     };
 
-    // Initialize page data handlers (available immediately for handler registration)
+    // Initialize helpers (available immediately for handler registration)
     this.pageDataHandlers = new DataLoaderServerHandlerHelpers();
+    this.apiRoutes = new APIRoutesServerHelpers();
   }
 
   /**
@@ -91,9 +94,22 @@ export class APIServer extends BaseServer {
       }
 
       // Register page data handler routes with Fastify
-      this.pageDataHandlers.registerRoutes(
+      this.pageDataHandlers.registerRoutes(this.fastifyInstance, {
+        apiEndpointPrefix: this.options.apiEndpoints?.apiEndpointPrefix,
+        versioned: this.options.apiEndpoints?.versioned,
+        defaultVersion: this.options.apiEndpoints?.defaultVersion,
+        pageDataEndpoint: this.options.apiEndpoints?.pageDataEndpoint,
+      });
+
+      // Register generic API routes (if any were added programmatically)
+      this.apiRoutes.registerRoutes(
         this.fastifyInstance,
-        this.options.pageDataHandlers,
+        {
+          apiEndpointPrefix: this.options.apiEndpoints?.apiEndpointPrefix,
+          versioned: this.options.apiEndpoints?.versioned,
+          defaultVersion: this.options.apiEndpoints?.defaultVersion,
+        },
+        { allowWildcardAtRoot: true },
       );
 
       // Start the server
@@ -120,6 +136,14 @@ export class APIServer extends BaseServer {
       this._isListening = false;
       this.fastifyInstance = null;
     }
+  }
+
+  /**
+   * Public API shortcuts for registering versioned generic API routes
+   * Usage: server.api.get("users/:id", handler) or server.api.get("users/:id", 2, handler)
+   */
+  public get api() {
+    return this.apiRoutes.apiShortcuts;
   }
 
   /**
@@ -262,6 +286,7 @@ export class APIServer extends BaseServer {
     const controlledInstance = createControlledInstance(
       this.fastifyInstance,
       false,
+      this.apiRoutes.getShortcuts(),
     );
 
     // Plugin options to pass to each plugin

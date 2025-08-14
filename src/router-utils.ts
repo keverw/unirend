@@ -23,7 +23,3 @@ export {
   type FullErrorDefinition,
   type CustomStatusCodeHandler,
 } from "./lib/router-utils/pageDataLoader-types";
-export {
-  type PageDataHandlerParams,
-  type PageDataHandler,
-} from "./lib/internal/DataLoaderServerHandlerHelpers";
