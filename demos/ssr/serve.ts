@@ -16,7 +16,7 @@ import {
   type ServerPlugin,
   type SSRServer,
   type PluginOptions,
-  ControlledFastifyInstance,
+  PluginHostInstance,
   type ControlledReply,
 } from "../../src/server";
 import { APIResponseHelpers, type BaseMeta } from "../../src/api-envelope";
@@ -459,7 +459,7 @@ function logServerStartup(mode: "dev" | "prod", host: string, port: number) {
 
 // Example plugin for API routes and request logging
 const apiRoutesPlugin: ServerPlugin = async (
-  fastify: ControlledFastifyInstance,
+  fastify: PluginHostInstance,
   options: PluginOptions,
 ) => {
   console.log(`🔌 Registering API routes plugin (${options.mode} mode)`);
@@ -669,7 +669,7 @@ async function handleFileUpload(
 
 // Example plugin for file uploads with real @fastify/multipart integration
 const fileUploadPlugin: ServerPlugin = async (
-  fastify: ControlledFastifyInstance,
+  fastify: PluginHostInstance,
   options: PluginOptions,
 ) => {
   console.log(`📁 Registering file upload plugin (${options.mode} mode)`);
@@ -815,7 +815,7 @@ TRUE PER-REQUEST STREAMING VALIDATION:
 
 // Example plugin for request tracking and decorators
 const requestTrackingPlugin: ServerPlugin = async (
-  fastify: ControlledFastifyInstance,
+  fastify: PluginHostInstance,
   options: PluginOptions,
 ) => {
   console.log(`🔍 Registering request tracking plugin (${options.mode} mode)`);

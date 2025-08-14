@@ -274,7 +274,7 @@ What this shows:
 
 Related references:
 
-- `docs/server-plugins.md` for the controlled plugin API (`ControlledFastifyInstance`).
+- `docs/server-plugins.md` for the controlled plugin host API (`PluginHostInstance`).
 - `src/lib/internal/SSRServer.ts` for SSR internals (error handling, API distinction, catch-all GET).
 - `src/lib/internal/APIServer.ts` for standalone API mode using the same envelope conventions.
 

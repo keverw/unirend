@@ -99,7 +99,7 @@ export interface SSRDevPaths {
  * Plugins get access to a controlled subset of Fastify functionality
  */
 export type ServerPlugin = (
-  pluginHost: PluginHost,
+  pluginHost: PluginHostInstance,
   options: PluginOptions,
 ) => Promise<void> | void;
 
@@ -127,7 +127,7 @@ export type FastifyHookName =
  * Controlled Fastify instance interface for plugins
  * Exposes safe methods while preventing access to destructive operations
  */
-export interface ControlledFastifyInstance {
+export interface PluginHostInstance {
   /** Register plugins and middleware */
   register: <Options extends Record<string, unknown> = Record<string, never>>(
     plugin: FastifyPluginAsync<Options> | FastifyPluginCallback<Options>,
@@ -158,13 +158,6 @@ export interface ControlledFastifyInstance {
   /** Page loader registration shortcuts for data loader endpoints */
   pageLoader?: unknown;
 }
-
-/**
- * Alias for the controlled plugin host surface exposed to plugins.
- * This is a constrained subset of the underlying Fastify instance.
- * Prefer this name in documentation and examples.
- */
-export type PluginHost = ControlledFastifyInstance;
 
 /**
  * Controlled reply surface available to handlers.

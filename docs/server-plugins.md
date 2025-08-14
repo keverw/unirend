@@ -132,7 +132,7 @@ pluginHost.route({
 #### Plugin Registration
 
 ```typescript
-// Register third-party plugins
+// Register third-party Fastify plugins
 await pluginHost.register(somePlugin, options);
 ```
 

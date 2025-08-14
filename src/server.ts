@@ -46,8 +46,7 @@ export type {
   SSRDevPaths,
   ServerPlugin,
   ServerPluginEntry,
-  ControlledFastifyInstance,
-  PluginHost,
+  PluginHostInstance,
   PluginOptions,
 } from "./lib/types";
 export type { SSRServer } from "./lib/internal/SSRServer";

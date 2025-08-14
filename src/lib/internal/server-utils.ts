@@ -7,7 +7,7 @@ import type {
   RouteHandler,
 } from "fastify";
 import {
-  type ControlledFastifyInstance,
+  type PluginHostInstance,
   type FastifyHookName,
   type SafeRouteOptions,
   type ControlledReply,
@@ -151,7 +151,7 @@ export function createControlledInstance(
   disableRootWildcard: boolean,
   apiShortcuts: unknown,
   pageLoaderShortcuts: unknown,
-): ControlledFastifyInstance {
+): PluginHostInstance {
   return {
     register: <Options extends Record<string, unknown> = Record<string, never>>(
       plugin: FastifyPluginAsync<Options> | FastifyPluginCallback<Options>,
