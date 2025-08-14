@@ -25,6 +25,8 @@ export interface IRenderRequest {
  */
 export interface SSRHelper {
   fastifyRequest: FastifyRequest;
+  /** Controlled reply to allow handlers to set headers/cookies in short-circuit path */
+  controlledReply: ControlledReply;
   handlers: DataLoaderServerHandlerHelpers;
   /** True when SSR server is running in development mode */
   isDevelopment?: boolean;
@@ -153,6 +155,33 @@ export interface ControlledFastifyInstance {
   patch: (path: string, handler: RouteHandler) => void;
   /** API route registration shortcuts for versioned endpoints */
   api?: unknown;
+}
+
+/**
+ * Controlled reply surface available to handlers.
+ * Allows setting headers and cookies without giving full reply control.
+ */
+export interface ControlledReply {
+  /** Set a response header (content-type may be enforced by framework) */
+  header: (name: string, value: string) => void;
+  /** Set a cookie if @fastify/cookie is registered */
+  setCookie?: (
+    name: string,
+    value: string,
+    options?: Record<string, unknown>,
+  ) => void;
+  /** Clear a cookie if @fastify/cookie is registered */
+  clearCookie?: (name: string, options?: Record<string, unknown>) => void;
+  /** Read a response header value (if available) */
+  getHeader: (name: string) => string | number | string[] | undefined;
+  /** Read all response headers as a plain object */
+  getHeaders: () => Record<string, unknown>;
+  /** Remove a response header by name */
+  removeHeader: (name: string) => void;
+  /** Check if a response header has been set */
+  hasHeader: (name: string) => boolean;
+  /** Whether the reply has already been sent */
+  sent: boolean;
 }
 
 /**

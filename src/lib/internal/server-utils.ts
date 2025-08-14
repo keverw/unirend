@@ -10,6 +10,7 @@ import {
   type ControlledFastifyInstance,
   type FastifyHookName,
   type SafeRouteOptions,
+  type ControlledReply,
 } from "../types";
 import { APIResponseHelpers } from "../../api-envelope";
 
@@ -219,5 +220,49 @@ export function createControlledInstance(
     patch: (path: string, handler: RouteHandler) =>
       fastifyInstance.patch(path, handler),
     api: apiShortcuts,
+  };
+}
+
+/**
+ * Wrap Fastify's reply object with a constrained, safe surface for handlers.
+ */
+export function createControlledReply(reply: FastifyReply): ControlledReply {
+  return {
+    header: (name: string, value: string) => reply.header(name, value),
+    getHeader: (name: string) =>
+      reply.getHeader(name) as unknown as
+        | string
+        | number
+        | string[]
+        | undefined,
+    getHeaders: () => reply.getHeaders() as unknown as Record<string, unknown>,
+    removeHeader: (name: string) => reply.removeHeader(name),
+    hasHeader: (name: string) => reply.hasHeader(name),
+    sent: reply.sent,
+    setCookie:
+      typeof (reply as unknown as { setCookie?: unknown }).setCookie ===
+      "function"
+        ? (
+            reply as unknown as {
+              setCookie: (
+                name: string,
+                value: string,
+                options?: Record<string, unknown>,
+              ) => void;
+            }
+          ).setCookie
+        : undefined,
+    clearCookie:
+      typeof (reply as unknown as { clearCookie?: unknown }).clearCookie ===
+      "function"
+        ? (
+            reply as unknown as {
+              clearCookie: (
+                name: string,
+                options?: Record<string, unknown>,
+              ) => void;
+            }
+          ).clearCookie
+        : undefined,
   };
 }

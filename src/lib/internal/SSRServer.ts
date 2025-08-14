@@ -29,6 +29,7 @@ import {
   isPageDataRequest,
   createDefaultAPIErrorResponse,
   createDefaultAPINotFoundResponse,
+  createControlledReply,
 } from "./server-utils";
 import { generateDefault500ErrorPage } from "./errorPageUtils";
 import StaticContentRouterPlugin from "./middleware/static-content-router";
@@ -399,6 +400,7 @@ export class SSRServer extends BaseServer {
           // Attach SSRHelper for server-only access in loaders
           const ssrHelper: SSRHelper = {
             fastifyRequest: request,
+            controlledReply: createControlledReply(reply),
             handlers: this.pageDataHandlers,
             isDevelopment: this.config.mode === "development",
           } as const;

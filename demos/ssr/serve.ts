@@ -17,6 +17,7 @@ import {
   type SSRServer,
   type PluginOptions,
   ControlledFastifyInstance,
+  type ControlledReply,
 } from "../../src/server";
 import { APIResponseHelpers, type BaseMeta } from "../../src/api-envelope";
 import { pipeline } from "stream/promises";
@@ -199,11 +200,24 @@ function registerPageDataHandlers(server: SSRServer) {
   // Register test page data handler for debugging (success cases)
   server.registerDataLoaderHandler(
     "test",
-    async (request: FastifyRequest, params: PageDataHandlerParams) => {
+    async (
+      request: FastifyRequest,
+      reply: ControlledReply,
+      params: PageDataHandlerParams,
+    ) => {
       const devFlag = (request as FastifyRequest & { isDevelopment?: boolean })
         .isDevelopment;
 
       const environment = devFlag ? "development" : "production";
+
+      // Example of setting a cookie from within a page data handler
+      if (reply.setCookie) {
+        reply.setCookie("ssr_demo", environment, {
+          path: "/",
+          httpOnly: true,
+          sameSite: "lax",
+        });
+      }
 
       return {
         status: "success" as const,
@@ -250,7 +264,7 @@ function registerPageDataHandlers(server: SSRServer) {
   // Register 500 error handler
   server.registerDataLoaderHandler(
     "test-500",
-    async (_request: FastifyRequest, _params: PageDataHandlerParams) => {
+    async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
       return {
         status: "error" as const,
         status_code: 500,
@@ -269,7 +283,7 @@ function registerPageDataHandlers(server: SSRServer) {
             "This is a simulated 500 error response (not a thrown error)",
           details: {
             context: "This is a simulated 500 error response for testing",
-            invocation_origin: _params.invocation_origin,
+            invocation_origin: params.invocation_origin,
             timestamp: new Date().toISOString(),
           },
         },
@@ -280,7 +294,7 @@ function registerPageDataHandlers(server: SSRServer) {
   // Register stacktrace error handler demo for testing
   server.registerDataLoaderHandler(
     "test-stacktrace",
-    async (request: FastifyRequest, params: PageDataHandlerParams) => {
+    async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
       // Create a sample stacktrace
       let stacktrace: string;
 
@@ -323,7 +337,7 @@ function registerPageDataHandlers(server: SSRServer) {
   // Register generic error handler
   server.registerDataLoaderHandler(
     "test-generic-error",
-    async (_request: FastifyRequest, _params: PageDataHandlerParams) => {
+    async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
       return {
         status: "error" as const,
         status_code: 400,
@@ -342,7 +356,7 @@ function registerPageDataHandlers(server: SSRServer) {
           details: {
             context:
               "This is a demo of a generic error page that is not a 404 or a 500",
-            invocation_origin: _params.invocation_origin,
+            invocation_origin: params.invocation_origin,
             timestamp: new Date().toISOString(),
           },
         },
@@ -355,8 +369,8 @@ function registerPageDataHandlers(server: SSRServer) {
   // Such as still returning back custom account meta data, etc for a page.
   server.registerDataLoaderHandler(
     "not-found",
-    async (request: FastifyRequest, params: PageDataHandlerParams) => {
-      const requestPath = params.request_path;
+    async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
+      const request_path = params.request_path;
 
       return {
         status: "error" as const,
@@ -374,7 +388,7 @@ function registerPageDataHandlers(server: SSRServer) {
           code: "not_found",
           message: "The requested resource was not found",
           details: {
-            context: `The requested path '${requestPath}' could not be found`,
+            context: `The requested path '${request_path}' could not be found`,
             invocation_origin: params.invocation_origin,
             timestamp: new Date().toISOString(),
           },
@@ -469,7 +483,7 @@ const apiRoutesPlugin: ServerPlugin = async (
   });
 
   // Add API routes that won't conflict with SSR
-  fastify.get("/api/health", async (_request, _reply) => {
+  fastify.get("/api/health", async (request, reply) => {
     return {
       status: "ok",
       timestamp: new Date().toISOString(),
@@ -478,7 +492,7 @@ const apiRoutesPlugin: ServerPlugin = async (
   });
 
   // Contact endpoint - both GET (for browser testing) and POST (for real forms)
-  fastify.get("/api/contact", async (_request, reply) => {
+  fastify.get("/api/contact", async (request, reply) => {
     reply.type("text/plain");
     return `Contact API Endpoint
 
@@ -496,7 +510,7 @@ Sample Data:
 }`;
   });
 
-  fastify.post("/api/contact", async (request, _reply) => {
+  fastify.post("/api/contact", async (request, reply) => {
     const body = request.body as Record<string, unknown>;
     console.log("Contact form submission:", body);
 
@@ -507,12 +521,12 @@ Sample Data:
   });
 
   // Test route that throws an error
-  fastify.get("/api/error", async (_request, _reply) => {
+  fastify.get("/api/error", async (request, reply) => {
     throw new Error("This is a test error from /api/error endpoint!");
   });
 
   // Add response timing for API requests
-  fastify.addHook("onSend", async (request, _reply, payload) => {
+  fastify.addHook("onSend", async (request, reply, payload) => {
     const requestWithTiming = request as FastifyRequest & {
       startTime?: number;
     };
@@ -707,7 +721,7 @@ const fileUploadPlugin: ServerPlugin = async (
     });
 
     // Upload info endpoint (GET for browser testing)
-    fastify.get("/api/upload", async (_request, reply) => {
+    fastify.get("/api/upload", async (request, reply) => {
       reply.type("text/plain");
       return `File Upload API Endpoints
 
@@ -909,7 +923,7 @@ async function startServer() {
       });
 
       // Intentionally invalid envelope demo for validation behavior
-      server.api.get("demo/bad-envelope", async (_request) => {
+      server.api.get("demo/bad-envelope", async (request) => {
         // This will throw at runtime due to invalid envelope validation
         return { invalid: true } as unknown as ReturnType<
           typeof APIResponseHelpers.createAPISuccessResponse

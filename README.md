@@ -480,7 +480,7 @@ See the detailed guidance in [docs/error-handling.md](docs/error-handling.md) fo
 
 ### Custom Meta with PageDataHandler (Typing with Generics)
 
-`PageDataHandler` is generic. Type your handler with your own data and meta interfaces and pass it to `registerDataLoaderHandler()`.
+`PageDataHandler` is generic. Type your handler with your own data and meta interfaces and pass it to `registerDataLoaderHandler()`. Handlers receive `(request, reply, params)`; you can set extra headers or cookies via `reply` (status and JSON headers are applied from your envelope, and not are available to set here).
 
 ```ts
 import type {
@@ -502,6 +502,7 @@ interface MyData {
 
 const homeHandler: PageDataHandler<MyData, MyMeta> = async (
   request: FastifyRequest,
+  reply,
   params: PageDataHandlerParams,
 ) => ({
   status: "success",
@@ -524,6 +525,7 @@ server.registerDataLoaderHandler("home", homeHandler);
 // Inline variant with explicit generics via cast
 server.registerDataLoaderHandler("about", ((
   request: FastifyRequest,
+  reply,
   params: PageDataHandlerParams,
 ) => ({
   status: "success" as const,

@@ -4,7 +4,8 @@ import type {
   BaseMeta,
 } from "../api-envelope/api-envelope-types";
 import { APIResponseHelpers } from "../api-envelope/response-helpers";
-import type { APIEndpointConfig } from "../types";
+import type { APIEndpointConfig, ControlledReply } from "../types";
+import { createControlledReply } from "./server-utils";
 
 /**
  * Supported HTTP methods for API routes
@@ -19,6 +20,7 @@ export type HTTPMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
  */
 export type APIRouteHandler<T = unknown, M extends BaseMeta = BaseMeta> = (
   request: FastifyRequest,
+  controlledReply: ControlledReply,
   params: {
     /** HTTP method used for this route */
     method: HTTPMethod;
@@ -349,16 +351,20 @@ export class APIRoutesServerHelpers<
             const original_url = request.url;
             const request_path = original_url.split("?")[0] || original_url;
 
-            const envelope = await handler(request, {
-              method,
-              endpoint,
-              version,
-              fullPath,
-              route_params,
-              query_params,
-              request_path,
-              original_url,
-            });
+            const envelope = await handler(
+              request,
+              createControlledReply(reply),
+              {
+                method,
+                endpoint,
+                version,
+                fullPath,
+                route_params,
+                query_params,
+                request_path,
+                original_url,
+              },
+            );
 
             if (!APIResponseHelpers.isValidEnvelope(envelope)) {
               const error = new Error(

@@ -36,6 +36,7 @@ export type {
   SSGPageReport,
   IPageWanted,
   APIServerOptions,
+  ControlledReply,
 } from "./lib/types";
 
 // Server-safe constants

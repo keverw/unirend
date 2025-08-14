@@ -313,14 +313,14 @@ async function pageLoader({
   const url = new URL(request.url);
 
   // Convert params to ensure all values are strings
-  const routeParams: Record<string, string> = {};
+  const route_params: Record<string, string> = {};
   for (const [key, value] of Object.entries(params)) {
-    routeParams[key] = value || "";
+    route_params[key] = value || "";
   }
 
   // Assemble the request body
   const requestBody = {
-    route_params: routeParams, // react router params
+    route_params: route_params, // react router params
     query_params: Object.fromEntries(
       // url query params
       url.searchParams.entries(),
@@ -354,13 +354,14 @@ async function pageLoader({
         try {
           const outcome = await ssrHelper.handlers.callHandler({
             originalRequest: ssrHelper.fastifyRequest,
+            controlledReply: ssrHelper.controlledReply,
             pageType,
             timeoutMs: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
             // Pass the exact same data that would be in the POST body
-            routeParams: requestBody.route_params,
-            queryParams: requestBody.query_params,
-            requestPath: requestBody.request_path,
-            originalUrl: requestBody.original_url,
+            route_params: requestBody.route_params,
+            query_params: requestBody.query_params,
+            request_path: requestBody.request_path,
+            original_url: requestBody.original_url,
           });
 
           if (outcome.exists && outcome.result) {
@@ -590,16 +591,16 @@ async function localPageLoader<T = unknown, M extends BaseMeta = BaseMeta>(
   const url = new URL(request.url);
 
   // Convert params to ensure all values are strings
-  const routeParams: Record<string, string> = {};
+  const route_params: Record<string, string> = {};
   for (const [key, value] of Object.entries(params)) {
-    routeParams[key] = value || "";
+    route_params[key] = value || "";
   }
 
   // Assemble the local handler params with origin and routing context
   const localParams: LocalPageHandlerParams = {
     pageType: "local",
     invocation_origin: "local",
-    route_params: routeParams,
+    route_params: route_params,
     query_params: Object.fromEntries(url.searchParams.entries()),
     request_path: url.pathname,
     original_url: request.url,

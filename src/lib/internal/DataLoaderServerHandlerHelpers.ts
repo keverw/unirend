@@ -5,7 +5,8 @@ import type {
   BaseMeta,
 } from "../api-envelope/api-envelope-types";
 import { APIResponseHelpers } from "../api-envelope/response-helpers";
-import type { APIEndpointConfig } from "../types";
+import type { APIEndpointConfig, ControlledReply } from "../types";
+import { createControlledReply } from "./server-utils";
 
 /**
  * Parameters passed to page data handlers with shortcuts to common fields
@@ -46,6 +47,7 @@ export interface PageDataHandlerParams {
 export type PageDataHandler<T = unknown, M extends BaseMeta = BaseMeta> = (
   /** Original HTTP request (for cookies/headers/IP/auth) */
   originalRequest: FastifyRequest,
+  reply: ControlledReply,
   params: PageDataHandlerParams,
 ) =>
   | Promise<PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M>>
@@ -220,18 +222,24 @@ export class DataLoaderServerHandlerHelpers {
             // Extract page data loader fields from request body
             const requestBody = (request.body as Record<string, unknown>) || {};
 
-            const result = await handler(request, {
-              pageType,
-              version,
-              invocation_origin: "http",
-              // Shortcuts to common page data loader fields
-              route_params:
-                (requestBody.route_params as Record<string, string>) || {},
-              query_params:
-                (requestBody.query_params as Record<string, string>) || {},
-              request_path: (requestBody.request_path as string) || request.url,
-              original_url: (requestBody.original_url as string) || request.url,
-            });
+            const result = await handler(
+              request,
+              createControlledReply(reply),
+              {
+                pageType,
+                version,
+                invocation_origin: "http",
+                // Shortcuts to common page data loader fields
+                route_params:
+                  (requestBody.route_params as Record<string, string>) || {},
+                query_params:
+                  (requestBody.query_params as Record<string, string>) || {},
+                request_path:
+                  (requestBody.request_path as string) || request.url,
+                original_url:
+                  (requestBody.original_url as string) || request.url,
+              },
+            );
 
             // Validate that the handler returned a proper envelope object
             if (!APIResponseHelpers.isValidEnvelope(result)) {
@@ -300,26 +308,28 @@ export class DataLoaderServerHandlerHelpers {
   >(options: {
     /** Original HTTP request (for cookies/headers/IP/auth) */
     originalRequest: FastifyRequest;
+    /** Controlled reply (required for internal short-circuit path) */
+    controlledReply: ControlledReply;
     pageType: string;
     /** Timeout in milliseconds; if omitted or <= 0, no timeout is applied */
     timeoutMs?: number;
     /** Route params from the router (must match pageDataLoader's route_params) */
-    routeParams: Record<string, string>;
+    route_params: Record<string, string>;
     /** Query params from the URL (must match pageDataLoader's query_params) */
-    queryParams: Record<string, string>;
+    query_params: Record<string, string>;
     /** Request path (must match pageDataLoader's request_path) */
-    requestPath: string;
+    request_path: string;
     /** Original URL (must match pageDataLoader's original_url) */
-    originalUrl: string;
+    original_url: string;
   }): Promise<CallHandlerResult<T, M>> {
     const {
       originalRequest,
       pageType,
       timeoutMs,
-      routeParams,
-      queryParams,
-      requestPath,
-      originalUrl,
+      route_params,
+      query_params,
+      request_path,
+      original_url,
     } = options;
 
     const versionMap = this.handlersByPageType.get(pageType);
@@ -344,10 +354,10 @@ export class DataLoaderServerHandlerHelpers {
       pageType,
       version: latestVersion,
       invocation_origin: "internal",
-      route_params: routeParams,
-      query_params: queryParams,
-      request_path: requestPath,
-      original_url: originalUrl,
+      route_params,
+      query_params,
+      request_path,
+      original_url,
     };
 
     // Defer invocation to the microtask queue and normalize to a Promise.
@@ -355,7 +365,7 @@ export class DataLoaderServerHandlerHelpers {
     // the handler become Promise rejections instead of escaping before our
     // timeout race is set up. Non-Promise returns are treated as resolved values.
     const invocation = Promise.resolve().then(() =>
-      handler(originalRequest, finalParams),
+      handler(originalRequest, options.controlledReply, finalParams),
     );
 
     // Attach a no-op catch when using a timeout to prevent a possible

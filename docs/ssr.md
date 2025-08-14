@@ -19,6 +19,8 @@
   - [Page Data Handlers and Versioning](#page-data-handlers-and-versioning)
   - [Short-Circuit Data Handlers](#short-circuit-data-handlers)
   - [Generic API Routes](#generic-api-routes)
+    - [API route handler signature and parameters:](#api-route-handler-signature-and-parameters)
+  - [Param Source Parity (Data Loader vs API Routes):](#param-source-parity-data-loader-vs-api-routes)
 - [Standalone API (APIServer)](#standalone-api-apiserver)
   - [Basic usage](#basic-usage)
   - [Options](#options)
@@ -265,23 +267,39 @@ The server can automatically expose versioned and non‑versioned page data endp
 - Versioning: when `apiEndpoints.versioned: true`, routes are exposed under `/v{n}/` using `defaultVersion` as the implicit fallback
 - Endpoint prefix: controlled by `apiEndpoints.apiEndpointPrefix` (default: `"/api"`)
 
+Example paths (assuming `apiEndpointPrefix = "/api"`, `pageDataEndpoint = "page_data"`, and page type `home`):
+
+- Versioned enabled (`versioned: true`):
+  - Default version (e.g., 1): `POST /api/v1/page_data/home`
+  - Explicit version 2: `POST /api/v2/page_data/home`
+- Versioned disabled (`versioned: false`):
+  - Single endpoint: `POST /api/page_data/home`
+
 Handler signature and return type:
 
 - `registerDataLoaderHandler(pageType, handler)` or `registerDataLoaderHandler(pageType, version, handler)`
-- Handler signature: `(originalRequest, params) => PageResponseEnvelope | APIResponseEnvelope`
-  - `params.pageType`: the page type string you registered
-  - `params.version`: version number used for this invocation
-  - `params.invocation_origin`: `"http" | "internal"`
-  - `params.route_params`: dynamic route params
-  - `params.query_params`: URL query params
-  - `params.request_path`: resolved request path used by the loader
-  - `params.original_url`: full original URL
+- Handler signature: `(originalRequest, reply, params) => PageResponseEnvelope | APIResponseEnvelope`
+- Handler parameters:
+  - `originalRequest`: the Fastify request that initiated the render. Use only for transport/ambient data (cookies, headers, IP, auth tokens).
+  - `reply`: controlled object scoped to this handler with:
+    - `header(name, value)`
+    - `getHeader(name)` / `getHeaders()` / `removeHeader(name)` / `hasHeader(name)` / `sent`
+    - `setCookie(name, value, options?)` and `clearCookie(name, options?)` if `@fastify/cookie` is registered
+  - `params`:
+    - `pageType`: the page type string you registered
+    - `version`: version number used for this invocation
+    - `invocation_origin`: `"http" | "internal"`
+    - `route_params`: dynamic route params
+    - `query_params`: URL query params
+    - `request_path`: resolved request path used by the loader
+    - `original_url`: full original URL
 
 Guidance:
 
 - Treat `params` as the authoritative routing context produced by the page data loader
 - Do not reconstruct routing info from `originalRequest`
 - Use `originalRequest` only for transport/ambient data (cookies, headers, IP, auth tokens)
+- Use `reply` to set additional headers and cookies when needed; HTTP status and JSON content-type are managed by the framework from the envelope
 - During SSR, `originalRequest` is the same request that initiated the render; after hydration, client-side loader fetches include their own transport context
 
 Recommendation:
@@ -386,6 +404,33 @@ Notes:
 - Endpoints are mounted under `apiEndpoints.apiEndpointPrefix` and optionally `/v{n}` when `versioned` is true.
 - SSR servers disallow wildcard endpoints at root prefix; use a non-root prefix like `/api` to allow wildcards.
 - Handlers must return a valid API envelope. Status codes are taken from `status_code`.
+- Available helpers: `.api.get`, `.api.post`, `.api.put`, `.api.delete`, `.api.patch`.
+
+#### API route handler signature and parameters:
+
+- Handler signature: `(request, reply, params) => APIResponseEnvelope`
+- Handler parameters:
+  - `request`: Fastify request
+  - `reply`: controlled object with the same surface as data loader handlers:
+    - `header(name, value)`
+    - `getHeader(name)` / `getHeaders()` / `removeHeader(name)` / `hasHeader(name)` / `sent`
+    - `setCookie(name, value, options?)` and `clearCookie(name, options?)` if `@fastify/cookie` is registered
+  - `params`:
+    - `method`: HTTP method
+    - `endpoint`: endpoint segment (after version/prefix)
+    - `version`: numeric version used
+    - `fullPath`: full registered path
+    - `route_params`: dynamic route params
+    - `query_params`: URL query params
+    - `request_path`: path without query
+    - `original_url`: full original URL
+
+### Param Source Parity (Data Loader vs API Routes):
+
+- Both handlers receive a `params` object with a similar routing context, but the source differs:
+  - Data loader handlers: `params` are produced by the frontend page loader and sent in the POST body (SSR short-circuit passes the same shape internally for consistency). Treat this as the authoritative routing context for page data.
+  - API route handlers: `params` are assembled on the server from Fastify’s request (route/query/path/URL). Use these directly for API endpoints.
+- In both cases, the best practices is to use `originalRequest` (the Fastify request) only for transport/ambient data (cookies/headers/IP/auth), and use `reply` for headers/cookies you want on the HTTP response. This also makes it easy to port code between the page data loader and API handlers.
 
 ## Standalone API (APIServer)
 

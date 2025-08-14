@@ -12,6 +12,7 @@
     - [Plugin Registration](#plugin-registration)
     - [Hooks](#hooks)
     - [Decorators](#decorators)
+    - [API Shortcuts (envelope helpers)](#api-shortcuts-envelope-helpers)
 - [Example Plugins](#example-plugins)
   - [API Routes Plugin](#api-routes-plugin)
   - [Plugin-specific user options](#plugin-specific-user-options)
@@ -41,7 +42,7 @@ The Unirend SSR server supports a controlled plugin system that allows you to ex
 
 The plugin system provides a **controlled interface** to Fastify that allows you to:
 
-- ✅ Add custom API routes
+- ✅ Add custom API routes, both raw `.get(` or `.api.get(` when wanting to enforce the envelope pattern
 - ✅ Register custom hooks and middleware
 - ✅ Add file upload handling
 - ✅ Implement authentication/authorization
@@ -156,6 +157,52 @@ fastify.decorateReply("setUser", function (user) {
 });
 fastify.decorate("db", databaseConnection);
 ```
+
+#### API Shortcuts (Envelope Helpers)
+
+```typescript
+// Register versioned API endpoints that must return the standardized envelopes
+// Available helpers: fastify.api.get | post | put | delete | patch
+
+import { APIResponseHelpers } from "unirend/api-envelope";
+
+fastify.api.get("demo/echo/:id", async (request, reply, params) => {
+  // Build and return an API envelope; status taken from status_code
+  return APIResponseHelpers.createAPISuccessResponse({
+    request,
+    data: {
+      id: (request.params as Record<string, unknown>).id,
+      query: request.query,
+      endpoint: params.endpoint,
+      version: params.version,
+    },
+    statusCode: 200,
+  });
+});
+
+// Explicit version example
+fastify.api.post("demo/items", 2, async (request, reply, params) => {
+  const body = request.body as Record<string, unknown>;
+  return APIResponseHelpers.createAPISuccessResponse({
+    request,
+    data: { created: true, body, version: params.version },
+    statusCode: 201,
+  });
+});
+```
+
+Notes:
+
+- These helpers enforce the API envelope contract and derive the HTTP status from `status_code` in the returned envelope.
+- Use raw `fastify.get/post/...` when you need to return non-JSON responses; `fastify.api.*` is for JSON envelopes only, to keep things consistent.
+- Wildcard endpoints are only allowed via `fastify.api.*` when your `apiEndpointPrefix` is non-root (default is `"/api"`); raw Fastify wildcard routes are blocked to avoid conflicts with SSR.
+- For the full `params` shape passed to `fastify.api.*` handlers, see Generic API Routes in `docs/ssr.md`.
+
+Notes:
+
+- Handlers use the signature `(request, reply, params)`; `reply` is a controlled surface that allows setting headers and cookies.
+- Endpoints are mounted under `apiEndpoints.apiEndpointPrefix` and, when `versioned` is true, under `/v{n}`.
+- Status is taken from `status_code` in the returned API envelope.
 
 ## Example Plugins
 
