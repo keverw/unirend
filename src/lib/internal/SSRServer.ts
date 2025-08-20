@@ -73,6 +73,7 @@ export class SSRServer extends BaseServer {
     | null = null;
   private pageDataHandlers!: DataLoaderServerHandlerHelpers;
   private apiRoutes!: APIRoutesServerHelpers;
+  private viteDevServer: ViteDevServer | null = null;
 
   // Cookie forwarding policy (computed from options for quick checks)
   private cookieAllowList?: Set<string>;
@@ -135,8 +136,13 @@ export class SSRServer extends BaseServer {
         }
       }
 
-      // Load HTML template
-      const { content: htmlTemplate } = await this.loadHTMLTemplate();
+      // Load HTML template (in production only - dev will read fresh per request)
+      let htmlTemplate: string | undefined;
+
+      if (this.config.mode === "production") {
+        const templateResult = await this.loadHTMLTemplate();
+        htmlTemplate = templateResult.content;
+      }
 
       // Dynamic import to prevent bundling in client builds
       const { default: fastify } = await import("fastify");
@@ -188,8 +194,8 @@ export class SSRServer extends BaseServer {
           }
 
           // In development, let Vite fix the stack trace for better debugging.
-          if (vite && isDevelopment && error instanceof Error) {
-            vite.ssrFixStacktrace(error);
+          if (this.viteDevServer && isDevelopment && error instanceof Error) {
+            this.viteDevServer.ssrFixStacktrace(error);
           }
 
           // If the response hasn't been sent, determine response type
@@ -244,12 +250,9 @@ export class SSRServer extends BaseServer {
         { allowWildcardAtRoot: false },
       );
 
-      // --- Vite Dev Server Middleware (Development Only) ---
-      let vite: ViteDevServer | null = null;
-
-      // Vite Dev Server Middleware (Development Only)
+      // Create Vite Dev Server Middleware (Development Only)
       if (this.config.mode === "development") {
-        vite = await (
+        this.viteDevServer = await (
           await import("vite")
         ).createServer({
           configFile: this.config.paths.viteConfig,
@@ -261,7 +264,7 @@ export class SSRServer extends BaseServer {
         await this.fastifyInstance.register(import("@fastify/middie"));
 
         // Now we can use middleware
-        this.fastifyInstance.use(vite.middlewares);
+        this.fastifyInstance.use(this.viteDevServer.middlewares);
       }
       // Production Server Middleware (Production Only)
       else {
@@ -314,14 +317,22 @@ export class SSRServer extends BaseServer {
           // Signature should be: (renderRequest: IRenderRequest) => Promise<IRenderResult>
           let render: (renderRequest: IRenderRequest) => Promise<IRenderResult>;
 
-          let template = htmlTemplate; // Start with the loaded template
+          let template: string;
 
-          if (this.config.mode === "development" && vite) {
+          if (this.config.mode === "development" && this.viteDevServer) {
             // --- Development SSR ---
+            // Read template fresh per request in dev mode
+            const templateResult = await this.loadHTMLTemplate();
+            template = templateResult.content;
+
             // Apply Vite HTML transforms (injects HMR client, plugins)
-            template = await vite.transformIndexHtml(request.url, template);
+            template = await this.viteDevServer.transformIndexHtml(
+              request.url,
+              template,
+            );
+
             // Load server entry using Vite's SSR loader (from src)
-            const entryServer = await vite.ssrLoadModule(
+            const entryServer = await this.viteDevServer.ssrLoadModule(
               this.config.paths.serverEntry,
             );
 
@@ -337,7 +348,13 @@ export class SSRServer extends BaseServer {
             render = entryServer.render;
           } else {
             // --- Production SSR ---
-            // Use cached render function (loaded once for performance)
+            // Use the template loaded at startup and cached render function
+            // Loaded once for performance in production mode
+            if (!htmlTemplate) {
+              throw new Error("HTML template not loaded in production mode");
+            }
+
+            template = htmlTemplate;
             render = await this.loadProductionRenderFunction();
           }
 
@@ -454,7 +471,13 @@ export class SSRServer extends BaseServer {
                   renderResult.errorDetails ||
                   new Error("Internal Server Error");
 
-                await this.handleSSRError(request, reply, error, vite);
+                await this.handleSSRError(
+                  request,
+                  reply,
+                  error,
+                  this.viteDevServer,
+                );
+
                 return;
               }
 
@@ -535,7 +558,7 @@ export class SSRServer extends BaseServer {
                 request,
                 reply,
                 renderResult.error,
-                vite,
+                this.viteDevServer,
               );
 
               return; // Stop further processing
@@ -549,11 +572,23 @@ export class SSRServer extends BaseServer {
                 `Unexpected render result type: ${resultType}`,
               );
 
-              await this.handleSSRError(request, reply, unexpectedError, vite);
+              await this.handleSSRError(
+                request,
+                reply,
+                unexpectedError,
+                this.viteDevServer,
+              );
+
               return;
             }
           } catch (error) {
-            await this.handleSSRError(request, reply, error as Error, vite);
+            await this.handleSSRError(
+              request,
+              reply,
+              error as Error,
+              this.viteDevServer,
+            );
+
             return;
           }
 
@@ -566,7 +601,7 @@ export class SSRServer extends BaseServer {
               request,
               reply,
               new Error("No response was generated"),
-              vite,
+              this.viteDevServer,
             );
           }
         },
@@ -590,11 +625,24 @@ export class SSRServer extends BaseServer {
    * Stop the server if it's currently listening
    */
   async stop(): Promise<void> {
-    if (this.fastifyInstance && this._isListening) {
+    if (!this._isListening) {
+      return;
+    }
+
+    // Close Fastify server if it exists
+    if (this.fastifyInstance) {
       await this.fastifyInstance.close();
-      this._isListening = false;
       this.fastifyInstance = null;
     }
+
+    // Close Vite dev server if it exists
+    if (this.viteDevServer) {
+      await this.viteDevServer.close();
+      this.viteDevServer = null;
+    }
+
+    // Only mark as stopped after both are successfully closed
+    this._isListening = false;
   }
 
   /**
