@@ -4,8 +4,9 @@ import {
   isPageDataRequest,
   createDefaultAPIErrorResponse,
   createDefaultAPINotFoundResponse,
+  validateAndRegisterPlugin,
 } from "./server-utils";
-import type { APIServerOptions } from "../types";
+import type { APIServerOptions, PluginMetadata } from "../types";
 import { BaseServer } from "./BaseServer";
 import {
   DataLoaderServerHandlerHelpers,
@@ -21,6 +22,7 @@ export class APIServer extends BaseServer {
   private options: APIServerOptions;
   private pageDataHandlers!: DataLoaderServerHandlerHelpers;
   private apiRoutes!: APIRoutesServerHelpers;
+  private registeredPlugins: PluginMetadata[] = [];
 
   constructor(options: APIServerOptions = {}) {
     super();
@@ -45,6 +47,28 @@ export class APIServer extends BaseServer {
       throw new Error(
         "APIServer is already listening. Call stop() first before listening again.",
       );
+    }
+
+    if (this._isStarting) {
+      throw new Error(
+        "APIServer is already starting. Please wait for the current startup to complete.",
+      );
+    }
+
+    this._isStarting = true;
+
+    // Clear plugin tracking state on startup (handles restart scenarios)
+    this.registeredPlugins = [];
+
+    // Clean up any existing instances from previous failed startups
+    if (this.fastifyInstance) {
+      try {
+        await this.fastifyInstance.close();
+      } catch {
+        // Ignore cleanup errors for stale instances
+      }
+
+      this.fastifyInstance = null;
     }
 
     try {
@@ -117,9 +141,36 @@ export class APIServer extends BaseServer {
       });
 
       this._isListening = true;
+      this._isStarting = false;
     } catch (error) {
+      // Cleanup on any startup failure
       this._isListening = false;
-      this.fastifyInstance = null;
+      this._isStarting = false;
+
+      const cleanupErrors: string[] = [];
+
+      // Close Fastify if it was created but startup failed
+      if (this.fastifyInstance) {
+        try {
+          await this.fastifyInstance.close();
+        } catch (closeError) {
+          cleanupErrors.push(
+            `Fastify cleanup failed: ${closeError instanceof Error ? closeError.message : String(closeError)}`,
+          );
+        }
+
+        this.fastifyInstance = null;
+      }
+
+      // Clear plugin tracking state on failure
+      this.registeredPlugins = [];
+
+      // Append cleanup errors to original error message if any
+      if (cleanupErrors.length > 0 && error instanceof Error) {
+        // Modify the original error's message directly
+        error.message = `${error.message}. Additional errors occurred: ${cleanupErrors.join(", ")}`;
+      }
+
       throw error;
     }
   }
@@ -133,6 +184,9 @@ export class APIServer extends BaseServer {
       await this.fastifyInstance.close();
       this._isListening = false;
       this.fastifyInstance = null;
+
+      // Clear plugin tracking state
+      this.registeredPlugins = [];
     }
   }
 
@@ -297,7 +351,7 @@ export class APIServer extends BaseServer {
       buildDir: undefined, // Not applicable for API servers
     };
 
-    // Register each plugin
+    // Register each plugin with dependency validation
     for (const pluginEntry of this.options.plugins) {
       try {
         const plugin =
@@ -305,7 +359,14 @@ export class APIServer extends BaseServer {
         const userOptions =
           typeof pluginEntry === "function" ? undefined : pluginEntry.options;
 
-        await plugin(controlledInstance, { ...pluginOptions, userOptions });
+        // Call plugin and get potential metadata
+        const pluginResult = await plugin(controlledInstance, {
+          ...pluginOptions,
+          userOptions,
+        });
+
+        // Validate dependencies and track plugin
+        validateAndRegisterPlugin(this.registeredPlugins, pluginResult);
       } catch (error) {
         this.fastifyInstance?.log.error("Failed to register plugin:", error);
         throw new Error(

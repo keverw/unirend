@@ -95,13 +95,24 @@ export interface SSRDevPaths {
 }
 
 /**
+ * Plugin metadata returned by plugins for dependency tracking and cleanup
+ */
+export interface PluginMetadata {
+  /** Unique name for this plugin */
+  name: string;
+  /** Plugin dependencies - other plugin names that must be registered first */
+  dependsOn?: string | string[];
+}
+
+/**
  * Plugin registration function type
  * Plugins get access to a controlled subset of Fastify functionality
+ * Can optionally return metadata for dependency tracking
  */
 export type ServerPlugin = (
   pluginHost: PluginHostInstance,
   options: PluginOptions,
-) => Promise<void> | void;
+) => Promise<PluginMetadata | void> | PluginMetadata | void;
 
 /**
  * Entry in the plugins array. Supports either a bare plugin function,

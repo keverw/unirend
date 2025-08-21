@@ -6,11 +6,12 @@ import type {
   FastifyReply,
   RouteHandler,
 } from "fastify";
-import {
-  type PluginHostInstance,
-  type FastifyHookName,
-  type SafeRouteOptions,
-  type ControlledReply,
+import type {
+  PluginMetadata,
+  PluginHostInstance,
+  FastifyHookName,
+  SafeRouteOptions,
+  ControlledReply,
 } from "../types";
 import { APIResponseHelpers } from "../../api-envelope";
 
@@ -267,4 +268,49 @@ export function createControlledReply(reply: FastifyReply): ControlledReply {
           ).clearCookie
         : undefined,
   };
+}
+
+/**
+ * Validates plugin dependencies and registers a plugin with metadata tracking
+ *
+ * @param registeredPlugins Array of already registered plugin metadata (mutated by this function)
+ * @param pluginResult The result returned by the plugin (either PluginMetadata or void)
+ * @throws Error if plugin dependencies are not met or duplicate plugin names
+ */
+export function validateAndRegisterPlugin(
+  registeredPlugins: PluginMetadata[],
+  pluginResult: PluginMetadata | void,
+): void {
+  // If plugin returned no metadata, nothing to track
+  if (!pluginResult) {
+    return;
+  }
+
+  // Check for duplicate plugin names
+  if (registeredPlugins.some((p) => p.name === pluginResult.name)) {
+    throw new Error(
+      `Plugin with name "${pluginResult.name}" is already registered`,
+    );
+  }
+
+  // Check dependencies
+  if (pluginResult.dependsOn) {
+    const dependencies = Array.isArray(pluginResult.dependsOn)
+      ? pluginResult.dependsOn
+      : [pluginResult.dependsOn];
+
+    const registeredNames = new Set(registeredPlugins.map((p) => p.name));
+
+    for (const dep of dependencies) {
+      if (!registeredNames.has(dep)) {
+        throw new Error(
+          `Plugin "${pluginResult.name}" depends on "${dep}" which has not been registered yet. ` +
+            `Plugins must be registered in dependency order.`,
+        );
+      }
+    }
+  }
+
+  // Add to registered plugins list
+  registeredPlugins.push(pluginResult);
 }

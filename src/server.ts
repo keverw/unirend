@@ -48,6 +48,7 @@ export type {
   ServerPluginEntry,
   PluginHostInstance,
   PluginOptions,
+  PluginMetadata,
 } from "./lib/types";
 export type { SSRServer } from "./lib/internal/SSRServer";
 export type { APIServer } from "./lib/internal/APIServer";

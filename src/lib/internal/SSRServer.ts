@@ -6,6 +6,7 @@ import {
   SSRDevPaths,
   StaticContentRouterOptions,
   type SSRHelper,
+  type PluginMetadata,
 } from "../types";
 import {
   readHTMLFile,
@@ -30,6 +31,7 @@ import {
   createDefaultAPIErrorResponse,
   createDefaultAPINotFoundResponse,
   createControlledReply,
+  validateAndRegisterPlugin,
 } from "./server-utils";
 import { generateDefault500ErrorPage } from "./errorPageUtils";
 import StaticContentRouterPlugin from "./middleware/static-content-router";
@@ -74,6 +76,7 @@ export class SSRServer extends BaseServer {
   private pageDataHandlers!: DataLoaderServerHandlerHelpers;
   private apiRoutes!: APIRoutesServerHelpers;
   private viteDevServer: ViteDevServer | null = null;
+  private registeredPlugins: PluginMetadata[] = [];
 
   // Cookie forwarding policy (computed from options for quick checks)
   private cookieAllowList?: Set<string>;
@@ -123,6 +126,38 @@ export class SSRServer extends BaseServer {
       throw new Error(
         "SSRServer is already listening. Call stop() first before listening again.",
       );
+    }
+
+    if (this._isStarting) {
+      throw new Error(
+        "SSRServer is already starting. Please wait for the current startup to complete.",
+      );
+    }
+
+    this._isStarting = true;
+
+    // Clear plugin tracking state on startup (handles restart scenarios)
+    this.registeredPlugins = [];
+
+    // Clean up any existing instances from previous failed startups
+    if (this.fastifyInstance) {
+      try {
+        await this.fastifyInstance.close();
+      } catch {
+        // Ignore cleanup errors for stale instances
+      }
+
+      this.fastifyInstance = null;
+    }
+
+    if (this.viteDevServer) {
+      try {
+        await this.viteDevServer.close();
+      } catch {
+        // Ignore cleanup errors for stale instances
+      }
+
+      this.viteDevServer = null;
     }
 
     try {
@@ -614,9 +649,49 @@ export class SSRServer extends BaseServer {
       });
 
       this._isListening = true;
+      this._isStarting = false;
     } catch (error) {
+      // Cleanup on any startup failure
       this._isListening = false;
-      this.fastifyInstance = null;
+      this._isStarting = false;
+
+      const cleanupErrors: string[] = [];
+
+      // Close Fastify if it was created but startup failed
+      if (this.fastifyInstance) {
+        try {
+          await this.fastifyInstance.close();
+        } catch (closeError) {
+          cleanupErrors.push(
+            `Fastify cleanup failed: ${closeError instanceof Error ? closeError.message : String(closeError)}`,
+          );
+        }
+
+        this.fastifyInstance = null;
+      }
+
+      // Close Vite dev server if it was created but startup failed
+      if (this.viteDevServer) {
+        try {
+          await this.viteDevServer.close();
+        } catch (closeError) {
+          cleanupErrors.push(
+            `Vite dev server cleanup failed: ${closeError instanceof Error ? closeError.message : String(closeError)}`,
+          );
+        }
+
+        this.viteDevServer = null;
+      }
+
+      // Clear plugin tracking state on failure
+      this.registeredPlugins = [];
+
+      // Append cleanup errors to original error message if any
+      if (cleanupErrors.length > 0 && error instanceof Error) {
+        // Modify the original error's message directly
+        error.message = `${error.message}. Additional errors occurred: ${cleanupErrors.join(", ")}`;
+      }
+
       throw error;
     }
   }
@@ -643,6 +718,9 @@ export class SSRServer extends BaseServer {
 
     // Only mark as stopped after both are successfully closed
     this._isListening = false;
+
+    // Clear plugin tracking state
+    this.registeredPlugins = [];
   }
 
   /**
@@ -714,7 +792,7 @@ export class SSRServer extends BaseServer {
         this.config.mode === "production" ? this.config.buildDir : undefined,
     };
 
-    // Register each plugin
+    // Register each plugin with dependency validation
     for (const pluginEntry of this.config.options.plugins) {
       try {
         const plugin =
@@ -722,7 +800,14 @@ export class SSRServer extends BaseServer {
         const userOptions =
           typeof pluginEntry === "function" ? undefined : pluginEntry.options;
 
-        await plugin(controlledInstance, { ...pluginOptions, userOptions });
+        // Call plugin and get potential metadata
+        const pluginResult = await plugin(controlledInstance, {
+          ...pluginOptions,
+          userOptions,
+        });
+
+        // Validate dependencies and track plugin
+        validateAndRegisterPlugin(this.registeredPlugins, pluginResult);
       } catch (error) {
         this.fastifyInstance?.log.error("Failed to register plugin:", error);
         throw new Error(
