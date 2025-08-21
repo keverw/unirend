@@ -77,6 +77,11 @@ const myPlugin: ServerPlugin = async (pluginHost, options) => {
   pluginHost.addHook("preHandler", async (request, reply) => {
     console.log(`Request: ${request.method} ${request.url}`);
   });
+
+  // Optional: return metadata for dependency tracking
+  return {
+    name: "status-plugin",
+  };
 };
 
 // Register the plugin
@@ -94,7 +99,19 @@ const server = await serveSSRDev(paths, {
 type ServerPlugin = (
   fastify: ControlledFastifyInstance,
   options: PluginOptions,
-) => Promise<void> | void;
+) => Promise<PluginMetadata | void> | PluginMetadata | void;
+```
+
+Plugins can optionally return metadata for dependency tracking, using the `PluginMetadata` type from `unirend/server`:
+
+```typescript
+import { type PluginMetadata } from "unirend/server";
+
+// PluginMetadata interface:
+// {
+//   name: string;                    // Unique name for this plugin
+//   dependsOn?: string | string[];   // Plugin dependencies
+// }
 ```
 
 ### PluginOptions
@@ -453,6 +470,8 @@ When `@fastify/multipart` is installed, the `data` object from `request.file()` 
 
 ## Plugin Registration
 
+### Basic Registration
+
 ```typescript
 // In your server setup
 const server = await serveSSRDev(paths, {
@@ -466,6 +485,66 @@ const server = await serveSSRProd(buildDir, {
   // ... other options
 });
 ```
+
+### Plugin Dependencies
+
+Plugins can declare dependencies on other plugins. Dependent plugins must be registered **after** their dependencies in the plugins array:
+
+```typescript
+const databasePlugin: ServerPlugin = async (pluginHost, options) => {
+  // Setup database connection
+  const db = await connectToDatabase();
+  pluginHost.decorate("db", db);
+
+  return {
+    name: "database",
+  };
+};
+
+const sessionPlugin: ServerPlugin = async (pluginHost, options) => {
+  // Use database from dependency
+  const db = pluginHost.db;
+
+  pluginHost.addHook("preHandler", async (request, reply) => {
+    const sessionId = request.headers["x-session-id"];
+    if (sessionId) {
+      request.session = await db.getSession(sessionId);
+    }
+  });
+
+  return {
+    name: "session",
+    dependsOn: "database", // Must be registered after database
+  };
+};
+
+const server = await serveSSRDev(paths, {
+  plugins: [
+    databasePlugin, // Must come first
+    sessionPlugin, // Depends on database
+  ],
+});
+```
+
+**Multiple Dependencies:**
+
+```typescript
+const complexPlugin: ServerPlugin = async (pluginHost, options) => {
+  // Plugin logic here
+
+  return {
+    name: "complex-plugin",
+    dependsOn: ["database", "auth", "session"], // Multiple dependencies
+  };
+};
+```
+
+**Dependency Validation:**
+
+- Plugins are registered in array order
+- If a plugin declares dependencies that haven't been registered yet, server startup will fail with a clear error message
+- Duplicate plugin names are not allowed
+- Plugins without metadata (no return value) are registered normally but can't be depended upon
 
 ## Best Practices
 
@@ -643,6 +722,33 @@ const faultyPlugin: ServerPlugin = async (fastify) => {
 const server = await serveSSRDev(paths, {
   plugins: [faultyPlugin], // Will cause startup to fail with clear error message
 });
+```
+
+**Dependency Errors:**
+
+```typescript
+// This will fail - session depends on database but database comes after
+const server = await serveSSRDev(paths, {
+  plugins: [
+    sessionPlugin, // depends on 'database'
+    databasePlugin, // provides 'database' - too late!
+  ],
+});
+// Error: Plugin "session" depends on "database" which has not been registered yet
+
+// This will fail - duplicate names
+const duplicateDBPlugin: ServerPlugin = async (pluginHost, options) => {
+  // Different implementation but same name
+  return { name: "database" };
+};
+
+const server = await serveSSRDev(paths, {
+  plugins: [
+    databasePlugin, // returns { name: 'database' }
+    duplicateDBPlugin, // also returns { name: 'database' } - conflict!
+  ],
+});
+// Error: Plugin with name "database" is already registered
 ```
 
 ## Testing Your Plugins
