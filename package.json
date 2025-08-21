@@ -39,7 +39,7 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,scss,md,html}\"",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
-    "update-docs": "markdown-toc-gen update README.md && bun run scripts/update-readme-version.ts && markdown-toc-gen update changelog.md && markdown-toc-gen update docs/api-envelope-structure.md && markdown-toc-gen update docs/error-handling.md && markdown-toc-gen update docs/mount-app-helper.md && markdown-toc-gen update docs/base-render.md && markdown-toc-gen update docs/ssg.md && markdown-toc-gen update docs/ssr.md && markdown-toc-gen update docs/server-plugins.md && bun run format:docs",
+    "update-docs": "markdown-toc-gen update README.md && bun run scripts/update-readme-version.ts && markdown-toc-gen update changelog.md && markdown-toc-gen update docs/api-envelope-structure.md && markdown-toc-gen update docs/error-handling.md && markdown-toc-gen update docs/mount-app-helper.md && markdown-toc-gen update docs/base-render.md && markdown-toc-gen update docs/ssg.md && markdown-toc-gen update docs/ssr.md && markdown-toc-gen update docs/server-plugins.md && markdown-toc-gen update docs/built-in-plugins.md && bun run format:docs",
     "format:docs": "prettier --write README.md changelog.md \"docs/**/*.md\"",
     "ssg-dev": "cd demos/ssg && vite",
     "ssg-build-client": "cd demos/ssg && vite build --outDir build/client --base=/ --ssrManifest",

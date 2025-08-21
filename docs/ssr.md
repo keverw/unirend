@@ -4,7 +4,7 @@
 
 - [Overview](#overview)
 - [Server Classes](#server-classes)
-  - [Shared Plugin Interface](#shared-plugin-interface)
+  - [Plugins](#plugins)
   - [Common Methods](#common-methods)
 - [Create SSR Server](#create-ssr-server)
   - [Create Production SSR Server](#create-production-ssr-server)
@@ -38,9 +38,11 @@ Unirend provides two server classes with a shared plugin surface and common life
 - `SSRServer` (via `serveSSRDev`/`serveSSRProd`): Full SSR server that renders HTML responses for React Router routes. It can additionally be used to host your API endpoints, with the benefit of data loader handlers being short circuited.
 - `APIServer` (via `serveAPI`): JSON API server for data loader endpoints and custom API routes (e.g., login, forms) that you wish to run as a separate standalone API server, separate from the server used for SSR rendering.
 
-### Shared Plugin Interface
+### Plugins
 
-See the shared plugin guide for both SSR and API servers: [docs/server-plugins.md](./server-plugins.md)
+Both `SSRServer` (via `serveSSRDev`/`serveSSRProd`) and `APIServer` (via `serveAPI`) support plugin registration for extending functionality. Plugins can register middleware (including Fastify middleware), add custom hooks, and register raw API endpoints on top of Fastify that don't need to conform to the API envelope pattern like data loader handlers or Generic API Routes helpers do.
+
+See the plugin docs: [server-plugins.md](./server-plugins.md) for an overview of the plugin system and how to create your own plugins, and [built-in-plugins.md](./built-in-plugins.md) for the catalog of ready‑to‑use plugins.
 
 ### Common Methods
 

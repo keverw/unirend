@@ -21,6 +21,8 @@
   - [File Upload Plugin](#file-upload-plugin)
   - [Security Plugin](#security-plugin)
 - [Plugin Registration](#plugin-registration-1)
+  - [Basic Registration](#basic-registration)
+  - [Plugin Dependencies](#plugin-dependencies)
 - [Best Practices](#best-practices)
   - [1. Prefix API Routes](#1-prefix-api-routes)
   - [2. Handle Errors Gracefully](#2-handle-errors-gracefully)
@@ -37,6 +39,8 @@
 - [Lifecycle and Persistence](#lifecycle-and-persistence)
 
 <!-- tocstop -->
+
+> Note: This document is a guide to the plugin system and how to create your own plugins (for both SSR and API servers). If you're looking for ready-to-use, maintained plugins that ship with Unirend, see the built-in plugins catalog: [docs/built-in-plugins.md](./built-in-plugins.md).
 
 The Unirend SSR server supports a controlled plugin system that allows you to extend functionality while maintaining the integrity of the SSR rendering process. The same plugin model applies to the standalone API server as well; this guide is relevant to both SSR and API servers.
 

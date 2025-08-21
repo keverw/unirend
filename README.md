@@ -216,6 +216,8 @@ After completing the Common Setup, see the dedicated guide for Server-Side Rende
 
 - [docs/ssr.md](docs/ssr.md)
 
+SSR servers support a plugin system for extending functionality, data loader endpoints for page data handling, and can host your API endpoints for actions outside of SSR dataloader handlers. You can create a standalone API server (useful when you want to separate API hosting from SSR rendering while sharing the same plugin and handler code conventions as if you were hosting within the same SSR server).
+
 ## Demos
 
 Runable, self-contained examples live under `demos/` and are wired to root-level scripts (no need to cd):
@@ -268,15 +270,9 @@ bun run ssr-serve-prod
 
 What this shows:
 
-- Registering SSR plugins (routes, hooks, decorators), aligned with `docs/server-plugins.md`.
+- Registering SSR plugins (routes, hooks, decorators).
 - API/SSR coexistence: API routes under `/api/*` are handled first; unmatched ones return JSON envelopes. Other GETs fall through to SSR.
 - Optional custom 500 page example (commented in `demos/ssr/serve.ts`).
-
-Related references:
-
-- `docs/server-plugins.md` for the controlled plugin host API (`PluginHostInstance`).
-- `src/lib/internal/SSRServer.ts` for SSR internals (error handling, API distinction, catch-all GET).
-- `src/lib/internal/APIServer.ts` for standalone API mode using the same envelope conventions.
 
 ## Data Loaders
 
