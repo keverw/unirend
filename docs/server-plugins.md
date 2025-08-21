@@ -219,7 +219,7 @@ Notes:
 - These helpers enforce the API envelope contract and derive the HTTP status from `status_code` in the returned envelope.
 - Use raw `pluginHost.get/post/...` when you need to return non-JSON responses; `pluginHost.api.*` is for JSON envelopes only, to keep things consistent.
 - Wildcard endpoints are only allowed via `pluginHost.api.*` when your `apiEndpointPrefix` is non-root (default is `"/api"`); raw wildcard routes on the host are blocked to avoid conflicts with SSR.
-- For the full `params` shape passed to `pluginHost.api.*` handlers, see Generic API Routes in `docs/ssr.md`.
+- For the full `params` shape passed to `pluginHost.api.*` handlers, see Custom API Routes in `docs/ssr.md`.
 - Duplicate registrations for the API same method + endpoint + version: last registration wins. Prefer centralizing your API shortcut registrations to avoid surprises; use distinct versions when you need multiple version handlers.
 
 Notes:

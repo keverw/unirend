@@ -18,7 +18,7 @@
   - [Environment flag in handlers](#environment-flag-in-handlers)
   - [Page Data Handlers and Versioning](#page-data-handlers-and-versioning)
   - [Short-Circuit Data Handlers](#short-circuit-data-handlers)
-  - [Generic API Routes](#generic-api-routes)
+  - [Custom API Routes](#custom-api-routes)
     - [API route handler signature and parameters:](#api-route-handler-signature-and-parameters)
   - [Param Source Parity (Data Loader vs API Routes):](#param-source-parity-data-loader-vs-api-routes)
 - [Standalone API (APIServer)](#standalone-api-apiserver)
@@ -40,7 +40,7 @@ Unirend provides two server classes with a shared plugin surface and common life
 
 ### Plugins
 
-Both `SSRServer` (via `serveSSRDev`/`serveSSRProd`) and `APIServer` (via `serveAPI`) support plugin registration for extending functionality. Plugins can register middleware (including Fastify middleware), add custom hooks, and register raw API endpoints on top of Fastify that don't need to conform to the API envelope pattern like data loader handlers or Generic API Routes helpers do.
+Both `SSRServer` (via `serveSSRDev`/`serveSSRProd`) and `APIServer` (via `serveAPI`) support plugin registration for extending functionality. Plugins can register middleware (including Fastify middleware), add custom hooks, and register raw API endpoints on top of Fastify that don't need to conform to the API envelope pattern like data loader handlers or Custom API Routes helpers do.
 
 See the plugin docs: [server-plugins.md](./server-plugins.md) for an overview of the plugin system and how to create your own plugins, and [built-in-plugins.md](./built-in-plugins.md) for the catalog of ready‑to‑use plugins.
 
@@ -370,9 +370,9 @@ Return a standardized Page Response Envelope. Status codes in the envelope are p
 
 When page data handlers are registered on the same `SSRServer` instance instead of a standalone API server, SSR can directly invoke the handler (short-circuit) instead of performing an HTTP fetch. The data loader passes the same routing context (`route_params`, `query_params`, `request_path`, `original_url`) to ensure consistent behavior. Use the HTTP path when you need cookie propagation to/from a backend API.
 
-### Generic API Routes
+### Custom API Routes
 
-You can register versioned generic API routes using the server’s `.api` shortcuts surface (available on both `SSRServer` and `APIServer`, and inside plugins as `pluginHost.api`). These return standardized API envelopes and automatically set the HTTP response status to `status_code`.
+You can register versioned custom API routes using the server's `.api` shortcuts surface (available on both `SSRServer` and `APIServer`, and inside plugins as `pluginHost.api`). These return standardized API envelopes and automatically set the HTTP response status to `status_code`.
 
 ```ts
 import { APIResponseHelpers } from "unirend/api-envelope";
