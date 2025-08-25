@@ -125,7 +125,43 @@ interface PluginOptions {
   mode: "development" | "production";
   isDevelopment: boolean;
   buildDir?: string; // Available in production mode
+  serverType: "ssr" | "api"; // Server type context
+  apiEndpoints: APIEndpointConfig; // API endpoint configuration
 }
+```
+
+Plugins receive context about the server environment and configuration:
+
+- **`mode`** / **`isDevelopment`**: Current environment mode for conditional plugin behavior
+- **`buildDir`**: Build directory path (available in production mode)
+- **`serverType`**: Whether the plugin is running on an SSR server or standalone API server
+- **`apiEndpoints`**: API endpoint configuration including `apiEndpointPrefix` (default `"/api"`) and other settings
+
+**Example usage:**
+
+```typescript
+const contextAwarePlugin: ServerPlugin = async (pluginHost, options) => {
+  // Different behavior based on server type
+  if (options.serverType === "ssr") {
+    // SSR-specific logic
+    console.log("Running on SSR server");
+  } else {
+    // API server-specific logic
+    console.log("Running on standalone API server");
+  }
+
+  // Use API endpoint configuration
+  const apiPrefix = options.apiEndpoints.apiEndpointPrefix; // "/api" by default
+
+  // Skip domain redirects for API endpoints
+  pluginHost.addHook("onRequest", async (request) => {
+    if (request.url.startsWith(apiPrefix)) {
+      // Skip processing for API routes
+      return;
+    }
+    // Process non-API routes
+  });
+};
 ```
 
 ### Plugin Host Methods (ControlledFastifyInstance)

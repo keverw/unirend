@@ -103,6 +103,8 @@
   },
   "dependencies": {
     "cheerio": "^1.1.0",
-    "fastify-plugin": "^5.0.1"
+    "fastify-plugin": "^5.0.1",
+    "punycode": "^2.3.1",
+    "tldts": "^7.0.12"
   }
 }

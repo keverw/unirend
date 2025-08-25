@@ -248,9 +248,16 @@ export interface APIEndpointConfig {
  *   underlying mode; they serve different scopes.
  */
 export interface PluginOptions {
+  /** Type of server the plugin is running on */
+  serverType: "ssr" | "api";
+  /** Server mode (development or production) */
   mode: "development" | "production";
+  /** Whether running in development mode */
   isDevelopment: boolean;
+  /** Build directory (SSR only, undefined for API server) */
   buildDir?: string;
+  /** API endpoints configuration from the server */
+  apiEndpoints?: APIEndpointConfig;
   /** Optional user-provided options when registered as an object entry */
   userOptions?: Record<string, unknown>;
 }

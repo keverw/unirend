@@ -786,10 +786,12 @@ export class SSRServer extends BaseServer {
 
     // Plugin options to pass to each plugin
     const pluginOptions = {
+      serverType: "ssr" as const,
       mode: this.config.mode,
       isDevelopment: this.config.mode === "development",
       buildDir:
         this.config.mode === "production" ? this.config.buildDir : undefined,
+      apiEndpoints: this.config.options.apiEndpoints,
     };
 
     // Register each plugin with dependency validation

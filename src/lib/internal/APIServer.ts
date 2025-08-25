@@ -344,11 +344,13 @@ export class APIServer extends BaseServer {
 
     // Plugin options to pass to each plugin
     const pluginOptions = {
+      serverType: "api" as const,
       mode: (this.options.isDevelopment ? "development" : "production") as
         | "development"
         | "production",
       isDevelopment: this.options.isDevelopment ?? false,
       buildDir: undefined, // Not applicable for API servers
+      apiEndpoints: this.options.apiEndpoints,
     };
 
     // Register each plugin with dependency validation

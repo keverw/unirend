@@ -1,3 +1,5 @@
-export function temp() {
-  return "temp";
-}
+export {
+  type InvalidDomainResponse,
+  type DomainValidationConfig,
+  domainValidation,
+} from "./lib/built-in-plugins/domainValidation";
