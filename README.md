@@ -6,6 +6,24 @@ Unirend helps you ship SEO-friendly pages and accurate social sharing previews b
 
 > ⚠️ **Note:** This package is currently in active development and **not yet ready for production use.**
 
+## Installation
+
+```bash
+npm install unirend
+# or
+bun add unirend
+# or  
+yarn add unirend
+```
+
+**Peer Dependencies:** You'll also need to install these in your project:
+
+```bash
+npm install react react-dom react-helmet-async react-router vite
+```
+
+Unirend includes Fastify as a regular dependency for server side rendering and API server, so you don't need to install it separately.
+
 <!-- toc -->
 
 - [Common Setup for SSG (Static Site Generation) or SSR (Server-Side Rendering)](#common-setup-for-ssg-static-site-generation-or-ssr-server-side-rendering)
