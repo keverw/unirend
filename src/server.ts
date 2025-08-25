@@ -45,7 +45,6 @@ export { SSGConsoleLogger } from "./lib/types";
 export type {
   SSRDevPaths,
   ServerPlugin,
-  ServerPluginEntry,
   PluginHostInstance,
   PluginOptions,
   PluginMetadata,

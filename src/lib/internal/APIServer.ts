@@ -18,6 +18,7 @@ import { APIRoutesServerHelpers } from "./APIRoutesServerHelpers";
  * API Server class for creating JSON API servers with plugin support
  * Uses createControlledInstance with disableRootWildcard: false to allow full wildcard flexibility
  */
+
 export class APIServer extends BaseServer {
   private options: APIServerOptions;
   private pageDataHandlers!: DataLoaderServerHandlerHelpers;
@@ -354,18 +355,10 @@ export class APIServer extends BaseServer {
     };
 
     // Register each plugin with dependency validation
-    for (const pluginEntry of this.options.plugins) {
+    for (const plugin of this.options.plugins) {
       try {
-        const plugin =
-          typeof pluginEntry === "function" ? pluginEntry : pluginEntry.plugin;
-        const userOptions =
-          typeof pluginEntry === "function" ? undefined : pluginEntry.options;
-
         // Call plugin and get potential metadata
-        const pluginResult = await plugin(controlledInstance, {
-          ...pluginOptions,
-          userOptions,
-        });
+        const pluginResult = await plugin(controlledInstance, pluginOptions);
 
         // Validate dependencies and track plugin
         validateAndRegisterPlugin(this.registeredPlugins, pluginResult);

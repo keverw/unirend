@@ -155,7 +155,7 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
 - `APIHandling?: { prefix?: string | false; errorHandler?; notFoundHandler? }`
   - `prefix` (default `"/api"`) determines which paths are treated as API. Set `false` to disable API handling.
   - `errorHandler` and `notFoundHandler` return standardized API/Page error envelopes instead of HTML based context.
-- `plugins?: ServerPluginEntry[]`
+- `plugins?: ServerPlugin[]`
   - Register Fastify plugins via a controlled interface (see [plugins](./server-plugins.md)).
 - `get500ErrorPage?: (request, error, isDevelopment) => string | Promise<string>`
   - Provide custom HTML for SSR 500 responses.
@@ -466,7 +466,7 @@ main().catch(console.error);
 
 ### Options
 
-- `plugins?: ServerPluginEntry[]`
+- `plugins?: ServerPlugin[]`
 - `apiEndpoints?: APIEndpointConfig`
 - `errorHandler?(request, error, isDevelopment, isPage?)`
   - Return a standardized API/Page envelope (JSON), not HTML

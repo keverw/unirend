@@ -795,18 +795,10 @@ export class SSRServer extends BaseServer {
     };
 
     // Register each plugin with dependency validation
-    for (const pluginEntry of this.config.options.plugins) {
+    for (const plugin of this.config.options.plugins) {
       try {
-        const plugin =
-          typeof pluginEntry === "function" ? pluginEntry : pluginEntry.plugin;
-        const userOptions =
-          typeof pluginEntry === "function" ? undefined : pluginEntry.options;
-
         // Call plugin and get potential metadata
-        const pluginResult = await plugin(controlledInstance, {
-          ...pluginOptions,
-          userOptions,
-        });
+        const pluginResult = await plugin(controlledInstance, pluginOptions);
 
         // Validate dependencies and track plugin
         validateAndRegisterPlugin(this.registeredPlugins, pluginResult);

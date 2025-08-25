@@ -12,7 +12,7 @@ Unirend helps you ship SEO-friendly pages and accurate social sharing previews b
 npm install unirend
 # or
 bun add unirend
-# or  
+# or
 yarn add unirend
 ```
 
@@ -26,6 +26,7 @@ Unirend includes Fastify as a regular dependency for server side rendering and A
 
 <!-- toc -->
 
+- [Installation](#installation)
 - [Common Setup for SSG (Static Site Generation) or SSR (Server-Side Rendering)](#common-setup-for-ssg-static-site-generation-or-ssr-server-side-rendering)
   - [Prepare Client Frontend](#prepare-client-frontend)
   - [Prepare Vite Config and Entry Points](#prepare-vite-config-and-entry-points)

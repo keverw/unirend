@@ -209,12 +209,12 @@ async function runAPIServerDemo() {
     console.log("   Uncomment the wildcard to see catch-all behavior.");
 
     // Keep the demo running for a bit
-    console.log("\n⏱️  Demo will run for 30 seconds...");
-    setTimeout(async () => {
-      console.log("\n🛑 Stopping API server...");
-      await server.stop();
-      console.log("✅ Demo completed!");
-    }, 30000);
+    // console.log("\n⏱️  Demo will run for 30 seconds...");
+    // setTimeout(async () => {
+    //   console.log("\n🛑 Stopping API server...");
+    //   await server.stop();
+    //   console.log("✅ Demo completed!");
+    // }, 30000);
   } catch (error) {
     console.error("❌ Failed to start API server:", error);
     process.exit(1);

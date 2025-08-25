@@ -1,8 +1,4 @@
-import type {
-  ServerPluginEntry,
-  PluginHostInstance,
-  PluginOptions,
-} from "../types";
+import type { PluginHostInstance, PluginOptions, ServerPlugin } from "../types";
 import type { FastifyRequest } from "fastify";
 import { getDomain, getSubdomain } from "tldts";
 import { toASCII } from "punycode";
@@ -225,156 +221,152 @@ function isDomainAllowed(domain: string, allowedDomains: string[]): boolean {
  *
  * This plugin is a no-op in development mode by default.
  */
-export function domainValidation(
-  config: DomainValidationConfig,
-): ServerPluginEntry {
-  return {
-    plugin: async (pluginHost: PluginHostInstance, options: PluginOptions) => {
-      // Register onRequest hook for domain security checks
-      pluginHost.addHook("onRequest", async (request, reply) => {
-        // Normalize config defaults
-        const skipInDev = config.skipInDevelopment ?? true;
-        const enforceHttps = config.enforceHttps ?? true;
+export function domainValidation(config: DomainValidationConfig): ServerPlugin {
+  return async (pluginHost: PluginHostInstance, options: PluginOptions) => {
+    // Register onRequest hook for domain security checks
+    pluginHost.addHook("onRequest", async (request, reply) => {
+      // Normalize config defaults
+      const skipInDev = config.skipInDevelopment ?? true;
+      const enforceHttps = config.enforceHttps ?? true;
 
-        if (options.isDevelopment && skipInDev) {
-          return; // Skip in development mode, continue to next handler
-        }
+      if (options.isDevelopment && skipInDev) {
+        return; // Skip in development mode, continue to next handler
+      }
 
-        const isAPIEndpoint = checkIfAPIEndpoint(request.url, options);
-        const host = getHost(request);
-        const originalDomain = host.split(":")[0]; // Keep original for error messages
-        const domain = normalizeDomain(originalDomain);
-        const port = host.includes(":") ? host.split(":")[1] : "";
-        const protocol = getProtocol(request);
+      const isAPIEndpoint = checkIfAPIEndpoint(request.url, options);
+      const host = getHost(request);
+      const originalDomain = host.split(":")[0]; // Keep original for error messages
+      const domain = normalizeDomain(originalDomain);
+      const port = host.includes(":") ? host.split(":")[1] : "";
+      const protocol = getProtocol(request);
 
-        // Skip all validation and redirects for localhost (including IPv4/IPv6)
-        if (
-          domain === "localhost" ||
-          domain === "127.0.0.1" ||
-          domain === "::1"
-        ) {
-          return;
-        }
-
-        // Domain validation check (only if validProductionDomains is configured)
-        if (config.validProductionDomains) {
-          // Normalize validProductionDomains to array
-          const validDomains = Array.isArray(config.validProductionDomains)
-            ? config.validProductionDomains
-            : [config.validProductionDomains];
-
-          // Validate domain using secure check
-          const isAllowedDomain = isDomainAllowed(domain, validDomains);
-
-          if (!isAllowedDomain) {
-            // Use custom handler if provided, otherwise use default response
-            const response = config.invalidDomainHandler
-              ? config.invalidDomainHandler(
-                  request,
-                  originalDomain, // Pass original domain for human-friendly messages
-                  options.isDevelopment,
-                  isAPIEndpoint,
-                )
-              : isAPIEndpoint
-                ? {
-                    contentType: "json" as const,
-                    content: {
-                      error: "invalid_domain",
-                      message:
-                        "This domain is not authorized to access this server",
-                    },
-                  }
-                : {
-                    contentType: "text" as const,
-                    content:
-                      "Access denied: This domain is not authorized to access this server",
-                  };
-
-            // Set appropriate content type and send response
-            if (response.contentType === "json") {
-              reply.code(403).type("application/json").send(response.content);
-            } else if (response.contentType === "html") {
-              reply.code(403).type("text/html").send(response.content);
-            } else if (response.contentType === "text") {
-              reply.code(403).type("text/plain").send(response.content);
-            }
-            return;
-          }
-        }
-
-        // Single redirect logic - construct final target URL once
-        let needsRedirect = false;
-        let finalProtocol = protocol;
-        let finalHost = host; // For URL construction (can include port)
-        let finalDomain = domain; // For logic decisions (never includes port)
-        let protocolChanged = false;
-
-        // Note: We maintain both finalHost and finalDomain separately because:
-        // - finalHost: Used for final URL construction, may include port
-        // - finalDomain: Used for logic decisions (apex detection), never has port
-        // Memory is cheap compared to CPU - avoiding repeated string splitting/parsing
-
-        // 1. Check if we need canonical domain redirect
-        const normalizedCanonical = config.canonicalDomain
-          ? normalizeDomain(config.canonicalDomain)
-          : undefined;
-        if (normalizedCanonical && domain !== normalizedCanonical) {
-          finalDomain = normalizedCanonical;
-          finalHost = normalizedCanonical;
-          needsRedirect = true;
-        }
-
-        // 2. Apply HTTPS enforcement
-        if (enforceHttps && protocol === "http") {
-          finalProtocol = "https";
-          protocolChanged = true;
-          needsRedirect = true;
-        }
-
-        // 3. Apply WWW handling (only for apex domains)
-        const wwwMode = config.wwwHandling || "preserve";
-        if (wwwMode !== "preserve" && isApexDomain(finalDomain)) {
-          const hasWww = finalHost.startsWith("www.");
-          if (wwwMode === "add" && !hasWww) {
-            finalHost = `www.${finalHost}`;
-            finalDomain = `www.${finalDomain}`; // keep in sync
-            needsRedirect = true;
-          } else if (wwwMode === "remove" && hasWww) {
-            finalHost = finalHost.substring(4);
-            finalDomain = finalDomain.substring(4); // keep in sync
-            needsRedirect = true;
-          }
-        }
-
-        // 4. Handle port preservation/stripping
-        if (needsRedirect) {
-          // Always strip port if protocol changed (HTTP->HTTPS)
-          // Otherwise, only preserve port if explicitly configured
-          const shouldPreservePort =
-            !protocolChanged && config.preservePort && port;
-
-          if (shouldPreservePort) {
-            finalHost = finalHost.includes(":")
-              ? finalHost
-              : `${finalHost}:${port}`;
-          } else {
-            // Strip port - ensure finalHost doesn't have one
-            finalHost = finalHost.split(":")[0];
-          }
-        }
-
-        // Perform single redirect if needed
-        if (needsRedirect) {
-          const redirectUrl = `${finalProtocol}://${finalHost}${request.url}`;
-          const statusCode = config.redirectStatusCode || 301;
-
-          reply.code(statusCode).redirect(redirectUrl);
-          return;
-        }
-
-        // Continue to next handler - no redirects needed
+      // Skip all validation and redirects for localhost (including IPv4/IPv6)
+      if (
+        domain === "localhost" ||
+        domain === "127.0.0.1" ||
+        domain === "::1"
+      ) {
         return;
-      });
-    },
+      }
+
+      // Domain validation check (only if validProductionDomains is configured)
+      if (config.validProductionDomains) {
+        // Normalize validProductionDomains to array
+        const validDomains = Array.isArray(config.validProductionDomains)
+          ? config.validProductionDomains
+          : [config.validProductionDomains];
+
+        // Validate domain using secure check
+        const isAllowedDomain = isDomainAllowed(domain, validDomains);
+
+        if (!isAllowedDomain) {
+          // Use custom handler if provided, otherwise use default response
+          const response = config.invalidDomainHandler
+            ? config.invalidDomainHandler(
+                request,
+                originalDomain, // Pass original domain for human-friendly messages
+                options.isDevelopment,
+                isAPIEndpoint,
+              )
+            : isAPIEndpoint
+              ? {
+                  contentType: "json" as const,
+                  content: {
+                    error: "invalid_domain",
+                    message:
+                      "This domain is not authorized to access this server",
+                  },
+                }
+              : {
+                  contentType: "text" as const,
+                  content:
+                    "Access denied: This domain is not authorized to access this server",
+                };
+
+          // Set appropriate content type and send response
+          if (response.contentType === "json") {
+            reply.code(403).type("application/json").send(response.content);
+          } else if (response.contentType === "html") {
+            reply.code(403).type("text/html").send(response.content);
+          } else if (response.contentType === "text") {
+            reply.code(403).type("text/plain").send(response.content);
+          }
+          return;
+        }
+      }
+
+      // Single redirect logic - construct final target URL once
+      let needsRedirect = false;
+      let finalProtocol = protocol;
+      let finalHost = host; // For URL construction (can include port)
+      let finalDomain = domain; // For logic decisions (never includes port)
+      let protocolChanged = false;
+
+      // Note: We maintain both finalHost and finalDomain separately because:
+      // - finalHost: Used for final URL construction, may include port
+      // - finalDomain: Used for logic decisions (apex detection), never has port
+      // Memory is cheap compared to CPU - avoiding repeated string splitting/parsing
+
+      // 1. Check if we need canonical domain redirect
+      const normalizedCanonical = config.canonicalDomain
+        ? normalizeDomain(config.canonicalDomain)
+        : undefined;
+      if (normalizedCanonical && domain !== normalizedCanonical) {
+        finalDomain = normalizedCanonical;
+        finalHost = normalizedCanonical;
+        needsRedirect = true;
+      }
+
+      // 2. Apply HTTPS enforcement
+      if (enforceHttps && protocol === "http") {
+        finalProtocol = "https";
+        protocolChanged = true;
+        needsRedirect = true;
+      }
+
+      // 3. Apply WWW handling (only for apex domains)
+      const wwwMode = config.wwwHandling || "preserve";
+      if (wwwMode !== "preserve" && isApexDomain(finalDomain)) {
+        const hasWww = finalHost.startsWith("www.");
+        if (wwwMode === "add" && !hasWww) {
+          finalHost = `www.${finalHost}`;
+          finalDomain = `www.${finalDomain}`; // keep in sync
+          needsRedirect = true;
+        } else if (wwwMode === "remove" && hasWww) {
+          finalHost = finalHost.substring(4);
+          finalDomain = finalDomain.substring(4); // keep in sync
+          needsRedirect = true;
+        }
+      }
+
+      // 4. Handle port preservation/stripping
+      if (needsRedirect) {
+        // Always strip port if protocol changed (HTTP->HTTPS)
+        // Otherwise, only preserve port if explicitly configured
+        const shouldPreservePort =
+          !protocolChanged && config.preservePort && port;
+
+        if (shouldPreservePort) {
+          finalHost = finalHost.includes(":")
+            ? finalHost
+            : `${finalHost}:${port}`;
+        } else {
+          // Strip port - ensure finalHost doesn't have one
+          finalHost = finalHost.split(":")[0];
+        }
+      }
+
+      // Perform single redirect if needed
+      if (needsRedirect) {
+        const redirectUrl = `${finalProtocol}://${finalHost}${request.url}`;
+        const statusCode = config.redirectStatusCode || 301;
+
+        reply.code(statusCode).redirect(redirectUrl);
+        return;
+      }
+
+      // Continue to next handler - no redirects needed
+      return;
+    });
   };
 }

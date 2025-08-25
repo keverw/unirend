@@ -115,14 +115,6 @@ export type ServerPlugin = (
 ) => Promise<PluginMetadata | void> | PluginMetadata | void;
 
 /**
- * Entry in the plugins array. Supports either a bare plugin function,
- * or an object providing user options specific to that plugin.
- */
-export type ServerPluginEntry =
-  | ServerPlugin
-  | { plugin: ServerPlugin; options?: Record<string, unknown> };
-
-/**
  * Fastify hook names that plugins can register
  * Includes common lifecycle hooks plus string for custom hooks
  */
@@ -258,8 +250,6 @@ export interface PluginOptions {
   buildDir?: string;
   /** API endpoints configuration from the server */
   apiEndpoints?: APIEndpointConfig;
-  /** Optional user-provided options when registered as an object entry */
-  userOptions?: Record<string, unknown>;
 }
 
 /**
@@ -302,7 +292,7 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    * Array of plugins to register with the server
    * Plugins get access to a controlled Fastify instance
    */
-  plugins?: ServerPluginEntry[];
+  plugins?: ServerPlugin[];
   /**
    * Configuration for versioned API endpoints (shared by page data and generic API routes)
    * For page data handler endpoints, set pageDataEndpoint (default: "page_data")
@@ -481,7 +471,7 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    * Array of plugins to register with the server
    * Plugins get access to a controlled Fastify instance with full wildcard support
    */
-  plugins?: ServerPluginEntry[];
+  plugins?: ServerPlugin[];
   /**
    * Configuration for versioned API endpoints (shared by page data and generic API routes)
    * For page data handler endpoints, set pageDataEndpoint (default: "page_data")

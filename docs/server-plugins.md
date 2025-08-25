@@ -16,7 +16,7 @@
     - [Page Data Loader Registration](#page-data-loader-registration)
 - [Example Plugins](#example-plugins)
   - [API Routes Plugin](#api-routes-plugin)
-  - [Plugin-specific user options](#plugin-specific-user-options)
+  - [Plugin Configuration via Factory Functions](#plugin-configuration-via-factory-functions)
   - [Authentication Plugin](#authentication-plugin)
   - [File Upload Plugin](#file-upload-plugin)
   - [Security Plugin](#security-plugin)
@@ -328,26 +328,51 @@ const apiRoutesPlugin: ServerPlugin = async (pluginHost, options) => {
 };
 ```
 
-### Plugin-specific user options
+### Plugin Configuration via Factory Functions
 
-You can supply per-plugin user options when registering plugins. Use either a bare function or an object entry with an `options` field. The provided options are available as `options.userOptions` inside the plugin.
+For plugin-specific configuration, use factory functions that return the plugin. This provides type-safe configuration through closures:
 
 ```typescript
 import { serveSSRDev, type ServerPlugin } from "unirend/server";
 
-const loggerPlugin: ServerPlugin = async (pluginHost, options) => {
-  const level = (options.userOptions?.level as string) || "info";
-  pluginHost.addHook("onRequest", async () => {
-    if (level === "debug") {
-      // ... extra logging
-    }
-  });
+// Plugin factory function for rate limiting
+const RateLimitPlugin = (config: { maxRequests: number; windowMs: number }) => {
+  const rateLimitPlugin: ServerPlugin = async (pluginHost, options) => {
+    const requestCounts = new Map<
+      string,
+      { count: number; resetTime: number }
+    >();
+
+    pluginHost.addHook("onRequest", async (request, reply) => {
+      const clientIP = request.ip;
+      const now = Date.now();
+      const windowStart = now - config.windowMs;
+
+      const clientData = requestCounts.get(clientIP) || {
+        count: 0,
+        resetTime: now + config.windowMs,
+      };
+
+      if (now > clientData.resetTime) {
+        clientData.count = 1;
+        clientData.resetTime = now + config.windowMs;
+      } else {
+        clientData.count++;
+      }
+
+      requestCounts.set(clientIP, clientData);
+
+      if (clientData.count > config.maxRequests) {
+        return reply.code(429).send({ error: "Too many requests" });
+      }
+    });
+  };
+  return rateLimitPlugin;
 };
 
 const server = await serveSSRDev(paths, {
   plugins: [
-    loggerPlugin, // bare plugin
-    { plugin: loggerPlugin, options: { level: "debug" } }, // with user options
+    RateLimitPlugin({ maxRequests: 100, windowMs: 60000 }), // 100 requests per minute
   ],
 });
 ```
@@ -512,6 +537,8 @@ When `@fastify/multipart` is installed, the `data` object from `request.file()` 
 
 ### Basic Registration
 
+Plugins are registered as an array of functions. Each plugin receives the controlled Fastify instance and server options:
+
 ```typescript
 // In your server setup
 const server = await serveSSRDev(paths, {
@@ -523,6 +550,14 @@ const server = await serveSSRDev(paths, {
 const server = await serveSSRProd(buildDir, {
   plugins: [apiRoutesPlugin, authPlugin, fileUploadPlugin, securityPlugin],
   // ... other options
+});
+
+// With configuration via factory functions
+const server = await serveSSRDev(paths, {
+  plugins: [
+    DatabasePlugin({ connectionString: process.env.DB_URL }),
+    SessionPlugin({ idCookieName: "auth-id", secretCookieName: "auth-secret" }),
+  ],
 });
 ```
 

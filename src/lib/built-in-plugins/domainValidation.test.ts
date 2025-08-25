@@ -911,7 +911,7 @@ describe("domainValidation", () => {
 
       expect(reply.code).toHaveBeenCalledWith(301);
       expect(reply.redirect).toHaveBeenCalledWith(
-        "https://www.example.co.uk/test"
+        "https://www.example.co.uk/test",
       );
     });
 
@@ -986,7 +986,7 @@ describe("domainValidation", () => {
 
       expect(reply.code).toHaveBeenCalledWith(301);
       expect(reply.redirect).toHaveBeenCalledWith(
-        "https://example.com:4443/test"
+        "https://example.com:4443/test",
       );
     });
 
@@ -1012,9 +1012,7 @@ describe("domainValidation", () => {
       await hook.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(301);
-      expect(reply.redirect).toHaveBeenCalledWith(
-        "https://example.com/test"
-      );
+      expect(reply.redirect).toHaveBeenCalledWith("https://example.com/test");
     });
   });
 

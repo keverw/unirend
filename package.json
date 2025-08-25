@@ -71,7 +71,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.31.0",
-    "@fastify/middie": "^9.0.0",
     "@fastify/multipart": "^9.0.3",
     "@types/bun": "^1.2.13",
     "@types/cheerio": "^0.22.35",
@@ -82,7 +81,6 @@
     "@typescript-eslint/parser": "^6.13.0",
     "@vitejs/plugin-react": "^4.3.4",
     "eslint": "^9.31.0",
-    "fastify": "^5.0.0",
     "markdown-toc-gen": "^1.2.0",
     "prettier": "^3.5.3",
     "react-helmet-async": "^2.0.0",
