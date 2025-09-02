@@ -3,7 +3,7 @@ import {
   domainValidation,
   type DomainValidationConfig,
 } from "./domainValidation";
-import type { PluginOptions } from "../types";
+import type { PluginOptions, PluginHostInstance } from "../types";
 
 // Mock Fastify request/reply objects
 const createMockRequest = (overrides: any = {}) => ({
@@ -32,13 +32,18 @@ const createMockPluginHost = () => {
     handler: (req: any, reply: any) => Promise<void>;
   }> = [];
 
-  return {
+  const mockHost = {
     addHook: mock(
       (event: string, handler: (req: any, reply: any) => Promise<void>) => {
         hooks.push({ event, handler });
       },
     ),
     getHooks: () => hooks,
+  };
+
+  // Cast to PluginHostInstance through unknown to satisfy TypeScript
+  return mockHost as unknown as PluginHostInstance & {
+    getHooks: () => typeof hooks;
   };
 };
 
@@ -62,7 +67,7 @@ describe("domainValidation", () => {
       const options = createMockOptions();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       expect(pluginHost.addHook).toHaveBeenCalledWith(
         "onRequest",
@@ -78,7 +83,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -99,7 +104,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -120,7 +125,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -130,7 +135,117 @@ describe("domainValidation", () => {
     });
   });
 
+  describe("IPv6 and forwarded host handling", () => {
+    it("should skip validation for ::1 IPv6 localhost", async () => {
+      const config: DomainValidationConfig = {
+        validProductionDomains: ["example.com"],
+      };
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        headers: { host: "[::1]:3000" },
+      });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.redirect).not.toHaveBeenCalled();
+      expect(reply.code).not.toHaveBeenCalled();
+    });
+
+    it("should accept x-forwarded-host with port when domain matches (trusted)", async () => {
+      const config: DomainValidationConfig = {
+        validProductionDomains: ["example.com"],
+        trustProxyHeaders: true,
+      };
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        headers: {
+          host: "internal.proxy",
+          "x-forwarded-host": "example.com:8443",
+        },
+      });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.redirect).not.toHaveBeenCalled();
+      expect(reply.code).not.toHaveBeenCalled();
+    });
+    it("should ignore x-forwarded-host when not trusted (default)", async () => {
+      const config: DomainValidationConfig = {
+        validProductionDomains: ["example.com"],
+        // trustProxyHeaders: false by default
+      };
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        headers: {
+          host: "internal.proxy",
+          "x-forwarded-host": "example.com",
+        },
+      });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.code).toHaveBeenCalledWith(403);
+    });
+  });
+
   describe("domain validation", () => {
+    it("should allow valid domain when config is a single string", async () => {
+      const config: DomainValidationConfig = {
+        validProductionDomains: "example.com",
+      };
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({ headers: { host: "example.com" } });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.code).not.toHaveBeenCalled();
+      expect(reply.redirect).not.toHaveBeenCalled();
+    });
+
+    it("should support wildcard subdomains when config is a single string", async () => {
+      const config: DomainValidationConfig = {
+        validProductionDomains: "*.example.com",
+      };
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        headers: { host: "api.example.com" },
+      });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.code).not.toHaveBeenCalled();
+      expect(reply.redirect).not.toHaveBeenCalled();
+    });
     it("should block invalid domains", async () => {
       const config: DomainValidationConfig = {
         validProductionDomains: ["example.com"],
@@ -141,7 +256,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -163,7 +278,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -184,7 +299,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -205,7 +320,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -223,7 +338,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -248,7 +363,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -274,7 +389,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -298,7 +413,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -320,7 +435,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -342,13 +457,79 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(301);
       expect(reply.redirect).toHaveBeenCalledWith("https://example.com/t");
+    });
+
+    it("redirects to canonical IPv4 host", async () => {
+      const config: DomainValidationConfig = {
+        canonicalDomain: "127.0.0.1",
+      };
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        headers: { host: "alt.example" },
+        url: "/x",
+      });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.code).toHaveBeenCalledWith(301);
+      expect(reply.redirect).toHaveBeenCalledWith("https://127.0.0.1/x");
+    });
+
+    it("redirects to canonical IPv6 host (unbracketed input)", async () => {
+      const config: DomainValidationConfig = {
+        canonicalDomain: "2001:db8::1",
+      };
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        headers: { host: "alt.example" },
+        url: "/x",
+      });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.code).toHaveBeenCalledWith(301);
+      expect(reply.redirect).toHaveBeenCalledWith("https://[2001:db8::1]/x");
+    });
+
+    it("redirects to canonical IPv6 host (bracketed input)", async () => {
+      const config: DomainValidationConfig = {
+        canonicalDomain: "[2001:db8::1]",
+      };
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        headers: { host: "alt.example" },
+        url: "/x",
+      });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.code).toHaveBeenCalledWith(301);
+      expect(reply.redirect).toHaveBeenCalledWith("https://[2001:db8::1]/x");
     });
   });
 
@@ -367,7 +548,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -390,7 +571,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -398,9 +579,10 @@ describe("domainValidation", () => {
       expect(reply.redirect).toHaveBeenCalledWith("https://example.com/test");
     });
 
-    it("should respect x-forwarded-proto header", async () => {
+    it("should respect x-forwarded-proto header when trusted", async () => {
       const config: DomainValidationConfig = {
         enforceHttps: true,
+        trustProxyHeaders: true,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
@@ -414,12 +596,34 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
 
       expect(reply.redirect).toHaveBeenCalledWith("https://example.com/test");
+    });
+
+    it("builds correct redirect URL for IPv6 host with protocol change", async () => {
+      const config: DomainValidationConfig = {
+        enforceHttps: true,
+      };
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        headers: { host: "[2001:db8::1]:8080" },
+        protocol: "http",
+        url: "/test",
+      });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.redirect).toHaveBeenCalledWith("https://[2001:db8::1]/test");
     });
   });
 
@@ -437,7 +641,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -461,7 +665,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -483,7 +687,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -506,7 +710,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -536,7 +740,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -563,7 +767,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -589,7 +793,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -617,7 +821,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -638,7 +842,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -659,7 +863,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -693,7 +897,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -722,7 +926,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -747,7 +951,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -778,7 +982,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -799,6 +1003,7 @@ describe("domainValidation", () => {
     it("should respect x-forwarded-host header", async () => {
       const config: DomainValidationConfig = {
         validProductionDomains: ["example.com"],
+        trustProxyHeaders: true,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
@@ -811,7 +1016,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -823,7 +1028,9 @@ describe("domainValidation", () => {
     it("should handle comma-separated forwarded headers", async () => {
       const config: DomainValidationConfig = {
         validProductionDomains: ["example.com"],
+        trustProxyHeaders: true,
       };
+
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
@@ -832,16 +1039,61 @@ describe("domainValidation", () => {
           "x-forwarded-host": "example.com, proxy.internal.com",
         },
       });
+
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
 
       expect(reply.code).not.toHaveBeenCalled();
       expect(reply.redirect).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("configuration validation", () => {
+    it("should reject global wildcard '*' in validProductionDomains", async () => {
+      const config: DomainValidationConfig = {
+        validProductionDomains: ["*"],
+      };
+
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const plugin = domainValidation(config);
+
+      await expect(plugin(pluginHost, options)).rejects.toThrow(
+        /global wildcard '\*' not allowed/i,
+      );
+    });
+
+    it("should reject protocol wildcard entries like 'https://*'", async () => {
+      const config: DomainValidationConfig = {
+        validProductionDomains: ["https://*"],
+      };
+
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const plugin = domainValidation(config);
+
+      await expect(plugin(pluginHost, options)).rejects.toThrow(
+        /protocols are not allowed in domain context/i,
+      );
+    });
+
+    it("should reject origin-style entries like 'https://example.com'", async () => {
+      const config: DomainValidationConfig = {
+        validProductionDomains: ["https://example.com"],
+      };
+
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const plugin = domainValidation(config);
+
+      await expect(plugin(pluginHost, options)).rejects.toThrow(
+        /protocols are not allowed in domain context/i,
+      );
     });
   });
 
@@ -858,7 +1110,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -879,7 +1131,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -904,7 +1156,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -928,7 +1180,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -941,7 +1193,7 @@ describe("domainValidation", () => {
   describe("WWW handling edge cases", () => {
     it("should not remove www from non-apex subdomains", async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["*.example.com"],
+        validProductionDomains: ["**.example.com"],
         wwwHandling: "remove",
       };
       const pluginHost = createMockPluginHost();
@@ -952,7 +1204,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -979,7 +1231,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -1006,7 +1258,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
@@ -1021,6 +1273,7 @@ describe("domainValidation", () => {
       const config: DomainValidationConfig = {
         validProductionDomains: ["example.com"],
         enforceHttps: true,
+        trustProxyHeaders: true,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
@@ -1035,7 +1288,7 @@ describe("domainValidation", () => {
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
-      await plugin.plugin(pluginHost, options);
+      await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);

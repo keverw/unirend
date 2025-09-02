@@ -1,7 +1,11 @@
 import type { PluginHostInstance, PluginOptions, ServerPlugin } from "../types";
 import type { FastifyRequest } from "fastify";
 import { getDomain, getSubdomain } from "tldts";
-import { toASCII } from "punycode";
+import {
+  normalizeDomain,
+  matchesDomainList,
+  validateConfigEntry,
+} from "../internal/domain-utils/domain-utils";
 
 /**
  * Response configuration for invalid domain handler
@@ -19,12 +23,17 @@ export interface DomainValidationConfig {
    * Valid production domains that are allowed to access this server
    *
    * Can be a single domain string or array of domain strings (without protocol)
-   * Examples:
+   * Wildcard patterns supported:
    * - "example.com" - allows exact match only
-   * - "*.example.com" - allows any subdomain of example.com
-   * - ["example.com", "www.example.com", "api.example.com"] - specific domains
-   * - ["*.example.com", "example.com"] - apex + all subdomains
+   * - "*.example.com" - allows direct subdomains only (api.example.com ✅, app.api.example.com ❌)
+   * - "**.example.com" - allows all subdomains including nested (api.example.com ✅, app.api.example.com ✅)
    *
+   * Examples:
+   * - ["example.com", "www.example.com", "api.example.com"] - specific domains
+   * - ["**.example.com", "example.com"] - apex + all subdomains (including nested)
+   * - ["*.example.com", "example.com"] - apex + direct subdomains only
+   *
+   * Note: Domain validation is protocol-agnostic (ignores http/https)
    * If not specified, domain validation is skipped
    */
   validProductionDomains?: string | string[];
@@ -75,6 +84,14 @@ export interface DomainValidationConfig {
   skipInDevelopment?: boolean;
 
   /**
+   * Whether to trust proxy headers (x-forwarded-host/proto) when determining
+   * the original host and protocol. Only enable this when running behind a
+   * trusted proxy/load balancer that sets these headers.
+   * @default false
+   */
+  trustProxyHeaders?: boolean;
+
+  /**
    * Optional custom handler for invalid domain responses
    * If not provided, returns a default 403 plain text or JSON error response
    * based on if detected as an API endpoint
@@ -114,55 +131,82 @@ function checkIfAPIEndpoint(url: string, options: PluginOptions): boolean {
 /**
  * Helper function to safely extract protocol from headers
  */
-function getProtocol(request: FastifyRequest): string {
-  const forwardedProto = request.headers["x-forwarded-proto"];
+function getProtocol(
+  request: FastifyRequest,
+  trustProxyHeaders: boolean,
+): string {
+  if (trustProxyHeaders) {
+    const forwardedProto = request.headers["x-forwarded-proto"];
 
-  if (forwardedProto) {
-    // Handle comma-separated list, take first value
-    const proto = Array.isArray(forwardedProto)
-      ? forwardedProto[0]
-      : forwardedProto.split(",")[0].trim();
+    if (forwardedProto) {
+      // Handle comma-separated list, take first value
+      const proto = Array.isArray(forwardedProto)
+        ? forwardedProto[0]
+        : forwardedProto.split(",")[0].trim();
 
-    return proto.toLowerCase();
+      return proto.toLowerCase();
+    }
   }
 
-  // Fallback to request.protocol (only accurate with trustProxy)
+  // Fallback to request.protocol (accurate when Fastify trustProxy is enabled)
   return (request.protocol || "http").toLowerCase();
-}
-
-/**
- * Helper function to normalize domain names for consistent comparison
- * Handles trim, lowercase, and punycode conversion for IDN safety
- */
-function normalizeDomain(domain: string): string {
-  const trimmed = domain.trim().toLowerCase();
-
-  try {
-    // Convert IDN to ASCII using punycode for safe comparison
-    return toASCII(trimmed);
-  } catch {
-    // If punycode conversion fails, return the trimmed/lowercased version
-    return trimmed;
-  }
 }
 
 /**
  * Helper function to safely extract host from headers (proxy-aware)
  */
-function getHost(request: FastifyRequest): string {
-  // Prefer x-forwarded-host for proxy environments
-  const forwardedHost = request.headers["x-forwarded-host"];
+function getHost(request: FastifyRequest, trustProxyHeaders: boolean): string {
+  // Prefer x-forwarded-host only when explicitly trusted
+  if (trustProxyHeaders) {
+    const forwardedHost = request.headers["x-forwarded-host"];
 
-  if (forwardedHost) {
-    // Handle comma-separated list, take first value
-    const host = Array.isArray(forwardedHost)
-      ? forwardedHost[0]
-      : forwardedHost.split(",")[0].trim();
-    return host;
+    if (forwardedHost) {
+      // Handle comma-separated list, take first value
+      const host = Array.isArray(forwardedHost)
+        ? forwardedHost[0]
+        : forwardedHost.split(",")[0].trim();
+      return host;
+    }
   }
 
   // Fallback to standard host header
   return request.headers.host || "";
+}
+
+/**
+ * Helper to parse the Host header into domain and optional port.
+ * Supports bracketed IPv6 literals with optional port (e.g., "[::1]:3000").
+ */
+function parseHostHeader(host: string): { domain: string; port: string } {
+  if (!host) {
+    return { domain: "", port: "" };
+  }
+
+  if (host.startsWith("[")) {
+    const end = host.indexOf("]");
+
+    if (end !== -1) {
+      const domain = host.slice(0, end + 1); // keep brackets
+      const rest = host.slice(end + 1);
+
+      if (rest.startsWith(":")) {
+        return { domain, port: rest.slice(1) };
+      }
+
+      return { domain, port: "" };
+    }
+
+    // Malformed bracket - fall back to whole string as domain
+    return { domain: host, port: "" };
+  }
+
+  const idx = host.indexOf(":");
+
+  if (idx === -1) {
+    return { domain: host, port: "" };
+  }
+
+  return { domain: host.slice(0, idx), port: host.slice(idx + 1) };
 }
 
 /**
@@ -185,35 +229,6 @@ function isApexDomain(domain: string): boolean {
 }
 
 /**
- * Helper function for secure domain validation
- * Supports exact matches and wildcard subdomains (*.example.com)
- * Case insensitive with whitespace normalization
- */
-function isDomainAllowed(domain: string, allowedDomains: string[]): boolean {
-  // Normalize request domain
-  const normalizedDomain = normalizeDomain(domain);
-
-  return allowedDomains.some((allowed) => {
-    // Normalize allowed domain
-    const normalizedAllowed = normalizeDomain(allowed);
-
-    // Exact match
-    if (normalizedDomain === normalizedAllowed) {
-      return true;
-    }
-
-    // Wildcard subdomain match (*.example.com)
-    if (normalizedAllowed.startsWith("*.")) {
-      const baseDomain = normalizedAllowed.substring(2); // Remove "*."
-      return normalizedDomain.endsWith("." + baseDomain);
-    }
-
-    // No implicit subdomain matching for non-wildcard entries
-    return false;
-  });
-}
-
-/**
  * Domain security plugin that handles:
  * - Domain validation and canonical domain redirects
  * - HTTPS enforcement (HTTP to HTTPS redirects)
@@ -223,6 +238,23 @@ function isDomainAllowed(domain: string, allowedDomains: string[]): boolean {
  */
 export function domainValidation(config: DomainValidationConfig): ServerPlugin {
   return async (pluginHost: PluginHostInstance, options: PluginOptions) => {
+    // Early config validation for validProductionDomains using centralized validator
+    if (config.validProductionDomains) {
+      const entries = Array.isArray(config.validProductionDomains)
+        ? config.validProductionDomains
+        : [config.validProductionDomains];
+
+      for (const entry of entries) {
+        const verdict = validateConfigEntry(entry, "domain");
+
+        if (!verdict.valid) {
+          throw new Error(
+            `Invalid domainValidation validProductionDomains entry "${entry}"${verdict.info ? ": " + verdict.info : ""}`,
+          );
+        }
+      }
+    }
+
     // Register onRequest hook for domain security checks
     pluginHost.addHook("onRequest", async (request, reply) => {
       // Normalize config defaults
@@ -234,11 +266,13 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
       }
 
       const isAPIEndpoint = checkIfAPIEndpoint(request.url, options);
-      const host = getHost(request);
-      const originalDomain = host.split(":")[0]; // Keep original for error messages
+      const trustProxyHeaders = !!config.trustProxyHeaders;
+      const host = getHost(request, trustProxyHeaders);
+      const parsed = parseHostHeader(host);
+      const originalDomain = parsed.domain; // Keep original for error messages
       const domain = normalizeDomain(originalDomain);
-      const port = host.includes(":") ? host.split(":")[1] : "";
-      const protocol = getProtocol(request);
+      const port = parsed.port;
+      const protocol = getProtocol(request, trustProxyHeaders);
 
       // Skip all validation and redirects for localhost (including IPv4/IPv6)
       if (
@@ -257,7 +291,7 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
           : [config.validProductionDomains];
 
         // Validate domain using secure check
-        const isAllowedDomain = isDomainAllowed(domain, validDomains);
+        const isAllowedDomain = matchesDomainList(domain, validDomains);
 
         if (!isAllowedDomain) {
           // Use custom handler if provided, otherwise use default response
@@ -298,9 +332,12 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
       // Single redirect logic - construct final target URL once
       let needsRedirect = false;
       let finalProtocol = protocol;
-      let finalHost = host; // For URL construction (can include port)
+      // Build redirect host from normalized domain by default (avoid reflecting raw headers)
+      let finalHost = domain; // For URL construction (may add port below)
       let finalDomain = domain; // For logic decisions (never includes port)
       let protocolChanged = false;
+      // Track a port part to append at assembly time (avoid mixing IPv6 colons)
+      let finalPortPart = "";
 
       // Note: We maintain both finalHost and finalDomain separately because:
       // - finalHost: Used for final URL construction, may include port
@@ -346,19 +383,19 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
         const shouldPreservePort =
           !protocolChanged && config.preservePort && port;
 
-        if (shouldPreservePort) {
-          finalHost = finalHost.includes(":")
-            ? finalHost
-            : `${finalHost}:${port}`;
-        } else {
-          // Strip port - ensure finalHost doesn't have one
-          finalHost = finalHost.split(":")[0];
-        }
+        finalPortPart = shouldPreservePort ? `:${port}` : "";
       }
 
       // Perform single redirect if needed
       if (needsRedirect) {
-        const redirectUrl = `${finalProtocol}://${finalHost}${request.url}`;
+        // Bracket IPv6 literals in the host component; append preserved port if any
+        let hostForUrl = finalHost;
+
+        if (hostForUrl.includes(":") && !hostForUrl.startsWith("[")) {
+          hostForUrl = `[${hostForUrl}]`;
+        }
+
+        const redirectUrl = `${finalProtocol}://${hostForUrl}${finalPortPart}${request.url}`;
         const statusCode = config.redirectStatusCode || 301;
 
         reply.code(statusCode).redirect(redirectUrl);
