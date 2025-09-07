@@ -201,8 +201,8 @@ Unirend forwards a curated set of headers and supports configurable cookie forwa
 
 - Headers added by SSR to requests sent to your backend API server:
   - `X-SSR-Request`: Set to `true` on SSR-originated HTTP requests to your API (i.e., when not using short-circuit handlers). Not present on browser requests or internal short-circuit calls.
-  - `X-Original-IP`: The originating client IP
-  - `X-Forwarded-User-Agent`: The client user agent
+  - `X-SSR-Original-IP`: The originating client IP
+  - `X-SSR-Forwarded-User-Agent`: The client user agent
   - `X-Correlation-ID`: Unique request ID (useful for tracing)
 
   Notes:

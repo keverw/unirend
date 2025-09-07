@@ -153,8 +153,8 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
         // Check if we have any forwarded client info headers
         const hasForwardedClientInfo =
           isSSRRequest ||
-          request.headers["x-original-ip"] ||
-          request.headers["x-forwarded-user-agent"] ||
+          request.headers["x-ssr-original-ip"] ||
+          request.headers["x-ssr-forwarded-user-agent"] ||
           request.headers["x-correlation-id"];
 
         // Set SSR flag only if the x-ssr-request header is explicitly true
@@ -163,17 +163,17 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
         }
 
         if (hasForwardedClientInfo) {
-          // Use X-Original-IP if provided
-          const originalIPHeader = request.headers["x-original-ip"];
+          // Use X-SSR-Original-IP if provided
+          const originalIPHeader = request.headers["x-ssr-original-ip"];
 
           if (typeof originalIPHeader === "string") {
             IPAddress = originalIPHeader;
             isIPFromHeader = true;
           }
 
-          // Use X-Forwarded-User-Agent if provided
+          // Use X-SSR-Forwarded-User-Agent if provided
           const forwardedUserAgentHeader =
-            request.headers["x-forwarded-user-agent"];
+            request.headers["x-ssr-forwarded-user-agent"];
 
           if (typeof forwardedUserAgentHeader === "string") {
             userAgent = forwardedUserAgentHeader;
@@ -206,8 +206,8 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
       } else if (
         (typeof request.headers["x-ssr-request"] === "string" &&
           request.headers["x-ssr-request"] === "true") ||
-        request.headers["x-original-ip"] ||
-        request.headers["x-forwarded-user-agent"] ||
+        request.headers["x-ssr-original-ip"] ||
+        request.headers["x-ssr-forwarded-user-agent"] ||
         request.headers["x-correlation-id"]
       ) {
         // Log a warning if SSR headers are present but from a non-private IP

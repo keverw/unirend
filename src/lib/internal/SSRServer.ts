@@ -406,19 +406,19 @@ export class SSRServer extends BaseServer {
                 // First, delete any sensitive SSR headers that might be present in the client request
                 // This prevents clients from spoofing these secure headers
                 headers.delete("X-SSR-Request");
-                headers.delete("X-Original-IP");
-                headers.delete("X-Forwarded-User-Agent");
+                headers.delete("X-SSR-Original-IP");
+                headers.delete("X-SSR-Forwarded-User-Agent");
                 headers.delete("X-Correlation-ID");
 
                 // Now set these headers with our trusted server-side values
                 headers.set("X-SSR-Request", "true");
-                headers.set("X-Original-IP", request.ip);
+                headers.set("X-SSR-Original-IP", request.ip);
 
                 // Forward the user agent if needed
                 const userAgent = request.headers["user-agent"];
 
                 if (typeof userAgent === "string") {
-                  headers.set("X-Forwarded-User-Agent", userAgent);
+                  headers.set("X-SSR-Forwarded-User-Agent", userAgent);
                 }
 
                 // Forward the correlation ID (which is the same as request ID at this point)

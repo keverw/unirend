@@ -100,10 +100,10 @@ clientInfo({ logging: false });
 
 When `trustForwardedHeaders` returns `true`, the plugin will honor these request headers if present:
 
-- `x-ssr-request: "true"` — Marks the request as originating from SSR (`isFromSSRServerAPICall: true`)
-- `x-original-ip: <client-ip>` — Source IP from the browser/client
-- `x-forwarded-user-agent: <ua>` — Original client user agent
-- `x-correlation-id: <id>` — Correlation ID for tracing (validated via `requestIDValidator`)
+- `X-SSR-Request: "true"` — Marks the request as originating from SSR (`isFromSSRServerAPICall: true`)
+- `X-SSR-Original-IP: <client-ip>` — Source IP from the browser/client
+- `X-SSR-Forwarded-User-Agent: <ua>` — Original client user agent
+- `X-Correlation-ID: <id>` — Correlation ID for tracing (validated via `requestIDValidator`)
 
 This lets your SSR server forward the user's client details to your API so both hops share the same correlation ID. See also: `docs/ssr.md`.
 
@@ -113,7 +113,7 @@ In production behind reverse proxies or load balancers, configure Fastify's `tru
 
 - SSR/API servers: set `fastifyOptions.trustProxy` in their options.
   - Example: `serveSSRProd(buildDir, { fastifyOptions: { trustProxy: true }, plugins: [clientInfo()] })`
-- Additionally, you can restrict when clientInfo honors forwarded headers by providing `trustForwardedHeaders`. This does not change `request.ip` (which is controlled by Fastify's `trustProxy`); it only controls whether the plugin accepts `X-SSR-Request`, `X-Original-IP`, `X-Forwarded-User-Agent`, and `X-Correlation-ID` from the request.
+- Additionally, you can restrict when clientInfo honors forwarded headers by providing `trustForwardedHeaders`. This does not change `request.ip` (which is controlled by Fastify's `trustProxy`); it only controls whether the plugin accepts `X-SSR-Request`, `X-SSR-Original-IP`, `X-SSR-Forwarded-User-Agent`, and `X-Correlation-ID` from the request.
 
 ```ts
 clientInfo({

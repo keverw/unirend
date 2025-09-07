@@ -122,8 +122,8 @@ describe("clientInfo", () => {
       ip: "10.0.0.9",
       headers: {
         "x-ssr-request": "true",
-        "x-original-ip": "9.9.9.9",
-        "x-forwarded-user-agent": "UA-fwd",
+        "x-ssr-original-ip": "9.9.9.9",
+        "x-ssr-forwarded-user-agent": "UA-fwd",
         "x-correlation-id": "corr-fwd",
       },
     });
@@ -160,7 +160,7 @@ describe("clientInfo", () => {
       ip: "203.0.113.50",
       headers: {
         "x-ssr-request": "true",
-        "x-original-ip": "1.1.1.1",
+        "x-ssr-original-ip": "1.1.1.1",
       },
     });
     const reply = createMockReply();
@@ -219,8 +219,8 @@ describe("clientInfo", () => {
       ip: "10.0.0.5",
       headers: {
         "x-ssr-request": "true",
-        "x-original-ip": "1.2.3.4",
-        "x-forwarded-user-agent": "UA-forwarded",
+        "x-ssr-original-ip": "1.2.3.4",
+        "x-ssr-forwarded-user-agent": "UA-forwarded",
         "x-correlation-id": "corr-2",
       },
     });
@@ -254,8 +254,8 @@ describe("clientInfo", () => {
       ip: "203.0.113.2", // public IP => not trusted
       headers: {
         "x-ssr-request": "true",
-        "x-original-ip": "1.2.3.4",
-        "x-forwarded-user-agent": "UA-forwarded",
+        "x-ssr-original-ip": "1.2.3.4",
+        "x-ssr-forwarded-user-agent": "UA-forwarded",
         "x-correlation-id": "corr-public",
       },
     });
@@ -405,8 +405,8 @@ describe("clientInfo", () => {
       headers: {
         "x-ssr-request": "true",
         "x-correlation-id": "corr-all",
-        "x-original-ip": "9.9.9.9",
-        "x-forwarded-user-agent": "UA-fwd",
+        "x-ssr-original-ip": "9.9.9.9",
+        "x-ssr-forwarded-user-agent": "UA-fwd",
       },
     });
     const reply = createMockReply();
@@ -434,7 +434,7 @@ describe("clientInfo", () => {
       ip: "203.0.113.77",
       headers: {
         "x-ssr-request": "true",
-        "x-original-ip": "1.2.3.4",
+        "x-ssr-original-ip": "1.2.3.4",
       },
     });
     const reply = createMockReply();

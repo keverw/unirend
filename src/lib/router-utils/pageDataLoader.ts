@@ -447,7 +447,7 @@ async function pageLoader({
 
       // Properly access headers from the Request object
       const xssrRequest = request.headers.get("x-ssr-request");
-      const originalIp = request.headers.get("x-original-ip");
+      const originalIp = request.headers.get("x-ssr-original-ip");
       const userAgent = request.headers.get("user-agent");
       const correlationId = request.headers.get("x-correlation-id");
       const cookie = request.headers.get("cookie");
@@ -459,11 +459,11 @@ async function pageLoader({
       }
 
       if (originalIp) {
-        headers.set("X-Original-IP", originalIp);
+        headers.set("X-SSR-Original-IP", originalIp);
       }
 
       if (userAgent) {
-        headers.set("X-Forwarded-User-Agent", userAgent);
+        headers.set("X-SSR-Forwarded-User-Agent", userAgent);
       }
 
       if (correlationId) {

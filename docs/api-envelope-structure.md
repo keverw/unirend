@@ -623,7 +623,7 @@ Unirend’s `pageDataLoader` implements a consistent, envelope-first pattern acr
   - Client: Performs an HTTP POST with `credentials: "include"` and forwards `Accept-Language`.
 
 - Headers and cookies (SSR HTTP path)
-  - Adds `X-SSR-Request`, `X-Original-IP`, `X-Forwarded-User-Agent`, `X-Correlation-ID` when sending info to a API backend
+  - Adds `X-SSR-Request`, `X-SSR-Original-IP`, `X-SSR-Forwarded-User-Agent`, `X-Correlation-ID` when sending info to a API backend
   - Applies cookie forwarding policy to inbound `Cookie` and outbound `Set-Cookie` (see SSR docs for policy details).
 
 - Response processing
