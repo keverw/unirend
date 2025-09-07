@@ -25,9 +25,13 @@ import { createWriteStream } from "fs";
 import { mkdir } from "fs/promises";
 import { FastifyReply, FastifyRequest } from "fastify";
 import type { PageDataHandlerParams } from "../../src/lib/internal/DataLoaderServerHandlerHelpers";
+import { clientInfo } from "../../src/plugins";
 
 const PORT = 3000;
 const HOST = "localhost";
+
+// Track the running server instance for graceful shutdown
+let currentServer: SSRServer | null = null;
 
 /**
  * Custom meta type for this demo that includes additional application context
@@ -219,10 +223,17 @@ function registerPageDataHandlers(server: SSRServer) {
         });
       }
 
+      const reqWithClient = request as FastifyRequest & {
+        clientInfo?:
+          | { requestID?: string }
+          | Record<string, unknown>
+          | undefined;
+      };
+
       return {
         status: "success" as const,
         status_code: 200,
-        request_id: `test_${Date.now()}`,
+        request_id: request.requestID || `test_${Date.now()}`,
         type: "page" as const,
         data: {
           message: "Test page data handler response",
@@ -240,6 +251,7 @@ function registerPageDataHandlers(server: SSRServer) {
             request_path: params.request_path,
             original_url: params.original_url,
             headers: Object.fromEntries(Object.entries(request.headers)),
+            client_info: reqWithClient.clientInfo ?? null,
           },
         },
         meta: {
@@ -483,7 +495,7 @@ const apiRoutesPlugin: ServerPlugin = async (
   });
 
   // Add API routes that won't conflict with SSR
-  fastify.get("/api/health", async (request, reply) => {
+  fastify.get("/api/health", async (_request, _reply) => {
     return {
       status: "ok",
       timestamp: new Date().toISOString(),
@@ -492,7 +504,7 @@ const apiRoutesPlugin: ServerPlugin = async (
   });
 
   // Contact endpoint - both GET (for browser testing) and POST (for real forms)
-  fastify.get("/api/contact", async (request, reply) => {
+  fastify.get("/api/contact", async (_request, reply) => {
     reply.type("text/plain");
     return `Contact API Endpoint
 
@@ -510,7 +522,7 @@ Sample Data:
 }`;
   });
 
-  fastify.post("/api/contact", async (request, reply) => {
+  fastify.post("/api/contact", async (request, _reply) => {
     const body = request.body as Record<string, unknown>;
     console.log("Contact form submission:", body);
 
@@ -521,7 +533,7 @@ Sample Data:
   });
 
   // Test route that throws an error
-  fastify.get("/api/error", async (request, reply) => {
+  fastify.get("/api/error", async (_request, _reply) => {
     throw new Error("This is a test error from /api/error endpoint!");
   });
 
@@ -813,37 +825,14 @@ TRUE PER-REQUEST STREAMING VALIDATION:
   }
 };
 
-// Example plugin for request tracking and decorators
-const requestTrackingPlugin: ServerPlugin = async (
-  fastify: PluginHostInstance,
-  options: PluginOptions,
-) => {
-  console.log(`🔍 Registering request tracking plugin (${options.mode} mode)`);
-
-  // Add request ID decorator
-  fastify.decorateRequest("requestID", null);
-
-  // Add custom hook for request IDs
-  fastify.addHook("onRequest", async (request, reply) => {
-    // Generate unique request ID for tracking
-    const requestWithId = request as FastifyRequest & { requestID: string };
-    requestWithId.requestID = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    // Add request ID to response headers for debugging/tracing
-    reply.header("X-Request-ID", requestWithId.requestID);
-
-    // Optional: Add environment info in development
-    if (options.isDevelopment) {
-      reply.header("X-Dev-Mode", "true");
-    }
-  });
-};
-
 // Shared plugins array used by both dev and prod modes
 const SHARED_PLUGINS = [
+  clientInfo({
+    setResponseHeaders: true,
+    logging: { requestReceived: true },
+  }),
   apiRoutesPlugin,
   fileUploadPlugin,
-  requestTrackingPlugin,
 ];
 
 // Parse command line arguments
@@ -923,13 +912,14 @@ async function startServer() {
       });
 
       // Intentionally invalid envelope demo for validation behavior
-      server.api.get("demo/bad-envelope", async (request) => {
+      server.api.get("demo/bad-envelope", async (_request) => {
         // This will throw at runtime due to invalid envelope validation
         return { invalid: true } as unknown as ReturnType<
           typeof APIResponseHelpers.createAPISuccessResponse
         >;
       });
 
+      currentServer = server;
       await server.listen(PORT, HOST);
       logServerStartup("dev", HOST, PORT);
     } else if (mode === "prod") {
@@ -958,6 +948,7 @@ async function startServer() {
       // Register page data handlers for debugging
       registerPageDataHandlers(server);
 
+      currentServer = server;
       await server.listen(PORT, HOST);
       logServerStartup("prod", HOST, PORT);
     }
@@ -967,16 +958,22 @@ async function startServer() {
   }
 }
 
-// Handle graceful shutdown
-process.on("SIGINT", () => {
-  console.log("\n🛑 Shutting down server...");
-  process.exit(0);
-});
+// Handle graceful shutdown by stopping the running server instance
+const shutdown = async (signal: string) => {
+  console.log(`\n🛑 Received ${signal}. Shutting down server...`);
+  try {
+    if (currentServer && currentServer.isListening()) {
+      await currentServer.stop();
+    }
+  } catch (err) {
+    console.error("Error during shutdown:", err);
+  } finally {
+    process.exit(0);
+  }
+};
 
-process.on("SIGTERM", () => {
-  console.log("\n🛑 Shutting down server...");
-  process.exit(0);
-});
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
 // Start the server
 startServer().catch((error) => {

@@ -125,6 +125,33 @@ export interface CORSConfig {
    * @default false
    */
   allowCredentialsWithProtocolWildcard?: boolean;
+
+  /**
+   * Controls the X-Frame-Options response header.
+   * - false: do not send the header (default)
+   * - "DENY" | "SAMEORIGIN": header value to send
+   *
+   * @default false
+   */
+  xFrameOptions?: false | "DENY" | "SAMEORIGIN";
+
+  /**
+   * Controls the Strict-Transport-Security (HSTS) response header.
+   * - false: do not send the header (default)
+   * - { maxAge, includeSubDomains?, preload? }: header parameters
+   *
+   * Note: HSTS is typically only appropriate over HTTPS in production.
+   * This plugin does not inspect the connection security; enable with care.
+   *
+   * @default false
+   */
+  hsts?:
+    | false
+    | {
+        maxAge: number; // seconds
+        includeSubDomains?: boolean;
+        preload?: boolean;
+      };
 }
 
 /**
@@ -145,6 +172,8 @@ const DEFAULT_CONFIG: Required<Omit<CORSConfig, "credentials" | "origin">> & {
   allowPrivateNetwork: false,
   credentialsAllowWildcardSubdomains: false,
   allowCredentialsWithProtocolWildcard: false,
+  xFrameOptions: false,
+  hsts: false,
 };
 
 // Limit how many headers we reflect/allow on preflight to avoid abuse
@@ -530,6 +559,38 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
     resolvedConfig.origin = mergedOrigins;
   }
 
+  // Validate security header options at config-time
+  if (resolvedConfig.hsts) {
+    const cfg = resolvedConfig.hsts;
+
+    if (
+      typeof cfg.maxAge !== "number" ||
+      !Number.isFinite(cfg.maxAge) ||
+      cfg.maxAge < 0
+    ) {
+      throw new Error(
+        "Invalid CORS config: hsts.maxAge must be a non-negative number (seconds)",
+      );
+    }
+
+    // When requesting HSTS preload, enforce Chrome preload list requirements:
+    // - max-age must be at least 31536000 (1 year)
+    // - includeSubDomains must be present
+    if (cfg.preload) {
+      if (cfg.maxAge < 31536000) {
+        throw new Error(
+          "Invalid CORS config: HSTS preload requires maxAge >= 31536000 (1 year)",
+        );
+      }
+
+      if (!cfg.includeSubDomains) {
+        throw new Error(
+          "Invalid CORS config: HSTS preload requires includeSubDomains: true",
+        );
+      }
+    }
+  }
+
   return async (fastify: PluginHostInstance) => {
     // Handle preflight OPTIONS requests
     fastify.addHook(
@@ -540,6 +601,25 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
 
         // Always add Vary: Origin when we might echo an origin
         addToVaryHeader(reply, "Origin");
+
+        // Security headers (applied for all requests early in lifecycle)
+        if (resolvedConfig.xFrameOptions) {
+          reply.header("X-Frame-Options", resolvedConfig.xFrameOptions);
+        }
+
+        if (resolvedConfig.hsts) {
+          const parts = [`max-age=${Math.floor(resolvedConfig.hsts.maxAge)}`];
+
+          if (resolvedConfig.hsts.includeSubDomains) {
+            parts.push("includeSubDomains");
+          }
+
+          if (resolvedConfig.hsts.preload) {
+            parts.push("preload");
+          }
+
+          reply.header("Strict-Transport-Security", parts.join("; "));
+        }
 
         // Check if origin is allowed and cache result on request
         const originAllowed = await isOriginAllowed(

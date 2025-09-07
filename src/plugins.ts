@@ -9,3 +9,8 @@ export {
   type DomainValidationConfig,
   domainValidation,
 } from "./lib/built-in-plugins/domainValidation";
+
+export {
+  type ClientInfoConfig,
+  clientInfo,
+} from "./lib/built-in-plugins/clientInfo";

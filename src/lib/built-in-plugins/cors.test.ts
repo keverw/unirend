@@ -910,6 +910,94 @@ describe("cors", () => {
     });
   });
 
+  describe("security headers", () => {
+    it("should not set X-Frame-Options or HSTS by default", async () => {
+      const pluginHost = createMockPluginHost();
+      const plugin = cors({ origin: "https://example.com" });
+      await plugin(pluginHost, createMockOptions());
+
+      const onRequestHook = pluginHost
+        .getHooks()
+        .find((h) => h.event === "onRequest");
+
+      const request = createMockRequest({
+        headers: { origin: "https://example.com" },
+      });
+      const reply = createMockReply();
+      await onRequestHook?.handler(request, reply);
+
+      expect(reply.header).not.toHaveBeenCalledWith(
+        "X-Frame-Options",
+        expect.any(String),
+      );
+      expect(reply.header).not.toHaveBeenCalledWith(
+        "Strict-Transport-Security",
+        expect.any(String),
+      );
+    });
+
+    it("should set X-Frame-Options and HSTS when configured", async () => {
+      const pluginHost = createMockPluginHost();
+      const plugin = cors({
+        origin: "https://example.com",
+        xFrameOptions: "DENY",
+        hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+      });
+      await plugin(pluginHost, createMockOptions());
+
+      const onRequestHook = pluginHost
+        .getHooks()
+        .find((h) => h.event === "onRequest");
+
+      const request = createMockRequest({
+        headers: { origin: "https://example.com" },
+      });
+      const reply = createMockReply();
+      await onRequestHook?.handler(request, reply);
+
+      expect(reply.header).toHaveBeenCalledWith("X-Frame-Options", "DENY");
+      expect(reply.header).toHaveBeenCalledWith(
+        "Strict-Transport-Security",
+        "max-age=31536000; includeSubDomains; preload",
+      );
+    });
+
+    it("should validate hsts.maxAge as non-negative number", () => {
+      expect(() =>
+        cors({
+          origin: "https://example.com",
+          hsts: { maxAge: -1 },
+        }),
+      ).toThrow(/hsts.maxAge must be a non-negative number/i);
+    });
+
+    it("should enforce preload requirements: maxAge >= 31536000 and includeSubDomains", () => {
+      // Too small max-age
+      expect(() =>
+        cors({
+          origin: "https://example.com",
+          hsts: { maxAge: 300, preload: true, includeSubDomains: true },
+        }),
+      ).toThrow(/HSTS preload requires maxAge >= 31536000/i);
+
+      // Missing includeSubDomains
+      expect(() =>
+        cors({
+          origin: "https://example.com",
+          hsts: { maxAge: 31536000, preload: true },
+        }),
+      ).toThrow(/HSTS preload requires includeSubDomains: true/i);
+
+      // Valid preload config
+      expect(() =>
+        cors({
+          origin: "https://example.com",
+          hsts: { maxAge: 31536000, preload: true, includeSubDomains: true },
+        }),
+      ).not.toThrow();
+    });
+  });
+
   describe("edge cases", () => {
     it("should not set CORS headers for null origin when not explicitly allowed", async () => {
       const config: CORSConfig = { origin: ["https://example.com"] };

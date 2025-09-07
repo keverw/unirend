@@ -472,32 +472,6 @@ const fileUploadPlugin: ServerPlugin = async (pluginHost, options) => {
 };
 ```
 
-### Security Plugin
-
-```typescript
-const securityPlugin: ServerPlugin = async (pluginHost, options) => {
-  // Add request ID for tracing
-  pluginHost.decorateRequest("requestID", null);
-
-  pluginHost.addHook("onRequest", async (request) => {
-    (request as any).requestID = generateRequestId();
-  });
-
-  // Security headers
-  pluginHost.addHook("onSend", async (request, reply, payload) => {
-    if (!options.isDevelopment) {
-      reply.header("X-Frame-Options", "DENY");
-      reply.header("X-Content-Type-Options", "nosniff");
-      reply.header("X-XSS-Protection", "1; mode=block");
-      reply.header("Strict-Transport-Security", "max-age=31536000");
-    }
-
-    reply.header("X-Request-ID", (request as any).requestID);
-    return payload;
-  });
-};
-```
-
 **Testing File Uploads:**
 
 Once you have `@fastify/multipart` installed, you can test file uploads like this:

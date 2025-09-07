@@ -16,4 +16,5 @@ Unirend provides a collection of built-in plugins that handle common server func
 ## Catalog
 
 - [cors](built-in-plugins/cors.md)
+- [clientInfo](built-in-plugins/clientInfo.md)
 - [domainValidation](built-in-plugins/domainValidation.md)

@@ -87,6 +87,17 @@ const server = await serveSSRProd(buildDir, {
 - `credentialsAllowWildcardSubdomains` (default: `false`): Allow wildcard subdomain patterns (e.g., `"*.example.com"`, `"**.example.com"`) in `credentials` arrays. Apex domains never match wildcards; include the apex explicitly (e.g., `"https://example.com"`).
 - `allowCredentialsWithProtocolWildcard` (default: `false`): Opt-in to allow `credentials: true` when `origin` includes a protocol wildcard (e.g., `"https://*"`, `"http://*"`). Disabled by default for safety.
 
+- `xFrameOptions` (default: `false`): Controls the `X-Frame-Options` header
+  - `false`: do not send the header
+  - `"DENY" | "SAMEORIGIN"`: header value to send
+
+- `hsts` (default: `false`): Controls the `Strict-Transport-Security` (HSTS) header
+  - `false`: do not send the header
+  - `{ maxAge: number; includeSubDomains?: boolean; preload?: boolean }`
+    - `maxAge` is in seconds
+    - Only enable HSTS over HTTPS (typically production); this plugin does not auto-detect TLS
+    - If `preload: true`, then `maxAge` must be at least `31536000` (1 year) and `includeSubDomains` must be `true` (Chrome preload list requirement)
+
 ## Advanced features
 
 - **Advanced Wildcard Support**:
@@ -251,6 +262,14 @@ cors({
   origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
   credentials: true,
   allowPrivateNetwork: true, // Enable Chrome private network requests
+});
+
+// Security headers via CORS plugin (off by default)
+cors({
+  origin: ["**.myapp.com", "https://myapp.com"],
+  xFrameOptions: "SAMEORIGIN", // or "DENY"
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+  // Note: enable HSTS only when serving over HTTPS in production
 });
 ```
 
