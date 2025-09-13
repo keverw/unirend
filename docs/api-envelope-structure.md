@@ -662,6 +662,45 @@ These helpers assume you set `request.requestID` via a plugin as described above
 
 All helper creators are generic over the data payload (T) and meta (M extends BaseMeta), so you can supply your own meta shape per call, or centralize defaults by subclassing the helpers.
 
+#### Server-wide custom helpers class
+
+You can configure a custom helpers class for the SSR and API servers so all server-produced envelopes (defaults, fallbacks) use your class for creation. This is useful for injecting default metadata (e.g., account/site info) or centralizing conventions.
+
+- Option name: `APIResponseHelpersClass`
+- Available on: SSR (`serveSSRDev`/`serveSSRProd` options) and API (`serveAPI` options)
+- Validation helpers like `isValidEnvelope` still use the base helpers and are not overridden
+
+Example:
+
+```ts
+import { serveSSRDev, serveAPI } from "unirend/server";
+import { APIResponseHelpers } from "unirend/api-envelope";
+
+// Your custom subclass (optional)
+class AppResponseHelpers extends APIResponseHelpers {
+  // override/add convenience creators as needed
+}
+
+// SSR
+await serveSSRDev(
+  {
+    serverEntry: "./src/entry-server.tsx",
+    template: "./index.html",
+    viteConfig: "./vite.config.ts",
+  },
+  {
+    APIResponseHelpersClass: AppResponseHelpers,
+    // ...other options
+  },
+);
+
+// API
+const api = serveAPI({
+  APIResponseHelpersClass: AppResponseHelpers,
+  // ...other options
+});
+```
+
 #### Per-call generics
 
 ```ts

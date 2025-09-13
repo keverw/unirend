@@ -6,13 +6,22 @@ import {
   createDefaultAPINotFoundResponse,
   validateAndRegisterPlugin,
 } from "./server-utils";
-import type { APIServerOptions, PluginMetadata } from "../types";
+import type {
+  APIServerOptions,
+  PluginMetadata,
+  APIResponseHelpersClass,
+} from "../types";
 import { BaseServer } from "./BaseServer";
 import {
   DataLoaderServerHandlerHelpers,
   type PageDataHandler,
 } from "./DataLoaderServerHandlerHelpers";
 import { APIRoutesServerHelpers } from "./APIRoutesServerHelpers";
+import {
+  WebSocketServerHelpers,
+  type WebSocketHandlerConfig,
+} from "./WebSocketServerHelpers";
+import { APIResponseHelpers } from "../../api-envelope";
 
 /**
  * API Server class for creating JSON API servers with plugin support
@@ -23,7 +32,10 @@ export class APIServer extends BaseServer {
   private options: APIServerOptions;
   private pageDataHandlers!: DataLoaderServerHandlerHelpers;
   private apiRoutes!: APIRoutesServerHelpers;
+  private webSocketHelpers: WebSocketServerHelpers | null = null;
   private registeredPlugins: PluginMetadata[] = [];
+  /** Pluggable helpers class reference for constructing API/Page envelopes */
+  public readonly APIResponseHelpersClass: APIResponseHelpersClass;
 
   constructor(options: APIServerOptions = {}) {
     super();
@@ -32,9 +44,21 @@ export class APIServer extends BaseServer {
       ...options,
     };
 
+    // Set helpers class (custom or default)
+    this.APIResponseHelpersClass =
+      this.options.APIResponseHelpersClass || APIResponseHelpers;
+
     // Initialize helpers (available immediately for handler registration)
     this.pageDataHandlers = new DataLoaderServerHandlerHelpers();
     this.apiRoutes = new APIRoutesServerHelpers();
+
+    // Initialize WebSocket helpers if enabled
+    if (this.options.enableWebSockets) {
+      this.webSocketHelpers = new WebSocketServerHelpers(
+        this.APIResponseHelpersClass,
+        this.options.webSocketOptions,
+      );
+    }
   }
 
   /**
@@ -99,6 +123,13 @@ export class APIServer extends BaseServer {
 
       this.fastifyInstance = fastify(fastifyOptions);
 
+      // Register WebSocket plugin if enabled
+      if (this.webSocketHelpers) {
+        await this.webSocketHelpers.registerWebSocketPlugin(
+          this.fastifyInstance,
+        );
+      }
+
       // Decorate requests with environment info (per-request)
       const mode: "development" | "production" = this.options.isDevelopment
         ? "development"
@@ -114,6 +145,11 @@ export class APIServer extends BaseServer {
       // Register plugins if provided
       if (this.options.plugins && this.options.plugins.length > 0) {
         await this.registerPlugins();
+      }
+
+      // Register WebSocket preValidation hook if enabled (before routes but after plugins)
+      if (this.webSocketHelpers) {
+        this.webSocketHelpers.registerPreValidationHook(this.fastifyInstance);
       }
 
       // Register page data handler routes with Fastify
@@ -134,6 +170,11 @@ export class APIServer extends BaseServer {
         },
         { allowWildcardAtRoot: true },
       );
+
+      // Register WebSocket routes if enabled
+      if (this.webSocketHelpers) {
+        this.webSocketHelpers.registerRoutes(this.fastifyInstance);
+      }
 
       // Start the server
       await this.fastifyInstance.listen({
@@ -235,6 +276,41 @@ export class APIServer extends BaseServer {
   }
 
   /**
+   * Register a WebSocket handler for the specified path
+   *
+   * @param config WebSocket handler configuration
+   * @throws Error if WebSocket support is not enabled
+   */
+  registerWebSocketHandler(config: WebSocketHandlerConfig): void {
+    if (!this.webSocketHelpers) {
+      throw new Error(
+        "WebSocket support is not enabled. Set 'enableWebSockets: true' in APIServerOptions to use WebSocket handlers.",
+      );
+    }
+
+    this.webSocketHelpers.registerWebSocketHandler(config);
+  }
+
+  /**
+   * Get the list of active WebSocket clients
+   *
+   * @returns Set of WebSocket clients, or empty Set if WebSocket support is disabled or server not started
+   */
+  getWebSocketClients(): Set<unknown> {
+    if (!this.fastifyInstance || !this._isListening) {
+      return new Set();
+    }
+
+    // Access the websocketServer decorated by @fastify/websocket plugin
+    const websocketServer = (this.fastifyInstance as any).websocketServer;
+    if (!websocketServer || !websocketServer.clients) {
+      return new Set();
+    }
+
+    return websocketServer.clients;
+  }
+
+  /**
    * Setup global error handler for unhandled errors
    * @private
    */
@@ -281,6 +357,7 @@ export class APIServer extends BaseServer {
       reply.status(statusCode);
 
       const response = createDefaultAPIErrorResponse(
+        this.APIResponseHelpersClass,
         request,
         error,
         this.options.isDevelopment ?? false,
@@ -320,7 +397,11 @@ export class APIServer extends BaseServer {
       const statusCode = 404;
       reply.status(statusCode);
 
-      const response = createDefaultAPINotFoundResponse(request);
+      const response = createDefaultAPINotFoundResponse(
+        this.APIResponseHelpersClass,
+        request,
+      );
+
       return reply.send(response);
     });
   }

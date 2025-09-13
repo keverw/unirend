@@ -50,6 +50,121 @@ interface DemoMeta extends BaseMeta {
 }
 
 /**
+ * DemoResponseHelpers - injects default app meta (version/environment/buildTime)
+ * into envelopes to reduce duplication in handlers.
+ */
+class DemoResponseHelpers extends APIResponseHelpers {
+  private static buildDefaultMeta(request: FastifyRequest): Partial<DemoMeta> {
+    const isDev = Boolean(
+      (request as FastifyRequest & { isDevelopment?: boolean }).isDevelopment,
+    );
+
+    return {
+      // Could extract from headers/cookies/auth plugin decoration in real apps
+      account: {
+        isAuthenticated: false,
+      },
+      app: {
+        version: "1.0.0",
+        environment: isDev ? "development" : "production",
+        buildTime: new Date().toISOString(),
+      },
+    } as Partial<DemoMeta>;
+  }
+
+  private static mergeMeta<M extends BaseMeta>(
+    request: FastifyRequest,
+    meta?: Partial<M>,
+  ): M {
+    const defaults = this.buildDefaultMeta(request) as Record<string, unknown>;
+    const provided = (meta as unknown as Record<string, unknown>) || {};
+    return {
+      ...(defaults as Record<string, unknown>),
+      ...provided,
+    } as unknown as M;
+  }
+
+  static createAPISuccessResponse<T, M extends BaseMeta = BaseMeta>(params: {
+    request: FastifyRequest;
+    data: T;
+    statusCode?: number;
+    meta?: Partial<M>;
+  }) {
+    const meta = this.mergeMeta<M>(params.request, params.meta);
+    return APIResponseHelpers.createAPISuccessResponse<T, M>({
+      ...params,
+      meta,
+    });
+  }
+
+  static createAPIErrorResponse<M extends BaseMeta = BaseMeta>(params: {
+    request: FastifyRequest;
+    statusCode: number;
+    errorCode: string;
+    errorMessage: string;
+    errorDetails?: Record<string, unknown>;
+    meta?: Partial<M>;
+  }) {
+    const meta = this.mergeMeta<M>(params.request, params.meta);
+    return APIResponseHelpers.createAPIErrorResponse<M>({
+      ...params,
+      meta,
+    });
+  }
+
+  static createPageSuccessResponse<T, M extends BaseMeta = BaseMeta>(params: {
+    request: FastifyRequest;
+    data: T;
+    pageMetadata: Parameters<
+      typeof APIResponseHelpers.createPageSuccessResponse
+    >[0]["pageMetadata"];
+    statusCode?: number;
+    meta?: Partial<M>;
+  }) {
+    const meta = this.mergeMeta<M>(params.request, params.meta);
+    return APIResponseHelpers.createPageSuccessResponse<T, M>({
+      ...params,
+      meta,
+    });
+  }
+
+  static createPageRedirectResponse<M extends BaseMeta = BaseMeta>(params: {
+    request: FastifyRequest;
+    redirectInfo: Parameters<
+      typeof APIResponseHelpers.createPageRedirectResponse
+    >[0]["redirectInfo"];
+    pageMetadata: Parameters<
+      typeof APIResponseHelpers.createPageRedirectResponse
+    >[0]["pageMetadata"];
+    meta?: Partial<M>;
+  }) {
+    const meta = this.mergeMeta<M>(params.request, params.meta);
+    return APIResponseHelpers.createPageRedirectResponse<M>({
+      ...params,
+      meta,
+    });
+  }
+
+  static createPageErrorResponse<M extends BaseMeta = BaseMeta>(params: {
+    request: FastifyRequest;
+    statusCode: number;
+    errorCode: string;
+    errorMessage: string;
+    pageMetadata: Parameters<
+      typeof APIResponseHelpers.createPageErrorResponse
+    >[0]["pageMetadata"];
+    errorDetails?: Record<string, unknown>;
+    meta?: Partial<M>;
+  }) {
+    const meta = this.mergeMeta<M>(params.request, params.meta);
+    return APIResponseHelpers.createPageErrorResponse<M>({
+      ...params,
+      meta,
+    });
+  }
+}
+
+/**
  * Shared configuration factory functions for dev and prod modes
  * This eliminates duplication and ensures consistency between environments
  *
@@ -70,7 +185,7 @@ function createSharedConfig() {
       // Create proper envelope response based on request type
       if (isPage) {
         // Page data request - return PageErrorResponse
-        return APIResponseHelpers.createPageErrorResponse<DemoMeta>({
+        return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
           request,
           statusCode: 500,
           errorCode: "internal_server_error",
@@ -87,20 +202,10 @@ function createSharedConfig() {
             server: "SSR+API",
             ...(isDevelopment && { stack: error.stack }),
           },
-          meta: {
-            account: {
-              isAuthenticated: false, // Could extract from request headers/cookies
-            },
-            app: {
-              version: "1.0.0",
-              environment: isDevelopment ? "development" : "production",
-              buildTime: new Date().toISOString(),
-            },
-          },
         });
       } else {
         // API request - return APIErrorResponse
-        return APIResponseHelpers.createAPIErrorResponse<DemoMeta>({
+        return DemoResponseHelpers.createAPIErrorResponse<DemoMeta>({
           request,
           statusCode: 500,
           errorCode: "internal_server_error",
@@ -112,16 +217,6 @@ function createSharedConfig() {
             server: "SSR+API",
             ...(isDevelopment && { stack: error.stack }),
           },
-          meta: {
-            account: {
-              isAuthenticated: false, // Could extract from request headers/cookies
-            },
-            app: {
-              version: "1.0.0",
-              environment: isDevelopment ? "development" : "production",
-              buildTime: new Date().toISOString(),
-            },
-          },
         });
       }
     },
@@ -131,7 +226,7 @@ function createSharedConfig() {
       // Create proper envelope response based on request type
       if (isPage) {
         // Page data request - return PageErrorResponse
-        return APIResponseHelpers.createPageErrorResponse<DemoMeta>({
+        return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
           request,
           statusCode: 404,
           errorCode: "not_found",
@@ -148,17 +243,10 @@ function createSharedConfig() {
             server: "SSR+API",
             suggestion: "Check your page data loader or route configuration",
           },
-          meta: {
-            app: {
-              version: "1.0.0",
-              environment: "production", // Could be determined from context
-              buildTime: new Date().toISOString(),
-            },
-          },
         });
       } else {
         // API request - return APIErrorResponse
-        return APIResponseHelpers.createAPIErrorResponse<DemoMeta>({
+        return DemoResponseHelpers.createAPIErrorResponse<DemoMeta>({
           request,
           statusCode: 404,
           errorCode: "not_found",
@@ -171,13 +259,6 @@ function createSharedConfig() {
             server: "SSR+API",
             suggestion:
               "Verify the API endpoint exists and is properly configured",
-          },
-          meta: {
-            app: {
-              version: "1.0.0",
-              environment: "production", // Could be determined from context
-              buildTime: new Date().toISOString(),
-            },
           },
         });
       }
@@ -192,6 +273,7 @@ function createSharedConfig() {
       pageDataEndpoint: "page_data",
     },
     APIHandling,
+    APIResponseHelpersClass: DemoResponseHelpers,
     containerID: "root" as const,
   };
 }
@@ -230,11 +312,8 @@ function registerPageDataHandlers(server: SSRServer) {
           | undefined;
       };
 
-      return {
-        status: "success" as const,
-        status_code: 200,
-        request_id: request.requestID || `test_${Date.now()}`,
-        type: "page" as const,
+      return DemoResponseHelpers.createPageSuccessResponse({
+        request,
         data: {
           message: "Test page data handler response",
           pageType: params.pageType,
@@ -254,22 +333,14 @@ function registerPageDataHandlers(server: SSRServer) {
             client_info: reqWithClient.clientInfo ?? null,
           },
         },
-        meta: {
-          page: {
-            title: params.route_params.id
-              ? `Test Page Data (ID: ${params.route_params.id})`
-              : "Test Page Data",
-            description:
-              "Debug page showing page data loader request and response details",
-          },
-          app: {
-            version: "1.0.0",
-            environment,
-            buildTime: new Date().toISOString(),
-          },
+        pageMetadata: {
+          title: params.route_params.id
+            ? `Test Page Data (ID: ${params.route_params.id})`
+            : "Test Page Data",
+          description:
+            "Debug page showing page data loader request and response details",
         },
-        error: null,
-      };
+      });
     },
   );
 
@@ -277,29 +348,22 @@ function registerPageDataHandlers(server: SSRServer) {
   server.registerDataLoaderHandler(
     "test-500",
     async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
-      return {
-        status: "error" as const,
-        status_code: 500,
-        request_id: `error_${Date.now()}`,
-        type: "page" as const,
-        data: null,
-        meta: {
-          page: {
-            title: "Internal Server Error",
-            description: "An internal server error occurred",
-          },
+      return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
+        request,
+        statusCode: 500,
+        errorCode: "internal_error",
+        errorMessage:
+          "This is a simulated 500 error response (not a thrown error)",
+        pageMetadata: {
+          title: "Internal Server Error",
+          description: "An internal server error occurred",
         },
-        error: {
-          code: "internal_error",
-          message:
-            "This is a simulated 500 error response (not a thrown error)",
-          details: {
-            context: "This is a simulated 500 error response for testing",
-            invocation_origin: params.invocation_origin,
-            timestamp: new Date().toISOString(),
-          },
+        errorDetails: {
+          context: "This is a simulated 500 error response for testing",
+          invocation_origin: params.invocation_origin,
+          timestamp: new Date().toISOString(),
         },
-      };
+      });
     },
   );
 
@@ -319,30 +383,23 @@ function registerPageDataHandlers(server: SSRServer) {
             : "Error: Demo error\n    at createSampleStacktrace (/demos/ssr/serve.ts)";
       }
 
-      return {
-        status: "error" as const,
-        status_code: 500,
-        request_id: `stacktrace_${Date.now()}`,
-        type: "page" as const,
-        data: null,
-        meta: {
-          page: {
-            title: "Error with Stacktrace",
-            description: "Demonstration of an error with stacktrace display",
-          },
+      return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
+        request,
+        statusCode: 500,
+        errorCode: "demo_stacktrace",
+        errorMessage: "This is a demonstration of an error with stacktrace",
+        pageMetadata: {
+          title: "Error with Stacktrace",
+          description: "Demonstration of an error with stacktrace display",
         },
-        error: {
-          code: "demo_stacktrace",
-          message: "This is a demonstration of an error with stacktrace",
-          details: {
-            context:
-              "This is a simulated error response that includes a stacktrace",
-            invocation_origin: params.invocation_origin,
-            timestamp: new Date().toISOString(),
-            stacktrace,
-          },
+        errorDetails: {
+          context:
+            "This is a simulated error response that includes a stacktrace",
+          invocation_origin: params.invocation_origin,
+          timestamp: new Date().toISOString(),
+          stacktrace,
         },
-      };
+      });
     },
   );
 
@@ -350,29 +407,22 @@ function registerPageDataHandlers(server: SSRServer) {
   server.registerDataLoaderHandler(
     "test-generic-error",
     async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
-      return {
-        status: "error" as const,
-        status_code: 400,
-        request_id: `generic_${Date.now()}`,
-        type: "page" as const,
-        data: null,
-        meta: {
-          page: {
-            title: "Error",
-            description: "We encountered an error processing your request.",
-          },
+      return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
+        request,
+        statusCode: 400,
+        errorCode: "generic_error",
+        errorMessage: "We encountered a problem processing your request",
+        pageMetadata: {
+          title: "Error",
+          description: "We encountered an error processing your request.",
         },
-        error: {
-          code: "generic_error",
-          message: "We encountered a problem processing your request",
-          details: {
-            context:
-              "This is a demo of a generic error page that is not a 404 or a 500",
-            invocation_origin: params.invocation_origin,
-            timestamp: new Date().toISOString(),
-          },
+        errorDetails: {
+          context:
+            "This is a demo of a generic error page that is not a 404 or a 500",
+          invocation_origin: params.invocation_origin,
+          timestamp: new Date().toISOString(),
         },
-      };
+      });
     },
   );
 
@@ -384,28 +434,21 @@ function registerPageDataHandlers(server: SSRServer) {
     async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
       const request_path = params.request_path;
 
-      return {
-        status: "error" as const,
-        status_code: 404,
-        request_id: `not_found_${Date.now()}`,
-        type: "page" as const,
-        data: null,
-        meta: {
-          page: {
-            title: "404 - Page Not Found",
-            description: "The page you are looking for does not exist",
-          },
+      return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
+        request,
+        statusCode: 404,
+        errorCode: "not_found",
+        errorMessage: "The requested resource was not found",
+        pageMetadata: {
+          title: "404 - Page Not Found",
+          description: "The page you are looking for does not exist",
         },
-        error: {
-          code: "not_found",
-          message: "The requested resource was not found",
-          details: {
-            context: `The requested path '${request_path}' could not be found`,
-            invocation_origin: params.invocation_origin,
-            timestamp: new Date().toISOString(),
-          },
+        errorDetails: {
+          context: `The requested path '${request_path}' could not be found`,
+          invocation_origin: params.invocation_origin,
+          timestamp: new Date().toISOString(),
         },
-      };
+      });
     },
   );
 }
@@ -495,12 +538,17 @@ const apiRoutesPlugin: ServerPlugin = async (
   });
 
   // Add API routes that won't conflict with SSR
-  fastify.get("/api/health", async (_request, _reply) => {
-    return {
-      status: "ok",
-      timestamp: new Date().toISOString(),
-      mode: options.mode,
-    };
+  fastify.get("/api/health", async (request, reply) => {
+    reply.type("application/json");
+    return APIResponseHelpers.createAPISuccessResponse({
+      request,
+      data: {
+        healthy: true,
+        timestamp: new Date().toISOString(),
+        mode: options.mode,
+      },
+      statusCode: 200,
+    });
   });
 
   // Contact endpoint - both GET (for browser testing) and POST (for real forms)
@@ -529,7 +577,11 @@ Sample Data:
     // Simulate processing
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    return { success: true, message: "Contact form received", data: body };
+    return APIResponseHelpers.createAPISuccessResponse({
+      request,
+      data: { success: true, message: "Contact form received", data: body },
+      statusCode: 201,
+    });
   });
 
   // Test route that throws an error

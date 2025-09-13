@@ -21,6 +21,7 @@
   - [Custom API Routes](#custom-api-routes)
     - [API route handler signature and parameters:](#api-route-handler-signature-and-parameters)
   - [Param Source Parity (Data Loader vs API Routes):](#param-source-parity-data-loader-vs-api-routes)
+- [WebSockets](#websockets)
 - [Standalone API (APIServer)](#standalone-api-apiserver)
   - [Basic usage](#basic-usage)
   - [Options](#options)
@@ -51,6 +52,8 @@ Both server classes expose the same operational methods:
 - `listen(port?: number, host?: string): Promise<void>` — Start the server
 - `stop(): Promise<void>` — Stop the server
 - `registerDataLoaderHandler(pageType, handler)` and `registerDataLoaderHandler(pageType, version, handler)` — Register page data handlers used by the page data endpoint
+- `registerWebSocketHandler(config)` — Register a WebSocket handler (when `enableWebSockets` is true)
+- `getWebSocketClients(): Set<unknown>` — Get the connected WebSocket clients (empty set when not supported/not started)
 
 ## Create SSR Server
 
@@ -157,6 +160,10 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
   - `errorHandler` and `notFoundHandler` return standardized API/Page error envelopes instead of HTML based context.
 - `plugins?: ServerPlugin[]`
   - Register Fastify plugins via a controlled interface (see [plugins](./server-plugins.md)).
+- `APIResponseHelpersClass?: typeof APIResponseHelpers`
+  - Provide a custom helpers class for constructing API/Page envelopes. Useful to inject default metadata (e.g., account/site info) across responses.
+  - If omitted, the built-in `APIResponseHelpers` is used.
+  - Note: Validation helpers like `isValidEnvelope` use the base helpers and are not overridden by this option.
 - `get500ErrorPage?: (request, error, isDevelopment) => string | Promise<string>`
   - Provide custom HTML for SSR 500 responses.
 - `cookieForwarding?: { allowCookieNames?: string[]; blockCookieNames?: string[] | true }`
@@ -306,7 +313,7 @@ Guidance:
 
 Recommendation:
 
-- Prefer using `APIResponseHelpers` (see README’s API Envelope section) to construct envelopes. These helpers also auto-populate `request_id` from `request.requestID` that your request registered middleware/plugins may populate.
+- Prefer using `APIResponseHelpers` (see [API Envelope Structure](./api-envelope-structure.md)) to construct envelopes. These helpers also auto-populate `request_id` from `request.requestID` that your request registered middleware/plugins may populate.
 
 Examples:
 
@@ -474,5 +481,15 @@ main().catch(console.error);
   - Return a standardized API/Page envelope (JSON) with 404, not HTML
 - `isDevelopment?: boolean`
 - `fastifyOptions?: { logger?; trustProxy?; bodyLimit?; keepAliveTimeout? }`
+- `APIResponseHelpersClass?: typeof APIResponseHelpers`
+  - Provide a custom helpers class for constructing API/Page envelopes. Useful to inject default metadata (e.g., account/site info) across responses.
+  - If omitted, the built-in `APIResponseHelpers` is used.
+  - Note: Validation helpers like `isValidEnvelope` use the base helpers and are not overridden by this option.
 
 Note: Unlike SSR servers, the API server allows full wildcard routes (including root wildcards) in plugins.
+
+## WebSockets
+
+Both `SSRServer` and `APIServer` support WebSockets. Enable with `enableWebSockets: true` and register handlers via `server.registerWebSocketHandler({ path, preValidate?, handler })`.
+
+See full guide and examples: [WebSockets](./websockets.md).

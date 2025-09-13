@@ -14,6 +14,9 @@ import type {
   PageErrorResponse,
   BaseMeta,
 } from "./api-envelope/api-envelope-types";
+// Reference type for pluggable API response helpers class
+import type { APIResponseHelpers } from "../api-envelope";
+export type APIResponseHelpersClass = typeof APIResponseHelpers;
 
 export interface IRenderRequest {
   type: renderType;
@@ -213,6 +216,29 @@ export type RouteHandler = (
 ) => Promise<void | unknown> | void | unknown;
 
 /**
+ * WebSocket server configuration options
+ */
+export interface WebSocketOptions {
+  /**
+   * Enable/disable permessage-deflate compression
+   * @default false
+   */
+  perMessageDeflate?: boolean;
+  /**
+   * The maximum allowed message size in bytes
+   * @default 100 * 1024 * 1024 (100MB)
+   */
+  maxPayload?: number;
+  /**
+   * Custom handler called when the WebSocket server is closing
+   * Provides access to all connected clients for graceful shutdown
+   * @param clients Set of all connected WebSocket clients
+   * @returns Promise that resolves when cleanup is complete
+   */
+  preClose?: (clients: Set<unknown>) => Promise<void>;
+}
+
+/**
  * Shared configuration for versioned API endpoint groups
  * Used by helpers that register versioned endpoints (page data, generic API routes, etc.)
  */
@@ -293,6 +319,13 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    * Plugins get access to a controlled Fastify instance
    */
   plugins?: ServerPlugin[];
+  /**
+   * Override the helpers used to construct API/Page envelopes.
+   * Provide your own class (subclassing `APIResponseHelpers` recommended) to
+   * inject default metadata or behavior. If not provided, the default
+   * `APIResponseHelpers` will be used.
+   */
+  APIResponseHelpersClass?: APIResponseHelpersClass;
   /**
    * Configuration for versioned API endpoints (shared by page data and generic API routes)
    * For page data handler endpoints, set pageDataEndpoint (default: "page_data")
@@ -395,6 +428,16 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
       | Promise<APIErrorResponse<M> | PageErrorResponse<M>>;
   };
   /**
+   * Enable WebSocket support on the server
+   * @default false
+   */
+  enableWebSockets?: boolean;
+  /**
+   * WebSocket server configuration options
+   * Only used when enableWebSockets is true
+   */
+  webSocketOptions?: WebSocketOptions;
+  /**
    * Curated Fastify options for SSR server configuration
    * Only exposes safe options that won't conflict with SSR setup
    */
@@ -473,6 +516,13 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    */
   plugins?: ServerPlugin[];
   /**
+   * Override the helpers used to construct API/Page envelopes.
+   * Provide your own class (subclassing `APIResponseHelpers` recommended) to
+   * inject default metadata or behavior. If not provided, the default
+   * `APIResponseHelpers` will be used.
+   */
+  APIResponseHelpersClass?: APIResponseHelpersClass;
+  /**
    * Configuration for versioned API endpoints (shared by page data and generic API routes)
    * For page data handler endpoints, set pageDataEndpoint (default: "page_data")
    */
@@ -543,6 +593,16 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    * @default false
    */
   isDevelopment?: boolean;
+  /**
+   * Enable WebSocket support on the server
+   * @default false
+   */
+  enableWebSockets?: boolean;
+  /**
+   * WebSocket server configuration options
+   * Only used when enableWebSockets is true
+   */
+  webSocketOptions?: WebSocketOptions;
   /**
    * Curated Fastify options for API server configuration
    * Only exposes safe options that won't conflict with API setup

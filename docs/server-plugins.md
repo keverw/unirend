@@ -72,9 +72,13 @@ import { serveSSRDev, type ServerPlugin } from "unirend/server";
 
 // Define a plugin
 const myPlugin: ServerPlugin = async (pluginHost, options) => {
-  // Add custom routes
-  pluginHost.get("/api/status", async () => {
-    return { status: "ok", mode: options.mode };
+  // Add custom routes (use envelope pattern via API shortcuts when possible)
+  pluginHost.api.get("status", async (request) => {
+    return APIResponseHelpers.createAPISuccessResponse({
+      request,
+      data: { healthy: true, mode: options.mode },
+      statusCode: 200,
+    });
   });
 
   // Add hooks
@@ -252,14 +256,11 @@ pluginHost.api.post("demo/items", 2, async (request, reply, params) => {
 
 Notes:
 
-- These helpers enforce the API envelope contract and derive the HTTP status from `status_code` in the returned envelope.
-- Use raw `pluginHost.get/post/...` when you need to return non-JSON responses; `pluginHost.api.*` is for JSON envelopes only, to keep things consistent.
-- Wildcard endpoints are only allowed via `pluginHost.api.*` when your `apiEndpointPrefix` is non-root (default is `"/api"`); raw wildcard routes on the host are blocked to avoid conflicts with SSR.
+- Prefer `pluginHost.api.*` for JSON endpoints to keep responses standardized with the envelope pattern. HTTP status is taken from `status_code` in the returned envelope.
+- Use raw `pluginHost.get/post/...` when you deliberately need non-envelope responses (e.g., file downloads, HTML), but avoid mixing patterns for JSON APIs.
+- Wildcard endpoints are allowed via `pluginHost.api.*` only when the API prefix is non-root (default `"/api"`); raw wildcard routes are blocked to avoid SSR conflicts.
 - For the full `params` shape passed to `pluginHost.api.*` handlers, see Custom API Routes in `docs/ssr.md`.
 - Duplicate registrations for the API same method + endpoint + version: last registration wins. Prefer centralizing your API shortcut registrations to avoid surprises; use distinct versions when you need multiple version handlers.
-
-Notes:
-
 - Handlers use the signature `(request, reply, params)`; `reply` is a controlled surface that allows setting headers and cookies.
 - Endpoints are mounted under `apiEndpoints.apiEndpointPrefix` and, when `versioned` is true, under `/v{n}`.
 - Status is taken from `status_code` in the returned API envelope.
@@ -294,12 +295,18 @@ pluginHost.pageLoader.register("home", 2, (request, reply, params) => {
 
 ```typescript
 const apiRoutesPlugin: ServerPlugin = async (pluginHost, options) => {
-  // Health check endpoint
-  pluginHost.get("/api/health", async () => ({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-    mode: options.mode,
-  }));
+  // Health check endpoint (envelope)
+  pluginHost.api.get("health", async (request) => {
+    return APIResponseHelpers.createAPISuccessResponse({
+      request,
+      data: {
+        healthy: true,
+        timestamp: new Date().toISOString(),
+        mode: options.mode,
+      },
+      statusCode: 200,
+    });
+  });
 
   // Contact form endpoint
   pluginHost.post("/api/contact", async (request) => {

@@ -12,8 +12,8 @@ import type {
   FastifyHookName,
   SafeRouteOptions,
   ControlledReply,
+  APIResponseHelpersClass,
 } from "../types";
-import { APIResponseHelpers } from "../../api-envelope";
 
 /**
  * Detect if a request URL targets a React-Router DataLoader page-data JSON endpoint.
@@ -57,6 +57,7 @@ export function isAPIRequest(rawPath: string, apiPrefix: string): boolean {
  */
 
 export function createDefaultAPIErrorResponse(
+  HelpersClass: APIResponseHelpersClass,
   request: FastifyRequest,
   error: Error,
   isDevelopment: boolean,
@@ -77,7 +78,7 @@ export function createDefaultAPIErrorResponse(
   const errorMessage = isDevelopment ? error.message : "Internal Server Error";
 
   if (isPage) {
-    return APIResponseHelpers.createPageErrorResponse({
+    return HelpersClass.createPageErrorResponse({
       request,
       statusCode,
       errorCode,
@@ -89,7 +90,7 @@ export function createDefaultAPIErrorResponse(
     });
   }
 
-  return APIResponseHelpers.createAPIErrorResponse({
+  return HelpersClass.createAPIErrorResponse({
     request,
     statusCode,
     errorCode,
@@ -105,6 +106,7 @@ export function createDefaultAPIErrorResponse(
  * @returns JSON 404 response object
  */
 export function createDefaultAPINotFoundResponse(
+  HelpersClass: APIResponseHelpersClass,
   request: FastifyRequest,
   apiPrefix?: string,
 ): unknown {
@@ -119,7 +121,7 @@ export function createDefaultAPINotFoundResponse(
   const statusCode = 404;
 
   if (isPage) {
-    return APIResponseHelpers.createPageErrorResponse({
+    return HelpersClass.createPageErrorResponse({
       request,
       statusCode,
       errorCode: "not_found",
@@ -131,7 +133,7 @@ export function createDefaultAPINotFoundResponse(
     });
   }
 
-  return APIResponseHelpers.createAPIErrorResponse({
+  return HelpersClass.createAPIErrorResponse({
     request,
     statusCode,
     errorCode: "not_found",

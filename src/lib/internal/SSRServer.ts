@@ -7,6 +7,7 @@ import {
   StaticContentRouterOptions,
   type SSRHelper,
   type PluginMetadata,
+  type APIResponseHelpersClass,
 } from "../types";
 import {
   readHTMLFile,
@@ -42,9 +43,14 @@ import {
 } from "./DataLoaderServerHandlerHelpers";
 import { APIRoutesServerHelpers } from "./APIRoutesServerHelpers";
 import {
+  WebSocketServerHelpers,
+  type WebSocketHandlerConfig,
+} from "./WebSocketServerHelpers";
+import {
   filterIncomingCookieHeader as applyCookiePolicyToCookieHeader,
   filterSetCookieHeaderValues as applyCookiePolicyToSetCookie,
 } from "./cookie-utils";
+import { APIResponseHelpers } from "../../api-envelope";
 
 type SSRServerConfigDev = {
   mode: "development";
@@ -70,11 +76,14 @@ export class SSRServer extends BaseServer {
   private config: SSRServerConfig;
   private clientFolderName: string;
   private serverFolderName: string;
+  /** Pluggable helpers class reference for constructing API/Page envelopes */
+  public readonly APIResponseHelpersClass: APIResponseHelpersClass;
   private cachedRenderFunction:
     | ((renderRequest: IRenderRequest) => Promise<IRenderResult>)
     | null = null;
   private pageDataHandlers!: DataLoaderServerHandlerHelpers;
   private apiRoutes!: APIRoutesServerHelpers;
+  private webSocketHelpers: WebSocketServerHelpers | null = null;
   private viteDevServer: ViteDevServer | null = null;
   private registeredPlugins: PluginMetadata[] = [];
 
@@ -95,9 +104,21 @@ export class SSRServer extends BaseServer {
     this.clientFolderName = config.options.clientFolderName || "client";
     this.serverFolderName = config.options.serverFolderName || "server";
 
+    // Set helpers class (custom or default)
+    this.APIResponseHelpersClass =
+      config.options.APIResponseHelpersClass || APIResponseHelpers;
+
     // Initialize helpers (available immediately for handler registration)
     this.pageDataHandlers = new DataLoaderServerHandlerHelpers();
     this.apiRoutes = new APIRoutesServerHelpers();
+
+    // Initialize WebSocket helpers if enabled
+    if (config.options.enableWebSockets) {
+      this.webSocketHelpers = new WebSocketServerHelpers(
+        this.APIResponseHelpersClass,
+        config.options.webSocketOptions,
+      );
+    }
 
     // Initialize cookie forwarding policy
     const allow = config.options.cookieForwarding?.allowCookieNames;
@@ -208,8 +229,16 @@ export class SSRServer extends BaseServer {
 
       this.fastifyInstance = fastify(fastifyOptions);
 
+      // Register WebSocket plugin if enabled
+      if (this.webSocketHelpers) {
+        await this.webSocketHelpers.registerWebSocketPlugin(
+          this.fastifyInstance,
+        );
+      }
+
       // Decorate requests with environment info (per-request)
-      const isDevelopment = this.config.mode === "development";
+      const mode: "development" | "production" = this.config.mode;
+      const isDevelopment = mode === "development";
       this.fastifyInstance.decorateRequest("isDevelopment", isDevelopment);
 
       // --- Setup Global Error Handling ---
@@ -265,6 +294,11 @@ export class SSRServer extends BaseServer {
         await this.registerPlugins();
       }
 
+      // Register WebSocket preValidation hook if enabled (before routes but after plugins)
+      if (this.webSocketHelpers) {
+        this.webSocketHelpers.registerPreValidationHook(this.fastifyInstance);
+      }
+
       // Register page data handler routes with Fastify
       this.pageDataHandlers.registerRoutes(this.fastifyInstance, {
         apiEndpointPrefix: this.config.options.apiEndpoints?.apiEndpointPrefix,
@@ -284,6 +318,11 @@ export class SSRServer extends BaseServer {
         },
         { allowWildcardAtRoot: false },
       );
+
+      // Register WebSocket routes if enabled
+      if (this.webSocketHelpers) {
+        this.webSocketHelpers.registerRoutes(this.fastifyInstance);
+      }
 
       // Create Vite Dev Server Middleware (Development Only)
       if (this.config.mode === "development") {
@@ -767,6 +806,41 @@ export class SSRServer extends BaseServer {
   }
 
   /**
+   * Register a WebSocket handler for the specified path
+   *
+   * @param config WebSocket handler configuration
+   * @throws Error if WebSocket support is not enabled
+   */
+  registerWebSocketHandler(config: WebSocketHandlerConfig): void {
+    if (!this.webSocketHelpers) {
+      throw new Error(
+        "WebSocket support is not enabled. Set 'enableWebSockets: true' in ServeSSROptions to use WebSocket handlers.",
+      );
+    }
+
+    this.webSocketHelpers.registerWebSocketHandler(config);
+  }
+
+  /**
+   * Get the list of active WebSocket clients
+   *
+   * @returns Set of WebSocket clients, or empty Set if WebSocket support is disabled or server not started
+   */
+  getWebSocketClients(): Set<unknown> {
+    if (!this.fastifyInstance || !this._isListening) {
+      return new Set();
+    }
+
+    // Access the websocketServer decorated by @fastify/websocket plugin
+    const websocketServer = (this.fastifyInstance as any).websocketServer;
+    if (!websocketServer || !websocketServer.clients) {
+      return new Set();
+    }
+
+    return websocketServer.clients;
+  }
+
+  /**
    * Register plugins with controlled access to Fastify instance
    * @private
    */
@@ -1061,6 +1135,7 @@ export class SSRServer extends BaseServer {
 
     // Default API error response using shared utility
     const response = createDefaultAPIErrorResponse(
+      this.APIResponseHelpersClass,
       request,
       error,
       isDevelopment,
@@ -1115,7 +1190,12 @@ export class SSRServer extends BaseServer {
     reply.status(statusCode);
 
     // Default API not-found response using shared utility
-    const response = createDefaultAPINotFoundResponse(request, apiPrefix);
+    const response = createDefaultAPINotFoundResponse(
+      this.APIResponseHelpersClass,
+      request,
+      apiPrefix,
+    );
+
     return reply.send(response);
   }
 }

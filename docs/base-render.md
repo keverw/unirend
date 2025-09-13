@@ -62,35 +62,7 @@ Keep `wrapProviders` components pure (context providers only). Avoid rendering H
 
 Unirend uses the standardized API/Page response envelope described in [docs/api-envelope-structure.md](./api-envelope-structure.md) within React Router loaders to handle status codes and errors. This keeps API and page responses consistent across SSR and SSG. The `__ssOnly` field noted below is an internal server-only extension used by the framework.
 
-#### Status Codes and Errors
-
-Your loaders can return data in this envelope format to control HTTP status codes and error handling:
-
-```typescript
-// In your React Router loader
-export async function loader({ params }) {
-  try {
-    const data = await fetchUserData(params.id);
-
-    // Success response
-    return {
-      user: data,
-      status_code: 200, // Optional: defaults to 200
-    };
-  } catch (error) {
-    // Error response with custom status code
-    return {
-      status_code: 404,
-      error: {
-        message: "User not found",
-        details: {
-          stacktrace: error.stack, // Optional: for debugging
-        },
-      },
-    };
-  }
-}
-```
+For end‑to‑end loader examples (server‑driven and local) and how envelopes control status codes and error propagation, see the Data Loaders section in the README: [../README.md#data-loaders](../README.md#data-loaders).
 
 #### Server-Side-Only Data (internal)
 

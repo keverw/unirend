@@ -30,4 +30,19 @@ export abstract class BaseServer {
   isListening(): boolean {
     return this._isListening;
   }
+
+  // ---------------------------------------------------------------------------
+  // WebSocket support
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Register a WebSocket handler for the specified path
+   * @throws Error if WebSocket support is not enabled on the server
+   */
+  abstract registerWebSocketHandler(config: unknown): void;
+
+  /**
+   * Get the list of active WebSocket clients (if enabled)
+   */
+  abstract getWebSocketClients(): Set<unknown>;
 }
