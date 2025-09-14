@@ -320,6 +320,11 @@ export class APIServer extends BaseServer {
     }
 
     this.fastifyInstance.setErrorHandler(async (error, request, reply) => {
+      // If a handler already sent a response and then threw, avoid double-send
+      if (reply.sent) {
+        return;
+      }
+
       // Determine if the incoming request is for page data (SSR loader)
       const rawPath = request.url.split("?")[0];
 

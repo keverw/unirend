@@ -186,6 +186,8 @@ bun run demos/ws-server-demo.ts
 
 When running with Bun, Fastify's WebSocket `preValidation` interactions can hang under certain conditions. Track progress here: [Fastify Websocket preValidation hook hangs server](https://github.com/oven-sh/bun/issues/22119).
 
+Additionally, the `preClose` hook path may prevent the server from closing after signaling shutdown when WebSocket clients are connected. See: [Fastify Websocket preClose hook prevents server from closing](https://github.com/oven-sh/bun/issues/22648).
+
 Workarounds you can consider if you hit this in Bun environments:
 
 - Allow upgrade, check auth on first connection, then immediately close on first message if unauthorized

@@ -246,6 +246,11 @@ export class SSRServer extends BaseServer {
       // loading or from any registered route.
       this.fastifyInstance.setErrorHandler(
         async (error: Error, request: FastifyRequest, reply: FastifyReply) => {
+          // Avoid double-send if a previous step already wrote the response
+          if (reply.sent) {
+            return;
+          }
+
           const isDevelopment = this.config.mode === "development";
 
           // Log the error using Fastify's logger
@@ -1033,6 +1038,13 @@ export class SSRServer extends BaseServer {
     error: Error,
     vite: ViteDevServer | null,
   ): Promise<void> {
+    // This method is invoked both by the global Fastify error handler and
+    // by our route-level try/catch around the render call. If a response
+    // was already sent, bail out to prevent double-sending.
+    if (reply.sent) {
+      return;
+    }
+
     const isDevelopment = this.config.mode === "development";
 
     // If an error is caught, let Vite fix the stack trace so it maps back
