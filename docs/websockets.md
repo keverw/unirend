@@ -194,3 +194,15 @@ Node.js does not exhibit this hang with the same code paths.
 Recommendation:
 
 - Until the Bun issue is resolved, avoid enabling WebSockets when running this server under Bun. Prefer running under Node.js directly, or bundle with Bun Build targeting Node and run the result with Node.
+
+Bundling note (Bun Build):
+
+- When bundling with Bun, you may need to externalize `vite` to avoid transitive resolution errors (e.g., lightningcss). Example:
+
+```bash
+bun build ./demos/ws-server-demo.ts \
+  --outfile ./tmp/unirend-ws-test/ws-server-demo.cjs \
+  --target node \
+  --format cjs \
+  --external vite
+```

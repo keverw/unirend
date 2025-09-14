@@ -7,5 +7,7 @@
   },
   "editor.snippetSuggestions": "top",
   "files.autoSave": "afterDelay",
-  "cSpell.words": ["unirend"]
+  "cSpell.words": ["unirend"],
+  "prettier.prettierPath": "./node_modules/prettier",
+  "prettier.requireConfig": true
 }
