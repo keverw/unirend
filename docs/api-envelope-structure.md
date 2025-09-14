@@ -37,6 +37,7 @@
   - [Implementation Pattern](#implementation-pattern)
 - [Helper utilities](#helper-utilities)
   - [Extending helpers and custom meta](#extending-helpers-and-custom-meta)
+    - [Server-wide custom helpers class](#server-wide-custom-helpers-class)
     - [Per-call generics](#per-call-generics)
     - [Subclass to inject defaults from the request](#subclass-to-inject-defaults-from-the-request)
 
@@ -682,7 +683,7 @@ class AppResponseHelpers extends APIResponseHelpers {
 }
 
 // SSR
-await serveSSRDev(
+const ssr = serveSSRDev(
   {
     serverEntry: "./src/entry-server.tsx",
     template: "./index.html",

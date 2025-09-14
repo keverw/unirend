@@ -9,7 +9,9 @@
   - [Handler signature](#handler-signature)
 - [Options](#options)
 - [Accessing Connected Clients](#accessing-connected-clients)
+  - [Broadcasting example](#broadcasting-example)
 - [Demo](#demo)
+- [Behavior notes](#behavior-notes)
 - [Known Issues (Bun)](#known-issues-bun)
 
 <!-- tocstop -->
@@ -32,7 +34,7 @@ Enable support when creating the server. Works for both SSR dev/prod and the sta
 import { serveSSRDev, serveSSRProd, serveAPI } from "unirend/server";
 
 // SSR (dev)
-const ssr = await serveSSRDev(
+const ssr = serveSSRDev(
   {
     serverEntry: "./src/entry-server.tsx",
     template: "./index.html",
@@ -47,7 +49,7 @@ const ssr = await serveSSRDev(
 );
 
 // SSR (prod)
-const ssrProd = await serveSSRProd("./build", {
+const ssrProd = serveSSRProd("./build", {
   enableWebSockets: true,
   webSocketOptions: {
     /* optional */

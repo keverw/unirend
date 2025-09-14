@@ -11,14 +11,14 @@
  * import { serveSSRDev, serveSSRProd, generateSSG } from 'unirend/server';
  *
  * // Development
- * const devServer = await serveSSRDev({
+ * const devServer = serveSSRDev({
  *   serverEntry: './src/entry-server.tsx',
  *   template: './index.html',
  *   viteConfig: './vite.config.ts'
  * });
  *
  * // Production
- * const prodServer = await serveSSRProd('./build');
+ * const prodServer = serveSSRProd('./build');
  *
  * // Static Site Generation
  * const result = await generateSSG('./build', pages);

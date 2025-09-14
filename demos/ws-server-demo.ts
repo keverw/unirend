@@ -288,7 +288,7 @@ async function runWebSocketDemo() {
       "📡 Starting SSR Server with WebSocket support on port 3001...",
     );
 
-    ssrServer = await serveSSRDev(
+    ssrServer = serveSSRDev(
       {
         serverEntry: "./demos/ssr/src/entry-server.tsx",
         template: "./demos/ssr/index.html",

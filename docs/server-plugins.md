@@ -19,7 +19,6 @@
   - [Plugin Configuration via Factory Functions](#plugin-configuration-via-factory-functions)
   - [Authentication Plugin](#authentication-plugin)
   - [File Upload Plugin](#file-upload-plugin)
-  - [Security Plugin](#security-plugin)
 - [Plugin Registration](#plugin-registration-1)
   - [Basic Registration](#basic-registration)
   - [Plugin Dependencies](#plugin-dependencies)
@@ -93,7 +92,7 @@ const myPlugin: ServerPlugin = async (pluginHost, options) => {
 };
 
 // Register the plugin
-const server = await serveSSRDev(paths, {
+const server = serveSSRDev(paths, {
   plugins: [myPlugin],
   // ... other options
 });
@@ -377,7 +376,7 @@ const RateLimitPlugin = (config: { maxRequests: number; windowMs: number }) => {
   return rateLimitPlugin;
 };
 
-const server = await serveSSRDev(paths, {
+const server = serveSSRDev(paths, {
   plugins: [
     RateLimitPlugin({ maxRequests: 100, windowMs: 60000 }), // 100 requests per minute
   ],
@@ -522,19 +521,19 @@ Plugins are registered as an array of functions. Each plugin receives the contro
 
 ```typescript
 // In your server setup
-const server = await serveSSRDev(paths, {
+const server = serveSSRDev(paths, {
   plugins: [apiRoutesPlugin, authPlugin, fileUploadPlugin, securityPlugin],
   // ... other options
 });
 
 // Or for production
-const server = await serveSSRProd(buildDir, {
+const server = serveSSRProd(buildDir, {
   plugins: [apiRoutesPlugin, authPlugin, fileUploadPlugin, securityPlugin],
   // ... other options
 });
 
 // With configuration via factory functions
-const server = await serveSSRDev(paths, {
+const server = serveSSRDev(paths, {
   plugins: [
     DatabasePlugin({ connectionString: process.env.DB_URL }),
     SessionPlugin({ idCookieName: "auth-id", secretCookieName: "auth-secret" }),
@@ -574,7 +573,7 @@ const sessionPlugin: ServerPlugin = async (pluginHost, options) => {
   };
 };
 
-const server = await serveSSRDev(paths, {
+const server = serveSSRDev(paths, {
   plugins: [
     databasePlugin, // Must come first
     sessionPlugin, // Depends on database
@@ -775,7 +774,7 @@ const faultyPlugin: ServerPlugin = async (fastify) => {
 };
 
 // This will log the error and throw during server startup
-const server = await serveSSRDev(paths, {
+const server = serveSSRDev(paths, {
   plugins: [faultyPlugin], // Will cause startup to fail with clear error message
 });
 ```
@@ -784,7 +783,7 @@ const server = await serveSSRDev(paths, {
 
 ```typescript
 // This will fail - session depends on database but database comes after
-const server = await serveSSRDev(paths, {
+const server = serveSSRDev(paths, {
   plugins: [
     sessionPlugin, // depends on 'database'
     databasePlugin, // provides 'database' - too late!
@@ -798,7 +797,7 @@ const duplicateDBPlugin: ServerPlugin = async (pluginHost, options) => {
   return { name: "database" };
 };
 
-const server = await serveSSRDev(paths, {
+const server = serveSSRDev(paths, {
   plugins: [
     databasePlugin, // returns { name: 'database' }
     duplicateDBPlugin, // also returns { name: 'database' } - conflict!

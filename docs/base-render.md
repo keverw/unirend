@@ -8,7 +8,6 @@
 - [Benefits](#benefits)
 - [Important guidelines](#important-guidelines)
 - [Loader Data Envelope Format](#loader-data-envelope-format)
-  - [Status Codes and Errors](#status-codes-and-errors)
   - [Server-Side-Only Data (internal)](#server-side-only-data-internal)
   - [Envelope Properties](#envelope-properties)
   - [How it works](#how-it-works)

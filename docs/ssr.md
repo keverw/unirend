@@ -21,10 +21,10 @@
   - [Custom API Routes](#custom-api-routes)
     - [API route handler signature and parameters:](#api-route-handler-signature-and-parameters)
   - [Param Source Parity (Data Loader vs API Routes):](#param-source-parity-data-loader-vs-api-routes)
-- [WebSockets](#websockets)
 - [Standalone API (APIServer)](#standalone-api-apiserver)
   - [Basic usage](#basic-usage)
   - [Options](#options)
+- [WebSockets](#websockets)
 
 <!-- tocstop -->
 
@@ -75,7 +75,7 @@ async function main() {
     environment: "production",
   };
 
-  const server = await serveSSRProd(buildDir, {
+  const server = serveSSRProd(buildDir, {
     // Optional: Custom server entry name (default: "entry-server")
     // serverEntry: "custom-entry",
 
@@ -100,7 +100,7 @@ Use `serveSSRDev(paths, options)` to run the SSR server in development with Vite
 import { serveSSRDev } from "unirend/server";
 
 async function main() {
-  const server = await serveSSRDev(
+  const server = serveSSRDev(
     {
       serverEntry: "./src/entry-server.tsx",
       template: "./index.html",

@@ -32,7 +32,7 @@ The `cors` plugin provides dynamic CORS (Cross-Origin Resource Sharing) handling
 ```typescript
 import { cors } from "unirend/plugins";
 
-const server = await serveSSRProd(buildDir, {
+const server = serveSSRProd(buildDir, {
   plugins: [
     cors({
       origin: "*", // Allow any origin for public API access

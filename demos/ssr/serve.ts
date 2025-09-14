@@ -903,7 +903,7 @@ async function startServer() {
   try {
     if (mode === "dev") {
       // Development mode - uses source files with Vite HMR
-      const server = await serveSSRDev(
+      const server = serveSSRDev(
         {
           // Required paths for development
           serverEntry: "./src/entry-server.tsx",
@@ -976,7 +976,7 @@ async function startServer() {
       logServerStartup("dev", HOST, PORT);
     } else if (mode === "prod") {
       // Production mode - uses built assets
-      const server = await serveSSRProd("./build", {
+      const server = serveSSRProd("./build", {
         // Production options
         ...createSharedConfig(),
         plugins: SHARED_PLUGINS,

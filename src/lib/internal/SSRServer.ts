@@ -61,7 +61,6 @@ type SSRServerConfigDev = {
 type SSRServerConfigProd = {
   mode: "production";
   buildDir: string; // Directory containing built assets (HTML template, static files, manifest, etc.)
-  importFn: () => Promise<{ render: (req: Request) => Promise<Response> }>;
   options: ServeSSRProdOptions;
 };
 
@@ -934,7 +933,15 @@ export class SSRServer extends BaseServer {
     }
 
     // Import the server entry module
-    const entryServer = await import(entryResult.entryPath);
+    let entryServer;
+
+    try {
+      entryServer = await import(entryResult.entryPath);
+    } catch (error) {
+      throw new Error(
+        `Failed to import server entry from ${entryResult.entryPath}: ${error}`,
+      );
+    }
 
     if (!entryServer.render || typeof entryServer.render !== "function") {
       throw new Error("Server entry module must export a 'render' function");

@@ -8,6 +8,7 @@
 - [Configuration](#configuration)
 - [Examples](#examples)
 - [Forwarded headers (SSR)](#forwarded-headers-ssr)
+  - [Deployment note](#deployment-note)
 - [Response headers](#response-headers)
 
 <!-- tocstop -->
@@ -36,7 +37,7 @@ Use it to:
 ```typescript
 import { clientInfo } from "unirend/plugins";
 
-const server = await serveSSRProd(buildDir, {
+const server = serveSSRProd(buildDir, {
   plugins: [clientInfo()],
 });
 ```
