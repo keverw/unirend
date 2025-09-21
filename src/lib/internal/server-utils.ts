@@ -14,6 +14,7 @@ import type {
   ControlledReply,
   APIResponseHelpersClass,
 } from "../types";
+import type { CookieSerializeOptions } from "@fastify/cookie";
 
 /**
  * Detect if a request URL targets a React-Router DataLoader page-data JSON endpoint.
@@ -194,6 +195,15 @@ export function createControlledInstance(
       fastifyInstance.decorateRequest(property, value),
     decorateReply: (property: string, value: unknown) =>
       fastifyInstance.decorateReply(property, value),
+    hasDecoration: (property: string) =>
+      Object.prototype.hasOwnProperty.call(
+        fastifyInstance as unknown as Record<string, unknown>,
+        property,
+      ),
+    getDecoration: <T = unknown>(property: string): T | undefined =>
+      (fastifyInstance as unknown as Record<string, unknown>)[property] as
+        | T
+        | undefined,
     route: (opts: SafeRouteOptions) => {
       // Prevent catch-all routes that would conflict with SSR
       if (opts.url === "*" || opts.url.includes("*")) {
@@ -252,10 +262,22 @@ export function createControlledReply(reply: FastifyReply): ControlledReply {
               setCookie: (
                 name: string,
                 value: string,
-                options?: Record<string, unknown>,
+                options?: CookieSerializeOptions,
               ) => void;
             }
           ).setCookie
+        : undefined,
+    cookie:
+      typeof (reply as unknown as { cookie?: unknown }).cookie === "function"
+        ? (
+            reply as unknown as {
+              cookie: (
+                name: string,
+                value: string,
+                options?: CookieSerializeOptions,
+              ) => void;
+            }
+          ).cookie
         : undefined,
     clearCookie:
       typeof (reply as unknown as { clearCookie?: unknown }).clearCookie ===
@@ -264,10 +286,32 @@ export function createControlledReply(reply: FastifyReply): ControlledReply {
             reply as unknown as {
               clearCookie: (
                 name: string,
-                options?: Record<string, unknown>,
+                options?: CookieSerializeOptions,
               ) => void;
             }
           ).clearCookie
+        : undefined,
+    unsignCookie:
+      typeof (reply as unknown as { unsignCookie?: unknown }).unsignCookie ===
+      "function"
+        ? (
+            reply as unknown as {
+              unsignCookie: (
+                value: string,
+              ) =>
+                | { valid: true; renew: boolean; value: string }
+                | { valid: false; renew: false; value: null };
+            }
+          ).unsignCookie
+        : undefined,
+    signCookie:
+      typeof (reply as unknown as { signCookie?: unknown }).signCookie ===
+      "function"
+        ? (
+            reply as unknown as {
+              signCookie: (value: string) => string;
+            }
+          ).signCookie
         : undefined,
   };
 }

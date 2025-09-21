@@ -8,6 +8,7 @@ import type {
   FastifySchema,
   preHandlerHookHandler,
 } from "fastify";
+import type { CookieSerializeOptions } from "@fastify/cookie";
 import type { DataLoaderServerHandlerHelpers } from "./internal/DataLoaderServerHandlerHelpers";
 import type {
   APIErrorResponse,
@@ -152,6 +153,9 @@ export interface PluginHostInstance {
   decorate: (property: string, value: unknown) => void;
   decorateRequest: (property: string, value: unknown) => void;
   decorateReply: (property: string, value: unknown) => void;
+  /** Read-only accessors for server-level decorations */
+  hasDecoration: (property: string) => boolean;
+  getDecoration: <T = unknown>(property: string) => T | undefined;
   /** Access to route registration with constraints */
   route: (opts: SafeRouteOptions) => void;
   get: (path: string, handler: RouteHandler) => void;
@@ -176,10 +180,24 @@ export interface ControlledReply {
   setCookie?: (
     name: string,
     value: string,
-    options?: Record<string, unknown>,
+    options?: CookieSerializeOptions,
+  ) => void;
+  /** Alias for setCookie if @fastify/cookie is registered */
+  cookie?: (
+    name: string,
+    value: string,
+    options?: CookieSerializeOptions,
   ) => void;
   /** Clear a cookie if @fastify/cookie is registered */
-  clearCookie?: (name: string, options?: Record<string, unknown>) => void;
+  clearCookie?: (name: string, options?: CookieSerializeOptions) => void;
+  /** Verify and unsign a cookie value if @fastify/cookie is registered */
+  unsignCookie?: (
+    value: string,
+  ) =>
+    | { valid: true; renew: boolean; value: string }
+    | { valid: false; renew: false; value: null };
+  /** Sign a cookie value if @fastify/cookie is registered */
+  signCookie?: (value: string) => string;
   /** Read a response header value (if available) */
   getHeader: (name: string) => string | number | string[] | undefined;
   /** Read all response headers as a plain object */

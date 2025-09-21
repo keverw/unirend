@@ -18,3 +18,4 @@ Unirend provides a collection of built-in plugins that handle common server func
 - [cors](built-in-plugins/cors.md)
 - [clientInfo](built-in-plugins/clientInfo.md)
 - [domainValidation](built-in-plugins/domainValidation.md)
+- [cookies](built-in-plugins/cookies.md)

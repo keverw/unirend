@@ -99,6 +99,7 @@
     "vite": "^7.0.4"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.0.2",
     "@fastify/middie": "^9.0.0",
     "@fastify/websocket": "^11.2.0",
     "cheerio": "^1.1.0",

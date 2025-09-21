@@ -15,6 +15,7 @@
   - [Options (shared)](#options-shared)
   - [Options (prod-only)](#options-prod-only)
   - [Header and Cookies Forwarding](#header-and-cookies-forwarding)
+  - [Reading server decorations](#reading-server-decorations)
   - [Environment flag in handlers](#environment-flag-in-handlers)
   - [Page Data Handlers and Versioning](#page-data-handlers-and-versioning)
   - [Short-Circuit Data Handlers](#short-circuit-data-handlers)
@@ -54,6 +55,8 @@ Both server classes expose the same operational methods:
 - `registerDataLoaderHandler(pageType, handler)` and `registerDataLoaderHandler(pageType, version, handler)` — Register page data handlers used by the page data endpoint
 - `registerWebSocketHandler(config)` — Register a WebSocket handler (when `enableWebSockets` is true)
 - `getWebSocketClients(): Set<unknown>` — Get the connected WebSocket clients (empty set when not supported/not started)
+- `hasDecoration(property: string): boolean` — Check if a server-level decoration exists
+- `getDecoration<T = unknown>(property: string): T | undefined` — Read a decoration value (undefined before listen)
 
 ## Create SSR Server
 
@@ -246,6 +249,19 @@ Unirend forwards a curated set of headers and supports configurable cookie forwa
   - Notes about values:
     - Empty cookie values (e.g., `name=`) are allowed and forwarded if the name passes policy
     - Name-based filtering only; attributes on `Set-Cookie` are preserved as-is
+
+### Reading server decorations
+
+Both SSR and API servers expose read-only helpers to access server-level decorations set by plugins:
+
+```ts
+// Example: read cookie plugin info if the cookies plugin is registered
+const has = server.hasDecoration("cookiePluginInfo");
+const info = server.getDecoration<{
+  signingSecretProvided: boolean;
+  algorithm: string;
+}>("cookiePluginInfo");
+```
 
 ### Environment flag in handlers
 

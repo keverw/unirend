@@ -12,6 +12,7 @@
     - [Plugin Registration](#plugin-registration)
     - [Hooks](#hooks)
     - [Decorators](#decorators)
+    - [Reading server decorations](#reading-server-decorations)
     - [API Shortcuts (Envelope Helpers)](#api-shortcuts-envelope-helpers)
     - [Page Data Loader Registration](#page-data-loader-registration)
 - [Example Plugins](#example-plugins)
@@ -218,6 +219,25 @@ pluginHost.decorateReply("setUser", function (user) {
   /* ... */
 });
 pluginHost.decorate("db", databaseConnection);
+```
+
+#### Reading server decorations
+
+Plugins can read server-level decorations added by other plugins using read-only helpers:
+
+```ts
+// Check if a decoration exists
+const hasCookiesInfo = pluginHost.hasDecoration("cookiePluginInfo");
+
+// Get a typed decoration value
+const cookieInfo = pluginHost.getDecoration<{
+  signingSecretProvided: boolean;
+  algorithm: string;
+}>("cookiePluginInfo");
+
+if (cookieInfo?.signingSecretProvided) {
+  // Safe to expect signed cookie support
+}
 ```
 
 #### API Shortcuts (Envelope Helpers)

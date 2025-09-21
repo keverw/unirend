@@ -45,4 +45,40 @@ export abstract class BaseServer {
    * Get the list of active WebSocket clients (if enabled)
    */
   abstract getWebSocketClients(): Set<unknown>;
+
+  // ---------------------------------------------------------------------------
+  // Server-level decorations (read-only access)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Check if a server-level decoration exists. Returns false if the server is not started.
+   * Use this to discover metadata decorated by plugins (e.g., "cookiePluginInfo").
+   */
+  hasDecoration(property: string): boolean {
+    const instance = this.fastifyInstance as unknown as Record<
+      string,
+      unknown
+    > | null;
+    if (!instance) {
+      return false;
+    }
+
+    return Object.prototype.hasOwnProperty.call(instance, property);
+  }
+
+  /**
+   * Read a server-level decoration value. Returns undefined if missing or server not started.
+   * Decorations are attached via Fastify's decorate() API inside plugins.
+   */
+  getDecoration<T = unknown>(property: string): T | undefined {
+    const instance = this.fastifyInstance as unknown as Record<
+      string,
+      unknown
+    > | null;
+    if (!instance) {
+      return undefined;
+    }
+
+    return instance[property] as T | undefined;
+  }
 }
