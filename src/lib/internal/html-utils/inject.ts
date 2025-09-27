@@ -16,7 +16,6 @@ export function injectContent(
   template: string,
   headContent: string,
   bodyContent: string,
-  isDev = false,
 ): string {
   // Prettify all head tags with consistent indentation
   const compactedHead = prettifyHeadTags(headContent);

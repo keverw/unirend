@@ -337,6 +337,7 @@ async function pageLoader({
           .SSRHelper;
         const hasInternalHandler = !!ssrHelper?.handlers?.hasHandler(pageType);
 
+        // eslint-disable-next-line no-console
         console.log("[pageLoader] server-side data fetching decision", {
           pageType,
           ssrHelperAttached: !!ssrHelper,
@@ -385,10 +386,12 @@ async function pageLoader({
             }
           } else if (DEBUG_PAGE_LOADER) {
             // No internal handler; fall back to HTTP fetch
+            // eslint-disable-next-line no-console
             console.warn(`[pageLoader] fallback to http_fetch for ${pageType}`);
           }
         } catch (internalError) {
           if (DEBUG_PAGE_LOADER) {
+            // eslint-disable-next-line no-console
             console.error(
               `[pageLoader] Internal handler error for ${pageType}; converting to 500 error`,
               internalError,
@@ -493,6 +496,7 @@ async function pageLoader({
       return processApiResponse(response, config);
     } else {
       if (DEBUG_PAGE_LOADER) {
+        // eslint-disable-next-line no-console
         console.log(`Client side data fetching for ${pageType} page`);
       }
 
@@ -526,6 +530,7 @@ async function pageLoader({
     }
   } catch (error) {
     if (DEBUG_PAGE_LOADER) {
+      // eslint-disable-next-line no-console
       console.error("Error fetching page data:", error);
     }
 

@@ -301,7 +301,6 @@ export async function generateSSG(
           htmlTemplate,
           headInject,
           renderResult.html,
-          false,
         );
 
         // Write the HTML file to the client directory (where assets are)
@@ -368,7 +367,10 @@ export async function generateSSG(
         } else if (renderResult.resultType === "render-error") {
           errorDetails = `Render error: ${renderResult.error.message}`;
         } else {
-          const resultType = (renderResult as any).resultType || "unknown";
+          // This should never happen with proper IRenderResult types, but handle gracefully
+          const resultType =
+            (renderResult as unknown as { resultType?: string }).resultType ||
+            "unknown";
           errorDetails = `Unexpected render result type: ${resultType}`;
         }
 
@@ -412,7 +414,6 @@ export async function generateSSG(
         htmlTemplate,
         headInject.trim(),
         "", // Empty body content for SPA
-        false,
       );
 
       // Write the HTML file to the client directory (where assets are)
@@ -457,12 +458,12 @@ export async function generateSSG(
       pageReports.push({
         page,
         status: "error",
-        errorDetails: `Unknown page type: ${(page as any).type || "undefined"}`,
+        errorDetails: `Unknown page type: ${(page as unknown as { type?: string }).type || "undefined"}`,
         timeMs,
       });
 
       logger.error(
-        `✗ Unknown page type for ${(page as any).filename || "unknown"}: ${(page as any).type || "undefined"} (${timeMs}ms)`,
+        `✗ Unknown page type for ${(page as unknown as { filename?: string }).filename || "unknown"}: ${(page as unknown as { type?: string }).type || "undefined"} (${timeMs}ms)`,
       );
     }
   }

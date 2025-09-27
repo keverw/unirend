@@ -66,9 +66,10 @@ export class LRUCache<K, V> {
    * Uses the provided sizeCalculator if available, otherwise makes a best guess
    */
 
-  private calculateSize(value: V): number {
+  private calculateSize(value: unknown): number {
+    // Use custom size calculator if provided (cast to V for the callback)
     if (this.sizeCalculator) {
-      return this.sizeCalculator(value);
+      return this.sizeCalculator(value as V);
     }
 
     // Default size estimation logic
@@ -89,15 +90,15 @@ export class LRUCache<K, V> {
     } else if (Array.isArray(value)) {
       // Rough estimate for arrays
       return (
-        40 +
-        value.reduce((acc, item) => acc + this.calculateSize(item as any), 0)
+        40 + value.reduce((acc, item) => acc + this.calculateSize(item), 0)
       );
     } else if (typeof value === "object") {
       try {
         // Rough estimate based on JSON size
         const jsonSize = JSON.stringify(value).length * 2;
         return Math.max(jsonSize, 40); // At least 40 bytes for object overhead
-      } catch (e) {
+      } catch {
+        // Ignore JSON serialization errors for non-serializable objects
         return 1000; // Fallback size for non-serializable objects
       }
     }
@@ -191,7 +192,7 @@ export class LRUCache<K, V> {
 
   private evictOldest(): void {
     if (this.map.size > 0) {
-      const oldest = this.map.keys().next().value;
+      const oldest = this.map.keys().next().value as K; // Safe: map.size > 0 guarantees a key exists
       this.removeEntry(oldest);
     }
   }

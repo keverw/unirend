@@ -71,12 +71,14 @@ export async function processRedirectResponse(
       }
     } catch (error) {
       if (DEBUG_PAGE_LOADER) {
+        // eslint-disable-next-line no-console
         console.warn("Failed to preserve query parameters in redirect", error);
       }
     }
   }
 
   if (DEBUG_PAGE_LOADER) {
+    // eslint-disable-next-line no-console
     console.log(
       `Application redirect to: ${redirectTarget} (${redirectInfo.permanent ? "permanent" : "temporary"})`,
     );
@@ -107,6 +109,7 @@ export async function processApiResponse(
     [301, 302, 303, 307, 308].includes(statusCode)
   ) {
     if (DEBUG_PAGE_LOADER) {
+      // eslint-disable-next-line no-console
       console.warn(
         `API returned a HTTP redirect to: ${response.headers.get("Location")}`,
       );
@@ -143,6 +146,7 @@ export async function processApiResponse(
   }
 
   if (DEBUG_PAGE_LOADER) {
+    // eslint-disable-next-line no-console
     console.log("response Info", {
       isValidJson,
       statusCode,

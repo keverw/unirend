@@ -89,22 +89,4 @@ describe("injectContent", () => {
 
     expect(injectContent(template, headContent, bodyContent)).toBe(expected);
   });
-
-  it("should work with isDev parameter", () => {
-    const template =
-      "<!DOCTYPE html><html><head><!--ss-head--></head><body><!--ss-outlet--></body></html>";
-    const headContent = "<title>Dev Mode</title>";
-    const bodyContent = "<div>Dev Content</div>";
-
-    // isDev parameter doesn't change the output in the current implementation
-    // but we test it to ensure the function accepts it correctly
-    const expected =
-      "<!DOCTYPE html><html><head>" +
-      `<title>Dev Mode</title>` +
-      "</head><body><div>Dev Content</div></body></html>";
-
-    expect(injectContent(template, headContent, bodyContent, true)).toBe(
-      expected,
-    );
-  });
 });

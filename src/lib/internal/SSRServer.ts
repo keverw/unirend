@@ -575,7 +575,6 @@ export class SSRServer extends BaseServer {
                 template,
                 headInject,
                 renderResult.html,
-                this.config.mode === "development", // Pass development mode flag
               );
 
               // ---> Send response with the extracted status code

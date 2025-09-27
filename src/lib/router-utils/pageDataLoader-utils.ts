@@ -225,6 +225,7 @@ export function applyCustomHttpStatusHandler(
 
   if (customResult === null || customResult === undefined) {
     if (DEBUG_PAGE_LOADER) {
+      // eslint-disable-next-line no-console
       console.log(
         `Custom handler for status code ${statusCode} returned null/undefined, falling back to default handling`,
       );
@@ -234,6 +235,7 @@ export function applyCustomHttpStatusHandler(
   }
 
   if (DEBUG_PAGE_LOADER) {
+    // eslint-disable-next-line no-console
     console.log(`Using custom handler for status code ${statusCode}`);
   }
 

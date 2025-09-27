@@ -188,9 +188,18 @@ describe("LRUCache", () => {
 
     test("should handle different value types with custom calculator", () => {
       const sizeCalculator = (value: any) => {
-        if (typeof value === "string") return value.length;
-        if (typeof value === "number") return 8;
-        if (Array.isArray(value)) return value.length * 10;
+        if (typeof value === "string") {
+          return value.length;
+        }
+
+        if (typeof value === "number") {
+          return 8;
+        }
+
+        if (Array.isArray(value)) {
+          return value.length * 10;
+        }
+
         return 50; // Default for objects
       };
 
