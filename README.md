@@ -50,9 +50,9 @@ Unirend includes Fastify as a regular dependency for server side rendering and A
 - [Error Handling](#error-handling)
   - [Error Handling Strategy](#error-handling-strategy)
   - [Error Utilities and Recommended Setup](#error-utilities-and-recommended-setup)
-  - [Custom Meta with PageDataHandler (Typing with Generics)](#custom-meta-with-pagedatahandler-typing-with-generics)
   - [Other Suggestions](#other-suggestions)
 - [Development](#development)
+- [Build Info Utilities](#build-info-utilities)
 
 <!-- tocstop -->
 
@@ -493,67 +493,6 @@ See the detailed guidance in [docs/error-handling.md](docs/error-handling.md) fo
   - Typical mapping: render a `NotFound` component for 404s and a generic error component for other cases. See the SSR demo’s `demos/ssr/src/routes.tsx` layout pattern.
   - A dedicated not-found page loader is recommended, but inline handling in your layout works too.
 
-### Custom Meta with PageDataHandler (Typing with Generics)
-
-`PageDataHandler` is generic. Type your handler with your own data and meta interfaces and pass it to `registerDataLoaderHandler()`. Handlers receive `(request, reply, params)`; you can set extra headers or cookies via `reply` (status and JSON headers are applied from your envelope, and not are available to set here).
-
-```ts
-import type {
-  PageDataHandler,
-  PageDataHandlerParams,
-} from "unirend/router-utils";
-import type { FastifyRequest } from "fastify";
-import type { BaseMeta } from "unirend/api-envelope";
-
-interface MyMeta extends BaseMeta {
-  cache: { maxAge: number };
-}
-
-interface MyData {
-  title: string;
-  userId?: string;
-  filter?: string;
-}
-
-const homeHandler: PageDataHandler<MyData, MyMeta> = async (
-  request: FastifyRequest,
-  reply,
-  params: PageDataHandlerParams,
-) => ({
-  status: "success",
-  status_code: 200,
-  type: "page",
-  data: {
-    title: "Home",
-    userId: params.route_params.id,
-    filter: params.query_params.filter,
-  },
-  meta: {
-    page: { title: "Home" },
-    cache: { maxAge: 60 },
-  },
-  error: null,
-});
-
-server.registerDataLoaderHandler("home", homeHandler);
-
-// Inline variant with explicit generics via cast
-server.registerDataLoaderHandler("about", ((
-  request: FastifyRequest,
-  reply,
-  params: PageDataHandlerParams,
-) => ({
-  status: "success" as const,
-  status_code: 200,
-  type: "page" as const,
-  data: { title: "About", path: params.request_path },
-  meta: { page: { title: "About" } },
-  error: null,
-})) as PageDataHandler<MyData, MyMeta>);
-```
-
-You can also extend the response helper class to centralize custom meta defaults (e.g., from your session session like account/workspace info, etc) pulled from the request. See the helpers section: [Extending helpers and custom meta](docs/api-envelope-structure.md#extending-helpers-and-custom-meta).
-
 ### Other Suggestions
 
 - Scroll to top on navigation
@@ -603,3 +542,7 @@ bun publish
 ```
 
 Make sure to commit the new version back to GIT
+
+## Build Info Utilities
+
+See [docs/build-info.md](docs/build-info.md) for generating and loading build metadata (version, git hash/branch, timestamp).

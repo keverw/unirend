@@ -61,3 +61,10 @@ export { serveSSRDev, serveSSRProd } from "./lib/ssr";
 export { generateSSG } from "./lib/ssg";
 export { unirendBaseRender } from "./lib/baseRender";
 export { serveAPI } from "./lib/api";
+
+// Re-export Fastify request/reply types to avoid forcing consumers to import 'fastify'
+export type { FastifyRequest, FastifyReply } from "fastify";
+export type {
+  FastifyRequest as ServerRequest,
+  FastifyReply as ServerReply,
+} from "fastify";

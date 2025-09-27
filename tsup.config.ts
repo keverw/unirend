@@ -70,4 +70,16 @@ export default defineConfig([
     clean: true, // Safe to clean since it's in its own subdirectory
     external: [], // No external dependencies for pure types and helpers
   },
+
+  // Build info (server-side)
+  {
+    entry: ["src/build-info.ts"],
+    outDir: "dist/build-info",
+    format: ["cjs", "esm"],
+    dts: true,
+    splitting: false,
+    sourcemap: true,
+    clean: true, // Safe to clean since it's in its own subdirectory
+    external: [],
+  },
 ]);

@@ -22,6 +22,7 @@ import {
   type WebSocketHandlerConfig,
 } from "./WebSocketServerHelpers";
 import { APIResponseHelpers } from "../../api-envelope";
+import type { WebSocket, WebSocketServer } from "ws";
 
 /**
  * API Server class for creating JSON API servers with plugin support
@@ -296,17 +297,23 @@ export class APIServer extends BaseServer {
    *
    * @returns Set of WebSocket clients, or empty Set if WebSocket support is disabled or server not started
    */
-  getWebSocketClients(): Set<unknown> {
+  getWebSocketClients(): Set<WebSocket> {
     if (!this.fastifyInstance || !this._isListening) {
-      return new Set();
+      // Server not started or Fastify instance missing — return empty set as a safe fallback
+      return new Set<WebSocket>();
     }
 
     // Access the websocketServer decorated by @fastify/websocket plugin
-    const websocketServer = (this.fastifyInstance as any).websocketServer;
+    const websocketServer = (
+      this.fastifyInstance as unknown as { websocketServer?: WebSocketServer }
+    ).websocketServer;
+
     if (!websocketServer || !websocketServer.clients) {
-      return new Set();
+      // WebSocket server not available (plugin not enabled/initialized) — return empty set fallback
+      return new Set<WebSocket>();
     }
 
+    // Return the underlying ws client set (Set<WebSocket>)
     return websocketServer.clients;
   }
 

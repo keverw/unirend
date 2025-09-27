@@ -17,7 +17,7 @@ export interface PageMetadata {
  * Base meta structure with required page metadata
  */
 export interface BaseMeta {
-  page: PageMetadata;
+  page?: PageMetadata;
 }
 
 // Error details

@@ -37,6 +37,7 @@
   - [Implementation Pattern](#implementation-pattern)
 - [Helper utilities](#helper-utilities)
   - [Extending helpers and custom meta](#extending-helpers-and-custom-meta)
+    - [Decorate request via plugin](#decorate-request-via-plugin)
     - [Server-wide custom helpers class](#server-wide-custom-helpers-class)
     - [Per-call generics](#per-call-generics)
     - [Subclass to inject defaults from the request](#subclass-to-inject-defaults-from-the-request)
@@ -663,6 +664,14 @@ These helpers assume you set `request.requestID` via a plugin as described above
 
 All helper creators are generic over the data payload (T) and meta (M extends BaseMeta), so you can supply your own meta shape per call, or centralize defaults by subclassing the helpers.
 
+> Static by design: `APIResponseHelpers` are intentionally implemented as a static utility. This keeps them side‑effect free, easy to test/re‑export, and lets your request handlers live in separate files without passing instances around. For app‑specific defaults (e.g., build info, account, locale), decorate the Fastify `request` in a plugin and merge those values via the `meta` parameter when calling the static helpers.
+
+#### Decorate request via plugin
+
+Use a server plugin to attach defaults to each request, then merge them in your handlers. See the server plugins guide for request decoration: [Server Plugins](./server-plugins.md).
+
+For a complete example where using build info (load once at startup, decorate requests, auto-merge into response meta), see: [Build Info → Using with Unirend plugins](./build-info.md#using-with-unirend-plugins).
+
 #### Server-wide custom helpers class
 
 You can configure a custom helpers class for the SSR and API servers so all server-produced envelopes (defaults, fallbacks) use your class for creation. This is useful for injecting default metadata (e.g., account/site info) or centralizing conventions.
@@ -732,7 +741,7 @@ return APIResponseHelpers.createPageSuccessResponse<MyData, AppMeta>({
 ```ts
 import { APIResponseHelpers } from "unirend/api-envelope";
 import type { BaseMeta, PageMetadata } from "unirend/api-envelope";
-import type { FastifyRequest } from "fastify";
+import type { FastifyRequest } from "unirend/server";
 
 interface AppMeta extends BaseMeta {
   account?: { isAuthenticated: boolean; userID?: string; workspaceID?: string };

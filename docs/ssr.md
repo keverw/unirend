@@ -72,19 +72,24 @@ async function main() {
   // Point to the build directory (contains both client/ and server/ subdirectories)
   const buildDir = path.resolve(__dirname, "build");
 
-  // Set up global app config (available to both server and client)
+  // Set up global app config (available to server code)
+  // Tip: Keep this minimal and non-sensitive; it will be passed to the client below in production
   globalThis.__APP_CONFIG__ = {
     apiUrl: process.env.API_URL || "https://api.example.com",
     environment: "production",
-  };
+    // Optionally include selected build info for troubleshooting/version display.
+    // See docs/build-info.md for generating/loading and safe exposure.
+    // build: { version: "1.2.3" },
+  } as Record<string, unknown>;
 
   const server = serveSSRProd(buildDir, {
     // Optional: Custom server entry name (default: "entry-server")
     // serverEntry: "custom-entry",
 
     // Frontend app configuration (injected as window.__APP_CONFIG__)
-    // NOTE: This only works in production. In dev, use import.meta.env
+    // NOTE: This only works in production with serveSSRProd. In dev, use import.meta.env
     frontendAppConfig: globalThis.__APP_CONFIG__,
+    // Tip: See docs/build-info.md for adding a plugin that decorates request.buildInfo
   });
 
   const port = Number(process.env.PORT || 3000);
@@ -94,6 +99,12 @@ async function main() {
 
 main().catch(console.error);
 ```
+
+Notes:
+
+- `frontendAppConfig` is injected into the HTML and available on the client as `window.__APP_CONFIG__` in production. It is not automatically a server‑side global.
+- Defining `globalThis.__APP_CONFIG__` yourself (as above) gives your server code a shared shape and lets you pass the same object into `frontendAppConfig` for the client, and use within server-side components
+- In development, the injection doesn’t run; use `import.meta.env` (or your own dev shim) on the client, but you can still read `globalThis.__APP_CONFIG__` in server‑only code. See the setup guidance in the README: [4. Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern).
 
 ### Create Development SSR Server
 
@@ -330,6 +341,8 @@ Guidance:
 Recommendation:
 
 - Prefer using `APIResponseHelpers` (see [API Envelope Structure](./api-envelope-structure.md)) to construct envelopes. These helpers also auto-populate `request_id` from `request.requestID` that your request registered middleware/plugins may populate.
+- For custom meta defaults (account/workspace/locale/build), prefer extending `APIResponseHelpers` in a small subclass and reading decorated values from the request within that subclass. This applies to both page data handlers and custom API route handlers. See: [Extending helpers and custom meta](./api-envelope-structure.md#extending-helpers-and-custom-meta).
+  - Rationale: centralizes conventions and avoids repeating per-handler generics/typing; just ensure your meta type extends `BaseMeta`.
 
 Examples:
 
