@@ -74,6 +74,7 @@ When a loader produces a page render with `statusCode === 500`:
 #### 4) Loader Response Errors After Hydration
 
 - For envelope-based errors (e.g., 4xx/5xx), use the helper hook `useDataloaderEnvelopeError` inside your app layout to detect and render inline error UIs while keeping header/footer.
+- **SSG with Local Data Loaders**: This same pattern applies to SSG when using local data loaders. Set up `useDataloaderEnvelopeError` in your app layout to handle envelope errors returned by local handlers.
 - Common pattern: render `CustomNotFound` for 404s, and `GenericError` for other errors. See the SSR demo’s `routes.tsx` for an example layout pattern.
 
 #### 5) Error Responses with Stacktrace (Development Only)

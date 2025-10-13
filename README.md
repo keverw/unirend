@@ -338,7 +338,7 @@ Config options (HTTP path):
 
 ### Local Data Loader
 
-Runs a page data handler locally without framework HTTP. Primarily intended for SSG, but can be used in SSR if you don’t need cookie propagation.
+Runs a page data handler locally without framework dataLoader HTTP request. Primarily intended for SSG, but can be used in SSR if you don't need cookie propagation.
 
 ```ts
 import { createPageLoader } from "unirend/router-utils";
@@ -362,6 +362,7 @@ export const localInfoLoader = createPageLoader(
 
 Important:
 
+- **Error handling setup required**: When using local data loaders (especially in SSG), you must set up `useDataloaderEnvelopeError` in your app layout to handle envelope errors (including 404s and other error responses). This is the same pattern used in SSR. See the "Error Utilities and Recommended Setup" section below.
 - SSR preserves `status_code` from local loaders for the HTTP response
 - SSR-only cookies are not available in the local path, use the Page Type Handler (HTTP/Short-Circuit) based one instead if you need cookie propagation
 - `timeoutMs` is respected; on timeout a 500 Page envelope is returned with the server connection error message
