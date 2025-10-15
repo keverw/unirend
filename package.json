@@ -54,6 +54,7 @@
     "ssr-build": "bun run ssr-build-client && bun run ssr-build-server",
     "ssr-serve-dev": "cd demos/ssr && bun run serve.ts dev",
     "ssr-serve-prod": "cd demos/ssr && bun run serve.ts prod",
+    "ssr-build-and-serve-prod": "bun run ssr-build && bun run ssr-serve-prod",
     "api-demo": "bun run demos/api-server-demo.ts"
   },
   "keywords": [

@@ -71,9 +71,7 @@ const PageDataDisplay = () => {
         <div className="card">
           <h2>🧭 Environment</h2>
           <p>
-            <strong>Mode:</strong>{" "}
-            {data?.meta?.app?.environment ||
-              (import.meta.env.DEV ? "development" : "production")}
+            <strong>Mode:</strong> {data?.meta?.app?.environment || "unknown"}
           </p>
         </div>
 

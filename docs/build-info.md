@@ -158,7 +158,7 @@ async function main() {
 This example shows how to:
 
 - Load build info once at server startup
-- Pass selected fields (version, dev flag) to the frontend via `frontendAppConfig`
+- Pass selected fields (version, dev flag) to the frontend via `frontendAppConfig` (available in both `serveSSRDev` and `serveSSRProd`)
 - Use a plugin to make full build info available to all server-side handlers
 - Configure custom response helpers for automatic build info in error responses
 

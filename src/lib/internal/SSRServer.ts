@@ -1011,10 +1011,7 @@ export class SSRServer extends BaseServer {
 
     // Process the template based on mode and options
     const isDevelopment = this.config.mode === "development";
-    const frontendAppConfig =
-      this.config.mode === "production"
-        ? this.config.options.frontendAppConfig
-        : undefined; // Don't inject config in development
+    const frontendAppConfig = this.config.options.frontendAppConfig; // Inject in both dev and prod
     const containerID = this.config.options.containerID || "root";
 
     const processedTemplate = await processTemplate(

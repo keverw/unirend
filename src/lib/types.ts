@@ -307,6 +307,20 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    */
   containerID?: string;
   /**
+   * Optional configuration object to be injected into the frontend app.
+   * Will be serialized and injected as window.__APP_CONFIG__.
+   *
+   * Works in BOTH SSR dev (when using the unirend SSR dev server) and SSR prod.
+   *
+   * If you run Vite in SPA-only dev mode directly (not through the SSR dev/prod
+   * servers), this won't be injected.
+   *
+   * In that case, keep a fallback to a dev-time default in your app:
+   * @example
+   * const apiUrl = window.__APP_CONFIG__?.apiUrl ?? 'http://localhost:3001';
+   */
+  frontendAppConfig?: Record<string, unknown>;
+  /**
    * Cookie forwarding controls for SSR
    *
    * Controls which cookies are forwarded:
@@ -492,17 +506,6 @@ export interface ServeSSRDevOptions<M extends BaseMeta = BaseMeta>
 
 export interface ServeSSRProdOptions<M extends BaseMeta = BaseMeta>
   extends ServeSSROptions<M> {
-  /**
-   * Optional configuration object to be injected into the frontend app
-   * Will be serialized and injected as window.__APP_CONFIG__
-   *
-   * NOTE: This only works in production builds. In development with Vite,
-   * use environment variables (import.meta.env) or other dev-time config methods.
-   * Your app should check for window.__APP_CONFIG__ and fallback to dev defaults:
-   *
-   * const apiUrl = window.__APP_CONFIG__?.apiUrl || 'http://localhost:3001';
-   */
-  frontendAppConfig?: Record<string, unknown>;
   /**
    * Name of the server entry file to look for in the Vite manifest
    * Defaults to "entry-server" if not provided

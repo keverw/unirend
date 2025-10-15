@@ -914,6 +914,12 @@ async function startServer() {
           // Development options
           ...createSharedConfig(),
           plugins: SHARED_PLUGINS,
+          frontendAppConfig: {
+            // Example config that gets injected as window.__APP_CONFIG__
+            apiUrl: "http://localhost:3001",
+            version: "1.0.0-dev",
+            environment: "development",
+          },
           // Custom Fastify configuration
           fastifyOptions: {
             logger: true, // Enable Fastify's built-in logger for dev
@@ -990,7 +996,7 @@ async function startServer() {
         frontendAppConfig: {
           // Example config that gets injected as window.__APP_CONFIG__
           apiUrl: "https://api.example.com",
-          version: "1.0.0",
+          version: "1.0.0-prod",
           environment: "production",
         },
         // clientFolderName: "client", // Default: "client"

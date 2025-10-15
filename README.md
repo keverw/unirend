@@ -181,7 +181,7 @@ Add these scripts to your `package.json` for both SSG and SSR workflows:
 ```json
 {
   "scripts": {
-    "dev": "vite", // Can demo in SSR mode
+    "dev": "vite", // SPA-only dev mode (no SSR)
     "build:client": "vite build --outDir build/client --base=/ --ssrManifest",
 
     // For SSG:
@@ -193,29 +193,38 @@ Add these scripts to your `package.json` for both SSG and SSR workflows:
     // For SSR:
     "build:server:ssr": "vite build --outDir build/server --ssr src/entry-server.tsx",
     "build:ssr": "bun run build:client && bun run build:server:ssr",
-    "build:prod": "bun build server.ts --outdir ./dist",
-    "start": "bun run dist/server.js"
+    "serve-dev": "bun run serve.ts dev", // SSR dev mode with HMR
+    "serve-prod": "bun run serve.ts prod", // SSR prod mode (requires build:ssr first)
+    "build-and-serve-prod": "bun run build:ssr && bun run serve-prod",
+
+    // For SSR Production Build (Bun):
+    "build:prod": "bun build serve.ts --outdir ./dist",
+    "start": "bun dist/serve.js prod"
+
+    // For SSR Production Build (Node - use if dealing with Bun compatibility issues):
+    // "build:prod": "bun build serve.ts --outdir ./dist --target=node",
+    // "start": "node dist/serve.js prod"
   }
 }
 ```
 
 #### 4. Frontend App Config Pattern
 
-For production builds (both SSG and SSR), you can inject configuration into your frontend app via the `frontendAppConfig` option. This pattern works for any production build, but not during development with Vite dev server (`serveSSRDev`). In development, prefer `import.meta.env` (or a dev-only config shim) on the client.
+You can inject configuration into your frontend app via the `frontendAppConfig` option. This works in both SSG and SSR modes (both dev and prod) when using `generateSSG`, `serveSSRDev`, or `serveSSRProd`.
 
-In your React components, handle the dev/prod config difference:
+If you run Vite in SPA-only dev mode directly (not through the SSR dev/prod servers), the injection won't happen. In that case, use a fallback pattern:
 
 ```typescript
 // In your React components
 const getConfig = () => {
-  // Production: Use injected config
+  // Use injected config if available (SSG/SSR dev and prod)
   if (typeof window !== "undefined" && window.__APP_CONFIG__) {
     return window.__APP_CONFIG__;
   }
 
-  // Development: Use environment variables
+  // Fallback for SPA-only Vite dev mode
   return {
-    apiUrl: import.meta.env.VITE_API_URL || "http://localhost:3001",
+    apiUrl: "http://localhost:3001",
     environment: "development",
   };
 };

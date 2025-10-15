@@ -87,7 +87,7 @@ async function main() {
     // serverEntry: "custom-entry",
 
     // Frontend app configuration (injected as window.__APP_CONFIG__)
-    // NOTE: This only works in production with serveSSRProd. In dev, use import.meta.env
+    // Works in both dev and prod when using serveSSRDev/serveSSRProd
     frontendAppConfig: globalThis.__APP_CONFIG__,
     // Tip: See docs/build-info.md for adding a plugin that decorates request.buildInfo
   });
@@ -102,9 +102,9 @@ main().catch(console.error);
 
 Notes:
 
-- `frontendAppConfig` is injected into the HTML and available on the client as `window.__APP_CONFIG__` in production. It is not automatically a server‑side global.
+- `frontendAppConfig` is injected into the HTML and available on the client as `window.__APP_CONFIG__` in both dev and prod modes when using `serveSSRDev` or `serveSSRProd`. It is not automatically a server‑side global.
 - Defining `globalThis.__APP_CONFIG__` yourself (as above) gives your server code a shared shape and lets you pass the same object into `frontendAppConfig` for the client, and use within server-side components
-- In development, the injection doesn’t run; use `import.meta.env` (or your own dev shim) on the client, but you can still read `globalThis.__APP_CONFIG__` in server‑only code. See the setup guidance in the README: [4. Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern).
+- If you run Vite in SPA-only dev mode directly (not through the SSR dev/prod servers), the injection won't happen. In that case, use a fallback pattern in your app: `const apiUrl = window.__APP_CONFIG__?.apiUrl ?? 'http://localhost:3001';`. See the setup guidance in the README: [4. Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern).
 
 ### Create Development SSR Server
 
@@ -122,7 +122,8 @@ async function main() {
     },
     {
       // Optional: same options surface as production where applicable
-      // e.g., apiEndpoints, APIHandling, containerID, plugins, fastifyOptions
+      // e.g., frontendAppConfig, apiEndpoints, APIHandling, containerID, plugins, fastifyOptions
+      // frontendAppConfig: globalThis.__APP_CONFIG__,
       // apiEndpoints: { apiEndpointPrefix: "/api", versioned: true, defaultVersion: 1, pageDataEndpoint: "page_data" },
       // APIHandling: { prefix: "/api" },
       // plugins: [myPlugin],
@@ -140,7 +141,7 @@ Notes:
 
 - In dev, Vite serves client assets with middleware and `vite.ssrLoadModule` is used for the server entry.
 - HMR is available; stack traces are mapped for easier debugging.
-- `frontendAppConfig` is not injected in development (`serveSSRDev`). Use `import.meta.env` (or a dev-only config shim) on the client during dev. Injection happens only in production via the template processor.
+- `frontendAppConfig` is injected in both development and production when using `serveSSRDev` or `serveSSRProd`.
 
 ### Organization Suggestion
 
@@ -182,6 +183,9 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
   - Provide custom HTML for SSR 500 responses.
 - `cookieForwarding?: { allowCookieNames?: string[]; blockCookieNames?: string[] | true }`
   - Controls which cookies are forwarded on SSR fetches and which `Set-Cookie` headers are returned to the browser.
+- `frontendAppConfig?: Record<string, unknown>`
+  - Optional configuration object injected as `window.__APP_CONFIG__` in both dev and prod modes.
+  - Available on the client for runtime configuration (API URLs, feature flags, etc.).
 - `containerID?: string`
   - Client container element ID (default `"root"`).
 - `clientFolderName?: string`, `serverFolderName?: string`
@@ -191,8 +195,6 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
 
 ### Options (prod-only)
 
-- `frontendAppConfig?: Record<string, unknown>`
-  - Injects `window.__APP_CONFIG__` into the page (production only).
 - `serverEntry?: string`
   - Name of the server entry in manifest (default `"entry-server"`).
 - `staticContentRouter?: StaticContentRouterOptions | false`
