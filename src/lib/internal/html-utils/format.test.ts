@@ -178,143 +178,183 @@ describe("processTemplate", () => {
     const html = `
       <html>
         <head>
+          <!--ss-head-->
           <title>Test Title</title>
           <meta charset="utf-8">
         </head>
         <body>
-          <div id="root">Content</div>
+          <div id="root"><!--ss-outlet-->Content</div>
         </body>
       </html>
     `;
 
-    const result = await processTemplate(html, false);
+    const result = await processTemplate(html, "ssr", false);
 
-    expect(result).not.toContain("<title>");
-    expect(result).not.toContain("Test Title");
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).not.toContain("<title>");
+      expect(result.html).not.toContain("Test Title");
+    }
   });
 
   it("should add development comment when isDevelopment is true", async () => {
     const html = `
       <html>
+        <head><!--ss-head--></head>
         <body>
-          <div id="root">Content</div>
+          <div id="root"><!--ss-outlet-->Content</div>
         </body>
       </html>
     `;
 
-    const result = await processTemplate(html, true);
+    const result = await processTemplate(html, "ssr", true);
 
-    expect(result).toContain("React hydration relies on data attributes");
-    expect(result).toContain('<div id="root">Content</div>');
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain(
+        "React hydration relies on data attributes",
+      );
+      expect(result.html).toContain('<div id="root">');
+      expect(result.html).toContain("Content");
+    }
   });
 
   it("should not add development comment when isDevelopment is false", async () => {
     const html = `
       <html>
+        <head><!--ss-head--></head>
         <body>
-          <div id="root">Content</div>
+          <div id="root"><!--ss-outlet-->Content</div>
         </body>
       </html>
     `;
 
-    const result = await processTemplate(html, false);
+    const result = await processTemplate(html, "ssr", false);
 
-    expect(result).not.toContain("React hydration relies on data attributes");
-    expect(result).toContain('<div id="root">Content</div>');
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).not.toContain(
+        "React hydration relies on data attributes",
+      );
+      expect(result.html).toContain('<div id="root">');
+      expect(result.html).toContain("Content");
+    }
   });
 
   it("should remove meta tags except apple-mobile-web-app-title", async () => {
     const html = `
       <html>
         <head>
+          <!--ss-head-->
           <meta name="description" content="Test">
           <meta name="apple-mobile-web-app-title" content="App">
           <meta name="viewport" content="width=device-width">
         </head>
         <body>
-          <div id="root">Content</div>
+          <div id="root"><!--ss-outlet-->Content</div>
         </body>
       </html>
     `;
 
-    const result = await processTemplate(html, false);
+    const result = await processTemplate(html, "ssg", false);
 
-    expect(result).not.toContain('name="description"');
-    expect(result).not.toContain('name="viewport"');
-    expect(result).toContain('name="apple-mobile-web-app-title"');
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).not.toContain('name="description"');
+      expect(result.html).not.toContain('name="viewport"');
+      expect(result.html).toContain('name="apple-mobile-web-app-title"');
+    }
   });
 
   it("should move scripts after root element", async () => {
     const html = `
       <html>
         <head>
+          <!--ss-head-->
           <script src="header.js"></script>
         </head>
         <body>
-          <div id="root">Content</div>
+          <div id="root"><!--ss-outlet-->Content</div>
           <script src="footer.js"></script>
         </body>
       </html>
     `;
 
-    const result = await processTemplate(html, false);
+    const result = await processTemplate(html, "ssr", false);
 
-    // Scripts should be after the root element
-    const rootIndex = result.indexOf('<div id="root">');
-    const rootEndIndex = result.indexOf("</div>", rootIndex);
-    const scriptIndex = result.indexOf("<script", rootEndIndex);
+    expect(result.success).toBe(true);
 
-    expect(scriptIndex).toBeGreaterThan(rootEndIndex);
-    expect(result).toContain('src="header.js"');
-    expect(result).toContain('src="footer.js"');
+    if (result.success) {
+      // Scripts should be after the root element
+      const rootIndex = result.html.indexOf('<div id="root">');
+      const rootEndIndex = result.html.indexOf("</div>", rootIndex);
+      const scriptIndex = result.html.indexOf("<script", rootEndIndex);
+
+      expect(scriptIndex).toBeGreaterThan(rootEndIndex);
+      expect(result.html).toContain('src="header.js"');
+      expect(result.html).toContain('src="footer.js"');
+    }
   });
 
-  it("should add app config as first script when provided", async () => {
+  it("should add app config placeholder as first script", async () => {
     const html = `
       <html>
+        <head><!--ss-head--></head>
         <body>
-          <div id="root">Content</div>
+          <div id="root"><!--ss-outlet-->Content</div>
           <script src="app.js"></script>
         </body>
       </html>
     `;
 
-    const appConfig = { apiUrl: "https://api.example.com", debug: true };
-    const result = await processTemplate(html, false, appConfig);
+    const result = await processTemplate(html, "ssg", false);
 
-    expect(result).toContain("window.__APP_CONFIG__");
-    expect(result).toContain('"apiUrl":"https://api.example.com"');
-    expect(result).toContain('"debug":true');
+    expect(result.success).toBe(true);
 
-    // Config script should come before app.js
-    const configIndex = result.indexOf("window.__APP_CONFIG__");
-    const appJsIndex = result.indexOf('src="app.js"');
-    expect(configIndex).toBeLessThan(appJsIndex);
+    if (result.success) {
+      expect(result.html).toContain("<!--context-scripts-injection-point-->");
+
+      // Context scripts placeholder should come before app.js
+      const contextIndex = result.html.indexOf(
+        "<!--context-scripts-injection-point-->",
+      );
+      const appJsIndex = result.html.indexOf('src="app.js"');
+      expect(contextIndex).toBeLessThan(appJsIndex);
+    }
   });
 
-  it("should escape < characters in app config", async () => {
+  it("should add request context placeholder before app config in SSR mode", async () => {
     const html = `
       <html>
+        <head><!--ss-head--></head>
         <body>
-          <div id="root">Content</div>
+          <div id="root"><!--ss-outlet-->Content</div>
         </body>
       </html>
     `;
 
-    const appConfig = { htmlContent: "<script>alert('xss')</script>" };
-    const result = await processTemplate(html, false, appConfig);
+    const result = await processTemplate(html, "ssr", false);
 
-    expect(result).toContain("\\u003c");
-    expect(result).not.toContain("<script>alert");
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain("<!--context-scripts-injection-point-->");
+    }
   });
 
   it("should remove comments that don't start with ss- but preserve ss- comments", async () => {
     const html = `
       <html>
+        <head><!--ss-head--></head>
         <body>
           <!-- Regular comment -->
           <!-- ss-special comment -->
           <div id="root">
+            <!--ss-outlet-->
             <!-- Another regular comment -->
             <!--ss-no-space-->
             <!-- ss-with-space -->
@@ -324,29 +364,34 @@ describe("processTemplate", () => {
       </html>
     `;
 
-    const result = await processTemplate(html, false);
+    const result = await processTemplate(html, "ssr", false);
 
-    // Regular comments should be removed
-    expect(result).not.toContain("Regular comment");
-    expect(result).not.toContain("Another regular comment");
+    expect(result.success).toBe(true);
 
-    // ss- comments should be preserved and normalized
-    expect(result).toContain("ss-special comment");
-    expect(result).toContain("ss-no-space");
-    expect(result).toContain("ss-with-space");
+    if (result.success) {
+      // Regular comments should be removed
+      expect(result.html).not.toContain("Regular comment");
+      expect(result.html).not.toContain("Another regular comment");
 
-    // Verify normalization - spaces should be trimmed
-    expect(result).toContain("<!--ss-no-space-->");
-    expect(result).toContain("<!--ss-with-space-->");
-    expect(result).not.toContain("<!-- ss-with-space -->");
+      // ss- comments should be preserved and normalized
+      expect(result.html).toContain("ss-special comment");
+      expect(result.html).toContain("ss-no-space");
+      expect(result.html).toContain("ss-with-space");
 
-    expect(result).toContain("Content");
-    expect(result).toContain('<div id="root">');
+      // Verify normalization - spaces should be trimmed
+      expect(result.html).toContain("<!--ss-no-space-->");
+      expect(result.html).toContain("<!--ss-with-space-->");
+      expect(result.html).not.toContain("<!-- ss-with-space -->");
+
+      expect(result.html).toContain("Content");
+      expect(result.html).toContain('<div id="root">');
+    }
   });
 
   it("should handle ss- comments with various spacing and normalize them", async () => {
     const html = `
       <html>
+        <head><!--ss-head--></head>
         <body>
           <!--ss-outlet-->
           <!-- ss-outlet -->
@@ -356,131 +401,163 @@ describe("processTemplate", () => {
       </html>
     `;
 
-    const result = await processTemplate(html, false);
+    const result = await processTemplate(html, "ssg", false);
 
-    // All variations should be preserved and normalized
-    expect(result).toContain("ss-outlet");
-    expect(result).toContain("Content");
+    expect(result.success).toBe(true);
 
-    // Count occurrences - should have 3 ss-outlet comments
-    const matches = result.match(/ss-outlet/g);
-    expect(matches).toHaveLength(3);
+    if (result.success) {
+      // All variations should be preserved and normalized
+      expect(result.html).toContain("ss-outlet");
+      expect(result.html).toContain("Content");
 
-    // Verify that spaces are trimmed from ss- comments
-    // Should not contain comments with extra spaces
-    expect(result).not.toContain("<!--  ss-outlet  -->");
-    expect(result).not.toContain("<!-- ss-outlet -->");
+      // Count occurrences - should have 3 ss-outlet comments
+      const matches = result.html.match(/ss-outlet/g);
+      expect(matches).toHaveLength(3);
 
-    // Should contain normalized version
-    expect(result).toContain("<!--ss-outlet-->");
+      // Verify that spaces are trimmed from ss- comments
+      // Should not contain comments with extra spaces
+      expect(result.html).not.toContain("<!--  ss-outlet  -->");
+      expect(result.html).not.toContain("<!-- ss-outlet -->");
+
+      // Should contain normalized version
+      expect(result.html).toContain("<!--ss-outlet-->");
+    }
   });
 
   it("should normalize ss- comments by removing leading/trailing spaces", async () => {
     const html = `
       <html>
+        <head><!--ss-head--></head>
         <body>
           <!--   ss-special-comment   -->
           <!-- ss-another -->
-          <div id="root">Content</div>
+          <div id="root"><!--ss-outlet-->Content</div>
         </body>
       </html>
     `;
 
-    const result = await processTemplate(html, false);
+    const result = await processTemplate(html, "ssr", false);
 
-    // Should contain normalized comments without extra spaces
-    expect(result).toContain("<!--ss-special-comment-->");
-    expect(result).toContain("<!--ss-another-->");
+    expect(result.success).toBe(true);
 
-    // Should not contain the original spaced versions
-    expect(result).not.toContain("<!--   ss-special-comment   -->");
-    expect(result).not.toContain("<!-- ss-another -->");
+    if (result.success) {
+      // Should contain normalized comments without extra spaces
+      expect(result.html).toContain("<!--ss-special-comment-->");
+      expect(result.html).toContain("<!--ss-another-->");
+
+      // Should not contain the original spaced versions
+      expect(result.html).not.toContain("<!--   ss-special-comment   -->");
+      expect(result.html).not.toContain("<!-- ss-another -->");
+    }
   });
 
   it("should handle HTML without root element", async () => {
     const html = `
       <html>
+        <head><!--ss-head--></head>
         <body>
+          <!--ss-outlet-->
           <div class="container">Content</div>
           <script src="app.js"></script>
         </body>
       </html>
     `;
 
-    const result = await processTemplate(html, false);
+    const result = await processTemplate(html, "ssg", false);
 
-    // Script should be appended to body when no root element exists
-    expect(result).toContain('src="app.js"');
-    expect(result).toContain('class="container"');
-    expect(result).toContain("Content");
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // Script should be appended to body when no root element exists
+      expect(result.html).toContain('src="app.js"');
+      expect(result.html).toContain('class="container"');
+      expect(result.html).toContain("Content");
+    }
   });
 
   it("should handle empty HTML", async () => {
-    const html = "<html><body></body></html>";
+    const html =
+      "<html><head><!--ss-head--></head><body><!--ss-outlet--></body></html>";
 
-    const result = await processTemplate(html, false);
+    const result = await processTemplate(html, "ssr", false);
 
-    expect(result).toContain("<html>");
-    expect(result).toContain("<body>");
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain("<html>");
+      expect(result.html).toContain("<body>");
+    }
   });
 
   it("should handle multiple script tags correctly", async () => {
     const html = `
       <html>
         <head>
+          <!--ss-head-->
           <script src="lib1.js"></script>
           <script>console.log('inline1');</script>
         </head>
         <body>
-          <div id="root">Content</div>
+          <div id="root"><!--ss-outlet-->Content</div>
           <script src="lib2.js"></script>
           <script>console.log('inline2');</script>
         </body>
       </html>
     `;
 
-    const result = await processTemplate(html, false);
+    const result = await processTemplate(html, "ssr", false);
 
-    expect(result).toContain('src="lib1.js"');
-    expect(result).toContain('src="lib2.js"');
-    expect(result).toContain("console.log('inline1')");
-    expect(result).toContain("console.log('inline2')");
+    expect(result.success).toBe(true);
 
-    // All scripts should be after root element
-    const rootEndIndex = result.indexOf("</div>");
-    const lib1Index = result.indexOf('src="lib1.js"');
-    const lib2Index = result.indexOf('src="lib2.js"');
+    if (result.success) {
+      expect(result.html).toContain('src="lib1.js"');
+      expect(result.html).toContain('src="lib2.js"');
+      expect(result.html).toContain("console.log('inline1')");
+      expect(result.html).toContain("console.log('inline2')");
 
-    expect(lib1Index).toBeGreaterThan(rootEndIndex);
-    expect(lib2Index).toBeGreaterThan(rootEndIndex);
+      // All scripts should be after root element
+      const rootEndIndex = result.html.indexOf("</div>");
+      const lib1Index = result.html.indexOf('src="lib1.js"');
+      const lib2Index = result.html.indexOf('src="lib2.js"');
+
+      expect(lib1Index).toBeGreaterThan(rootEndIndex);
+      expect(lib2Index).toBeGreaterThan(rootEndIndex);
+    }
   });
 
   it("should preserve script order with app config first", async () => {
     const html = `
       <html>
+        <head><!--ss-head--></head>
         <body>
-          <div id="root">Content</div>
+          <div id="root"><!--ss-outlet-->Content</div>
           <script src="first.js"></script>
           <script src="second.js"></script>
         </body>
       </html>
     `;
 
-    const appConfig = { test: true };
-    const result = await processTemplate(html, false, appConfig);
+    const result = await processTemplate(html, "ssg", false);
 
-    const configIndex = result.indexOf("window.__APP_CONFIG__");
-    const firstJsIndex = result.indexOf('src="first.js"');
-    const secondJsIndex = result.indexOf('src="second.js"');
+    expect(result.success).toBe(true);
 
-    expect(configIndex).toBeLessThan(firstJsIndex);
-    expect(firstJsIndex).toBeLessThan(secondJsIndex);
+    if (result.success) {
+      const contextIndex = result.html.indexOf(
+        "<!--context-scripts-injection-point-->",
+      );
+      const firstJsIndex = result.html.indexOf('src="first.js"');
+      const secondJsIndex = result.html.indexOf('src="second.js"');
+
+      expect(contextIndex).toBeLessThan(firstJsIndex);
+      expect(firstJsIndex).toBeLessThan(secondJsIndex);
+    }
   });
 
   it("should handle complex nested HTML structure", async () => {
     const html = `
       <html>
         <head>
+          <!--ss-head-->
           <title>Remove Me</title>
           <meta name="description" content="Remove me too">
           <meta name="apple-mobile-web-app-title" content="Keep me">
@@ -489,6 +566,7 @@ describe("processTemplate", () => {
           <!-- Remove this comment -->
           <!-- ss-keep this comment -->
           <div id="root">
+            <!--ss-outlet-->
             <header>
               <h1>Title</h1>
             </header>
@@ -501,33 +579,137 @@ describe("processTemplate", () => {
       </html>
     `;
 
-    const result = await processTemplate(html, true);
+    const result = await processTemplate(html, "ssr", true);
 
-    // Should remove title and description meta
-    expect(result).not.toContain("<title>");
-    expect(result).not.toContain('name="description"');
+    expect(result.success).toBe(true);
 
-    // Should keep apple-mobile-web-app-title
-    expect(result).toContain('name="apple-mobile-web-app-title"');
+    if (result.success) {
+      // Should remove title and description meta
+      expect(result.html).not.toContain("<title>");
+      expect(result.html).not.toContain('name="description"');
 
-    // Should remove regular comment but keep ss- comment
-    expect(result).not.toContain("Remove this comment");
-    expect(result).toContain("ss-keep this comment");
+      // Should keep apple-mobile-web-app-title
+      expect(result.html).toContain('name="apple-mobile-web-app-title"');
 
-    // Should add development comment and preserve it
-    expect(result).toContain("React hydration relies on data attributes");
+      // Should remove regular comment but keep ss- comment
+      expect(result.html).not.toContain("Remove this comment");
+      expect(result.html).toContain("ss-keep this comment");
 
-    // Should move script after root
-    const rootEndIndex = result.indexOf("</div>");
-    const scriptIndex = result.indexOf('src="app.js"');
-    expect(scriptIndex).toBeGreaterThan(rootEndIndex);
+      // Should add development comment and preserve it
+      expect(result.html).toContain(
+        "React hydration relies on data attributes",
+      );
 
-    // Should format root element on single line
-    expect(result).toContain('<div id="root"><header>');
-    expect(result).toContain("Title");
-    expect(result).toContain("Content");
-    expect(result).toContain("</header><main>");
-    expect(result).toContain("</main></div>");
+      // Should move script after root
+      const rootEndIndex = result.html.indexOf("</div>");
+      const scriptIndex = result.html.indexOf('src="app.js"');
+      expect(scriptIndex).toBeGreaterThan(rootEndIndex);
+
+      // Should format root element on single line (with ss-outlet comment preserved)
+      expect(result.html).toContain('<div id="root">');
+      expect(result.html).toContain("<!--ss-outlet-->");
+      expect(result.html).toContain("<header>");
+      expect(result.html).toContain("Title");
+      expect(result.html).toContain("Content");
+      expect(result.html).toContain("</header><main>");
+      expect(result.html).toContain("</main></div>");
+    }
+  });
+
+  // Validation tests for missing markers
+  it("should return error when ss-head marker is missing", async () => {
+    const html = `
+      <html>
+        <head>
+          <title>Test</title>
+        </head>
+        <body>
+          <div id="root"><!--ss-outlet-->Content</div>
+        </body>
+      </html>
+    `;
+
+    const result = await processTemplate(html, "ssr", false);
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toContain("Missing required comment markers");
+      expect(result.error).toContain("<!--ss-head-->");
+      expect(result.error).toContain(
+        "server-rendered content will be injected",
+      );
+    }
+  });
+
+  it("should return error when ss-outlet marker is missing", async () => {
+    const html = `
+      <html>
+        <head>
+          <!--ss-head-->
+          <title>Test</title>
+        </head>
+        <body>
+          <div id="root">Content</div>
+        </body>
+      </html>
+    `;
+
+    const result = await processTemplate(html, "ssg", false);
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toContain("Missing required comment markers");
+      expect(result.error).toContain("<!--ss-outlet-->");
+      expect(result.error).toContain("generated content will be injected");
+    }
+  });
+
+  it("should return error when both markers are missing", async () => {
+    const html = `
+      <html>
+        <head>
+          <title>Test</title>
+        </head>
+        <body>
+          <div id="root">Content</div>
+        </body>
+      </html>
+    `;
+
+    const result = await processTemplate(html, "ssr", false);
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toContain("Missing required comment markers");
+      expect(result.error).toContain("<!--ss-head-->");
+      expect(result.error).toContain("<!--ss-outlet-->");
+    }
+  });
+
+  it("should detect markers even with extra spaces", async () => {
+    const html = `
+      <html>
+        <head>
+          <!--  ss-head  -->
+          <title>Test</title>
+        </head>
+        <body>
+          <div id="root"><!--   ss-outlet   -->Content</div>
+        </body>
+      </html>
+    `;
+
+    const result = await processTemplate(html, "ssg", false);
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // Markers should be normalized (spaces removed)
+      expect(result.html).toContain("<!--ss-head-->");
+      expect(result.html).toContain("<!--ss-outlet-->");
+      expect(result.html).not.toContain("<!--  ss-head  -->");
+      expect(result.html).not.toContain("<!--   ss-outlet   -->");
+    }
   });
 });
 
@@ -535,8 +717,10 @@ describe("processTemplate with custom containerID", () => {
   it("should handle custom containerID in processTemplate", async () => {
     const html = `
       <html>
+        <head><!--ss-head--></head>
         <body>
           <div id="my-app">
+            <!--ss-outlet-->
             <header>
               <h1>Title</h1>
             </header>
@@ -549,16 +733,22 @@ describe("processTemplate with custom containerID", () => {
       </html>
     `;
 
-    const result = await processTemplate(html, false, undefined, "my-app");
+    const result = await processTemplate(html, "ssg", false, "my-app");
 
-    // Should format my-app element on single line
-    expectLinesInOrder(result, [
-      '    <div id="my-app"><header><h1>Title</h1></header><main><p>Content</p></main></div>',
-    ]);
+    expect(result.success).toBe(true);
 
-    // Should move script after my-app element
-    const myAppEndIndex = result.indexOf("</div>");
-    const scriptIndex = result.indexOf('src="app.js"');
-    expect(scriptIndex).toBeGreaterThan(myAppEndIndex);
+    if (result.success) {
+      // Should format my-app element on single line (with ss-outlet comment preserved)
+      expect(result.html).toContain('<div id="my-app">');
+      expect(result.html).toContain("<!--ss-outlet-->");
+      expect(result.html).toContain("<header><h1>Title</h1></header>");
+      expect(result.html).toContain("<main><p>Content</p></main>");
+      expect(result.html).toContain("</div>");
+
+      // Should move script after my-app element
+      const myAppEndIndex = result.html.indexOf("</div>");
+      const scriptIndex = result.html.indexOf('src="app.js"');
+      expect(scriptIndex).toBeGreaterThan(myAppEndIndex);
+    }
   });
 });

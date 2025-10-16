@@ -199,19 +199,30 @@ export async function generateSSG(
     // Assert that content exists since we've already checked templateResult.exists and !templateResult.error
     const templateContent = templateResult.content as string;
 
-    const processedTemplate = await processTemplate(
+    const processResult = await processTemplate(
       templateContent,
+      "ssg", // mode
       false, // isDevelopment = false for SSG
-      options.frontendAppConfig,
       options.containerID,
     );
 
+    // Check if processing failed
+    if (!processResult.success) {
+      return createSSGReport({
+        buildDir,
+        startTime,
+        fatalError: new Error(
+          `Failed to process HTML template: ${processResult.error}`,
+        ),
+      });
+    }
+
     // Store the processed template for future use
-    htmlTemplate = processedTemplate;
+    htmlTemplate = processResult.html;
 
     // Write the processed template to .unirend-ssg.json with timestamp
     const ssgConfig = {
-      template: processedTemplate,
+      template: htmlTemplate,
       generatedAt: new Date().toISOString(),
     };
 
@@ -301,6 +312,10 @@ export async function generateSSG(
           htmlTemplate,
           headInject,
           renderResult.html,
+          {
+            app: options.frontendAppConfig,
+            // No request context for SSG
+          },
         );
 
         // Write the HTML file to the client directory (where assets are)
@@ -414,6 +429,10 @@ export async function generateSSG(
         htmlTemplate,
         headInject.trim(),
         "", // Empty body content for SPA
+        {
+          app: options.frontendAppConfig,
+          // No request context for SSG
+        },
       );
 
       // Write the HTML file to the client directory (where assets are)

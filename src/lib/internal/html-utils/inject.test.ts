@@ -78,7 +78,7 @@ describe("injectContent", () => {
 
   it("should preserve React attributes in template", () => {
     const template =
-      '<!DOCTYPE html><html><head><!--ss-head--></head><body><div id="root" data-reactroot=""><!--ss-outlet--></div></body></html>';
+      '<!DOCTYPE html><html><head><!--ss-head--></head><body><div id="root" data-reactroot=""><!--ss-outlet--></div><!--context-scripts-injection-point--></body></html>';
     const headContent = "<title>React App</title>";
     const bodyContent = "<div>React Content</div>";
 
@@ -88,5 +88,97 @@ describe("injectContent", () => {
       '</head><body><div id="root" data-reactroot=""><div>React Content</div></div></body></html>';
 
     expect(injectContent(template, headContent, bodyContent)).toBe(expected);
+  });
+
+  it("should inject app config when provided", () => {
+    const template =
+      "<!DOCTYPE html><html><head><!--ss-head--></head><body><!--ss-outlet--><!--context-scripts-injection-point--></body></html>";
+    const headContent = "<title>Test</title>";
+    const bodyContent = "<div>Content</div>";
+    const appConfig = { apiUrl: "https://api.example.com", debug: true };
+
+    const result = injectContent(template, headContent, bodyContent, {
+      app: appConfig,
+    });
+
+    expect(result).toContain("window.__APP_CONFIG__=");
+    expect(result).toContain('"apiUrl":"https://api.example.com"');
+    expect(result).toContain('"debug":true');
+  });
+
+  it("should escape < characters in app config", () => {
+    const template =
+      "<!DOCTYPE html><html><body><!--ss-outlet--><!--context-scripts-injection-point--></body></html>";
+    const appConfig = { htmlContent: "<script>alert('xss')</script>" };
+
+    const result = injectContent(template, "", "", { app: appConfig });
+
+    expect(result).toContain("\\u003c");
+    expect(result).not.toContain("<script>alert");
+  });
+
+  it("should inject request context when provided", () => {
+    const template =
+      "<!DOCTYPE html><html><body><!--ss-outlet--><!--context-scripts-injection-point--></body></html>";
+    const requestContext = {
+      user: { id: "123", name: "John" },
+      locale: "en-US",
+    };
+
+    const result = injectContent(template, "", "", { request: requestContext });
+
+    expect(result).toContain("window.__APP_REQUEST_CONTEXT__=");
+    expect(result).toContain('"user"');
+    expect(result).toContain('"id":"123"');
+    expect(result).toContain('"locale":"en-US"');
+  });
+
+  it("should remove context scripts placeholder when not provided", () => {
+    const template =
+      "<!DOCTYPE html><html><body><!--ss-outlet--><!--context-scripts-injection-point--></body></html>";
+
+    const result = injectContent(template, "", "");
+
+    expect(result).not.toContain("<!--context-scripts-injection-point-->");
+    expect(result).not.toContain("window.__APP_REQUEST_CONTEXT__");
+    expect(result).not.toContain("window.__APP_CONFIG__");
+  });
+
+  it("should inject both app config and request context", () => {
+    const template =
+      "<!DOCTYPE html><html><body><!--ss-outlet--><!--context-scripts-injection-point--></body></html>";
+    const appConfig = { apiUrl: "https://api.example.com" };
+    const requestContext = { user: { id: "123" } };
+
+    const result = injectContent(template, "", "", {
+      app: appConfig,
+      request: requestContext,
+    });
+
+    expect(result).toContain("window.__APP_CONFIG__=");
+    expect(result).toContain('"apiUrl":"https://api.example.com"');
+    expect(result).toContain("window.__APP_REQUEST_CONTEXT__=");
+    expect(result).toContain('"user"');
+  });
+
+  it("should inject both scripts on separate lines when both provided", () => {
+    const template =
+      "<!DOCTYPE html><html><body><!--ss-outlet--><!--context-scripts-injection-point--></body></html>";
+    const appConfig = { apiUrl: "https://api.example.com" };
+    const requestContext = { user: { id: "123" } };
+
+    const result = injectContent(template, "", "", {
+      app: appConfig,
+      request: requestContext,
+    });
+
+    // Should contain both scripts
+    expect(result).toContain("window.__APP_REQUEST_CONTEXT__=");
+    expect(result).toContain("window.__APP_CONFIG__=");
+
+    // Should have newline between them
+    const requestIndex = result.indexOf("window.__APP_REQUEST_CONTEXT__");
+    const configIndex = result.indexOf("window.__APP_CONFIG__");
+    expect(requestIndex).toBeLessThan(configIndex);
   });
 });

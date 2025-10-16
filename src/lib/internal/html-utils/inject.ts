@@ -16,14 +16,48 @@ export function injectContent(
   template: string,
   headContent: string,
   bodyContent: string,
+  context?: {
+    app?: Record<string, unknown>;
+    request?: Record<string, unknown>;
+  },
 ): string {
   // Prettify all head tags with consistent indentation
   const compactedHead = prettifyHeadTags(headContent);
 
-  // Modify the root element to include hydration script after it
+  // Start with head and body replacement
   // The <!--ss-outlet--> marker should be directly replaced with the content
-  // without any additional or changed comments whitespace that could cause hydration issues
-  return template
+  // without any additional or changed comments/whitespace that could cause hydration issues
+  let result = template
     .replace("<!--ss-head-->", compactedHead)
     .replace("<!--ss-outlet-->", bodyContent);
+
+  // Build context scripts array
+  const contextScripts: string[] = [];
+
+  // Add __APP_REQUEST_CONTEXT__ if provided (even if empty object)
+  if (context?.request !== undefined) {
+    const safeContextJson = JSON.stringify(context.request).replace(
+      /</g,
+      "\\u003c",
+    );
+    contextScripts.push(
+      `<script>window.__APP_REQUEST_CONTEXT__=${safeContextJson};</script>`,
+    );
+  }
+
+  // Add __APP_CONFIG__ if provided (even if empty object)
+  if (context?.app !== undefined) {
+    const safeConfigJson = JSON.stringify(context.app).replace(/</g, "\\u003c");
+    contextScripts.push(
+      `<script>window.__APP_CONFIG__=${safeConfigJson};</script>`,
+    );
+  }
+
+  // Replace the placeholder with all context scripts (or remove if none)
+  result = result.replace(
+    "<!--context-scripts-injection-point-->",
+    contextScripts.join("\n"),
+  );
+
+  return result;
 }

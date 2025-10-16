@@ -1,4 +1,4 @@
-import type * as cheerio from "cheerio";
+import type { renderType } from "../../types";
 
 /*
  * NOTE: This file uses @ts-expect-error on certain node type checks.
@@ -146,83 +146,126 @@ export function prettifyHtml(
   return html;
 }
 
+export type ProcessTemplateResult =
+  | { success: true; html: string }
+  | { success: false; error: string };
+
 export async function processTemplate(
   html: string,
+  mode: renderType,
   isDevelopment: boolean,
-  appConfig?: Record<string, unknown>,
   containerID = "root",
-): Promise<string> {
-  // Dynamic import to prevent bundling in client builds
-  const cheerio = await import("cheerio");
-  const $ = cheerio.load(html);
+): Promise<ProcessTemplateResult> {
+  try {
+    // Dynamic import to prevent bundling in client builds
+    const cheerio = await import("cheerio");
+    const $ = cheerio.load(html);
 
-  // Remove title tags from head
-  $("head title").remove();
+    // Remove title tags from head
+    $("head title").remove();
 
-  if (isDevelopment) {
-    $("body").prepend(`<!-- ${DEVELOPMENT_COMMENT} -->\n`);
-  }
-
-  // Remove meta tags except apple-mobile-web-app-title
-  $("meta[name]").each((_, el) => {
-    const name = $(el).attr("name");
-    if (name !== "apple-mobile-web-app-title") {
-      $(el).remove();
+    if (isDevelopment) {
+      $("body").prepend(`<!-- ${DEVELOPMENT_COMMENT} -->\n`);
     }
-  });
 
-  // Collect all script tags
-  const scripts: string[] = [];
-  $("script").each((_, scriptElement) => {
-    scripts.push($.html(scriptElement));
-  });
-
-  // Remove scripts from their original locations
-  $("script").remove();
-
-  // If appConfig is provided, add it as the first inline script
-  if (appConfig) {
-    // Create a safe JSON string with proper escaping for HTML
-    const safeConfigJson = JSON.stringify(appConfig).replace(/</g, "\\u003c");
-
-    // Create an inline script that sets window.__APP_CONFIG__
-    const configScript = `<script>window.__APP_CONFIG__ = ${safeConfigJson};</script>`;
-
-    // Add it as the first script
-    scripts.unshift(configScript);
-  }
-
-  // Remove comments that don't start with ss- or the development comment
-  // Also normalize ss- comments by trimming their content
-  $("*:not(script):not(style)")
-    .contents()
-    .each((index: number, node: cheerio.Element) => {
-      if (node.type === "comment") {
-        const commentData = node.data?.trim() || "";
-        const shouldKeep =
-          commentData.startsWith("ss-") || commentData === DEVELOPMENT_COMMENT;
-
-        if (shouldKeep) {
-          // Normalize ss- comments by trimming their content
-          if (commentData.startsWith("ss-") && node.data !== commentData) {
-            node.data = commentData;
-          }
-        } else {
-          $(node).remove();
-        }
+    // Remove meta tags except apple-mobile-web-app-title
+    $("meta[name]").each((_, el) => {
+      const name = $(el).attr("name");
+      if (name !== "apple-mobile-web-app-title") {
+        $(el).remove();
       }
     });
 
-  // Find the container element and append scripts AFTER it, not inside it
-  const rootElement = $(`#${containerID}`);
+    // Collect all script tags
+    const scripts: string[] = [];
+    $("script").each((_, scriptElement) => {
+      scripts.push($.html(scriptElement));
+    });
 
-  if (rootElement.length > 0) {
-    // Append scripts after the root element
-    rootElement.after(scripts.join("\n"));
-  } else {
-    // Fallback: If no #root element is found, append scripts to the end of body
-    $("body").append(scripts.join("\n"));
+    // Remove scripts from their original locations
+    $("script").remove();
+
+    // Add placeholder for runtime injection of context scripts
+    // This will be replaced per-request in injectContent() with any needed scripts
+    // (e.g., __APP_REQUEST_CONTEXT__, __APP_CONFIG__, etc.)
+    scripts.unshift("<!--context-scripts-injection-point-->");
+
+    // Track required markers during comment processing
+    let hasHeadMarker = false;
+    let hasOutletMarker = false;
+
+    // Remove comments that don't start with ss- or the development comment
+    // Also normalize ss- comments by trimming their content
+    // AND validate that required markers are present
+    $("*:not(script):not(style)")
+      .contents()
+      .each((index: number, node: cheerio.Element) => {
+        if (node.type === "comment") {
+          const commentData = node.data?.trim() || "";
+          const shouldKeep =
+            commentData.startsWith("ss-") ||
+            commentData === DEVELOPMENT_COMMENT;
+
+          if (shouldKeep) {
+            // Check for required markers (after normalization)
+            if (commentData === "ss-head") {
+              hasHeadMarker = true;
+            } else if (commentData === "ss-outlet") {
+              hasOutletMarker = true;
+            }
+
+            // Normalize ss- comments by trimming their content
+            if (commentData.startsWith("ss-") && node.data !== commentData) {
+              node.data = commentData;
+            }
+          } else {
+            $(node).remove();
+          }
+        }
+      });
+
+    // Validate required markers after comment processing
+    if (!hasHeadMarker || !hasOutletMarker) {
+      const missingMarkers: string[] = [];
+
+      if (!hasHeadMarker) {
+        missingMarkers.push("<!--ss-head-->");
+      }
+
+      if (!hasOutletMarker) {
+        missingMarkers.push("<!--ss-outlet-->");
+      }
+
+      const contentDescription =
+        mode === "ssg"
+          ? "generated content will be injected"
+          : "server-rendered content will be injected";
+
+      return {
+        success: false,
+        error: `Missing required comment markers in HTML template: ${missingMarkers.join(", ")}. These markers indicate where ${contentDescription}.`,
+      };
+    }
+
+    // Find the container element and append scripts AFTER it, not inside it
+    const rootElement = $(`#${containerID}`);
+
+    if (rootElement.length > 0) {
+      // Append scripts after the root element
+      rootElement.after(scripts.join("\n"));
+    } else {
+      // Fallback: If no #root element is found, append scripts to the end of body
+      $("body").append(scripts.join("\n"));
+    }
+
+    return {
+      success: true,
+      html: prettifyHtml($, containerID),
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: `Failed to process HTML template: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
-
-  return prettifyHtml($, containerID);
 }

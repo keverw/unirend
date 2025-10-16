@@ -241,6 +241,15 @@ export class SSRServer extends BaseServer {
       const isDevelopment = mode === "development";
       this.fastifyInstance.decorateRequest("isDevelopment", isDevelopment);
 
+      // Initialize request context for all requests
+      this.fastifyInstance.addHook("onRequest", async (request, _reply) => {
+        (
+          request as FastifyRequest & {
+            requestContext?: Record<string, unknown>;
+          }
+        ).requestContext = {};
+      });
+
       // --- Setup Global Error Handling ---
       // IMPORTANT: The global error handler must be registered *before* any plugins
       // or routes. This ensures it can catch errors that occur during plugin
@@ -570,11 +579,24 @@ export class SSRServer extends BaseServer {
 
               const headInject = headParts.join("\n");
 
+              // Get config and request context for injection
+              const frontendAppConfig = this.config.options.frontendAppConfig;
+              const requestContext =
+                (
+                  request as FastifyRequest & {
+                    requestContext?: Record<string, unknown>;
+                  }
+                ).requestContext || {};
+
               // Use our utility to inject content with proper formatting
               const finalHtml = injectContent(
                 template,
                 headInject,
                 renderResult.html,
+                {
+                  app: frontendAppConfig,
+                  request: requestContext,
+                },
               );
 
               // ---> Send response with the extracted status code
@@ -1011,18 +1033,24 @@ export class SSRServer extends BaseServer {
 
     // Process the template based on mode and options
     const isDevelopment = this.config.mode === "development";
-    const frontendAppConfig = this.config.options.frontendAppConfig; // Inject in both dev and prod
     const containerID = this.config.options.containerID || "root";
 
-    const processedTemplate = await processTemplate(
+    const processResult = await processTemplate(
       rawHtmlTemplate,
+      "ssr", // mode
       isDevelopment,
-      frontendAppConfig,
       containerID,
     );
 
+    // For SSR, throw error if processing fails
+    if (!processResult.success) {
+      throw new Error(
+        `Failed to process HTML template: ${processResult.error}`,
+      );
+    }
+
     return {
-      content: processedTemplate,
+      content: processResult.html,
       path: htmlTemplatePath,
     };
   }
