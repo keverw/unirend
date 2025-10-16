@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
 import { createBrowserRouter, type RouteObject } from "react-router";
 import { wrapRouter } from "./internal/wrapAppElement";
+import type { UnirendContextValue } from "./internal/UnirendContext";
 
 /**
  * Result type indicating how the app was mounted
@@ -87,8 +88,20 @@ export function mountApp(
   // Create browser router from routes
   const router = createBrowserRouter(routes);
 
+  // Provide default Unirend context for client-side
+  // Note: When hydrating SSR/SSG content, the server provides the correct context values
+  // This default is only used for pure client-side SPA scenarios (no SSR/SSG)
+  const unirendContext: UnirendContextValue = {
+    renderMode: "client", // Pure client-side (server overrides to "ssr" or "ssg" during server rendering)
+    isDevelopment: Boolean(import.meta.env.DEV), // Vite sets this: true in dev, false in production build
+    fetchRequest: undefined, // No server request on client
+  };
+
   // Wrap the router with configured options
-  const wrappedAppElement = wrapRouter(router, options);
+  const wrappedAppElement = wrapRouter(router, {
+    ...options,
+    unirendContext,
+  });
 
   // Check if container has existing content (indicates SSR/SSG)
   // firstElementChild is more reliable than innerHTML for detecting pre-rendered content

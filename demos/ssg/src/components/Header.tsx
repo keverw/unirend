@@ -48,6 +48,14 @@ export function Header() {
                 Contact
               </NavLink>
             </li>
+            <li>
+              <NavLink
+                to="/context-demo"
+                className={({ isActive }) => (isActive ? "active" : "")}
+              >
+                Context
+              </NavLink>
+            </li>
           </ul>
         </nav>
         {isHydrated && (

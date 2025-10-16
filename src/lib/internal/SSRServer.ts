@@ -528,6 +528,11 @@ export class SSRServer extends BaseServer {
             const renderResult = await render({
               type: "ssr",
               fetchRequest,
+              unirendContext: {
+                renderMode: "ssr",
+                isDevelopment: this.config.mode === "development",
+                fetchRequest: fetchRequest,
+              },
             });
 
             if (renderResult.resultType === "page") {

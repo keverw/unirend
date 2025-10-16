@@ -41,6 +41,11 @@ async function main() {
     },
     {
       type: "ssg" as const,
+      path: "/context-demo",
+      filename: "context-demo.html",
+    },
+    {
+      type: "ssg" as const,
       path: "/404", // We'll use a specific path for SSG generation
       filename: "404.html",
     },

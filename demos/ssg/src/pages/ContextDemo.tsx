@@ -1,0 +1,370 @@
+import React, { useState, useEffect } from "react";
+import { Helmet } from "react-helmet-async";
+import { Header } from "../components/Header";
+import {
+  useIsSSR,
+  useIsSSG,
+  useRenderMode,
+  useIsDevelopment,
+  useFetchRequest,
+  useIsServer,
+} from "../../../../src/client";
+
+const ContextDemo: React.FC = () => {
+  // State to track if we're hydrated (client-side)
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // State to hold context values (populated after hydration)
+  const [contextSnapshot, setContextSnapshot] = useState<{
+    renderMode: string;
+    isDevelopment: boolean;
+    hasRequest: boolean;
+    isServer: boolean;
+  } | null>(null);
+
+  // Get hooks (but don't render directly to avoid hydration mismatch)
+  const isSSR = useIsSSR();
+  const isSSG = useIsSSG();
+  const renderMode = useRenderMode();
+  const isDevelopment = useIsDevelopment();
+  const fetchRequest = useFetchRequest();
+  const isServer = useIsServer();
+
+  // Populate context snapshot after hydration
+  useEffect(() => {
+    setIsHydrated(true);
+    setContextSnapshot({
+      renderMode,
+      isDevelopment,
+      hasRequest: !!fetchRequest,
+      isServer,
+    });
+  }, [renderMode, isDevelopment, fetchRequest, isServer]);
+
+  return (
+    <>
+      <Helmet>
+        <title>Unirend Context Demo - SSG</title>
+        <meta
+          name="description"
+          content="Demonstration of Unirend Context hooks in SSG mode"
+        />
+      </Helmet>
+
+      <Header />
+
+      <main className="main-content">
+        <h1 className="hero-title">Unirend Context Hooks</h1>
+        <p className="hero-subtitle">
+          Explore the Unirend Context API in Static Site Generation mode
+        </p>
+
+        <div className="card">
+          <h2>📦 Current Unirend Context</h2>
+          {!isHydrated ? (
+            <div
+              style={{
+                backgroundColor: "rgba(0, 0, 0, 0.2)",
+                padding: "1.5rem",
+                borderRadius: "8px",
+                marginTop: "1rem",
+                textAlign: "center",
+              }}
+            >
+              <p style={{ margin: 0, color: "rgba(255, 255, 255, 0.8)" }}>
+                Hydrating... Context will populate on client-side.
+              </p>
+            </div>
+          ) : (
+            <>
+              <p>
+                The Unirend Context provides information about the rendering
+                environment. In SSG mode, the render mode ("ssg") is set at
+                build time, but the values shown here are populated on the
+                client-side after hydration.
+              </p>
+
+              <div
+                style={{
+                  backgroundColor: "rgba(0, 0, 0, 0.2)",
+                  padding: "1.5rem",
+                  borderRadius: "8px",
+                  marginTop: "1rem",
+                  fontFamily: "monospace",
+                }}
+              >
+                <div style={{ marginBottom: "1rem" }}>
+                  <strong>Context Snapshot (Client-side):</strong>
+                  <pre
+                    style={{
+                      backgroundColor: "rgba(0, 0, 0, 0.3)",
+                      padding: "1rem",
+                      borderRadius: "4px",
+                      overflow: "auto",
+                      marginTop: "0.5rem",
+                      color: "#fff",
+                    }}
+                  >
+                    {JSON.stringify(
+                      {
+                        renderMode: contextSnapshot?.renderMode,
+                        isDevelopment: contextSnapshot?.isDevelopment,
+                        fetchRequest: contextSnapshot?.hasRequest
+                          ? "Request"
+                          : undefined,
+                      },
+                      null,
+                      2,
+                    )}
+                  </pre>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gap: "0.75rem",
+                    fontSize: "0.95rem",
+                  }}
+                >
+                  <div>
+                    <strong>useRenderMode():</strong>{" "}
+                    <code
+                      style={{
+                        backgroundColor: "rgba(0, 0, 0, 0.3)",
+                        padding: "0.25rem 0.5rem",
+                        borderRadius: "4px",
+                        color: "#fff",
+                      }}
+                    >
+                      "{contextSnapshot?.renderMode}"
+                    </code>
+                  </div>
+                  <div>
+                    <strong>useIsSSR():</strong>{" "}
+                    <code
+                      style={{
+                        backgroundColor: "rgba(0, 0, 0, 0.3)",
+                        padding: "0.25rem 0.5rem",
+                        borderRadius: "4px",
+                        color: "#fff",
+                      }}
+                    >
+                      {String(isSSR)}
+                    </code>
+                  </div>
+                  <div>
+                    <strong>useIsSSG():</strong>{" "}
+                    <code
+                      style={{
+                        backgroundColor: "rgba(0, 0, 0, 0.3)",
+                        padding: "0.25rem 0.5rem",
+                        borderRadius: "4px",
+                        color: "#fff",
+                      }}
+                    >
+                      {String(isSSG)}
+                    </code>
+                  </div>
+                  <div>
+                    <strong>useIsDevelopment():</strong>{" "}
+                    <code
+                      style={{
+                        backgroundColor: "rgba(0, 0, 0, 0.3)",
+                        padding: "0.25rem 0.5rem",
+                        borderRadius: "4px",
+                        color: "#fff",
+                      }}
+                    >
+                      {String(contextSnapshot?.isDevelopment)}
+                    </code>
+                  </div>
+                  <div>
+                    <strong>useIsServer():</strong>{" "}
+                    <code
+                      style={{
+                        backgroundColor: "rgba(0, 0, 0, 0.3)",
+                        padding: "0.25rem 0.5rem",
+                        borderRadius: "4px",
+                        color: "#fff",
+                      }}
+                    >
+                      {String(contextSnapshot?.isServer)}
+                    </code>
+                  </div>
+                  <div>
+                    <strong>useFetchRequest():</strong>{" "}
+                    <code
+                      style={{
+                        backgroundColor: "rgba(0, 0, 0, 0.3)",
+                        padding: "0.25rem 0.5rem",
+                        borderRadius: "4px",
+                        color: "#fff",
+                      }}
+                    >
+                      {contextSnapshot?.hasRequest ? "Request" : "undefined"}
+                    </code>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="card">
+          <h2>📚 About SSG Context</h2>
+          <p>
+            In Static Site Generation (SSG) mode, the context is populated at
+            build time:
+          </p>
+          <ul>
+            <li>
+              <strong>renderMode:</strong> Always "ssg" during static generation
+            </li>
+            <li>
+              <strong>isDevelopment:</strong> Always false (SSG is a production
+              build)
+            </li>
+            <li>
+              <strong>fetchRequest:</strong> Available during build (Request
+              object), undefined on client
+            </li>
+            <li>
+              <strong>isServer:</strong> False on the client side after
+              hydration
+            </li>
+          </ul>
+        </div>
+
+        <div className="card">
+          <h2>⚠️ Hydration Safety</h2>
+          <p>
+            To avoid hydration mismatches, this demo uses{" "}
+            <code
+              style={{
+                backgroundColor: "rgba(0, 0, 0, 0.2)",
+                padding: "0.25rem 0.5rem",
+                borderRadius: "4px",
+                color: "#fff",
+              }}
+            >
+              useEffect
+            </code>{" "}
+            to populate context values only after the component hydrates on the
+            client.
+          </p>
+          <p style={{ marginTop: "1rem" }}>
+            This ensures the server-rendered HTML doesn't contain values that
+            might differ during client-side hydration.
+          </p>
+        </div>
+
+        <div className="card">
+          <h2>🎯 Hook Reference</h2>
+          <div style={{ display: "grid", gap: "1rem" }}>
+            <div>
+              <code
+                style={{
+                  backgroundColor: "rgba(0, 0, 0, 0.2)",
+                  padding: "0.25rem 0.5rem",
+                  borderRadius: "4px",
+                  color: "#fff",
+                }}
+              >
+                useUnirendContext()
+              </code>
+              <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+                Returns the complete context object with renderMode,
+                isDevelopment, and fetchRequest.
+              </p>
+            </div>
+            <div>
+              <code
+                style={{
+                  backgroundColor: "rgba(0, 0, 0, 0.2)",
+                  padding: "0.25rem 0.5rem",
+                  borderRadius: "4px",
+                  color: "#fff",
+                }}
+              >
+                useRenderMode()
+              </code>
+              <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+                Returns "ssr" or "ssg" based on the rendering mode.
+              </p>
+            </div>
+            <div>
+              <code
+                style={{
+                  backgroundColor: "rgba(0, 0, 0, 0.2)",
+                  padding: "0.25rem 0.5rem",
+                  borderRadius: "4px",
+                  color: "#fff",
+                }}
+              >
+                useIsSSR() / useIsSSG() / useIsClient()
+              </code>
+              <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+                Boolean checks for the current rendering mode.
+              </p>
+            </div>
+            <div>
+              <code
+                style={{
+                  backgroundColor: "rgba(0, 0, 0, 0.2)",
+                  padding: "0.25rem 0.5rem",
+                  borderRadius: "4px",
+                  color: "#fff",
+                }}
+              >
+                useIsDevelopment()
+              </code>
+              <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+                Returns true if running in development mode.
+              </p>
+            </div>
+            <div>
+              <code
+                style={{
+                  backgroundColor: "rgba(0, 0, 0, 0.2)",
+                  padding: "0.25rem 0.5rem",
+                  borderRadius: "4px",
+                  color: "#fff",
+                }}
+              >
+                useIsServer()
+              </code>
+              <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+                Returns true if code is running on the SSR server (has SSRHelper
+                attached to fetchRequest).
+              </p>
+            </div>
+            <div>
+              <code
+                style={{
+                  backgroundColor: "rgba(0, 0, 0, 0.2)",
+                  padding: "0.25rem 0.5rem",
+                  borderRadius: "4px",
+                  color: "#fff",
+                }}
+              >
+                useFetchRequest()
+              </code>
+              <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+                Returns the Fetch API Request object during SSR and SSG
+                generation, undefined on client after hydration.
+              </p>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <footer className="footer">
+        <div className="footer-content">
+          <p>Unirend Context Demo - SSG Mode</p>
+        </div>
+      </footer>
+    </>
+  );
+};
+
+export default ContextDemo;

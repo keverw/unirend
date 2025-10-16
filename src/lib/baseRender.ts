@@ -213,6 +213,7 @@ export async function unirendBaseRender(
     {
       strictMode: options.strictMode,
       wrapProviders: options.wrapProviders,
+      unirendContext: renderRequest.unirendContext, // unirendContext is always provided in renderRequest by SSRServer or SSG Generation
     },
     helmetContext,
   );

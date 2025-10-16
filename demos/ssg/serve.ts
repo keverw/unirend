@@ -81,6 +81,7 @@ void serve({
       "/": "index.html",
       "/about": "about.html",
       "/contact": "contact.html",
+      "/context-demo": "context-demo.html",
       "/dashboard": "dashboard.html",
       "/app": "app.html",
       "/404": "404.html",

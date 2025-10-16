@@ -35,6 +35,14 @@ const Header: React.FC = () => {
                 Contact
               </NavLink>
             </li>
+            <li>
+              <NavLink
+                to="/context-demo"
+                className={({ isActive }) => (isActive ? "active" : "")}
+              >
+                Context
+              </NavLink>
+            </li>
           </ul>
         </nav>
       </div>

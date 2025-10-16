@@ -15,6 +15,7 @@ import type {
   PageErrorResponse,
   BaseMeta,
 } from "./api-envelope/api-envelope-types";
+import type { UnirendContextValue } from "./internal/UnirendContext";
 // Reference type for pluggable API response helpers class
 import type { APIResponseHelpers } from "../api-envelope";
 export type APIResponseHelpersClass = typeof APIResponseHelpers;
@@ -22,6 +23,12 @@ export type APIResponseHelpersClass = typeof APIResponseHelpers;
 export interface IRenderRequest {
   type: renderType;
   fetchRequest: Request;
+  /**
+   * Unirend context value to provide to the app
+   * Contains render mode, development status, and server request info
+   * Always provided by SSRServer or SSG
+   */
+  unirendContext: UnirendContextValue;
 }
 
 /**

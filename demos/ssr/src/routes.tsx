@@ -8,6 +8,7 @@ import {
 import Home from "./pages/Home";
 import About from "./pages/About";
 import Contact from "./pages/Contact";
+import ContextDemo from "./pages/ContextDemo";
 import AppLayout from "./components/AppLayout";
 import CustomNotFound from "./components/CustomNotFound";
 import CustomApplicationError from "./components/CustomApplicationError";
@@ -127,6 +128,10 @@ export const routes: RouteObject[] = [
       {
         path: "contact",
         element: <Contact />,
+      },
+      {
+        path: "context-demo",
+        element: <ContextDemo />,
       },
       // test routes
       {

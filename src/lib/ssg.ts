@@ -295,6 +295,11 @@ export async function generateSSG(
       const renderRequest: IRenderRequest = {
         type: "ssg",
         fetchRequest: fetchRequest,
+        unirendContext: {
+          renderMode: "ssg",
+          isDevelopment: false, // SSG is always production (build-time)
+          fetchRequest: fetchRequest, // Fetch request available in SSG
+        },
       };
 
       const renderResult = await render(renderRequest);

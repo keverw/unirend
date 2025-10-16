@@ -8,7 +8,7 @@
  * Import from 'unirend/client' in your client-side code:
  *
  * ```typescript
- * import { mountApp } from 'unirend/client';
+ * import { mountApp, useIsSSR, useIsSSG, useIsClient, useIsDevelopment } from 'unirend/client';
  * import { routes } from './routes';
  *
  * mountApp('root', routes);
@@ -16,8 +16,23 @@
  */
 
 // Client-safe types
-
 export type { MountAppOptions, MountAppResult } from "./lib/mountApp";
+export type {
+  UnirendContextValue,
+  UnirendRenderMode,
+} from "./lib/internal/UnirendContext";
 
 // Client-safe functions
 export { mountApp } from "./lib/mountApp";
+
+// Unirend context hooks
+export {
+  useUnirendContext,
+  useIsSSR,
+  useIsSSG,
+  useIsClient,
+  useRenderMode,
+  useIsDevelopment,
+  useIsServer,
+  useFetchRequest,
+} from "./lib/internal/UnirendContext";
