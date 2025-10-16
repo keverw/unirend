@@ -127,7 +127,7 @@ describe("injectContent", () => {
 
     const result = injectContent(template, "", "", { request: requestContext });
 
-    expect(result).toContain("window.__APP_REQUEST_CONTEXT__=");
+    expect(result).toContain("window.__FRONTEND_REQUEST_CONTEXT__=");
     expect(result).toContain('"user"');
     expect(result).toContain('"id":"123"');
     expect(result).toContain('"locale":"en-US"');
@@ -140,7 +140,7 @@ describe("injectContent", () => {
     const result = injectContent(template, "", "");
 
     expect(result).not.toContain("<!--context-scripts-injection-point-->");
-    expect(result).not.toContain("window.__APP_REQUEST_CONTEXT__");
+    expect(result).not.toContain("window.__FRONTEND_REQUEST_CONTEXT__");
     expect(result).not.toContain("window.__FRONTEND_APP_CONFIG__");
   });
 
@@ -157,7 +157,7 @@ describe("injectContent", () => {
 
     expect(result).toContain("window.__FRONTEND_APP_CONFIG__=");
     expect(result).toContain('"apiUrl":"https://api.example.com"');
-    expect(result).toContain("window.__APP_REQUEST_CONTEXT__=");
+    expect(result).toContain("window.__FRONTEND_REQUEST_CONTEXT__=");
     expect(result).toContain('"user"');
   });
 
@@ -173,11 +173,11 @@ describe("injectContent", () => {
     });
 
     // Should contain both scripts
-    expect(result).toContain("window.__APP_REQUEST_CONTEXT__=");
+    expect(result).toContain("window.__FRONTEND_REQUEST_CONTEXT__=");
     expect(result).toContain("window.__FRONTEND_APP_CONFIG__=");
 
     // Should have newline between them
-    const requestIndex = result.indexOf("window.__APP_REQUEST_CONTEXT__");
+    const requestIndex = result.indexOf("window.__FRONTEND_REQUEST_CONTEXT__");
     const configIndex = result.indexOf("window.__FRONTEND_APP_CONFIG__");
     expect(requestIndex).toBeLessThan(configIndex);
   });

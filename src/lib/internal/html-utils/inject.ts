@@ -34,14 +34,14 @@ export function injectContent(
   // Build context scripts array
   const contextScripts: string[] = [];
 
-  // Add __APP_REQUEST_CONTEXT__ if provided (even if empty object)
+  // Add __FRONTEND_REQUEST_CONTEXT__ if provided (even if empty object)
   if (context?.request !== undefined) {
     const safeContextJson = JSON.stringify(context.request).replace(
       /</g,
       "\\u003c",
     );
     contextScripts.push(
-      `<script>window.__APP_REQUEST_CONTEXT__=${safeContextJson};</script>`,
+      `<script>window.__FRONTEND_REQUEST_CONTEXT__=${safeContextJson};</script>`,
     );
   }
 

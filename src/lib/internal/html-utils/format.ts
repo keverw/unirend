@@ -187,7 +187,7 @@ export async function processTemplate(
 
     // Add placeholder for runtime injection of context scripts
     // This will be replaced per-request in injectContent() with any needed scripts
-    // (e.g., __APP_REQUEST_CONTEXT__, __FRONTEND_APP_CONFIG__, etc.)
+    // (e.g., __FRONTEND_REQUEST_CONTEXT__, __FRONTEND_APP_CONFIG__, etc.)
     scripts.unshift("<!--context-scripts-injection-point-->");
 
     // Track required markers during comment processing
