@@ -95,6 +95,7 @@ const ContextDemo: React.FC = () => {
                   borderRadius: "8px",
                   marginTop: "1rem",
                   fontFamily: "monospace",
+                  textAlign: "left",
                 }}
               >
                 <div style={{ marginBottom: "1rem" }}>
@@ -262,6 +263,7 @@ const ContextDemo: React.FC = () => {
                     marginTop: "1rem",
                     color: "#fff",
                     fontFamily: "monospace",
+                    textAlign: "left",
                   }}
                 >
                   {JSON.stringify(frontendAppConfig, null, 2)}

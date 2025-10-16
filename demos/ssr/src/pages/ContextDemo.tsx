@@ -111,6 +111,8 @@ const ContextDemo: React.FC = () => {
                       overflow: "auto",
                       marginTop: "0.5rem",
                       color: "#fff",
+                      fontFamily: "monospace",
+                      textAlign: "left",
                     }}
                   >
                     {JSON.stringify(
@@ -272,6 +274,7 @@ const ContextDemo: React.FC = () => {
                     marginTop: "1rem",
                     color: "#fff",
                     fontFamily: "monospace",
+                    textAlign: "left",
                   }}
                 >
                   {JSON.stringify(frontendAppConfig, null, 2)}

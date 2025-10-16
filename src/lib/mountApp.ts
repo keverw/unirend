@@ -91,22 +91,18 @@ export function mountApp(
   // Read frontend app config from injected global (if available)
   // The server injects this via window.__FRONTEND_APP_CONFIG__ during SSR/SSG
   // Clone it to prevent mutations from affecting the global or other consumers
-  const frontendAppConfig =
+  const globalConfig =
     typeof window !== "undefined"
       ? (
           window as unknown as {
             __FRONTEND_APP_CONFIG__?: Record<string, unknown>;
           }
         ).__FRONTEND_APP_CONFIG__
-        ? structuredClone(
-            (
-              window as unknown as {
-                __FRONTEND_APP_CONFIG__?: Record<string, unknown>;
-              }
-            ).__FRONTEND_APP_CONFIG__,
-          )
-        : undefined
       : undefined;
+
+  const frontendAppConfig = globalConfig
+    ? structuredClone(globalConfig)
+    : undefined;
 
   // Provide default Unirend context for client-side
   // Note: When hydrating SSR/SSG content, the server provides the correct context values
