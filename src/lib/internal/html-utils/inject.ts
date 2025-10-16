@@ -45,11 +45,11 @@ export function injectContent(
     );
   }
 
-  // Add __APP_CONFIG__ if provided (even if empty object)
+  // Add __FRONTEND_APP_CONFIG__ if provided (even if empty object)
   if (context?.app !== undefined) {
     const safeConfigJson = JSON.stringify(context.app).replace(/</g, "\\u003c");
     contextScripts.push(
-      `<script>window.__APP_CONFIG__=${safeConfigJson};</script>`,
+      `<script>window.__FRONTEND_APP_CONFIG__=${safeConfigJson};</script>`,
     );
   }
 

@@ -2,10 +2,10 @@ import React from "react";
 import { Helmet } from "react-helmet-async";
 import { Link } from "react-router";
 
-// Type for window.__APP_CONFIG__
+// Type for window.__FRONTEND_APP_CONFIG__
 declare global {
   interface Window {
-    __APP_CONFIG__?: Record<string, unknown>;
+    __FRONTEND_APP_CONFIG__?: Record<string, unknown>;
   }
 }
 
@@ -54,7 +54,7 @@ const Home: React.FC = () => {
             This demonstrates <code>frontendAppConfig</code> working in both dev
             and prod modes:
           </p>
-          {typeof window !== "undefined" && window.__APP_CONFIG__ ? (
+          {typeof window !== "undefined" && window.__FRONTEND_APP_CONFIG__ ? (
             <pre
               style={{
                 backgroundColor: "rgba(255, 255, 255, 0.1)",
@@ -66,7 +66,7 @@ const Home: React.FC = () => {
                 marginTop: "1rem",
               }}
             >
-              {JSON.stringify(window.__APP_CONFIG__, null, 2)}
+              {JSON.stringify(window.__FRONTEND_APP_CONFIG__, null, 2)}
             </pre>
           ) : (
             <p style={{ color: "rgba(255, 255, 255, 0.7)", marginTop: "1rem" }}>

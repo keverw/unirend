@@ -101,7 +101,7 @@ describe("injectContent", () => {
       app: appConfig,
     });
 
-    expect(result).toContain("window.__APP_CONFIG__=");
+    expect(result).toContain("window.__FRONTEND_APP_CONFIG__=");
     expect(result).toContain('"apiUrl":"https://api.example.com"');
     expect(result).toContain('"debug":true');
   });
@@ -141,7 +141,7 @@ describe("injectContent", () => {
 
     expect(result).not.toContain("<!--context-scripts-injection-point-->");
     expect(result).not.toContain("window.__APP_REQUEST_CONTEXT__");
-    expect(result).not.toContain("window.__APP_CONFIG__");
+    expect(result).not.toContain("window.__FRONTEND_APP_CONFIG__");
   });
 
   it("should inject both app config and request context", () => {
@@ -155,7 +155,7 @@ describe("injectContent", () => {
       request: requestContext,
     });
 
-    expect(result).toContain("window.__APP_CONFIG__=");
+    expect(result).toContain("window.__FRONTEND_APP_CONFIG__=");
     expect(result).toContain('"apiUrl":"https://api.example.com"');
     expect(result).toContain("window.__APP_REQUEST_CONTEXT__=");
     expect(result).toContain('"user"');
@@ -174,11 +174,11 @@ describe("injectContent", () => {
 
     // Should contain both scripts
     expect(result).toContain("window.__APP_REQUEST_CONTEXT__=");
-    expect(result).toContain("window.__APP_CONFIG__=");
+    expect(result).toContain("window.__FRONTEND_APP_CONFIG__=");
 
     // Should have newline between them
     const requestIndex = result.indexOf("window.__APP_REQUEST_CONTEXT__");
-    const configIndex = result.indexOf("window.__APP_CONFIG__");
+    const configIndex = result.indexOf("window.__FRONTEND_APP_CONFIG__");
     expect(requestIndex).toBeLessThan(configIndex);
   });
 });

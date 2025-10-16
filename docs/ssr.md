@@ -74,7 +74,7 @@ async function main() {
 
   // Set up global app config (available to server code)
   // Tip: Keep this minimal and non-sensitive; it will be passed to the client below in production
-  globalThis.__APP_CONFIG__ = {
+  globalThis.__FRONTEND_APP_CONFIG__ = {
     apiUrl: process.env.API_URL || "https://api.example.com",
     environment: "production",
     // Optionally include selected build info for troubleshooting/version display.
@@ -86,9 +86,9 @@ async function main() {
     // Optional: Custom server entry name (default: "entry-server")
     // serverEntry: "custom-entry",
 
-    // Frontend app configuration (injected as window.__APP_CONFIG__)
+    // Frontend app configuration (injected as window.__FRONTEND_APP_CONFIG__)
     // Works in both dev and prod when using serveSSRDev/serveSSRProd
-    frontendAppConfig: globalThis.__APP_CONFIG__,
+    frontendAppConfig: globalThis.__FRONTEND_APP_CONFIG__,
     // Tip: See docs/build-info.md for adding a plugin that decorates request.buildInfo
   });
 
@@ -102,9 +102,9 @@ main().catch(console.error);
 
 Notes:
 
-- `frontendAppConfig` is injected into the HTML and available on the client as `window.__APP_CONFIG__` in both dev and prod modes when using `serveSSRDev` or `serveSSRProd`. It is not automatically a server‑side global.
-- Defining `globalThis.__APP_CONFIG__` yourself (as above) gives your server code a shared shape and lets you pass the same object into `frontendAppConfig` for the client, and use within server-side components
-- If you run Vite in SPA-only dev mode directly (not through the SSR dev/prod servers), the injection won't happen. In that case, use a fallback pattern in your app: `const apiUrl = window.__APP_CONFIG__?.apiUrl ?? 'http://localhost:3001';`. See the setup guidance in the README: [4. Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern).
+- `frontendAppConfig` is injected into the HTML and available on the client as `window.__FRONTEND_APP_CONFIG__` in both dev and prod modes when using `serveSSRDev` or `serveSSRProd`. It is not automatically a server‑side global.
+- Defining `globalThis.__FRONTEND_APP_CONFIG__` yourself (as above) gives your server code a shared shape and lets you pass the same object into `frontendAppConfig` for the client, and use within server-side components
+- If you run Vite in SPA-only dev mode directly (not through the SSR dev/prod servers), the injection won't happen. In that case, use a fallback pattern in your app: `const apiUrl = window.__FRONTEND_APP_CONFIG__?.apiUrl ?? 'http://localhost:3001';`. See the setup guidance in the README: [4. Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern).
 
 ### Create Development SSR Server
 
@@ -123,7 +123,7 @@ async function main() {
     {
       // Optional: same options surface as production where applicable
       // e.g., frontendAppConfig, apiEndpoints, APIHandling, containerID, plugins, fastifyOptions
-      // frontendAppConfig: globalThis.__APP_CONFIG__,
+      // frontendAppConfig: globalThis.__FRONTEND_APP_CONFIG__,
       // apiEndpoints: { apiEndpointPrefix: "/api", versioned: true, defaultVersion: 1, pageDataEndpoint: "page_data" },
       // APIHandling: { prefix: "/api" },
       // plugins: [myPlugin],
@@ -184,7 +184,7 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
 - `cookieForwarding?: { allowCookieNames?: string[]; blockCookieNames?: string[] | true }`
   - Controls which cookies are forwarded on SSR fetches and which `Set-Cookie` headers are returned to the browser.
 - `frontendAppConfig?: Record<string, unknown>`
-  - Optional configuration object injected as `window.__APP_CONFIG__` in both dev and prod modes.
+  - Optional configuration object injected as `window.__FRONTEND_APP_CONFIG__` in both dev and prod modes.
   - Available on the client for runtime configuration (API URLs, feature flags, etc.).
 - `containerID?: string`
   - Client container element ID (default `"root"`).

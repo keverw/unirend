@@ -218,8 +218,8 @@ If you run Vite in SPA-only dev mode directly (not through the SSR dev/prod serv
 // In your React components
 const getConfig = () => {
   // Use injected config if available (SSG/SSR dev and prod)
-  if (typeof window !== "undefined" && window.__APP_CONFIG__) {
-    return window.__APP_CONFIG__;
+  if (typeof window !== "undefined" && window.__FRONTEND_APP_CONFIG__) {
+    return window.__FRONTEND_APP_CONFIG__;
   }
 
   // Fallback for SPA-only Vite dev mode
@@ -335,7 +335,7 @@ Notes:
 
 Tip:
 
-- If your API base URL differs between server and client, set `apiBaseUrl` from environment/server context on SSR and from injected client config on the browser. See “4. Frontend App Config Pattern” for using `window.__APP_CONFIG__` in components, or derive it once and pass the resulting config into `createDefaultPageLoaderConfig`.
+- If your API base URL differs between server and client, set `apiBaseUrl` from environment/server context on SSR and from injected client config on the browser. See “4. Frontend App Config Pattern” for using `window.__FRONTEND_APP_CONFIG__` in components, or derive it once and pass the resulting config into `createDefaultPageLoaderConfig`.
 
 Config options (HTTP path):
 

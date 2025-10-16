@@ -315,7 +315,7 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
   containerID?: string;
   /**
    * Optional configuration object to be injected into the frontend app.
-   * Will be serialized and injected as window.__APP_CONFIG__.
+   * Will be serialized and injected as window.__FRONTEND_APP_CONFIG__.
    *
    * Works in BOTH SSR dev (when using the unirend SSR dev server) and SSR prod.
    *
@@ -324,7 +324,7 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    *
    * In that case, keep a fallback to a dev-time default in your app:
    * @example
-   * const apiUrl = window.__APP_CONFIG__?.apiUrl ?? 'http://localhost:3001';
+   * const apiUrl = window.__FRONTEND_APP_CONFIG__?.apiUrl ?? 'http://localhost:3001';
    */
   frontendAppConfig?: Record<string, unknown>;
   /**
@@ -690,7 +690,7 @@ export const SSGConsoleLogger: SSGLogger = {
 export interface SSGOptions {
   /**
    * Optional configuration object to be injected into the frontend app
-   * Will be serialized and injected as window.__APP_CONFIG__
+   * Will be serialized and injected as window.__FRONTEND_APP_CONFIG__
    */
   frontendAppConfig?: Record<string, unknown>;
   /**
