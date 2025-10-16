@@ -6,6 +6,7 @@ import {
   SSGPageReport,
   SSGReport,
   SSGLogger,
+  SSGHelper,
 } from "./types";
 import path from "path";
 import {
@@ -298,6 +299,15 @@ export async function generateSSG(
         ? Object.freeze(structuredClone(options.frontendAppConfig))
         : undefined;
 
+      // Create SSGHelper with requestContext that can be populated during render
+      const ssgHelper: SSGHelper = {
+        requestContext: {},
+      };
+
+      // Attach SSGHelper to fetch request for access during rendering
+      (fetchRequest as Request & { ssgHelpers?: SSGHelper }).ssgHelpers =
+        ssgHelper;
+
       const renderRequest: IRenderRequest = {
         type: "ssg",
         fetchRequest: fetchRequest,
@@ -320,13 +330,18 @@ export async function generateSSG(
         ${renderResult.preloadLinks}
       `;
 
+        // Get the requestContext from ssgHelper (may have been populated during render)
+        const requestContext = (
+          fetchRequest as Request & { ssgHelpers?: SSGHelper }
+        ).ssgHelpers?.requestContext;
+
         const htmlToWrite = injectContent(
           htmlTemplate,
           headInject,
           renderResult.html,
           {
             app: options.frontendAppConfig,
-            // No request context for SSG
+            request: requestContext,
           },
         );
 
@@ -442,8 +457,8 @@ export async function generateSSG(
         headInject.trim(),
         "", // Empty body content for SPA
         {
-          app: options.frontendAppConfig,
-          // No request context for SSG
+          app: options.frontendAppConfig, // Inject app config for SPA pages if provided from options
+          request: page.requestContext, // Inject request context for SPA pages that was manually provided for the specific page
         },
       );
 

@@ -215,6 +215,8 @@ function MyComponent() {
 
 **Note:** The config is cloned and frozen on each request to ensure immutability. Unlike other context values like `renderMode` or `fetchRequest`, the `frontendAppConfig` is **safe to display directly in your UI** because it remains identical between server rendering and client hydration. The server injects it into the HTML, and the client reads it back from the same source, preventing hydration mismatches.
 
+**Dynamic Updates:** Since the config is cloned on each request, you can store the config object in a variable, pass it to `frontendAppConfig`, and update it dynamically between requests. For example, you could update a `year` field used to display the current year in the footer, and the changes will only apply to subsequent requests while keeping each request's config isolated and immutable.
+
 ## How It Works
 
 ### Server-Side (SSR)

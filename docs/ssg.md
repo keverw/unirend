@@ -45,6 +45,20 @@ async function main() {
       title: "Dashboard",
       description: "SPA Dashboard Page",
     },
+
+    // Client-rendered SPA page with manual request context injection
+    {
+      type: "spa",
+      filename: "profile.html",
+      title: "User Profile",
+      description: "User profile page",
+      requestContext: {
+        // This data will be injected and available on the client
+        // See unirend-context.md for how to access this data in your components
+        userID: "default-user",
+        theme: "light",
+      },
+    },
   ];
 
   const options = {
@@ -75,6 +89,31 @@ async function main() {
 
 main().catch(console.error);
 ```
+
+### Request Context Injection
+
+Both SSG and SPA pages support injecting request context data that will be available on the client.
+
+**Request Context vs Frontend App Config:**
+
+- **Request Context**: Per-page data that can vary between pages and be mutated on the client (e.g., page-specific state, user preferences, theme)
+- **Frontend App Config**: Global, immutable configuration shared across all pages (e.g., API URLs, feature flags, build info)
+
+**SSG Pages (Server-Rendered):**
+
+- Request context can be populated dynamically during the rendering process
+- Useful for injecting render-time metadata (e.g., page-specific generation timestamps, debug info, default theme, or other defaults)
+
+**SPA Pages (Client-Rendered):**
+
+- Request context can be manually provided in the page definition via the `requestContext` property
+- Useful for injecting static configuration or default values for specific pages
+
+**React Components (Server & Client):**
+
+- Components can read or update the context during the generation process (for SSG pages) and on the client after hydration
+- The context acts as a key-value store initially populated during page generation that components can take over on the frontend
+- See [Unirend Context documentation](./unirend-context.md) for details on accessing this data in your React components
 
 ### Template Caching Info
 

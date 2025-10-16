@@ -44,6 +44,15 @@ export interface SSRHelper {
 }
 
 /**
+ * Helper object attached to SSG Fetch Request for build-time context
+ * Similar to SSRHelper but simplified for static generation
+ */
+export interface SSGHelper {
+  /** Request context object that can be populated and injected into the page */
+  requestContext: Record<string, unknown>;
+}
+
+/**
  * Base interface for render results with a discriminated union type
  */
 interface IRenderResultBase {
@@ -753,6 +762,8 @@ export interface ISPAPage extends IGeneratorPageBase {
   description?: string;
   /** Additional meta tags as key-value pairs */
   meta?: Record<string, string>;
+  /** Optional request context to inject into the page (available as window.__FRONTEND_REQUEST_CONTEXT__) */
+  requestContext?: Record<string, unknown>;
 }
 
 /**

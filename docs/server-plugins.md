@@ -214,7 +214,7 @@ pluginHost.addHook("onSend", handler);
 
 ```typescript
 // Add properties to request/reply objects
-pluginHost.decorateRequest("userId", null);
+pluginHost.decorateRequest("userID", null);
 pluginHost.decorateReply("setUser", function (user) {
   /* ... */
 });
