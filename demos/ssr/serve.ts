@@ -915,7 +915,7 @@ async function startServer() {
           ...createSharedConfig(),
           plugins: SHARED_PLUGINS,
           frontendAppConfig: {
-            // Example config that gets injected as window.__FRONTEND_APP_CONFIG__
+            // Example config that gets injected on the frontend html (SSG/SSR) - see the Frontend App Config Pattern section of the README
             apiUrl: "http://localhost:3001",
             version: "1.0.0-dev",
             environment: "development",
@@ -994,7 +994,7 @@ async function startServer() {
           },
         },
         frontendAppConfig: {
-          // Example config that gets injected as window.__FRONTEND_APP_CONFIG__
+          // Example config that gets injected on the frontend html (SSG/SSR) - see the Frontend App Config Pattern section of the README
           apiUrl: "https://api.example.com",
           version: "1.0.0-prod",
           environment: "production",

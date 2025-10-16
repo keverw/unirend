@@ -35,4 +35,5 @@ export {
   useIsDevelopment,
   useIsServer,
   useFetchRequest,
+  useFrontendAppConfig,
 } from "./lib/internal/UnirendContext";

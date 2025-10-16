@@ -72,23 +72,21 @@ async function main() {
   // Point to the build directory (contains both client/ and server/ subdirectories)
   const buildDir = path.resolve(__dirname, "build");
 
-  // Set up global app config (available to server code)
-  // Tip: Keep this minimal and non-sensitive; it will be passed to the client below in production
-  globalThis.__FRONTEND_APP_CONFIG__ = {
-    apiUrl: process.env.API_URL || "https://api.example.com",
-    environment: "production",
-    // Optionally include selected build info for troubleshooting/version display.
-    // See docs/build-info.md for generating/loading and safe exposure.
-    // build: { version: "1.2.3" },
-  } as Record<string, unknown>;
-
   const server = serveSSRProd(buildDir, {
     // Optional: Custom server entry name (default: "entry-server")
     // serverEntry: "custom-entry",
 
-    // Frontend app configuration (injected as window.__FRONTEND_APP_CONFIG__)
-    // Works in both dev and prod when using serveSSRDev/serveSSRProd
-    frontendAppConfig: globalThis.__FRONTEND_APP_CONFIG__,
+    // Optional configuration object to be injected into the frontend app.
+    // Serialized and injected as window.__FRONTEND_APP_CONFIG__ during SSR.
+    // Available via useFrontendAppConfig() hook on both server and client.
+    // Tip: Keep this minimal and non-sensitive; it will be passed to the client.
+    frontendAppConfig: {
+      apiUrl: process.env.API_URL || "https://api.example.com",
+      environment: "production",
+      // Optionally include selected build info for troubleshooting/version display.
+      // See docs/build-info.md for generating/loading and safe exposure.
+      // build: { version: "1.2.3" },
+    },
     // Tip: See docs/build-info.md for adding a plugin that decorates request.buildInfo
   });
 
@@ -102,9 +100,8 @@ main().catch(console.error);
 
 Notes:
 
-- `frontendAppConfig` is injected into the HTML and available on the client as `window.__FRONTEND_APP_CONFIG__` in both dev and prod modes when using `serveSSRDev` or `serveSSRProd`. It is not automatically a server‑side global.
-- Defining `globalThis.__FRONTEND_APP_CONFIG__` yourself (as above) gives your server code a shared shape and lets you pass the same object into `frontendAppConfig` for the client, and use within server-side components
-- If you run Vite in SPA-only dev mode directly (not through the SSR dev/prod servers), the injection won't happen. In that case, use a fallback pattern in your app: `const apiUrl = window.__FRONTEND_APP_CONFIG__?.apiUrl ?? 'http://localhost:3001';`. See the setup guidance in the README: [4. Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern).
+- `frontendAppConfig` is passed to the Unirend context and available via the `useFrontendAppConfig()` hook on both server (during rendering) and client (after HTML injection).
+- For accessing config in components vs non-component code (loaders), fallback patterns, and SPA-only dev mode considerations, see: [4. Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern).
 
 ### Create Development SSR Server
 
@@ -123,7 +120,7 @@ async function main() {
     {
       // Optional: same options surface as production where applicable
       // e.g., frontendAppConfig, apiEndpoints, APIHandling, containerID, plugins, fastifyOptions
-      // frontendAppConfig: globalThis.__FRONTEND_APP_CONFIG__,
+      // frontendAppConfig: { apiUrl: "http://localhost:3001", environment: "development" },
       // apiEndpoints: { apiEndpointPrefix: "/api", versioned: true, defaultVersion: 1, pageDataEndpoint: "page_data" },
       // APIHandling: { prefix: "/api" },
       // plugins: [myPlugin],
@@ -184,8 +181,8 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
 - `cookieForwarding?: { allowCookieNames?: string[]; blockCookieNames?: string[] | true }`
   - Controls which cookies are forwarded on SSR fetches and which `Set-Cookie` headers are returned to the browser.
 - `frontendAppConfig?: Record<string, unknown>`
-  - Optional configuration object injected as `window.__FRONTEND_APP_CONFIG__` in both dev and prod modes.
-  - Available on the client for runtime configuration (API URLs, feature flags, etc.).
+  - Optional configuration object available via the `useFrontendAppConfig()` hook on both server (during SSR/SSG rendering) and client (after HTML injection) in both dev and prod modes.
+  - Use for runtime configuration (API URLs, feature flags, build info, etc.). See [4. Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern) for usage in components vs loaders.
 - `containerID?: string`
   - Client container element ID (default `"root"`).
 - `clientFolderName?: string`, `serverFolderName?: string`

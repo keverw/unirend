@@ -212,25 +212,41 @@ Add these scripts to your `package.json` for both SSG and SSR workflows:
 
 You can inject configuration into your frontend app via the `frontendAppConfig` option. This works in both SSG and SSR modes (both dev and prod) when using `generateSSG`, `serveSSRDev`, or `serveSSRProd`.
 
-If you run Vite in SPA-only dev mode directly (not through the SSR dev/prod servers), the injection won't happen. In that case, use a fallback pattern:
+**In React Components** - use the `useFrontendAppConfig()` hook:
 
 ```typescript
-// In your React components
-const getConfig = () => {
-  // Use injected config if available (SSG/SSR dev and prod)
-  if (typeof window !== "undefined" && window.__FRONTEND_APP_CONFIG__) {
-    return window.__FRONTEND_APP_CONFIG__;
-  }
+import { useFrontendAppConfig } from 'unirend/client';
 
-  // Fallback for SPA-only Vite dev mode
-  return {
-    apiUrl: "http://localhost:3001",
-    environment: "development",
-  };
-};
+function MyComponent() {
+  const config = useFrontendAppConfig();
 
-const config = getConfig();
+  // Access config values with fallbacks
+  const apiUrl = (config?.apiUrl as string) || "http://localhost:3001";
+  const environment = (config?.environment as string) || "development";
+
+  return <div>API: {apiUrl}</div>;
+}
 ```
+
+**In Non-Component Code** (loaders, utilities, module-level) - access `window.__FRONTEND_APP_CONFIG__` directly:
+
+```typescript
+// Non-component code runs outside React component tree, so use direct window access. For example in a data loader.
+// On client: Use public API URL from injected config
+// On server (SSR): Use internal endpoints (same network/datacenter) when not using the Fetch/Short-Circuit functionality
+const apiBaseUrl =
+  typeof window !== "undefined"
+    ? (window.__FRONTEND_APP_CONFIG__?.apiUrl as string) ||
+      "http://localhost:3001"
+    : process.env.INTERNAL_API_URL || "http://api-internal:3001"; // Internal endpoint or service URL
+
+const config = createDefaultPageLoaderConfig(apiBaseUrl);
+export const homeLoader = createPageLoader(config, "home");
+```
+
+**Note:** If you run Vite in SPA-only dev mode directly (not through the SSR dev/prod servers), the injection won't happen. Both the hook and `window.__FRONTEND_APP_CONFIG__` will be `undefined`, so use fallback values as shown above.
+
+For more details on the Unirend Context system, see [docs/unirend-context.md](docs/unirend-context.md).
 
 ## SSG (Static Site Generation)
 
@@ -335,7 +351,7 @@ Notes:
 
 Tip:
 
-- If your API base URL differs between server and client, set `apiBaseUrl` from environment/server context on SSR and from injected client config on the browser. See “4. Frontend App Config Pattern” for using `window.__FRONTEND_APP_CONFIG__` in components, or derive it once and pass the resulting config into `createDefaultPageLoaderConfig`.
+- If your API base URL differs between server and client (e.g., internal vs public URLs), you'll need to configure `apiBaseUrl` dynamically. Since data loaders run outside the React component tree and don't have access to hooks, you'll need to access `window.__FRONTEND_APP_CONFIG__` directly at module level on the client, with a server-side fallback (e.g., environment variable) for SSR. See "4. Frontend App Config Pattern" for the complete pattern with examples.
 
 Config options (HTTP path):
 

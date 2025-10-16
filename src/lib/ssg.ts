@@ -292,6 +292,12 @@ export async function generateSSG(
     if (page.type === "ssg") {
       // Create a simulated fetch request for the current page
       const fetchRequest = new Request(`http://localhost${page.path}`);
+
+      // Clone frontendAppConfig to ensure it stays immutable for the entire request
+      const frontendAppConfig = options.frontendAppConfig
+        ? Object.freeze(structuredClone(options.frontendAppConfig))
+        : undefined;
+
       const renderRequest: IRenderRequest = {
         type: "ssg",
         fetchRequest: fetchRequest,
@@ -299,6 +305,7 @@ export async function generateSSG(
           renderMode: "ssg",
           isDevelopment: false, // SSG is always production (build-time)
           fetchRequest: fetchRequest, // Fetch request available in SSG
+          frontendAppConfig,
         },
       };
 

@@ -8,6 +8,7 @@ import {
   useIsDevelopment,
   useFetchRequest,
   useIsServer,
+  useFrontendAppConfig,
 } from "../../../../src/client";
 
 const ContextDemo: React.FC = () => {
@@ -20,6 +21,7 @@ const ContextDemo: React.FC = () => {
     isDevelopment: boolean;
     hasRequest: boolean;
     isServer: boolean;
+    hasFrontendConfig: boolean;
   } | null>(null);
 
   // Get hooks (but don't render directly to avoid hydration mismatch)
@@ -29,6 +31,7 @@ const ContextDemo: React.FC = () => {
   const isDevelopment = useIsDevelopment();
   const fetchRequest = useFetchRequest();
   const isServer = useIsServer();
+  const frontendAppConfig = useFrontendAppConfig();
 
   // Populate context snapshot after hydration
   useEffect(() => {
@@ -38,8 +41,9 @@ const ContextDemo: React.FC = () => {
       isDevelopment,
       hasRequest: !!fetchRequest,
       isServer,
+      hasFrontendConfig: !!frontendAppConfig,
     });
-  }, [renderMode, isDevelopment, fetchRequest, isServer]);
+  }, [renderMode, isDevelopment, fetchRequest, isServer, frontendAppConfig]);
 
   return (
     <>
@@ -204,8 +208,69 @@ const ContextDemo: React.FC = () => {
                       {contextSnapshot?.hasRequest ? "Request" : "undefined"}
                     </code>
                   </div>
+                  <div>
+                    <strong>useFrontendAppConfig():</strong>{" "}
+                    <code
+                      style={{
+                        backgroundColor: "rgba(0, 0, 0, 0.3)",
+                        padding: "0.25rem 0.5rem",
+                        borderRadius: "4px",
+                        color: "#fff",
+                      }}
+                    >
+                      {contextSnapshot?.hasFrontendConfig
+                        ? "Config Object"
+                        : "undefined"}
+                    </code>
+                  </div>
                 </div>
               </div>
+            </>
+          )}
+        </div>
+
+        <div className="card">
+          <h2>⚙️ Frontend App Config</h2>
+          {!isHydrated ? (
+            <div
+              style={{
+                backgroundColor: "rgba(0, 0, 0, 0.2)",
+                padding: "1.5rem",
+                borderRadius: "8px",
+                marginTop: "1rem",
+                textAlign: "center",
+              }}
+            >
+              <p style={{ margin: 0, color: "rgba(255, 255, 255, 0.8)" }}>
+                Hydrating... Config will populate on client-side.
+              </p>
+            </div>
+          ) : (
+            <>
+              <p>
+                The frontend app config is passed from the server and available
+                via the <code>useFrontendAppConfig()</code> hook. It's cloned
+                and frozen to ensure immutability.
+              </p>
+              {frontendAppConfig ? (
+                <pre
+                  style={{
+                    backgroundColor: "rgba(0, 0, 0, 0.3)",
+                    padding: "1rem",
+                    borderRadius: "4px",
+                    overflow: "auto",
+                    marginTop: "1rem",
+                    color: "#fff",
+                    fontFamily: "monospace",
+                  }}
+                >
+                  {JSON.stringify(frontendAppConfig, null, 2)}
+                </pre>
+              ) : (
+                <p style={{ marginTop: "1rem", fontStyle: "italic" }}>
+                  No frontend config was provided to the server.
+                </p>
+              )}
             </>
           )}
         </div>
@@ -352,6 +417,22 @@ const ContextDemo: React.FC = () => {
               <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
                 Returns the Fetch API Request object during SSR and SSG
                 generation, undefined on client after hydration.
+              </p>
+            </div>
+            <div>
+              <code
+                style={{
+                  backgroundColor: "rgba(0, 0, 0, 0.2)",
+                  padding: "0.25rem 0.5rem",
+                  borderRadius: "4px",
+                  color: "#fff",
+                }}
+              >
+                useFrontendAppConfig()
+              </code>
+              <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+                Returns the frontend application configuration object (frozen
+                and immutable). Available on both server and client.
               </p>
             </div>
           </div>

@@ -525,6 +525,13 @@ export class SSRServer extends BaseServer {
 
           // --- Render the App ---
           try {
+            // Clone frontendAppConfig to ensure it stays immutable for the entire request
+            const frontendAppConfig = this.config.options.frontendAppConfig
+              ? Object.freeze(
+                  structuredClone(this.config.options.frontendAppConfig),
+                )
+              : undefined;
+
             const renderResult = await render({
               type: "ssr",
               fetchRequest,
@@ -532,6 +539,7 @@ export class SSRServer extends BaseServer {
                 renderMode: "ssr",
                 isDevelopment: this.config.mode === "development",
                 fetchRequest: fetchRequest,
+                frontendAppConfig,
               },
             });
 

@@ -315,16 +315,13 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
   containerID?: string;
   /**
    * Optional configuration object to be injected into the frontend app.
-   * Will be serialized and injected as window.__FRONTEND_APP_CONFIG__.
+   * Serialized and injected as window.__FRONTEND_APP_CONFIG__ during SSR.
+   * Available via useFrontendAppConfig() hook on both server and client.
    *
-   * Works in BOTH SSR dev (when using the unirend SSR dev server) and SSR prod.
+   * Keep this minimal and non-sensitive; it will be passed to the client.
    *
-   * If you run Vite in SPA-only dev mode directly (not through the SSR dev/prod
-   * servers), this won't be injected.
-   *
-   * In that case, keep a fallback to a dev-time default in your app:
-   * @example
-   * const apiUrl = window.__FRONTEND_APP_CONFIG__?.apiUrl ?? 'http://localhost:3001';
+   * See README section "4. Frontend App Config Pattern" for usage in components,
+   * loaders, fallback patterns, and SPA-only dev mode considerations.
    */
   frontendAppConfig?: Record<string, unknown>;
   /**
@@ -689,8 +686,14 @@ export const SSGConsoleLogger: SSGLogger = {
  */
 export interface SSGOptions {
   /**
-   * Optional configuration object to be injected into the frontend app
-   * Will be serialized and injected as window.__FRONTEND_APP_CONFIG__
+   * Optional configuration object to be injected into the frontend app.
+   * Serialized and injected as window.__FRONTEND_APP_CONFIG__ during SSG.
+   * Available via useFrontendAppConfig() hook on both server and client.
+   *
+   * Keep this minimal and non-sensitive; it will be passed to the client.
+   *
+   * See README section "4. Frontend App Config Pattern" for usage in components,
+   * loaders, fallback patterns, and SPA-only dev mode considerations.
    */
   frontendAppConfig?: Record<string, unknown>;
   /**

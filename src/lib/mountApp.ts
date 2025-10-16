@@ -88,6 +88,26 @@ export function mountApp(
   // Create browser router from routes
   const router = createBrowserRouter(routes);
 
+  // Read frontend app config from injected global (if available)
+  // The server injects this via window.__FRONTEND_APP_CONFIG__ during SSR/SSG
+  // Clone it to prevent mutations from affecting the global or other consumers
+  const frontendAppConfig =
+    typeof window !== "undefined"
+      ? (
+          window as unknown as {
+            __FRONTEND_APP_CONFIG__?: Record<string, unknown>;
+          }
+        ).__FRONTEND_APP_CONFIG__
+        ? structuredClone(
+            (
+              window as unknown as {
+                __FRONTEND_APP_CONFIG__?: Record<string, unknown>;
+              }
+            ).__FRONTEND_APP_CONFIG__,
+          )
+        : undefined
+      : undefined;
+
   // Provide default Unirend context for client-side
   // Note: When hydrating SSR/SSG content, the server provides the correct context values
   // This default is only used for pure client-side SPA scenarios (no SSR/SSG)
@@ -95,6 +115,7 @@ export function mountApp(
     renderMode: "client", // Pure client-side (server overrides to "ssr" or "ssg" during server rendering)
     isDevelopment: Boolean(import.meta.env.DEV), // Vite sets this: true in dev, false in production build
     fetchRequest: undefined, // No server request on client
+    frontendAppConfig, // Config injected by server (SSR/SSG) or undefined (pure SPA)
   };
 
   // Wrap the router with configured options

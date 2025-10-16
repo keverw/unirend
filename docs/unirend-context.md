@@ -14,6 +14,7 @@ The Unirend Context system provides React hooks to access render mode, developme
   - [`useIsDevelopment()`](#useisdevelopment)
   - [`useIsServer()`](#useisserver)
   - [`useFetchRequest()`](#usefetchrequest)
+  - [`useFrontendAppConfig()`](#usefrontendappconfig)
 - [How It Works](#how-it-works)
   - [Server-Side (SSR)](#server-side-ssr)
   - [Build-Time (SSG)](#build-time-ssg)
@@ -35,6 +36,7 @@ The context is automatically provided by Unirend during server-side rendering, s
 - **Render Mode**: Whether the app is SSR (Server-Side Rendering), SSG (Static Site Generation), or Client (SPA or after hydration)
 - **Development Status**: Whether running in development or production mode
 - **Fetch Request**: Access to the Fetch API Request object (available during SSR and SSG)
+- **Frontend App Config**: Immutable configuration object passed from the server (available on both server and client)
 
 ## Available Hooks
 
@@ -50,6 +52,7 @@ import {
   useIsDevelopment,
   useIsServer,
   useFetchRequest,
+  useFrontendAppConfig,
 } from "unirend/client";
 ```
 
@@ -78,6 +81,7 @@ function MyComponent() {
   renderMode: "ssr" | "ssg" | "client";
   isDevelopment: boolean;
   fetchRequest?: Request;
+  frontendAppConfig?: Record<string, unknown>;
 }
 ```
 
@@ -185,6 +189,32 @@ function MyComponent() {
 
 **Returns:** `Request | undefined`
 
+### `useFrontendAppConfig()`
+
+Returns the frontend application configuration object. This is a frozen (immutable) copy of the config passed to the server, available on both server and client.
+
+```tsx
+function MyComponent() {
+  const config = useFrontendAppConfig();
+
+  if (!config) {
+    return <div>No config available</div>;
+  }
+
+  return (
+    <div>
+      <p>API URL: {config.apiUrl as string}</p>
+      <p>App Name: {config.appName as string}</p>
+      <p>Feature Flags: {JSON.stringify(config.features)}</p>
+    </div>
+  );
+}
+```
+
+**Returns:** `Record<string, unknown> | undefined`
+
+**Note:** The config is cloned and frozen on each request to ensure immutability. Unlike other context values like `renderMode` or `fetchRequest`, the `frontendAppConfig` is **safe to display directly in your UI** because it remains identical between server rendering and client hydration. The server injects it into the HTML, and the client reads it back from the same source, preventing hydration mismatches.
+
 ## How It Works
 
 ### Server-Side (SSR)
@@ -196,6 +226,7 @@ The SSRServer automatically populates the context when rendering:
   renderMode: "ssr",
   isDevelopment: true, // or false based on server mode
   fetchRequest: request, // Fetch API Request object with SSRHelper attached
+  frontendAppConfig: Object.freeze(structuredClone(config)), // Cloned and frozen config
 }
 ```
 
@@ -208,20 +239,24 @@ The SSG generator populates the context during build:
   renderMode: "ssg",
   isDevelopment: false, // SSG is always production
   fetchRequest: request, // Fetch API Request object (no SSRHelper)
+  frontendAppConfig: Object.freeze(structuredClone(config)), // Cloned and frozen config
 }
 ```
 
 ### Client-Side
 
-When mounting on the client with `mountApp()`, defaults are provided:
+When mounting on the client with `mountApp()`, the context is populated from injected globals:
 
 ```typescript
 {
   renderMode: "client", // Default for pure SPA (SSR/SSG override this during hydration)
   isDevelopment: Boolean(import.meta.env.DEV), // Vite sets this: true in dev, false in production build
   fetchRequest: undefined, // No server request on client
+  frontendAppConfig: window.__FRONTEND_APP_CONFIG__, // Read from injected global (SSR/SSG) or undefined (pure SPA)
 }
 ```
+
+**Note:** The `frontendAppConfig` is automatically read from `window.__FRONTEND_APP_CONFIG__` which is injected into the HTML by the server during SSR/SSG. In pure SPA mode (no server rendering), this will be `undefined`.
 
 ## Use Cases
 
@@ -264,7 +299,40 @@ function MyPage() {
 }
 ```
 
-### 2. Environment-Specific Features
+### 2. Accessing Frontend Configuration
+
+```tsx
+function APIClient() {
+  const config = useFrontendAppConfig();
+
+  // Access public API configuration
+  const apiUrl = (config?.apiUrl as string) || "http://localhost:3000";
+  const cdnUrl = config?.cdnUrl as string;
+  const appVersion = config?.version as string;
+
+  return (
+    <div>
+      <p>API Endpoint: {apiUrl}</p>
+      <p>CDN: {cdnUrl || "Not configured"}</p>
+      <p>Version: {appVersion}</p>
+    </div>
+  );
+}
+
+function FeatureFlags() {
+  const config = useFrontendAppConfig();
+  const features = (config?.features as Record<string, boolean>) || {};
+
+  return (
+    <div>
+      {features.newUI && <NewUIComponent />}
+      {features.betaFeatures && <BetaFeaturesPanel />}
+    </div>
+  );
+}
+```
+
+### 3. Environment-Specific Features
 
 ```tsx
 function AnalyticsScript() {
@@ -305,6 +373,7 @@ import type { UnirendContextValue, UnirendRenderMode } from "unirend/client";
 //   renderMode: UnirendRenderMode;
 //   isDevelopment: boolean;
 //   fetchRequest?: Request;
+//   frontendAppConfig?: Record<string, unknown>;
 // }
 ```
 
@@ -316,7 +385,11 @@ import type { UnirendContextValue, UnirendRenderMode } from "unirend/client";
 4. **Type safety**: TypeScript will help you use the Request object correctly
 5. **SSR vs SSG**: Use `useIsServer()` to detect true SSR (with SSRHelper) vs SSG build-time rendering
 6. **Avoid hydration mismatches**: Don't directly render context values that differ between server and client (like `renderMode`, `fetchRequest`, `isDevelopment`) - use them for logic/behavior control, not for displayed content
-7. **Debugging only**: Context values are primarily useful for debugging and controlling behavior - avoid displaying them directly in your UI
+7. **Debugging values only**: Most context values are primarily useful for debugging and controlling behavior - avoid displaying them directly in your UI
+8. **Frontend app config best practices**:
+   - **Safe to display**: Unlike other context values, `frontendAppConfig` is **safe to render directly** because it's identical on server and client (injected into HTML and read back)
+   - **Immutable**: The config is frozen and cannot be modified, ensuring consistent behavior throughout the request lifecycle
+   - **Type assertions**: Use type assertions for better TypeScript support (e.g., `config?.apiUrl as string`)
 
 ## Related Documentation
 

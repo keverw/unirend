@@ -30,15 +30,30 @@ export interface UnirendContextValue {
    * Undefined on client-side after hydration
    */
   fetchRequest?: Request;
+
+  /**
+   * Frontend application configuration
+   * This is a frozen (immutable) copy of the config passed to the server
+   * Available on both server and client (injected into HTML during SSR/SSG)
+   */
+  frontendAppConfig?: Record<string, unknown>;
 }
 
 /**
- * Default context value for client-side (no server context)
+ * Default context value (React requirement for createContext)
+ *
+ * In practice, this default is rarely used because:
+ * - Server (SSR/SSG): Provides proper context values during rendering
+ * - Client: mountApp() reads window.__FRONTEND_APP_CONFIG__ and provides proper values
+ *
+ * This default only applies if context is accessed outside of proper providers,
+ * which shouldn't happen in normal usage.
  */
 const defaultContextValue: UnirendContextValue = {
   renderMode: "client", // Default to client-only (SSR/SSG override this)
   isDevelopment: false, // Default to production
   fetchRequest: undefined,
+  frontendAppConfig: undefined, // mountApp() reads from window.__FRONTEND_APP_CONFIG__
 };
 
 /**
@@ -246,4 +261,34 @@ export function useIsServer(): boolean {
 export function useFetchRequest(): Request | undefined {
   const { fetchRequest } = useContext(UnirendContext);
   return fetchRequest;
+}
+
+/**
+ * Hook to access the frontend application configuration
+ * This is a frozen (immutable) copy of the config passed to the server
+ * Available on both server and client
+ *
+ * @returns The frontend app config object, or undefined if not provided
+ *
+ * @example
+ * ```tsx
+ * function MyComponent() {
+ *   const config = useFrontendAppConfig();
+ *
+ *   if (!config) {
+ *     return <div>No config available</div>;
+ *   }
+ *
+ *   return (
+ *     <div>
+ *       <p>API URL: {config.apiUrl}</p>
+ *       <p>App Name: {config.appName}</p>
+ *     </div>
+ *   );
+ * }
+ * ```
+ */
+export function useFrontendAppConfig(): Record<string, unknown> | undefined {
+  const { frontendAppConfig } = useContext(UnirendContext);
+  return frontendAppConfig;
 }
