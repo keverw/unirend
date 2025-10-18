@@ -37,4 +37,5 @@ export {
   useFrontendAppConfig,
   useRequestContext,
   useRequestContextValue,
+  useRequestContextObjectRaw,
 } from "./lib/internal/UnirendContext";

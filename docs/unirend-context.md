@@ -16,6 +16,7 @@ The Unirend Context system provides React hooks to access render mode, developme
 - [Request Context Management](#request-context-management)
   - [`useRequestContext()`](#userequestcontext)
   - [`useRequestContextValue<T>(key)`](#userequestcontextvaluetkey)
+  - [`useRequestContextObjectRaw()`](#userequestcontextobjectraw)
   - [How Request Context Works](#how-request-context-works)
   - [Advanced Patterns](#advanced-patterns)
     - [Theme Management (Hydration-Safe)](#theme-management-hydration-safe)
@@ -58,6 +59,7 @@ import {
   useFrontendAppConfig,
   useRequestContext,
   useRequestContextValue,
+  useRequestContextObjectRaw,
 } from "unirend/client";
 ```
 
@@ -299,6 +301,51 @@ function UserProfile() {
 
 - Use `useRequestContextValue` when you need reactivity (component re-renders on value change)
 - Use `useRequestContext()` methods when you don't need reactivity (e.g., reading once, updating in callbacks)
+
+### `useRequestContextObjectRaw()`
+
+Hook to get the entire request context object for debugging purposes. Returns a cloned, immutable copy of the complete request context.
+
+**⚠️ Important:** This is primarily for debugging. Use `useRequestContextValue()` or `useRequestContext()` for production code.
+
+```typescript
+import { useRequestContextObjectRaw } from "unirend/client";
+```
+
+**Example:**
+
+```tsx
+function DebugPanel() {
+  const rawContext = useRequestContextObjectRaw();
+
+  if (!rawContext) {
+    return <div>Request context not populated</div>;
+  }
+
+  return (
+    <details>
+      <summary>Debug: Request Context</summary>
+      <pre>{JSON.stringify(rawContext, null, 2)}</pre>
+    </details>
+  );
+}
+```
+
+**Returns:** `Record<string, unknown> | undefined` - A cloned, frozen copy of the request context object
+
+**Key Features:**
+
+- **Cloned & Immutable**: Uses `structuredClone()` and `Object.freeze()` to prevent accidental mutations
+- **Reactive**: Updates when the request context changes
+- **Hydration Safe**: Only populates after client-side hydration to avoid SSR/client mismatches
+- **Cross-Environment**: Works in SSR, SSG, and client environments
+
+**When to use:**
+
+- **Debugging**: Inspect the entire context state during development
+- **Dev Tools**: Build debugging interfaces or development panels
+- **Testing**: Verify context state in tests
+- **Not for Production**: Use `useRequestContextValue()` or `useRequestContext()` for production features
 
 ### How Request Context Works
 

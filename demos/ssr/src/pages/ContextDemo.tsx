@@ -10,6 +10,7 @@ import {
   useFrontendAppConfig,
   useRequestContext,
   useRequestContextValue,
+  useRequestContextObjectRaw,
 } from "../../../../src/client";
 
 const ContextDemo: React.FC = () => {
@@ -33,6 +34,7 @@ const ContextDemo: React.FC = () => {
   const isServer = useIsServer();
   const frontendAppConfig = useFrontendAppConfig();
   const requestContext = useRequestContext();
+  const rawRequestContext = useRequestContextObjectRaw();
 
   // Store initial render values in request context (for debugging)
   // This runs on both server and client, storing what was seen at render time
@@ -228,6 +230,19 @@ const ContextDemo: React.FC = () => {
                       Available
                     </code>
                   </div>
+                  <div>
+                    <strong>useRequestContextObjectRaw():</strong>{" "}
+                    <code
+                      style={{
+                        backgroundColor: "rgba(0, 0, 0, 0.3)",
+                        padding: "0.25rem 0.5rem",
+                        borderRadius: "4px",
+                        color: "#fff",
+                      }}
+                    >
+                      {rawRequestContext ? "Populated" : "undefined"}
+                    </code>
+                  </div>
                 </div>
               </div>
             </>
@@ -382,6 +397,65 @@ const ContextDemo: React.FC = () => {
         </div>
 
         <div className="card">
+          <h2>🔍 Raw Request Context (Debug)</h2>
+          {!isHydrated ? (
+            <div
+              style={{
+                backgroundColor: "rgba(0, 0, 0, 0.2)",
+                padding: "1.5rem",
+                borderRadius: "8px",
+                marginTop: "1rem",
+                textAlign: "center",
+              }}
+            >
+              <p style={{ margin: 0, color: "rgba(255, 255, 255, 0.8)" }}>
+                Hydrating... Raw context will populate on client-side.
+              </p>
+            </div>
+          ) : (
+            <>
+              <p>
+                The raw request context object for debugging purposes via the{" "}
+                <code>useRequestContextObjectRaw()</code> hook. This returns a
+                cloned, immutable copy of the entire context.
+              </p>
+              <p
+                style={{
+                  marginTop: "1rem",
+                  fontStyle: "italic",
+                  fontSize: "0.9rem",
+                }}
+              >
+                <strong>Note:</strong> This is primarily for debugging. Use{" "}
+                <code>useRequestContextValue()</code> or{" "}
+                <code>useRequestContext()</code> for production code.
+              </p>
+              {rawRequestContext ? (
+                <pre
+                  style={{
+                    backgroundColor: "rgba(0, 0, 0, 0.3)",
+                    padding: "1rem",
+                    borderRadius: "4px",
+                    overflow: "auto",
+                    marginTop: "1rem",
+                    color: "#fff",
+                    fontFamily: "monospace",
+                    textAlign: "left",
+                    maxHeight: "300px",
+                  }}
+                >
+                  {JSON.stringify(rawRequestContext, null, 2)}
+                </pre>
+              ) : (
+                <p style={{ marginTop: "1rem", fontStyle: "italic" }}>
+                  Request context not populated.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="card">
           <h2>⚠️ Hydration Safety</h2>
           <p>
             To avoid hydration mismatches in SSR, this demo uses{" "}
@@ -517,6 +591,22 @@ const ContextDemo: React.FC = () => {
               <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
                 Returns [value, setValue] tuple for a reactive value stored in
                 request context by key.
+              </p>
+            </div>
+            <div>
+              <code
+                style={{
+                  backgroundColor: "rgba(0, 0, 0, 0.2)",
+                  padding: "0.25rem 0.5rem",
+                  borderRadius: "4px",
+                  color: "#fff",
+                }}
+              >
+                useRequestContextObjectRaw()
+              </code>
+              <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+                Returns a cloned, immutable copy of the entire request context
+                object for debugging purposes.
               </p>
             </div>
           </div>

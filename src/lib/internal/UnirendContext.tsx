@@ -400,6 +400,84 @@ export function useFrontendAppConfig(): Record<string, unknown> | undefined {
 }
 
 /**
+ * Helper to get the entire request context object
+ * Works across SSR, SSG, and client environments
+ */
+function getRequestContextObject(
+  context: UnirendContextValue,
+): Record<string, unknown> | undefined {
+  if (context.fetchRequest && hasSSRRequestContext(context.fetchRequest)) {
+    // SSR: Read from fastify request context
+    return context.fetchRequest.SSRHelpers.fastifyRequest.requestContext;
+  } else if (
+    context.fetchRequest &&
+    hasSSGRequestContext(context.fetchRequest)
+  ) {
+    // SSG: Read from SSG request context
+    return context.fetchRequest.SSGHelpers.requestContext;
+  } else if (hasWindowRequestContext()) {
+    // Client: Read from window global
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (window as any).__FRONTEND_REQUEST_CONTEXT__;
+  } else {
+    // No context available
+    return undefined;
+  }
+}
+
+/**
+ * Hook to get the raw request context object for debugging purposes.
+ * Returns a cloned, immutable copy of the entire request context.
+ *
+ * **Note:** This is primarily for debugging. Use `useRequestContextValue()`
+ * or `useRequestContext()` for production code.
+ *
+ * @returns A cloned copy of the request context object, or undefined if not populated
+ *
+ * @example
+ * ```tsx
+ * function DebugPanel() {
+ *   const rawContext = useRequestContextObjectRaw();
+ *
+ *   if (!rawContext) {
+ *     return <div>Request context not populated</div>;
+ *   }
+ *
+ *   return (
+ *     <pre>{JSON.stringify(rawContext, null, 2)}</pre>
+ *   );
+ * }
+ * ```
+ */
+export function useRequestContextObjectRaw():
+  | Record<string, unknown>
+  | undefined {
+  const context = useContext(UnirendContext);
+  const [rawContext, setRawContext] = useState<
+    Record<string, unknown> | undefined
+  >(() => {
+    // Get initial value on server
+    const contextObj = getRequestContextObject(context);
+    return contextObj ? Object.freeze(structuredClone(contextObj)) : undefined;
+  });
+
+  useEffect(() => {
+    // Update when context changes (reactive to modifications)
+    const contextObj = getRequestContextObject(context);
+
+    if (contextObj) {
+      // Create a cloned, immutable copy
+      const cloned = structuredClone(contextObj);
+      setRawContext(Object.freeze(cloned));
+    } else {
+      setRawContext(undefined);
+    }
+  }, [context.requestContextRevision, context]);
+
+  return rawContext;
+}
+
+/**
  * Request context management interface
  */
 export interface RequestContextManager {
