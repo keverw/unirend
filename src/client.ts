@@ -20,6 +20,7 @@ export type { MountAppOptions, MountAppResult } from "./lib/mountApp";
 export type {
   UnirendContextValue,
   UnirendRenderMode,
+  RequestContextManager,
 } from "./lib/internal/UnirendContext";
 
 // Client-safe functions
@@ -27,13 +28,13 @@ export { mountApp } from "./lib/mountApp";
 
 // Unirend context hooks
 export {
-  useUnirendContext,
   useIsSSR,
   useIsSSG,
   useIsClient,
   useRenderMode,
   useIsDevelopment,
   useIsServer,
-  useFetchRequest,
   useFrontendAppConfig,
+  useRequestContext,
+  useRequestContextValue,
 } from "./lib/internal/UnirendContext";

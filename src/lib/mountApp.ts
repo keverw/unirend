@@ -112,6 +112,7 @@ export function mountApp(
     isDevelopment: Boolean(import.meta.env.DEV), // Vite sets this: true in dev, false in production build
     fetchRequest: undefined, // No server request on client
     frontendAppConfig, // Config injected by server (SSR/SSG) or undefined (pure SPA)
+    requestContextRevision: "0-0", // Initial revision for client-side
   };
 
   // Wrap the router with configured options

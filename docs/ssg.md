@@ -3,6 +3,7 @@
 <!-- toc -->
 
 - [Creating Generation Script](#creating-generation-script)
+  - [Request Context Injection](#request-context-injection)
   - [Template Caching Info](#template-caching-info)
 - [Serving Static Files](#serving-static-files)
   - [URL Mismatch Considerations](#url-mismatch-considerations)

@@ -6,7 +6,7 @@ import {
   SSGPageReport,
   SSGReport,
   SSGLogger,
-  SSGHelper,
+  SSGHelpers,
 } from "./types";
 import path from "path";
 import {
@@ -299,14 +299,14 @@ export async function generateSSG(
         ? Object.freeze(structuredClone(options.frontendAppConfig))
         : undefined;
 
-      // Create SSGHelper with requestContext that can be populated during render
-      const ssgHelper: SSGHelper = {
+      // Create SSGHelpers with requestContext that can be populated during render
+      const SSGHelpers: SSGHelpers = {
         requestContext: {},
       };
 
-      // Attach SSGHelper to fetch request for access during rendering
-      (fetchRequest as Request & { ssgHelpers?: SSGHelper }).ssgHelpers =
-        ssgHelper;
+      // Attach SSGHelpers to fetch request for access during rendering
+      (fetchRequest as Request & { SSGHelpers?: SSGHelpers }).SSGHelpers =
+        SSGHelpers;
 
       const renderRequest: IRenderRequest = {
         type: "ssg",
@@ -316,6 +316,7 @@ export async function generateSSG(
           isDevelopment: false, // SSG is always production (build-time)
           fetchRequest: fetchRequest, // Fetch request available in SSG
           frontendAppConfig,
+          requestContextRevision: "0-0", // Initial revision for this page
         },
       };
 
@@ -332,8 +333,8 @@ export async function generateSSG(
 
         // Get the requestContext from ssgHelper (may have been populated during render)
         const requestContext = (
-          fetchRequest as Request & { ssgHelpers?: SSGHelper }
-        ).ssgHelpers?.requestContext;
+          fetchRequest as Request & { SSGHelpers?: SSGHelpers }
+        ).SSGHelpers?.requestContext;
 
         const htmlToWrite = injectContent(
           htmlTemplate,

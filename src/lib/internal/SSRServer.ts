@@ -5,7 +5,7 @@ import {
   ServeSSRProdOptions,
   SSRDevPaths,
   StaticContentRouterOptions,
-  type SSRHelper,
+  type SSRHelpers,
   type PluginMetadata,
   type APIResponseHelpersClass,
 } from "../types";
@@ -503,7 +503,7 @@ export class SSRServer extends BaseServer {
           );
 
           // Attach SSRHelper for server-only access in loaders
-          const ssrHelper: SSRHelper = {
+          const SSRHelpers: SSRHelpers = {
             fastifyRequest: request,
             controlledReply: createControlledReply(reply),
             handlers: this.pageDataHandlers,
@@ -511,16 +511,17 @@ export class SSRServer extends BaseServer {
           } as const;
 
           try {
-            Object.defineProperty(fetchRequest, "SSRHelper", {
-              value: ssrHelper,
+            Object.defineProperty(fetchRequest, "SSRHelpers", {
+              value: SSRHelpers,
               enumerable: false,
               configurable: false,
               writable: false,
             });
           } catch {
             // If defineProperty fails for any reason, fallback to direct assignment
-            (fetchRequest as unknown as { SSRHelper?: SSRHelper }).SSRHelper =
-              ssrHelper;
+            (
+              fetchRequest as unknown as { SSRHelpers?: SSRHelpers }
+            ).SSRHelpers = SSRHelpers;
           }
 
           // --- Render the App ---
@@ -540,6 +541,7 @@ export class SSRServer extends BaseServer {
                 isDevelopment: this.config.mode === "development",
                 fetchRequest: fetchRequest,
                 frontendAppConfig,
+                requestContextRevision: "0-0", // Initial revision for this request
               },
             });
 

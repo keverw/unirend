@@ -22,6 +22,7 @@
   - [Custom API Routes](#custom-api-routes)
     - [API route handler signature and parameters:](#api-route-handler-signature-and-parameters)
   - [Param Source Parity (Data Loader vs API Routes):](#param-source-parity-data-loader-vs-api-routes)
+  - [Request Context Injection](#request-context-injection)
 - [Standalone API (APIServer)](#standalone-api-apiserver)
   - [Basic usage](#basic-usage)
   - [Options](#options)
@@ -102,31 +103,6 @@ Notes:
 
 - `frontendAppConfig` is passed to the Unirend context and available via the `useFrontendAppConfig()` hook on both server (during rendering) and client (after HTML injection).
 - For accessing config in components vs non-component code (loaders), fallback patterns, and SPA-only dev mode considerations, see: [4. Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern).
-
-### Request Context Injection
-
-SSR supports injecting per-request context data that will be available on the client.
-
-**Request Context vs Frontend App Config:**
-
-- **Request Context**: Per-page data that can vary between requests and be mutated on the client (e.g., page-specific state, user preferences, theme)
-- **Frontend App Config**: Global, immutable configuration shared across all pages (e.g., API URLs, feature flags, build info)
-
-**How It Works:**
-
-The request context is shared across the entire request lifecycle and injected into the client HTML:
-
-**Server Backend (Plugins/Middleware/Handlers):**
-
-- Populate context by modifying `request.requestContext` in plugins, middleware, or route handlers
-- Useful for injecting request-specific metadata (e.g., user session data, request timestamps, debug info, default theme)
-- Example: In a plugin's `onRequest` or `preHandler` hook, set `request.requestContext.userID = "123"`
-
-**React Components (Server & Client):**
-
-- Components can read or update the context using Unirend Context hooks during server-side rendering and on the client
-- The context acts as a key-value store initially populated by the server that components can take over on the frontend
-- See [Unirend Context documentation](./unirend-context.md) for details on the available hooks and usage patterns
 
 ### Create Development SSR Server
 
@@ -493,6 +469,35 @@ Notes:
   - Data loader handlers: `params` are produced by the frontend page loader and sent in the POST body (SSR short-circuit passes the same shape internally for consistency). Treat this as the authoritative routing context for page data.
   - API route handlers: `params` are assembled on the server from Fastify’s request (route/query/path/URL). Use these directly for API endpoints.
 - In both cases, the best practices is to use `originalRequest` (the Fastify request) only for transport/ambient data (cookies/headers/IP/auth), and use `reply` for headers/cookies you want on the HTTP response. This also makes it easy to port code between the page data loader and API handlers.
+
+### Request Context Injection
+
+SSR supports injecting per-request context data that will be available on the client.
+
+**Request Context vs Frontend App Config:**
+
+- **Request Context**: Per-page data that can vary between requests and be mutated on the client (e.g., page-specific state, user preferences, theme)
+- **Frontend App Config**: Global, immutable configuration shared across all pages (e.g., API URLs, feature flags, build info)
+
+**How It Works:**
+
+The request context is shared across the entire request lifecycle and injected into the client HTML:
+
+**Server Backend (Plugins/Middleware/Handlers):**
+
+- Populate context by modifying `request.requestContext` in plugins, middleware, or route handlers
+- Useful for injecting request-specific metadata (e.g., user session data, request timestamps, debug info, default theme)
+- Example: In a plugin's `onRequest` or `preHandler` hook, set `request.requestContext.userID = "123"`
+
+**React Components (Server & Client):**
+
+- Components can read or update the context using Unirend Context hooks during server-side rendering and on the client
+- The context acts as a key-value store initially populated by the server that components can take over on the frontend
+- See [Unirend Context documentation](./unirend-context.md) for details on the available hooks and usage patterns
+
+**Common Use Cases:**
+
+For production-ready patterns including CSRF token management and hydration-safe theme consistency between server and client, see the [Advanced Patterns section](./unirend-context.md#advanced-patterns) in the Unirend Context documentation.
 
 ## Standalone API (APIServer)
 

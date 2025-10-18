@@ -185,7 +185,7 @@ import {
   BaseMeta,
   APIResponseEnvelope,
 } from "../api-envelope/api-envelope-types";
-import type { SSRHelper } from "../types";
+import type { SSRHelpers } from "../types";
 import {
   createBaseHeaders,
   createErrorResponse,
@@ -290,11 +290,12 @@ async function pageLoader({
 }: PageLoaderOptions): Promise<PageResponseEnvelope> {
   const isServer = typeof window === "undefined";
   // Unified development mode flag derived in order of precedence:
-  // 1) SSRHelper (authoritative on server), 2) config.isDevelopment, 3) NODE_ENV
-  const ssrHelper = (request as unknown as { SSRHelper?: SSRHelper }).SSRHelper;
+  // 1) SSRHelpers (authoritative on server), 2) config.isDevelopment, 3) NODE_ENV
+  const SSRHelpers = (request as unknown as { SSRHelpers?: SSRHelpers })
+    .SSRHelpers;
 
   const isDevelopment =
-    (isServer ? ssrHelper?.isDevelopment : undefined) ??
+    (isServer ? SSRHelpers?.isDevelopment : undefined) ??
     config.isDevelopment ??
     process.env.NODE_ENV === "development";
 
@@ -333,14 +334,14 @@ async function pageLoader({
   try {
     if (isServer) {
       if (DEBUG_PAGE_LOADER) {
-        const ssrHelper = (request as unknown as { SSRHelper?: SSRHelper })
+        const SSRHelpers = (request as unknown as { SSRHelper?: SSRHelpers })
           .SSRHelper;
-        const hasInternalHandler = !!ssrHelper?.handlers?.hasHandler(pageType);
+        const hasInternalHandler = !!SSRHelpers?.handlers?.hasHandler(pageType);
 
         // eslint-disable-next-line no-console
         console.log("[pageLoader] server-side data fetching decision", {
           pageType,
-          ssrHelperAttached: !!ssrHelper,
+          SSRHelpersAttached: !!SSRHelpers,
           hasInternalHandler,
           strategy: hasInternalHandler
             ? "internal_short_circuit"
@@ -349,13 +350,13 @@ async function pageLoader({
       }
 
       // If SSRHelper is available (not undefined) and there is a registered handler, try internal call first before falling back to HTTP fetch
-      if (ssrHelper?.handlers?.hasHandler(pageType)) {
+      if (SSRHelpers?.handlers?.hasHandler(pageType)) {
         // Note: internal_short_circuit selected
 
         try {
-          const outcome = await ssrHelper.handlers.callHandler({
-            originalRequest: ssrHelper.fastifyRequest,
-            controlledReply: ssrHelper.controlledReply,
+          const outcome = await SSRHelpers.handlers.callHandler({
+            originalRequest: SSRHelpers.fastifyRequest,
+            controlledReply: SSRHelpers.controlledReply,
             pageType,
             timeoutMs: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
             // Pass the exact same data that would be in the POST body

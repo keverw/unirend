@@ -34,7 +34,7 @@ export interface IRenderRequest {
 /**
  * Helper object attached to SSR Fetch Request for server-only context
  */
-export interface SSRHelper {
+export interface SSRHelpers {
   fastifyRequest: FastifyRequest;
   /** Controlled reply to allow handlers to set headers/cookies in short-circuit path */
   controlledReply: ControlledReply;
@@ -45,9 +45,9 @@ export interface SSRHelper {
 
 /**
  * Helper object attached to SSG Fetch Request for build-time context
- * Similar to SSRHelper but simplified for static generation
+ * Similar to SSRHelpers but simplified for static generation
  */
-export interface SSGHelper {
+export interface SSGHelpers {
   /** Request context object that can be populated and injected into the page */
   requestContext: Record<string, unknown>;
 }

@@ -1,4 +1,10 @@
-import React, { createContext, useContext, type ReactNode } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  type ReactNode,
+} from "react";
 
 /**
  * Render mode type - SSR, SSG, or Client
@@ -7,6 +13,151 @@ import React, { createContext, useContext, type ReactNode } from "react";
  * - "client": Client-side execution (SPA or after a SSG build/SSR page hydration occurs)
  */
 export type UnirendRenderMode = "ssr" | "ssg" | "client";
+
+/**
+ * Type guard to check if request has SSR helpers with request context
+ */
+function hasSSRRequestContext(request: Request): request is Request & {
+  SSRHelpers: {
+    fastifyRequest: { requestContext: Record<string, unknown> };
+  };
+} {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const helpers = (request as any).SSRHelpers;
+
+  return (
+    "SSRHelpers" in request &&
+    typeof helpers === "object" &&
+    helpers !== null &&
+    "fastifyRequest" in helpers &&
+    typeof helpers.fastifyRequest === "object" &&
+    helpers.fastifyRequest !== null &&
+    "requestContext" in helpers.fastifyRequest &&
+    typeof helpers.fastifyRequest.requestContext === "object"
+  );
+}
+
+/**
+ * Type guard to check if request has SSG helpers with request context
+ */
+function hasSSGRequestContext(request: Request): request is Request & {
+  SSGHelpers: { requestContext: Record<string, unknown> };
+} {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const helpers = (request as any).SSGHelpers;
+
+  return (
+    "SSGHelpers" in request &&
+    typeof helpers === "object" &&
+    helpers !== null &&
+    "requestContext" in helpers &&
+    typeof helpers.requestContext === "object"
+  );
+}
+
+/**
+ * Type guard to check if window has request context
+ */
+function hasWindowRequestContext(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ctx = (window as any).__FRONTEND_REQUEST_CONTEXT__;
+
+  return "__FRONTEND_REQUEST_CONTEXT__" in window && typeof ctx === "object";
+}
+
+/**
+ * Helper to get a value from request context storage
+ * Works across SSR, SSG, and client environments
+ */
+function getRequestContextValue(
+  context: UnirendContextValue,
+  key: string,
+): unknown {
+  if (context.fetchRequest && hasSSRRequestContext(context.fetchRequest)) {
+    // SSR: Read from fastify request context
+    return context.fetchRequest.SSRHelpers.fastifyRequest.requestContext[key];
+  } else if (
+    context.fetchRequest &&
+    hasSSGRequestContext(context.fetchRequest)
+  ) {
+    // SSG: Read from SSG request context
+    return context.fetchRequest.SSGHelpers.requestContext[key];
+  } else if (hasWindowRequestContext()) {
+    // Client: Read from window global
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (window as any).__FRONTEND_REQUEST_CONTEXT__[key];
+  } else {
+    // No context available
+    return undefined;
+  }
+}
+
+/**
+ * Helper to set a value in request context storage
+ * Works across SSR, SSG, and client environments
+ * Automatically increments the revision counter to trigger reactivity
+ */
+function setRequestContextValue(
+  context: UnirendContextValue,
+  key: string,
+  value: unknown,
+): void {
+  if (context.fetchRequest && hasSSRRequestContext(context.fetchRequest)) {
+    // SSR: Write to fastify request context
+    context.fetchRequest.SSRHelpers.fastifyRequest.requestContext[key] = value;
+    incrementContextRevision(context);
+  } else if (
+    context.fetchRequest &&
+    hasSSGRequestContext(context.fetchRequest)
+  ) {
+    // SSG: Write to SSG request context
+    context.fetchRequest.SSGHelpers.requestContext[key] = value;
+    incrementContextRevision(context);
+  } else if (hasWindowRequestContext()) {
+    // Client: Write to window global
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__FRONTEND_REQUEST_CONTEXT__[key] = value;
+    incrementContextRevision(context);
+  } else {
+    // No context available - create one on window for client-side
+    if (typeof window !== "undefined") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).__FRONTEND_REQUEST_CONTEXT__ = { [key]: value };
+      incrementContextRevision(context);
+    } else {
+      // Server-side with no context - this shouldn't happen in normal usage
+      throw new Error(
+        "Cannot set request context: no context available (server-side without SSR/SSG helpers)",
+      );
+    }
+  }
+}
+
+/**
+ * Helper to increment the request context revision counter
+ * Reads the current revision from context, parses it, and generates a new unique revision
+ * Format: `${timestamp}-${counter}` (e.g., "1729123456789-0", "1729123456789-1")
+ */
+function incrementContextRevision(context: UnirendContextValue): void {
+  const currentRevision = context.requestContextRevision || "0-0";
+  const [timestampStr, counterStr] = currentRevision.split("-");
+  const lastTimestamp = parseInt(timestampStr, 10);
+  const lastCounter = parseInt(counterStr, 10);
+
+  const now = Date.now();
+
+  // If we're in a new millisecond, reset counter to 0
+  // Otherwise, increment the counter
+  if (now !== lastTimestamp) {
+    context.requestContextRevision = `${now}-0`;
+  } else {
+    context.requestContextRevision = `${now}-${lastCounter + 1}`;
+  }
+}
 
 /**
  * Unirend context value type
@@ -37,6 +188,14 @@ export interface UnirendContextValue {
    * Available on both server and client (injected into HTML during SSR/SSG)
    */
   frontendAppConfig?: Record<string, unknown>;
+
+  /**
+   * Request context revision counter for reactivity
+   * Format: `${timestamp}-${counter}` (e.g., "1729123456789-0", "1729123456789-1")
+   * Increments whenever request context is modified to trigger re-renders
+   * @internal
+   */
+  requestContextRevision?: string;
 }
 
 /**
@@ -54,6 +213,7 @@ const defaultContextValue: UnirendContextValue = {
   isDevelopment: false, // Default to production
   fetchRequest: undefined,
   frontendAppConfig: undefined, // mountApp() reads from window.__FRONTEND_APP_CONFIG__
+  requestContextRevision: "0-0", // Initial revision
 };
 
 /**
@@ -83,30 +243,6 @@ export function UnirendProvider({ children, value }: UnirendProviderProps) {
   return (
     <UnirendContext.Provider value={value}>{children}</UnirendContext.Provider>
   );
-}
-
-/**
- * Hook to access the full Unirend context
- *
- * @returns The complete Unirend context value
- *
- * @example
- * ```tsx
- * function MyComponent() {
- *   const { renderMode, isDevelopment, fetchRequest } = useUnirendContext();
- *
- *   return (
- *     <div>
- *       <p>Render Mode: {renderMode}</p>
- *       <p>Development: {isDevelopment ? 'Yes' : 'No'}</p>
- *       {fetchRequest && <p>Request URL: {fetchRequest.url}</p>}
- *     </div>
- *   );
- * }
- * ```
- */
-export function useUnirendContext(): UnirendContextValue {
-  return useContext(UnirendContext);
 }
 
 /**
@@ -234,36 +370,6 @@ export function useIsServer(): boolean {
 }
 
 /**
- * Hook to access the Fetch API Request object
- * Available during SSR and SSG generation, undefined on client after hydration
- *
- * @returns The Request object if during SSR/SSG, undefined if on client
- *
- * @example
- * ```tsx
- * function MyComponent() {
- *   const request = useFetchRequest();
- *
- *   if (!request) {
- *     return <div>Client-side rendering</div>;
- *   }
- *
- *   return (
- *     <div>
- *       <p>Request URL: {request.url}</p>
- *       <p>Request Method: {request.method}</p>
- *       <p>Headers: {request.headers.get('user-agent')}</p>
- *     </div>
- *   );
- * }
- * ```
- */
-export function useFetchRequest(): Request | undefined {
-  const { fetchRequest } = useContext(UnirendContext);
-  return fetchRequest;
-}
-
-/**
  * Hook to access the frontend application configuration
  * This is a frozen (immutable) copy of the config passed to the server
  * Available on both server and client
@@ -291,4 +397,305 @@ export function useFetchRequest(): Request | undefined {
 export function useFrontendAppConfig(): Record<string, unknown> | undefined {
   const { frontendAppConfig } = useContext(UnirendContext);
   return frontendAppConfig;
+}
+
+/**
+ * Request context management interface
+ */
+export interface RequestContextManager {
+  /**
+   * Get a value from the request context
+   * @param key - The key to retrieve
+   * @returns The value associated with the key, or undefined if not found
+   */
+  get: (key: string) => unknown;
+
+  /**
+   * Set a value in the request context
+   * @param key - The key to set
+   * @param value - The value to associate with the key
+   */
+  set: (key: string, value: unknown) => void;
+
+  /**
+   * Check if a key exists in the request context
+   * @param key - The key to check
+   * @returns true if the key exists, false otherwise
+   */
+  has: (key: string) => boolean;
+
+  /**
+   * Delete a value from the request context
+   * @param key - The key to delete
+   * @returns true if the key existed and was deleted, false if it didn't exist
+   */
+  delete: (key: string) => boolean;
+
+  /**
+   * Clear all values from the request context
+   * @returns The number of keys that were cleared
+   */
+  clear: () => number;
+
+  /**
+   * Get all keys from the request context
+   * @returns An array of all keys
+   */
+  keys: () => string[];
+
+  /**
+   * Get the number of entries in the request context
+   * @returns The number of key-value pairs
+   */
+  size: () => number;
+}
+
+/**
+ * Hook to access and manage the request context
+ *
+ * Returns an object with methods to get, set, check, delete, and inspect
+ * the request context. The returned methods can be safely called in callbacks,
+ * effects, or event handlers.
+ *
+ * @returns RequestContextManager object with context management methods
+ *
+ * @example
+ * ```tsx
+ * function MyComponent() {
+ *   const requestContext = useRequestContext();
+ *
+ *   const handleThemeChange = (theme: string) => {
+ *     requestContext.set('theme', theme);
+ *   };
+ *
+ *   const userID = requestContext.get('userID');
+ *   const hasTheme = requestContext.has('theme');
+ *   const allKeys = requestContext.keys();
+ *
+ *   return (
+ *     <div>
+ *       <p>User ID: {userID}</p>
+ *       <p>Has theme: {hasTheme ? 'Yes' : 'No'}</p>
+ *       <p>Total entries: {requestContext.size()}</p>
+ *       <button onClick={() => handleThemeChange('dark')}>Dark Theme</button>
+ *       <button onClick={() => requestContext.clear()}>Clear All</button>
+ *     </div>
+ *   );
+ * }
+ * ```
+ */
+export function useRequestContext(): RequestContextManager {
+  const context = useContext(UnirendContext);
+
+  return {
+    get: (key: string): unknown => {
+      return getRequestContextValue(context, key);
+    },
+    set: (key: string, value: unknown): void => {
+      setRequestContextValue(context, key, value);
+    },
+    has: (key: string): boolean => {
+      // Try SSR first - check if we have SSR helpers with request context
+      if (context.fetchRequest && hasSSRRequestContext(context.fetchRequest)) {
+        // SSR: Check if key exists in fastify request context
+        return (
+          key in context.fetchRequest.SSRHelpers.fastifyRequest.requestContext
+        );
+      } else if (
+        // Try SSG - check if we have SSG helpers with request context
+        context.fetchRequest &&
+        hasSSGRequestContext(context.fetchRequest)
+      ) {
+        // SSG: Check if key exists in SSG request context
+        return key in context.fetchRequest.SSGHelpers.requestContext;
+      } else if (hasWindowRequestContext()) {
+        // Client: Check if key exists in window global
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return key in (window as any).__FRONTEND_REQUEST_CONTEXT__;
+      } else {
+        // No context available
+        return false;
+      }
+    },
+    delete: (key: string): boolean => {
+      let existed = false;
+
+      // Try SSR first - check if we have SSR helpers with request context
+      if (context.fetchRequest && hasSSRRequestContext(context.fetchRequest)) {
+        // SSR: Delete from fastify request context
+        existed =
+          key in context.fetchRequest.SSRHelpers.fastifyRequest.requestContext;
+        delete context.fetchRequest.SSRHelpers.fastifyRequest.requestContext[
+          key
+        ];
+      } else if (
+        // Try SSG - check if we have SSG helpers with request context
+        context.fetchRequest &&
+        hasSSGRequestContext(context.fetchRequest)
+      ) {
+        // SSG: Delete from SSG request context
+        existed = key in context.fetchRequest.SSGHelpers.requestContext;
+        delete context.fetchRequest.SSGHelpers.requestContext[key];
+      } else if (hasWindowRequestContext()) {
+        // Client: Delete from window global
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ctx = (window as any).__FRONTEND_REQUEST_CONTEXT__;
+        existed = key in ctx;
+        delete ctx[key];
+      }
+
+      // Increment revision to trigger re-renders if key existed
+      if (existed) {
+        incrementContextRevision(context);
+      }
+
+      return existed;
+    },
+    clear: (): number => {
+      let count = 0;
+
+      // Try SSR first - check if we have SSR helpers with request context
+      if (context.fetchRequest && hasSSRRequestContext(context.fetchRequest)) {
+        // SSR: Clear all keys from fastify request context
+        const ctx =
+          context.fetchRequest.SSRHelpers.fastifyRequest.requestContext;
+        const keys = Object.keys(ctx);
+        count = keys.length;
+
+        // Delete each key individually to preserve object reference
+        for (const key of keys) {
+          delete ctx[key];
+        }
+      } else if (
+        // Try SSG - check if we have SSG helpers with request context
+        context.fetchRequest &&
+        hasSSGRequestContext(context.fetchRequest)
+      ) {
+        // SSG: Clear all keys from SSG request context
+        const ctx = context.fetchRequest.SSGHelpers.requestContext;
+        const keys = Object.keys(ctx);
+        count = keys.length;
+
+        // Delete each key individually to preserve object reference
+        for (const key of keys) {
+          delete ctx[key];
+        }
+      } else if (hasWindowRequestContext()) {
+        // Client: Clear all keys from window global
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ctx = (window as any).__FRONTEND_REQUEST_CONTEXT__;
+        const keys = Object.keys(ctx);
+        count = keys.length;
+
+        // Delete each key individually to preserve object reference
+        for (const key of keys) {
+          delete ctx[key];
+        }
+      }
+
+      // Increment revision to trigger re-renders if any keys were cleared
+      if (count > 0) {
+        incrementContextRevision(context);
+      }
+
+      return count;
+    },
+    keys: (): string[] => {
+      // Try SSR first - check if we have SSR helpers with request context
+      if (context.fetchRequest && hasSSRRequestContext(context.fetchRequest)) {
+        // SSR: Return keys from fastify request context
+        return Object.keys(
+          context.fetchRequest.SSRHelpers.fastifyRequest.requestContext,
+        );
+      } else if (
+        // Try SSG - check if we have SSG helpers with request context
+        context.fetchRequest &&
+        hasSSGRequestContext(context.fetchRequest)
+      ) {
+        // SSG: Return keys from SSG request context
+        return Object.keys(context.fetchRequest.SSGHelpers.requestContext);
+      } else if (hasWindowRequestContext()) {
+        // Client: Return keys from window global
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return Object.keys((window as any).__FRONTEND_REQUEST_CONTEXT__);
+      } else {
+        // No context available - return empty array
+        return [];
+      }
+    },
+    size: (): number => {
+      // Try SSR first - check if we have SSR helpers with request context
+      if (context.fetchRequest && hasSSRRequestContext(context.fetchRequest)) {
+        // SSR: Return count of keys from fastify request context
+        return Object.keys(
+          context.fetchRequest.SSRHelpers.fastifyRequest.requestContext,
+        ).length;
+      } else if (
+        // Try SSG - check if we have SSG helpers with request context
+        context.fetchRequest &&
+        hasSSGRequestContext(context.fetchRequest)
+      ) {
+        // SSG: Return count of keys from SSG request context
+        return Object.keys(context.fetchRequest.SSGHelpers.requestContext)
+          .length;
+      } else if (hasWindowRequestContext()) {
+        // Client: Return count of keys from window global
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return Object.keys((window as any).__FRONTEND_REQUEST_CONTEXT__).length;
+      } else {
+        // No context available - return 0
+        return 0;
+      }
+    },
+  };
+}
+
+/**
+ * Hook to access and reactively update a single request context value
+ *
+ * Similar to useState, this hook returns a tuple of [value, setValue] and will
+ * cause the component to re-render when the value changes.
+ *
+ * @param key - The key to track in the request context
+ * @returns A tuple of [value, setValue] similar to useState
+ *
+ * @example
+ * ```tsx
+ * function ThemeToggle() {
+ *   const [theme, setTheme] = useRequestContextValue<string>('theme');
+ *
+ *   return (
+ *     <div>
+ *       <p>Current theme: {theme || 'default'}</p>
+ *       <button onClick={() => setTheme('dark')}>Dark</button>
+ *       <button onClick={() => setTheme('light')}>Light</button>
+ *     </div>
+ *   );
+ * }
+ * ```
+ */
+export function useRequestContextValue<T = unknown>(
+  key: string,
+): [T | undefined, (value: T) => void] {
+  const context = useContext(UnirendContext);
+
+  // State to track the current value
+  const [value, setValue] = useState<T | undefined>(
+    () => getRequestContextValue(context, key) as T | undefined,
+  );
+
+  // Effect to sync value when requestContextRevision changes (from other components)
+  // We intentionally only depend on requestContextRevision, not key
+  useEffect(() => {
+    setValue(getRequestContextValue(context, key) as T | undefined);
+  }, [context.requestContextRevision, context, key]);
+
+  // Setter function that updates storage and increments revision
+  const setContextValue = (newValue: T): void => {
+    setRequestContextValue(context, key, newValue);
+    // Update local state immediately for this component
+    setValue(newValue);
+  };
+
+  return [value, setContextValue];
 }
