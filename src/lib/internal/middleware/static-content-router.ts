@@ -375,7 +375,10 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
 
       if (!matches) {
         // Malformed range header
-        return reply.code(400).send({ error: "Invalid range header format" });
+        return reply
+          .code(400)
+          .header("Cache-Control", "no-store")
+          .send({ error: "Invalid range header format" });
       }
 
       // Extract range values
@@ -396,6 +399,7 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
         // Invalid range
         return reply
           .code(416) // Range Not Satisfiable
+          .header("Cache-Control", "no-store")
           .header("Content-Range", `bytes */${stat.size}`)
           .send({ error: "Range not satisfiable" });
       }

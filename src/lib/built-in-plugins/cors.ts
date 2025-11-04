@@ -645,7 +645,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
 
           // Return 403 for disallowed origins on preflight
           if (!originAllowed && origin) {
-            reply.status(403);
+            reply.code(403).header("Cache-Control", "no-store");
             return reply.send({ error: "Origin not allowed by CORS policy" });
           }
 
@@ -826,7 +826,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
               reply.header("Access-Control-Allow-Origin", "*");
             }
 
-            reply.status(resolvedConfig.optionsSuccessStatus);
+            reply.code(resolvedConfig.optionsSuccessStatus);
             return reply.send();
           }
         }

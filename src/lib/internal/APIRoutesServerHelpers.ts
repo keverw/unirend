@@ -373,7 +373,12 @@ export class APIRoutesServerHelpers<
               throw error;
             }
 
-            reply.status(envelope.status_code);
+            reply.code(envelope.status_code);
+
+            if (envelope.status_code >= 400) {
+              reply.header("Cache-Control", "no-store");
+            }
+
             return envelope;
           };
 

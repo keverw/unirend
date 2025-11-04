@@ -317,13 +317,25 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
                     "Access denied: This domain is not authorized to access this server",
                 };
 
-          // Set appropriate content type and send response
+          // Set appropriate content type and send response (do not cache)
           if (response.contentType === "json") {
-            reply.code(403).type("application/json").send(response.content);
+            reply
+              .code(403)
+              .header("Cache-Control", "no-store")
+              .type("application/json")
+              .send(response.content);
           } else if (response.contentType === "html") {
-            reply.code(403).type("text/html").send(response.content);
+            reply
+              .code(403)
+              .header("Cache-Control", "no-store")
+              .type("text/html")
+              .send(response.content);
           } else if (response.contentType === "text") {
-            reply.code(403).type("text/plain").send(response.content);
+            reply
+              .code(403)
+              .header("Cache-Control", "no-store")
+              .type("text/plain")
+              .send(response.content);
           }
           return;
         }

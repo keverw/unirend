@@ -104,6 +104,10 @@ Notes:
 - `frontendAppConfig` is passed to the Unirend context and available via the `useFrontendAppConfig()` hook on both server (during rendering) and client (after HTML injection).
 - For accessing config in components vs non-component code (loaders), fallback patterns, and SPA-only dev mode considerations, see: [4. Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern).
 
+Host binding:
+
+- For local development, `localhost` is fine. In containers or Kubernetes, bind to `0.0.0.0` (e.g., `await server.listen(port, "0.0.0.0")`) so the process is reachable from outside the container.
+
 ### Create Development SSR Server
 
 Use `serveSSRDev(paths, options)` to run the SSR server in development with Vite middleware and HMR:

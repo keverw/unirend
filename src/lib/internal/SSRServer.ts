@@ -294,6 +294,7 @@ export class SSRServer extends BaseServer {
               reply
                 .code(500)
                 .header("Content-Type", "text/html")
+                .header("Cache-Control", "no-store")
                 .send(errorPage);
             }
           }
@@ -453,8 +454,24 @@ export class SSRServer extends BaseServer {
             {
               method: request.method,
               headers: (() => {
-                // Create a new Headers object from the request headers
-                const headers = new Headers(request.headers as HeadersInit);
+                // Safely construct Headers from Fastify request headers, normalizing string | string[]
+                const headers = new Headers();
+                const reqHeaders = request.headers as Record<
+                  string,
+                  string | string[] | undefined
+                >;
+
+                for (const key in reqHeaders) {
+                  const value = reqHeaders[key];
+
+                  if (typeof value === "string") {
+                    headers.set(key, value);
+                  } else if (Array.isArray(value)) {
+                    for (const v of value) {
+                      headers.append(key, v);
+                    }
+                  }
+                }
 
                 // First, delete any sensitive SSR headers that might be present in the client request
                 // This prevents clients from spoofing these secure headers
@@ -615,6 +632,10 @@ export class SSRServer extends BaseServer {
               );
 
               // ---> Send response with the extracted status code
+              if (statusCode >= 400) {
+                reply.header("Cache-Control", "no-store");
+              }
+
               reply
                 .code(statusCode)
                 .header("Content-Type", "text/html")
@@ -625,6 +646,11 @@ export class SSRServer extends BaseServer {
               // If React Router returned a Response (redirect/error as a response), handle it
               // Forward status and headers
               reply.code(renderResult.response.status);
+
+              // Apply no-store for all 4xx/5xx in SSR Response path
+              if (renderResult.response.status >= 400) {
+                reply.header("Cache-Control", "no-store");
+              }
 
               // Forward headers safe for redirects/responses
               for (const [key, value] of renderResult.response
@@ -1101,7 +1127,11 @@ export class SSRServer extends BaseServer {
 
     // Generate and send error page (handles dev vs prod internally)
     const errorPage = await this.generate500ErrorPage(request, error);
-    reply.code(500).header("Content-Type", "text/html").send(errorPage);
+    reply
+      .code(500)
+      .header("Content-Type", "text/html")
+      .header("Cache-Control", "no-store")
+      .send(errorPage);
   }
 
   /**
@@ -1182,7 +1212,7 @@ export class SSRServer extends BaseServer {
 
         // Extract status code from envelope response
         const statusCode = customResponse.status_code || 500;
-        reply.status(statusCode);
+        reply.code(statusCode).header("Cache-Control", "no-store");
 
         return reply.send(customResponse);
       } catch (handlerError) {
@@ -1196,7 +1226,7 @@ export class SSRServer extends BaseServer {
 
     // Default case
     const statusCode = (error as FastifyError).statusCode || 500;
-    reply.status(statusCode);
+    reply.code(statusCode).header("Cache-Control", "no-store");
 
     // Default API error response using shared utility
     const response = createDefaultAPIErrorResponse(
@@ -1238,7 +1268,7 @@ export class SSRServer extends BaseServer {
 
         // Extract status code from envelope response
         const statusCode = customResponse.status_code || 404;
-        reply.status(statusCode);
+        reply.code(statusCode).header("Cache-Control", "no-store");
 
         return reply.send(customResponse);
       } catch (handlerError) {
@@ -1252,7 +1282,7 @@ export class SSRServer extends BaseServer {
 
     // Default case
     const statusCode = 404;
-    reply.status(statusCode);
+    reply.code(statusCode).header("Cache-Control", "no-store");
 
     // Default API not-found response using shared utility
     const response = createDefaultAPINotFoundResponse(

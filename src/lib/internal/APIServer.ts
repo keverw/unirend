@@ -352,7 +352,11 @@ export class APIServer extends BaseServer {
 
           // Extract status code from envelope response
           const statusCode = errorResponse.status_code || 500;
-          reply.status(statusCode);
+          reply.code(statusCode);
+
+          if (statusCode >= 400) {
+            reply.header("Cache-Control", "no-store");
+          }
 
           return errorResponse;
         } catch (handlerError) {
@@ -366,7 +370,11 @@ export class APIServer extends BaseServer {
 
       // Default case
       const statusCode = error.statusCode || 500;
-      reply.status(statusCode);
+      reply.code(statusCode);
+
+      if (statusCode >= 400) {
+        reply.header("Cache-Control", "no-store");
+      }
 
       const response = createDefaultAPIErrorResponse(
         this.APIResponseHelpersClass,
@@ -400,14 +408,14 @@ export class APIServer extends BaseServer {
 
         // Extract status code from envelope response
         const statusCode = custom.status_code || 404;
-        reply.status(statusCode);
+        reply.code(statusCode).header("Cache-Control", "no-store");
 
         return reply.send(custom);
       }
 
       // Default case
       const statusCode = 404;
-      reply.status(statusCode);
+      reply.code(statusCode).header("Cache-Control", "no-store");
 
       const response = createDefaultAPINotFoundResponse(
         this.APIResponseHelpersClass,

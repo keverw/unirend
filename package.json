@@ -28,13 +28,22 @@
       "types": "./dist/api-envelope/api-envelope.d.ts",
       "import": "./dist/api-envelope/api-envelope.mjs",
       "require": "./dist/api-envelope/api-envelope.js"
+    },
+    "./starter-templates": {
+      "types": "./dist/starter-templates/starter-templates.d.ts",
+      "import": "./dist/starter-templates/starter-templates.mjs",
+      "require": "./dist/starter-templates/starter-templates.js"
     }
+  },
+  "bin": {
+    "unirend": "./dist/cli/cli.js"
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "bun run update-docs && tsup",
+    "sync-version": "bun run scripts/sync-version.ts",
+    "build": "bun run sync-version && bun run update-docs && tsup",
     "test": "bun test",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,scss,md,html}\"",
     "lint": "eslint src",
@@ -55,7 +64,9 @@
     "ssr-serve-dev": "cd demos/ssr && bun run serve.ts dev",
     "ssr-serve-prod": "cd demos/ssr && bun run serve.ts prod",
     "ssr-build-and-serve-prod": "bun run ssr-build && bun run ssr-serve-prod",
-    "api-demo": "bun run demos/api-server-demo.ts"
+    "api-demo": "bun run demos/api-server-demo.ts",
+    "run-dist-cli": "bun ./dist/cli/cli.js",
+    "run-dev-cli": "bun run src/cli.ts"
   },
   "keywords": [
     "ssg",
@@ -69,6 +80,9 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/keverw/unirend"
+  },
+  "engines": {
+    "node": ">=18.17.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.31.0",

@@ -103,6 +103,18 @@ export default defineConfig([
     external: allExternals, // Externalize everything for NPM distribution
   },
 
+  // Starter templates (project generation)
+  {
+    entry: ["src/starter-templates.ts"],
+    outDir: "dist/starter-templates",
+    format: ["cjs", "esm"],
+    dts: true,
+    splitting: false,
+    sourcemap: true,
+    clean: true, // Safe to clean since it's in its own subdirectory
+    external: allExternals,
+  },
+
   // Build info (server-side)
   {
     entry: ["src/build-info.ts"],
@@ -112,6 +124,18 @@ export default defineConfig([
     splitting: false,
     sourcemap: true,
     clean: true, // Safe to clean since it's in its own subdirectory
+    external: allExternals,
+  },
+
+  // CLI entry point (no shebang - run with bun/node)
+  {
+    entry: ["src/cli.ts"],
+    outDir: "dist/cli",
+    format: ["esm"], // CLI only needs ESM since package.json has "type": "module"
+    dts: false, // CLI doesn't need type definitions
+    splitting: false,
+    sourcemap: false, // CLI doesn't need sourcemaps
+    clean: true,
     external: allExternals,
   },
 ]);

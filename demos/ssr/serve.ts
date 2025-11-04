@@ -609,6 +609,10 @@ Sample Data:
 /**
  * A reusable handler for processing file uploads with validation.
  * This consolidates the logic for avatars, documents, and media.
+ *
+ * Note: This handler is only used by POST upload routes below.
+ * Since POST responses are typically not cached by intermediaries,
+ * we do not add Cache-Control: no-store headers here.
  */
 async function handleFileUpload(
   request: FastifyRequest,
@@ -773,7 +777,7 @@ const fileUploadPlugin: ServerPlugin = async (
       );
 
       if (isMultipart && !isDefinedUploadRoute) {
-        return reply.code(400).send({
+        return reply.code(400).header("Cache-Control", "no-store").send({
           error: "Multipart data not allowed on this endpoint",
           message:
             "Multipart uploads only allowed on specific, configured routes",

@@ -201,6 +201,7 @@ export class WebSocketServerHelpers {
         // Early bail if invalid upgrade attempt
         await reply
           .code(400)
+          .header("Cache-Control", "no-store")
           .send({ error: "Invalid Connection header for upgrade" });
         return;
       }
@@ -228,6 +229,11 @@ export class WebSocketServerHelpers {
         upgradeInfo.hasPreValidator = false;
 
         const notFoundEnvelope = this.createNotFoundEnvelope(request, path);
+
+        if (notFoundEnvelope.status_code >= 400) {
+          reply.header("Cache-Control", "no-store");
+        }
+
         reply.code(notFoundEnvelope.status_code).send(notFoundEnvelope);
         return;
       }
@@ -266,6 +272,10 @@ export class WebSocketServerHelpers {
             throw error;
           }
 
+          if (envelope.status_code >= 400) {
+            reply.header("Cache-Control", "no-store");
+          }
+
           reply.code(envelope.status_code).send(envelope);
           return;
         }
@@ -282,6 +292,11 @@ export class WebSocketServerHelpers {
         upgradeInfo.error =
           error instanceof Error ? error : new Error(String(error));
         const errorEnvelope = this.createErrorEnvelope(request, error);
+
+        if (errorEnvelope.status_code >= 400) {
+          reply.header("Cache-Control", "no-store");
+        }
+
         reply.code(errorEnvelope.status_code).send(errorEnvelope);
       }
     });

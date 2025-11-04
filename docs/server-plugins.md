@@ -389,7 +389,10 @@ const RateLimitPlugin = (config: { maxRequests: number; windowMs: number }) => {
       requestCounts.set(clientIP, clientData);
 
       if (clientData.count > config.maxRequests) {
-        return reply.code(429).send({ error: "Too many requests" });
+        return reply
+          .code(429)
+          .header("Cache-Control", "no-store")
+          .send({ error: "Too many requests" });
       }
     });
   };
@@ -416,14 +419,20 @@ const authPlugin: ServerPlugin = async (pluginHost, options) => {
       const token = request.headers.authorization?.replace("Bearer ", "");
 
       if (!token) {
-        return reply.code(401).send({ error: "Missing authorization token" });
+        return reply
+          .code(401)
+          .header("Cache-Control", "no-store")
+          .send({ error: "Missing authorization token" });
       }
 
       try {
         const user = await verifyToken(token);
         (request as any).user = user;
       } catch (error) {
-        return reply.code(401).send({ error: "Invalid token" });
+        return reply
+          .code(401)
+          .header("Cache-Control", "no-store")
+          .send({ error: "Invalid token" });
       }
     }
   });
@@ -653,6 +662,8 @@ pluginHost.post("/api/data", async (request, reply) => {
   }
 });
 ```
+
+Tip: For error responses (status >= 400), consider `reply.header("Cache-Control", "no-store")` to avoid intermediaries caching transient failures — especially for GET/HEAD. This is typically unnecessary for POST/PUT/PATCH/DELETE.
 
 ### 3. Use Environment-Specific Logic
 

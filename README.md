@@ -24,6 +24,11 @@ npm install react react-dom react-helmet-async react-router vite
 
 Unirend includes Fastify as a regular dependency for server side rendering and API server, so you don't need to install it separately.
 
+### Runtime requirements
+
+- Node >= 18.17.0 (uses Web Fetch APIs, `structuredClone`, and `AbortSignal.timeout`)
+- Or Bun with equivalent APIs
+
 <!-- toc -->
 
 - [Installation](#installation)

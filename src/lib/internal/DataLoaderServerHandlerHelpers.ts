@@ -287,7 +287,11 @@ export class DataLoaderServerHandlerHelpers {
             }
 
             // Set HTTP status code from the envelope response
-            reply.status(result.status_code);
+            reply.code(result.status_code);
+
+            if (result.status_code >= 400) {
+              reply.header("Cache-Control", "no-store");
+            }
 
             return result;
           } catch (error) {
