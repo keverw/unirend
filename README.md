@@ -212,7 +212,8 @@ Add these scripts to your `package.json` for both SSG and SSR workflows. We reco
     "build:prod": "bun build serve.ts --outdir ./dist",
     "start": "bun dist/serve.js prod"
 
-    // Optional: Run SSR Production Build under Node runtime using a Bun-built bundle (use if dealing with Bun compatibility issues):
+    // Optional: Run SSR Production Build under Node runtime using a Bun-built bundle:
+    // (use if dealing with Bun compatibility issues)
     // "build:prod": "bun build serve.ts --outdir ./dist --target=node",
     // "start": "node dist/serve.js prod"
   }
@@ -221,7 +222,7 @@ Add these scripts to your `package.json` for both SSG and SSR workflows. We reco
 
 Tip: When you plan to run the Bun-built bundle under Node, include the `--target node` flag in `bun build` so the output targets Node’s runtime.
 
-Note: If you prefer a pure-Node toolchain without Bun, explore compiling or bundling your server with tools like `tsc`, `esbuild`, `rollup`, or `tsup`, then run with `node`. These alternatives are not covered in depth here to keep the setup simple and easy out of the box.
+Note: If you prefer a pure-Node toolchain without Bun, explore compiling or bundling your server with tools like `tsc`, `esbuild`, `rollup`, or `tsup`, or use vanilla JavaScript, then run with `node`. These alternatives are not covered in depth here to keep the setup simple and easy out of the box.
 
 #### 4. Frontend App Config Pattern
 
@@ -335,172 +336,15 @@ What this shows:
 
 ## Data Loaders
 
-Unirend centralizes route data fetching through a single loader system. Define loaders per route using helpers, and return standardized envelopes. See `docs/api-envelope-structure.md`.
+Unirend centralizes route data fetching through a single loader system. See the dedicated [Data Loaders guide](docs/data-loaders.md).
 
-- Create config: `createDefaultPageLoaderConfig(apiBaseUrl)` or provide a custom config
-- Define loaders: `createPageLoader(config, pageType)` or `createPageLoader(localConfig, localHandler)`
-- Errors/redirects: handled uniformly via envelopes. Integrate with `RouteErrorBoundary` and `useDataloaderEnvelopeError`
+What it covers:
 
-### Page Type Handler (Fetch/Short-Circuit) Data Loader
-
-Uses HTTP to your API server page data handlers, and short-circuits when the handlers are registered on the same `SSRServer` instance.
-
-```ts
-import {
-  createPageLoader,
-  createDefaultPageLoaderConfig,
-} from "unirend/router-utils";
-
-const config = createDefaultPageLoaderConfig("http://localhost:3001");
-
-// Per-route loader (pageType mapped to handlers on the server)
-export const homeLoader = createPageLoader(config, "home");
-```
-
-Notes:
-
-- Short-circuiting only happens on SSR when handlers are registered on the same `SSRServer`
-- HTTP path supports cookie forwarding per SSR policy, use it when you need cookies to/from backend
-- Prefer `APIResponseHelpers` on the server to build envelopes and auto-populate `request_id` from the request object when set
-- The `pageType` you pass here must match what you register on the server via `registerDataLoaderHandler(pageType, ...)`. See `docs/ssr.md` “Page Data Handlers and Versioning”.
-
-Tip:
-
-- If your API base URL differs between server and client (e.g., internal vs public URLs), you'll need to configure `apiBaseUrl` dynamically. Since data loaders run outside the React component tree and don't have access to hooks, you'll need to access `window.__FRONTEND_APP_CONFIG__` directly at module level on the client, with a server-side fallback (e.g., environment variable) for SSR. See "4. Frontend App Config Pattern" for the complete pattern with examples.
-
-Config options (HTTP path):
-
-- `apiBaseUrl` (required)
-- `pageDataEndpoint` (default: `/api/v1/page_data`)
-- `timeoutMs` (default: 10000)
-- `errorDefaults`, `connectionErrorMessages`, `loginUrl`, `returnToParam`
-- `allowedRedirectOrigins`, `transformErrorMeta`, `statusCodeHandlers`
-
-### Local Data Loader
-
-Runs a page data handler locally without framework dataLoader HTTP request. Primarily intended for SSG, but can be used in SSR if you don't need cookie propagation.
-
-```ts
-import { createPageLoader } from "unirend/router-utils";
-
-// Local handler receives routing context; no Fastify request object
-export const localInfoLoader = createPageLoader(
-  { timeoutMs: 8000 },
-  function ({ route_params, query_params }) {
-    return {
-      status: "success",
-      status_code: 200,
-      request_id: `local_${Date.now()}`,
-      type: "page",
-      data: { route_params, query_params },
-      meta: { page: { title: "Local", description: "Local loader" } },
-      error: null,
-    };
-  },
-);
-```
-
-Important:
-
-- **Error handling setup required**: When using local data loaders (especially in SSG), you must set up `useDataloaderEnvelopeError` in your app layout to handle envelope errors (including 404s and other error responses). This is the same pattern used in SSR. See the "Error Utilities and Recommended Setup" section below.
-- SSR preserves `status_code` from local loaders for the HTTP response
-- SSR-only cookies are not available in the local path, use the Page Type Handler (HTTP/Short-Circuit) based one instead if you need cookie propagation
-- `timeoutMs` is respected; on timeout a 500 Page envelope is returned with the server connection error message
-
-Config options (local path):
-
-- Subset of HTTP config used by the local path: `errorDefaults`, `isDevelopment`, `connectionErrorMessages`, `timeoutMs`, `generateFallbackRequestID`, `allowedRedirectOrigins`, `transformErrorMeta`
-
-### Using Loaders in React Router (Applies to Both Types):
-
-```ts
-import type { RouteObject } from "react-router";
-import Home from "./pages/Home";
-import Dashboard from "./pages/Dashboard";
-import { createPageLoader, createDefaultPageLoaderConfig } from "unirend/router-utils";
-
-const config = createDefaultPageLoaderConfig("http://localhost:3001");
-
-export const routes: RouteObject[] = [
-  { path: "/", loader: createPageLoader(config, "home"), element: <Home /> },
-  { path: "/dashboard", loader: createPageLoader(config, "dashboard"), element: <Dashboard /> },
-];
-```
-
-### Data Loader Error Transformation and Additional Config
-
-When API responses don’t follow the Page Envelope, the loader converts them using your configured strings and rules.
-
-- errorDefaults: titles/descriptions/messages/codes used when building Page error envelopes
-  - notFound
-    - title: "Page Not Found"
-    - description: "The page you are looking for could not be found."
-    - code: "not_found"
-    - message: "The requested resource was not found."
-  - internalError
-    - title: "Server Error"
-    - description: "An internal server error occurred."
-    - code: "internal_server_error"
-    - message: "An internal server error occurred."
-  - authRequired
-    - title: "Authentication Required"
-    - description: "You must be logged in to access this page."
-  - accessDenied
-    - title: "Access Denied"
-    - description: "You do not have permission to access this page."
-    - code: "access_denied"
-    - message: "You do not have permission to access this resource."
-  - genericError
-    - title: "Error"
-    - description: "An unexpected error occurred."
-    - code: "unknown_error"
-    - message: "An unexpected error occurred."
-  - invalidResponse
-    - title: "Invalid Response"
-    - description: "The server returned an unexpected response format."
-    - code: "invalid_response"
-    - message: "The server returned an unexpected response format."
-  - invalidRedirect
-    - title: "Invalid Redirect"
-    - description: "The server attempted an invalid redirect."
-    - code: "invalid_redirect"
-    - message: "Redirect target not specified in response"
-  - redirectNotFollowed
-    - title: "Redirect Not Followed"
-    - description: "HTTP redirects from the API are not supported."
-    - code: "api_redirect_not_followed"
-    - message: "The API attempted to redirect the request, which is not supported."
-  - unsafeRedirect
-    - title: "Unsafe Redirect Blocked"
-    - description: "The redirect target is not allowed for security reasons."
-    - code: "unsafe_redirect"
-    - message: "Unsafe redirect blocked"
-
-- connectionErrorMessages: friendly texts for network failures/timeouts
-  - server: "Internal server error: Unable to connect to the API service."
-  - client: "Unable to connect to the API server. Please check your network connection and try again."
-
-- transformErrorMeta(params): preserve/extend metadata when converting API errors to Page errors
-- statusCodeHandlers: customize handling per HTTP status
-  - Match order: exact code (number or string) first; if none matches, wildcard "\*" applies
-  - Return a PageResponseEnvelope to override; return null/undefined to fall back to defaults
-  - For redirects, return a Page envelope with `status: "redirect"` and `status_code: 200`. In server/API handlers, prefer using `APIResponseHelpers.createPageRedirectResponse`.
-  - The loader automatically decorates Page envelopes with SSR-only data (e.g., cookies) where applicable
-- HTTP redirects from API endpoints are not followed; they become redirectNotFollowed errors with original status/location preserved
-- Fallback request_id: if missing, a generated ID is used via generateFallbackRequestID (or a default generator)
-  - contexts: "error" or "redirect"
-  - default format: `${context}_${Date.now()}` (e.g., `error_1712868472000`)
-
-Additional configuration
-
-- allowedRedirectOrigins: redirect safety validation
-  - undefined: validation disabled (any redirect target allowed)
-  - []: only relative paths allowed; all external URLs blocked
-  - ["https://myapp.com", "https://auth.myapp.com"]: allow relative paths plus listed origins
-- loginUrl and returnToParam
-  - loginUrl: default "/login"
-  - returnToParam: default "return_to"
-  - On 401 with error.code === "authentication_required", redirects to login; includes return URL when provided
+- Page type handler (HTTP/short‑circuit) loader
+- Local data loader (SSG‑friendly)
+- Using loaders in React Router
+- Error transformation/config, redirects, and auth handling
+- Configuration (timeouts, connection messages, status mapping, allowed redirect origins, login handling)
 
 ## API Envelope Structure
 
