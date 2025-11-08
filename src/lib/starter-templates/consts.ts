@@ -1,4 +1,4 @@
-// Constants for starter templates and monorepo config
+// Constants for starter templates and repository config
 
 export const STARTER_TEMPLATES: Record<
   string,
@@ -23,5 +23,5 @@ export const STARTER_TEMPLATES: Record<
   },
 };
 
-export const MONOREPO_CONFIG_FILE = "unirend-monorepo.json";
-export const DEFAULT_MONOREPO_NAME = "unirend-project-monorepo";
+export const REPO_CONFIG_FILE = "unirend-repo.json";
+export const DEFAULT_REPO_NAME = "unirend-projects";

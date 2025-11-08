@@ -7,15 +7,16 @@ export type ParsedCLIArgs =
   | { command: "version" }
   | { command: "list" }
   | {
-      command: "init-monorepo";
-      monorepoPath?: string;
-      monorepoName?: string;
+      command: "init-repo";
+      repoPath?: string;
+      repoName?: string;
     }
   | {
       command: "create";
       projectType?: string;
       projectName?: string;
-      projectPath?: string;
+      repoPath?: string;
+      target?: "bun" | "node";
     }
   | {
       command: "unknown";
@@ -55,9 +56,9 @@ export function parseCLIArgs(args: string[]): ParsedCLIArgs {
   } else if (firstArg === "list") {
     // Handle list command
     return { command: "list" };
-  } else if (firstArg === "init-monorepo") {
-    // Handle init-monorepo command
-    return parseInitMonorepoArgs(args);
+  } else if (firstArg === "init-repo") {
+    // Handle init-repo command
+    return parseInitRepoArgs(args);
   } else if (firstArg === "create") {
     // Handle create command
     return parseCreateArgs(args);
@@ -71,24 +72,24 @@ export function parseCLIArgs(args: string[]): ParsedCLIArgs {
 }
 
 /**
- * Parse init-monorepo command arguments
+ * Parse init-repo command arguments
  */
 
-function parseInitMonorepoArgs(args: string[]): ParsedCLIArgs {
+function parseInitRepoArgs(args: string[]): ParsedCLIArgs {
   // Get --name flag value
   const nameIndex = args.indexOf("--name");
-  const monorepoName =
+  const repoName =
     nameIndex !== -1 && args[nameIndex + 1] ? args[nameIndex + 1] : undefined;
 
   // Get path argument (first non-flag argument after command)
-  const monorepoPath = args.find(
+  const repoPath = args.find(
     (arg, i) => i > 0 && !arg.startsWith("--") && args[i - 1] !== "--name",
   );
 
   return {
-    command: "init-monorepo",
-    monorepoPath,
-    monorepoName,
+    command: "init-repo",
+    repoPath,
+    repoName,
   };
 }
 
@@ -97,15 +98,45 @@ function parseInitMonorepoArgs(args: string[]): ParsedCLIArgs {
  */
 
 function parseCreateArgs(args: string[]): ParsedCLIArgs {
-  const projectType = args[1];
-  const projectName = args[2];
-  const projectPath = args[3];
+  // Expected base form:
+  // create <type> <name> [path] [--target bun|node]
+  let projectType: string | undefined;
+  let projectName: string | undefined;
+  let repoPath: string | undefined;
+  let target: "bun" | "node" | undefined;
+
+  // Capture positional args first (type, name, optional path)
+  if (args.length > 1) {
+    projectType = args[1];
+  }
+
+  if (args.length > 2) {
+    projectName = args[2];
+  }
+
+  // Walk remaining args to find first non-flag as path and parse flags
+  for (let i = 3; i < args.length; i++) {
+    const arg = args[i];
+
+    if (arg === "--target") {
+      const value = args[i + 1];
+
+      if (value === "bun" || value === "node") {
+        target = value;
+      }
+
+      i++; // skip value
+    } else if (!arg.startsWith("--") && repoPath === undefined) {
+      repoPath = arg;
+    }
+  }
 
   return {
     command: "create",
     projectType,
     projectName,
-    projectPath,
+    repoPath,
+    target,
   };
 }
 

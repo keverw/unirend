@@ -42,7 +42,7 @@
 
 > Note: This document is a guide to the plugin system and how to create your own plugins (for both SSR and API servers). If you're looking for ready-to-use, maintained plugins that ship with Unirend, see the built-in plugins catalog: [docs/built-in-plugins.md](./built-in-plugins.md).
 
-The Unirend SSR server supports a controlled plugin system that allows you to extend functionality while maintaining the integrity of the SSR rendering process. The same plugin model applies to the standalone API server as well; this guide is relevant to both SSR and API servers.
+The Unirend SSR server supports a controlled plugin system that allows you to extend functionality while maintaining the integrity of the SSR rendering process. The same plugin model applies to the standalone API server as well. This guide is relevant to both SSR and API servers.
 
 ## Overview
 

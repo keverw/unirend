@@ -62,89 +62,89 @@ describe("parseCLIArgs", () => {
     });
   });
 
-  describe("init-monorepo command", () => {
-    test("should parse init-monorepo with no arguments", () => {
-      const result = parseCLIArgs(["init-monorepo"]);
+  describe("init-repo command", () => {
+    test("should parse init-repo with no arguments", () => {
+      const result = parseCLIArgs(["init-repo"]);
 
       expect(result).toEqual({
-        command: "init-monorepo",
-        monorepoPath: undefined,
-        monorepoName: undefined,
+        command: "init-repo",
+        repoPath: undefined,
+        repoName: undefined,
       });
     });
 
-    test("should parse init-monorepo with path", () => {
-      const result = parseCLIArgs(["init-monorepo", "./my-workspace"]);
+    test("should parse init-repo with path", () => {
+      const result = parseCLIArgs(["init-repo", "./my-workspace"]);
 
       expect(result).toEqual({
-        command: "init-monorepo",
-        monorepoPath: "./my-workspace",
-        monorepoName: undefined,
+        command: "init-repo",
+        repoPath: "./my-workspace",
+        repoName: undefined,
       });
     });
 
-    test("should parse init-monorepo with --name flag", () => {
-      const result = parseCLIArgs(["init-monorepo", "--name", "my-workspace"]);
+    test("should parse init-repo with --name flag", () => {
+      const result = parseCLIArgs(["init-repo", "--name", "my-workspace"]);
 
       expect(result).toEqual({
-        command: "init-monorepo",
-        monorepoPath: undefined,
-        monorepoName: "my-workspace",
+        command: "init-repo",
+        repoPath: undefined,
+        repoName: "my-workspace",
       });
     });
 
-    test("should parse init-monorepo with path and --name flag", () => {
+    test("should parse init-repo with path and --name flag", () => {
       const result = parseCLIArgs([
-        "init-monorepo",
+        "init-repo",
         "./projects",
         "--name",
         "my-workspace",
       ]);
 
       expect(result).toEqual({
-        command: "init-monorepo",
-        monorepoPath: "./projects",
-        monorepoName: "my-workspace",
+        command: "init-repo",
+        repoPath: "./projects",
+        repoName: "my-workspace",
       });
     });
 
-    test("should parse init-monorepo with --name flag before path", () => {
+    test("should parse init-repo with --name flag before path", () => {
       const result = parseCLIArgs([
-        "init-monorepo",
+        "init-repo",
         "--name",
         "my-workspace",
         "./projects",
       ]);
 
       expect(result).toEqual({
-        command: "init-monorepo",
-        monorepoPath: "./projects",
-        monorepoName: "my-workspace",
+        command: "init-repo",
+        repoPath: "./projects",
+        repoName: "my-workspace",
       });
     });
 
     test("should handle --name without path", () => {
-      const result = parseCLIArgs(["init-monorepo", "--name", "my-workspace"]);
+      const result = parseCLIArgs(["init-repo", "--name", "my-workspace"]);
 
       expect(result).toEqual({
-        command: "init-monorepo",
-        monorepoPath: undefined,
-        monorepoName: "my-workspace",
+        command: "init-repo",
+        repoPath: undefined,
+        repoName: "my-workspace",
       });
     });
 
     test("should handle path after --name flag", () => {
       const result = parseCLIArgs([
-        "init-monorepo",
+        "init-repo",
         "--name",
         "my-workspace",
         "./some-path",
       ]);
 
       expect(result).toEqual({
-        command: "init-monorepo",
-        monorepoPath: "./some-path",
-        monorepoName: "my-workspace",
+        command: "init-repo",
+        repoPath: "./some-path",
+        repoName: "my-workspace",
       });
     });
   });
@@ -157,7 +157,8 @@ describe("parseCLIArgs", () => {
         command: "create",
         projectType: "ssg",
         projectName: "my-blog",
-        projectPath: undefined,
+        repoPath: undefined,
+        target: undefined,
       });
     });
 
@@ -168,7 +169,8 @@ describe("parseCLIArgs", () => {
         command: "create",
         projectType: "ssg",
         projectName: "my-blog",
-        projectPath: "./projects",
+        repoPath: "./projects",
+        target: undefined,
       });
     });
 
@@ -179,7 +181,8 @@ describe("parseCLIArgs", () => {
         command: "create",
         projectType: "ssr",
         projectName: "my-app",
-        projectPath: undefined,
+        repoPath: undefined,
+        target: undefined,
       });
     });
 
@@ -189,7 +192,8 @@ describe("parseCLIArgs", () => {
         command: "create",
         projectType: "api",
         projectName: "my-api-server",
-        projectPath: undefined,
+        repoPath: undefined,
+        target: undefined,
       });
     });
 
@@ -199,7 +203,8 @@ describe("parseCLIArgs", () => {
         command: "create",
         projectType: undefined,
         projectName: undefined,
-        projectPath: undefined,
+        repoPath: undefined,
+        target: undefined,
       });
     });
 
@@ -209,7 +214,44 @@ describe("parseCLIArgs", () => {
         command: "create",
         projectType: "ssg",
         projectName: undefined,
-        projectPath: undefined,
+        repoPath: undefined,
+        target: undefined,
+      });
+    });
+
+    test("should parse create with --target node flag after path", () => {
+      const result = parseCLIArgs([
+        "create",
+        "ssg",
+        "my-blog",
+        "./projects",
+        "--target",
+        "node",
+      ]);
+      expect(result).toEqual({
+        command: "create",
+        projectType: "ssg",
+        projectName: "my-blog",
+        repoPath: "./projects",
+        target: "node",
+      });
+    });
+
+    test("should parse create with --target bun flag before path", () => {
+      const result = parseCLIArgs([
+        "create",
+        "ssg",
+        "my-blog",
+        "--target",
+        "bun",
+        "./projects",
+      ]);
+      expect(result).toEqual({
+        command: "create",
+        projectType: "ssg",
+        projectName: "my-blog",
+        repoPath: "./projects",
+        target: "bun",
       });
     });
   });
@@ -243,7 +285,7 @@ describe("parseCLIArgs", () => {
         command: "create",
         projectType: "ssg",
         projectName: "my-blog-2024",
-        projectPath: undefined,
+        repoPath: undefined,
       });
     });
 
@@ -259,34 +301,27 @@ describe("parseCLIArgs", () => {
         command: "create",
         projectType: "ssg",
         projectName: "my-blog",
-        projectPath: "./my-projects/2024",
+        repoPath: "./my-projects/2024",
       });
     });
 
     test("should handle absolute paths", () => {
-      const result = parseCLIArgs([
-        "init-monorepo",
-        "/absolute/path/to/workspace",
-      ]);
+      const result = parseCLIArgs(["init-repo", "/absolute/path/to/workspace"]);
 
       expect(result).toEqual({
-        command: "init-monorepo",
-        monorepoPath: "/absolute/path/to/workspace",
-        monorepoName: undefined,
+        command: "init-repo",
+        repoPath: "/absolute/path/to/workspace",
+        repoName: undefined,
       });
     });
 
     test("should handle names with underscores", () => {
-      const result = parseCLIArgs([
-        "init-monorepo",
-        "--name",
-        "my_workspace_name",
-      ]);
+      const result = parseCLIArgs(["init-repo", "--name", "my_workspace_name"]);
 
       expect(result).toEqual({
-        command: "init-monorepo",
-        monorepoPath: undefined,
-        monorepoName: "my_workspace_name",
+        command: "init-repo",
+        repoPath: undefined,
+        repoName: "my_workspace_name",
       });
     });
   });

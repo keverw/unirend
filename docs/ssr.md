@@ -142,7 +142,7 @@ main().catch(console.error);
 Notes:
 
 - In dev, Vite serves client assets with middleware and `vite.ssrLoadModule` is used for the server entry.
-- HMR is available; stack traces are mapped for easier debugging.
+- HMR is available. Stack traces are mapped for easier debugging.
 - `frontendAppConfig` is injected in both development and production when using `serveSSRDev` or `serveSSRProd`.
 
 ### Organization Suggestion
@@ -153,8 +153,12 @@ Since your project will most likely use both `serveSSRDev` and `serveSSRProd`, c
 - Separate scripts (e.g., `serve-dev.ts` and `serve-prod.ts`).
 - For production binaries, you can bundle your server script with a tool like Bun:
   - `bun build server.ts --outdir ./dist` and `bun run dist/server.js`
+  - To run the Bun bundle under Node, add the target flag and start with Node:
+    - `bun build server.ts --outdir ./dist --target node` then `node dist/server.js`
 
 See a complete example with plugins and data handler registration in `demos/ssr/serve.ts`.
+
+Recommendation: Use Bun for simplicity (dev runs TypeScript directly, prod bundles to JS that can run under Bun or Node). Pure Node alternatives (e.g., `tsc`, `esbuild`, `rollup`, `ts-node`) or vanilla JavaScript are possible but not covered in depth here to keep the setup simple and easy out of the box.
 
 ### SSRServer Class
 
@@ -231,7 +235,7 @@ Unirend forwards a curated set of headers and supports configurable cookie forwa
   - `X-Correlation-ID`: Unique request ID (useful for tracing)
 
   Notes:
-  - Incoming spoofed values for these headers are removed; trusted server values are set before making request to SSR API backend.
+  - Incoming spoofed values for these headers are removed, then trusted server values are set before making the request to the SSR API backend.
   - See `src/lib/internal/SSRServer.ts` and `src/lib/router-utils/pageDataLoader.ts` for where they are set and forwarded.
 
 - Cookie forwarding policy (SSR):
@@ -339,14 +343,14 @@ Guidance:
 - Treat `params` as the authoritative routing context produced by the page data loader
 - Do not reconstruct routing info from `originalRequest`
 - Use `originalRequest` only for transport/ambient data (cookies, headers, IP, auth tokens)
-- Use `reply` to set additional headers and cookies when needed; HTTP status and JSON content-type are managed by the framework from the envelope
-- During SSR, `originalRequest` is the same request that initiated the render; after hydration, client-side loader fetches include their own transport context
+- Use `reply` to set additional headers and cookies when needed. HTTP status and JSON content-type are managed by the framework from the envelope
+- During SSR, `originalRequest` is the same request that initiated the render. After hydration, client-side loader fetches include their own transport context
 
 Recommendation:
 
 - Prefer using `APIResponseHelpers` (see [API Envelope Structure](./api-envelope-structure.md)) to construct envelopes. These helpers also auto-populate `request_id` from `request.requestID` that your request registered middleware/plugins may populate.
 - For custom meta defaults (account/workspace/locale/build), prefer extending `APIResponseHelpers` in a small subclass and reading decorated values from the request within that subclass. This applies to both page data handlers and custom API route handlers. See: [Extending helpers and custom meta](./api-envelope-structure.md#extending-helpers-and-custom-meta).
-  - Rationale: centralizes conventions and avoids repeating per-handler generics/typing; just ensure your meta type extends `BaseMeta`.
+  - Rationale: centralizes conventions and avoids repeating per-handler generics/typing. Just ensure your meta type extends `BaseMeta`.
 
 Examples:
 
@@ -444,7 +448,7 @@ server.api.post("demo/items", 2, async (request) => {
 Notes:
 
 - Endpoints are mounted under `apiEndpoints.apiEndpointPrefix` and optionally `/v{n}` when `versioned` is true.
-- SSR servers disallow wildcard endpoints at root prefix; use a non-root prefix like `/api` to allow wildcards.
+- SSR servers disallow wildcard endpoints at root prefix. Use a non-root prefix like `/api` to allow wildcards.
 - Handlers must return a valid API envelope. Status codes are taken from `status_code`.
 - Available helpers: `.api.get`, `.api.post`, `.api.put`, `.api.delete`, `.api.patch`.
 

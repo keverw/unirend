@@ -20,14 +20,14 @@ export interface ProjectEntry {
   createdAt: string;
 }
 
-export interface MonorepoConfig {
+export interface RepoConfig {
   /** Config version for future compatibility */
   version: string;
-  /** Monorepo name */
+  /** Repository name */
   name: string;
-  /** ISO timestamp when monorepo was created */
+  /** ISO timestamp when repository was created */
   created: string;
-  /** Projects in this monorepo */
+  /** Projects in this repository */
   projects: Record<string, ProjectEntry>;
 }
 
@@ -42,12 +42,14 @@ export interface StarterTemplateOptions {
   templateID: string;
   /** Project name */
   projectName: string;
-  /** Project root: real FS path or in-memory directory object */
-  projectPath: FileRoot;
+  /** Repo root directory: real FS path or in-memory directory object */
+  repoRoot: FileRoot;
   /** Overwrite existing directory if it exists */
   overwrite?: boolean;
   /** Optional logger function for output */
   logger?: Logger;
+  /** Target runtime for generated server (affects scripts/config emitted by templates) */
+  serverTarget?: "bun" | "node";
   /**
    * Custom starter files (UTF-8 strings or binary as Uint8Array).
    * File paths are relative to the project root. Strings are treated as UTF-8.
@@ -66,7 +68,7 @@ export type CreateProjectResult =
       metadata: {
         templateID: string;
         projectName: string;
-        projectPath: string;
+        repoPath: string;
       };
     }
   | {
@@ -78,7 +80,7 @@ export type CreateProjectResult =
       metadata: {
         templateID: string;
         projectName: string;
-        projectPath: string;
+        repoPath: string;
       };
     };
 
@@ -87,14 +89,14 @@ export interface NameValidationResult {
   error?: string;
 }
 
-export type MonorepoConfigResult =
-  | { status: "found"; config: MonorepoConfig }
+export type RepoConfigResult =
+  | { status: "found"; config: RepoConfig }
   | { status: "not_found" }
   | { status: "parse_error"; errorMessage?: string }
   | { status: "read_error"; errorMessage?: string };
 
-export type InitMonorepoResult =
-  | { success: true; config: MonorepoConfig }
+export type InitRepoResult =
+  | { success: true; config: RepoConfig }
   | {
       success: false;
       error:

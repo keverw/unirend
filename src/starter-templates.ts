@@ -7,23 +7,24 @@
 
 import {
   STARTER_TEMPLATES,
-  MONOREPO_CONFIG_FILE,
-  DEFAULT_MONOREPO_NAME,
+  REPO_CONFIG_FILE,
+  DEFAULT_REPO_NAME,
 } from "./lib/starter-templates/consts";
 import type {
   TemplateInfo,
-  MonorepoConfig,
+  RepoConfig,
   Logger,
   StarterTemplateOptions,
   CreateProjectResult,
-  NameValidationResult,
-  MonorepoConfigResult,
-  InitMonorepoResult,
+  RepoConfigResult,
+  InitRepoResult,
 } from "./lib/starter-templates/types";
 import {
-  createMonorepoConfigObject,
-  addProjectToMonorepo,
+  createRepoConfigObject,
+  addProjectToRepo,
+  ensureBaseFiles,
 } from "./lib/starter-templates/internal-helpers";
+import { validateName } from "./lib/starter-templates/validate-name";
 import {
   vfsDisplayPath,
   vfsEnsureDir,
@@ -39,25 +40,26 @@ import {
 export async function createProject(
   options: StarterTemplateOptions,
 ): Promise<CreateProjectResult> {
-  const { templateID, projectName, projectPath, logger, starterFiles } =
-    options;
-  const projectPathDisplay = vfsDisplayPath(projectPath);
+  const repoRootDisplay = vfsDisplayPath(options.repoRoot);
 
   // Default logger that does nothing if none provided
-  const log: Logger = logger || (() => {});
+  const log: Logger = options.logger || (() => {});
 
   try {
     log("info", "🚀 Starting project creation...");
-    log("info", `Template: ${templateID}`);
-    log("info", `Project Name: ${projectName}`);
-    log("info", `Project Path: ${projectPathDisplay}`);
+    log("info", `Template: ${options.templateID}`);
+    log("info", `Project Name: ${options.projectName}`);
+    log("info", `Repo Path: ${repoRootDisplay}`);
 
-    if (starterFiles && Object.keys(starterFiles).length > 0) {
-      log("info", `Custom starter files: ${Object.keys(starterFiles).length}`);
+    if (options.starterFiles && Object.keys(options.starterFiles).length > 0) {
+      log(
+        "info",
+        `Custom starter files: ${Object.keys(options.starterFiles).length}`,
+      );
     }
 
     // Validate project name
-    const nameValidation = validateName(projectName);
+    const nameValidation = validateName(options.projectName);
 
     if (!nameValidation.valid) {
       log(
@@ -74,128 +76,225 @@ export async function createProject(
       return {
         success: false,
         error: nameValidation.error ?? "Invalid project name",
-        metadata: { templateID, projectName, projectPath: projectPathDisplay },
+        metadata: {
+          templateID: options.templateID,
+          projectName: options.projectName,
+          repoPath: repoRootDisplay,
+        },
       };
     }
 
     // Validate template exists
-    if (!templateExists(templateID)) {
+    if (!templateExists(options.templateID)) {
       const available = listAvailableTemplates();
 
       log(
         "error",
-        `❌ Template "${templateID}" not found. Available templates: ${available.join(", ")}`,
+        `❌ Template "${options.templateID}" not found. Available templates: ${available.join(", ")}`,
       );
 
       return {
         success: false,
-        error: `Template "${templateID}" not found`,
-        metadata: { templateID, projectName, projectPath: projectPathDisplay },
+        error: `Template "${options.templateID}" not found`,
+        metadata: {
+          templateID: options.templateID,
+          projectName: options.projectName,
+          repoPath: repoRootDisplay,
+        },
       };
     }
 
-    // projectPath is the root where the project/monorepo lives
-    const projectBaseDir = projectPath;
+    // Repo root directory is the workspace root where projects live
     const configFullPathDisplay = vfsDisplayPath(
-      projectBaseDir,
-      MONOREPO_CONFIG_FILE,
+      options.repoRoot,
+      REPO_CONFIG_FILE,
     );
 
-    const monorepoStatus = await readMonorepoConfig(projectBaseDir);
-    const isMonorepo = monorepoStatus.status === "found";
+    // Step 1: Read repository configuration (if present)
+    let repoStatus = await readRepoConfig(options.repoRoot);
 
-    if (monorepoStatus.status === "parse_error") {
+    if (repoStatus.status === "parse_error") {
       log(
         "error",
         `❌ Found ${configFullPathDisplay} but it contains invalid JSON`,
       );
 
-      if (monorepoStatus.errorMessage) {
-        log("error", `   ${monorepoStatus.errorMessage}`);
+      if (repoStatus.errorMessage) {
+        log("error", `   ${repoStatus.errorMessage}`);
       }
 
       return {
         success: false,
-        error: `${MONOREPO_CONFIG_FILE} contains invalid JSON`,
-        metadata: { templateID, projectName, projectPath: projectPathDisplay },
+        error: `${REPO_CONFIG_FILE} contains invalid JSON`,
+        metadata: {
+          templateID: options.templateID,
+          projectName: options.projectName,
+          repoPath: repoRootDisplay,
+        },
       };
-    } else if (monorepoStatus.status === "read_error") {
+    } else if (repoStatus.status === "read_error") {
       log("error", `❌ Found ${configFullPathDisplay} but cannot read it`);
 
-      if (monorepoStatus.errorMessage) {
-        log("error", `   ${monorepoStatus.errorMessage}`);
+      if (repoStatus.errorMessage) {
+        log("error", `   ${repoStatus.errorMessage}`);
       }
 
       return {
         success: false,
-        error: `Cannot read ${MONOREPO_CONFIG_FILE}`,
-        metadata: { templateID, projectName, projectPath: projectPathDisplay },
+        error: `Cannot read ${REPO_CONFIG_FILE}`,
+        metadata: {
+          templateID: options.templateID,
+          projectName: options.projectName,
+          repoPath: repoRootDisplay,
+        },
       };
-    }
+    } else if (repoStatus.status === "not_found") {
+      // Auto-initialize repo if missing to keep flow simple
+      const repoName = DEFAULT_REPO_NAME;
+      const initResult = await initRepo(options.repoRoot, repoName);
 
-    // Guard for unexpected future statuses
-    if (
-      monorepoStatus.status !== "found" &&
-      monorepoStatus.status !== "not_found"
-    ) {
-      log(
-        "error",
-        `❌ Unsupported monorepo status: ${String(
-          (monorepoStatus as Record<string, unknown>).status ?? "unknown",
-        )}`,
-      );
+      if (initResult.success) {
+        log("info", `🛠️  Created ${REPO_CONFIG_FILE} (repo: ${repoName})`);
+        repoStatus = { status: "found", config: initResult.config };
+      } else {
+        log("error", "❌ Failed to initialize repository configuration");
+
+        if (initResult.errorMessage) {
+          log("error", `   ${initResult.errorMessage}`);
+      }
 
       return {
         success: false,
-        error: "Unsupported monorepo status returned",
-        metadata: { templateID, projectName, projectPath: projectPathDisplay },
+          error: "Failed to initialize repository configuration",
+        metadata: {
+          templateID: options.templateID,
+          projectName: options.projectName,
+            repoPath: repoRootDisplay,
+        },
+      };
+    }
+    } else if (repoStatus.status !== "found") {
+      log("error", "❌ Unsupported repository status returned");
+
+      return {
+        success: false,
+        error: "Unsupported repository status returned",
+        metadata: {
+          templateID: options.templateID,
+          projectName: options.projectName,
+          repoPath: repoRootDisplay,
+        },
       };
     }
 
     const result: CreateProjectResult = {
       success: true,
       metadata: {
-        templateID,
-        projectName,
-        projectPath: projectPathDisplay,
+        templateID: options.templateID,
+        projectName: options.projectName,
+        repoPath: repoRootDisplay,
       },
     };
 
-    // If a monorepo exists in the target directory, update its config
+    // Step 2: Update repo config to add project entry
     try {
-      if (isMonorepo && monorepoStatus.status === "found") {
-        const updated = addProjectToMonorepo(
-          monorepoStatus.config,
-          projectName,
-          templateID,
-          `./${projectName}`,
+      if (repoStatus.status === "found") {
+        const updated = addProjectToRepo(
+          repoStatus.config,
+          options.projectName,
+          options.templateID,
+          `./${options.projectName}`,
         );
 
         await vfsWrite(
-          projectBaseDir,
-          MONOREPO_CONFIG_FILE,
+          options.repoRoot,
+          REPO_CONFIG_FILE,
           JSON.stringify(updated, null, 2),
         );
 
-        logger?.("info", `📝 Updated ${MONOREPO_CONFIG_FILE}`);
+        log("info", `📝 Updated ${REPO_CONFIG_FILE}`);
       }
     } catch (err) {
-      logger?.(
+      log(
         "error",
-        `❌ Failed to update ${MONOREPO_CONFIG_FILE}, Aborting project creation`,
+        `❌ Failed to update ${REPO_CONFIG_FILE}, Aborting project creation`,
       );
 
       const errorMessage = err instanceof Error ? err.message : String(err);
 
       if (errorMessage) {
-        logger?.("error", `   ${errorMessage}`);
+        log("error", `   ${errorMessage}`);
       }
 
       return {
         success: false,
-        error: `Failed to update ${MONOREPO_CONFIG_FILE}`,
-        metadata: { templateID, projectName, projectPath: projectPathDisplay },
+        error: `Failed to update ${REPO_CONFIG_FILE}`,
+        metadata: {
+          templateID: options.templateID,
+          projectName: options.projectName,
+          repoPath: repoRootDisplay,
+        },
       };
+    }
+
+    // Step 3: Ensure base workspace files (root package.json, etc.)
+    try {
+      await ensureBaseFiles(
+        options.repoRoot,
+        (repoStatus.status === "found"
+          ? repoStatus.config.name
+          : DEFAULT_REPO_NAME) as string,
+        (message) => log("info", message),
+      );
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log("error", "❌ Failed to ensure base files, aborting project creation");
+
+      if (errorMessage) {
+        log("error", `   ${errorMessage}`);
+      }
+
+      return {
+        success: false,
+        error: "Failed to ensure base files",
+        metadata: {
+          templateID: options.templateID,
+          projectName: options.projectName,
+          repoPath: repoRootDisplay,
+        },
+      };
+    }
+
+    // Step 4: Write provided starter files
+    if (options.starterFiles && Object.keys(options.starterFiles).length > 0) {
+      try {
+        log(
+          "info",
+          `📄 Writing ${Object.keys(options.starterFiles).length} starter files`,
+        );
+
+        for (const [relPath, content] of Object.entries(options.starterFiles)) {
+          await vfsWrite(options.repoRoot, relPath, content);
+          log("info", `   ${vfsDisplayPath(options.repoRoot, relPath)}`);
+        }
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        log("error", "❌ Failed to write starter files");
+
+        if (errorMessage) {
+          log("error", `   ${errorMessage}`);
+        }
+
+        return {
+          success: false,
+          error: "Failed to write starter files",
+          metadata: {
+            templateID: options.templateID,
+            projectName: options.projectName,
+            repoPath: repoRootDisplay,
+          },
+        };
+      }
     }
     return result;
   } catch (error) {
@@ -206,9 +305,9 @@ export async function createProject(
       success: false,
       error: errorMessage,
       metadata: {
-        templateID,
-        projectName,
-        projectPath: projectPathDisplay,
+        templateID: options.templateID,
+        projectName: options.projectName,
+        repoPath: repoRootDisplay,
       },
     };
   }
@@ -243,76 +342,18 @@ export function listAvailableTemplatesWithInfo(): TemplateInfo[] {
 }
 
 /**
- * Validate a project or monorepo name
- * Returns an object with validation result and optional error message
- */
-export function validateName(name: string): NameValidationResult {
-  // Must not be empty
-  if (!name || name.trim().length === 0) {
-    return { valid: false, error: "Name cannot be empty" };
-  }
-
-  // Must not be only special characters (dashes, underscores, dots)
-  if (/^[-_.]+$/.test(name)) {
-    return {
-      valid: false,
-      error: "Name cannot consist only of dashes, underscores, or dots",
-    };
-  }
-
-  // Must not start or end with special characters
-  if (/^[-_.]/.test(name)) {
-    return {
-      valid: false,
-      error: "Name cannot start with a dash, underscore, or dot",
-    };
-  }
-
-  if (/[-_.]$/.test(name)) {
-    return {
-      valid: false,
-      error: "Name cannot end with a dash, underscore, or dot",
-    };
-  }
-
-  // Must contain at least one alphanumeric character
-  if (!/[a-zA-Z0-9]/.test(name)) {
-    return {
-      valid: false,
-      error: "Name must contain at least one alphanumeric character",
-    };
-  }
-
-  // Must not contain invalid filesystem characters
-  if (/[<>:"|?*\\/]/.test(name)) {
-    return {
-      valid: false,
-      error: 'Name contains invalid characters (< > : " | ? * \\ /)',
-    };
-  }
-
-  // Must not be reserved names
-  const reserved = [".", "..", "con", "prn", "aux", "nul", "com1", "lpt1"];
-  if (reserved.includes(name.toLowerCase())) {
-    return { valid: false, error: "Name is a reserved system name" };
-  }
-
-  return { valid: true };
-}
-
-/**
- * Read monorepo configuration from a directory
+ * Read repository configuration from a directory
  * Returns an object with status and config
- * - found: true, config: MonorepoConfig - Successfully read and parsed
+ * - found: true, config: RepoConfig - Successfully read and parsed
  * - found: false - Config file doesn't exist
  * - found: false, error: "parse_error" - Config file exists but has invalid JSON
  * - found: false, error: "read_error" - Config file exists but can't be read
  */
-export async function readMonorepoConfig(
+export async function readRepoConfig(
   dirPath: FileRoot,
-): Promise<MonorepoConfigResult> {
+): Promise<RepoConfigResult> {
   try {
-    const result = await vfsReadText(dirPath, MONOREPO_CONFIG_FILE);
+    const result = await vfsReadText(dirPath, REPO_CONFIG_FILE);
 
     if (!result.ok) {
       if (result.code === "ENOENT") {
@@ -323,7 +364,7 @@ export async function readMonorepoConfig(
     }
 
     try {
-      const config = JSON.parse(result.text) as MonorepoConfig;
+      const config = JSON.parse(result.text) as RepoConfig;
       return { status: "found", config };
     } catch (parseError) {
       return {
@@ -341,12 +382,12 @@ export async function readMonorepoConfig(
   }
 }
 
-export async function initMonorepo(
+export async function initRepo(
   dirPath: FileRoot,
   name?: string,
-): Promise<InitMonorepoResult> {
+): Promise<InitRepoResult> {
   // Check for existing or problematic config first
-  const existing = await readMonorepoConfig(dirPath);
+  const existing = await readRepoConfig(dirPath);
 
   if (existing.status === "found") {
     return { success: false, error: "already_exists" };
@@ -367,14 +408,14 @@ export async function initMonorepo(
     return {
       success: false,
       error: "unsupported_status",
-      errorMessage: `Unsupported monorepo status: ${String(
+      errorMessage: `Unsupported repo status: ${String(
         (existing as Record<string, unknown>).status ?? "unknown",
       )}`,
     };
   }
 
-  const monorepoName = name || DEFAULT_MONOREPO_NAME;
-  const validation = validateName(monorepoName);
+  const repoName = name || DEFAULT_REPO_NAME;
+  const validation = validateName(repoName);
 
   if (!validation.valid) {
     return {
@@ -384,18 +425,21 @@ export async function initMonorepo(
     };
   }
 
-  const config = createMonorepoConfigObject(monorepoName);
+  const config = createRepoConfigObject(repoName);
 
   try {
     // Ensure target directory exists (noop for in-memory)
     await vfsEnsureDir(dirPath);
 
-    // Write monorepo config file
-    await vfsWrite(
-      dirPath,
-      MONOREPO_CONFIG_FILE,
-      JSON.stringify(config, null, 2),
-    );
+    // Write repo config file
+    await vfsWrite(dirPath, REPO_CONFIG_FILE, JSON.stringify(config, null, 2));
+
+    // Try to ensure base files exist, otherwise createProject will run this again once a project is created within the repo
+    try {
+      await ensureBaseFiles(dirPath, repoName);
+    } catch {
+      // best-effort; ignore
+    }
 
     // Return success result
     return { success: true, config };
@@ -413,22 +457,22 @@ export async function initMonorepo(
 // Re-export constants for public API consumers
 export {
   STARTER_TEMPLATES,
-  MONOREPO_CONFIG_FILE,
-  DEFAULT_MONOREPO_NAME,
+  REPO_CONFIG_FILE,
+  DEFAULT_REPO_NAME,
 } from "./lib/starter-templates/consts";
 
 // Re-export types for public API consumers
 export type {
   TemplateInfo,
   ProjectEntry,
-  MonorepoConfig,
+  RepoConfig,
   LogLevel,
   Logger,
   StarterTemplateOptions,
   CreateProjectResult,
   NameValidationResult,
-  MonorepoConfigResult,
-  InitMonorepoResult,
+  RepoConfigResult,
+  InitRepoResult,
 } from "./lib/starter-templates/types";
 
 export type {
@@ -436,3 +480,6 @@ export type {
   FileRoot,
   FileContent,
 } from "./lib/starter-templates/vfs";
+
+// Re-export validation function
+export { validateName } from "./lib/starter-templates/validate-name";

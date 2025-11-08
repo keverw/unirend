@@ -3,28 +3,38 @@
  *
  * How to run this CLI:
  *
- * 1. End users (after npm/bun install):
- *    npx unirend create ssg my-blog        (downloads if not installed)
- *    bunx unirend create ssg my-blog       (bun equivalent to npx, downloads if not installed)
+ * 1. End users (after install):
+ *    bunx unirend create ssg my-blog       (recommended; downloads if not installed)
  *    bun run unirend create ssg my-blog    (if installed with bun)
- *    node run unirend create ssg my-blog   (if installed with npm)
  *
  * 2. Development (run TypeScript source directly):
  *    bun run run-dev-cli create ssg my-blog
  *
  * 3. Test built version (after bun run build):
  *    bun run run-dist-cli create ssg my-blog
+ *
+ * Runtime:
+ * - This CLI requires Bun. If not running under Bun, it will exit with an error.
+ *
+ *   Rationale: Bun can run TypeScript directly and bundle to a single JS file,
+ *   which keeps the generator simple and easy out of the box. Generated projects
+ *   can still run under Node when bundled (e.g., `bun build --target node`).
+ *
+ *   Note: While other tooling (ts-node, tsc + node, esbuild/rollup) can work,
+ *   we standardize on Bun to maximize value for the least effort and keep
+ *   maintenance straightforward—avoiding a complex matrix of toolchains.
+ *   As Node tooling evolves, we may revisit a Node-focused CLI path.
  */
 
 import { join } from "path";
 import {
   createProject,
   listAvailableTemplates,
-  MONOREPO_CONFIG_FILE,
-  DEFAULT_MONOREPO_NAME,
+  REPO_CONFIG_FILE,
+  DEFAULT_REPO_NAME,
   type LogLevel,
   listAvailableTemplatesWithInfo,
-  initMonorepo,
+  initRepo,
 } from "./starter-templates";
 import { CLI_VERSION } from "./version";
 import {
@@ -74,25 +84,48 @@ const colorPrint = (level: LogLevel, message: string) => {
 // Parse command line arguments
 const args = process.argv.slice(2);
 
+// Detect if running under Bun runtime
+// Bun exposes a global `Bun` object that Node.js doesn't have
+const isBun = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
+
+// Enforce Bun runtime
+if (!isBun) {
+  // eslint-disable-next-line no-console
+  console.error(
+    "❌ Unirend CLI requires Bun.\n" +
+      "\n" +
+      "Why: Bun runs TypeScript directly and bundles to a single JS file, keeping the CLI simple and easy out of the box.\n" +
+      "Note: Generated projects can still run under Node when bundled (e.g., `bun build --target node`).\n" +
+      "\n" +
+      "Install Bun: https://bun.sh\n" +
+      "Run with:\n" +
+      "  bunx unirend ...   # recommended (downloads if not installed)\n" +
+      "  bun run unirend ...",
+  );
+  process.exit(1);
+}
+
 function showHelp(errorMessage?: string) {
   const availableTemplates = listAvailableTemplates();
 
   const commands: CommandInfo[] = [
     {
-      command: "init-monorepo [path]",
+      command: "init-repo [path]",
       description: [
-        "Initialize a directory as a monorepo",
+        "Initialize a directory as a unirend repo",
         "- [path]: Directory path (optional, defaults to current directory)",
-        "- --name: Monorepo name (optional, defaults to 'unirend-project-monorepo')",
+        "- --name: Repo name (optional, defaults to 'unirend-projects')",
       ],
     },
     {
-      command: "create <type> <name> [path]",
+      command: "create <type> <name> [path] [--target bun|node]",
       description: [
         "Create a new project from template",
         `- <type>: Project template (${availableTemplates.join(", ")})`,
         "- <name>: Project name",
-        "- [path]: Project path (optional, defaults to current directory)",
+        "- [path]: Repo path (optional, defaults to current directory)",
+        "- [--target bun|node]: Target runtime for server bundle/scripts (default: bun)",
+        "- Auto-init: If the repo is not initialized here, it will be created automatically with a default name",
       ],
     },
     {
@@ -104,10 +137,10 @@ function showHelp(errorMessage?: string) {
   ];
 
   const examples = [
-    "unirend init-monorepo",
-    "unirend init-monorepo ./my-workspace",
-    "unirend init-monorepo --name my-workspace",
-    "unirend init-monorepo ./projects --name my-workspace",
+    "unirend init-repo",
+    "unirend init-repo ./my-workspace",
+    "unirend init-repo --name my-workspace",
+    "unirend init-repo ./projects --name my-workspace",
     "unirend create ssg my-blog",
     "unirend create ssr my-app ./projects",
     "unirend create api my-api-server",
@@ -126,6 +159,16 @@ function showHelp(errorMessage?: string) {
   );
 
   print(helpText);
+  print("");
+  print(
+    "Notes:\n" +
+      "  - The repository setup supports multiple projects in one workspace.\n" +
+      "  - You can run 'init-repo' to set it up explicitly, or rely on auto-init during 'create'.\n" +
+      ("  - The repo name is stored in " +
+        REPO_CONFIG_FILE +
+        " and identifies your workspace.\n") +
+      "  - The repo root's package.json uses your chosen names and sets private=true to avoid accidental publishing.",
+  );
 }
 
 function showVersion() {
@@ -161,31 +204,31 @@ async function main() {
 
     process.exit(0);
   }
-  // Handle init-monorepo command
-  else if (parsed.command === "init-monorepo") {
+  // Handle init-repo command
+  else if (parsed.command === "init-repo") {
     // Determine target directory
-    const targetDir = parsed.monorepoPath
-      ? join(process.cwd(), parsed.monorepoPath)
+    const targetDir = parsed.repoPath
+      ? join(process.cwd(), parsed.repoPath)
       : process.cwd();
 
-    const configFullPath = join(targetDir, MONOREPO_CONFIG_FILE);
+    const configFullPath = join(targetDir, REPO_CONFIG_FILE);
 
-    // Determine monorepo name (from flag or default)
-    const monorepoName = parsed.monorepoName || DEFAULT_MONOREPO_NAME;
+    // Determine repo name (from flag or default)
+    const repoName = parsed.repoName || DEFAULT_REPO_NAME;
 
-    // Initialize monorepo (validates and writes config)
-    const initResult = await initMonorepo(targetDir, monorepoName);
+    // Initialize repo (validates and writes config)
+    const initResult = await initRepo(targetDir, repoName);
 
     if (initResult.success) {
-      colorPrint("success", `✅ Initialized monorepo: ${monorepoName}`);
-      colorPrint("info", `Created ${MONOREPO_CONFIG_FILE}`);
+      colorPrint("success", `✅ Initialized repo: ${repoName}`);
+      colorPrint("info", `Created ${REPO_CONFIG_FILE}`);
       colorPrint("info", "");
-      colorPrint("info", "You can now create projects in this monorepo:");
+      colorPrint("info", "You can now create projects in this repo:");
       colorPrint("info", "  unirend create ssg my-blog");
     } else if (initResult.error === "invalid_name") {
       colorPrint(
         "error",
-        `❌ Invalid monorepo name: ${initResult.errorMessage ?? "Invalid name"}`,
+        `❌ Invalid repo name: ${initResult.errorMessage ?? "Invalid name"}`,
       );
       colorPrint("info", "");
       colorPrint("info", "Valid names must:");
@@ -198,7 +241,7 @@ async function main() {
     } else if (initResult.error === "already_exists") {
       colorPrint(
         "error",
-        `❌ This directory is already a monorepo (${configFullPath} exists)`,
+        `❌ This directory is already initialized (${configFullPath} exists)`,
       );
 
       process.exit(1);
@@ -228,7 +271,7 @@ async function main() {
 
       process.exit(1);
     } else {
-      colorPrint("error", `❌ Failed to create monorepo configuration`);
+      colorPrint("error", `❌ Failed to create repository configuration`);
 
       if (initResult.errorMessage) {
         colorPrint("error", `   ${initResult.errorMessage}`);
@@ -249,18 +292,19 @@ async function main() {
     const cwd = process.cwd();
 
     // CLI handles default path logic - defaults to current working directory
-    const projectPath = parsed.projectPath
-      ? join(parsed.projectPath, parsed.projectName)
-      : join(cwd, parsed.projectName);
+    const repoRoot = parsed.repoPath
+      ? join(process.cwd(), parsed.repoPath)
+      : cwd;
 
     // Use starter-templates library to create project
     // Name and template validation are handled by the library
-    // Monorepo config updates are handled by createProject internally
+    // Repo config updates are handled by createProject internally
     const result = await createProject({
       templateID: parsed.projectType as string,
       projectName: parsed.projectName as string,
-      projectPath,
+      repoRoot,
       logger: colorPrint,
+      serverTarget: (parsed.target as "bun" | "node") ?? "bun",
     });
 
     if (!result.success) {

@@ -22,6 +22,7 @@ const createMockReply = () => {
     type: mock(() => reply),
     send: mock(() => reply),
     redirect: mock(() => reply),
+    header: mock(() => reply),
   };
   return reply;
 };

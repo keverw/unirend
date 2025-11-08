@@ -265,7 +265,7 @@ describe("cors", () => {
         .find((h) => h.event === "onRequest");
       await onRequestHook?.handler(request, reply);
 
-      expect(reply.status).not.toHaveBeenCalledWith(403);
+      expect(reply.code).not.toHaveBeenCalledWith(403);
     });
 
     it("should not set CORS headers for disallowed origins on regular requests", async () => {
@@ -290,7 +290,7 @@ describe("cors", () => {
         "Access-Control-Allow-Origin",
         expect.any(String),
       );
-      expect(reply.status).not.toHaveBeenCalled();
+      expect(reply.code).not.toHaveBeenCalled();
       expect(reply.send).not.toHaveBeenCalled();
     });
 
@@ -311,7 +311,7 @@ describe("cors", () => {
         .find((h) => h.event === "onRequest");
       await onRequestHook?.handler(request, reply);
 
-      expect(reply.status).not.toHaveBeenCalledWith(403);
+      expect(reply.code).not.toHaveBeenCalledWith(403);
     });
 
     it("should not set CORS headers for HTTP origins when using https://* wildcard", async () => {
@@ -335,7 +335,7 @@ describe("cors", () => {
         "Access-Control-Allow-Origin",
         expect.any(String),
       );
-      expect(reply.status).not.toHaveBeenCalled();
+      expect(reply.code).not.toHaveBeenCalled();
       expect(reply.send).not.toHaveBeenCalled();
     });
 
@@ -471,7 +471,7 @@ describe("cors", () => {
         .find((h) => h.event === "onRequest");
       await onRequestHook?.handler(request, reply);
 
-      expect(reply.status).toHaveBeenCalledWith(403);
+      expect(reply.code).toHaveBeenCalledWith(403);
       expect(reply.send).toHaveBeenCalledWith({
         error: "Origin not allowed by CORS policy",
       });
@@ -499,7 +499,7 @@ describe("cors", () => {
         .find((h) => h.event === "onRequest");
       await onRequestHook?.handler(request, reply);
 
-      expect(reply.status).toHaveBeenCalledWith(403);
+      expect(reply.code).toHaveBeenCalledWith(403);
       expect(reply.send).toHaveBeenCalledWith({
         error: "Origin not allowed by CORS policy",
       });
@@ -531,7 +531,7 @@ describe("cors", () => {
         "Access-Control-Allow-Origin",
         "*",
       );
-      expect(reply.status).toHaveBeenCalledWith(204);
+      expect(reply.code).toHaveBeenCalledWith(204);
       expect(reply.send).toHaveBeenCalledWith();
     });
 
@@ -1022,7 +1022,7 @@ describe("cors", () => {
         "Access-Control-Allow-Origin",
         expect.any(String),
       );
-      expect(reply.status).not.toHaveBeenCalled();
+      expect(reply.code).not.toHaveBeenCalled();
       expect(reply.send).not.toHaveBeenCalled();
     });
 
@@ -1043,7 +1043,7 @@ describe("cors", () => {
         .find((h) => h.event === "onRequest");
       await onRequestHook?.handler(request, reply);
 
-      expect(reply.status).not.toHaveBeenCalledWith(403);
+      expect(reply.code).not.toHaveBeenCalledWith(403);
     });
 
     it("should handle origins with ports", async () => {
@@ -1063,7 +1063,7 @@ describe("cors", () => {
         .find((h) => h.event === "onRequest");
       await onRequestHook?.handler(request, reply);
 
-      expect(reply.status).not.toHaveBeenCalledWith(403);
+      expect(reply.code).not.toHaveBeenCalledWith(403);
     });
 
     it("should auto-merge credentials origins into main origin list", async () => {
@@ -1086,7 +1086,7 @@ describe("cors", () => {
         .find((h) => h.event === "onRequest");
       await onRequestHook?.handler(request, reply);
 
-      expect(reply.status).not.toHaveBeenCalledWith(403);
+      expect(reply.code).not.toHaveBeenCalledWith(403);
     });
 
     it("should convert single origin to array and merge with credentials origins", async () => {

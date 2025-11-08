@@ -9,5 +9,6 @@
   "files.autoSave": "afterDelay",
   "cSpell.words": ["unirend"],
   "prettier.prettierPath": "./node_modules/prettier",
-  "prettier.requireConfig": true
+  "prettier.requireConfig": true,
+  "jestrunner.jestCommand": "bun test"
 }

@@ -29,6 +29,12 @@ Unirend includes Fastify as a regular dependency for server side rendering and A
 - Node >= 18.17.0 (uses Web Fetch APIs, `structuredClone`, and `AbortSignal.timeout`)
 - Or Bun with equivalent APIs
 
+Recommendation: We recommend Bun as the default toolchain. Bun can run TypeScript directly in development and can bundle your server to a single JavaScript file that runs under Bun or Node for production. Pure Node setups (e.g., `ts-node`, `tsc`, `esbuild`, `rollup`) or vanilla JavaScript are possible, but not the focus of this guide.
+
+CLI note: The Unirend project generator (CLI) requires Bun for a simple, out‑of‑the‑box experience. Generated projects can still run under Node when bundled (e.g., `bun build --target node`), while using Bun only for the development and build tooling. As Node tooling continues to improve, we may add first-class Node CLI support in the future.
+
+Repo auto‑init: The CLI sets up a repository structure that supports multiple projects in one workspace. You can initialize it explicitly with `init-repo`, but if it’s missing when you run `create`, Unirend will set it up automatically with a sensible default.
+
 <!-- toc -->
 
 - [Installation](#installation)
@@ -181,7 +187,7 @@ vite build --outDir build/server --ssr src/entry-server.tsx
 
 #### 3. Package.json Scripts
 
-Add these scripts to your `package.json` for both SSG and SSR workflows:
+Add these scripts to your `package.json` for both SSG and SSR workflows. We recommend Bun for simplicity, you can also run the Bun‑built bundle with Node (example shown below).
 
 ```json
 {
@@ -206,12 +212,16 @@ Add these scripts to your `package.json` for both SSG and SSR workflows:
     "build:prod": "bun build serve.ts --outdir ./dist",
     "start": "bun dist/serve.js prod"
 
-    // For SSR Production Build (Node - use if dealing with Bun compatibility issues):
+    // Optional: Run SSR Production Build under Node runtime using a Bun-built bundle (use if dealing with Bun compatibility issues):
     // "build:prod": "bun build serve.ts --outdir ./dist --target=node",
     // "start": "node dist/serve.js prod"
   }
 }
 ```
+
+Tip: When you plan to run the Bun-built bundle under Node, include the `--target node` flag in `bun build` so the output targets Node’s runtime.
+
+Note: If you prefer a pure-Node toolchain without Bun, explore compiling or bundling your server with tools like `tsc`, `esbuild`, `rollup`, or `tsup`, then run with `node`. These alternatives are not covered in depth here to keep the setup simple and easy out of the box.
 
 #### 4. Frontend App Config Pattern
 
@@ -274,7 +284,7 @@ Runable, self-contained examples live under `demos/` and are wired to root-level
 - `demos/ssg` — SSG example (build, generate, serve)
 - `demos/ssr` — SSR example (dev and production)
 
-Runtime note: Demo scripts use Bun to run TypeScript directly (e.g., `bun run ...`). You can use Node-based alternatives as well (e.g., transpile with `tsc`, use `ts-node`, or write equivalent JavaScript). The Unirend SSG/SSR APIs are runtime-agnostic; Vite is used for dev/build, but the server pieces run on standard Node runtimes, too.
+Runtime note: Demo scripts use Bun to run TypeScript directly (e.g., `bun run ...`). You can use Node-based alternatives as well (e.g., transpile with `tsc`, use `ts-node`, or write equivalent vanilla JavaScript). Unirend’s SSG and server (SSR/API) APIs run on Node and Bun. Vite provides HMR in development and bundles the React application frontend for production.
 
 ### SSG demo: Build and Serve
 
@@ -320,7 +330,7 @@ bun run ssr-serve-prod
 What this shows:
 
 - Registering SSR plugins (routes, hooks, decorators).
-- API/SSR coexistence: API routes under `/api/*` are handled first; unmatched ones return JSON envelopes. Other GETs fall through to SSR.
+- API/SSR coexistence: API routes under `/api/*` are handled first. Unmatched ones return JSON envelopes. Other GETs fall through to SSR.
 - Optional custom 500 page example (commented in `demos/ssr/serve.ts`).
 
 ## Data Loaders
@@ -329,7 +339,7 @@ Unirend centralizes route data fetching through a single loader system. Define l
 
 - Create config: `createDefaultPageLoaderConfig(apiBaseUrl)` or provide a custom config
 - Define loaders: `createPageLoader(config, pageType)` or `createPageLoader(localConfig, localHandler)`
-- Errors/redirects: handled uniformly via envelopes; integrate with `RouteErrorBoundary` and `useDataloaderEnvelopeError`
+- Errors/redirects: handled uniformly via envelopes. Integrate with `RouteErrorBoundary` and `useDataloaderEnvelopeError`
 
 ### Page Type Handler (Fetch/Short-Circuit) Data Loader
 
