@@ -38,6 +38,7 @@ Repo auto‑init: The CLI sets up a repository structure that supports multiple 
 <!-- toc -->
 
 - [Installation](#installation)
+  - [Runtime requirements](#runtime-requirements)
 - [Common Setup for SSG (Static Site Generation) or SSR (Server-Side Rendering)](#common-setup-for-ssg-static-site-generation-or-ssr-server-side-rendering)
   - [Prepare Client Frontend](#prepare-client-frontend)
   - [Prepare Vite Config and Entry Points](#prepare-vite-config-and-entry-points)
@@ -52,16 +53,10 @@ Repo auto‑init: The CLI sets up a repository structure that supports multiple 
   - [SSG demo: Build and Serve](#ssg-demo-build-and-serve)
   - [SSR demo: Dev and Prod](#ssr-demo-dev-and-prod)
 - [Data Loaders](#data-loaders)
-  - [Page Type Handler (Fetch/Short-Circuit) Data Loader](#page-type-handler-fetchshort-circuit-data-loader)
-  - [Local Data Loader](#local-data-loader)
-  - [Using Loaders in React Router (Applies to Both Types):](#using-loaders-in-react-router-applies-to-both-types)
-  - [Data Loader Error Transformation and Additional Config](#data-loader-error-transformation-and-additional-config)
 - [API Envelope Structure](#api-envelope-structure)
   - [Helpers and Integration](#helpers-and-integration)
 - [Error Handling](#error-handling)
-  - [Error Handling Strategy](#error-handling-strategy)
-  - [Error Utilities and Recommended Setup](#error-utilities-and-recommended-setup)
-  - [Other Suggestions](#other-suggestions)
+- [UX Suggestions](#ux-suggestions)
 - [Development](#development)
 - [Build Info Utilities](#build-info-utilities)
 
@@ -362,23 +357,9 @@ See the canonical spec in [docs/api-envelope-structure.md](docs/api-envelope-str
 
 ## Error Handling
 
-### Error Handling Strategy
+See setup recommendations and how the framework handles SSR vs client errors in the dedicated guide: [docs/error-handling.md](docs/error-handling.md).
 
-See the detailed guidance in [docs/error-handling.md](docs/error-handling.md) for SSR vs client error handling using Unirend’s envelope pattern.
-
-### Error Utilities and Recommended Setup
-
-- **Error Boundary (thrown errors)**: In your `routes.tsx`, set `RouteErrorBoundary` as the root route’s `errorElement` to catch thrown errors during navigation and SSR.
-  - Import: `import { RouteErrorBoundary } from 'unirend/router-utils'`
-  - Pass your custom components: `NotFoundComponent` (404s) and `ApplicationErrorComponent` (thrown errors).
-  - The `ApplicationErrorComponent` should be a standalone page (no app layout). The `NotFoundComponent` can be standalone or use your layout; either is fine.
-  - For SSR parity, your server’s `get500ErrorPage` should visually match your `ApplicationErrorComponent`.
-- **Inline envelope errors in layout**: In your `AppLayout`, use `useDataloaderEnvelopeError` to render inline errors (including 404s) returned by data loaders.
-  - Import: `import { useDataloaderEnvelopeError } from 'unirend/router-utils'`
-  - Typical mapping: render a `NotFound` component for 404s and a generic error component for other cases. See the SSR demo’s `demos/ssr/src/routes.tsx` layout pattern.
-  - A dedicated not-found page loader is recommended, but inline handling in your layout works too.
-
-### Other Suggestions
+## UX Suggestions
 
 - Scroll to top on navigation
   - Add a lightweight scroll-to-top effect in a common component like your header or app layout.

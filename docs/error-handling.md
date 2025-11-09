@@ -3,6 +3,8 @@
 <!-- toc -->
 
 - [Overview](#overview)
+- [Recommended Setup](#recommended-setup)
+  - [Error Utilities and Recommended Setup](#error-utilities-and-recommended-setup)
 - [Error Types](#error-types)
   - [Thrown Errors](#thrown-errors)
   - [Envelope Response Errors](#envelope-response-errors)
@@ -34,6 +36,66 @@ Behavior also depends on when the error occurs:
 1. During initial server-side rendering (SSR)
 2. After hydration on the client
 
+## Recommended Setup
+
+### Error Utilities and Recommended Setup
+
+- **Error Boundary (thrown errors)**: In your `routes.tsx`, set `RouteErrorBoundary` as the root route’s `errorElement` to catch thrown errors during navigation and SSR.
+  - Import: `import { RouteErrorBoundary } from 'unirend/router-utils'`
+  - Pass your custom components: `NotFoundComponent` (404s) and `ApplicationErrorComponent` (thrown errors).
+  - The `ApplicationErrorComponent` should be a standalone page (no app layout). While the `NotFoundComponent` can be standalone or use your layout, either is fine.
+  - For SSR parity, your server’s `get500ErrorPage` should visually match your `ApplicationErrorComponent`.
+
+  ```ts
+  // routes.tsx
+  import type { RouteObject } from 'react-router'
+  import { RouteErrorBoundary } from 'unirend/router-utils'
+  import AppLayout from './AppLayout'
+  import NotFound from './pages/NotFound'
+  import ApplicationError from './pages/ApplicationError'
+
+  export const routes: RouteObject[] = [
+    {
+      path: '/',
+      element: <AppLayout />,
+      errorElement: (
+        <RouteErrorBoundary
+          NotFoundComponent={NotFound}
+          ApplicationErrorComponent={ApplicationError}
+        />
+      ),
+      children: [
+        // your routes...
+        // Example:
+        // {
+        //   index: true,
+        //   element: <Home />,
+        // },
+        // Example loader route
+        // {
+        //   path: 'profile',
+        //   element: <Profile />,
+        //   loader: createPageLoader(pageLoaderConfig, 'profile'),
+        // },
+        // Catch‑all 404 route at the end
+        // Useful when you want a data loader to produce a 404 page envelope
+        // so you can still return consistent metadata or app context on not found
+        // You could also log 404s here to a backend, to consider adding redirects or for SEO analysis
+        // {
+        //   path: '*',
+        //   element: null,
+        //   loader: createPageLoader(pageLoaderConfig, 'not-found'),
+        // },
+      ],
+    },
+  ]
+  ```
+
+- **Inline envelope errors in layout**: In your `AppLayout`, use `useDataloaderEnvelopeError` to render inline errors (including 404s) returned by data loaders.
+  - Import: `import { useDataloaderEnvelopeError } from 'unirend/router-utils'`
+  - Typical mapping: render a `NotFound` component for 404s and a generic error component for other cases. See the SSR demo’s `demos/ssr/src/routes.tsx` layout pattern.
+  - A dedicated not-found page loader is recommended, but inline handling in your layout works too.
+
 ## Error Types
 
 ### Thrown Errors
@@ -54,8 +116,8 @@ When an unhandled error occurs during SSR:
 
 - The server error handler in `SSRServer` catches it.
 - In development, Vite fixes stack traces for clarity.
-- A full-page 500 error is returned via your configured `get500ErrorPage()` (no app layout; safe standalone page).
-- In development, details may be shown; in production, show a generic message.
+- A full page 500 error is returned via your configured `get500ErrorPage()` which SHOULD NOT use your main app layout, and be a separate standalone error page to cascading layout failures.
+- In development, details may be shown, in production, show a generic message.
 
 #### 2) Loader Response Errors During SSR
 
@@ -80,7 +142,7 @@ When a loader produces a page render with `statusCode === 500`:
 #### 5) Error Responses with Stacktrace (Development Only)
 
 - In dev, you may include a stacktrace field in the envelope’s `error.details` for debugging.
-- Show stacktraces only in development; never in production.
+- Show stacktraces only in development, never in production.
 
 ## Integration with API Envelope Structure
 

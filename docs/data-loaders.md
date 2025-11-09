@@ -6,6 +6,22 @@ Unirend centralizes route data fetching through a single loader system. Define l
 - Define loaders: `createPageLoader(config, pageType)` or `createPageLoader(localConfig, localHandler)`
 - Errors/redirects: handled uniformly via envelopes. Integrate with `RouteErrorBoundary` and `useDataloaderEnvelopeError`
 
+<!-- toc -->
+
+- [Quick Start](#quick-start)
+- [Which loader should I use](#which-loader-should-i-use)
+- [Page Type Handler (Fetch/Short-Circuit) Data Loader](#page-type-handler-fetchshort-circuit-data-loader)
+- [Local Data Loader](#local-data-loader)
+- [Using Loaders in React Router (Applies to Both Types)](#using-loaders-in-react-router-applies-to-both-types)
+- [Data Loader Error Transformation and Additional Config](#data-loader-error-transformation-and-additional-config)
+  - [`errorDefaults` presets](#errordefaults-presets)
+  - [`connectionErrorMessages`](#connectionerrormessages)
+  - [`transformErrorMeta(params)`](#transformerrormetaparams)
+  - [`statusCodeHandlers`](#statuscodehandlers)
+  - [Additional configuration options](#additional-configuration-options)
+
+<!-- tocstop -->
+
 ## Quick Start
 
 HTTP‑based Loader
