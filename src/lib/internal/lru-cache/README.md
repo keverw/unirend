@@ -16,17 +16,17 @@ A TypeScript implementation of a Least Recently Used (LRU) cache with TTL and si
 ### Basic Usage
 
 ```typescript
-import { LRUCache } from "@/libs/lru-cache";
+import { LRUCache } from '@/libs/lru-cache';
 
 // Create a cache with maximum 100 entries
 const cache = new LRUCache<string, any>(100);
 
 // Set values
-cache.set("key1", "value1");
-cache.set("key2", { complex: "object" });
+cache.set('key1', 'value1');
+cache.set('key2', { complex: 'object' });
 
 // Get values
-const value = cache.get("key1"); // 'value1'
+const value = cache.get('key1'); // 'value1'
 ```
 
 ### With TTL (Time-To-Live)
@@ -38,10 +38,10 @@ const cache = new LRUCache<string, string>(100, {
 });
 
 // Set a value with default TTL
-cache.set("key1", "expires in 60 seconds");
+cache.set('key1', 'expires in 60 seconds');
 
 // Set a value with custom TTL
-cache.set("key2", "expires in 10 seconds", 10 * 1000);
+cache.set('key2', 'expires in 10 seconds', 10 * 1000);
 
 // After 10 seconds, key2 will be automatically removed
 // After 60 seconds, key1 will be automatically removed
@@ -68,7 +68,7 @@ const cache = new LRUCache<string, any>(100, {
   maxSize: 1000000, // 1MB
   sizeCalculator: (value) => {
     // Custom logic to calculate size of value
-    if (typeof value === "string") {
+    if (typeof value === 'string') {
       return value.length * 2; // UTF-16 strings use ~2 bytes per character
     }
     if (Buffer.isBuffer(value)) {

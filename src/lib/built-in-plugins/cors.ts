@@ -1,10 +1,10 @@
-import type { FastifyRequest, FastifyReply } from "fastify";
-import type { ServerPlugin, PluginHostInstance } from "../types";
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { ServerPlugin, PluginHostInstance } from '../types';
 import {
   matchesOriginList,
   matchesCORSCredentialsList,
   validateConfigEntry,
-} from "../internal/domain-utils/domain-utils";
+} from '../internal/domain-utils/domain-utils';
 
 /**
  * CORS origin configuration - can be a string, array, or function
@@ -133,7 +133,7 @@ export interface CORSConfig {
    *
    * @default false
    */
-  xFrameOptions?: false | "DENY" | "SAMEORIGIN";
+  xFrameOptions?: false | 'DENY' | 'SAMEORIGIN';
 
   /**
    * Controls the Strict-Transport-Security (HSTS) response header.
@@ -157,14 +157,14 @@ export interface CORSConfig {
 /**
  * Default CORS configuration
  */
-const DEFAULT_CONFIG: Required<Omit<CORSConfig, "credentials" | "origin">> & {
+const DEFAULT_CONFIG: Required<Omit<CORSConfig, 'credentials' | 'origin'>> & {
   origin: CORSOrigin;
   credentials: boolean;
 } = {
-  origin: "*",
+  origin: '*',
   credentials: false,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   exposedHeaders: [],
   maxAge: 86400,
   preflightContinue: false,
@@ -191,38 +191,38 @@ function validateCredentialsOrigins(
 ): void {
   for (const o of creds) {
     // Never allow credentials for the special "null" origin
-    if (o === "null") {
+    if (o === 'null') {
       throw new Error(
         "Invalid CORS config: credentials cannot be enabled for the 'null' origin. Remove 'null' from the credentials list.",
       );
     }
 
     // Use validateConfigEntry to get comprehensive validation
-    const verdict = validateConfigEntry(o, "origin", {
+    const verdict = validateConfigEntry(o, 'origin', {
       allowGlobalWildcard: false, // Never allow global wildcard in credentials
       allowProtocolWildcard: false, // Never allow protocol wildcards in credentials
     });
 
     if (!verdict.valid) {
       throw new Error(
-        `Invalid CORS credentials origin "${o}"${verdict.info ? ": " + verdict.info : ""}`,
+        `Invalid CORS credentials origin "${o}"${verdict.info ? ': ' + verdict.info : ''}`,
       );
     }
 
     // Use wildcardKind from validateConfigEntry to determine policy
-    if (verdict.wildcardKind === "global") {
+    if (verdict.wildcardKind === 'global') {
       throw new Error(
         `Global wildcard "${o}" is not allowed in credentials. Use specific origins or subdomain patterns like "*.example.com".`,
       );
     }
 
-    if (verdict.wildcardKind === "protocol") {
+    if (verdict.wildcardKind === 'protocol') {
       throw new Error(
         `Protocol wildcard "${o}" is not allowed in credentials. Use domain patterns like "*.example.com" or "**.example.com".`,
       );
     }
 
-    if (verdict.wildcardKind === "subdomain" && !allowWildcard) {
+    if (verdict.wildcardKind === 'subdomain' && !allowWildcard) {
       throw new Error(
         `Wildcard pattern "${o}" in credentials requires credentialsAllowWildcardSubdomains: true or use explicit origins.`,
       );
@@ -238,7 +238,7 @@ async function isOriginAllowed(
   originConfig: CORSOrigin,
   request: FastifyRequest,
 ): Promise<boolean> {
-  if (typeof originConfig === "string") {
+  if (typeof originConfig === 'string') {
     // Delegate to list matcher for uniform handling (exact, wildcard, protocol wildcard, and "*")
     return matchesOriginList(origin, [originConfig]);
   }
@@ -247,7 +247,7 @@ async function isOriginAllowed(
     return matchesOriginList(origin, originConfig);
   }
 
-  if (typeof originConfig === "function") {
+  if (typeof originConfig === 'function') {
     return await originConfig(origin, request);
   }
 
@@ -259,7 +259,7 @@ async function isOriginAllowed(
  */
 async function areCredentialsAllowed(
   origin: string | undefined,
-  credentialsConfig: CORSConfig["credentials"],
+  credentialsConfig: CORSConfig['credentials'],
   request: FastifyRequest,
   allowWildcardSubdomains: boolean,
 ): Promise<boolean> {
@@ -277,7 +277,7 @@ async function areCredentialsAllowed(
     });
   }
 
-  if (typeof credentialsConfig === "function") {
+  if (typeof credentialsConfig === 'function') {
     return await credentialsConfig(origin, request);
   }
 
@@ -289,14 +289,14 @@ async function areCredentialsAllowed(
  */
 // addToVaryHeader: safer header read
 function addToVaryHeader(reply: FastifyReply, ...values: string[]): void {
-  const existing = reply.getHeader("Vary");
+  const existing = reply.getHeader('Vary');
   const current = Array.isArray(existing)
-    ? existing.join(", ")
-    : ((existing ?? "") as string);
+    ? existing.join(', ')
+    : ((existing ?? '') as string);
 
   const vary = new Set(
     current
-      .split(",")
+      .split(',')
       .map((h) => h.trim())
       .filter(Boolean),
   );
@@ -305,7 +305,7 @@ function addToVaryHeader(reply: FastifyReply, ...values: string[]): void {
     vary.add(v);
   }
 
-  reply.header("Vary", Array.from(vary).join(", "));
+  reply.header('Vary', Array.from(vary).join(', '));
 }
 
 /**
@@ -362,7 +362,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
   //   - Disallow global/protocol wildcards in credentials allowlists
   //   - Allow subdomain wildcards in credentials only when credentialsAllowWildcardSubdomains: true
 
-  if (resolvedConfig.origin === "*" && resolvedConfig.credentials === true) {
+  if (resolvedConfig.origin === '*' && resolvedConfig.credentials === true) {
     throw new Error(
       "Cannot use credentials: true with origin: '*'. The CORS specification prohibits Access-Control-Allow-Credentials: true with Access-Control-Allow-Origin: *. Use specific origins instead.",
     );
@@ -372,12 +372,12 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
   // Require explicit opt-in via allowCredentialsWithProtocolWildcard: true
   if (resolvedConfig.credentials === true) {
     const hasProtocolWildcard = (value: CORSOrigin): boolean => {
-      if (typeof value === "string") {
-        return value === "https://*" || value === "http://*";
+      if (typeof value === 'string') {
+        return value === 'https://*' || value === 'http://*';
       }
 
       if (Array.isArray(value)) {
-        return value.some((v) => v === "https://*" || v === "http://*");
+        return value.some((v) => v === 'https://*' || v === 'http://*');
       }
 
       return false; // functions are evaluated per-request; not considered a blanket wildcard here
@@ -388,15 +388,15 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
       !resolvedConfig.allowCredentialsWithProtocolWildcard
     ) {
       throw new Error(
-        "Cannot use credentials: true with protocol wildcard origins unless allowCredentialsWithProtocolWildcard: true. Use specific origins instead.",
+        'Cannot use credentials: true with protocol wildcard origins unless allowCredentialsWithProtocolWildcard: true. Use specific origins instead.',
       );
     }
   }
 
   // Additional guard: prevent reflect+creds when origin is '*'
-  if (resolvedConfig.origin === "*") {
+  if (resolvedConfig.origin === '*') {
     // Dynamic function with '*' would enable reflecting arbitrary origins with creds
-    if (typeof resolvedConfig.credentials === "function") {
+    if (typeof resolvedConfig.credentials === 'function') {
       throw new Error(
         "Unsafe CORS: cannot combine origin '*' with dynamic credentials. Use a concrete origin list when enabling credentials.",
       );
@@ -431,16 +431,16 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
   }
 
   // Validate origin entries using centralized validator with appropriate wildcard policies
-  if (typeof resolvedConfig.origin === "string") {
-    if (resolvedConfig.origin !== "*") {
-      const verdict = validateConfigEntry(resolvedConfig.origin, "origin", {
+  if (typeof resolvedConfig.origin === 'string') {
+    if (resolvedConfig.origin !== '*') {
+      const verdict = validateConfigEntry(resolvedConfig.origin, 'origin', {
         allowGlobalWildcard: false, // Global wildcard handled separately above
         allowProtocolWildcard: true, // Allow protocol wildcards in origin
       });
 
       if (!verdict.valid) {
         throw new Error(
-          `Invalid CORS origin "${resolvedConfig.origin}"${verdict.info ? ": " + verdict.info : ""}`,
+          `Invalid CORS origin "${resolvedConfig.origin}"${verdict.info ? ': ' + verdict.info : ''}`,
         );
       }
     }
@@ -448,12 +448,12 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
     const entries = resolvedConfig.origin as string[];
     // Normalize ["*"] to "*"
     const unique = Array.from(new Set(entries));
-    if (unique.length === 1 && unique[0] === "*") {
-      resolvedConfig.origin = "*";
+    if (unique.length === 1 && unique[0] === '*') {
+      resolvedConfig.origin = '*';
     } else {
       // Special policy: '*' inside an array is only allowed when paired solely with 'null'
-      if (entries.includes("*")) {
-        const onlyStarAndNull = entries.every((e) => e === "*" || e === "null");
+      if (entries.includes('*')) {
+        const onlyStarAndNull = entries.every((e) => e === '*' || e === 'null');
         if (!onlyStarAndNull) {
           throw new Error(
             "Invalid CORS config: Do not include '*' inside an origin array. Use origin: '*' (string) to allow all, or list specific origins.",
@@ -461,25 +461,25 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
         }
       }
 
-      let wildcardKindSeen: "none" | "global" | "protocol" = "none";
+      let wildcardKindSeen: 'none' | 'global' | 'protocol' = 'none';
       const wildcardTokensSeen: string[] = [];
 
       for (const o of entries) {
         // Use centralized validator to classify
-        const verdict = validateConfigEntry(o, "origin", {
+        const verdict = validateConfigEntry(o, 'origin', {
           allowGlobalWildcard: true,
           allowProtocolWildcard: true,
         });
         if (!verdict.valid) {
           throw new Error(
-            `Invalid CORS origin "${o}"${verdict.info ? ": " + verdict.info : ""}`,
+            `Invalid CORS origin "${o}"${verdict.info ? ': ' + verdict.info : ''}`,
           );
         }
         if (
-          verdict.wildcardKind === "global" ||
-          verdict.wildcardKind === "protocol"
+          verdict.wildcardKind === 'global' ||
+          verdict.wildcardKind === 'protocol'
         ) {
-          const token = verdict.wildcardKind === "global" ? "*" : o;
+          const token = verdict.wildcardKind === 'global' ? '*' : o;
           if (wildcardTokensSeen.length > 0) {
             if (wildcardTokensSeen.includes(token)) {
               // Duplicate of the same wildcard token
@@ -488,7 +488,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
               );
             }
             // Multiple distinct wildcard tokens – include exact list in error
-            const foundList = wildcardTokensSeen.concat(token).join(", ");
+            const foundList = wildcardTokensSeen.concat(token).join(', ');
             throw new Error(
               `Invalid CORS config: only one of '*', 'https://*', or 'http://*' may be specified in origin. Found: ${foundList}`,
             );
@@ -499,12 +499,12 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
           continue;
         }
 
-        if (o === "null") {
+        if (o === 'null') {
           continue;
         }
 
         // Non-wildcard, non-null entries
-        if (wildcardKindSeen !== "none") {
+        if (wildcardKindSeen !== 'none') {
           throw new Error(
             "Invalid CORS config: when a wildcard token is present, the only other allowed entry is the literal 'null'.",
           );
@@ -514,13 +514,13 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
       // Additional safety: if a global '*' token is present inside the origin array,
       // disallow credentials: true and dynamic credentials function to avoid
       // reflecting arbitrary origins with credentials.
-      if (entries.includes("*")) {
+      if (entries.includes('*')) {
         if (resolvedConfig.credentials === true) {
           throw new Error(
             "Cannot use credentials: true when origin array contains '*'. Use specific origins instead or remove credentials: true.",
           );
         }
-        if (typeof resolvedConfig.credentials === "function") {
+        if (typeof resolvedConfig.credentials === 'function') {
           throw new Error(
             "Unsafe CORS: cannot combine an origin array containing '*' with dynamic credentials. Use a concrete origin list when enabling credentials.",
           );
@@ -548,8 +548,8 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
     resolvedConfig.origin = mergedOrigins;
   } else if (
     Array.isArray(resolvedConfig.credentials) &&
-    typeof resolvedConfig.origin === "string" &&
-    resolvedConfig.origin !== "*"
+    typeof resolvedConfig.origin === 'string' &&
+    resolvedConfig.origin !== '*'
   ) {
     // Convert single origin to array and merge with credentials origins
     const credentialsOrigins = resolvedConfig.credentials;
@@ -564,12 +564,12 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
     const cfg = resolvedConfig.hsts;
 
     if (
-      typeof cfg.maxAge !== "number" ||
+      typeof cfg.maxAge !== 'number' ||
       !Number.isFinite(cfg.maxAge) ||
       cfg.maxAge < 0
     ) {
       throw new Error(
-        "Invalid CORS config: hsts.maxAge must be a non-negative number (seconds)",
+        'Invalid CORS config: hsts.maxAge must be a non-negative number (seconds)',
       );
     }
 
@@ -579,13 +579,13 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
     if (cfg.preload) {
       if (cfg.maxAge < 31536000) {
         throw new Error(
-          "Invalid CORS config: HSTS preload requires maxAge >= 31536000 (1 year)",
+          'Invalid CORS config: HSTS preload requires maxAge >= 31536000 (1 year)',
         );
       }
 
       if (!cfg.includeSubDomains) {
         throw new Error(
-          "Invalid CORS config: HSTS preload requires includeSubDomains: true",
+          'Invalid CORS config: HSTS preload requires includeSubDomains: true',
         );
       }
     }
@@ -594,31 +594,31 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
   return async (fastify: PluginHostInstance) => {
     // Handle preflight OPTIONS requests
     fastify.addHook(
-      "onRequest",
+      'onRequest',
       async (request: FastifyRequest, reply: FastifyReply) => {
         const origin = request.headers.origin;
         const method = request.method;
 
         // Always add Vary: Origin when we might echo an origin
-        addToVaryHeader(reply, "Origin");
+        addToVaryHeader(reply, 'Origin');
 
         // Security headers (applied for all requests early in lifecycle)
         if (resolvedConfig.xFrameOptions) {
-          reply.header("X-Frame-Options", resolvedConfig.xFrameOptions);
+          reply.header('X-Frame-Options', resolvedConfig.xFrameOptions);
         }
 
         if (resolvedConfig.hsts) {
           const parts = [`max-age=${Math.floor(resolvedConfig.hsts.maxAge)}`];
 
           if (resolvedConfig.hsts.includeSubDomains) {
-            parts.push("includeSubDomains");
+            parts.push('includeSubDomains');
           }
 
           if (resolvedConfig.hsts.preload) {
-            parts.push("preload");
+            parts.push('preload');
           }
 
-          reply.header("Strict-Transport-Security", parts.join("; "));
+          reply.header('Strict-Transport-Security', parts.join('; '));
         }
 
         // Check if origin is allowed and cache result on request
@@ -634,24 +634,24 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
         ).corsOriginAllowed = originAllowed;
 
         // Handle preflight OPTIONS requests
-        if (method === "OPTIONS") {
+        if (method === 'OPTIONS') {
           // Add Vary headers for preflight caching
           addToVaryHeader(
             reply,
-            "Access-Control-Request-Headers",
-            "Access-Control-Request-Method",
-            "Access-Control-Request-Private-Network",
+            'Access-Control-Request-Headers',
+            'Access-Control-Request-Method',
+            'Access-Control-Request-Private-Network',
           );
 
           // Return 403 for disallowed origins on preflight
           if (!originAllowed && origin) {
-            reply.code(403).header("Cache-Control", "no-store");
-            return reply.send({ error: "Origin not allowed by CORS policy" });
+            reply.code(403).header('Cache-Control', 'no-store');
+            return reply.send({ error: 'Origin not allowed by CORS policy' });
           }
 
           // Get requested headers from preflight
           const requestedHeaders = request.headers[
-            "access-control-request-headers"
+            'access-control-request-headers'
           ] as string;
 
           // Build allowed methods using Set for deduplication and normalize to uppercase
@@ -664,11 +664,11 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
           // Build allowed headers (merge requested headers with configured ones)
           let allowedHeaders: string[];
 
-          if (resolvedConfig.allowedHeaders.includes("*")) {
+          if (resolvedConfig.allowedHeaders.includes('*')) {
             if (requestedHeaders) {
               // Reflect exactly what was requested (case-insensitive dedupe + cap)
               const requested = requestedHeaders
-                .split(",")
+                .split(',')
                 .map((h) => h.trim())
                 .filter(Boolean);
 
@@ -703,7 +703,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
             } else {
               // Fallback to configured list without the '*'
               allowedHeaders = resolvedConfig.allowedHeaders.filter(
-                (h) => h !== "*",
+                (h) => h !== '*',
               );
             }
           } else {
@@ -713,7 +713,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
             if (requestedHeaders) {
               // Merge requested headers that are in our allowed list
               const requested = requestedHeaders
-                .split(",")
+                .split(',')
                 .map((h) => h.trim())
                 .filter(Boolean);
 
@@ -757,38 +757,38 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
 
           // Set preflight response headers
           reply.header(
-            "Access-Control-Allow-Methods",
-            allowedMethods.join(", "),
+            'Access-Control-Allow-Methods',
+            allowedMethods.join(', '),
           );
 
           // Only set Access-Control-Allow-Headers if we have headers to send
           if (allowedHeaders.length > 0) {
             reply.header(
-              "Access-Control-Allow-Headers",
-              allowedHeaders.join(", "),
+              'Access-Control-Allow-Headers',
+              allowedHeaders.join(', '),
             );
           }
 
           reply.header(
-            "Access-Control-Max-Age",
+            'Access-Control-Max-Age',
             resolvedConfig.maxAge.toString(),
           );
 
           // Handle private network requests (Chrome feature)
           const requestPrivateNetwork =
-            request.headers["access-control-request-private-network"];
+            request.headers['access-control-request-private-network'];
 
           if (
-            requestPrivateNetwork === "true" &&
+            requestPrivateNetwork === 'true' &&
             resolvedConfig.allowPrivateNetwork
           ) {
-            reply.header("Access-Control-Allow-Private-Network", "true");
+            reply.header('Access-Control-Allow-Private-Network', 'true');
           }
 
           if (resolvedConfig.preflightContinue) {
             // Continue to route handler but set CORS headers first
             if (origin && originAllowed) {
-              reply.header("Access-Control-Allow-Origin", origin);
+              reply.header('Access-Control-Allow-Origin', origin);
               const credentialsAllowed = await areCredentialsAllowed(
                 origin,
                 resolvedConfig.credentials,
@@ -798,18 +798,18 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
 
               if (credentialsAllowed) {
                 // Never send credentials for the special 'null' origin
-                if (origin !== "null") {
-                  reply.header("Access-Control-Allow-Credentials", "true");
+                if (origin !== 'null') {
+                  reply.header('Access-Control-Allow-Credentials', 'true');
                 }
               }
-            } else if (!origin && resolvedConfig.origin === "*") {
-              reply.header("Access-Control-Allow-Origin", "*");
+            } else if (!origin && resolvedConfig.origin === '*') {
+              reply.header('Access-Control-Allow-Origin', '*');
             }
             return;
           } else {
             // Handle preflight completely here
             if (origin && originAllowed) {
-              reply.header("Access-Control-Allow-Origin", origin);
+              reply.header('Access-Control-Allow-Origin', origin);
               const credentialsAllowed = await areCredentialsAllowed(
                 origin,
                 resolvedConfig.credentials,
@@ -818,12 +818,12 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
               );
               if (credentialsAllowed) {
                 // Never send credentials for the special 'null' origin
-                if (origin !== "null") {
-                  reply.header("Access-Control-Allow-Credentials", "true");
+                if (origin !== 'null') {
+                  reply.header('Access-Control-Allow-Credentials', 'true');
                 }
               }
-            } else if (!origin && resolvedConfig.origin === "*") {
-              reply.header("Access-Control-Allow-Origin", "*");
+            } else if (!origin && resolvedConfig.origin === '*') {
+              reply.header('Access-Control-Allow-Origin', '*');
             }
 
             reply.code(resolvedConfig.optionsSuccessStatus);
@@ -841,7 +841,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
         // Set Access-Control-Allow-Origin header for actual requests
         if (origin && originAllowed) {
           // Echo the specific origin that was validated (not the full list)
-          reply.header("Access-Control-Allow-Origin", origin);
+          reply.header('Access-Control-Allow-Origin', origin);
 
           // Only set credentials when origin is present and allowed
           const credentialsAllowed = await areCredentialsAllowed(
@@ -852,13 +852,13 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
           );
           if (credentialsAllowed) {
             // Never send credentials for the special 'null' origin
-            if (origin !== "null") {
-              reply.header("Access-Control-Allow-Credentials", "true");
+            if (origin !== 'null') {
+              reply.header('Access-Control-Allow-Credentials', 'true');
             }
           }
-        } else if (!origin && resolvedConfig.origin === "*") {
+        } else if (!origin && resolvedConfig.origin === '*') {
           // No origin header and wildcard allowed - set * but never credentials
-          reply.header("Access-Control-Allow-Origin", "*");
+          reply.header('Access-Control-Allow-Origin', '*');
           // Never set credentials with * origin
         }
       },
@@ -867,7 +867,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
     // Add exposed headers to actual responses
     if (resolvedConfig.exposedHeaders.length > 0) {
       fastify.addHook(
-        "onSend",
+        'onSend',
         async (request: FastifyRequest, reply: FastifyReply) => {
           const origin = request.headers.origin;
           // Use cached result from onRequest hook to avoid recomputing
@@ -879,11 +879,11 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
           // Only add exposed headers if origin is allowed and present
           if (origin && originAllowed) {
             // Ensure Vary: Origin is set for non-preflight responses too
-            addToVaryHeader(reply, "Origin");
+            addToVaryHeader(reply, 'Origin');
 
             reply.header(
-              "Access-Control-Expose-Headers",
-              resolvedConfig.exposedHeaders.join(", "),
+              'Access-Control-Expose-Headers',
+              resolvedConfig.exposedHeaders.join(', '),
             );
           }
         },

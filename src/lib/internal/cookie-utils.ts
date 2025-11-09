@@ -52,7 +52,7 @@ export function filterIncomingCookieHeader(
 
   // Cookie: name=value; name2=value2; ...
   const parts = header
-    .split(";")
+    .split(';')
     .map((s) => s.trim())
     .filter(Boolean);
 
@@ -63,7 +63,7 @@ export function filterIncomingCookieHeader(
   const allowedPairs: string[] = [];
 
   for (const part of parts) {
-    const eqIndex = part.indexOf("=");
+    const eqIndex = part.indexOf('=');
 
     if (eqIndex <= 0) {
       continue; // skip invalid segment or empty name
@@ -81,7 +81,7 @@ export function filterIncomingCookieHeader(
     return undefined;
   }
 
-  return allowedPairs.join("; ");
+  return allowedPairs.join('; ');
 }
 
 /**
@@ -103,11 +103,11 @@ export function filterSetCookieHeaderValues(
 
   for (const value of arr) {
     // Set-Cookie: name=value; Attr=...; Attr2=...
-    const firstSemicolon = value.indexOf(";");
+    const firstSemicolon = value.indexOf(';');
     const firstSegment =
       firstSemicolon === -1 ? value : value.slice(0, firstSemicolon);
 
-    const eqIndex = firstSegment.indexOf("=");
+    const eqIndex = firstSegment.indexOf('=');
 
     if (eqIndex <= 0) {
       continue; // invalid

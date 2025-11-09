@@ -1,6 +1,6 @@
-import { useEffect } from "react";
-import { NavLink, useLocation } from "react-router";
-import { useTheme } from "../providers/ThemeProvider";
+import { useEffect } from 'react';
+import { NavLink, useLocation } from 'react-router';
+import { useTheme } from '../providers/ThemeProvider';
 
 export function Header() {
   const { theme, toggleTheme, isHydrated } = useTheme();
@@ -11,7 +11,7 @@ export function Header() {
     // Regular pages scroll to top
     window.scrollTo({
       top: 0,
-      behavior: "instant",
+      behavior: 'instant',
     });
   }, [location.pathname]);
 
@@ -27,7 +27,7 @@ export function Header() {
               <NavLink
                 to="/"
                 end
-                className={({ isActive }) => (isActive ? "active" : "")}
+                className={({ isActive }) => (isActive ? 'active' : '')}
               >
                 Home
               </NavLink>
@@ -35,7 +35,7 @@ export function Header() {
             <li>
               <NavLink
                 to="/about"
-                className={({ isActive }) => (isActive ? "active" : "")}
+                className={({ isActive }) => (isActive ? 'active' : '')}
               >
                 About
               </NavLink>
@@ -43,7 +43,7 @@ export function Header() {
             <li>
               <NavLink
                 to="/contact"
-                className={({ isActive }) => (isActive ? "active" : "")}
+                className={({ isActive }) => (isActive ? 'active' : '')}
               >
                 Contact
               </NavLink>
@@ -51,7 +51,7 @@ export function Header() {
             <li>
               <NavLink
                 to="/context-demo"
-                className={({ isActive }) => (isActive ? "active" : "")}
+                className={({ isActive }) => (isActive ? 'active' : '')}
               >
                 Context
               </NavLink>
@@ -61,9 +61,9 @@ export function Header() {
         {isHydrated && (
           <button
             onClick={toggleTheme}
-            style={{ fontSize: "1.2rem", marginLeft: "1rem" }}
+            style={{ fontSize: '1.2rem', marginLeft: '1rem' }}
           >
-            {theme === "light" ? "🌙" : "☀️"} {theme}
+            {theme === 'light' ? '🌙' : '☀️'} {theme}
           </button>
         )}
       </div>

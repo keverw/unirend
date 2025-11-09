@@ -1,7 +1,7 @@
-import React from "react";
-import { Helmet } from "react-helmet-async";
-import { useTheme } from "../providers/ThemeProvider";
-import { Header } from "../components/Header";
+import React from 'react';
+import { Helmet } from 'react-helmet-async';
+import { useTheme } from '../providers/ThemeProvider';
+import { Header } from '../components/Header';
 
 const Home: React.FC = () => {
   const { theme } = useTheme();

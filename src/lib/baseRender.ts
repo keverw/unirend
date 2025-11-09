@@ -1,14 +1,14 @@
-import { IRenderRequest, IRenderResult } from "./types";
-import { type ReactNode } from "react";
+import { IRenderRequest, IRenderResult } from './types';
+import { type ReactNode } from 'react';
 import {
   createStaticRouter,
   createStaticHandler,
   type RouteObject,
   StaticHandlerContext,
-} from "react-router";
-import { wrapStaticRouter } from "./internal/wrapAppElement";
-import { renderToString } from "react-dom/server";
-import { type HelmetServerState } from "react-helmet-async";
+} from 'react-router';
+import { wrapStaticRouter } from './internal/wrapAppElement';
+import { renderToString } from 'react-dom/server';
+import { type HelmetServerState } from 'react-helmet-async';
 
 // Debug flag to enable/disable logging in the base renderer
 const DEBUG_BASE_RENDER = false; // Set to false in a production release
@@ -83,12 +83,12 @@ export async function unirendBaseRender(
   } catch (e) {
     if (DEBUG_BASE_RENDER) {
       // eslint-disable-next-line no-console
-      console.error("Error querying static handler:", e);
+      console.error('Error querying static handler:', e);
     }
 
     // Return error result instead of generic 500 response
     return {
-      resultType: "render-error",
+      resultType: 'render-error',
       error: e instanceof Error ? e : new Error(String(e)),
     };
   }
@@ -99,13 +99,13 @@ export async function unirendBaseRender(
     // Log redirects for debugging
     if (DEBUG_BASE_RENDER && context.status >= 300 && context.status < 400) {
       // eslint-disable-next-line no-console
-      console.log(`Redirecting to: ${context.headers.get("Location")}`);
+      console.log(`Redirecting to: ${context.headers.get('Location')}`);
     }
 
     // Note: We return the response here. The server framework (Express)
     // needs to catch this and handle the response accordingly (e.g., res.redirect).
     return {
-      resultType: "response",
+      resultType: 'response',
       response: context,
     };
   }
@@ -115,7 +115,7 @@ export async function unirendBaseRender(
     if (DEBUG_BASE_RENDER) {
       // eslint-disable-next-line no-console
       console.error(
-        "Static handler query returned undefined context for request:",
+        'Static handler query returned undefined context for request:',
         renderRequest.fetchRequest.url,
       );
     }
@@ -123,8 +123,8 @@ export async function unirendBaseRender(
     // When throwing here, it won't return RenderResult, but the catch block
     // in server.ts handles this. This throw is correct.
     return {
-      resultType: "response",
-      response: new Response("Not Found", { status: 404 }),
+      resultType: 'response',
+      response: new Response('Not Found', { status: 404 }),
     };
   }
 
@@ -158,7 +158,7 @@ export async function unirendBaseRender(
       const error = context.errors[key];
 
       // Extract status code if available
-      if (error.status && typeof error.status === "number") {
+      if (error.status && typeof error.status === 'number') {
         statusCode = error.status;
       }
 
@@ -184,7 +184,7 @@ export async function unirendBaseRender(
       // Check for our API envelope error object
       if (data?.error) {
         // Create Error object from the envelope
-        const errorMessage = data.error.message || "Unknown error";
+        const errorMessage = data.error.message || 'Unknown error';
         const errorObj = new Error(errorMessage);
 
         // Add stack trace if available
@@ -193,7 +193,7 @@ export async function unirendBaseRender(
         }
 
         // Mark this as an API envelope error
-        (errorObj as Error & { source?: string }).source = "api-envelope";
+        (errorObj as Error & { source?: string }).source = 'api-envelope';
 
         errorDetails = errorObj;
         foundDataInThisEntry = true;
@@ -227,10 +227,10 @@ export async function unirendBaseRender(
   // This part requires logic to parse the ssrManifest and context.modules
   // to generate <link rel="modulepreload"> tags.
   // Most likely only want the main entry, not the chunks
-  const preloadLinks = ""; // Placeholder
+  const preloadLinks = ''; // Placeholder
 
   return {
-    resultType: "page",
+    resultType: 'page',
     html: appHtml,
     preloadLinks: preloadLinks,
     helmet,

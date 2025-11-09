@@ -1,5 +1,5 @@
-import { unirendBaseRender, type IRenderRequest } from "../../../src/server";
-import { routes } from "./routes";
+import { unirendBaseRender, type IRenderRequest } from '../../../src/server';
+import { routes } from './routes';
 
 /**
  * SSR entry point for server-side rendering

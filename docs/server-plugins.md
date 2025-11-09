@@ -68,12 +68,12 @@ Use plugins to register routes, hooks, decorators, and third-party integrations.
 ## Basic Usage
 
 ```typescript
-import { serveSSRDev, type ServerPlugin } from "unirend/server";
+import { serveSSRDev, type ServerPlugin } from 'unirend/server';
 
 // Define a plugin
 const myPlugin: ServerPlugin = async (pluginHost, options) => {
   // Add custom routes (use envelope pattern via API shortcuts when possible)
-  pluginHost.api.get("status", async (request) => {
+  pluginHost.api.get('status', async (request) => {
     return APIResponseHelpers.createAPISuccessResponse({
       request,
       data: { healthy: true, mode: options.mode },
@@ -82,13 +82,13 @@ const myPlugin: ServerPlugin = async (pluginHost, options) => {
   });
 
   // Add hooks
-  pluginHost.addHook("preHandler", async (request, reply) => {
+  pluginHost.addHook('preHandler', async (request, reply) => {
     console.log(`Request: ${request.method} ${request.url}`);
   });
 
   // Optional: return metadata for dependency tracking
   return {
-    name: "status-plugin",
+    name: 'status-plugin',
   };
 };
 
@@ -113,7 +113,7 @@ type ServerPlugin = (
 Plugins can optionally return metadata for dependency tracking, using the `PluginMetadata` type from `unirend/server`:
 
 ```typescript
-import { type PluginMetadata } from "unirend/server";
+import { type PluginMetadata } from 'unirend/server';
 
 // PluginMetadata interface:
 // {
@@ -126,10 +126,10 @@ import { type PluginMetadata } from "unirend/server";
 
 ```typescript
 interface PluginOptions {
-  mode: "development" | "production";
+  mode: 'development' | 'production';
   isDevelopment: boolean;
   buildDir?: string; // Available in production mode
-  serverType: "ssr" | "api"; // Server type context
+  serverType: 'ssr' | 'api'; // Server type context
   apiEndpoints: APIEndpointConfig; // API endpoint configuration
 }
 ```
@@ -146,19 +146,19 @@ Plugins receive context about the server environment and configuration:
 ```typescript
 const contextAwarePlugin: ServerPlugin = async (pluginHost, options) => {
   // Different behavior based on server type
-  if (options.serverType === "ssr") {
+  if (options.serverType === 'ssr') {
     // SSR-specific logic
-    console.log("Running on SSR server");
+    console.log('Running on SSR server');
   } else {
     // API server-specific logic
-    console.log("Running on standalone API server");
+    console.log('Running on standalone API server');
   }
 
   // Use API endpoint configuration
   const apiPrefix = options.apiEndpoints.apiEndpointPrefix; // "/api" by default
 
   // Skip domain redirects for API endpoints
-  pluginHost.addHook("onRequest", async (request) => {
+  pluginHost.addHook('onRequest', async (request) => {
     if (request.url.startsWith(apiPrefix)) {
       // Skip processing for API routes
       return;
@@ -182,8 +182,8 @@ pluginHost.patch(path, handler);
 
 // General route registration with constraints
 pluginHost.route({
-  method: "GET",
-  url: "/api/users/:id",
+  method: 'GET',
+  url: '/api/users/:id',
   handler: async (request, reply) => {
     /* ... */
   },
@@ -201,9 +201,9 @@ await pluginHost.register(somePlugin, options);
 
 ```typescript
 // Add lifecycle hooks (except conflicting ones)
-pluginHost.addHook("onRequest", handler);
-pluginHost.addHook("preHandler", handler);
-pluginHost.addHook("onSend", handler);
+pluginHost.addHook('onRequest', handler);
+pluginHost.addHook('preHandler', handler);
+pluginHost.addHook('onSend', handler);
 // ... other Fastify hooks
 
 // ⚠️ Important: Headers must be set before response is sent
@@ -214,11 +214,11 @@ pluginHost.addHook("onSend", handler);
 
 ```typescript
 // Add properties to request/reply objects
-pluginHost.decorateRequest("userID", null);
-pluginHost.decorateReply("setUser", function (user) {
+pluginHost.decorateRequest('userID', null);
+pluginHost.decorateReply('setUser', function (user) {
   /* ... */
 });
-pluginHost.decorate("db", databaseConnection);
+pluginHost.decorate('db', databaseConnection);
 ```
 
 #### Reading server decorations
@@ -227,13 +227,13 @@ Plugins can read server-level decorations added by other plugins using read-only
 
 ```ts
 // Check if a decoration exists
-const hasCookiesInfo = pluginHost.hasDecoration("cookiePluginInfo");
+const hasCookiesInfo = pluginHost.hasDecoration('cookiePluginInfo');
 
 // Get a typed decoration value
 const cookieInfo = pluginHost.getDecoration<{
   signingSecretProvided: boolean;
   algorithm: string;
-}>("cookiePluginInfo");
+}>('cookiePluginInfo');
 
 if (cookieInfo?.signingSecretProvided) {
   // Safe to expect signed cookie support
@@ -246,9 +246,9 @@ if (cookieInfo?.signingSecretProvided) {
 // Register versioned API endpoints that must return the standardized envelopes
 // Available helpers: pluginHost.api.get | post | put | delete | patch
 
-import { APIResponseHelpers } from "unirend/api-envelope";
+import { APIResponseHelpers } from 'unirend/api-envelope';
 
-pluginHost.api.get("demo/echo/:id", async (request, reply, params) => {
+pluginHost.api.get('demo/echo/:id', async (request, reply, params) => {
   // Build and return an API envelope; status taken from status_code
   return APIResponseHelpers.createAPISuccessResponse({
     request,
@@ -263,7 +263,7 @@ pluginHost.api.get("demo/echo/:id", async (request, reply, params) => {
 });
 
 // Explicit version example
-pluginHost.api.post("demo/items", 2, async (request, reply, params) => {
+pluginHost.api.post('demo/items', 2, async (request, reply, params) => {
   const body = request.body as Record<string, unknown>;
   return APIResponseHelpers.createAPISuccessResponse({
     request,
@@ -290,20 +290,20 @@ Register page data handlers from a plugin using the pageLoader shortcut. Last re
 
 ```typescript
 // Unversioned handler (defaults to version 1 when versioning is enabled)
-pluginHost.pageLoader.register("home", (request, reply, params) => {
+pluginHost.pageLoader.register('home', (request, reply, params) => {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
-    data: { message: "home", version: params.version },
-    pageMetadata: { title: "Home" },
+    data: { message: 'home', version: params.version },
+    pageMetadata: { title: 'Home' },
   });
 });
 
 // Explicit version
-pluginHost.pageLoader.register("home", 2, (request, reply, params) => {
+pluginHost.pageLoader.register('home', 2, (request, reply, params) => {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
-    data: { message: "home v2", version: params.version },
-    pageMetadata: { title: "Home v2" },
+    data: { message: 'home v2', version: params.version },
+    pageMetadata: { title: 'Home v2' },
   });
 });
 ```
@@ -315,7 +315,7 @@ pluginHost.pageLoader.register("home", 2, (request, reply, params) => {
 ```typescript
 const apiRoutesPlugin: ServerPlugin = async (pluginHost, options) => {
   // Health check endpoint (envelope)
-  pluginHost.api.get("health", async (request) => {
+  pluginHost.api.get('health', async (request) => {
     return APIResponseHelpers.createAPISuccessResponse({
       request,
       data: {
@@ -328,26 +328,26 @@ const apiRoutesPlugin: ServerPlugin = async (pluginHost, options) => {
   });
 
   // Contact form endpoint
-  pluginHost.post("/api/contact", async (request) => {
+  pluginHost.post('/api/contact', async (request) => {
     const body = request.body as any;
 
     // Process contact form
     await processContactForm(body);
 
-    return { success: true, message: "Message received" };
+    return { success: true, message: 'Message received' };
   });
 
   // Request timing
-  pluginHost.addHook("preHandler", async (request) => {
-    if (request.url.startsWith("/api/")) {
+  pluginHost.addHook('preHandler', async (request) => {
+    if (request.url.startsWith('/api/')) {
       (request as any).startTime = Date.now();
     }
   });
 
-  pluginHost.addHook("onSend", async (request, reply, payload) => {
-    if (request.url.startsWith("/api/") && (request as any).startTime) {
+  pluginHost.addHook('onSend', async (request, reply, payload) => {
+    if (request.url.startsWith('/api/') && (request as any).startTime) {
       const duration = Date.now() - (request as any).startTime;
-      reply.header("X-Response-Time", `${duration}ms`);
+      reply.header('X-Response-Time', `${duration}ms`);
     }
     return payload;
   });
@@ -359,7 +359,7 @@ const apiRoutesPlugin: ServerPlugin = async (pluginHost, options) => {
 For plugin-specific configuration, use factory functions that return the plugin. This provides type-safe configuration through closures:
 
 ```typescript
-import { serveSSRDev, type ServerPlugin } from "unirend/server";
+import { serveSSRDev, type ServerPlugin } from 'unirend/server';
 
 // Plugin factory function for rate limiting
 const RateLimitPlugin = (config: { maxRequests: number; windowMs: number }) => {
@@ -369,7 +369,7 @@ const RateLimitPlugin = (config: { maxRequests: number; windowMs: number }) => {
       { count: number; resetTime: number }
     >();
 
-    pluginHost.addHook("onRequest", async (request, reply) => {
+    pluginHost.addHook('onRequest', async (request, reply) => {
       const clientIP = request.ip;
       const now = Date.now();
       const windowStart = now - config.windowMs;
@@ -391,8 +391,8 @@ const RateLimitPlugin = (config: { maxRequests: number; windowMs: number }) => {
       if (clientData.count > config.maxRequests) {
         return reply
           .code(429)
-          .header("Cache-Control", "no-store")
-          .send({ error: "Too many requests" });
+          .header('Cache-Control', 'no-store')
+          .send({ error: 'Too many requests' });
       }
     });
   };
@@ -411,18 +411,18 @@ const server = serveSSRDev(paths, {
 ```typescript
 const authPlugin: ServerPlugin = async (pluginHost, options) => {
   // Decorate request with user
-  pluginHost.decorateRequest("user", null);
+  pluginHost.decorateRequest('user', null);
 
   // Authentication hook for API routes
-  pluginHost.addHook("preHandler", async (request, reply) => {
-    if (request.url.startsWith("/api/protected/")) {
-      const token = request.headers.authorization?.replace("Bearer ", "");
+  pluginHost.addHook('preHandler', async (request, reply) => {
+    if (request.url.startsWith('/api/protected/')) {
+      const token = request.headers.authorization?.replace('Bearer ', '');
 
       if (!token) {
         return reply
           .code(401)
-          .header("Cache-Control", "no-store")
-          .send({ error: "Missing authorization token" });
+          .header('Cache-Control', 'no-store')
+          .send({ error: 'Missing authorization token' });
       }
 
       try {
@@ -431,14 +431,14 @@ const authPlugin: ServerPlugin = async (pluginHost, options) => {
       } catch (error) {
         return reply
           .code(401)
-          .header("Cache-Control", "no-store")
-          .send({ error: "Invalid token" });
+          .header('Cache-Control', 'no-store')
+          .send({ error: 'Invalid token' });
       }
     }
   });
 
   // Protected route example
-  pluginHost.get("/api/protected/profile", async (request) => {
+  pluginHost.get('/api/protected/profile', async (request) => {
     const user = (request as any).user;
     return { user: user.profile };
   });
@@ -454,20 +454,20 @@ const fileUploadPlugin: ServerPlugin = async (pluginHost, options) => {
   try {
     // Register multipart plugin for file uploads
     // Install: npm install @fastify/multipart
-    const multipart = await import("@fastify/multipart");
+    const multipart = await import('@fastify/multipart');
     await pluginHost.register(multipart.default, {
       limits: {
         fileSize: 10 * 1024 * 1024, // 10MB limit
       },
     });
 
-    pluginHost.post("/api/upload", async (request, reply) => {
+    pluginHost.post('/api/upload', async (request, reply) => {
       try {
         // After @fastify/multipart is registered, request.file() becomes available
         const data = await (request as any).file();
 
         if (!data) {
-          return reply.code(400).send({ error: "No file uploaded" });
+          return reply.code(400).send({ error: 'No file uploaded' });
         }
 
         console.log(`📤 File uploaded: ${data.filename} (${data.mimetype})`);
@@ -480,27 +480,27 @@ const fileUploadPlugin: ServerPlugin = async (pluginHost, options) => {
           filename: data.filename,
           mimetype: data.mimetype,
           size: data.file.bytesRead,
-          message: "File uploaded successfully",
+          message: 'File uploaded successfully',
           // fileId: savedFile.id,
           // url: savedFile.url
         };
       } catch (uploadError) {
-        console.error("Upload error:", uploadError);
-        return reply.code(500).send({ error: "Upload failed" });
+        console.error('Upload error:', uploadError);
+        return reply.code(500).send({ error: 'Upload failed' });
       }
     });
   } catch (importError) {
     console.warn(
-      "⚠️  File upload plugin skipped - @fastify/multipart not installed",
+      '⚠️  File upload plugin skipped - @fastify/multipart not installed',
     );
-    console.warn("   Run: npm install @fastify/multipart");
+    console.warn('   Run: npm install @fastify/multipart');
 
     // Provide a placeholder endpoint that explains the missing dependency
-    pluginHost.post("/api/upload", async (request, reply) => {
+    pluginHost.post('/api/upload', async (request, reply) => {
       return reply.code(501).send({
-        error: "File upload not available",
-        message: "Install @fastify/multipart to enable file uploads",
-        install: "npm install @fastify/multipart",
+        error: 'File upload not available',
+        message: 'Install @fastify/multipart to enable file uploads',
+        install: 'npm install @fastify/multipart',
       });
     });
   }
@@ -565,7 +565,7 @@ const server = serveSSRProd(buildDir, {
 const server = serveSSRDev(paths, {
   plugins: [
     DatabasePlugin({ connectionString: process.env.DB_URL }),
-    SessionPlugin({ idCookieName: "auth-id", secretCookieName: "auth-secret" }),
+    SessionPlugin({ idCookieName: 'auth-id', secretCookieName: 'auth-secret' }),
   ],
 });
 ```
@@ -578,10 +578,10 @@ Plugins can declare dependencies on other plugins. Dependent plugins must be reg
 const databasePlugin: ServerPlugin = async (pluginHost, options) => {
   // Setup database connection
   const db = await connectToDatabase();
-  pluginHost.decorate("db", db);
+  pluginHost.decorate('db', db);
 
   return {
-    name: "database",
+    name: 'database',
   };
 };
 
@@ -589,16 +589,16 @@ const sessionPlugin: ServerPlugin = async (pluginHost, options) => {
   // Use database from dependency
   const db = pluginHost.db;
 
-  pluginHost.addHook("preHandler", async (request, reply) => {
-    const sessionId = request.headers["x-session-id"];
+  pluginHost.addHook('preHandler', async (request, reply) => {
+    const sessionId = request.headers['x-session-id'];
     if (sessionId) {
       request.session = await db.getSession(sessionId);
     }
   });
 
   return {
-    name: "session",
-    dependsOn: "database", // Must be registered after database
+    name: 'session',
+    dependsOn: 'database', // Must be registered after database
   };
 };
 
@@ -617,8 +617,8 @@ const complexPlugin: ServerPlugin = async (pluginHost, options) => {
   // Plugin logic here
 
   return {
-    name: "complex-plugin",
-    dependsOn: ["database", "auth", "session"], // Multiple dependencies
+    name: 'complex-plugin',
+    dependsOn: ['database', 'auth', 'session'], // Multiple dependencies
   };
 };
 ```
@@ -638,25 +638,25 @@ Always prefix your API routes to avoid conflicts with SSR routes:
 
 ```typescript
 // ✅ Good
-pluginHost.get("/api/users", handler);
-pluginHost.post("/api/auth/login", handler);
+pluginHost.get('/api/users', handler);
+pluginHost.post('/api/auth/login', handler);
 
 // ❌ Bad - could conflict with SSR pages
-pluginHost.get("/users", handler);
-pluginHost.get("/login", handler);
+pluginHost.get('/users', handler);
+pluginHost.get('/login', handler);
 ```
 
 ### 2. Handle Errors Gracefully
 
 ```typescript
-pluginHost.post("/api/data", async (request, reply) => {
+pluginHost.post('/api/data', async (request, reply) => {
   try {
     const result = await processData(request.body);
     return result;
   } catch (error) {
-    console.error("API Error:", error);
+    console.error('API Error:', error);
     return reply.code(500).send({
-      error: "Internal server error",
+      error: 'Internal server error',
       requestID: (request as any).requestID,
     });
   }
@@ -671,10 +671,10 @@ Tip: For error responses (status >= 400), consider `reply.header("Cache-Control"
 const myPlugin: ServerPlugin = async (pluginHost, options) => {
   if (options.isDevelopment) {
     // Development-only features
-    pluginHost.get("/api/debug", debugHandler);
+    pluginHost.get('/api/debug', debugHandler);
   } else {
     // Production-only features
-    pluginHost.addHook("onRequest", rateLimitHook);
+    pluginHost.addHook('onRequest', rateLimitHook);
   }
 };
 ```
@@ -685,10 +685,10 @@ You can also branch inside request handlers using an environment flag on the req
 
 ```typescript
 const envAwarePlugin: ServerPlugin = async (pluginHost, options) => {
-  pluginHost.get("/api/env", async (request) => {
+  pluginHost.get('/api/env', async (request) => {
     const isDev = (request as FastifyRequest & { isDevelopment?: boolean })
       .isDevelopment;
-    return { mode: isDev ? "development" : "production" };
+    return { mode: isDev ? 'development' : 'production' };
   });
 };
 ```
@@ -697,15 +697,15 @@ const envAwarePlugin: ServerPlugin = async (pluginHost, options) => {
 
 ```typescript
 pluginHost.post(
-  "/api/users",
+  '/api/users',
   {
     schema: {
       body: {
-        type: "object",
-        required: ["name", "email"],
+        type: 'object',
+        required: ['name', 'email'],
         properties: {
-          name: { type: "string" },
-          email: { type: "string", format: "email" },
+          name: { type: 'string' },
+          email: { type: 'string', format: 'email' },
         },
       },
     },
@@ -724,8 +724,8 @@ pluginHost.post(
 ❌ **Wrong - will cause "headers already sent" errors:**
 
 ```typescript
-pluginHost.addHook("onSend", async (request, reply, payload) => {
-  reply.header("X-Request-ID", request.id); // ❌ Too late!
+pluginHost.addHook('onSend', async (request, reply, payload) => {
+  reply.header('X-Request-ID', request.id); // ❌ Too late!
   return payload;
 });
 ```
@@ -733,13 +733,13 @@ pluginHost.addHook("onSend", async (request, reply, payload) => {
 ✅ **Correct - set headers before response is sent:**
 
 ```typescript
-pluginHost.addHook("onRequest", async (request, reply) => {
-  reply.header("X-Request-ID", request.id); // ✅ Perfect timing
+pluginHost.addHook('onRequest', async (request, reply) => {
+  reply.header('X-Request-ID', request.id); // ✅ Perfect timing
 });
 
 // Or in preHandler
-pluginHost.addHook("preHandler", async (request, reply) => {
-  reply.header("X-Custom-Header", "value"); // ✅ Also works
+pluginHost.addHook('preHandler', async (request, reply) => {
+  reply.header('X-Custom-Header', 'value'); // ✅ Also works
 });
 ```
 
@@ -753,11 +753,11 @@ These operations will throw errors:
 
 ```typescript
 // ❌ Cannot register catch-all routes
-pluginHost.get("*", handler); // Error!
-pluginHost.route({ url: "*", handler }); // Error!
+pluginHost.get('*', handler); // Error!
+pluginHost.route({ url: '*', handler }); // Error!
 
 // ❌ Cannot register conflicting hooks
-pluginHost.addHook("onRoute", handler); // Error!
+pluginHost.addHook('onRoute', handler); // Error!
 ```
 
 ### Route Conflicts
@@ -766,13 +766,13 @@ The SSR handler uses a catch-all GET route (`*`) that runs last. Your plugin rou
 
 ```typescript
 // ✅ This works - specific route matched before SSR catch-all
-pluginHost.get("/api/users", handler);
+pluginHost.get('/api/users', handler);
 
 // ✅ This also works - different HTTP method
-pluginHost.post("/some-page", handler);
+pluginHost.post('/some-page', handler);
 
 // ❌ This would conflict if you tried to register it (but it's prevented)
-pluginHost.get("*", handler);
+pluginHost.get('*', handler);
 ```
 
 ## Integration with Third-Party Plugins
@@ -781,16 +781,16 @@ Many Fastify ecosystem plugins work seamlessly:
 
 ```typescript
 const corsPlugin: ServerPlugin = async (pluginHost) => {
-  await pluginHost.register(require("@fastify/cors"), {
-    origin: ["https://yourdomain.com"],
+  await pluginHost.register(require('@fastify/cors'), {
+    origin: ['https://yourdomain.com'],
     credentials: true,
   });
 };
 
 const rateLimitPlugin: ServerPlugin = async (pluginHost) => {
-  await pluginHost.register(require("@fastify/rate-limit"), {
+  await pluginHost.register(require('@fastify/rate-limit'), {
     max: 100,
-    timeWindow: "1 minute",
+    timeWindow: '1 minute',
   });
 };
 ```
@@ -801,7 +801,7 @@ Plugin registration errors are caught and reported:
 
 ```typescript
 const faultyPlugin: ServerPlugin = async (fastify) => {
-  throw new Error("Something went wrong!");
+  throw new Error('Something went wrong!');
 };
 
 // This will log the error and throw during server startup
@@ -825,7 +825,7 @@ const server = serveSSRDev(paths, {
 // This will fail - duplicate names
 const duplicateDBPlugin: ServerPlugin = async (pluginHost, options) => {
   // Different implementation but same name
-  return { name: "database" };
+  return { name: 'database' };
 };
 
 const server = serveSSRDev(paths, {

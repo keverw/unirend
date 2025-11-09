@@ -1,18 +1,18 @@
-import { describe, it, expect, mock } from "bun:test";
+import { describe, it, expect, mock } from 'bun:test';
 import {
   domainValidation,
   type DomainValidationConfig,
-} from "./domainValidation";
-import type { PluginOptions, PluginHostInstance } from "../types";
+} from './domainValidation';
+import type { PluginOptions, PluginHostInstance } from '../types';
 
 // Mock Fastify request/reply objects
 const createMockRequest = (overrides: any = {}) => ({
-  url: "/test",
+  url: '/test',
   headers: {
-    host: "example.com",
+    host: 'example.com',
     ...overrides.headers,
   },
-  protocol: "https",
+  protocol: 'https',
   ...overrides,
 });
 
@@ -51,18 +51,18 @@ const createMockPluginHost = () => {
 const createMockOptions = (
   overrides: Partial<PluginOptions> = {},
 ): PluginOptions => ({
-  serverType: "ssr",
-  mode: "production",
+  serverType: 'ssr',
+  mode: 'production',
   isDevelopment: false,
   apiEndpoints: {
-    apiEndpointPrefix: "/api",
+    apiEndpointPrefix: '/api',
   },
   ...overrides,
 });
 
-describe("domainValidation", () => {
-  describe("basic functionality", () => {
-    it("should register onRequest hook", async () => {
+describe('domainValidation', () => {
+  describe('basic functionality', () => {
+    it('should register onRequest hook', async () => {
       const config: DomainValidationConfig = {};
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
@@ -71,12 +71,12 @@ describe("domainValidation", () => {
       await plugin(pluginHost, options);
 
       expect(pluginHost.addHook).toHaveBeenCalledWith(
-        "onRequest",
+        'onRequest',
         expect.any(Function),
       );
     });
 
-    it("should skip validation in development mode by default", async () => {
+    it('should skip validation in development mode by default', async () => {
       const config: DomainValidationConfig = {};
       const pluginHost = createMockPluginHost();
       const options = createMockOptions({ isDevelopment: true });
@@ -93,14 +93,14 @@ describe("domainValidation", () => {
       expect(reply.code).not.toHaveBeenCalled();
     });
 
-    it("should skip validation for localhost", async () => {
+    it('should skip validation for localhost', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "localhost:3000" },
+        headers: { host: 'localhost:3000' },
       });
       const reply = createMockReply();
 
@@ -114,14 +114,14 @@ describe("domainValidation", () => {
       expect(reply.code).not.toHaveBeenCalled();
     });
 
-    it("should skip validation for 127.0.0.1", async () => {
+    it('should skip validation for 127.0.0.1', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "127.0.0.1:3000" },
+        headers: { host: '127.0.0.1:3000' },
       });
       const reply = createMockReply();
 
@@ -136,15 +136,15 @@ describe("domainValidation", () => {
     });
   });
 
-  describe("IPv6 and forwarded host handling", () => {
-    it("should skip validation for ::1 IPv6 localhost", async () => {
+  describe('IPv6 and forwarded host handling', () => {
+    it('should skip validation for ::1 IPv6 localhost', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "[::1]:3000" },
+        headers: { host: '[::1]:3000' },
       });
       const reply = createMockReply();
 
@@ -158,17 +158,17 @@ describe("domainValidation", () => {
       expect(reply.code).not.toHaveBeenCalled();
     });
 
-    it("should accept x-forwarded-host with port when domain matches (trusted)", async () => {
+    it('should accept x-forwarded-host with port when domain matches (trusted)', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
         trustProxyHeaders: true,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
         headers: {
-          host: "internal.proxy",
-          "x-forwarded-host": "example.com:8443",
+          host: 'internal.proxy',
+          'x-forwarded-host': 'example.com:8443',
         },
       });
       const reply = createMockReply();
@@ -182,17 +182,17 @@ describe("domainValidation", () => {
       expect(reply.redirect).not.toHaveBeenCalled();
       expect(reply.code).not.toHaveBeenCalled();
     });
-    it("should ignore x-forwarded-host when not trusted (default)", async () => {
+    it('should ignore x-forwarded-host when not trusted (default)', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
         // trustProxyHeaders: false by default
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
         headers: {
-          host: "internal.proxy",
-          "x-forwarded-host": "example.com",
+          host: 'internal.proxy',
+          'x-forwarded-host': 'example.com',
         },
       });
       const reply = createMockReply();
@@ -207,14 +207,14 @@ describe("domainValidation", () => {
     });
   });
 
-  describe("domain validation", () => {
-    it("should allow valid domain when config is a single string", async () => {
+  describe('domain validation', () => {
+    it('should allow valid domain when config is a single string', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: "example.com",
+        validProductionDomains: 'example.com',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const request = createMockRequest({ headers: { host: "example.com" } });
+      const request = createMockRequest({ headers: { host: 'example.com' } });
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
@@ -227,14 +227,14 @@ describe("domainValidation", () => {
       expect(reply.redirect).not.toHaveBeenCalled();
     });
 
-    it("should support wildcard subdomains when config is a single string", async () => {
+    it('should support wildcard subdomains when config is a single string', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: "*.example.com",
+        validProductionDomains: '*.example.com',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "api.example.com" },
+        headers: { host: 'api.example.com' },
       });
       const reply = createMockReply();
 
@@ -247,13 +247,13 @@ describe("domainValidation", () => {
       expect(reply.code).not.toHaveBeenCalled();
       expect(reply.redirect).not.toHaveBeenCalled();
     });
-    it("should block invalid domains", async () => {
+    it('should block invalid domains', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const request = createMockRequest({ headers: { host: "evil.com" } });
+      const request = createMockRequest({ headers: { host: 'evil.com' } });
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
@@ -263,19 +263,19 @@ describe("domainValidation", () => {
       await hook.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(403);
-      expect(reply.type).toHaveBeenCalledWith("text/plain");
+      expect(reply.type).toHaveBeenCalledWith('text/plain');
       expect(reply.send).toHaveBeenCalledWith(
-        "Access denied: This domain is not authorized to access this server",
+        'Access denied: This domain is not authorized to access this server',
       );
     });
 
-    it("should allow valid domains", async () => {
+    it('should allow valid domains', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const request = createMockRequest({ headers: { host: "example.com" } });
+      const request = createMockRequest({ headers: { host: 'example.com' } });
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
@@ -288,14 +288,14 @@ describe("domainValidation", () => {
       expect(reply.redirect).not.toHaveBeenCalled();
     });
 
-    it("should support wildcard subdomains", async () => {
+    it('should support wildcard subdomains', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["*.example.com"],
+        validProductionDomains: ['*.example.com'],
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "api.example.com" },
+        headers: { host: 'api.example.com' },
       });
       const reply = createMockReply();
 
@@ -309,14 +309,14 @@ describe("domainValidation", () => {
       expect(reply.redirect).not.toHaveBeenCalled();
     });
 
-    it("should reject subdomains without wildcard", async () => {
+    it('should reject subdomains without wildcard', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "api.example.com" },
+        headers: { host: 'api.example.com' },
       });
       const reply = createMockReply();
 
@@ -329,13 +329,13 @@ describe("domainValidation", () => {
       expect(reply.code).toHaveBeenCalledWith(403);
     });
 
-    it("should handle case insensitive domains", async () => {
+    it('should handle case insensitive domains', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["EXAMPLE.COM"],
+        validProductionDomains: ['EXAMPLE.COM'],
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const request = createMockRequest({ headers: { host: "example.com" } });
+      const request = createMockRequest({ headers: { host: 'example.com' } });
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
@@ -349,17 +349,17 @@ describe("domainValidation", () => {
     });
   });
 
-  describe("canonical domain redirects", () => {
-    it("should redirect to canonical domain", async () => {
+  describe('canonical domain redirects', () => {
+    it('should redirect to canonical domain', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["staging.com", "example.com"],
-        canonicalDomain: "example.com",
+        validProductionDomains: ['staging.com', 'example.com'],
+        canonicalDomain: 'example.com',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "staging.com" },
-        url: "/test?param=value",
+        headers: { host: 'staging.com' },
+        url: '/test?param=value',
       });
       const reply = createMockReply();
 
@@ -371,21 +371,21 @@ describe("domainValidation", () => {
 
       expect(reply.code).toHaveBeenCalledWith(301);
       expect(reply.redirect).toHaveBeenCalledWith(
-        "https://example.com/test?param=value",
+        'https://example.com/test?param=value',
       );
     });
 
-    it("should preserve port when configured", async () => {
+    it('should preserve port when configured', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["staging.com", "example.com"],
-        canonicalDomain: "example.com",
+        validProductionDomains: ['staging.com', 'example.com'],
+        canonicalDomain: 'example.com',
         preservePort: true,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "staging.com:3000" },
-        url: "/test",
+        headers: { host: 'staging.com:3000' },
+        url: '/test',
       });
       const reply = createMockReply();
 
@@ -396,20 +396,20 @@ describe("domainValidation", () => {
       await hook.handler(request, reply);
 
       expect(reply.redirect).toHaveBeenCalledWith(
-        "https://example.com:3000/test",
+        'https://example.com:3000/test',
       );
     });
 
-    it("should strip port by default", async () => {
+    it('should strip port by default', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["staging.com", "example.com"],
-        canonicalDomain: "example.com",
+        validProductionDomains: ['staging.com', 'example.com'],
+        canonicalDomain: 'example.com',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "staging.com:3000" },
-        url: "/test",
+        headers: { host: 'staging.com:3000' },
+        url: '/test',
       });
       const reply = createMockReply();
 
@@ -419,19 +419,19 @@ describe("domainValidation", () => {
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
 
-      expect(reply.redirect).toHaveBeenCalledWith("https://example.com/test");
+      expect(reply.redirect).toHaveBeenCalledWith('https://example.com/test');
     });
 
-    it("uses custom redirect status code", async () => {
+    it('uses custom redirect status code', async () => {
       const config: DomainValidationConfig = {
-        canonicalDomain: "example.com",
+        canonicalDomain: 'example.com',
         redirectStatusCode: 308,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "stage.example.com" },
-        url: "/x",
+        headers: { host: 'stage.example.com' },
+        url: '/x',
       });
       const reply = createMockReply();
 
@@ -442,18 +442,18 @@ describe("domainValidation", () => {
       await hook.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(308);
-      expect(reply.redirect).toHaveBeenCalledWith("https://example.com/x");
+      expect(reply.redirect).toHaveBeenCalledWith('https://example.com/x');
     });
 
-    it("redirects to canonical even without allowlist", async () => {
+    it('redirects to canonical even without allowlist', async () => {
       const config: DomainValidationConfig = {
-        canonicalDomain: "example.com",
+        canonicalDomain: 'example.com',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "alt.com" },
-        url: "/t",
+        headers: { host: 'alt.com' },
+        url: '/t',
       });
       const reply = createMockReply();
 
@@ -464,18 +464,18 @@ describe("domainValidation", () => {
       await hook.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(301);
-      expect(reply.redirect).toHaveBeenCalledWith("https://example.com/t");
+      expect(reply.redirect).toHaveBeenCalledWith('https://example.com/t');
     });
 
-    it("redirects to canonical IPv4 host", async () => {
+    it('redirects to canonical IPv4 host', async () => {
       const config: DomainValidationConfig = {
-        canonicalDomain: "127.0.0.1",
+        canonicalDomain: '127.0.0.1',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "alt.example" },
-        url: "/x",
+        headers: { host: 'alt.example' },
+        url: '/x',
       });
       const reply = createMockReply();
 
@@ -486,18 +486,18 @@ describe("domainValidation", () => {
       await hook.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(301);
-      expect(reply.redirect).toHaveBeenCalledWith("https://127.0.0.1/x");
+      expect(reply.redirect).toHaveBeenCalledWith('https://127.0.0.1/x');
     });
 
-    it("redirects to canonical IPv6 host (unbracketed input)", async () => {
+    it('redirects to canonical IPv6 host (unbracketed input)', async () => {
       const config: DomainValidationConfig = {
-        canonicalDomain: "2001:db8::1",
+        canonicalDomain: '2001:db8::1',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "alt.example" },
-        url: "/x",
+        headers: { host: 'alt.example' },
+        url: '/x',
       });
       const reply = createMockReply();
 
@@ -508,18 +508,18 @@ describe("domainValidation", () => {
       await hook.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(301);
-      expect(reply.redirect).toHaveBeenCalledWith("https://[2001:db8::1]/x");
+      expect(reply.redirect).toHaveBeenCalledWith('https://[2001:db8::1]/x');
     });
 
-    it("redirects to canonical IPv6 host (bracketed input)", async () => {
+    it('redirects to canonical IPv6 host (bracketed input)', async () => {
       const config: DomainValidationConfig = {
-        canonicalDomain: "[2001:db8::1]",
+        canonicalDomain: '[2001:db8::1]',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "alt.example" },
-        url: "/x",
+        headers: { host: 'alt.example' },
+        url: '/x',
       });
       const reply = createMockReply();
 
@@ -530,21 +530,21 @@ describe("domainValidation", () => {
       await hook.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(301);
-      expect(reply.redirect).toHaveBeenCalledWith("https://[2001:db8::1]/x");
+      expect(reply.redirect).toHaveBeenCalledWith('https://[2001:db8::1]/x');
     });
   });
 
-  describe("HTTPS enforcement", () => {
-    it("should redirect HTTP to HTTPS", async () => {
+  describe('HTTPS enforcement', () => {
+    it('should redirect HTTP to HTTPS', async () => {
       const config: DomainValidationConfig = {
         enforceHttps: true,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "example.com" },
-        protocol: "http",
-        url: "/test",
+        headers: { host: 'example.com' },
+        protocol: 'http',
+        url: '/test',
       });
       const reply = createMockReply();
 
@@ -554,10 +554,10 @@ describe("domainValidation", () => {
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
 
-      expect(reply.redirect).toHaveBeenCalledWith("https://example.com/test");
+      expect(reply.redirect).toHaveBeenCalledWith('https://example.com/test');
     });
 
-    it("should always strip port on protocol change", async () => {
+    it('should always strip port on protocol change', async () => {
       const config: DomainValidationConfig = {
         enforceHttps: true,
         preservePort: true, // Should be ignored for protocol changes
@@ -565,9 +565,9 @@ describe("domainValidation", () => {
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "example.com:8080" },
-        protocol: "http",
-        url: "/test",
+        headers: { host: 'example.com:8080' },
+        protocol: 'http',
+        url: '/test',
       });
       const reply = createMockReply();
 
@@ -577,10 +577,10 @@ describe("domainValidation", () => {
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
 
-      expect(reply.redirect).toHaveBeenCalledWith("https://example.com/test");
+      expect(reply.redirect).toHaveBeenCalledWith('https://example.com/test');
     });
 
-    it("should respect x-forwarded-proto header when trusted", async () => {
+    it('should respect x-forwarded-proto header when trusted', async () => {
       const config: DomainValidationConfig = {
         enforceHttps: true,
         trustProxyHeaders: true,
@@ -589,10 +589,10 @@ describe("domainValidation", () => {
       const options = createMockOptions();
       const request = createMockRequest({
         headers: {
-          host: "example.com",
-          "x-forwarded-proto": "http",
+          host: 'example.com',
+          'x-forwarded-proto': 'http',
         },
-        url: "/test",
+        url: '/test',
       });
       const reply = createMockReply();
 
@@ -602,19 +602,19 @@ describe("domainValidation", () => {
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
 
-      expect(reply.redirect).toHaveBeenCalledWith("https://example.com/test");
+      expect(reply.redirect).toHaveBeenCalledWith('https://example.com/test');
     });
 
-    it("builds correct redirect URL for IPv6 host with protocol change", async () => {
+    it('builds correct redirect URL for IPv6 host with protocol change', async () => {
       const config: DomainValidationConfig = {
         enforceHttps: true,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "[2001:db8::1]:8080" },
-        protocol: "http",
-        url: "/test",
+        headers: { host: '[2001:db8::1]:8080' },
+        protocol: 'http',
+        url: '/test',
       });
       const reply = createMockReply();
 
@@ -624,20 +624,20 @@ describe("domainValidation", () => {
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
 
-      expect(reply.redirect).toHaveBeenCalledWith("https://[2001:db8::1]/test");
+      expect(reply.redirect).toHaveBeenCalledWith('https://[2001:db8::1]/test');
     });
   });
 
-  describe("WWW handling", () => {
-    it("should add www prefix when configured", async () => {
+  describe('WWW handling', () => {
+    it('should add www prefix when configured', async () => {
       const config: DomainValidationConfig = {
-        wwwHandling: "add",
+        wwwHandling: 'add',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "example.com" },
-        url: "/test",
+        headers: { host: 'example.com' },
+        url: '/test',
       });
       const reply = createMockReply();
 
@@ -648,20 +648,20 @@ describe("domainValidation", () => {
       await hook.handler(request, reply);
 
       expect(reply.redirect).toHaveBeenCalledWith(
-        "https://www.example.com/test",
+        'https://www.example.com/test',
       );
     });
 
-    it("should remove www prefix when configured", async () => {
+    it('should remove www prefix when configured', async () => {
       const config: DomainValidationConfig = {
-        wwwHandling: "remove",
-        canonicalDomain: "example.com", // Set canonical to non-www
+        wwwHandling: 'remove',
+        canonicalDomain: 'example.com', // Set canonical to non-www
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "www.example.com" },
-        url: "/test",
+        headers: { host: 'www.example.com' },
+        url: '/test',
       });
       const reply = createMockReply();
 
@@ -672,18 +672,18 @@ describe("domainValidation", () => {
       await hook.handler(request, reply);
 
       // Should redirect to canonical domain (which removes www)
-      expect(reply.redirect).toHaveBeenCalledWith("https://example.com/test");
+      expect(reply.redirect).toHaveBeenCalledWith('https://example.com/test');
     });
 
-    it("should not modify subdomains", async () => {
+    it('should not modify subdomains', async () => {
       const config: DomainValidationConfig = {
-        wwwHandling: "add",
+        wwwHandling: 'add',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "api.example.com" },
-        url: "/test",
+        headers: { host: 'api.example.com' },
+        url: '/test',
       });
       const reply = createMockReply();
 
@@ -696,17 +696,17 @@ describe("domainValidation", () => {
       expect(reply.redirect).not.toHaveBeenCalled();
     });
 
-    it("preserves port with WWW add when protocol unchanged", async () => {
+    it('preserves port with WWW add when protocol unchanged', async () => {
       const config: DomainValidationConfig = {
-        wwwHandling: "add",
+        wwwHandling: 'add',
         preservePort: true,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "example.com:3000" },
-        protocol: "https",
-        url: "/p",
+        headers: { host: 'example.com:3000' },
+        protocol: 'https',
+        url: '/p',
       });
       const reply = createMockReply();
 
@@ -718,25 +718,25 @@ describe("domainValidation", () => {
 
       expect(reply.code).toHaveBeenCalledWith(301);
       expect(reply.redirect).toHaveBeenCalledWith(
-        "https://www.example.com:3000/p",
+        'https://www.example.com:3000/p',
       );
     });
   });
 
-  describe("combined redirects", () => {
-    it("should perform single redirect for multiple changes", async () => {
+  describe('combined redirects', () => {
+    it('should perform single redirect for multiple changes', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["staging.com", "example.com"],
-        canonicalDomain: "example.com",
+        validProductionDomains: ['staging.com', 'example.com'],
+        canonicalDomain: 'example.com',
         enforceHttps: true,
-        wwwHandling: "add",
+        wwwHandling: 'add',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "staging.com:3000" },
-        protocol: "http",
-        url: "/test",
+        headers: { host: 'staging.com:3000' },
+        protocol: 'http',
+        url: '/test',
       });
       const reply = createMockReply();
 
@@ -749,21 +749,21 @@ describe("domainValidation", () => {
       // Should redirect once to final target
       expect(reply.redirect).toHaveBeenCalledTimes(1);
       expect(reply.redirect).toHaveBeenCalledWith(
-        "https://www.example.com/test",
+        'https://www.example.com/test',
       );
     });
   });
 
-  describe("API endpoint detection", () => {
-    it("should treat all requests as API endpoints in API server mode", async () => {
+  describe('API endpoint detection', () => {
+    it('should treat all requests as API endpoints in API server mode', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
       };
       const pluginHost = createMockPluginHost();
-      const options = createMockOptions({ serverType: "api" });
+      const options = createMockOptions({ serverType: 'api' });
       const request = createMockRequest({
-        headers: { host: "evil.com" },
-        url: "/some/random/path",
+        headers: { host: 'evil.com' },
+        url: '/some/random/path',
       });
       const reply = createMockReply();
 
@@ -774,22 +774,22 @@ describe("domainValidation", () => {
       await hook.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(403);
-      expect(reply.type).toHaveBeenCalledWith("application/json");
+      expect(reply.type).toHaveBeenCalledWith('application/json');
       expect(reply.send).toHaveBeenCalledWith({
-        error: "invalid_domain",
-        message: "This domain is not authorized to access this server",
+        error: 'invalid_domain',
+        message: 'This domain is not authorized to access this server',
       });
     });
 
-    it("should return JSON error for API endpoints", async () => {
+    it('should return JSON error for API endpoints', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "evil.com" },
-        url: "/api/users",
+        headers: { host: 'evil.com' },
+        url: '/api/users',
       });
       const reply = createMockReply();
 
@@ -800,45 +800,24 @@ describe("domainValidation", () => {
       await hook.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(403);
-      expect(reply.type).toHaveBeenCalledWith("application/json");
+      expect(reply.type).toHaveBeenCalledWith('application/json');
       expect(reply.send).toHaveBeenCalledWith({
-        error: "invalid_domain",
-        message: "This domain is not authorized to access this server",
+        error: 'invalid_domain',
+        message: 'This domain is not authorized to access this server',
       });
     });
 
-    it("should handle API prefix normalization", async () => {
+    it('should handle API prefix normalization', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions({
-        apiEndpoints: { apiEndpointPrefix: "api" }, // No leading slash
+        apiEndpoints: { apiEndpointPrefix: 'api' }, // No leading slash
       });
       const request = createMockRequest({
-        headers: { host: "evil.com" },
-        url: "/api/users",
-      });
-      const reply = createMockReply();
-
-      const plugin = domainValidation(config);
-      await plugin(pluginHost, options);
-
-      const hook = pluginHost.getHooks()[0];
-      await hook.handler(request, reply);
-
-      expect(reply.type).toHaveBeenCalledWith("application/json");
-    });
-
-    it("should not match false positives", async () => {
-      const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
-      };
-      const pluginHost = createMockPluginHost();
-      const options = createMockOptions();
-      const request = createMockRequest({
-        headers: { host: "evil.com" },
-        url: "/apix", // Should not match /api
+        headers: { host: 'evil.com' },
+        url: '/api/users',
       });
       const reply = createMockReply();
 
@@ -848,18 +827,39 @@ describe("domainValidation", () => {
       const hook = pluginHost.getHooks()[0];
       await hook.handler(request, reply);
 
-      expect(reply.type).toHaveBeenCalledWith("text/plain");
+      expect(reply.type).toHaveBeenCalledWith('application/json');
     });
 
-    it("treats /api?x=1 as API", async () => {
+    it('should not match false positives', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "evil.com" },
-        url: "/api?x=1",
+        headers: { host: 'evil.com' },
+        url: '/apix', // Should not match /api
+      });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.type).toHaveBeenCalledWith('text/plain');
+    });
+
+    it('treats /api?x=1 as API', async () => {
+      const config: DomainValidationConfig = {
+        validProductionDomains: ['example.com'],
+      };
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        headers: { host: 'evil.com' },
+        url: '/api?x=1',
       });
       const reply = createMockReply();
 
@@ -870,30 +870,30 @@ describe("domainValidation", () => {
       await hook.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(403);
-      expect(reply.type).toHaveBeenCalledWith("application/json");
+      expect(reply.type).toHaveBeenCalledWith('application/json');
       expect(reply.send).toHaveBeenCalledWith({
-        error: "invalid_domain",
-        message: "This domain is not authorized to access this server",
+        error: 'invalid_domain',
+        message: 'This domain is not authorized to access this server',
       });
     });
   });
 
-  describe("custom error handlers", () => {
-    it("should use custom invalidDomainHandler when provided", async () => {
+  describe('custom error handlers', () => {
+    it('should use custom invalidDomainHandler when provided', async () => {
       const customHandler = mock(() => ({
-        contentType: "html" as const,
-        content: "<h1>Custom Error Page</h1>",
+        contentType: 'html' as const,
+        content: '<h1>Custom Error Page</h1>',
       }));
 
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
         invalidDomainHandler: customHandler,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "evil.com" },
-        url: "/test",
+        headers: { host: 'evil.com' },
+        url: '/test',
       });
       const reply = createMockReply();
 
@@ -905,24 +905,24 @@ describe("domainValidation", () => {
 
       expect(customHandler).toHaveBeenCalledWith(
         request,
-        "evil.com",
+        'evil.com',
         false,
         false,
       );
       expect(reply.code).toHaveBeenCalledWith(403);
-      expect(reply.type).toHaveBeenCalledWith("text/html");
-      expect(reply.send).toHaveBeenCalledWith("<h1>Custom Error Page</h1>");
+      expect(reply.type).toHaveBeenCalledWith('text/html');
+      expect(reply.send).toHaveBeenCalledWith('<h1>Custom Error Page</h1>');
     });
 
-    it("should return default text error for non-API endpoints", async () => {
+    it('should return default text error for non-API endpoints', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "evil.com" },
-        url: "/regular-page",
+        headers: { host: 'evil.com' },
+        url: '/regular-page',
       });
       const reply = createMockReply();
 
@@ -933,21 +933,21 @@ describe("domainValidation", () => {
       await hook.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(403);
-      expect(reply.type).toHaveBeenCalledWith("text/plain");
+      expect(reply.type).toHaveBeenCalledWith('text/plain');
       expect(reply.send).toHaveBeenCalledWith(
-        "Access denied: This domain is not authorized to access this server",
+        'Access denied: This domain is not authorized to access this server',
       );
     });
 
-    it("should return default JSON error for API endpoints", async () => {
+    it('should return default JSON error for API endpoints', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "evil.com" },
-        url: "/api/test",
+        headers: { host: 'evil.com' },
+        url: '/api/test',
       });
       const reply = createMockReply();
 
@@ -958,27 +958,27 @@ describe("domainValidation", () => {
       await hook.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(403);
-      expect(reply.type).toHaveBeenCalledWith("application/json");
+      expect(reply.type).toHaveBeenCalledWith('application/json');
       expect(reply.send).toHaveBeenCalledWith({
-        error: "invalid_domain",
-        message: "This domain is not authorized to access this server",
+        error: 'invalid_domain',
+        message: 'This domain is not authorized to access this server',
       });
     });
 
-    it("passes isAPI=true to custom handler on API paths", async () => {
+    it('passes isAPI=true to custom handler on API paths', async () => {
       const customHandler = mock(() => ({
-        contentType: "text" as const,
-        content: "nope",
+        contentType: 'text' as const,
+        content: 'nope',
       }));
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
         invalidDomainHandler: customHandler,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "evil.com" },
-        url: "/api/things",
+        headers: { host: 'evil.com' },
+        url: '/api/things',
       });
       const reply = createMockReply();
 
@@ -990,28 +990,28 @@ describe("domainValidation", () => {
 
       expect(customHandler).toHaveBeenCalledWith(
         request,
-        "evil.com",
+        'evil.com',
         false,
         true,
       );
       expect(reply.code).toHaveBeenCalledWith(403);
-      expect(reply.type).toHaveBeenCalledWith("text/plain");
-      expect(reply.send).toHaveBeenCalledWith("nope");
+      expect(reply.type).toHaveBeenCalledWith('text/plain');
+      expect(reply.send).toHaveBeenCalledWith('nope');
     });
   });
 
-  describe("proxy headers", () => {
-    it("should respect x-forwarded-host header", async () => {
+  describe('proxy headers', () => {
+    it('should respect x-forwarded-host header', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
         trustProxyHeaders: true,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
         headers: {
-          host: "internal.proxy.com",
-          "x-forwarded-host": "example.com",
+          host: 'internal.proxy.com',
+          'x-forwarded-host': 'example.com',
         },
       });
       const reply = createMockReply();
@@ -1026,9 +1026,9 @@ describe("domainValidation", () => {
       expect(reply.redirect).not.toHaveBeenCalled();
     });
 
-    it("should handle comma-separated forwarded headers", async () => {
+    it('should handle comma-separated forwarded headers', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
         trustProxyHeaders: true,
       };
 
@@ -1036,8 +1036,8 @@ describe("domainValidation", () => {
       const options = createMockOptions();
       const request = createMockRequest({
         headers: {
-          host: "internal.proxy.com",
-          "x-forwarded-host": "example.com, proxy.internal.com",
+          host: 'internal.proxy.com',
+          'x-forwarded-host': 'example.com, proxy.internal.com',
         },
       });
 
@@ -1054,10 +1054,10 @@ describe("domainValidation", () => {
     });
   });
 
-  describe("configuration validation", () => {
+  describe('configuration validation', () => {
     it("should reject global wildcard '*' in validProductionDomains", async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["*"],
+        validProductionDomains: ['*'],
       };
 
       const pluginHost = createMockPluginHost();
@@ -1071,7 +1071,7 @@ describe("domainValidation", () => {
 
     it("should reject protocol wildcard entries like 'https://*'", async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["https://*"],
+        validProductionDomains: ['https://*'],
       };
 
       const pluginHost = createMockPluginHost();
@@ -1085,7 +1085,7 @@ describe("domainValidation", () => {
 
     it("should reject origin-style entries like 'https://example.com'", async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["https://example.com"],
+        validProductionDomains: ['https://example.com'],
       };
 
       const pluginHost = createMockPluginHost();
@@ -1098,15 +1098,15 @@ describe("domainValidation", () => {
     });
   });
 
-  describe("IDN / punycode normalization", () => {
-    it("should allow IDN domains when punycode is in allowlist", async () => {
+  describe('IDN / punycode normalization', () => {
+    it('should allow IDN domains when punycode is in allowlist', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["xn--exmple-cua.com"],
+        validProductionDomains: ['xn--exmple-cua.com'],
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "exämple.com" },
+        headers: { host: 'exämple.com' },
       });
       const reply = createMockReply();
 
@@ -1120,14 +1120,14 @@ describe("domainValidation", () => {
       expect(reply.redirect).not.toHaveBeenCalled();
     });
 
-    it("should allow punycode domains when IDN is in allowlist", async () => {
+    it('should allow punycode domains when IDN is in allowlist', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["exämple.com"],
+        validProductionDomains: ['exämple.com'],
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "xn--exmple-cua.com" },
+        headers: { host: 'xn--exmple-cua.com' },
       });
       const reply = createMockReply();
 
@@ -1142,17 +1142,17 @@ describe("domainValidation", () => {
     });
   });
 
-  describe("apex detection with multi-part TLDs", () => {
-    it("should add www to apex domain with multi-part TLD", async () => {
+  describe('apex detection with multi-part TLDs', () => {
+    it('should add www to apex domain with multi-part TLD', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.co.uk", "*.example.co.uk"],
-        wwwHandling: "add",
+        validProductionDomains: ['example.co.uk', '*.example.co.uk'],
+        wwwHandling: 'add',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "example.co.uk" },
-        url: "/test",
+        headers: { host: 'example.co.uk' },
+        url: '/test',
       });
       const reply = createMockReply();
 
@@ -1164,19 +1164,19 @@ describe("domainValidation", () => {
 
       expect(reply.code).toHaveBeenCalledWith(301);
       expect(reply.redirect).toHaveBeenCalledWith(
-        "https://www.example.co.uk/test",
+        'https://www.example.co.uk/test',
       );
     });
 
-    it("should not add www to subdomain with multi-part TLD", async () => {
+    it('should not add www to subdomain with multi-part TLD', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["*.example.co.uk"],
-        wwwHandling: "add",
+        validProductionDomains: ['*.example.co.uk'],
+        wwwHandling: 'add',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "shop.example.co.uk" },
+        headers: { host: 'shop.example.co.uk' },
       });
       const reply = createMockReply();
 
@@ -1191,16 +1191,16 @@ describe("domainValidation", () => {
     });
   });
 
-  describe("WWW handling edge cases", () => {
-    it("should not remove www from non-apex subdomains", async () => {
+  describe('WWW handling edge cases', () => {
+    it('should not remove www from non-apex subdomains', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["**.example.com"],
-        wwwHandling: "remove",
+        validProductionDomains: ['**.example.com'],
+        wwwHandling: 'remove',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "www.api.example.com" },
+        headers: { host: 'www.api.example.com' },
       });
       const reply = createMockReply();
 
@@ -1215,19 +1215,19 @@ describe("domainValidation", () => {
     });
   });
 
-  describe("port preservation edge cases", () => {
-    it("should preserve port when protocol unchanged", async () => {
+  describe('port preservation edge cases', () => {
+    it('should preserve port when protocol unchanged', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["staging.com", "example.com"],
-        canonicalDomain: "example.com",
+        validProductionDomains: ['staging.com', 'example.com'],
+        canonicalDomain: 'example.com',
         preservePort: true,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "staging.com:4443" },
-        url: "/test",
-        protocol: "https",
+        headers: { host: 'staging.com:4443' },
+        url: '/test',
+        protocol: 'https',
       });
       const reply = createMockReply();
 
@@ -1239,22 +1239,22 @@ describe("domainValidation", () => {
 
       expect(reply.code).toHaveBeenCalledWith(301);
       expect(reply.redirect).toHaveBeenCalledWith(
-        "https://example.com:4443/test",
+        'https://example.com:4443/test',
       );
     });
 
-    it("should strip port when protocol changes even with preservePort false", async () => {
+    it('should strip port when protocol changes even with preservePort false', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
         enforceHttps: true,
         preservePort: false,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
-        headers: { host: "example.com:8080" },
-        url: "/test",
-        protocol: "http",
+        headers: { host: 'example.com:8080' },
+        url: '/test',
+        protocol: 'http',
       });
       const reply = createMockReply();
 
@@ -1265,14 +1265,14 @@ describe("domainValidation", () => {
       await hook.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(301);
-      expect(reply.redirect).toHaveBeenCalledWith("https://example.com/test");
+      expect(reply.redirect).toHaveBeenCalledWith('https://example.com/test');
     });
   });
 
-  describe("comma-separated proxy headers", () => {
-    it("should honor first value in comma-separated x-forwarded-proto", async () => {
+  describe('comma-separated proxy headers', () => {
+    it('should honor first value in comma-separated x-forwarded-proto', async () => {
       const config: DomainValidationConfig = {
-        validProductionDomains: ["example.com"],
+        validProductionDomains: ['example.com'],
         enforceHttps: true,
         trustProxyHeaders: true,
       };
@@ -1280,11 +1280,11 @@ describe("domainValidation", () => {
       const options = createMockOptions();
       const request = createMockRequest({
         headers: {
-          host: "example.com",
-          "x-forwarded-proto": "http, https",
+          host: 'example.com',
+          'x-forwarded-proto': 'http, https',
         },
-        url: "/test",
-        protocol: "https",
+        url: '/test',
+        protocol: 'https',
       });
       const reply = createMockReply();
 
@@ -1295,7 +1295,7 @@ describe("domainValidation", () => {
       await hook.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(301);
-      expect(reply.redirect).toHaveBeenCalledWith("https://example.com/test");
+      expect(reply.redirect).toHaveBeenCalledWith('https://example.com/test');
     });
   });
 });

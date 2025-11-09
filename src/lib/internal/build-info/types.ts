@@ -46,11 +46,11 @@ export interface SaveResult {
  * Status codes for build info loading
  */
 export type BuildInfoStatus =
-  | "DEFAULT_NOT_PRODUCTION"
-  | "LOADED_SUCCESSFULLY"
-  | "MODULE_MISSING_DATA"
-  | "MODULE_INVALID_DATA"
-  | "IMPORT_ERROR";
+  | 'DEFAULT_NOT_PRODUCTION'
+  | 'LOADED_SUCCESSFULLY'
+  | 'MODULE_MISSING_DATA'
+  | 'MODULE_INVALID_DATA'
+  | 'IMPORT_ERROR';
 
 /**
  * Result from build info loading operations

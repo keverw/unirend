@@ -3,20 +3,20 @@
  * Can be run manually or added to version hooks
  */
 
-import * as fs from "fs";
-import * as path from "path";
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Get the project root directory
-const rootDir = path.resolve(__dirname, "..");
+const rootDir = path.resolve(__dirname, '..');
 
 // Read the package.json file
-const packageJsonPath = path.join(rootDir, "package.json");
-const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+const packageJsonPath = path.join(rootDir, 'package.json');
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 const version = packageJson.version;
 
 // Read the README.md file
-const readmePath = path.join(rootDir, "README.md");
-let readmeContent = fs.readFileSync(readmePath, "utf8");
+const readmePath = path.join(rootDir, 'README.md');
+let readmeContent = fs.readFileSync(readmePath, 'utf8');
 
 // Update the version in the README.md file
 const titleRegex = /^# Unirend v[0-9]+\.[0-9]+\.[0-9]+/m;

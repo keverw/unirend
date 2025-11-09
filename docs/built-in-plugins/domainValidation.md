@@ -32,15 +32,15 @@ The `domainValidation` plugin provides comprehensive domain security and normali
 ## Usage
 
 ```typescript
-import { domainValidation } from "unirend/plugins";
+import { domainValidation } from 'unirend/plugins';
 
 const server = serveSSRProd(buildDir, {
   plugins: [
     domainValidation({
-      validProductionDomains: ["example.com", "*.example.com"],
-      canonicalDomain: "example.com",
+      validProductionDomains: ['example.com', '*.example.com'],
+      canonicalDomain: 'example.com',
       enforceHttps: true,
-      wwwHandling: "remove",
+      wwwHandling: 'remove',
       redirectStatusCode: 301,
       skipInDevelopment: true,
     }),
@@ -77,45 +77,45 @@ const server = serveSSRProd(buildDir, {
 ```typescript
 // Basic setup - validate domain and enforce HTTPS
 domainValidation({
-  validProductionDomains: ["example.com"],
+  validProductionDomains: ['example.com'],
 });
 
 // Single string form also works
 domainValidation({
-  validProductionDomains: "example.com",
+  validProductionDomains: 'example.com',
 });
 
 // Multiple domains with canonical redirect
 domainValidation({
-  validProductionDomains: ["example.com", "www.example.com", "example.org"],
-  canonicalDomain: "example.com",
-  wwwHandling: "remove",
+  validProductionDomains: ['example.com', 'www.example.com', 'example.org'],
+  canonicalDomain: 'example.com',
+  wwwHandling: 'remove',
 });
 
 // Wildcard subdomains with explicit apex and WWW addition
 domainValidation({
-  validProductionDomains: ["example.com", "**.example.com"], // Explicit apex + all subdomains
-  wwwHandling: "add",
+  validProductionDomains: ['example.com', '**.example.com'], // Explicit apex + all subdomains
+  wwwHandling: 'add',
 });
 
 // Direct subdomains only (more restrictive)
 domainValidation({
-  validProductionDomains: ["example.com", "*.example.com"], // Explicit apex + direct subdomains only
-  wwwHandling: "remove",
+  validProductionDomains: ['example.com', '*.example.com'], // Explicit apex + direct subdomains only
+  wwwHandling: 'remove',
 });
 
 // Custom error handling
 domainValidation({
-  validProductionDomains: ["example.com"],
+  validProductionDomains: ['example.com'],
   invalidDomainHandler: (request, domain, isDev, isAPI) => ({
-    contentType: "html",
+    contentType: 'html',
     content: `<h1>Access denied for ${domain}</h1>`,
   }),
 });
 
 // Custom development setup with port preservation
 domainValidation({
-  validProductionDomains: ["dev.example.com"],
+  validProductionDomains: ['dev.example.com'],
   preservePort: true,
   skipInDevelopment: false,
 });

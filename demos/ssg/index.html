@@ -9,8 +9,8 @@
     <script>
       // Apply theme immediately to prevent flash
       (function () {
-        const savedTheme = localStorage.getItem("theme");
-        const theme = savedTheme === "dark" ? "dark" : "light";
+        const savedTheme = localStorage.getItem('theme');
+        const theme = savedTheme === 'dark' ? 'dark' : 'light';
         document.documentElement.className = `theme-${theme}`;
       })();
     </script>

@@ -1,7 +1,7 @@
-import React, { useEffect } from "react";
-import { useLocation } from "react-router";
-import Header from "./Header";
-import Footer from "./Footer";
+import React, { useEffect } from 'react';
+import { useLocation } from 'react-router';
+import Header from './Header';
+import Footer from './Footer';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -15,7 +15,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     // Regular pages scroll to top
     window.scrollTo({
       top: 0,
-      behavior: "instant",
+      behavior: 'instant',
     });
   }, [location.pathname]);
 

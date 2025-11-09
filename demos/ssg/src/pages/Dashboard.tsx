@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Header } from "../components/Header";
+import { useState, useEffect } from 'react';
+import { Header } from '../components/Header';
 
 function Dashboard() {
   const [data, setData] = useState<any>(null);
@@ -9,7 +9,7 @@ function Dashboard() {
     // Simulate API call for dynamic data
     const timer = setTimeout(() => {
       setData({
-        user: "John Doe",
+        user: 'John Doe',
         stats: {
           views: Math.floor(Math.random() * 10000),
           sales: Math.floor(Math.random() * 500),
@@ -37,11 +37,11 @@ function Dashboard() {
         <div className="card">
           <h2>User Analytics</h2>
           {loading ? (
-            <div style={{ textAlign: "center", padding: "2rem" }}>
+            <div style={{ textAlign: 'center', padding: '2rem' }}>
               <div
                 style={{
-                  fontSize: "2rem",
-                  animation: "spin 1s linear infinite",
+                  fontSize: '2rem',
+                  animation: 'spin 1s linear infinite',
                 }}
               >
                 ⏳
@@ -52,62 +52,62 @@ function Dashboard() {
             <div>
               <div
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-                  gap: "1rem",
-                  marginBottom: "2rem",
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                  gap: '1rem',
+                  marginBottom: '2rem',
                 }}
               >
                 <div
                   style={{
-                    background: "rgba(255, 255, 255, 0.1)",
-                    padding: "1rem",
-                    borderRadius: "8px",
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    padding: '1rem',
+                    borderRadius: '8px',
                   }}
                 >
                   <h3>Page Views</h3>
-                  <div style={{ fontSize: "2rem", fontWeight: "bold" }}>
+                  <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>
                     {data.stats.views.toLocaleString()}
                   </div>
                 </div>
                 <div
                   style={{
-                    background: "rgba(255, 255, 255, 0.1)",
-                    padding: "1rem",
-                    borderRadius: "8px",
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    padding: '1rem',
+                    borderRadius: '8px',
                   }}
                 >
                   <h3>Sales</h3>
-                  <div style={{ fontSize: "2rem", fontWeight: "bold" }}>
+                  <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>
                     {data.stats.sales}
                   </div>
                 </div>
                 <div
                   style={{
-                    background: "rgba(255, 255, 255, 0.1)",
-                    padding: "1rem",
-                    borderRadius: "8px",
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    padding: '1rem',
+                    borderRadius: '8px',
                   }}
                 >
                   <h3>Revenue</h3>
-                  <div style={{ fontSize: "2rem", fontWeight: "bold" }}>
+                  <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>
                     ${data.stats.revenue}
                   </div>
                 </div>
               </div>
 
-              <div style={{ textAlign: "left" }}>
+              <div style={{ textAlign: 'left' }}>
                 <p>
                   <strong>Welcome back, {data.user}!</strong>
                 </p>
                 <p>Last login: {data.lastLogin}</p>
                 <p
                   style={{
-                    marginTop: "1rem",
-                    padding: "1rem",
-                    background: "rgba(76, 175, 80, 0.2)",
-                    borderRadius: "8px",
-                    borderLeft: "4px solid #4CAF50",
+                    marginTop: '1rem',
+                    padding: '1rem',
+                    background: 'rgba(76, 175, 80, 0.2)',
+                    borderRadius: '8px',
+                    borderLeft: '4px solid #4CAF50',
                   }}
                 >
                   💡 <strong>SPA Note:</strong> This page loads dynamic data on

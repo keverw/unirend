@@ -75,11 +75,11 @@ export class LRUCache<K, V> {
     // Default size estimation logic
     if (value === null || value === undefined) {
       return 0;
-    } else if (typeof value === "boolean") {
+    } else if (typeof value === 'boolean') {
       return 4; // Boolean is typically 4 bytes
-    } else if (typeof value === "number") {
+    } else if (typeof value === 'number') {
       return 8; // Number is typically 8 bytes (double)
-    } else if (typeof value === "string") {
+    } else if (typeof value === 'string') {
       return value.length * 2; // String is ~2 bytes per character in UTF-16
     } else if (Buffer.isBuffer(value)) {
       return value.length; // Buffer size in bytes
@@ -92,7 +92,7 @@ export class LRUCache<K, V> {
       return (
         40 + value.reduce((acc, item) => acc + this.calculateSize(item), 0)
       );
-    } else if (typeof value === "object") {
+    } else if (typeof value === 'object') {
       try {
         // Rough estimate based on JSON size
         const jsonSize = JSON.stringify(value).length * 2;

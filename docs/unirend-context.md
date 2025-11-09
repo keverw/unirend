@@ -60,7 +60,7 @@ import {
   useRequestContext,
   useRequestContextValue,
   useRequestContextObjectRaw,
-} from "unirend/client";
+} from 'unirend/client';
 ```
 
 ### `useIsSSR()`
@@ -71,7 +71,7 @@ Returns `true` if rendering mode is SSR, `false` otherwise.
 function MyComponent() {
   const isSSR = useIsSSR();
 
-  return <div>{isSSR ? "Server-Side Rendered" : "Not SSR"}</div>;
+  return <div>{isSSR ? 'Server-Side Rendered' : 'Not SSR'}</div>;
 }
 ```
 
@@ -83,7 +83,7 @@ Returns `true` if rendering mode is SSG, `false` otherwise.
 function MyComponent() {
   const isSSG = useIsSSG();
 
-  return <div>{isSSG ? "Static Generated" : "Not SSG"}</div>;
+  return <div>{isSSG ? 'Static Generated' : 'Not SSG'}</div>;
 }
 ```
 
@@ -95,7 +95,7 @@ Returns `true` if rendering mode is client (SPA or after SSG build/SSR page hydr
 function MyComponent() {
   const isClient = useIsClient();
 
-  return <div>{isClient ? "Client Mode" : "Server Context Available"}</div>;
+  return <div>{isClient ? 'Client Mode' : 'Server Context Available'}</div>;
 }
 ```
 
@@ -138,7 +138,7 @@ function MyComponent() {
   const isServer = useIsServer();
 
   return (
-    <div>{isServer ? "Running on SSR server" : "Running on client or SSG"}</div>
+    <div>{isServer ? 'Running on SSR server' : 'Running on client or SSG'}</div>
   );
 }
 ```
@@ -185,8 +185,8 @@ Unirend provides a key-value store for managing per-request context data that ca
 Hook that returns a `RequestContextManager` object with methods to manage the request context. The hook must be called at the component top level, but the returned methods can be called anywhere (callbacks, effects, event handlers).
 
 ```typescript
-import { useRequestContext } from "unirend/client";
-import type { RequestContextManager } from "unirend/client";
+import { useRequestContext } from 'unirend/client';
+import type { RequestContextManager } from 'unirend/client';
 ```
 
 **Complete Example:**
@@ -196,24 +196,24 @@ function MyComponent() {
   const requestContext = useRequestContext();
 
   const handleThemeChange = (theme: string) => {
-    requestContext.set("theme", theme);
+    requestContext.set('theme', theme);
   };
 
   const handleClearUser = () => {
-    const wasDeleted = requestContext.delete("userID");
-    console.log(wasDeleted ? "Deleted" : "Key did not exist");
+    const wasDeleted = requestContext.delete('userID');
+    console.log(wasDeleted ? 'Deleted' : 'Key did not exist');
   };
 
   // ⚠️ Note: These values are NOT reactive - component won't re-render if they change
-  const userID = requestContext.get("userID");
-  const hasTheme = requestContext.has("theme");
+  const userID = requestContext.get('userID');
+  const hasTheme = requestContext.has('theme');
   const allKeys = requestContext.keys();
   const totalEntries = requestContext.size();
 
   return (
     <div>
       <p>User ID: {userID}</p>
-      <p>Has theme: {hasTheme ? "Yes" : "No"}</p>
+      <p>Has theme: {hasTheme ? 'Yes' : 'No'}</p>
       <p>Total entries: {totalEntries}</p>
 
       <h3>All Keys:</h3>
@@ -223,8 +223,8 @@ function MyComponent() {
         ))}
       </ul>
 
-      <button onClick={() => handleThemeChange("dark")}>Dark Theme</button>
-      <button onClick={() => handleThemeChange("light")}>Light Theme</button>
+      <button onClick={() => handleThemeChange('dark')}>Dark Theme</button>
+      <button onClick={() => handleThemeChange('light')}>Light Theme</button>
       <button onClick={handleClearUser}>Clear User ID</button>
       <button
         onClick={() => {
@@ -258,35 +258,35 @@ Hook to access and reactively update a single request context value. Similar to 
 **Works on both server and client** - you can use this during SSR/SSG rendering and on the client after hydration.
 
 ```typescript
-import { useRequestContextValue } from "unirend/client";
+import { useRequestContextValue } from 'unirend/client';
 ```
 
 **Example:**
 
 ```tsx
 function ThemeToggle() {
-  const [theme, setTheme] = useRequestContextValue<string>("theme");
+  const [theme, setTheme] = useRequestContextValue<string>('theme');
 
   return (
     <div>
-      <p>Current theme: {theme || "default"}</p>
-      <button onClick={() => setTheme("dark")}>Dark</button>
-      <button onClick={() => setTheme("light")}>Light</button>
+      <p>Current theme: {theme || 'default'}</p>
+      <button onClick={() => setTheme('dark')}>Dark</button>
+      <button onClick={() => setTheme('light')}>Light</button>
     </div>
   );
 }
 
 function UserProfile() {
-  const [userID, setUserID] = useRequestContextValue<string>("userID");
+  const [userID, setUserID] = useRequestContextValue<string>('userID');
   const [preferences, setPreferences] =
-    useRequestContextValue<Record<string, unknown>>("preferences");
+    useRequestContextValue<Record<string, unknown>>('preferences');
 
   return (
     <div>
       <p>User: {userID}</p>
-      <button onClick={() => setUserID("user-123")}>Set User</button>
+      <button onClick={() => setUserID('user-123')}>Set User</button>
       <button
-        onClick={() => setPreferences({ theme: "dark", notifications: true })}
+        onClick={() => setPreferences({ theme: 'dark', notifications: true })}
       >
         Update Preferences
       </button>
@@ -309,7 +309,7 @@ Hook to get the entire request context object for debugging purposes. Returns a 
 **⚠️ Important:** This is primarily for debugging. Use `useRequestContextValue()` or `useRequestContext()` for production code.
 
 ```typescript
-import { useRequestContextObjectRaw } from "unirend/client";
+import { useRequestContextObjectRaw } from 'unirend/client';
 ```
 
 **Example:**
@@ -378,19 +378,19 @@ For more details on populating request context on the server, see:
 Handle automatic theme detection while avoiding hydration mismatches:
 
 ```tsx
-import { useRequestContext, useRequestContextValue } from "unirend/client";
-import type { ServerPlugin } from "unirend/server";
+import { useRequestContext, useRequestContextValue } from 'unirend/client';
+import type { ServerPlugin } from 'unirend/server';
 
 // Server-side: Set theme from cookie in a plugin
 function themePlugin(): ServerPlugin {
   return async (pluginHost) => {
-    pluginHost.addHook("onRequest", async (request, reply) => {
+    pluginHost.addHook('onRequest', async (request, reply) => {
       // Read theme preference from cookie, default to 'light'
-      const themePreference = request.cookies.themePreference || "light";
+      const themePreference = request.cookies.themePreference || 'light';
       const currentTheme = request.cookies.currentTheme || themePreference;
 
       // For 'auto' preference, detect from User-Agent or default to light for SSR
-      const resolvedTheme = themePreference === "auto" ? "light" : currentTheme;
+      const resolvedTheme = themePreference === 'auto' ? 'light' : currentTheme;
 
       // Store in request context for components to use
       request.requestContext.theme = resolvedTheme;
@@ -398,8 +398,8 @@ function themePlugin(): ServerPlugin {
     });
 
     return {
-      name: "theme",
-      dependsOn: ["cookies"], // Ensure cookies plugin is loaded first
+      name: 'theme',
+      dependsOn: ['cookies'], // Ensure cookies plugin is loaded first
     };
   };
 }
@@ -427,14 +427,14 @@ function AppLayout({ children }) {
   // Theme preference can be updated from other components (e.g., toggle in header, settings page)
   // using: const [themePreference, setThemePreference] = useRequestContextValue<string>('themePreference');
   // Remember to also update the cookie: document.cookie = `themePreference=${newValue}; path=/; max-age=${60 * 60 * 24 * 365}`;
-  const [themePreference] = useRequestContextValue<string>("themePreference"); // 'light', 'dark', or 'auto'
+  const [themePreference] = useRequestContextValue<string>('themePreference'); // 'light', 'dark', or 'auto'
 
   // Current theme comes directly from context (set by server plugin initially)
   // This also allows components to conditionally render based on theme without relying on CSS classes
   const [currentTheme, setCurrentTheme] =
-    useRequestContextValue<string>("theme"); // useState-like API
+    useRequestContextValue<string>('theme'); // useState-like API
 
-  const resolvedTheme = currentTheme || "light";
+  const resolvedTheme = currentTheme || 'light';
 
   useEffect(() => {
     // Always update HTML element for Tailwind or CSS library dark mode and extra safety
@@ -446,11 +446,11 @@ function AppLayout({ children }) {
 
   useEffect(() => {
     // Only run on client after hydration
-    if (themePreference === "auto") {
-      const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    if (themePreference === 'auto') {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
       const updateTheme = () => {
-        const detectedTheme = mediaQuery.matches ? "dark" : "light";
+        const detectedTheme = mediaQuery.matches ? 'dark' : 'light';
 
         // Update context if theme changed (using setState-like API)
         if (detectedTheme !== resolvedTheme) {
@@ -462,11 +462,11 @@ function AppLayout({ children }) {
       updateTheme();
 
       // Listen for changes
-      mediaQuery.addEventListener("change", updateTheme);
+      mediaQuery.addEventListener('change', updateTheme);
 
       // Cleanup listener
       return () => {
-        mediaQuery.removeEventListener("change", updateTheme);
+        mediaQuery.removeEventListener('change', updateTheme);
       };
     }
   }, [themePreference, resolvedTheme, setCurrentTheme]);
@@ -490,7 +490,7 @@ Pass security tokens from server to client safely:
 // Ideally used with a session plugin for secure session management
 function csrfPlugin(): ServerPlugin {
   return async (pluginHost) => {
-    pluginHost.addHook("onRequest", async (request, reply) => {
+    pluginHost.addHook('onRequest', async (request, reply) => {
       // Generate CSRF token for this request (requires session)
       // Example: const csrfToken = crypto.randomBytes(32).toString('hex');
       const csrfToken = generateCSRFToken(request.session);
@@ -499,12 +499,12 @@ function csrfPlugin(): ServerPlugin {
       request.requestContext.csrfToken = csrfToken;
 
       // Also set in response header for API calls
-      reply.header("X-CSRF-Token", csrfToken);
+      reply.header('X-CSRF-Token', csrfToken);
     });
 
     return {
-      name: "csrf",
-      dependsOn: ["session"], // Ensure session plugin is loaded first
+      name: 'csrf',
+      dependsOn: ['session'], // Ensure session plugin is loaded first
     };
   };
 }
@@ -519,18 +519,18 @@ const server = serveSSRProd({
 // For login/logout without full page reload, you can update the token using the setter:
 // const [csrfToken, setCsrfToken] = useRequestContextValue<string>('csrfToken');
 function APIForm() {
-  const [csrfToken] = useRequestContextValue<string>("csrfToken"); // useState-like API
+  const [csrfToken] = useRequestContextValue<string>('csrfToken'); // useState-like API
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     const formData = new FormData(event.target);
 
     try {
-      const response = await fetch("/api/submit", {
-        method: "POST",
+      const response = await fetch('/api/submit', {
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-Token": csrfToken, // Include token in request
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken, // Include token in request
         },
         body: JSON.stringify(Object.fromEntries(formData)),
       });
@@ -541,11 +541,11 @@ function APIForm() {
         // Handle success
       } else {
         // Handle API errors (4xx, 5xx)
-        console.error("API error:", response.status);
+        console.error('API error:', response.status);
       }
     } catch (error) {
       // Handle network errors
-      console.error("Network error:", error);
+      console.error('Network error:', error);
     }
   };
 
@@ -560,16 +560,16 @@ function APIForm() {
 
 // Custom hook for API calls with CSRF
 function useSecureAPI() {
-  const [csrfToken] = useRequestContextValue<string>("csrfToken"); // useState-like API
+  const [csrfToken] = useRequestContextValue<string>('csrfToken'); // useState-like API
 
   const securePost = useCallback(
     async (url, data) => {
       try {
         const response = await fetch(url, {
-          method: "POST",
+          method: 'POST',
           headers: {
-            "Content-Type": "application/json",
-            "X-CSRF-Token": csrfToken,
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
           },
           body: JSON.stringify(data),
         });
@@ -636,19 +636,19 @@ When mounting on the client with `mountApp()`, the context is populated from inj
 ### 1. Analytics and Logging
 
 ```tsx
-import { useLocation } from "react-router";
+import { useLocation } from 'react-router';
 
 // Your analytics client instance
 const analytics = {
   track: (event: string, data: Record<string, unknown>) => {
     // Send to your analytics service
-    console.log("Analytics:", event, data);
+    console.log('Analytics:', event, data);
   },
 };
 
 function trackPageView(path: string, renderMode: string) {
   // Send analytics with render mode context
-  analytics.track("page_view", {
+  analytics.track('page_view', {
     path,
     renderMode, // "ssr", "ssg", or "client"
     timestamp: Date.now(),
@@ -683,14 +683,14 @@ function APIClient() {
   const config = useFrontendAppConfig();
 
   // Access public API configuration
-  const apiUrl = (config?.apiUrl as string) || "http://localhost:3000";
+  const apiUrl = (config?.apiUrl as string) || 'http://localhost:3000';
   const cdnUrl = config?.cdnUrl as string;
   const appVersion = config?.version as string;
 
   return (
     <div>
       <p>API Endpoint: {apiUrl}</p>
-      <p>CDN: {cdnUrl || "Not configured"}</p>
+      <p>CDN: {cdnUrl || 'Not configured'}</p>
       <p>Version: {appVersion}</p>
     </div>
   );
@@ -732,7 +732,7 @@ function DebugPanel() {
     <div className="debug-panel">
       <h3>Debug Info</h3>
       <p>Render Mode: {renderMode}</p>
-      <p>Is Server: {isServer ? "Yes" : "No"}</p>
+      <p>Is Server: {isServer ? 'Yes' : 'No'}</p>
     </div>
   );
 }
@@ -743,7 +743,7 @@ function DebugPanel() {
 All types are exported from `unirend/client`:
 
 ```typescript
-import type { UnirendRenderMode, RequestContextManager } from "unirend/client";
+import type { UnirendRenderMode, RequestContextManager } from 'unirend/client';
 
 // UnirendRenderMode = "ssr" | "ssg" | "client"
 

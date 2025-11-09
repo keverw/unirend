@@ -1,17 +1,17 @@
-import type { PluginHostInstance, PluginOptions, ServerPlugin } from "../types";
-import type { FastifyRequest } from "fastify";
-import { getDomain, getSubdomain } from "tldts";
+import type { PluginHostInstance, PluginOptions, ServerPlugin } from '../types';
+import type { FastifyRequest } from 'fastify';
+import { getDomain, getSubdomain } from 'tldts';
 import {
   normalizeDomain,
   matchesDomainList,
   validateConfigEntry,
-} from "../internal/domain-utils/domain-utils";
+} from '../internal/domain-utils/domain-utils';
 
 /**
  * Response configuration for invalid domain handler
  */
 export interface InvalidDomainResponse {
-  contentType: "json" | "text" | "html";
+  contentType: 'json' | 'text' | 'html';
   content: string | object;
 }
 
@@ -61,7 +61,7 @@ export interface DomainValidationConfig {
    * Note: Only applies to apex domains, not subdomains (api.example.com stays unchanged)
    * @default "preserve"
    */
-  wwwHandling?: "remove" | "add" | "preserve";
+  wwwHandling?: 'remove' | 'add' | 'preserve';
 
   /**
    * HTTP status code to use for redirects
@@ -109,23 +109,23 @@ export interface DomainValidationConfig {
  */
 function checkIfAPIEndpoint(url: string, options: PluginOptions): boolean {
   // API server: all requests are API endpoints
-  if (options.serverType === "api") {
+  if (options.serverType === 'api') {
     return true;
   }
 
   // SSR server: check if URL matches API prefix with proper boundary
-  let apiPrefix = options.apiEndpoints?.apiEndpointPrefix ?? "/api";
+  let apiPrefix = options.apiEndpoints?.apiEndpointPrefix ?? '/api';
 
   // Normalize apiPrefix to start with "/" to prevent false positives
-  if (!apiPrefix.startsWith("/")) {
-    apiPrefix = "/" + apiPrefix;
+  if (!apiPrefix.startsWith('/')) {
+    apiPrefix = '/' + apiPrefix;
   }
 
   // Extract pathname (before query string) and normalize
-  const pathname = url.split("?")[0];
+  const pathname = url.split('?')[0];
 
   // Exact match or followed by "/"
-  return pathname === apiPrefix || pathname.startsWith(apiPrefix + "/");
+  return pathname === apiPrefix || pathname.startsWith(apiPrefix + '/');
 }
 
 /**
@@ -136,20 +136,20 @@ function getProtocol(
   trustProxyHeaders: boolean,
 ): string {
   if (trustProxyHeaders) {
-    const forwardedProto = request.headers["x-forwarded-proto"];
+    const forwardedProto = request.headers['x-forwarded-proto'];
 
     if (forwardedProto) {
       // Handle comma-separated list, take first value
       const proto = Array.isArray(forwardedProto)
         ? forwardedProto[0]
-        : forwardedProto.split(",")[0].trim();
+        : forwardedProto.split(',')[0].trim();
 
       return proto.toLowerCase();
     }
   }
 
   // Fallback to request.protocol (accurate when Fastify trustProxy is enabled)
-  return (request.protocol || "http").toLowerCase();
+  return (request.protocol || 'http').toLowerCase();
 }
 
 /**
@@ -158,19 +158,19 @@ function getProtocol(
 function getHost(request: FastifyRequest, trustProxyHeaders: boolean): string {
   // Prefer x-forwarded-host only when explicitly trusted
   if (trustProxyHeaders) {
-    const forwardedHost = request.headers["x-forwarded-host"];
+    const forwardedHost = request.headers['x-forwarded-host'];
 
     if (forwardedHost) {
       // Handle comma-separated list, take first value
       const host = Array.isArray(forwardedHost)
         ? forwardedHost[0]
-        : forwardedHost.split(",")[0].trim();
+        : forwardedHost.split(',')[0].trim();
       return host;
     }
   }
 
   // Fallback to standard host header
-  return request.headers.host || "";
+  return request.headers.host || '';
 }
 
 /**
@@ -179,31 +179,31 @@ function getHost(request: FastifyRequest, trustProxyHeaders: boolean): string {
  */
 function parseHostHeader(host: string): { domain: string; port: string } {
   if (!host) {
-    return { domain: "", port: "" };
+    return { domain: '', port: '' };
   }
 
-  if (host.startsWith("[")) {
-    const end = host.indexOf("]");
+  if (host.startsWith('[')) {
+    const end = host.indexOf(']');
 
     if (end !== -1) {
       const domain = host.slice(0, end + 1); // keep brackets
       const rest = host.slice(end + 1);
 
-      if (rest.startsWith(":")) {
+      if (rest.startsWith(':')) {
         return { domain, port: rest.slice(1) };
       }
 
-      return { domain, port: "" };
+      return { domain, port: '' };
     }
 
     // Malformed bracket - fall back to whole string as domain
-    return { domain: host, port: "" };
+    return { domain: host, port: '' };
   }
 
-  const idx = host.indexOf(":");
+  const idx = host.indexOf(':');
 
   if (idx === -1) {
-    return { domain: host, port: "" };
+    return { domain: host, port: '' };
   }
 
   return { domain: host.slice(0, idx), port: host.slice(idx + 1) };
@@ -245,18 +245,18 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
         : [config.validProductionDomains];
 
       for (const entry of entries) {
-        const verdict = validateConfigEntry(entry, "domain");
+        const verdict = validateConfigEntry(entry, 'domain');
 
         if (!verdict.valid) {
           throw new Error(
-            `Invalid domainValidation validProductionDomains entry "${entry}"${verdict.info ? ": " + verdict.info : ""}`,
+            `Invalid domainValidation validProductionDomains entry "${entry}"${verdict.info ? ': ' + verdict.info : ''}`,
           );
         }
       }
     }
 
     // Register onRequest hook for domain security checks
-    pluginHost.addHook("onRequest", async (request, reply) => {
+    pluginHost.addHook('onRequest', async (request, reply) => {
       // Normalize config defaults
       const skipInDev = config.skipInDevelopment ?? true;
       const enforceHttps = config.enforceHttps ?? true;
@@ -276,9 +276,9 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
 
       // Skip all validation and redirects for localhost (including IPv4/IPv6)
       if (
-        domain === "localhost" ||
-        domain === "127.0.0.1" ||
-        domain === "::1"
+        domain === 'localhost' ||
+        domain === '127.0.0.1' ||
+        domain === '::1'
       ) {
         return;
       }
@@ -304,37 +304,37 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
               )
             : isAPIEndpoint
               ? {
-                  contentType: "json" as const,
+                  contentType: 'json' as const,
                   content: {
-                    error: "invalid_domain",
+                    error: 'invalid_domain',
                     message:
-                      "This domain is not authorized to access this server",
+                      'This domain is not authorized to access this server',
                   },
                 }
               : {
-                  contentType: "text" as const,
+                  contentType: 'text' as const,
                   content:
-                    "Access denied: This domain is not authorized to access this server",
+                    'Access denied: This domain is not authorized to access this server',
                 };
 
           // Set appropriate content type and send response (do not cache)
-          if (response.contentType === "json") {
+          if (response.contentType === 'json') {
             reply
               .code(403)
-              .header("Cache-Control", "no-store")
-              .type("application/json")
+              .header('Cache-Control', 'no-store')
+              .type('application/json')
               .send(response.content);
-          } else if (response.contentType === "html") {
+          } else if (response.contentType === 'html') {
             reply
               .code(403)
-              .header("Cache-Control", "no-store")
-              .type("text/html")
+              .header('Cache-Control', 'no-store')
+              .type('text/html')
               .send(response.content);
-          } else if (response.contentType === "text") {
+          } else if (response.contentType === 'text') {
             reply
               .code(403)
-              .header("Cache-Control", "no-store")
-              .type("text/plain")
+              .header('Cache-Control', 'no-store')
+              .type('text/plain')
               .send(response.content);
           }
           return;
@@ -349,7 +349,7 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
       let finalDomain = domain; // For logic decisions (never includes port)
       let protocolChanged = false;
       // Track a port part to append at assembly time (avoid mixing IPv6 colons)
-      let finalPortPart = "";
+      let finalPortPart = '';
 
       // Note: We maintain both finalHost and finalDomain separately because:
       // - finalHost: Used for final URL construction, may include port
@@ -367,21 +367,21 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
       }
 
       // 2. Apply HTTPS enforcement
-      if (enforceHttps && protocol === "http") {
-        finalProtocol = "https";
+      if (enforceHttps && protocol === 'http') {
+        finalProtocol = 'https';
         protocolChanged = true;
         needsRedirect = true;
       }
 
       // 3. Apply WWW handling (only for apex domains)
-      const wwwMode = config.wwwHandling || "preserve";
-      if (wwwMode !== "preserve" && isApexDomain(finalDomain)) {
-        const hasWww = finalHost.startsWith("www.");
-        if (wwwMode === "add" && !hasWww) {
+      const wwwMode = config.wwwHandling || 'preserve';
+      if (wwwMode !== 'preserve' && isApexDomain(finalDomain)) {
+        const hasWww = finalHost.startsWith('www.');
+        if (wwwMode === 'add' && !hasWww) {
           finalHost = `www.${finalHost}`;
           finalDomain = `www.${finalDomain}`; // keep in sync
           needsRedirect = true;
-        } else if (wwwMode === "remove" && hasWww) {
+        } else if (wwwMode === 'remove' && hasWww) {
           finalHost = finalHost.substring(4);
           finalDomain = finalDomain.substring(4); // keep in sync
           needsRedirect = true;
@@ -395,7 +395,7 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
         const shouldPreservePort =
           !protocolChanged && config.preservePort && port;
 
-        finalPortPart = shouldPreservePort ? `:${port}` : "";
+        finalPortPart = shouldPreservePort ? `:${port}` : '';
       }
 
       // Perform single redirect if needed
@@ -403,7 +403,7 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
         // Bracket IPv6 literals in the host component; append preserved port if any
         let hostForUrl = finalHost;
 
-        if (hostForUrl.includes(":") && !hostForUrl.startsWith("[")) {
+        if (hostForUrl.includes(':') && !hostForUrl.startsWith('[')) {
           hostForUrl = `[${hostForUrl}]`;
         }
 

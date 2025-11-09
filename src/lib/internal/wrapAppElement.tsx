@@ -1,12 +1,12 @@
-import React, { type ReactNode } from "react";
-import { HelmetProvider, type HelmetServerState } from "react-helmet-async";
+import React, { type ReactNode } from 'react';
+import { HelmetProvider, type HelmetServerState } from 'react-helmet-async';
 import {
   type DataRouter,
   RouterProvider,
   StaticRouterProvider,
   type StaticHandlerContext,
-} from "react-router";
-import { UnirendProvider, type UnirendContextValue } from "./UnirendContext";
+} from 'react-router';
+import { UnirendProvider, type UnirendContextValue } from './UnirendContext';
 
 /**
  * Options for wrapping app elements with various React wrappers
@@ -149,7 +149,7 @@ export function wrapRouter(
  */
 
 export function wrapStaticRouter(
-  router: Parameters<typeof StaticRouterProvider>[0]["router"],
+  router: Parameters<typeof StaticRouterProvider>[0]['router'],
   context: StaticHandlerContext,
   options: WrapAppElementOptions,
   helmetContext?: { helmet?: HelmetServerState },

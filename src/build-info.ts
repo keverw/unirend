@@ -8,13 +8,13 @@ export type {
   GenerationResult,
   SaveResult,
   LoadResult,
-} from "./lib/internal/build-info/types";
+} from './lib/internal/build-info/types';
 
 // Generation functionality
-export { GenerateBuildInfo } from "./lib/internal/build-info/generate";
+export { GenerateBuildInfo } from './lib/internal/build-info/generate';
 
 // Loading functionality
 export {
   loadBuildInfo,
   DEFAULT_BUILD_INFO,
-} from "./lib/internal/build-info/load";
+} from './lib/internal/build-info/load';

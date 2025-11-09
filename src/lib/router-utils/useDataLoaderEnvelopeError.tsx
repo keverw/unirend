@@ -1,8 +1,8 @@
-import { useMatches } from "react-router";
+import { useMatches } from 'react-router';
 import {
   PageErrorResponse,
   PageResponseEnvelope,
-} from "../api-envelope/api-envelope-types";
+} from '../api-envelope/api-envelope-types';
 
 export interface RouteErrorState {
   hasError: boolean;
@@ -19,7 +19,7 @@ export function useDataloaderEnvelopeError() {
   // We need to check all matches because the error could be in any child route
   for (const match of matches) {
     const data = match.data as PageResponseEnvelope | undefined;
-    if (data?.status === "error") {
+    if (data?.status === 'error') {
       errorResponse = data as PageErrorResponse;
       break;
     }

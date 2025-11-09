@@ -1,5 +1,5 @@
-import React from "react";
-import { NavLink } from "react-router";
+import React from 'react';
+import { NavLink } from 'react-router';
 
 const Header: React.FC = () => {
   return (
@@ -14,7 +14,7 @@ const Header: React.FC = () => {
               <NavLink
                 to="/"
                 end
-                className={({ isActive }) => (isActive ? "active" : "")}
+                className={({ isActive }) => (isActive ? 'active' : '')}
               >
                 Home
               </NavLink>
@@ -22,7 +22,7 @@ const Header: React.FC = () => {
             <li>
               <NavLink
                 to="/about"
-                className={({ isActive }) => (isActive ? "active" : "")}
+                className={({ isActive }) => (isActive ? 'active' : '')}
               >
                 About
               </NavLink>
@@ -30,7 +30,7 @@ const Header: React.FC = () => {
             <li>
               <NavLink
                 to="/contact"
-                className={({ isActive }) => (isActive ? "active" : "")}
+                className={({ isActive }) => (isActive ? 'active' : '')}
               >
                 Contact
               </NavLink>
@@ -38,7 +38,7 @@ const Header: React.FC = () => {
             <li>
               <NavLink
                 to="/context-demo"
-                className={({ isActive }) => (isActive ? "active" : "")}
+                className={({ isActive }) => (isActive ? 'active' : '')}
               >
                 Context
               </NavLink>

@@ -32,8 +32,8 @@ Create a small script to generate a `current-build-info.ts` file during your bui
 
 ```ts
 // scripts/generate-build-info.ts
-import { GenerateBuildInfo } from "unirend/build-info";
-import os from "os";
+import { GenerateBuildInfo } from 'unirend/build-info';
+import os from 'os';
 
 async function main() {
   const generator = new GenerateBuildInfo({
@@ -48,15 +48,15 @@ async function main() {
     },
   });
 
-  const { warnings } = await generator.saveTS("current-build-info.ts");
+  const { warnings } = await generator.saveTS('current-build-info.ts');
 
   if (warnings.length) {
-    console.warn("Build info warnings:\n" + warnings.join("\n"));
+    console.warn('Build info warnings:\n' + warnings.join('\n'));
   }
 }
 
 main().catch((error) => {
-  console.error("Failed to generate build info:", error);
+  console.error('Failed to generate build info:', error);
   process.exit(1);
 });
 ```
@@ -92,12 +92,12 @@ Notes:
 Use the loader to safely read the generated TypeScript module (`current-build-info.ts`) in production, and a default in development:
 
 ```ts
-import { loadBuildInfo } from "unirend/build-info";
+import { loadBuildInfo } from 'unirend/build-info';
 
-const isProduction = process.env.NODE_ENV === "production";
+const isProduction = process.env.NODE_ENV === 'production';
 const { info } = await loadBuildInfo(
   isProduction,
-  () => import("./current-build-info.ts"),
+  () => import('./current-build-info.ts'),
 );
 
 // info: BuildInfo
@@ -126,22 +126,22 @@ Load build info once at startup, pass selected fields to frontend, and decorate 
 
 ```ts
 // server.ts
-import { serveSSRProd } from "unirend/server";
-import { loadBuildInfo } from "unirend/build-info";
-import { BuildInfoPlugin } from "./plugins/BuildInfoPlugin";
-import { AppResponseHelpers } from "./helpers/AppResponseHelpers";
+import { serveSSRProd } from 'unirend/server';
+import { loadBuildInfo } from 'unirend/build-info';
+import { BuildInfoPlugin } from './plugins/BuildInfoPlugin';
+import { AppResponseHelpers } from './helpers/AppResponseHelpers';
 
 async function main() {
   // Load once at startup
   const buildResult = await loadBuildInfo(
-    process.env.NODE_ENV === "production",
-    () => import("./current-build-info.ts"),
+    process.env.NODE_ENV === 'production',
+    () => import('./current-build-info.ts'),
   );
 
-  const server = serveSSRProd("./build", {
+  const server = serveSSRProd('./build', {
     frontendAppConfig: {
-      apiUrl: process.env.API_URL || "https://api.example.com",
-      environment: buildResult.isDefault ? "development" : "production",
+      apiUrl: process.env.API_URL || 'https://api.example.com',
+      environment: buildResult.isDefault ? 'development' : 'production',
       build: {
         version: buildResult.info.version,
         isDev: buildResult.isDefault, // simple boolean check!
@@ -151,7 +151,7 @@ async function main() {
     APIResponseHelpersClass: AppResponseHelpers, // use custom helpers for error responses
   });
 
-  await server.listen(3000, "localhost");
+  await server.listen(3000, 'localhost');
 }
 ```
 
@@ -166,18 +166,18 @@ The plugin approach is useful when you want server-side handlers to access build
 
 ```ts
 // plugins/BuildInfoPlugin.ts
-import type { ServerPlugin } from "unirend/server";
-import type { BuildInfo } from "unirend/build-info";
+import type { ServerPlugin } from 'unirend/server';
+import type { BuildInfo } from 'unirend/build-info';
 
 export function BuildInfoPlugin(buildInfo: BuildInfo): ServerPlugin {
   return async (pluginHost) => {
-    pluginHost.decorateRequest("buildInfo", null);
+    pluginHost.decorateRequest('buildInfo', null);
 
-    pluginHost.addHook("onRequest", async (request) => {
+    pluginHost.addHook('onRequest', async (request) => {
       (request as any).buildInfo = buildInfo;
     });
 
-    return { name: "build-info" };
+    return { name: 'build-info' };
   };
 }
 ```
@@ -186,9 +186,9 @@ With the plugin in place, you can create custom response helpers that automatica
 
 ```ts
 // helpers/AppResponseHelpers.ts - Custom response helpers that auto-merge build info
-import { APIResponseHelpers } from "unirend/api-envelope";
-import type { BaseMeta } from "unirend/api-envelope";
-import type { FastifyRequest } from "unirend/server";
+import { APIResponseHelpers } from 'unirend/api-envelope';
+import type { BaseMeta } from 'unirend/api-envelope';
+import type { FastifyRequest } from 'unirend/server';
 
 interface AppMeta extends BaseMeta {
   build?: { version: string };

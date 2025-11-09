@@ -1,8 +1,8 @@
-import React from "react";
-import { createRoot, hydrateRoot } from "react-dom/client";
-import { createBrowserRouter, type RouteObject } from "react-router";
-import { wrapRouter } from "./internal/wrapAppElement";
-import type { UnirendContextValue } from "./internal/UnirendContext";
+import React from 'react';
+import { createRoot, hydrateRoot } from 'react-dom/client';
+import { createBrowserRouter, type RouteObject } from 'react-router';
+import { wrapRouter } from './internal/wrapAppElement';
+import type { UnirendContextValue } from './internal/UnirendContext';
 
 /**
  * Result type indicating how the app was mounted
@@ -10,7 +10,7 @@ import type { UnirendContextValue } from "./internal/UnirendContext";
  * - "rendered": App was rendered fresh (SPA mode)
  * - "not_found": Container element was not found in the DOM
  */
-export type MountAppResult = "hydrated" | "rendered" | "not_found";
+export type MountAppResult = 'hydrated' | 'rendered' | 'not_found';
 
 /**
  * Options for mounting the app
@@ -82,7 +82,7 @@ export function mountApp(
 
   // Early return if container doesn't exist
   if (!container) {
-    return "not_found";
+    return 'not_found';
   }
 
   // Create browser router from routes
@@ -92,7 +92,7 @@ export function mountApp(
   // The server injects this via window.__FRONTEND_APP_CONFIG__ during SSR/SSG
   // Clone it to prevent mutations from affecting the global or other consumers
   const globalConfig =
-    typeof window !== "undefined"
+    typeof window !== 'undefined'
       ? (
           window as unknown as {
             __FRONTEND_APP_CONFIG__?: Record<string, unknown>;
@@ -108,11 +108,11 @@ export function mountApp(
   // Note: When hydrating SSR/SSG content, the server provides the correct context values
   // This default is only used for pure client-side SPA scenarios (no SSR/SSG)
   const unirendContext: UnirendContextValue = {
-    renderMode: "client", // Pure client-side (server overrides to "ssr" or "ssg" during server rendering)
+    renderMode: 'client', // Pure client-side (server overrides to "ssr" or "ssg" during server rendering)
     isDevelopment: Boolean(import.meta.env.DEV), // Vite sets this: true in dev, false in production build
     fetchRequest: undefined, // No server request on client
     frontendAppConfig, // Config injected by server (SSR/SSG) or undefined (pure SPA)
-    requestContextRevision: "0-0", // Initial revision for client-side
+    requestContextRevision: '0-0', // Initial revision for client-side
   };
 
   // Wrap the router with configured options
@@ -128,13 +128,13 @@ export function mountApp(
     // Use hydrateRoot to preserve the existing DOM and attach React event handlers
     hydrateRoot(container, wrappedAppElement);
 
-    return "hydrated";
+    return 'hydrated';
   } else {
     // Container is empty - this is SPA mode or development
     // Use createRoot to render the app from scratch
     const root = createRoot(container);
     root.render(wrappedAppElement);
 
-    return "rendered";
+    return 'rendered';
   }
 }

@@ -1,28 +1,28 @@
-import fastify, { type FastifyServerOptions } from "fastify";
+import fastify, { type FastifyServerOptions } from 'fastify';
 import {
   createControlledInstance,
   isPageDataRequest,
   createDefaultAPIErrorResponse,
   createDefaultAPINotFoundResponse,
   validateAndRegisterPlugin,
-} from "./server-utils";
+} from './server-utils';
 import type {
   APIServerOptions,
   PluginMetadata,
   APIResponseHelpersClass,
-} from "../types";
-import { BaseServer } from "./BaseServer";
+} from '../types';
+import { BaseServer } from './BaseServer';
 import {
   DataLoaderServerHandlerHelpers,
   type PageDataHandler,
-} from "./DataLoaderServerHandlerHelpers";
-import { APIRoutesServerHelpers } from "./APIRoutesServerHelpers";
+} from './DataLoaderServerHandlerHelpers';
+import { APIRoutesServerHelpers } from './APIRoutesServerHelpers';
 import {
   WebSocketServerHelpers,
   type WebSocketHandlerConfig,
-} from "./WebSocketServerHelpers";
-import { APIResponseHelpers } from "../../api-envelope";
-import type { WebSocket, WebSocketServer } from "ws";
+} from './WebSocketServerHelpers';
+import { APIResponseHelpers } from '../../api-envelope';
+import type { WebSocket, WebSocketServer } from 'ws';
 
 /**
  * API Server class for creating JSON API servers with plugin support
@@ -68,16 +68,16 @@ export class APIServer extends BaseServer {
    * @param host Host to bind to (default: "localhost")
    * @returns Promise that resolves when server is ready
    */
-  async listen(port: number = 3000, host: string = "localhost"): Promise<void> {
+  async listen(port: number = 3000, host: string = 'localhost'): Promise<void> {
     if (this._isListening) {
       throw new Error(
-        "APIServer is already listening. Call stop() first before listening again.",
+        'APIServer is already listening. Call stop() first before listening again.',
       );
     }
 
     if (this._isStarting) {
       throw new Error(
-        "APIServer is already starting. Please wait for the current startup to complete.",
+        'APIServer is already starting. Please wait for the current startup to complete.',
       );
     }
 
@@ -132,11 +132,11 @@ export class APIServer extends BaseServer {
       }
 
       // Decorate requests with environment info (per-request)
-      const mode: "development" | "production" = this.options.isDevelopment
-        ? "development"
-        : "production";
-      const isDevelopment = mode === "development";
-      this.fastifyInstance.decorateRequest("isDevelopment", isDevelopment);
+      const mode: 'development' | 'production' = this.options.isDevelopment
+        ? 'development'
+        : 'production';
+      const isDevelopment = mode === 'development';
+      this.fastifyInstance.decorateRequest('isDevelopment', isDevelopment);
 
       // Register global error handler
       this.setupErrorHandler();
@@ -180,7 +180,7 @@ export class APIServer extends BaseServer {
       // Start the server
       await this.fastifyInstance.listen({
         port,
-        host: host || "localhost",
+        host: host || 'localhost',
       });
 
       this._isListening = true;
@@ -211,7 +211,7 @@ export class APIServer extends BaseServer {
       // Append cleanup errors to original error message if any
       if (cleanupErrors.length > 0 && error instanceof Error) {
         // Modify the original error's message directly
-        error.message = `${error.message}. Additional errors occurred: ${cleanupErrors.join(", ")}`;
+        error.message = `${error.message}. Additional errors occurred: ${cleanupErrors.join(', ')}`;
       }
 
       throw error;
@@ -256,10 +256,10 @@ export class APIServer extends BaseServer {
     versionOrHandler: number | PageDataHandler,
     handler?: PageDataHandler,
   ): void {
-    if (typeof versionOrHandler === "number") {
+    if (typeof versionOrHandler === 'number') {
       // Called with version: registerDataLoaderHandler(pageType, version, handler)
       if (!handler) {
-        throw new Error("Handler is required when version is specified");
+        throw new Error('Handler is required when version is specified');
       }
 
       this.pageDataHandlers.registerDataLoaderHandler(
@@ -333,7 +333,7 @@ export class APIServer extends BaseServer {
       }
 
       // Determine if the incoming request is for page data (SSR loader)
-      const rawPath = request.url.split("?")[0];
+      const rawPath = request.url.split('?')[0];
 
       // Determine if the incoming request is for page data (SSR loader)
       // Matches both exact endpoints and paths with parameters:
@@ -355,14 +355,14 @@ export class APIServer extends BaseServer {
           reply.code(statusCode);
 
           if (statusCode >= 400) {
-            reply.header("Cache-Control", "no-store");
+            reply.header('Cache-Control', 'no-store');
           }
 
           return errorResponse;
         } catch (handlerError) {
           // Fallback if custom error handler fails
           this.fastifyInstance?.log.error(
-            "Error handler failed:",
+            'Error handler failed:',
             handlerError,
           );
         }
@@ -373,7 +373,7 @@ export class APIServer extends BaseServer {
       reply.code(statusCode);
 
       if (statusCode >= 400) {
-        reply.header("Cache-Control", "no-store");
+        reply.header('Cache-Control', 'no-store');
       }
 
       const response = createDefaultAPIErrorResponse(
@@ -397,7 +397,7 @@ export class APIServer extends BaseServer {
     }
 
     this.fastifyInstance.setNotFoundHandler(async (request, reply) => {
-      const rawPath = request.url.split("?")[0];
+      const rawPath = request.url.split('?')[0];
       const isPage = isPageDataRequest(rawPath);
 
       // If user provided custom not-found handler, use it
@@ -408,14 +408,14 @@ export class APIServer extends BaseServer {
 
         // Extract status code from envelope response
         const statusCode = custom.status_code || 404;
-        reply.code(statusCode).header("Cache-Control", "no-store");
+        reply.code(statusCode).header('Cache-Control', 'no-store');
 
         return reply.send(custom);
       }
 
       // Default case
       const statusCode = 404;
-      reply.code(statusCode).header("Cache-Control", "no-store");
+      reply.code(statusCode).header('Cache-Control', 'no-store');
 
       const response = createDefaultAPINotFoundResponse(
         this.APIResponseHelpersClass,
@@ -446,10 +446,10 @@ export class APIServer extends BaseServer {
 
     // Plugin options to pass to each plugin
     const pluginOptions = {
-      serverType: "api" as const,
-      mode: (this.options.isDevelopment ? "development" : "production") as
-        | "development"
-        | "production",
+      serverType: 'api' as const,
+      mode: (this.options.isDevelopment ? 'development' : 'production') as
+        | 'development'
+        | 'production',
       isDevelopment: this.options.isDevelopment ?? false,
       buildDir: undefined, // Not applicable for API servers
       apiEndpoints: this.options.apiEndpoints,
@@ -464,7 +464,7 @@ export class APIServer extends BaseServer {
         // Validate dependencies and track plugin
         validateAndRegisterPlugin(this.registeredPlugins, pluginResult);
       } catch (error) {
-        this.fastifyInstance?.log.error("Failed to register plugin:", error);
+        this.fastifyInstance?.log.error('Failed to register plugin:', error);
         throw new Error(
           `Plugin registration failed: ${error instanceof Error ? error.message : String(error)}`,
         );

@@ -1,7 +1,7 @@
-import React from "react";
-import { isRouteErrorResponse, useRouteError } from "react-router";
-import DefaultNotFound from "./DefaultNotFound";
-import DefaultApplicationError from "./DefaultApplicationError";
+import React from 'react';
+import { isRouteErrorResponse, useRouteError } from 'react-router';
+import DefaultNotFound from './DefaultNotFound';
+import DefaultApplicationError from './DefaultApplicationError';
 
 /**
  * Props for RouteErrorBoundary component

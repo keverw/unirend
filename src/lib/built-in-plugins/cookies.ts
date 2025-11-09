@@ -1,5 +1,5 @@
-import type { ServerPlugin, PluginHostInstance } from "../types";
-import fastifyCookie, { type FastifyCookieOptions } from "@fastify/cookie";
+import type { ServerPlugin, PluginHostInstance } from '../types';
+import fastifyCookie, { type FastifyCookieOptions } from '@fastify/cookie';
 
 // Public type alias to align our plugin options with @fastify/cookie options
 export type CookiesConfig = FastifyCookieOptions;
@@ -19,15 +19,15 @@ export function cookies(config: CookiesConfig = {}): ServerPlugin {
 
     // Expose simple runtime metadata so other plugins/handlers can check
     // whether a signing secret/signer is configured and which algorithm is set.
-    pluginHost.decorate("cookiePluginInfo", {
+    pluginHost.decorate('cookiePluginInfo', {
       signingSecretProvided: !!(config as FastifyCookieOptions).secret,
       algorithm:
         (config as FastifyCookieOptions & { algorithm?: string }).algorithm ??
-        "sha256",
+        'sha256',
     });
 
     return {
-      name: "cookies",
+      name: 'cookies',
     } as const;
   };
 }

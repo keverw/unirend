@@ -1,8 +1,8 @@
-import { unirendBaseRender, type IRenderRequest } from "../../../src/server";
-import { ThemeProvider } from "./providers/ThemeProvider";
+import { unirendBaseRender, type IRenderRequest } from '../../../src/server';
+import { ThemeProvider } from './providers/ThemeProvider';
 
 // Import shared routes
-import { routes } from "./routes";
+import { routes } from './routes';
 
 /**
  * SSG entry point for static site generation

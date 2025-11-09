@@ -1,5 +1,5 @@
-import { generateSSG, SSGConsoleLogger } from "../../src/server";
-import path from "path";
+import { generateSSG, SSGConsoleLogger } from '../../src/server';
+import path from 'path';
 
 /**
  * SSG Generation Script
@@ -16,55 +16,55 @@ import path from "path";
  */
 
 async function main() {
-  console.log("🚀 Starting SSG generation...");
+  console.log('🚀 Starting SSG generation...');
 
   // Define the build directory (where Vite outputs the built files)
-  const buildDir = path.resolve(__dirname, "build");
+  const buildDir = path.resolve(__dirname, 'build');
 
   // Define the pages to generate - mix of SSG and SPA
   const pages = [
     // SSG pages - server-rendered at build time
     {
-      type: "ssg" as const,
-      path: "/",
-      filename: "index.html",
+      type: 'ssg' as const,
+      path: '/',
+      filename: 'index.html',
     },
     {
-      type: "ssg" as const,
-      path: "/about",
-      filename: "about.html",
+      type: 'ssg' as const,
+      path: '/about',
+      filename: 'about.html',
     },
     {
-      type: "ssg" as const,
-      path: "/contact",
-      filename: "contact.html",
+      type: 'ssg' as const,
+      path: '/contact',
+      filename: 'contact.html',
     },
     {
-      type: "ssg" as const,
-      path: "/context-demo",
-      filename: "context-demo.html",
+      type: 'ssg' as const,
+      path: '/context-demo',
+      filename: 'context-demo.html',
     },
     {
-      type: "ssg" as const,
-      path: "/404", // We'll use a specific path for SSG generation
-      filename: "404.html",
+      type: 'ssg' as const,
+      path: '/404', // We'll use a specific path for SSG generation
+      filename: '404.html',
     },
     // SPA pages - client-rendered with custom metadata
     {
-      type: "spa" as const,
-      filename: "dashboard.html",
-      title: "Dashboard - My App",
-      description: "User dashboard with real-time data",
+      type: 'spa' as const,
+      filename: 'dashboard.html',
+      title: 'Dashboard - My App',
+      description: 'User dashboard with real-time data',
       meta: {
-        "og:title": "Dashboard",
-        "og:description": "Access your personalized dashboard",
+        'og:title': 'Dashboard',
+        'og:description': 'Access your personalized dashboard',
       },
     },
     {
-      type: "spa" as const,
-      filename: "app.html",
-      title: "App - My App",
-      description: "Main application interface",
+      type: 'spa' as const,
+      filename: 'app.html',
+      title: 'App - My App',
+      description: 'Main application interface',
     },
   ];
 
@@ -74,10 +74,10 @@ async function main() {
     // serverEntry: "entry-server", // Use this if you want to share with SSR
     frontendAppConfig: {
       // Any config you want to inject into the frontend
-      apiUrl: "https://api.example.com",
-      version: "1.0.0",
+      apiUrl: 'https://api.example.com',
+      version: '1.0.0',
     },
-    containerID: "root", // Default React root container
+    containerID: 'root', // Default React root container
 
     // Logging options (silent by default):
     logger: SSGConsoleLogger, // Use built-in console logger with prefixes
@@ -94,7 +94,7 @@ async function main() {
     const result = await generateSSG(buildDir, pages, options);
 
     if (result.fatalError) {
-      console.error("❌ Fatal error during SSG generation:");
+      console.error('❌ Fatal error during SSG generation:');
       console.error(result.fatalError.message);
       process.exit(1);
     }
@@ -102,7 +102,7 @@ async function main() {
     if (result.pagesReport) {
       const { pagesReport } = result;
 
-      console.log("✅ SSG generation completed!");
+      console.log('✅ SSG generation completed!');
       console.log(`📊 Summary:`);
       console.log(`  • Total pages: ${pagesReport.totalPages}`);
       console.log(`  • Successful: ${pagesReport.successCount}`);
@@ -112,21 +112,21 @@ async function main() {
       console.log(`  • Build dir: ${pagesReport.buildDir}`);
 
       // Log individual page results
-      console.log("\n📄 Page Results:");
+      console.log('\n📄 Page Results:');
       pagesReport.pages.forEach((page) => {
         const status =
-          page.status === "success"
-            ? "✅"
-            : page.status === "error"
-              ? "❌"
-              : "⚠️";
+          page.status === 'success'
+            ? '✅'
+            : page.status === 'error'
+              ? '❌'
+              : '⚠️';
         const pageInfo =
-          page.page.type === "ssg"
+          page.page.type === 'ssg'
             ? `${page.page.path} → ${page.page.filename}`
             : `SPA → ${page.page.filename}`;
         console.log(`  ${status} ${pageInfo} (${page.timeMs}ms)`);
 
-        if (page.status === "error" && page.errorDetails) {
+        if (page.status === 'error' && page.errorDetails) {
           console.log(`      Error: ${page.errorDetails}`);
         }
 
@@ -136,9 +136,9 @@ async function main() {
       });
     }
 
-    console.log("\n🎉 Static site generation complete!");
+    console.log('\n🎉 Static site generation complete!');
   } catch (error) {
-    console.error("❌ Unexpected error during SSG generation:");
+    console.error('❌ Unexpected error during SSG generation:');
     console.error(error);
     process.exit(1);
   }
@@ -146,6 +146,6 @@ async function main() {
 
 // Run the script
 main().catch((error) => {
-  console.error("❌ Script failed:", error);
+  console.error('❌ Script failed:', error);
   process.exit(1);
 });

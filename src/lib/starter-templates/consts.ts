@@ -5,23 +5,23 @@ export const STARTER_TEMPLATES: Record<
   { templateID: string; name: string; description: string }
 > = {
   ssg: {
-    templateID: "ssg",
-    name: "Static Site Generation (SSG)",
+    templateID: 'ssg',
+    name: 'Static Site Generation (SSG)',
     description:
-      "Pre-rendered static site with React Router and Vite build system",
+      'Pre-rendered static site with React Router and Vite build system',
   },
   ssr: {
-    templateID: "ssr",
-    name: "Server-Side Rendering (SSR)",
+    templateID: 'ssr',
+    name: 'Server-Side Rendering (SSR)',
     description:
-      "Full-stack React app with server-side rendering, API routes, and plugin support",
+      'Full-stack React app with server-side rendering, API routes, and plugin support',
   },
   api: {
-    templateID: "api",
-    name: "API Server",
-    description: "Standalone JSON API server with WebSocket and plugin support",
+    templateID: 'api',
+    name: 'API Server',
+    description: 'Standalone JSON API server with WebSocket and plugin support',
   },
 };
 
-export const REPO_CONFIG_FILE = "unirend-repo.json";
-export const DEFAULT_REPO_NAME = "unirend-projects";
+export const REPO_CONFIG_FILE = 'unirend-repo.json';
+export const DEFAULT_REPO_NAME = 'unirend-projects';

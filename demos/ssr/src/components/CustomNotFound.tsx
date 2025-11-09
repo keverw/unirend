@@ -1,5 +1,5 @@
-import { Helmet } from "react-helmet-async";
-import { PageErrorResponse } from "../../../../src/lib/api-envelope/api-envelope-types";
+import { Helmet } from 'react-helmet-async';
+import { PageErrorResponse } from '../../../../src/lib/api-envelope/api-envelope-types';
 
 interface CustomNotFoundProps {
   error?: unknown;
@@ -16,10 +16,10 @@ export default function CustomNotFound({
 }: CustomNotFoundProps) {
   // Use envelope data if available, otherwise use defaults
   const title =
-    data?.meta?.page?.title || "404 - Page Not Found - Unirend SSR Demo";
+    data?.meta?.page?.title || '404 - Page Not Found - Unirend SSR Demo';
   const description =
     data?.meta?.page?.description ||
-    "The page you are looking for does not exist.";
+    'The page you are looking for does not exist.';
 
   return (
     <>
@@ -30,29 +30,29 @@ export default function CustomNotFound({
       <main
         className="main-content"
         style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          minHeight: "calc(100vh - 200px)", // Account for header/footer height
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: 'calc(100vh - 200px)', // Account for header/footer height
         }}
       >
         <div className="card">
           <h1
             style={{
-              fontSize: "4rem",
-              fontWeight: "800",
-              margin: "0 0 1rem 0",
-              color: "#ffffff",
+              fontSize: '4rem',
+              fontWeight: '800',
+              margin: '0 0 1rem 0',
+              color: '#ffffff',
             }}
           >
             404
           </h1>
-          <h2 style={{ marginBottom: "1rem" }}>Page Not Found</h2>
+          <h2 style={{ marginBottom: '1rem' }}>Page Not Found</h2>
           <p
             style={{
-              color: "rgba(255, 255, 255, 0.9)",
-              marginBottom: "2rem",
-              fontSize: "1.1rem",
+              color: 'rgba(255, 255, 255, 0.9)',
+              marginBottom: '2rem',
+              fontSize: '1.1rem',
             }}
           >
             Oops! The page you're looking for seems to have wandered off. The
@@ -61,32 +61,32 @@ export default function CustomNotFound({
 
           <div
             style={{
-              display: "flex",
-              gap: "1rem",
-              justifyContent: "center",
-              flexWrap: "wrap",
+              display: 'flex',
+              gap: '1rem',
+              justifyContent: 'center',
+              flexWrap: 'wrap',
             }}
           >
             <a
               href="/"
               style={{
-                display: "inline-block",
-                padding: "0.75rem 1.5rem",
-                background: "rgba(255, 255, 255, 0.2)",
-                color: "#ffffff",
-                textDecoration: "none",
-                borderRadius: "8px",
-                fontWeight: "600",
-                border: "1px solid rgba(255, 255, 255, 0.3)",
-                transition: "all 0.3s ease",
+                display: 'inline-block',
+                padding: '0.75rem 1.5rem',
+                background: 'rgba(255, 255, 255, 0.2)',
+                color: '#ffffff',
+                textDecoration: 'none',
+                borderRadius: '8px',
+                fontWeight: '600',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                transition: 'all 0.3s ease',
               }}
               onMouseOver={(e) => {
-                e.currentTarget.style.background = "rgba(255, 255, 255, 0.3)";
-                e.currentTarget.style.transform = "translateY(-2px)";
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.3)';
+                e.currentTarget.style.transform = 'translateY(-2px)';
               }}
               onMouseOut={(e) => {
-                e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)";
-                e.currentTarget.style.transform = "translateY(0)";
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+                e.currentTarget.style.transform = 'translateY(0)';
               }}
             >
               🏠 Go Home
@@ -95,23 +95,23 @@ export default function CustomNotFound({
             <a
               href="/about"
               style={{
-                display: "inline-block",
-                padding: "0.75rem 1.5rem",
-                background: "transparent",
-                color: "rgba(255, 255, 255, 0.9)",
-                textDecoration: "none",
-                borderRadius: "8px",
-                fontWeight: "500",
-                border: "1px solid rgba(255, 255, 255, 0.3)",
-                transition: "all 0.3s ease",
+                display: 'inline-block',
+                padding: '0.75rem 1.5rem',
+                background: 'transparent',
+                color: 'rgba(255, 255, 255, 0.9)',
+                textDecoration: 'none',
+                borderRadius: '8px',
+                fontWeight: '500',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                transition: 'all 0.3s ease',
               }}
               onMouseOver={(e) => {
-                e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
-                e.currentTarget.style.color = "#ffffff";
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                e.currentTarget.style.color = '#ffffff';
               }}
               onMouseOut={(e) => {
-                e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.color = "rgba(255, 255, 255, 0.9)";
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
               }}
             >
               About
@@ -120,23 +120,23 @@ export default function CustomNotFound({
             <a
               href="/contact"
               style={{
-                display: "inline-block",
-                padding: "0.75rem 1.5rem",
-                background: "transparent",
-                color: "rgba(255, 255, 255, 0.9)",
-                textDecoration: "none",
-                borderRadius: "8px",
-                fontWeight: "500",
-                border: "1px solid rgba(255, 255, 255, 0.3)",
-                transition: "all 0.3s ease",
+                display: 'inline-block',
+                padding: '0.75rem 1.5rem',
+                background: 'transparent',
+                color: 'rgba(255, 255, 255, 0.9)',
+                textDecoration: 'none',
+                borderRadius: '8px',
+                fontWeight: '500',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                transition: 'all 0.3s ease',
               }}
               onMouseOver={(e) => {
-                e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
-                e.currentTarget.style.color = "#ffffff";
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                e.currentTarget.style.color = '#ffffff';
               }}
               onMouseOut={(e) => {
-                e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.color = "rgba(255, 255, 255, 0.9)";
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
               }}
             >
               Contact

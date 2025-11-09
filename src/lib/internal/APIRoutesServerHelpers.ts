@@ -1,16 +1,16 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type {
   APIResponseEnvelope,
   BaseMeta,
-} from "../api-envelope/api-envelope-types";
-import { APIResponseHelpers } from "../api-envelope/response-helpers";
-import type { APIEndpointConfig, ControlledReply } from "../types";
-import { createControlledReply } from "./server-utils";
+} from '../api-envelope/api-envelope-types';
+import { APIResponseHelpers } from '../api-envelope/response-helpers';
+import type { APIEndpointConfig, ControlledReply } from '../types';
+import { createControlledReply } from './server-utils';
 
 /**
  * Supported HTTP methods for API routes
  */
-export type HTTPMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+export type HTTPMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
 /**
  * Handler function type for generic API endpoints
@@ -75,29 +75,29 @@ export class APIRoutesServerHelpers<
 
   /** Normalize and validate endpoint string (no prefix, no version) */
   private normalizeEndpoint(endpoint: string): string {
-    const trimmed = (endpoint || "").trim();
+    const trimmed = (endpoint || '').trim();
 
     if (trimmed.length === 0) {
-      throw new Error("Endpoint path segment cannot be empty");
+      throw new Error('Endpoint path segment cannot be empty');
     }
 
     // Remove leading slash to keep it as a path segment
-    return trimmed.startsWith("/") ? trimmed.slice(1) : trimmed;
+    return trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
   }
 
   private ensureMethod(method: string): HTTPMethod {
-    const upper = (method || "").toUpperCase();
+    const upper = (method || '').toUpperCase();
     if (
-      upper === "GET" ||
-      upper === "POST" ||
-      upper === "PUT" ||
-      upper === "DELETE" ||
-      upper === "PATCH"
+      upper === 'GET' ||
+      upper === 'POST' ||
+      upper === 'PUT' ||
+      upper === 'DELETE' ||
+      upper === 'PATCH'
     ) {
       return upper as HTTPMethod;
     }
 
-    throw new Error("Unsupported HTTP method: " + method);
+    throw new Error('Unsupported HTTP method: ' + method);
   }
 
   private getOrCreateEndpointMap(
@@ -150,19 +150,19 @@ export class APIRoutesServerHelpers<
     const httpMethod = this.ensureMethod(method);
     const normalizedEndpoint = this.normalizeEndpoint(endpoint);
 
-    if (typeof versionOrHandler === "number" && !handlerMaybe) {
-      throw new Error("Handler function is required when version is specified");
+    if (typeof versionOrHandler === 'number' && !handlerMaybe) {
+      throw new Error('Handler function is required when version is specified');
     }
 
     const version: number =
-      typeof versionOrHandler === "number" ? versionOrHandler : 1;
+      typeof versionOrHandler === 'number' ? versionOrHandler : 1;
     const handler: APIRouteHandler<T, M> =
-      typeof versionOrHandler === "function" && !handlerMaybe
+      typeof versionOrHandler === 'function' && !handlerMaybe
         ? versionOrHandler
         : (handlerMaybe as APIRouteHandler<T, M>);
 
     if (!handler) {
-      throw new Error("Handler function is required");
+      throw new Error('Handler function is required');
     }
 
     const endpointMap = this.getOrCreateEndpointMap(httpMethod);
@@ -184,15 +184,15 @@ export class APIRoutesServerHelpers<
       handlerOrVersion: number | APIRouteHandler<T, M>,
       maybeHandler?: APIRouteHandler<T, M>,
     ): void => {
-      if (typeof handlerOrVersion === "number") {
+      if (typeof handlerOrVersion === 'number') {
         this.registerAPIHandler(
-          "GET",
+          'GET',
           endpoint,
           handlerOrVersion,
           maybeHandler as APIRouteHandler<T, M>,
         );
       } else {
-        this.registerAPIHandler("GET", endpoint, handlerOrVersion);
+        this.registerAPIHandler('GET', endpoint, handlerOrVersion);
       }
     },
     post: (
@@ -200,15 +200,15 @@ export class APIRoutesServerHelpers<
       handlerOrVersion: number | APIRouteHandler<T, M>,
       maybeHandler?: APIRouteHandler<T, M>,
     ): void => {
-      if (typeof handlerOrVersion === "number") {
+      if (typeof handlerOrVersion === 'number') {
         this.registerAPIHandler(
-          "POST",
+          'POST',
           endpoint,
           handlerOrVersion,
           maybeHandler as APIRouteHandler<T, M>,
         );
       } else {
-        this.registerAPIHandler("POST", endpoint, handlerOrVersion);
+        this.registerAPIHandler('POST', endpoint, handlerOrVersion);
       }
     },
     put: (
@@ -216,15 +216,15 @@ export class APIRoutesServerHelpers<
       handlerOrVersion: number | APIRouteHandler<T, M>,
       maybeHandler?: APIRouteHandler<T, M>,
     ): void => {
-      if (typeof handlerOrVersion === "number") {
+      if (typeof handlerOrVersion === 'number') {
         this.registerAPIHandler(
-          "PUT",
+          'PUT',
           endpoint,
           handlerOrVersion,
           maybeHandler as APIRouteHandler<T, M>,
         );
       } else {
-        this.registerAPIHandler("PUT", endpoint, handlerOrVersion);
+        this.registerAPIHandler('PUT', endpoint, handlerOrVersion);
       }
     },
     delete: (
@@ -232,15 +232,15 @@ export class APIRoutesServerHelpers<
       handlerOrVersion: number | APIRouteHandler<T, M>,
       maybeHandler?: APIRouteHandler<T, M>,
     ): void => {
-      if (typeof handlerOrVersion === "number") {
+      if (typeof handlerOrVersion === 'number') {
         this.registerAPIHandler(
-          "DELETE",
+          'DELETE',
           endpoint,
           handlerOrVersion,
           maybeHandler as APIRouteHandler<T, M>,
         );
       } else {
-        this.registerAPIHandler("DELETE", endpoint, handlerOrVersion);
+        this.registerAPIHandler('DELETE', endpoint, handlerOrVersion);
       }
     },
     patch: (
@@ -248,15 +248,15 @@ export class APIRoutesServerHelpers<
       handlerOrVersion: number | APIRouteHandler<T, M>,
       maybeHandler?: APIRouteHandler<T, M>,
     ): void => {
-      if (typeof handlerOrVersion === "number") {
+      if (typeof handlerOrVersion === 'number') {
         this.registerAPIHandler(
-          "PATCH",
+          'PATCH',
           endpoint,
           handlerOrVersion,
           maybeHandler as APIRouteHandler<T, M>,
         );
       } else {
-        this.registerAPIHandler("PATCH", endpoint, handlerOrVersion);
+        this.registerAPIHandler('PATCH', endpoint, handlerOrVersion);
       }
     },
   } as const;
@@ -277,14 +277,14 @@ export class APIRoutesServerHelpers<
     options?: { allowWildcardAtRoot?: boolean },
   ): void {
     const resolvedConfig = {
-      apiEndpointPrefix: "/api",
+      apiEndpointPrefix: '/api',
       versioned: true,
       defaultVersion: 1,
       ...config,
     };
 
     const prefix = this.normalizePrefix(resolvedConfig.apiEndpointPrefix);
-    const isRootPrefix = prefix === "/";
+    const isRootPrefix = prefix === '/';
     const allowWildAtRoot = options?.allowWildcardAtRoot === true;
 
     for (const [method, endpointMap] of this.handlersByMethod) {
@@ -293,7 +293,7 @@ export class APIRoutesServerHelpers<
         if (
           !allowWildAtRoot &&
           isRootPrefix &&
-          (endpoint === "*" || endpoint.includes("*"))
+          (endpoint === '*' || endpoint.includes('*'))
         ) {
           throw new Error(
             "Wildcard endpoints are not allowed when apiEndpointPrefix is root ('/' or empty). Set a non-root prefix like '/api' to use wildcards.",
@@ -308,10 +308,10 @@ export class APIRoutesServerHelpers<
               endpoint +
               '" (' +
               method +
-              ") has multiple versions (" +
-              versions.join(", ") +
-              ") but versioning is disabled. " +
-              "Either enable versioning or register only one version per endpoint.",
+              ') has multiple versions (' +
+              versions.join(', ') +
+              ') but versioning is disabled. ' +
+              'Either enable versioning or register only one version per endpoint.',
           );
         }
 
@@ -338,7 +338,7 @@ export class APIRoutesServerHelpers<
             >;
 
             const original_url = request.url;
-            const request_path = original_url.split("?")[0] || original_url;
+            const request_path = original_url.split('?')[0] || original_url;
 
             const envelope = await handler(
               request,
@@ -357,16 +357,16 @@ export class APIRoutesServerHelpers<
 
             if (!APIResponseHelpers.isValidEnvelope(envelope)) {
               const error = new Error(
-                "API route " +
+                'API route ' +
                   method +
-                  " " +
+                  ' ' +
                   fullPath +
-                  " returned an invalid response envelope",
+                  ' returned an invalid response envelope',
               );
               (error as unknown as { errorCode: string }).errorCode =
-                "invalid_handler_response";
+                'invalid_handler_response';
               (error as unknown as { route: string }).route =
-                method + " " + fullPath;
+                method + ' ' + fullPath;
               (
                 error as unknown as { handlerResponse: unknown }
               ).handlerResponse = envelope;
@@ -376,26 +376,26 @@ export class APIRoutesServerHelpers<
             reply.code(envelope.status_code);
 
             if (envelope.status_code >= 400) {
-              reply.header("Cache-Control", "no-store");
+              reply.header('Cache-Control', 'no-store');
             }
 
             return envelope;
           };
 
           switch (method) {
-            case "GET":
+            case 'GET':
               fastify.get(fullPath, wrappedHandler);
               break;
-            case "POST":
+            case 'POST':
               fastify.post(fullPath, wrappedHandler);
               break;
-            case "PUT":
+            case 'PUT':
               fastify.put(fullPath, wrappedHandler);
               break;
-            case "DELETE":
+            case 'DELETE':
               fastify.delete(fullPath, wrappedHandler);
               break;
-            case "PATCH":
+            case 'PATCH':
               fastify.patch(fullPath, wrappedHandler);
               break;
           }
@@ -405,22 +405,22 @@ export class APIRoutesServerHelpers<
   }
 
   private normalizePrefix(prefixRaw?: string): string {
-    let prefix = (prefixRaw ?? "/api").trim();
+    let prefix = (prefixRaw ?? '/api').trim();
 
     if (prefix.length === 0) {
-      return "/"; // root, though not recommended
+      return '/'; // root, though not recommended
     }
 
     // Ensure leading slash
-    if (!prefix.startsWith("/")) {
-      prefix = "/" + prefix;
+    if (!prefix.startsWith('/')) {
+      prefix = '/' + prefix;
     }
 
     // Collapse multiple consecutive slashes to a single slash
-    prefix = prefix.replace(/\/+/g, "/");
+    prefix = prefix.replace(/\/+/g, '/');
 
     // Remove trailing slash when not root
-    if (prefix !== "/" && prefix.endsWith("/")) {
+    if (prefix !== '/' && prefix.endsWith('/')) {
       prefix = prefix.slice(0, -1);
     }
 
@@ -433,7 +433,7 @@ export class APIRoutesServerHelpers<
     versioned: boolean,
     version: number,
   ): string {
-    const base = versioned ? prefix + "/v" + version : prefix;
-    return base + "/" + endpoint;
+    const base = versioned ? prefix + '/v' + version : prefix;
+    return base + '/' + endpoint;
   }
 }

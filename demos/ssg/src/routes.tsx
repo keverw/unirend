@@ -1,16 +1,16 @@
-import { RouteObject, Outlet } from "react-router";
-import Home from "./pages/Home";
-import About from "./pages/About";
-import Contact from "./pages/Contact";
-import Dashboard from "./pages/Dashboard";
-import AppPage from "./pages/App";
-import NotFound from "./pages/NotFound";
-import ContextDemo from "./pages/ContextDemo";
+import { RouteObject, Outlet } from 'react-router';
+import Home from './pages/Home';
+import About from './pages/About';
+import Contact from './pages/Contact';
+import Dashboard from './pages/Dashboard';
+import AppPage from './pages/App';
+import NotFound from './pages/NotFound';
+import ContextDemo from './pages/ContextDemo';
 
 // Simple Layout component - theme is handled by body class
 function Layout() {
   return (
-    <div style={{ minHeight: "100vh" }}>
+    <div style={{ minHeight: '100vh' }}>
       <Outlet />
     </div>
   );
@@ -18,7 +18,7 @@ function Layout() {
 
 export const routes: RouteObject[] = [
   {
-    path: "/",
+    path: '/',
     element: <Layout />,
     children: [
       {
@@ -26,31 +26,31 @@ export const routes: RouteObject[] = [
         element: <Home />,
       },
       {
-        path: "about",
+        path: 'about',
         element: <About />,
       },
       {
-        path: "contact",
+        path: 'contact',
         element: <Contact />,
       },
       {
-        path: "dashboard",
+        path: 'dashboard',
         element: <Dashboard />,
       },
       {
-        path: "app",
+        path: 'app',
         element: <AppPage />,
       },
       {
-        path: "context-demo",
+        path: 'context-demo',
         element: <ContextDemo />,
       },
       {
-        path: "404", // Dedicated 404 route for SSG
+        path: '404', // Dedicated 404 route for SSG
         element: <NotFound />,
       },
       {
-        path: "*", // Catch-all route for 404
+        path: '*', // Catch-all route for 404
         element: <NotFound />,
       },
     ],

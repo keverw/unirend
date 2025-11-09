@@ -1,4 +1,4 @@
-import { toASCII } from "tr46";
+import { toASCII } from 'tr46';
 
 // Defense-in-depth: cap label processing to avoid pathological patterns
 const MAX_LABELS = 32;
@@ -13,16 +13,16 @@ export const INVALID_DOMAIN_CHARS = /[/?#:[\]@\\]/;
 // Currently we only allow 'localhost'. If you want to allow other IANA special-use
 // names (e.g., 'test', 'example', 'invalid', 'local'), add them here deliberately.
 export const INTERNAL_PSEUDO_TLDS = Object.freeze(
-  new Set<string>(["localhost"]),
+  new Set<string>(['localhost']),
 );
 
 // Helper functions for wildcard pattern validation
 export function isAllWildcards(s: string): boolean {
-  return s.split(".").every((l) => l === "*" || l === "**");
+  return s.split('.').every((l) => l === '*' || l === '**');
 }
 
 export function hasPartialLabelWildcard(s: string): boolean {
-  return s.split(".").some((l) => l.includes("*") && l !== "*" && l !== "**");
+  return s.split('.').some((l) => l.includes('*') && l !== '*' && l !== '**');
 }
 
 /**
@@ -33,7 +33,7 @@ export function hasPartialLabelWildcard(s: string): boolean {
  * Assumes ASCII input (post-TR46 processing).
  */
 export function checkDnsLengths(host: string): boolean {
-  const labels = host.split(".");
+  const labels = host.split('.');
 
   // Label count cap for domains (127 is theoretical DNS limit)
   if (labels.length === 0 || labels.length > 127) {
@@ -83,12 +83,12 @@ export function isIPv4(str: string): boolean {
  */
 export function isIPv6(str: string): boolean {
   // Remove brackets if present and normalize percent-encoding for detection
-  const cleaned = str.replace(/^\[|\]$/g, "").replace(/%25/g, "%");
+  const cleaned = str.replace(/^\[|\]$/g, '').replace(/%25/g, '%');
 
   // Split potential zone identifier (RFC 6874): "<addr>%<ZoneID>"
   let addr = cleaned;
-  let zone = "";
-  const pct = cleaned.indexOf("%");
+  let zone = '';
+  const pct = cleaned.indexOf('%');
   if (pct !== -1) {
     addr = cleaned.slice(0, pct);
     zone = cleaned.slice(pct + 1);
@@ -119,7 +119,7 @@ export function canonicalizeBracketedIPv6Content(
   content: string,
   preserveZoneIdCase = false,
 ): string {
-  const i = content.indexOf("%25");
+  const i = content.indexOf('%25');
 
   if (i === -1) {
     return content.toLowerCase();
@@ -145,7 +145,7 @@ export function extractFixedTailAfterLastWildcard(patternLabels: string[]): {
   let lastWildcardIdx = -1;
   for (let i = patternLabels.length - 1; i >= 0; i--) {
     const lbl = patternLabels[i];
-    if (lbl === "*" || lbl === "**") {
+    if (lbl === '*' || lbl === '**') {
       lastWildcardIdx = i;
       break;
     }
@@ -174,7 +174,7 @@ function matchesWildcardLabelsInternal(
   while (patternIndex < patternLabels.length) {
     const patternLabel = patternLabels[patternIndex];
 
-    if (patternLabel === "**") {
+    if (patternLabel === '**') {
       const isLeftmost = patternIndex === 0;
 
       // ** at index 0 means "1+ labels" while interior ** is "0+"
@@ -224,7 +224,7 @@ function matchesWildcardLabelsInternal(
         }
       }
       return false;
-    } else if (patternLabel === "*") {
+    } else if (patternLabel === '*') {
       // * matches exactly one label
       if (domainIndex >= domainLabels.length) {
         return false; // Not enough domain labels
@@ -273,8 +273,8 @@ export function matchesMultiLabelPattern(
   domain: string,
   pattern: string,
 ): boolean {
-  const domainLabels = domain.split(".");
-  const patternLabels = pattern.split(".");
+  const domainLabels = domain.split('.');
+  const patternLabels = pattern.split('.');
 
   // Guard against pathological label counts
   if (domainLabels.length > MAX_LABELS || patternLabels.length > MAX_LABELS) {
@@ -284,7 +284,7 @@ export function matchesMultiLabelPattern(
   // Pattern must have at least one non-wildcard label (the base domain)
   if (
     patternLabels.length === 0 ||
-    patternLabels.every((label) => label === "*" || label === "**")
+    patternLabels.every((label) => label === '*' || label === '**')
   ) {
     return false;
   }
@@ -329,7 +329,7 @@ export function matchesMultiLabelPattern(
  * @returns String with Unicode dots normalized to ASCII dots
  */
 export function toAsciiDots(s: string): string {
-  return s.replace(/[．。｡]/g, "."); // fullwidth/japanese/halfwidth
+  return s.replace(/[．。｡]/g, '.'); // fullwidth/japanese/halfwidth
 }
 
 /**
@@ -341,7 +341,7 @@ export function normalizeDomain(domain: string): string {
   let trimmed = domain.trim();
 
   // Remove trailing dot if present (FQDN normalization)
-  if (trimmed.endsWith(".")) {
+  if (trimmed.endsWith('.')) {
     trimmed = trimmed.slice(0, -1);
   }
 
@@ -353,14 +353,14 @@ export function normalizeDomain(domain: string): string {
   if (isIPAddress(trimmed)) {
     const normalized = trimmed.toLowerCase();
     // Strip brackets from IPv6 addresses to make [::1] equivalent to ::1
-    if (normalized.startsWith("[") && normalized.endsWith("]")) {
+    if (normalized.startsWith('[') && normalized.endsWith(']')) {
       return normalized.slice(1, -1);
     }
     return normalized;
   }
 
   // Apply NFC normalization for Unicode domains
-  const normalized = trimmed.normalize("NFC").toLowerCase();
+  const normalized = trimmed.normalize('NFC').toLowerCase();
 
   try {
     // Use TR46/IDNA processing for robust Unicode domain handling that mirrors browser behavior
@@ -373,13 +373,13 @@ export function normalizeDomain(domain: string): string {
       verifyDNSLength: false, // we already do our own length checks
     });
     if (!ascii) {
-      throw new Error("TR46 processing failed");
+      throw new Error('TR46 processing failed');
     }
     // Enforce DNS length constraints post-TR46
-    return checkDnsLengths(ascii) ? ascii : ""; // return sentinel on invalid DNS lengths
+    return checkDnsLengths(ascii) ? ascii : ''; // return sentinel on invalid DNS lengths
   } catch {
     // On TR46 failure, return sentinel empty-string to signal invalid hostname
-    return "";
+    return '';
   }
 }
 
@@ -391,50 +391,50 @@ export function normalizeDomain(domain: string): string {
 export function normalizeWildcardPattern(pattern: string): string {
   let trimmed = pattern
     .trim()
-    .normalize("NFC")
-    .replace(/[．。｡]/g, "."); // normalize Unicode dot variants to ASCII
+    .normalize('NFC')
+    .replace(/[．。｡]/g, '.'); // normalize Unicode dot variants to ASCII
 
   // Refuse non-domain characters (ports, paths, fragments, brackets, userinfo, backslashes)
   if (INVALID_DOMAIN_CHARS.test(trimmed)) {
-    return ""; // sentinel for invalid pattern
+    return ''; // sentinel for invalid pattern
   }
 
-  if (trimmed.endsWith(".")) {
+  if (trimmed.endsWith('.')) {
     trimmed = trimmed.slice(0, -1);
   }
 
-  const labels = trimmed.split(".");
+  const labels = trimmed.split('.');
 
   // Reject empty labels post-split early (e.g., *..example.com)
   // This avoids double dots slipping to punycode
   for (const lbl of labels) {
     if (lbl.length === 0) {
-      return ""; // sentinel for invalid pattern (no empty labels)
+      return ''; // sentinel for invalid pattern (no empty labels)
     }
   }
 
   const normalizedLabels = [];
   for (const lbl of labels) {
-    if (lbl === "*" || lbl === "**") {
+    if (lbl === '*' || lbl === '**') {
       normalizedLabels.push(lbl);
       continue;
     }
 
     // Pre-punycode check for obviously invalid labels
     if (lbl.length > 63) {
-      return ""; // sentinel for invalid pattern
+      return ''; // sentinel for invalid pattern
     }
 
     const nd = normalizeDomain(lbl);
 
-    if (nd === "") {
+    if (nd === '') {
       // Invalid label after normalization
-      return ""; // sentinel for invalid pattern
+      return ''; // sentinel for invalid pattern
     }
 
     // Early check: single-label DNS limit (post-punycode)
     if (nd.length > 63) {
-      return ""; // sentinel for invalid pattern
+      return ''; // sentinel for invalid pattern
     }
 
     normalizedLabels.push(nd);
@@ -442,15 +442,15 @@ export function normalizeWildcardPattern(pattern: string): string {
 
   // Extract concrete (non-wildcard) labels and validate final ASCII length
   const concreteLabels = normalizedLabels.filter(
-    (lbl) => lbl !== "*" && lbl !== "**",
+    (lbl) => lbl !== '*' && lbl !== '**',
   );
   if (concreteLabels.length > 0) {
-    const concretePattern = concreteLabels.join(".");
+    const concretePattern = concreteLabels.join('.');
     // Validate the ASCII length of the concrete parts to prevent pathological long IDNs
     if (!checkDnsLengths(concretePattern)) {
-      return ""; // sentinel for invalid pattern
+      return ''; // sentinel for invalid pattern
     }
   }
 
-  return normalizedLabels.join(".");
+  return normalizedLabels.join('.');
 }

@@ -18,17 +18,17 @@ import {
   type PluginOptions,
   PluginHostInstance,
   type ControlledReply,
-} from "../../src/server";
-import { APIResponseHelpers, type BaseMeta } from "../../src/api-envelope";
-import { pipeline } from "stream/promises";
-import { createWriteStream } from "fs";
-import { mkdir } from "fs/promises";
-import { FastifyReply, FastifyRequest } from "fastify";
-import type { PageDataHandlerParams } from "../../src/lib/internal/DataLoaderServerHandlerHelpers";
-import { clientInfo } from "../../src/plugins";
+} from '../../src/server';
+import { APIResponseHelpers, type BaseMeta } from '../../src/api-envelope';
+import { pipeline } from 'stream/promises';
+import { createWriteStream } from 'fs';
+import { mkdir } from 'fs/promises';
+import { FastifyReply, FastifyRequest } from 'fastify';
+import type { PageDataHandlerParams } from '../../src/lib/internal/DataLoaderServerHandlerHelpers';
+import { clientInfo } from '../../src/plugins';
 
 const PORT = 3000;
-const HOST = "localhost";
+const HOST = 'localhost';
 
 // Track the running server instance for graceful shutdown
 let currentServer: SSRServer | null = null;
@@ -40,7 +40,7 @@ interface DemoMeta extends BaseMeta {
   account?: {
     isAuthenticated: boolean;
     userID?: string;
-    role?: "user" | "admin";
+    role?: 'user' | 'admin';
   };
   app: {
     version: string;
@@ -65,8 +65,8 @@ class DemoResponseHelpers extends APIResponseHelpers {
         isAuthenticated: false,
       },
       app: {
-        version: "1.0.0",
-        environment: isDev ? "development" : "production",
+        version: '1.0.0',
+        environment: isDev ? 'development' : 'production',
         buildTime: new Date().toISOString(),
       },
     } as Partial<DemoMeta>;
@@ -117,7 +117,7 @@ class DemoResponseHelpers extends APIResponseHelpers {
     data: T;
     pageMetadata: Parameters<
       typeof APIResponseHelpers.createPageSuccessResponse
-    >[0]["pageMetadata"];
+    >[0]['pageMetadata'];
     statusCode?: number;
     meta?: Partial<M>;
   }) {
@@ -132,10 +132,10 @@ class DemoResponseHelpers extends APIResponseHelpers {
     request: FastifyRequest;
     redirectInfo: Parameters<
       typeof APIResponseHelpers.createPageRedirectResponse
-    >[0]["redirectInfo"];
+    >[0]['redirectInfo'];
     pageMetadata: Parameters<
       typeof APIResponseHelpers.createPageRedirectResponse
-    >[0]["pageMetadata"];
+    >[0]['pageMetadata'];
     meta?: Partial<M>;
   }) {
     const meta = this.mergeMeta<M>(params.request, params.meta);
@@ -152,7 +152,7 @@ class DemoResponseHelpers extends APIResponseHelpers {
     errorMessage: string;
     pageMetadata: Parameters<
       typeof APIResponseHelpers.createPageErrorResponse
-    >[0]["pageMetadata"];
+    >[0]['pageMetadata'];
     errorDetails?: Record<string, unknown>;
     meta?: Partial<M>;
   }) {
@@ -173,14 +173,14 @@ class DemoResponseHelpers extends APIResponseHelpers {
 function createSharedConfig() {
   // Shared API handling configuration
   const APIHandling = {
-    prefix: "/api", // API routes prefix
+    prefix: '/api', // API routes prefix
     errorHandler: (
       request: FastifyRequest,
       error: Error,
       isDevelopment: boolean,
       isPage?: boolean,
     ) => {
-      console.error("🚨 SSR API Error:", error.message);
+      console.error('🚨 SSR API Error:', error.message);
 
       // Create proper envelope response based on request type
       if (isPage) {
@@ -188,18 +188,18 @@ function createSharedConfig() {
         return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
           request,
           statusCode: 500,
-          errorCode: "internal_server_error",
-          errorMessage: "An internal server error occurred",
+          errorCode: 'internal_server_error',
+          errorMessage: 'An internal server error occurred',
           pageMetadata: {
-            title: "Server Error",
+            title: 'Server Error',
             description:
-              "An internal server error occurred while processing your request",
+              'An internal server error occurred while processing your request',
           },
           errorDetails: {
             path: request.url,
             method: request.method,
             timestamp: new Date().toISOString(),
-            server: "SSR+API",
+            server: 'SSR+API',
             ...(isDevelopment && { stack: error.stack }),
           },
         });
@@ -208,20 +208,20 @@ function createSharedConfig() {
         return DemoResponseHelpers.createAPIErrorResponse<DemoMeta>({
           request,
           statusCode: 500,
-          errorCode: "internal_server_error",
-          errorMessage: "An internal server error occurred",
+          errorCode: 'internal_server_error',
+          errorMessage: 'An internal server error occurred',
           errorDetails: {
             path: request.url,
             method: request.method,
             timestamp: new Date().toISOString(),
-            server: "SSR+API",
+            server: 'SSR+API',
             ...(isDevelopment && { stack: error.stack }),
           },
         });
       }
     },
     notFoundHandler: (request: FastifyRequest, isPage?: boolean) => {
-      console.log("🔍 SSR API 404:", request.url, "isPage:", isPage);
+      console.log('🔍 SSR API 404:', request.url, 'isPage:', isPage);
 
       // Create proper envelope response based on request type
       if (isPage) {
@@ -229,19 +229,19 @@ function createSharedConfig() {
         return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
           request,
           statusCode: 404,
-          errorCode: "not_found",
+          errorCode: 'not_found',
           errorMessage: `Page data endpoint not found: ${request.url}`,
           pageMetadata: {
-            title: "Page Not Found",
-            description: "The requested page data could not be found",
+            title: 'Page Not Found',
+            description: 'The requested page data could not be found',
           },
           errorDetails: {
             path: request.url,
             method: request.method,
             isPageRequest: true,
             timestamp: new Date().toISOString(),
-            server: "SSR+API",
-            suggestion: "Check your page data loader or route configuration",
+            server: 'SSR+API',
+            suggestion: 'Check your page data loader or route configuration',
           },
         });
       } else {
@@ -249,16 +249,16 @@ function createSharedConfig() {
         return DemoResponseHelpers.createAPIErrorResponse<DemoMeta>({
           request,
           statusCode: 404,
-          errorCode: "not_found",
+          errorCode: 'not_found',
           errorMessage: `API endpoint not found: ${request.url}`,
           errorDetails: {
             path: request.url,
             method: request.method,
             isPageRequest: false,
             timestamp: new Date().toISOString(),
-            server: "SSR+API",
+            server: 'SSR+API',
             suggestion:
-              "Verify the API endpoint exists and is properly configured",
+              'Verify the API endpoint exists and is properly configured',
           },
         });
       }
@@ -267,14 +267,14 @@ function createSharedConfig() {
 
   return {
     apiEndpoints: {
-      apiEndpointPrefix: "/api",
+      apiEndpointPrefix: '/api',
       versioned: true,
       defaultVersion: 1,
-      pageDataEndpoint: "page_data",
+      pageDataEndpoint: 'page_data',
     },
     APIHandling,
     APIResponseHelpersClass: DemoResponseHelpers,
-    containerID: "root" as const,
+    containerID: 'root' as const,
   };
 }
 
@@ -285,7 +285,7 @@ function createSharedConfig() {
 function registerPageDataHandlers(server: SSRServer) {
   // Register test page data handler for debugging (success cases)
   server.registerDataLoaderHandler(
-    "test",
+    'test',
     async (
       request: FastifyRequest,
       reply: ControlledReply,
@@ -294,14 +294,14 @@ function registerPageDataHandlers(server: SSRServer) {
       const devFlag = (request as FastifyRequest & { isDevelopment?: boolean })
         .isDevelopment;
 
-      const environment = devFlag ? "development" : "production";
+      const environment = devFlag ? 'development' : 'production';
 
       // Example of setting a cookie from within a page data handler
       if (reply.setCookie) {
-        reply.setCookie("ssr_demo", environment, {
-          path: "/",
+        reply.setCookie('ssr_demo', environment, {
+          path: '/',
           httpOnly: true,
-          sameSite: "lax",
+          sameSite: 'lax',
         });
       }
 
@@ -315,7 +315,7 @@ function registerPageDataHandlers(server: SSRServer) {
       return DemoResponseHelpers.createPageSuccessResponse({
         request,
         data: {
-          message: "Test page data handler response",
+          message: 'Test page data handler response',
           pageType: params.pageType,
           version: params.version,
           invocation_origin: params.invocation_origin,
@@ -336,9 +336,9 @@ function registerPageDataHandlers(server: SSRServer) {
         pageMetadata: {
           title: params.route_params.id
             ? `Test Page Data (ID: ${params.route_params.id})`
-            : "Test Page Data",
+            : 'Test Page Data',
           description:
-            "Debug page showing page data loader request and response details",
+            'Debug page showing page data loader request and response details',
         },
       });
     },
@@ -346,20 +346,20 @@ function registerPageDataHandlers(server: SSRServer) {
 
   // Register 500 error handler
   server.registerDataLoaderHandler(
-    "test-500",
+    'test-500',
     async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
       return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
         request,
         statusCode: 500,
-        errorCode: "internal_error",
+        errorCode: 'internal_error',
         errorMessage:
-          "This is a simulated 500 error response (not a thrown error)",
+          'This is a simulated 500 error response (not a thrown error)',
         pageMetadata: {
-          title: "Internal Server Error",
-          description: "An internal server error occurred",
+          title: 'Internal Server Error',
+          description: 'An internal server error occurred',
         },
         errorDetails: {
-          context: "This is a simulated 500 error response for testing",
+          context: 'This is a simulated 500 error response for testing',
           invocation_origin: params.invocation_origin,
           timestamp: new Date().toISOString(),
         },
@@ -369,32 +369,32 @@ function registerPageDataHandlers(server: SSRServer) {
 
   // Register stacktrace error handler demo for testing
   server.registerDataLoaderHandler(
-    "test-stacktrace",
+    'test-stacktrace',
     async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
       // Create a sample stacktrace
       let stacktrace: string;
 
       try {
-        throw new Error("Demo error for stacktrace display");
+        throw new Error('Demo error for stacktrace display');
       } catch (error) {
         stacktrace =
           error instanceof Error && error.stack
             ? error.stack
-            : "Error: Demo error\n    at createSampleStacktrace (/demos/ssr/serve.ts)";
+            : 'Error: Demo error\n    at createSampleStacktrace (/demos/ssr/serve.ts)';
       }
 
       return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
         request,
         statusCode: 500,
-        errorCode: "demo_stacktrace",
-        errorMessage: "This is a demonstration of an error with stacktrace",
+        errorCode: 'demo_stacktrace',
+        errorMessage: 'This is a demonstration of an error with stacktrace',
         pageMetadata: {
-          title: "Error with Stacktrace",
-          description: "Demonstration of an error with stacktrace display",
+          title: 'Error with Stacktrace',
+          description: 'Demonstration of an error with stacktrace display',
         },
         errorDetails: {
           context:
-            "This is a simulated error response that includes a stacktrace",
+            'This is a simulated error response that includes a stacktrace',
           invocation_origin: params.invocation_origin,
           timestamp: new Date().toISOString(),
           stacktrace,
@@ -405,20 +405,20 @@ function registerPageDataHandlers(server: SSRServer) {
 
   // Register generic error handler
   server.registerDataLoaderHandler(
-    "test-generic-error",
+    'test-generic-error',
     async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
       return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
         request,
         statusCode: 400,
-        errorCode: "generic_error",
-        errorMessage: "We encountered a problem processing your request",
+        errorCode: 'generic_error',
+        errorMessage: 'We encountered a problem processing your request',
         pageMetadata: {
-          title: "Error",
-          description: "We encountered an error processing your request.",
+          title: 'Error',
+          description: 'We encountered an error processing your request.',
         },
         errorDetails: {
           context:
-            "This is a demo of a generic error page that is not a 404 or a 500",
+            'This is a demo of a generic error page that is not a 404 or a 500',
           invocation_origin: params.invocation_origin,
           timestamp: new Date().toISOString(),
         },
@@ -430,18 +430,18 @@ function registerPageDataHandlers(server: SSRServer) {
   // This might come in handy if you explicitly want to handle 404s in a data loader set within react-router
   // Such as still returning back custom account meta data, etc for a page.
   server.registerDataLoaderHandler(
-    "not-found",
+    'not-found',
     async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
       const request_path = params.request_path;
 
       return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
         request,
         statusCode: 404,
-        errorCode: "not_found",
-        errorMessage: "The requested resource was not found",
+        errorCode: 'not_found',
+        errorMessage: 'The requested resource was not found',
         pageMetadata: {
-          title: "404 - Page Not Found",
-          description: "The page you are looking for does not exist",
+          title: '404 - Page Not Found',
+          description: 'The page you are looking for does not exist',
         },
         errorDetails: {
           context: `The requested path '${request_path}' could not be found`,
@@ -456,17 +456,17 @@ function registerPageDataHandlers(server: SSRServer) {
 /**
  * Helper function to log server startup information
  */
-function logServerStartup(mode: "dev" | "prod", host: string, port: number) {
-  const modeEmoji = mode === "dev" ? "🔥" : "📦";
-  const modeText = mode === "dev" ? "Development" : "Production";
+function logServerStartup(mode: 'dev' | 'prod', host: string, port: number) {
+  const modeEmoji = mode === 'dev' ? '🔥' : '📦';
+  const modeText = mode === 'dev' ? 'Development' : 'Production';
   const extraInfo =
-    mode === "dev"
-      ? "Hot Module Replacement is enabled"
-      : "Serving pre-built assets";
+    mode === 'dev'
+      ? 'Hot Module Replacement is enabled'
+      : 'Serving pre-built assets';
 
   console.log(`✅ ${modeText} SSR server listening on http://${host}:${port}`);
   console.log(`${modeEmoji} ${extraInfo}`);
-  console.log("🧪 Try these plugin endpoints:");
+  console.log('🧪 Try these plugin endpoints:');
   console.log(`   GET  http://${host}:${port}/api/health`);
   console.log(`   GET  http://${host}:${port}/api/contact`);
   console.log(
@@ -475,7 +475,7 @@ function logServerStartup(mode: "dev" | "prod", host: string, port: number) {
   console.log(
     `   GET  http://${host}:${port}/api/upload (info about upload endpoints)`,
   );
-  console.log("📁 File upload endpoints with different size limits:");
+  console.log('📁 File upload endpoints with different size limits:');
   console.log(
     `   POST http://${host}:${port}/api/upload/avatar (1MB max, images only)`,
   );
@@ -485,7 +485,7 @@ function logServerStartup(mode: "dev" | "prod", host: string, port: number) {
   console.log(
     `   POST http://${host}:${port}/api/upload/media (10MB max, media files)`,
   );
-  console.log("\n🔄 Mixed SSR+API handling:");
+  console.log('\n🔄 Mixed SSR+API handling:');
   console.log(
     `   GET  http://${host}:${port}/api/not-found (API 404 envelope)`,
   );
@@ -496,14 +496,14 @@ function logServerStartup(mode: "dev" | "prod", host: string, port: number) {
     `   GET  http://${host}:${port}/api/v1/page_data/not-found (Page 404 envelope - v1 style)`,
   );
   console.log(`   GET  http://${host}:${port}/not-found (SSR 404 page)`);
-  console.log("\n🧪 Test page data loader routes:");
+  console.log('\n🧪 Test page data loader routes:');
   console.log(
     `   GET  http://${host}:${port}/test-page-loader (test page data)`,
   );
   console.log(
     `   GET  http://${host}:${port}/test-page-loader/123 (test page data with ID)`,
   );
-  console.log("\n🧰 Custom API shortcut routes:");
+  console.log('\n🧰 Custom API shortcut routes:');
   console.log(
     `   GET  http://${host}:${port}/api/v1/demo/echo/123 (API shortcuts demo)`,
   );
@@ -520,7 +520,7 @@ const apiRoutesPlugin: ServerPlugin = async (
   console.log(`🔌 Registering API routes plugin (${options.mode} mode)`);
 
   // Global request logging and timing
-  fastify.addHook("onRequest", async (request, reply) => {
+  fastify.addHook('onRequest', async (request, reply) => {
     // Log all requests
     console.log(
       `[${new Date().toISOString()}] ${request.method} ${request.url}`,
@@ -530,7 +530,7 @@ const apiRoutesPlugin: ServerPlugin = async (
     (request as FastifyRequest & { startTime: number }).startTime = Date.now();
 
     // Add custom headers
-    reply.header("X-Powered-By", "Unirend SSR Demo");
+    reply.header('X-Powered-By', 'Unirend SSR Demo');
 
     // You can add authentication, rate limiting, etc. here
     // const user = await authenticate(request.headers.authorization);
@@ -538,8 +538,8 @@ const apiRoutesPlugin: ServerPlugin = async (
   });
 
   // Add API routes that won't conflict with SSR
-  fastify.get("/api/health", async (request, reply) => {
-    reply.type("application/json");
+  fastify.get('/api/health', async (request, reply) => {
+    reply.type('application/json');
     return APIResponseHelpers.createAPISuccessResponse({
       request,
       data: {
@@ -552,8 +552,8 @@ const apiRoutesPlugin: ServerPlugin = async (
   });
 
   // Contact endpoint - both GET (for browser testing) and POST (for real forms)
-  fastify.get("/api/contact", async (_request, reply) => {
-    reply.type("text/plain");
+  fastify.get('/api/contact', async (_request, reply) => {
+    reply.type('text/plain');
     return `Contact API Endpoint
 
 Use POST with JSON body for actual contact form submissions
@@ -570,32 +570,32 @@ Sample Data:
 }`;
   });
 
-  fastify.post("/api/contact", async (request, _reply) => {
+  fastify.post('/api/contact', async (request, _reply) => {
     const body = request.body as Record<string, unknown>;
-    console.log("Contact form submission:", body);
+    console.log('Contact form submission:', body);
 
     // Simulate processing
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     return APIResponseHelpers.createAPISuccessResponse({
       request,
-      data: { success: true, message: "Contact form received", data: body },
+      data: { success: true, message: 'Contact form received', data: body },
       statusCode: 201,
     });
   });
 
   // Test route that throws an error
-  fastify.get("/api/error", async (_request, _reply) => {
-    throw new Error("This is a test error from /api/error endpoint!");
+  fastify.get('/api/error', async (_request, _reply) => {
+    throw new Error('This is a test error from /api/error endpoint!');
   });
 
   // Add response timing for API requests
-  fastify.addHook("onSend", async (request, reply, payload) => {
+  fastify.addHook('onSend', async (request, reply, payload) => {
     const requestWithTiming = request as FastifyRequest & {
       startTime?: number;
     };
 
-    if (request.url.startsWith("/api/") && requestWithTiming.startTime) {
+    if (request.url.startsWith('/api/') && requestWithTiming.startTime) {
       const duration = Date.now() - requestWithTiming.startTime;
 
       console.log(
@@ -618,7 +618,7 @@ async function handleFileUpload(
   request: FastifyRequest,
   reply: FastifyReply,
   config: {
-    typeName: "Avatar" | "Document" | "Media" | "Test";
+    typeName: 'Avatar' | 'Document' | 'Media' | 'Test';
     maxSize?: number; // Optional - if undefined, uses global limit
     maxSizeLabel: string; // Human-readable size description
     allowedMimeTypes: string[] | ((mime: string) => boolean);
@@ -651,7 +651,7 @@ async function handleFileUpload(
     // With throwFileSizeLimit: false, we must check the truncated flag after the stream ends.
     // We'll pipe the file to a temporary location to demonstrate a real-world scenario.
 
-    const uploadDir = "./uploads";
+    const uploadDir = './uploads';
     await mkdir(uploadDir, { recursive: true }); // Ensure upload directory exists
     const tempPath = `${uploadDir}/${Date.now()}-${data.filename}`;
 
@@ -670,14 +670,14 @@ async function handleFileUpload(
           error: `${config.typeName} file too large`,
           maxSize: config.maxSizeLabel,
           message: `File exceeded size limit during streaming and was truncated.`,
-          note: "Partial file has been discarded.",
+          note: 'Partial file has been discarded.',
         });
       }
     } catch (streamError: unknown) {
       console.error(`🚨 Error during file stream pipeline:`, streamError);
       return reply
         .code(500)
-        .send({ error: "Failed to save file during streaming." });
+        .send({ error: 'Failed to save file during streaming.' });
     }
 
     // --- Mime Type Validation (after saving) ---
@@ -730,7 +730,7 @@ async function handleFileUpload(
     return reply.code(500).send({
       error: `${config.typeName} upload failed`,
       message:
-        error instanceof Error ? error.message : "An unknown error occurred",
+        error instanceof Error ? error.message : 'An unknown error occurred',
     });
   }
 }
@@ -744,7 +744,7 @@ const fileUploadPlugin: ServerPlugin = async (
 
   try {
     // Try to register multipart plugin for file uploads
-    const multipart = await import("@fastify/multipart");
+    const multipart = await import('@fastify/multipart');
     await fastify.register(multipart.default, {
       // Disable throwing errors on file size limit, rely on truncated flag
       throwFileSizeLimit: false,
@@ -761,36 +761,36 @@ const fileUploadPlugin: ServerPlugin = async (
     // Route guard: Only allow multipart data on specific, defined upload endpoints
     // This prevents multipart data from hitting other API routes (security/performance)
     const definedUploadRoutes = [
-      "/api/upload/avatar",
-      "/api/upload/document",
-      "/api/upload/media",
-      "/api/upload/test", // Test endpoint for global 1-byte limit
+      '/api/upload/avatar',
+      '/api/upload/document',
+      '/api/upload/media',
+      '/api/upload/test', // Test endpoint for global 1-byte limit
     ];
 
-    fastify.addHook("preHandler", async (request, reply) => {
+    fastify.addHook('preHandler', async (request, reply) => {
       const isDefinedUploadRoute = definedUploadRoutes.some(
         (route) => request.url === route,
       );
 
-      const isMultipart = request.headers["content-type"]?.startsWith(
-        "multipart/form-data",
+      const isMultipart = request.headers['content-type']?.startsWith(
+        'multipart/form-data',
       );
 
       if (isMultipart && !isDefinedUploadRoute) {
-        return reply.code(400).header("Cache-Control", "no-store").send({
-          error: "Multipart data not allowed on this endpoint",
+        return reply.code(400).header('Cache-Control', 'no-store').send({
+          error: 'Multipart data not allowed on this endpoint',
           message:
-            "Multipart uploads only allowed on specific, configured routes",
+            'Multipart uploads only allowed on specific, configured routes',
           received: request.url,
           allowedEndpoints: definedUploadRoutes,
-          note: "This prevents bandwidth waste on undefined upload routes",
+          note: 'This prevents bandwidth waste on undefined upload routes',
         });
       }
     });
 
     // Upload info endpoint (GET for browser testing)
-    fastify.get("/api/upload", async (request, reply) => {
-      reply.type("text/plain");
+    fastify.get('/api/upload', async (request, reply) => {
+      reply.type('text/plain');
       return `File Upload API Endpoints
 
 ✅ @fastify/multipart plugin is installed and active!
@@ -817,54 +817,54 @@ TRUE PER-REQUEST STREAMING VALIDATION:
     });
 
     // Avatar upload - Small files only (1MB limit enforced per-request)
-    fastify.post("/api/upload/avatar", (request, reply) => {
+    fastify.post('/api/upload/avatar', (request, reply) => {
       return handleFileUpload(request, reply, {
-        typeName: "Avatar",
+        typeName: 'Avatar',
         maxSize: 1024 * 1024,
-        maxSizeLabel: "1MB",
-        allowedMimeTypes: ["image/jpeg", "image/png", "image/gif"],
-        allowedMimeTypesDesc: "JPEG, PNG, GIF only",
+        maxSizeLabel: '1MB',
+        allowedMimeTypes: ['image/jpeg', 'image/png', 'image/gif'],
+        allowedMimeTypesDesc: 'JPEG, PNG, GIF only',
       });
     });
 
     // Document upload - Medium files (5MB limit enforced per-request)
-    fastify.post("/api/upload/document", (request, reply) => {
+    fastify.post('/api/upload/document', (request, reply) => {
       return handleFileUpload(request, reply, {
-        typeName: "Document",
+        typeName: 'Document',
         maxSize: 5 * 1024 * 1024,
-        maxSizeLabel: "5MB",
+        maxSizeLabel: '5MB',
         allowedMimeTypes: [
-          "application/pdf",
-          "text/plain",
-          "application/msword",
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          'application/pdf',
+          'text/plain',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         ],
-        allowedMimeTypesDesc: "PDF, TXT, DOC, DOCX only",
+        allowedMimeTypesDesc: 'PDF, TXT, DOC, DOCX only',
       });
     });
 
     // Media upload - Large files (10MB limit enforced per-request)
-    fastify.post("/api/upload/media", (request, reply) => {
+    fastify.post('/api/upload/media', (request, reply) => {
       return handleFileUpload(request, reply, {
-        typeName: "Media",
+        typeName: 'Media',
         maxSize: 10 * 1024 * 1024,
-        maxSizeLabel: "10MB",
+        maxSizeLabel: '10MB',
         allowedMimeTypes: (mime) =>
-          mime.startsWith("image/") ||
-          mime.startsWith("video/") ||
-          mime.startsWith("audio/"),
-        allowedMimeTypesDesc: "Images, videos, and audio files only",
+          mime.startsWith('image/') ||
+          mime.startsWith('video/') ||
+          mime.startsWith('audio/'),
+        allowedMimeTypesDesc: 'Images, videos, and audio files only',
       });
     });
 
     // Test upload - Uses global 1-byte limit (no per-request override)
-    fastify.post("/api/upload/test", (request, reply) => {
+    fastify.post('/api/upload/test', (request, reply) => {
       return handleFileUpload(request, reply, {
-        typeName: "Test",
+        typeName: 'Test',
         // maxSize: undefined - uses global 1-byte limit
-        maxSizeLabel: "global (1 byte)",
+        maxSizeLabel: 'global (1 byte)',
         allowedMimeTypes: () => true, // Accept any file type for testing
-        allowedMimeTypesDesc: "Any file type (testing global limit)",
+        allowedMimeTypesDesc: 'Any file type (testing global limit)',
       });
     });
 
@@ -872,12 +872,12 @@ TRUE PER-REQUEST STREAMING VALIDATION:
     // Any undefined /api/upload/* routes will hit the SSR 404 handler
   } catch (error: unknown) {
     console.error(
-      "❌ Failed to load @fastify/multipart plugin:",
+      '❌ Failed to load @fastify/multipart plugin:',
       error instanceof Error ? error.message : String(error),
     );
 
-    console.error("💡 Install with: bun add @fastify/multipart");
-    throw new Error("@fastify/multipart plugin is required for file uploads");
+    console.error('💡 Install with: bun add @fastify/multipart');
+    throw new Error('@fastify/multipart plugin is required for file uploads');
   }
 };
 
@@ -894,10 +894,10 @@ const SHARED_PLUGINS = [
 // Parse command line arguments
 const mode = process.argv[2];
 
-if (!mode || !["dev", "prod"].includes(mode)) {
-  console.error("Usage: bun run serve.ts <dev|prod>");
-  console.error("  dev  - Start development server with Vite HMR");
-  console.error("  prod - Start production server with built assets");
+if (!mode || !['dev', 'prod'].includes(mode)) {
+  console.error('Usage: bun run serve.ts <dev|prod>');
+  console.error('  dev  - Start development server with Vite HMR');
+  console.error('  prod - Start production server with built assets');
   process.exit(1);
 }
 
@@ -905,14 +905,14 @@ async function startServer() {
   console.log(`🚀 Starting SSR server in ${mode} mode...`);
 
   try {
-    if (mode === "dev") {
+    if (mode === 'dev') {
       // Development mode - uses source files with Vite HMR
       const server = serveSSRDev(
         {
           // Required paths for development
-          serverEntry: "./src/entry-server.tsx",
-          template: "./index.html",
-          viteConfig: "./vite.config.ts",
+          serverEntry: './src/entry-server.tsx',
+          template: './index.html',
+          viteConfig: './vite.config.ts',
         },
         {
           // Development options
@@ -920,9 +920,9 @@ async function startServer() {
           plugins: SHARED_PLUGINS,
           frontendAppConfig: {
             // Example config that gets injected on the frontend html (SSG/SSR) - see the Frontend App Config Pattern section of the README
-            apiUrl: "http://localhost:3001",
-            version: "1.0.0-dev",
-            environment: "development",
+            apiUrl: 'http://localhost:3001',
+            version: '1.0.0-dev',
+            environment: 'development',
           },
           // Custom Fastify configuration
           fastifyOptions: {
@@ -961,11 +961,11 @@ async function startServer() {
 
       // Register a generic API route using versioned API shortcuts
       // Demonstrates server.api.get/post helpers and envelope response helpers
-      server.api.get("demo/echo/:id", async (request) => {
+      server.api.get('demo/echo/:id', async (request) => {
         return APIResponseHelpers.createAPISuccessResponse({
           request,
           data: {
-            message: "Hello from API shortcuts",
+            message: 'Hello from API shortcuts',
             id: (request.params as Record<string, unknown>).id,
             query: request.query,
           },
@@ -974,7 +974,7 @@ async function startServer() {
       });
 
       // Intentionally invalid envelope demo for validation behavior
-      server.api.get("demo/bad-envelope", async (_request) => {
+      server.api.get('demo/bad-envelope', async (_request) => {
         // This will throw at runtime due to invalid envelope validation
         return { invalid: true } as unknown as ReturnType<
           typeof APIResponseHelpers.createAPISuccessResponse
@@ -983,25 +983,25 @@ async function startServer() {
 
       currentServer = server;
       await server.listen(PORT, HOST);
-      logServerStartup("dev", HOST, PORT);
-    } else if (mode === "prod") {
+      logServerStartup('dev', HOST, PORT);
+    } else if (mode === 'prod') {
       // Production mode - uses built assets
-      const server = serveSSRProd("./build", {
+      const server = serveSSRProd('./build', {
         // Production options
         ...createSharedConfig(),
         plugins: SHARED_PLUGINS,
-        serverEntry: "entry-server", // Look for entry-server in manifest
+        serverEntry: 'entry-server', // Look for entry-server in manifest
         // Custom Fastify configuration
         fastifyOptions: {
           logger: {
-            level: "warn", // Only show warnings and errors in production
+            level: 'warn', // Only show warnings and errors in production
           },
         },
         frontendAppConfig: {
           // Example config that gets injected on the frontend html (SSG/SSR) - see the Frontend App Config Pattern section of the README
-          apiUrl: "https://api.example.com",
-          version: "1.0.0-prod",
-          environment: "production",
+          apiUrl: 'https://api.example.com',
+          version: '1.0.0-prod',
+          environment: 'production',
         },
         // clientFolderName: "client", // Default: "client"
         // serverFolderName: "server", // Default: "server"
@@ -1012,7 +1012,7 @@ async function startServer() {
 
       currentServer = server;
       await server.listen(PORT, HOST);
-      logServerStartup("prod", HOST, PORT);
+      logServerStartup('prod', HOST, PORT);
     }
   } catch (error) {
     console.error(`❌ Failed to start ${mode} server:`, error);
@@ -1028,17 +1028,17 @@ const shutdown = async (signal: string) => {
       await currentServer.stop();
     }
   } catch (err) {
-    console.error("Error during shutdown:", err);
+    console.error('Error during shutdown:', err);
   } finally {
     process.exit(0);
   }
 };
 
-process.on("SIGINT", () => void shutdown("SIGINT"));
-process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on('SIGINT', () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
 // Start the server
 startServer().catch((error) => {
-  console.error("❌ Server startup failed:", error);
+  console.error('❌ Server startup failed:', error);
   process.exit(1);
 });

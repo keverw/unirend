@@ -1,4 +1,4 @@
-import type { FileRoot, FileContent } from "./vfs";
+import type { FileRoot, FileContent } from './vfs';
 
 // Types for starter-templates APIs
 
@@ -31,7 +31,7 @@ export interface RepoConfig {
   projects: Record<string, ProjectEntry>;
 }
 
-export type LogLevel = "info" | "warning" | "error" | "success";
+export type LogLevel = 'info' | 'warning' | 'error' | 'success';
 
 export interface Logger {
   (level: LogLevel, message: string): void;
@@ -49,7 +49,7 @@ export interface StarterTemplateOptions {
   /** Optional logger function for output */
   logger?: Logger;
   /** Target runtime for generated server (affects scripts/config emitted by templates) */
-  serverTarget?: "bun" | "node";
+  serverTarget?: 'bun' | 'node';
   /**
    * Custom starter files (UTF-8 strings or binary as Uint8Array).
    * File paths are relative to the project root. Strings are treated as UTF-8.
@@ -90,21 +90,21 @@ export interface NameValidationResult {
 }
 
 export type RepoConfigResult =
-  | { status: "found"; config: RepoConfig }
-  | { status: "not_found" }
-  | { status: "parse_error"; errorMessage?: string }
-  | { status: "read_error"; errorMessage?: string };
+  | { status: 'found'; config: RepoConfig }
+  | { status: 'not_found' }
+  | { status: 'parse_error'; errorMessage?: string }
+  | { status: 'read_error'; errorMessage?: string };
 
 export type InitRepoResult =
   | { success: true; config: RepoConfig }
   | {
       success: false;
       error:
-        | "invalid_name"
-        | "write_error"
-        | "already_exists"
-        | "parse_error"
-        | "read_error"
-        | "unsupported_status";
+        | 'invalid_name'
+        | 'write_error'
+        | 'already_exists'
+        | 'parse_error'
+        | 'read_error'
+        | 'unsupported_status';
       errorMessage?: string;
     };

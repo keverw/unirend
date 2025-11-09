@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect } from 'react';
 
-type Theme = "light" | "dark";
+type Theme = 'light' | 'dark';
 
 interface ThemeContextType {
   theme: Theme;
@@ -14,7 +14,7 @@ export function useTheme() {
   const context = useContext(ThemeContext);
 
   if (context === undefined) {
-    throw new Error("useTheme must be used within a ThemeProvider");
+    throw new Error('useTheme must be used within a ThemeProvider');
   }
 
   return context;
@@ -22,16 +22,16 @@ export function useTheme() {
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // Start with light as default, but will be synced from html class immediately
-  const [theme, setTheme] = useState<Theme>("light");
+  const [theme, setTheme] = useState<Theme>('light');
   const [isHydrated, setIsHydrated] = useState(false);
 
   // Read initial theme from html class (set by inline script) instead of localStorage
   useEffect(() => {
     const htmlClass = document.documentElement.className;
-    if (htmlClass.includes("theme-dark")) {
-      setTheme("dark");
+    if (htmlClass.includes('theme-dark')) {
+      setTheme('dark');
     } else {
-      setTheme("light");
+      setTheme('light');
     }
 
     // Mark as hydrated after theme is synced
@@ -40,12 +40,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   // Save theme to localStorage and update html class when theme changes
   useEffect(() => {
-    localStorage.setItem("theme", theme);
+    localStorage.setItem('theme', theme);
     document.documentElement.className = `theme-${theme}`;
   }, [theme]);
 
   const toggleTheme = () => {
-    setTheme((prevTheme) => (prevTheme === "light" ? "dark" : "light"));
+    setTheme((prevTheme) => (prevTheme === 'light' ? 'dark' : 'light'));
   };
 
   return (

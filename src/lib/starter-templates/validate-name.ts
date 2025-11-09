@@ -1,5 +1,5 @@
-import { builtinModules } from "module";
-import type { NameValidationResult } from "./types";
+import { builtinModules } from 'module';
+import type { NameValidationResult } from './types';
 
 /**
  * Validate a project or repo name
@@ -19,14 +19,14 @@ import type { NameValidationResult } from "./types";
 export function validateName(name: string): NameValidationResult {
   // Must not be empty
   if (!name || name.trim().length === 0) {
-    return { valid: false, error: "Name cannot be empty" };
+    return { valid: false, error: 'Name cannot be empty' };
   }
 
   // NPM Rule: Must not exceed 214 characters
   if (name.length > 214) {
     return {
       valid: false,
-      error: "Name cannot exceed 214 characters",
+      error: 'Name cannot exceed 214 characters',
     };
   }
 
@@ -34,7 +34,7 @@ export function validateName(name: string): NameValidationResult {
   if (/[A-Z]/.test(name)) {
     return {
       valid: false,
-      error: "Name must be lowercase only",
+      error: 'Name must be lowercase only',
     };
   }
 
@@ -42,7 +42,7 @@ export function validateName(name: string): NameValidationResult {
   if (/^[._-]/.test(name)) {
     return {
       valid: false,
-      error: "Name cannot start with a dot, underscore, or dash",
+      error: 'Name cannot start with a dot, underscore, or dash',
     };
   }
 
@@ -50,7 +50,7 @@ export function validateName(name: string): NameValidationResult {
   if (/[-_.]$/.test(name)) {
     return {
       valid: false,
-      error: "Name cannot end with a dash, underscore, or dot",
+      error: 'Name cannot end with a dash, underscore, or dot',
     };
   }
 
@@ -58,7 +58,7 @@ export function validateName(name: string): NameValidationResult {
   if (/\s/.test(name)) {
     return {
       valid: false,
-      error: "Name cannot contain spaces",
+      error: 'Name cannot contain spaces',
     };
   }
 
@@ -69,14 +69,14 @@ export function validateName(name: string): NameValidationResult {
     return {
       valid: false,
       error:
-        "Name contains invalid characters. Only lowercase letters, numbers, hyphens, dots, and underscores are allowed",
+        'Name contains invalid characters. Only lowercase letters, numbers, hyphens, dots, and underscores are allowed',
     };
   }
 
   // Must not contain consecutive special characters (dash, underscore, dot)
   // Special characters must be surrounded by alphanumeric characters
   // Examples: "foo-bar" ✓, "foo--bar" ✗, "foo_.bar" ✗, "foo..bar" ✗
-  const specialChars = new Set([".", "_", "-"]);
+  const specialChars = new Set(['.', '_', '-']);
   for (let i = 0; i < name.length - 1; i++) {
     const current = name[i];
     const next = name[i + 1];
@@ -94,42 +94,42 @@ export function validateName(name: string): NameValidationResult {
   // Use Node.js's built-in list of core modules (automatically stays up-to-date)
   // builtinModules may include "node:" prefixed versions, so we filter to base names only
   const nodeBuiltins = builtinModules
-    .filter((mod) => !mod.startsWith("node:"))
+    .filter((mod) => !mod.startsWith('node:'))
     .map((mod) => mod.toLowerCase());
 
   // Additional reserved names (npm and filesystem)
   const additionalReserved = [
     // Runtime name it self
-    "node",
+    'node',
     // NPM reserved
-    "node_modules",
-    "favicon.ico",
+    'node_modules',
+    'favicon.ico',
     // Windows reserved names
-    "con",
-    "prn",
-    "aux",
-    "nul",
-    "com1",
-    "com2",
-    "com3",
-    "com4",
-    "com5",
-    "com6",
-    "com7",
-    "com8",
-    "com9",
-    "lpt1",
-    "lpt2",
-    "lpt3",
-    "lpt4",
-    "lpt5",
-    "lpt6",
-    "lpt7",
-    "lpt8",
-    "lpt9",
+    'con',
+    'prn',
+    'aux',
+    'nul',
+    'com1',
+    'com2',
+    'com3',
+    'com4',
+    'com5',
+    'com6',
+    'com7',
+    'com8',
+    'com9',
+    'lpt1',
+    'lpt2',
+    'lpt3',
+    'lpt4',
+    'lpt5',
+    'lpt6',
+    'lpt7',
+    'lpt8',
+    'lpt9',
     // Relative path references
-    ".",
-    "..",
+    '.',
+    '..',
   ];
 
   const allReserved = [...nodeBuiltins, ...additionalReserved];

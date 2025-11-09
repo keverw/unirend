@@ -273,7 +273,7 @@ body {
 }
 
 .card li::before {
-  content: "✨";
+  content: '✨';
   margin-right: 0.75rem;
 }
 

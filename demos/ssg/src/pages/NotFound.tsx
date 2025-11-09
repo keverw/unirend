@@ -1,5 +1,5 @@
-import { Header } from "../components/Header";
-import { Link } from "react-router";
+import { Header } from '../components/Header';
+import { Link } from 'react-router';
 
 function NotFound() {
   return (
@@ -8,79 +8,79 @@ function NotFound() {
 
       <main className="main-content">
         <div
-          style={{ textAlign: "center", maxWidth: "600px", margin: "0 auto" }}
+          style={{ textAlign: 'center', maxWidth: '600px', margin: '0 auto' }}
         >
-          <div style={{ fontSize: "8rem", marginBottom: "1rem" }}>🔍</div>
+          <div style={{ fontSize: '8rem', marginBottom: '1rem' }}>🔍</div>
           <h1
             className="hero-title"
-            style={{ fontSize: "3rem", marginBottom: "1rem" }}
+            style={{ fontSize: '3rem', marginBottom: '1rem' }}
           >
             404
           </h1>
           <h2
-            style={{ fontSize: "1.5rem", marginBottom: "2rem", opacity: 0.8 }}
+            style={{ fontSize: '1.5rem', marginBottom: '2rem', opacity: 0.8 }}
           >
             Page Not Found
           </h2>
-          <p className="hero-subtitle" style={{ marginBottom: "3rem" }}>
+          <p className="hero-subtitle" style={{ marginBottom: '3rem' }}>
             Oops! The page you're looking for doesn't exist. It might have been
             moved, deleted, or you entered the wrong URL.
           </p>
 
-          <div className="card" style={{ textAlign: "left" }}>
+          <div className="card" style={{ textAlign: 'left' }}>
             <h3>What can you do?</h3>
-            <ul style={{ marginBottom: "2rem" }}>
-              <li style={{ marginBottom: "0.5rem" }}>
+            <ul style={{ marginBottom: '2rem' }}>
+              <li style={{ marginBottom: '0.5rem' }}>
                 Check the URL for typos
               </li>
-              <li style={{ marginBottom: "0.5rem" }}>
-                Go back to the{" "}
+              <li style={{ marginBottom: '0.5rem' }}>
+                Go back to the{' '}
                 <Link
                   to="/"
-                  style={{ color: "inherit", textDecoration: "underline" }}
+                  style={{ color: 'inherit', textDecoration: 'underline' }}
                 >
                   homepage
                 </Link>
               </li>
-              <li style={{ marginBottom: "0.5rem" }}>
+              <li style={{ marginBottom: '0.5rem' }}>
                 Browse our available pages below
               </li>
             </ul>
 
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-                gap: "1rem",
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: '1rem',
               }}
             >
               <Link
                 to="/"
                 style={{
-                  display: "block",
-                  padding: "1rem",
-                  background: "rgba(255, 255, 255, 0.1)",
-                  borderRadius: "8px",
-                  textDecoration: "none",
-                  color: "inherit",
-                  border: "1px solid rgba(255, 255, 255, 0.2)",
-                  transition: "all 0.3s ease",
+                  display: 'block',
+                  padding: '1rem',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  borderRadius: '8px',
+                  textDecoration: 'none',
+                  color: 'inherit',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  transition: 'all 0.3s ease',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)";
-                  e.currentTarget.style.transform = "translateY(-2px)";
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
-                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.transform = 'translateY(0)';
                 }}
               >
                 <strong>🏠 Home</strong>
                 <div
                   style={{
-                    fontSize: "0.9rem",
+                    fontSize: '0.9rem',
                     opacity: 0.8,
-                    marginTop: "0.5rem",
+                    marginTop: '0.5rem',
                   }}
                 >
                   Welcome page with SSG demo
@@ -90,30 +90,30 @@ function NotFound() {
               <Link
                 to="/about"
                 style={{
-                  display: "block",
-                  padding: "1rem",
-                  background: "rgba(255, 255, 255, 0.1)",
-                  borderRadius: "8px",
-                  textDecoration: "none",
-                  color: "inherit",
-                  border: "1px solid rgba(255, 255, 255, 0.2)",
-                  transition: "all 0.3s ease",
+                  display: 'block',
+                  padding: '1rem',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  borderRadius: '8px',
+                  textDecoration: 'none',
+                  color: 'inherit',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  transition: 'all 0.3s ease',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)";
-                  e.currentTarget.style.transform = "translateY(-2px)";
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
-                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.transform = 'translateY(0)';
                 }}
               >
                 <strong>📖 About</strong>
                 <div
                   style={{
-                    fontSize: "0.9rem",
+                    fontSize: '0.9rem',
                     opacity: 0.8,
-                    marginTop: "0.5rem",
+                    marginTop: '0.5rem',
                   }}
                 >
                   Learn about this project
@@ -123,30 +123,30 @@ function NotFound() {
               <Link
                 to="/contact"
                 style={{
-                  display: "block",
-                  padding: "1rem",
-                  background: "rgba(255, 255, 255, 0.1)",
-                  borderRadius: "8px",
-                  textDecoration: "none",
-                  color: "inherit",
-                  border: "1px solid rgba(255, 255, 255, 0.2)",
-                  transition: "all 0.3s ease",
+                  display: 'block',
+                  padding: '1rem',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  borderRadius: '8px',
+                  textDecoration: 'none',
+                  color: 'inherit',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  transition: 'all 0.3s ease',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)";
-                  e.currentTarget.style.transform = "translateY(-2px)";
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
-                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.transform = 'translateY(0)';
                 }}
               >
                 <strong>📧 Contact</strong>
                 <div
                   style={{
-                    fontSize: "0.9rem",
+                    fontSize: '0.9rem',
                     opacity: 0.8,
-                    marginTop: "0.5rem",
+                    marginTop: '0.5rem',
                   }}
                 >
                   Get in touch with us
@@ -156,30 +156,30 @@ function NotFound() {
               <Link
                 to="/dashboard"
                 style={{
-                  display: "block",
-                  padding: "1rem",
-                  background: "rgba(255, 255, 255, 0.1)",
-                  borderRadius: "8px",
-                  textDecoration: "none",
-                  color: "inherit",
-                  border: "1px solid rgba(255, 255, 255, 0.2)",
-                  transition: "all 0.3s ease",
+                  display: 'block',
+                  padding: '1rem',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  borderRadius: '8px',
+                  textDecoration: 'none',
+                  color: 'inherit',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  transition: 'all 0.3s ease',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)";
-                  e.currentTarget.style.transform = "translateY(-2px)";
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
-                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.transform = 'translateY(0)';
                 }}
               >
                 <strong>📊 Dashboard</strong>
                 <div
                   style={{
-                    fontSize: "0.9rem",
+                    fontSize: '0.9rem',
                     opacity: 0.8,
-                    marginTop: "0.5rem",
+                    marginTop: '0.5rem',
                   }}
                 >
                   SPA with dynamic content
@@ -190,11 +190,11 @@ function NotFound() {
 
           <div
             style={{
-              marginTop: "2rem",
-              padding: "1rem",
-              background: "rgba(255, 193, 7, 0.2)",
-              borderRadius: "8px",
-              borderLeft: "4px solid #FFC107",
+              marginTop: '2rem',
+              padding: '1rem',
+              background: 'rgba(255, 193, 7, 0.2)',
+              borderRadius: '8px',
+              borderLeft: '4px solid #FFC107',
             }}
           >
             <p>

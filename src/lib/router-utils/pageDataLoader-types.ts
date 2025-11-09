@@ -2,7 +2,7 @@ import {
   BaseMeta,
   PageResponseEnvelope,
   APIResponseEnvelope,
-} from "../api-envelope/api-envelope-types";
+} from '../api-envelope/api-envelope-types';
 
 /**
  * Base error definition with title and description
@@ -111,7 +111,7 @@ export interface PageLoaderConfig {
    * @param context - The context for the request ID ("error" or "redirect")
    * @returns A unique identifier string for the request
    */
-  generateFallbackRequestID?: (context: "error" | "redirect") => string;
+  generateFallbackRequestID?: (context: 'error' | 'redirect') => string;
   /**
    * Optional function to transform/extend the meta object when converting API errors to page errors
    *
@@ -243,13 +243,13 @@ export interface PageLoaderConfig {
  */
 export type LocalPageLoaderConfig = Pick<
   PageLoaderConfig,
-  | "errorDefaults"
-  | "isDevelopment"
-  | "connectionErrorMessages"
-  | "timeoutMs"
-  | "generateFallbackRequestID"
-  | "allowedRedirectOrigins"
-  | "transformErrorMeta"
+  | 'errorDefaults'
+  | 'isDevelopment'
+  | 'connectionErrorMessages'
+  | 'timeoutMs'
+  | 'generateFallbackRequestID'
+  | 'allowedRedirectOrigins'
+  | 'transformErrorMeta'
 >;
 
 // Options interface for the page loader
@@ -266,9 +266,9 @@ export interface PageLoaderOptions {
 
 export interface LocalPageHandlerParams {
   /** Logical page type for the local handler */
-  pageType: string | "local";
+  pageType: string | 'local';
   /** Origin indicator for debugging */
-  invocation_origin: "local";
+  invocation_origin: 'local';
   /** Router params */
   route_params: Record<string, string>;
   /** URL query params */

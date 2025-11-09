@@ -1,21 +1,21 @@
-import fp from "fastify-plugin";
-import { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
-import fs from "fs";
-import path from "path";
-import crypto from "node:crypto";
-import LRUCache from "../lru-cache";
-import type { StaticContentRouterOptions } from "../../types";
+import fp from 'fastify-plugin';
+import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'node:crypto';
+import LRUCache from '../lru-cache';
+import type { StaticContentRouterOptions } from '../../types';
 
 // Helper to normalize URL prefixes: ensure leading and trailing slash
 function normalizePrefix(prefix: string): string {
-  let p = prefix || "/";
+  let p = prefix || '/';
 
-  if (!p.startsWith("/")) {
-    p = "/" + p;
+  if (!p.startsWith('/')) {
+    p = '/' + p;
   }
 
-  if (!p.endsWith("/")) {
-    p = p + "/";
+  if (!p.endsWith('/')) {
+    p = p + '/';
   }
 
   return p;
@@ -49,15 +49,15 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
     statCacheEntries = 250, // Higher default since this includes 404s and failures
     negativeCacheTtl = 30 * 1000, // 30 seconds TTL for negative cache entries
     positiveCacheTtl = 60 * 60 * 1000, // 1 hour TTL for positive entries
-    cacheControl = "public, max-age=0, must-revalidate",
-    immutableCacheControl = "public, max-age=31536000, immutable",
+    cacheControl = 'public, max-age=0, must-revalidate',
+    immutableCacheControl = 'public, max-age=31536000, immutable',
   } = options;
 
   // Normalize singleAssetMap keys to ensure leading slash for lookups
   const normalizedSingleAssetMap = new Map<string, string>();
 
   for (const [key, value] of Object.entries(singleAssetMap)) {
-    const normalizedKey = key.startsWith("/") ? key : "/" + key;
+    const normalizedKey = key.startsWith('/') ? key : '/' + key;
     normalizedSingleAssetMap.set(normalizedKey, value);
   }
 
@@ -69,7 +69,7 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
   for (const [prefix, config] of Object.entries(folderMap)) {
     const normalizedPrefix = normalizePrefix(prefix);
 
-    if (typeof config === "string") {
+    if (typeof config === 'string') {
       normalizedFolderMap.set(normalizedPrefix, {
         path: config,
         detectImmutableAssets: false,
@@ -113,10 +113,10 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
   });
 
   fastify.addHook(
-    "onRequest",
+    'onRequest',
     async (req: FastifyRequest, reply: FastifyReply) => {
       // Exit early for non-GET requests
-      if (req.method !== "GET") {
+      if (req.method !== 'GET') {
         return;
       }
 
@@ -125,13 +125,13 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
         return;
       }
 
-      const rawUrl = req.raw.url || "/";
+      const rawUrl = req.raw.url || '/';
 
       // Strip off query string, hash, etc., and ensure a single leading slash for matching
-      const cleanedUrl = rawUrl.split("?")[0].split("#")[0];
-      const url = cleanedUrl.startsWith("/") ? cleanedUrl : "/" + cleanedUrl;
+      const cleanedUrl = rawUrl.split('?')[0].split('#')[0];
+      const url = cleanedUrl.startsWith('/') ? cleanedUrl : '/' + cleanedUrl;
 
-      let resolved = "";
+      let resolved = '';
       let detectImmutable = false;
 
       // 1. Try singleAssetMap first (exact URL → file)
@@ -152,14 +152,14 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
             // Calculate file path relative to the matched prefix
             const relativePath = url.slice(folder.length);
             // Guard against absolute path behavior if a leading slash sneaks in
-            const safeRelativePath = relativePath.startsWith("/")
+            const safeRelativePath = relativePath.startsWith('/')
               ? relativePath.slice(1)
               : relativePath;
 
             // Only allow files that don't contain '..' to prevent directory traversal
             if (
-              !safeRelativePath.includes("../") &&
-              !safeRelativePath.includes("..\\")
+              !safeRelativePath.includes('../') &&
+              !safeRelativePath.includes('..\\')
             ) {
               resolved = path.join(folderConfig.path, safeRelativePath);
               detectImmutable = folderConfig.detectImmutableAssets;
@@ -206,7 +206,7 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
 
     // Handle cached entries (LRU will handle TTL expiration internally)
     if (cachedStat) {
-      if ("notFound" in cachedStat) {
+      if ('notFound' in cachedStat) {
         // File is known to not exist
         return;
       } else if (cachedStat !== null) {
@@ -259,15 +259,15 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
         // ENOENT is expected for files that don't exist and shouldn't be logged
         if (
           error instanceof Error &&
-          "code" in error &&
-          (error as NodeJS.ErrnoException).code !== "ENOENT"
+          'code' in error &&
+          (error as NodeJS.ErrnoException).code !== 'ENOENT'
         ) {
           fastify.log.warn(
             {
               err: error,
               path: resolved,
             },
-            "Unexpected error accessing static file",
+            'Unexpected error accessing static file',
           );
         }
         return;
@@ -301,7 +301,7 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
                 path: resolved,
                 code: fsError.code,
               },
-              "Error reading static file content",
+              'Error reading static file content',
             );
 
             throw error; // Re-throw to be handled by the outer error handling
@@ -309,7 +309,7 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
         }
 
         // Generate a strong hash-based ETag from file content
-        const hash = crypto.createHash("sha256").update(buf).digest("base64");
+        const hash = crypto.createHash('sha256').update(buf).digest('base64');
         etag = `"${hash}"`;
       } else {
         // For large files: create a weak ETag based on size and modification time
@@ -322,7 +322,7 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
     }
 
     // Extract client cache validation header (ETag-based validation)
-    const ifNoneMatch = req.headers["if-none-match"];
+    const ifNoneMatch = req.headers['if-none-match'];
 
     // Check if client cache is still valid using ETag (more precise than If-Modified-Since)
     if (ifNoneMatch === etag) {
@@ -351,15 +351,15 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
 
     // Set cache validation headers for future requests
     reply
-      .header("Last-Modified", lastModified)
-      .header("ETag", etag) // For content-based validation (primary method)
-      .header("Cache-Control", headerCacheControl) // Use appropriate cache control
+      .header('Last-Modified', lastModified)
+      .header('ETag', etag) // For content-based validation (primary method)
+      .header('Cache-Control', headerCacheControl) // Use appropriate cache control
       .type(getMime(resolved)); // Set Content-Type based on file extension
 
     // Only advertise range request support for files that aren't in memory cache
     // as we only implement range support for those files
     if (!(stat.size <= smallFileMaxSize && contentCache.get(resolved))) {
-      reply.header("Accept-Ranges", "bytes");
+      reply.header('Accept-Ranges', 'bytes');
     }
 
     // Check for Range header to handle partial content requests
@@ -377,8 +377,8 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
         // Malformed range header
         return reply
           .code(400)
-          .header("Cache-Control", "no-store")
-          .send({ error: "Invalid range header format" });
+          .header('Cache-Control', 'no-store')
+          .send({ error: 'Invalid range header format' });
       }
 
       // Extract range values
@@ -399,9 +399,9 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
         // Invalid range
         return reply
           .code(416) // Range Not Satisfiable
-          .header("Cache-Control", "no-store")
-          .header("Content-Range", `bytes */${stat.size}`)
-          .send({ error: "Range not satisfiable" });
+          .header('Cache-Control', 'no-store')
+          .header('Content-Range', `bytes */${stat.size}`)
+          .send({ error: 'Range not satisfiable' });
       }
 
       const chunkSize = end - start + 1;
@@ -409,8 +409,8 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
       // Set headers for partial content response
       reply
         .code(206) // Partial Content
-        .header("Content-Range", `bytes ${start}-${end}/${stat.size}`)
-        .header("Content-Length", chunkSize.toString());
+        .header('Content-Range', `bytes ${start}-${end}/${stat.size}`)
+        .header('Content-Length', chunkSize.toString());
 
       // Stream the requested range
       return reply.send(fs.createReadStream(resolved, { start, end }));
@@ -432,30 +432,30 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
 // Simple extension-based MIME lookup (alphabetical order)
 function getMime(file: string): string {
   // Strip the leading dot from the extension
-  const ext = path.extname(file).toLowerCase().replace(/^\./, "");
+  const ext = path.extname(file).toLowerCase().replace(/^\./, '');
 
   // Map common extensions to MIME types (alphabetical order)
   const mimeTypes: Record<string, string> = {
-    css: "text/css",
-    gif: "image/gif",
-    html: "text/html",
-    ico: "image/x-icon",
-    jpeg: "image/jpeg",
-    jpg: "image/jpeg",
-    js: "application/javascript",
-    json: "application/json",
-    mp4: "video/mp4",
-    pdf: "application/pdf",
-    png: "image/png",
-    svg: "image/svg+xml",
-    txt: "text/plain",
-    webmanifest: "application/manifest+json",
-    xml: "application/xml",
+    css: 'text/css',
+    gif: 'image/gif',
+    html: 'text/html',
+    ico: 'image/x-icon',
+    jpeg: 'image/jpeg',
+    jpg: 'image/jpeg',
+    js: 'application/javascript',
+    json: 'application/json',
+    mp4: 'video/mp4',
+    pdf: 'application/pdf',
+    png: 'image/png',
+    svg: 'image/svg+xml',
+    txt: 'text/plain',
+    webmanifest: 'application/manifest+json',
+    xml: 'application/xml',
   };
 
-  return mimeTypes[ext] || "application/octet-stream";
+  return mimeTypes[ext] || 'application/octet-stream';
 }
 
 export default fp(StaticContentRouterPlugin, {
-  name: "static-router",
+  name: 'static-router',
 });

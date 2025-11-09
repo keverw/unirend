@@ -4,7 +4,7 @@ import React, {
   useState,
   useEffect,
   type ReactNode,
-} from "react";
+} from 'react';
 
 /**
  * Render mode type - SSR, SSG, or Client
@@ -12,7 +12,7 @@ import React, {
  * - "ssg": Static Site Generation (build-time server rendering)
  * - "client": Client-side execution (SPA or after a SSG build/SSR page hydration occurs)
  */
-export type UnirendRenderMode = "ssr" | "ssg" | "client";
+export type UnirendRenderMode = 'ssr' | 'ssg' | 'client';
 
 /**
  * Type guard to check if request has SSR helpers with request context
@@ -26,14 +26,14 @@ function hasSSRRequestContext(request: Request): request is Request & {
   const helpers = (request as any).SSRHelpers;
 
   return (
-    "SSRHelpers" in request &&
-    typeof helpers === "object" &&
+    'SSRHelpers' in request &&
+    typeof helpers === 'object' &&
     helpers !== null &&
-    "fastifyRequest" in helpers &&
-    typeof helpers.fastifyRequest === "object" &&
+    'fastifyRequest' in helpers &&
+    typeof helpers.fastifyRequest === 'object' &&
     helpers.fastifyRequest !== null &&
-    "requestContext" in helpers.fastifyRequest &&
-    typeof helpers.fastifyRequest.requestContext === "object"
+    'requestContext' in helpers.fastifyRequest &&
+    typeof helpers.fastifyRequest.requestContext === 'object'
   );
 }
 
@@ -47,11 +47,11 @@ function hasSSGRequestContext(request: Request): request is Request & {
   const helpers = (request as any).SSGHelpers;
 
   return (
-    "SSGHelpers" in request &&
-    typeof helpers === "object" &&
+    'SSGHelpers' in request &&
+    typeof helpers === 'object' &&
     helpers !== null &&
-    "requestContext" in helpers &&
-    typeof helpers.requestContext === "object"
+    'requestContext' in helpers &&
+    typeof helpers.requestContext === 'object'
   );
 }
 
@@ -59,14 +59,14 @@ function hasSSGRequestContext(request: Request): request is Request & {
  * Type guard to check if window has request context
  */
 function hasWindowRequestContext(): boolean {
-  if (typeof window === "undefined") {
+  if (typeof window === 'undefined') {
     return false;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ctx = (window as any).__FRONTEND_REQUEST_CONTEXT__;
 
-  return "__FRONTEND_REQUEST_CONTEXT__" in window && typeof ctx === "object";
+  return '__FRONTEND_REQUEST_CONTEXT__' in window && typeof ctx === 'object';
 }
 
 /**
@@ -124,14 +124,14 @@ function setRequestContextValue(
     incrementContextRevision(context);
   } else {
     // No context available - create one on window for client-side
-    if (typeof window !== "undefined") {
+    if (typeof window !== 'undefined') {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (window as any).__FRONTEND_REQUEST_CONTEXT__ = { [key]: value };
       incrementContextRevision(context);
     } else {
       // Server-side with no context - this shouldn't happen in normal usage
       throw new Error(
-        "Cannot set request context: no context available (server-side without SSR/SSG helpers)",
+        'Cannot set request context: no context available (server-side without SSR/SSG helpers)',
       );
     }
   }
@@ -143,8 +143,8 @@ function setRequestContextValue(
  * Format: `${timestamp}-${counter}` (e.g., "1729123456789-0", "1729123456789-1")
  */
 function incrementContextRevision(context: UnirendContextValue): void {
-  const currentRevision = context.requestContextRevision || "0-0";
-  const [timestampStr, counterStr] = currentRevision.split("-");
+  const currentRevision = context.requestContextRevision || '0-0';
+  const [timestampStr, counterStr] = currentRevision.split('-');
   const lastTimestamp = parseInt(timestampStr, 10);
   const lastCounter = parseInt(counterStr, 10);
 
@@ -209,11 +209,11 @@ export interface UnirendContextValue {
  * which shouldn't happen in normal usage.
  */
 const defaultContextValue: UnirendContextValue = {
-  renderMode: "client", // Default to client-only (SSR/SSG override this)
+  renderMode: 'client', // Default to client-only (SSR/SSG override this)
   isDevelopment: false, // Default to production
   fetchRequest: undefined,
   frontendAppConfig: undefined, // mountApp() reads from window.__FRONTEND_APP_CONFIG__
-  requestContextRevision: "0-0", // Initial revision
+  requestContextRevision: '0-0', // Initial revision
 };
 
 /**
@@ -261,7 +261,7 @@ export function UnirendProvider({ children, value }: UnirendProviderProps) {
  */
 export function useIsSSR(): boolean {
   const { renderMode } = useContext(UnirendContext);
-  return renderMode === "ssr";
+  return renderMode === 'ssr';
 }
 
 /**
@@ -280,7 +280,7 @@ export function useIsSSR(): boolean {
  */
 export function useIsSSG(): boolean {
   const { renderMode } = useContext(UnirendContext);
-  return renderMode === "ssg";
+  return renderMode === 'ssg';
 }
 
 /**
@@ -300,7 +300,7 @@ export function useIsSSG(): boolean {
  */
 export function useIsClient(): boolean {
   const { renderMode } = useContext(UnirendContext);
-  return renderMode === "client";
+  return renderMode === 'client';
 }
 
 /**
@@ -366,7 +366,7 @@ export function useIsDevelopment(): boolean {
  */
 export function useIsServer(): boolean {
   const { fetchRequest } = useContext(UnirendContext);
-  return fetchRequest !== undefined && "SSRHelper" in fetchRequest;
+  return fetchRequest !== undefined && 'SSRHelper' in fetchRequest;
 }
 
 /**

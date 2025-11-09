@@ -21,9 +21,9 @@ The `unirendBaseRender` function is a helper function that handles React Router/
 When setting up your `entry-ssg.tsx` or `entry-server.tsx`, you export a `render` function that accepts an `IRenderRequest` and uses `unirendBaseRender` to handle the rendering of your app. This will return structured data that will be used to generate the HTML for your page or serve as the response for SSR.
 
 ```typescript
-import { unirendBaseRender, type IRenderRequest } from "unirend/server";
-import { type RouteObject } from "react-router";
-import { routes } from "./routes";
+import { unirendBaseRender, type IRenderRequest } from 'unirend/server';
+import { type RouteObject } from 'react-router';
+import { routes } from './routes';
 
 export async function render(renderRequest: IRenderRequest) {
   // Pass your routes directly - unirendBaseRender creates the static handler and router internally

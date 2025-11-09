@@ -1,10 +1,10 @@
-import { defineConfig } from "tsup";
-import { readFileSync } from "fs";
-import { join } from "path";
+import { defineConfig } from 'tsup';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 // Read package.json to get all dependencies
 const packageJson = JSON.parse(
-  readFileSync(join(process.cwd(), "package.json"), "utf-8"),
+  readFileSync(join(process.cwd(), 'package.json'), 'utf-8'),
 );
 
 // Get all dependencies (regular + peer + dev) for external list
@@ -45,9 +45,9 @@ const allExternals = getAllDependencies();
 export default defineConfig([
   // Client-only entry point
   {
-    entry: ["src/client.ts"],
-    outDir: "dist/client",
-    format: ["cjs", "esm"],
+    entry: ['src/client.ts'],
+    outDir: 'dist/client',
+    format: ['cjs', 'esm'],
     dts: true,
     splitting: false,
     sourcemap: true,
@@ -57,9 +57,9 @@ export default defineConfig([
 
   // Server-only entry point
   {
-    entry: ["src/server.ts"],
-    outDir: "dist/server",
-    format: ["cjs", "esm"],
+    entry: ['src/server.ts'],
+    outDir: 'dist/server',
+    format: ['cjs', 'esm'],
     dts: true,
     splitting: false,
     sourcemap: true,
@@ -69,9 +69,9 @@ export default defineConfig([
 
   // Shared router utilities (client + server)
   {
-    entry: ["src/router-utils.ts"],
-    outDir: "dist/router-utils",
-    format: ["cjs", "esm"],
+    entry: ['src/router-utils.ts'],
+    outDir: 'dist/router-utils',
+    format: ['cjs', 'esm'],
     dts: true,
     splitting: false,
     sourcemap: true,
@@ -81,9 +81,9 @@ export default defineConfig([
 
   // Public plugins (server-side)
   {
-    entry: ["src/plugins.ts"],
-    outDir: "dist/plugins",
-    format: ["cjs", "esm"],
+    entry: ['src/plugins.ts'],
+    outDir: 'dist/plugins',
+    format: ['cjs', 'esm'],
     dts: true,
     splitting: false,
     sourcemap: true,
@@ -93,9 +93,9 @@ export default defineConfig([
 
   // API envelope types and helpers (universal)
   {
-    entry: ["src/api-envelope.ts"],
-    outDir: "dist/api-envelope",
-    format: ["cjs", "esm"],
+    entry: ['src/api-envelope.ts'],
+    outDir: 'dist/api-envelope',
+    format: ['cjs', 'esm'],
     dts: true,
     splitting: false,
     sourcemap: true,
@@ -105,9 +105,9 @@ export default defineConfig([
 
   // Starter templates (project generation)
   {
-    entry: ["src/starter-templates.ts"],
-    outDir: "dist/starter-templates",
-    format: ["cjs", "esm"],
+    entry: ['src/starter-templates.ts'],
+    outDir: 'dist/starter-templates',
+    format: ['cjs', 'esm'],
     dts: true,
     splitting: false,
     sourcemap: true,
@@ -117,9 +117,9 @@ export default defineConfig([
 
   // Build info (server-side)
   {
-    entry: ["src/build-info.ts"],
-    outDir: "dist/build-info",
-    format: ["cjs", "esm"],
+    entry: ['src/build-info.ts'],
+    outDir: 'dist/build-info',
+    format: ['cjs', 'esm'],
     dts: true,
     splitting: false,
     sourcemap: true,
@@ -129,9 +129,9 @@ export default defineConfig([
 
   // CLI entry point (no shebang - run with bun/node)
   {
-    entry: ["src/cli.ts"],
-    outDir: "dist/cli",
-    format: ["esm"], // CLI only needs ESM since package.json has "type": "module"
+    entry: ['src/cli.ts'],
+    outDir: 'dist/cli',
+    format: ['esm'], // CLI only needs ESM since package.json has "type": "module"
     dts: false, // CLI doesn't need type definitions
     splitting: false,
     sourcemap: false, // CLI doesn't need sourcemaps

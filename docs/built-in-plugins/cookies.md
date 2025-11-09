@@ -29,30 +29,30 @@ Plugins can depend on this plugin by declaring a dependency on the plugin name `
 ## Usage
 
 ```typescript
-import { serveSSRDev } from "unirend/server";
-import { cookies } from "unirend/plugins";
+import { serveSSRDev } from 'unirend/server';
+import { cookies } from 'unirend/plugins';
 
 const server = serveSSRDev(
   {
-    serverEntry: "./src/entry-server.tsx",
-    template: "./index.html",
-    viteConfig: "./vite.config.ts",
+    serverEntry: './src/entry-server.tsx',
+    template: './index.html',
+    viteConfig: './vite.config.ts',
   },
   {
     plugins: [
       cookies({
         secret: process.env.COOKIE_SECRET!,
-        algorithm: "sha256",
-        hook: "onRequest",
-        parseOptions: { path: "/" },
+        algorithm: 'sha256',
+        hook: 'onRequest',
+        parseOptions: { path: '/' },
       }),
     ],
   },
 );
 
 // In handlers, use reply:ControlledReply to set cookies when @fastify/cookie is registered
-server.registerDataLoaderHandler("example", (request, reply) => {
-  reply.setCookie?.("session", "abc", { httpOnly: true, sameSite: "lax" });
+server.registerDataLoaderHandler('example', (request, reply) => {
+  reply.setCookie?.('session', 'abc', { httpOnly: true, sameSite: 'lax' });
   return /* envelope */;
 });
 ```
@@ -127,7 +127,7 @@ For runtime rotation without restarts, pass a custom signer object as `secret`. 
 ```ts
 // Example shape — implement according to @fastify/cookie's custom signer contract
 // Unsign must return an UnsignResult object: { valid, renew, value }
-const keysRef = { current: { primary: "k2", all: ["k2", "k1"] } };
+const keysRef = { current: { primary: 'k2', all: ['k2', 'k1'] } };
 
 const customSigner = {
   // Return the signed cookie value using the current primary key
@@ -171,7 +171,7 @@ const server = serveSSRDev(paths, {
 });
 
 // Later (e.g., via admin task), rotate keys in memory without restart
-keysRef.current = { primary: "k3", all: ["k3", "k2"] };
+keysRef.current = { primary: 'k3', all: ['k3', 'k2'] };
 ```
 
 Considerations and rollout tips:
@@ -190,7 +190,7 @@ Considerations and rollout tips:
 Values in `request.cookies` are not auto‑verified, if a cookie was set with `signed: true`, the stored value will be the signed payload. Use `reply.unsignCookie(raw)` to verify and recover the original value (and optionally reissue when `renew` is true, indicating the cookie was signed with an older key).
 
 ```ts
-server.registerDataLoaderHandler("profile", (request) => {
+server.registerDataLoaderHandler('profile', (request) => {
   const cookies = (request as any).cookies; // added by @fastify/cookie
   const theme = cookies?.theme; // e.g., "dark"
   // ...
@@ -200,16 +200,16 @@ server.registerDataLoaderHandler("profile", (request) => {
 #### Setting Cookies
 
 ```ts
-server.registerDataLoaderHandler("login", (request, reply) => {
+server.registerDataLoaderHandler('login', (request, reply) => {
   // Unsigned, JS-readable cookie (avoid for sensitive data)
-  reply.setCookie?.("prefs", "lang=en", { path: "/", sameSite: "lax" });
+  reply.setCookie?.('prefs', 'lang=en', { path: '/', sameSite: 'lax' });
 
   // Signed, httpOnly cookie (recommended for session identifiers)
-  reply.setCookie?.("sid", "<opaque>", {
-    path: "/",
+  reply.setCookie?.('sid', '<opaque>', {
+    path: '/',
     httpOnly: true,
-    secure: "auto", // sets Secure when over HTTPS
-    sameSite: "lax",
+    secure: 'auto', // sets Secure when over HTTPS
+    sameSite: 'lax',
     signed: true,
   });
 
@@ -225,7 +225,7 @@ Notes:
 #### Verifying an incoming signed cookie
 
 ```ts
-server.registerDataLoaderHandler("profile", (request, reply) => {
+server.registerDataLoaderHandler('profile', (request, reply) => {
   const raw = (request as any).cookies?.sid;
 
   if (raw && reply.unsignCookie) {
@@ -236,11 +236,11 @@ server.registerDataLoaderHandler("profile", (request, reply) => {
 
       if (res.renew) {
         // Reissue with primary key
-        reply.setCookie?.("sid", sid, {
-          path: "/",
+        reply.setCookie?.('sid', sid, {
+          path: '/',
           httpOnly: true,
-          sameSite: "lax",
-          secure: "auto",
+          sameSite: 'lax',
+          secure: 'auto',
           signed: true,
         });
       }
@@ -275,20 +275,20 @@ Common options you can pass to `reply.setCookie(name, value, options)`:
 For convenience, Unirend re-exports `@fastify/cookie` utilities via a curated `cookieUtils` object from `unirend/plugins` so you can use them without importing the upstream package directly:
 
 ```ts
-import { cookieUtils } from "unirend/plugins";
+import { cookieUtils } from 'unirend/plugins';
 
-const raw = cookieUtils.serialize("lang", "en", { maxAge: 60_000 });
-const parsed = cookieUtils.parse("lang=en");
+const raw = cookieUtils.serialize('lang', 'en', { maxAge: 60_000 });
+const parsed = cookieUtils.parse('lang=en');
 
-const signed = cookieUtils.sign("test", "secret");
-const result = cookieUtils.unsign(signed, "secret"); // { valid, renew, value }
+const signed = cookieUtils.sign('test', 'secret');
+const result = cookieUtils.unsign(signed, 'secret'); // { valid, renew, value }
 
-const signer = new cookieUtils.Signer(["k2", "k1"], "sha256");
-const customSigned = signer.sign("hello");
+const signer = new cookieUtils.Signer(['k2', 'k1'], 'sha256');
+const customSigned = signer.sign('hello');
 
 // Equivalent factory usage (returns an object with sign/unsign)
-const factorySigner = cookieUtils.signerFactory(["k2", "k1"], "sha256");
-const factorySigned = factorySigner.sign("world");
+const factorySigner = cookieUtils.signerFactory(['k2', 'k1'], 'sha256');
+const factorySigned = factorySigner.sign('world');
 const factoryResult = factorySigner.unsign(factorySigned);
 ```
 
@@ -300,8 +300,8 @@ Types exported for convenience:
 For example, If you set `hook: false`, `request.cookies` will NOT be populated automatically, and you must parse cookies manually using the exported cookieUtils:
 
 ```ts
-import { cookieUtils } from "unirend/plugins";
-const cookies = cookieUtils.parse(request.headers.cookie || "");
+import { cookieUtils } from 'unirend/plugins';
+const cookies = cookieUtils.parse(request.headers.cookie || '');
 ```
 
 ### Decorations and Runtime Access
@@ -332,7 +332,7 @@ Reading from code:
 const info = server.getDecoration<{
   signingSecretProvided: boolean;
   algorithm: string;
-}>("cookiePluginInfo");
+}>('cookiePluginInfo');
 
 // From another plugin (declare dependsOn: "cookies")
 const { cookiePluginInfo } = pluginHost as unknown as {
@@ -348,6 +348,6 @@ This plugin returns metadata `{ name: "cookies" }`. Other plugins that require c
 
 ```typescript
 const myPlugin: ServerPlugin = async (pluginHost, options) => {
-  return { name: "my-plugin", dependsOn: "cookies" };
+  return { name: 'my-plugin', dependsOn: 'cookies' };
 };
 ```

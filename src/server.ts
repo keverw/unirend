@@ -37,10 +37,10 @@ export type {
   IPageWanted,
   APIServerOptions,
   ControlledReply,
-} from "./lib/types";
+} from './lib/types';
 
 // Server-safe constants
-export { SSGConsoleLogger } from "./lib/types";
+export { SSGConsoleLogger } from './lib/types';
 
 export type {
   SSRDevPaths,
@@ -48,23 +48,23 @@ export type {
   PluginHostInstance,
   PluginOptions,
   PluginMetadata,
-} from "./lib/types";
-export type { SSRServer } from "./lib/internal/SSRServer";
-export type { APIServer } from "./lib/internal/APIServer";
+} from './lib/types';
+export type { SSRServer } from './lib/internal/SSRServer';
+export type { APIServer } from './lib/internal/APIServer';
 // only export the config type as class not used internally
-export type { PageDataHandler } from "./lib/internal/DataLoaderServerHandlerHelpers";
-export type { APIRouteHandler } from "./lib/internal/APIRoutesServerHelpers";
-export type { APIEndpointConfig } from "./lib/types";
+export type { PageDataHandler } from './lib/internal/DataLoaderServerHandlerHelpers';
+export type { APIRouteHandler } from './lib/internal/APIRoutesServerHelpers';
+export type { APIEndpointConfig } from './lib/types';
 
 // Server-safe functions
-export { serveSSRDev, serveSSRProd } from "./lib/ssr";
-export { generateSSG } from "./lib/ssg";
-export { unirendBaseRender } from "./lib/baseRender";
-export { serveAPI } from "./lib/api";
+export { serveSSRDev, serveSSRProd } from './lib/ssr';
+export { generateSSG } from './lib/ssg';
+export { unirendBaseRender } from './lib/baseRender';
+export { serveAPI } from './lib/api';
 
 // Re-export Fastify request/reply types to avoid forcing consumers to import 'fastify'
-export type { FastifyRequest, FastifyReply } from "fastify";
+export type { FastifyRequest, FastifyReply } from 'fastify';
 export type {
   FastifyRequest as ServerRequest,
   FastifyReply as ServerReply,
-} from "fastify";
+} from 'fastify';

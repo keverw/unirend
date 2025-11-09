@@ -35,7 +35,7 @@ Use it to:
 ## Usage
 
 ```typescript
-import { clientInfo } from "unirend/plugins";
+import { clientInfo } from 'unirend/plugins';
 
 const server = serveSSRProd(buildDir, {
   plugins: [clientInfo()],
@@ -84,7 +84,7 @@ clientInfo({
 
 // Only trust forwarded headers behind an allowlist/proxy check
 clientInfo({
-  trustForwardedHeaders: (request) => request.ip?.startsWith("10.") === true,
+  trustForwardedHeaders: (request) => request.ip?.startsWith('10.') === true,
 });
 
 // Disable response headers if you prefer not to expose IDs
@@ -119,7 +119,7 @@ In production behind reverse proxies or load balancers, configure Fastify's `tru
 ```ts
 clientInfo({
   // e.g., only accept forwarded details when calls originate from your SSR/LB network
-  trustForwardedHeaders: (request) => request.ip?.startsWith("10.") === true,
+  trustForwardedHeaders: (request) => request.ip?.startsWith('10.') === true,
 });
 ```
 

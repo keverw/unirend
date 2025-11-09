@@ -1,9 +1,9 @@
-import type { FastifyInstance, FastifyRequest } from "fastify";
-import websocket from "@fastify/websocket";
-import type { WebSocket } from "ws";
-import type { APIResponseEnvelope } from "../api-envelope/api-envelope-types";
-import { APIResponseHelpers } from "../api-envelope/response-helpers";
-import type { APIResponseHelpersClass, WebSocketOptions } from "../types";
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import websocket from '@fastify/websocket';
+import type { WebSocket } from 'ws';
+import type { APIResponseEnvelope } from '../api-envelope/api-envelope-types';
+import { APIResponseHelpers } from '../api-envelope/response-helpers';
+import type { APIResponseHelpersClass, WebSocketOptions } from '../types';
 
 /**
  * Internal Fastify WebSocket plugin options interface
@@ -24,13 +24,13 @@ interface FastifyWebSocketPluginOptions {
 export type WebSocketPreValidationResult =
   | {
       /** Allow WebSocket upgrade */
-      action: "upgrade";
+      action: 'upgrade';
       /** Optional data to pass to the WebSocket handler */
       data?: Record<string, unknown>;
     }
   | {
       /** Reject WebSocket upgrade with API envelope response */
-      action: "reject";
+      action: 'reject';
       /** API envelope response to send when rejecting */
       envelope: APIResponseEnvelope;
     };
@@ -109,7 +109,7 @@ export class WebSocketServerHelpers {
         userPreCloseHandler(clients)
           .then(() => done())
           .catch((error) => {
-            fastify.log.error("WebSocket preClose handler error:", error);
+            fastify.log.error('WebSocket preClose handler error:', error);
             done(); // Still call done to prevent hanging
           });
       };
@@ -143,7 +143,7 @@ export class WebSocketServerHelpers {
 
           // Disconnect immediately if path was not valid
           if (!upgradeInfo || !upgradeInfo.validPath) {
-            socket.close(1008, "Invalid WebSocket path");
+            socket.close(1008, 'Invalid WebSocket path');
             return;
           }
 
@@ -151,9 +151,9 @@ export class WebSocketServerHelpers {
           if (upgradeInfo.hasPreValidator) {
             if (
               !upgradeInfo.upgradeResult ||
-              upgradeInfo.upgradeResult.action !== "upgrade"
+              upgradeInfo.upgradeResult.action !== 'upgrade'
             ) {
-              socket.close(1008, "WebSocket upgrade not allowed");
+              socket.close(1008, 'WebSocket upgrade not allowed');
               return;
             }
           }
@@ -179,30 +179,30 @@ export class WebSocketServerHelpers {
    * @param fastify The Fastify instance to register the hook with
    */
   registerPreValidationHook(fastify: FastifyInstance): void {
-    fastify.addHook("preValidation", async (request, reply) => {
+    fastify.addHook('preValidation', async (request, reply) => {
       // Only act on WebSocket upgrade attempts - check both headers and Fastify's ws flag
-      const upgrade = request.headers["upgrade"];
+      const upgrade = request.headers['upgrade'];
 
       if (
         !request.ws ||
         !upgrade ||
-        typeof upgrade !== "string" ||
-        upgrade.toLowerCase() !== "websocket"
+        typeof upgrade !== 'string' ||
+        upgrade.toLowerCase() !== 'websocket'
       ) {
         return;
       }
 
       // Optional sanity-check for Connection: upgrade
       const connHeader = Array.isArray(request.headers.connection)
-        ? request.headers.connection.join(",")
-        : String(request.headers.connection ?? "");
+        ? request.headers.connection.join(',')
+        : String(request.headers.connection ?? '');
 
       if (!/\bupgrade\b/i.test(connHeader)) {
         // Early bail if invalid upgrade attempt
         await reply
           .code(400)
-          .header("Cache-Control", "no-store")
-          .send({ error: "Invalid Connection header for upgrade" });
+          .header('Cache-Control', 'no-store')
+          .send({ error: 'Invalid Connection header for upgrade' });
         return;
       }
 
@@ -220,7 +220,7 @@ export class WebSocketServerHelpers {
       ).wsUpgradeInfo = upgradeInfo;
 
       // Find matching WebSocket handler for this path
-      const path = request.url.split("?")[0];
+      const path = request.url.split('?')[0];
       const matchingHandler = this.handlersByPath.get(path);
 
       if (!matchingHandler) {
@@ -231,7 +231,7 @@ export class WebSocketServerHelpers {
         const notFoundEnvelope = this.createNotFoundEnvelope(request, path);
 
         if (notFoundEnvelope.status_code >= 400) {
-          reply.header("Cache-Control", "no-store");
+          reply.header('Cache-Control', 'no-store');
         }
 
         reply.code(notFoundEnvelope.status_code).send(notFoundEnvelope);
@@ -255,7 +255,7 @@ export class WebSocketServerHelpers {
         const result = await matchingHandler.preValidate(request);
         upgradeInfo.upgradeResult = result;
 
-        if (result.action === "reject") {
+        if (result.action === 'reject') {
           // Send API envelope response and prevent WebSocket upgrade
           const envelope = result.envelope;
 
@@ -268,12 +268,12 @@ export class WebSocketServerHelpers {
             (error as unknown as { handlerResponse: unknown }).handlerResponse =
               envelope;
             (error as unknown as { errorCode: string }).errorCode =
-              "websocket_invalid_prevalidation_envelope";
+              'websocket_invalid_prevalidation_envelope';
             throw error;
           }
 
           if (envelope.status_code >= 400) {
-            reply.header("Cache-Control", "no-store");
+            reply.header('Cache-Control', 'no-store');
           }
 
           reply.code(envelope.status_code).send(envelope);
@@ -282,7 +282,7 @@ export class WebSocketServerHelpers {
 
         // Action is "upgrade" - allow WebSocket upgrade to proceed
         // Store any upgrade data on the request for handler access
-        if (result.action === "upgrade" && result.data !== undefined) {
+        if (result.action === 'upgrade' && result.data !== undefined) {
           (
             request as unknown as { wsUpgradeData?: Record<string, unknown> }
           ).wsUpgradeData = result.data;
@@ -294,7 +294,7 @@ export class WebSocketServerHelpers {
         const errorEnvelope = this.createErrorEnvelope(request, error);
 
         if (errorEnvelope.status_code >= 400) {
-          reply.header("Cache-Control", "no-store");
+          reply.header('Cache-Control', 'no-store');
         }
 
         reply.code(errorEnvelope.status_code).send(errorEnvelope);
@@ -313,15 +313,15 @@ export class WebSocketServerHelpers {
     return this.APIResponseHelpersClass.createAPIErrorResponse({
       request,
       statusCode: 404,
-      errorCode: "websocket_handler_not_found",
+      errorCode: 'websocket_handler_not_found',
       errorMessage: `No WebSocket handler registered for path: ${path}`,
       errorDetails: {
         path,
       },
       meta: {
         page: {
-          title: "WebSocket Handler Not Found",
-          description: "No WebSocket handler registered for this path",
+          title: 'WebSocket Handler Not Found',
+          description: 'No WebSocket handler registered for this path',
         },
       },
     });
@@ -338,16 +338,16 @@ export class WebSocketServerHelpers {
     return this.APIResponseHelpersClass.createAPIErrorResponse({
       request,
       statusCode: 500,
-      errorCode: "websocket_validation_error",
+      errorCode: 'websocket_validation_error',
       errorMessage:
-        error instanceof Error ? error.message : "Unknown validation error",
+        error instanceof Error ? error.message : 'Unknown validation error',
       errorDetails: {
         error: error instanceof Error ? error.message : String(error),
       },
       meta: {
         page: {
-          title: "WebSocket Validation Error",
-          description: "An error occurred during WebSocket validation",
+          title: 'WebSocket Validation Error',
+          description: 'An error occurred during WebSocket validation',
         },
       },
     });

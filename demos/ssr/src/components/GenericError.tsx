@@ -1,21 +1,21 @@
-import React from "react";
-import { PageErrorResponse } from "../../../../src/lib/api-envelope/api-envelope-types";
-import { Helmet } from "react-helmet-async";
+import React from 'react';
+import { PageErrorResponse } from '../../../../src/lib/api-envelope/api-envelope-types';
+import { Helmet } from 'react-helmet-async';
 
 interface GenericErrorProps {
   data: PageErrorResponse | null;
 }
 
 const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
-  const title = data?.meta?.page?.title || "Error - Unirend SSR Demo";
-  const description = data?.meta?.page?.description || "An error occurred.";
+  const title = data?.meta?.page?.title || 'Error - Unirend SSR Demo';
+  const description = data?.meta?.page?.description || 'An error occurred.';
   const message =
-    data?.error?.message || "Something went wrong. Please try again later.";
+    data?.error?.message || 'Something went wrong. Please try again later.';
   const requestID = data?.request_id;
 
   // Only set detailsToShow in development mode, and prioritize stacktrace over message
   const detailsToShow =
-    process.env.NODE_ENV === "development"
+    process.env.NODE_ENV === 'development'
       ? (data?.error?.details?.stacktrace as string | undefined) || message
       : null;
 
@@ -29,20 +29,20 @@ const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
       <main
         className="main-content"
         style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          minHeight: "calc(100vh - 200px)", // Account for header/footer height
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: 'calc(100vh - 200px)', // Account for header/footer height
         }}
       >
         <div className="card">
-          <div style={{ marginBottom: "1.5rem" }}>
+          <div style={{ marginBottom: '1.5rem' }}>
             <div
               style={{
-                fontSize: "4rem",
-                fontWeight: "800",
-                margin: "0 0 1rem 0",
-                color: "#ffffff",
+                fontSize: '4rem',
+                fontWeight: '800',
+                margin: '0 0 1rem 0',
+                color: '#ffffff',
               }}
             >
               ⚠️
@@ -51,20 +51,20 @@ const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
 
           <h1
             style={{
-              fontSize: "2rem",
-              fontWeight: "800",
-              color: "#ffffff",
-              marginBottom: "1rem",
+              fontSize: '2rem',
+              fontWeight: '800',
+              color: '#ffffff',
+              marginBottom: '1rem',
             }}
           >
-            Error Code: {data?.error?.code?.toUpperCase() || "UNKNOWN"}
+            Error Code: {data?.error?.code?.toUpperCase() || 'UNKNOWN'}
           </h1>
 
           <p
             style={{
-              color: "rgba(255, 255, 255, 0.9)",
-              marginBottom: "0.75rem",
-              fontSize: "1.1rem",
+              color: 'rgba(255, 255, 255, 0.9)',
+              marginBottom: '0.75rem',
+              fontSize: '1.1rem',
             }}
           >
             {message}
@@ -72,9 +72,9 @@ const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
 
           <p
             style={{
-              color: "rgba(255, 255, 255, 0.8)",
-              marginBottom: "2rem",
-              fontSize: "1rem",
+              color: 'rgba(255, 255, 255, 0.8)',
+              marginBottom: '2rem',
+              fontSize: '1rem',
             }}
           >
             Please try again later or contact support if the problem persists.
@@ -82,32 +82,32 @@ const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
 
           <div
             style={{
-              display: "flex",
-              gap: "1rem",
-              justifyContent: "center",
-              flexWrap: "wrap",
+              display: 'flex',
+              gap: '1rem',
+              justifyContent: 'center',
+              flexWrap: 'wrap',
             }}
           >
             <a
               href="/"
               style={{
-                display: "inline-block",
-                padding: "0.75rem 1.5rem",
-                background: "rgba(255, 255, 255, 0.2)",
-                color: "#ffffff",
-                textDecoration: "none",
-                borderRadius: "8px",
-                fontWeight: "600",
-                border: "1px solid rgba(255, 255, 255, 0.3)",
-                transition: "all 0.3s ease",
+                display: 'inline-block',
+                padding: '0.75rem 1.5rem',
+                background: 'rgba(255, 255, 255, 0.2)',
+                color: '#ffffff',
+                textDecoration: 'none',
+                borderRadius: '8px',
+                fontWeight: '600',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                transition: 'all 0.3s ease',
               }}
               onMouseOver={(e) => {
-                e.currentTarget.style.background = "rgba(255, 255, 255, 0.3)";
-                e.currentTarget.style.transform = "translateY(-2px)";
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.3)';
+                e.currentTarget.style.transform = 'translateY(-2px)';
               }}
               onMouseOut={(e) => {
-                e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)";
-                e.currentTarget.style.transform = "translateY(0)";
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+                e.currentTarget.style.transform = 'translateY(0)';
               }}
             >
               🏠 Go Home
@@ -116,23 +116,23 @@ const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
             <a
               href="/about"
               style={{
-                display: "inline-block",
-                padding: "0.75rem 1.5rem",
-                background: "transparent",
-                color: "rgba(255, 255, 255, 0.9)",
-                textDecoration: "none",
-                borderRadius: "8px",
-                fontWeight: "500",
-                border: "1px solid rgba(255, 255, 255, 0.3)",
-                transition: "all 0.3s ease",
+                display: 'inline-block',
+                padding: '0.75rem 1.5rem',
+                background: 'transparent',
+                color: 'rgba(255, 255, 255, 0.9)',
+                textDecoration: 'none',
+                borderRadius: '8px',
+                fontWeight: '500',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                transition: 'all 0.3s ease',
               }}
               onMouseOver={(e) => {
-                e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
-                e.currentTarget.style.color = "#ffffff";
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                e.currentTarget.style.color = '#ffffff';
               }}
               onMouseOut={(e) => {
-                e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.color = "rgba(255, 255, 255, 0.9)";
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
               }}
             >
               About
@@ -141,23 +141,23 @@ const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
             <a
               href="/contact"
               style={{
-                display: "inline-block",
-                padding: "0.75rem 1.5rem",
-                background: "transparent",
-                color: "rgba(255, 255, 255, 0.9)",
-                textDecoration: "none",
-                borderRadius: "8px",
-                fontWeight: "500",
-                border: "1px solid rgba(255, 255, 255, 0.3)",
-                transition: "all 0.3s ease",
+                display: 'inline-block',
+                padding: '0.75rem 1.5rem',
+                background: 'transparent',
+                color: 'rgba(255, 255, 255, 0.9)',
+                textDecoration: 'none',
+                borderRadius: '8px',
+                fontWeight: '500',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                transition: 'all 0.3s ease',
               }}
               onMouseOver={(e) => {
-                e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
-                e.currentTarget.style.color = "#ffffff";
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                e.currentTarget.style.color = '#ffffff';
               }}
               onMouseOut={(e) => {
-                e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.color = "rgba(255, 255, 255, 0.9)";
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
               }}
             >
               Contact
@@ -168,20 +168,20 @@ const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
           {detailsToShow && (
             <div
               style={{
-                marginTop: "1.5rem",
-                textAlign: "left",
-                padding: "1rem",
-                background: "rgba(0, 0, 0, 0.2)",
-                border: "1px solid rgba(255, 255, 255, 0.2)",
-                borderRadius: "8px",
-                overflow: "auto",
-                maxHeight: "200px",
-                fontSize: "0.875rem",
-                fontFamily: "monospace",
+                marginTop: '1.5rem',
+                textAlign: 'left',
+                padding: '1rem',
+                background: 'rgba(0, 0, 0, 0.2)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '8px',
+                overflow: 'auto',
+                maxHeight: '200px',
+                fontSize: '0.875rem',
+                fontFamily: 'monospace',
                 lineHeight: 1.4,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                color: "rgba(255, 255, 255, 0.9)",
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                color: 'rgba(255, 255, 255, 0.9)',
               }}
             >
               {detailsToShow}
@@ -192,9 +192,9 @@ const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
           {requestID && (
             <div
               style={{
-                marginTop: "2rem",
-                fontSize: "0.875rem",
-                color: "rgba(255, 255, 255, 0.7)",
+                marginTop: '2rem',
+                fontSize: '0.875rem',
+                color: 'rgba(255, 255, 255, 0.7)',
               }}
             >
               Request ID: {requestID}

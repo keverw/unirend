@@ -74,11 +74,11 @@ Between both SSG (Static Site Generation) and SSR (Server-Side Rendering), there
 
 ```typescript
 // entry-client.tsx
-import { mountApp } from "unirend/client";
-import { routes } from "./routes";
+import { mountApp } from 'unirend/client';
+import { routes } from './routes';
 
 // Pass routes directly - mountApp handles creating the router
-mountApp("root", routes, {
+mountApp('root', routes, {
   strictMode: true,
   // Optional: Add custom wrappers for additional providers (pure providers only — no HTML elements, to avoid hydration mismatches)
   // wrapProviders: ({ children }) => <ThemeProvider>{children}</ThemeProvider>
@@ -122,8 +122,8 @@ Note on React Router Import:
 **Vite Configuration:** Make sure your `vite.config.ts` includes `manifest: true` to ensure both builds generate manifests:
 
 ```typescript
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
@@ -152,8 +152,8 @@ Create a server entry file that exports a render function:
 - **For SSR**: Create `entry-server.tsx`
 
 ```typescript
-import { unirendBaseRender, type IRenderRequest } from "unirend/server";
-import { routes } from "./routes";
+import { unirendBaseRender, type IRenderRequest } from 'unirend/server';
+import { routes } from './routes';
 
 export async function render(renderRequest: IRenderRequest) {
   // Pass routes directly - unirendBaseRender handles the rest
@@ -246,13 +246,13 @@ function MyComponent() {
 // On client: Use public API URL from injected config
 // On server (SSR): Use internal endpoints (same network/datacenter) when not using the Fetch/Short-Circuit functionality
 const apiBaseUrl =
-  typeof window !== "undefined"
+  typeof window !== 'undefined'
     ? (window.__FRONTEND_APP_CONFIG__?.apiUrl as string) ||
-      "http://localhost:3001"
-    : process.env.INTERNAL_API_URL || "http://api-internal:3001"; // Internal endpoint or service URL
+      'http://localhost:3001'
+    : process.env.INTERNAL_API_URL || 'http://api-internal:3001'; // Internal endpoint or service URL
 
 const config = createDefaultPageLoaderConfig(apiBaseUrl);
-export const homeLoader = createPageLoader(config, "home");
+export const homeLoader = createPageLoader(config, 'home');
 ```
 
 **Note:** If you run Vite in SPA-only dev mode directly (not through the SSR dev/prod servers), the injection won't happen. Both the hook and `window.__FRONTEND_APP_CONFIG__` will be `undefined`, so use fallback values as shown above.
@@ -367,7 +367,7 @@ See setup recommendations and how the framework handles SSR vs client errors in 
 
   ```ts
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "instant" });
+    window.scrollTo({ top: 0, behavior: 'instant' });
   }, [location.pathname]);
   ```
 

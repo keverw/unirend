@@ -1,1 +1,1 @@
-export const tab_spaces = " ".repeat(4);
+export const tab_spaces = ' '.repeat(4);

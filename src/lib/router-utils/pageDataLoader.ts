@@ -179,19 +179,19 @@
  * ```
  */
 
-import { LoaderFunctionArgs } from "react-router";
+import { LoaderFunctionArgs } from 'react-router';
 import {
   PageResponseEnvelope,
   BaseMeta,
   APIResponseEnvelope,
-} from "../api-envelope/api-envelope-types";
-import type { SSRHelpers } from "../types";
+} from '../api-envelope/api-envelope-types';
+import type { SSRHelpers } from '../types';
 import {
   createBaseHeaders,
   createErrorResponse,
   decorateWithSsrOnlyData,
   fetchWithTimeout,
-} from "./pageDataLoader-utils";
+} from './pageDataLoader-utils';
 import {
   PageLoaderConfig,
   PageLoaderOptions,
@@ -199,12 +199,12 @@ import {
   LocalPageHandlerParams,
   LocalPageLoaderConfig,
   ErrorDefaults,
-} from "./pageDataLoader-types";
-import { APIResponseHelpers } from "../api-envelope/response-helpers";
+} from './pageDataLoader-types';
+import { APIResponseHelpers } from '../api-envelope/response-helpers';
 import {
   processRedirectResponse,
   processApiResponse,
-} from "./pageDataLoader-helpers";
+} from './pageDataLoader-helpers';
 import {
   DEBUG_PAGE_LOADER,
   DEFAULT_CONNECTION_ERROR_MESSAGES,
@@ -214,7 +214,7 @@ import {
   DEFAULT_PAGE_DATA_ENDPOINT,
   DEFAULT_FALLBACK_REQUEST_ID_GENERATOR,
   DEFAULT_TIMEOUT_MS,
-} from "./pageDataLoader-consts";
+} from './pageDataLoader-consts';
 
 /**
  * Creates a default configuration object with sensible defaults
@@ -262,7 +262,7 @@ export function createPageLoader(
   pageTypeOrHandler: string | LocalPageHandler,
 ) {
   // If the pageTypeOrHandler is a string, create a page loader that uses the page type
-  if (typeof pageTypeOrHandler === "string") {
+  if (typeof pageTypeOrHandler === 'string') {
     const pageType = pageTypeOrHandler;
     return ({ request, params }: LoaderFunctionArgs) =>
       pageLoader({
@@ -288,7 +288,7 @@ async function pageLoader({
   pageType,
   config,
 }: PageLoaderOptions): Promise<PageResponseEnvelope> {
-  const isServer = typeof window === "undefined";
+  const isServer = typeof window === 'undefined';
   // Unified development mode flag derived in order of precedence:
   // 1) SSRHelpers (authoritative on server), 2) config.isDevelopment, 3) NODE_ENV
   const SSRHelpers = (request as unknown as { SSRHelpers?: SSRHelpers })
@@ -297,7 +297,7 @@ async function pageLoader({
   const isDevelopment =
     (isServer ? SSRHelpers?.isDevelopment : undefined) ??
     config.isDevelopment ??
-    process.env.NODE_ENV === "development";
+    process.env.NODE_ENV === 'development';
 
   // Get the API server URL (already normalized)
   const apiBaseUrl = config.apiBaseUrl;
@@ -316,7 +316,7 @@ async function pageLoader({
   // Convert params to ensure all values are strings
   const route_params: Record<string, string> = {};
   for (const [key, value] of Object.entries(params)) {
-    route_params[key] = value || "";
+    route_params[key] = value || '';
   }
 
   // Assemble the request body
@@ -339,13 +339,13 @@ async function pageLoader({
         const hasInternalHandler = !!SSRHelpers?.handlers?.hasHandler(pageType);
 
         // eslint-disable-next-line no-console
-        console.log("[pageLoader] server-side data fetching decision", {
+        console.log('[pageLoader] server-side data fetching decision', {
           pageType,
           SSRHelpersAttached: !!SSRHelpers,
           hasInternalHandler,
           strategy: hasInternalHandler
-            ? "internal_short_circuit"
-            : "http_fetch",
+            ? 'internal_short_circuit'
+            : 'http_fetch',
         });
       }
 
@@ -370,10 +370,10 @@ async function pageLoader({
             // Internal handler returned an envelope
             const result = outcome.result as PageResponseEnvelope;
 
-            if (result.type === "page") {
+            if (result.type === 'page') {
               if (
-                result.status === "redirect" &&
-                result.type === "page" &&
+                result.status === 'redirect' &&
+                result.type === 'page' &&
                 result.redirect
               ) {
                 return processRedirectResponse(
@@ -403,7 +403,7 @@ async function pageLoader({
           const isHandlerTimeout =
             internalError instanceof Error &&
             (internalError as unknown as { errorCode?: string }).errorCode ===
-              "handler_timeout";
+              'handler_timeout';
 
           // Safe, user-facing messages; do not expose internal error messages
           // For internal timeouts, reuse the server connection error message if provided
@@ -429,7 +429,7 @@ async function pageLoader({
                       stack: internalError.stack,
                       ...(isHandlerTimeout
                         ? {
-                            errorCode: "handler_timeout",
+                            errorCode: 'handler_timeout',
                             timeoutMs: (
                               internalError as unknown as { timeoutMs?: number }
                             ).timeoutMs,
@@ -450,46 +450,46 @@ async function pageLoader({
       const headers = createBaseHeaders();
 
       // Properly access headers from the Request object
-      const xssrRequest = request.headers.get("x-ssr-request");
-      const originalIp = request.headers.get("x-ssr-original-ip");
-      const userAgent = request.headers.get("user-agent");
-      const correlationId = request.headers.get("x-correlation-id");
-      const cookie = request.headers.get("cookie");
-      const acceptLanguage = request.headers.get("accept-language");
+      const xssrRequest = request.headers.get('x-ssr-request');
+      const originalIp = request.headers.get('x-ssr-original-ip');
+      const userAgent = request.headers.get('user-agent');
+      const correlationId = request.headers.get('x-correlation-id');
+      const cookie = request.headers.get('cookie');
+      const acceptLanguage = request.headers.get('accept-language');
 
       // Set headers if they exist
       if (xssrRequest) {
-        headers.set("X-SSR-Request", xssrRequest);
+        headers.set('X-SSR-Request', xssrRequest);
       }
 
       if (originalIp) {
-        headers.set("X-SSR-Original-IP", originalIp);
+        headers.set('X-SSR-Original-IP', originalIp);
       }
 
       if (userAgent) {
-        headers.set("X-SSR-Forwarded-User-Agent", userAgent);
+        headers.set('X-SSR-Forwarded-User-Agent', userAgent);
       }
 
       if (correlationId) {
-        headers.set("X-Correlation-ID", correlationId);
+        headers.set('X-Correlation-ID', correlationId);
       }
 
       if (cookie) {
-        headers.set("Cookie", cookie);
+        headers.set('Cookie', cookie);
       }
 
       // Forward Accept-Language header for internationalization support
       if (acceptLanguage) {
-        headers.set("Accept-Language", acceptLanguage);
+        headers.set('Accept-Language', acceptLanguage);
       }
 
       const response = await fetchWithTimeout(
         apiEndpoint,
         {
-          method: "POST",
+          method: 'POST',
           headers,
           body: JSON.stringify(requestBody),
-          redirect: "manual", // Don't automatically follow redirects
+          redirect: 'manual', // Don't automatically follow redirects
         },
         config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       );
@@ -506,11 +506,11 @@ async function pageLoader({
 
       // Forward Accept-Language header for internationalization support
       // In the browser, navigator.languages provides the user's preferred languages
-      if (typeof navigator !== "undefined") {
+      if (typeof navigator !== 'undefined') {
         if (navigator.languages && navigator.languages.length) {
-          headers.set("Accept-Language", navigator.languages.join(","));
+          headers.set('Accept-Language', navigator.languages.join(','));
         } else if (navigator.language) {
-          headers.set("Accept-Language", navigator.language);
+          headers.set('Accept-Language', navigator.language);
         }
       }
 
@@ -518,11 +518,11 @@ async function pageLoader({
       const response = await fetchWithTimeout(
         apiEndpoint,
         {
-          method: "POST",
+          method: 'POST',
           headers,
           body: JSON.stringify(requestBody),
-          credentials: "include", // This allows cookies to be sent with the request
-          redirect: "manual", // Don't automatically follow redirects
+          credentials: 'include', // This allows cookies to be sent with the request
+          redirect: 'manual', // Don't automatically follow redirects
         },
         config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       );
@@ -532,21 +532,21 @@ async function pageLoader({
   } catch (error) {
     if (DEBUG_PAGE_LOADER) {
       // eslint-disable-next-line no-console
-      console.error("Error fetching page data:", error);
+      console.error('Error fetching page data:', error);
     }
 
     // Check for common connection errors
     const errorMessage =
       error instanceof Error
         ? error.message
-        : "Failed to fetch data from server";
+        : 'Failed to fetch data from server';
 
     const isConnectionError =
-      errorMessage.includes("fetch failed") ||
-      errorMessage.includes("Unable to connect") ||
-      errorMessage.includes("ECONNREFUSED") ||
-      errorMessage.includes("NetworkError") ||
-      errorMessage.includes("Request timeout after"); // Treat timeout as connection error
+      errorMessage.includes('fetch failed') ||
+      errorMessage.includes('Unable to connect') ||
+      errorMessage.includes('ECONNREFUSED') ||
+      errorMessage.includes('NetworkError') ||
+      errorMessage.includes('Request timeout after'); // Treat timeout as connection error
 
     // Create appropriate message based on server/client context
     let friendlyMessage = errorMessage;
@@ -599,13 +599,13 @@ async function localPageLoader<T = unknown, M extends BaseMeta = BaseMeta>(
   // Convert params to ensure all values are strings
   const route_params: Record<string, string> = {};
   for (const [key, value] of Object.entries(params)) {
-    route_params[key] = value || "";
+    route_params[key] = value || '';
   }
 
   // Assemble the local handler params with origin and routing context
   const localParams: LocalPageHandlerParams = {
-    pageType: "local",
-    invocation_origin: "local",
+    pageType: 'local',
+    invocation_origin: 'local',
     route_params: route_params,
     query_params: Object.fromEntries(url.searchParams.entries()),
     request_path: url.pathname,
@@ -646,7 +646,7 @@ async function localPageLoader<T = unknown, M extends BaseMeta = BaseMeta>(
             timeoutId = setTimeout(() => {
               const error = new Error(`Request timeout after ${timeoutMs}ms`);
               (error as unknown as { errorCode: string }).errorCode =
-                "handler_timeout";
+                'handler_timeout';
               (error as unknown as { timeoutMs: number }).timeoutMs = timeoutMs;
               reject(error);
             }, timeoutMs);
@@ -673,8 +673,8 @@ async function localPageLoader<T = unknown, M extends BaseMeta = BaseMeta>(
 
     // Handle API-style redirect envelopes (status: "redirect")
     if (
-      result.status === "redirect" &&
-      result.type === "page" &&
+      result.status === 'redirect' &&
+      result.type === 'page' &&
       result.redirect
     ) {
       return processRedirectResponse(
@@ -695,15 +695,15 @@ async function localPageLoader<T = unknown, M extends BaseMeta = BaseMeta>(
   } catch (internalError) {
     // Determine dev mode (mirrors pageLoader)
     const isDevelopment =
-      typeof process !== "undefined"
-        ? process.env.NODE_ENV === "development"
+      typeof process !== 'undefined'
+        ? process.env.NODE_ENV === 'development'
         : config.isDevelopment === true;
 
     // Identify timeout errors produced by the race above
     const isHandlerTimeout =
       internalError instanceof Error &&
       (internalError as unknown as { errorCode?: string }).errorCode ===
-        "handler_timeout";
+        'handler_timeout';
 
     // Friendly message parity with HTTP fetch timeouts
     const message = isHandlerTimeout
@@ -728,7 +728,7 @@ async function localPageLoader<T = unknown, M extends BaseMeta = BaseMeta>(
                 stack: internalError.stack,
                 ...(isHandlerTimeout
                   ? {
-                      errorCode: "handler_timeout",
+                      errorCode: 'handler_timeout',
                       timeoutMs: (
                         internalError as unknown as { timeoutMs?: number }
                       ).timeoutMs,

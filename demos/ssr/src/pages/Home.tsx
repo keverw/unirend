@@ -1,7 +1,7 @@
-import React from "react";
-import { Helmet } from "react-helmet-async";
-import { Link } from "react-router";
-import { useFrontendAppConfig } from "../../../../src/client";
+import React from 'react';
+import { Helmet } from 'react-helmet-async';
+import { Link } from 'react-router';
+import { useFrontendAppConfig } from '../../../../src/client';
 
 const Home: React.FC = () => {
   const frontendAppConfig = useFrontendAppConfig();
@@ -53,19 +53,19 @@ const Home: React.FC = () => {
           {frontendAppConfig ? (
             <pre
               style={{
-                backgroundColor: "rgba(255, 255, 255, 0.1)",
-                padding: "1rem",
-                borderRadius: "0.5rem",
-                fontSize: "0.875rem",
-                overflow: "auto",
-                textAlign: "left",
-                marginTop: "1rem",
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                padding: '1rem',
+                borderRadius: '0.5rem',
+                fontSize: '0.875rem',
+                overflow: 'auto',
+                textAlign: 'left',
+                marginTop: '1rem',
               }}
             >
               {JSON.stringify(frontendAppConfig, null, 2)}
             </pre>
           ) : (
-            <p style={{ color: "rgba(255, 255, 255, 0.7)", marginTop: "1rem" }}>
+            <p style={{ color: 'rgba(255, 255, 255, 0.7)', marginTop: '1rem' }}>
               No config injected (running in SPA-only Vite dev mode)
             </p>
           )}
@@ -78,10 +78,10 @@ const Home: React.FC = () => {
           </p>
           <div
             style={{
-              display: "flex",
-              gap: "1rem",
-              marginTop: "1rem",
-              justifyContent: "center",
+              display: 'flex',
+              gap: '1rem',
+              marginTop: '1rem',
+              justifyContent: 'center',
             }}
           >
             <Link to="/nonexistent-page" className="demo-button btn-coral">
@@ -93,10 +93,10 @@ const Home: React.FC = () => {
           </div>
           <p
             style={{
-              fontSize: "0.875rem",
-              color: "rgba(255, 255, 255, 0.8)",
-              marginTop: "0.5rem",
-              textAlign: "center",
+              fontSize: '0.875rem',
+              color: 'rgba(255, 255, 255, 0.8)',
+              marginTop: '0.5rem',
+              textAlign: 'center',
             }}
           >
             These links use client-side navigation to test error boundaries.
@@ -110,11 +110,11 @@ const Home: React.FC = () => {
           </p>
           <div
             style={{
-              display: "flex",
-              gap: "1rem",
-              marginTop: "1rem",
-              justifyContent: "center",
-              flexWrap: "wrap",
+              display: 'flex',
+              gap: '1rem',
+              marginTop: '1rem',
+              justifyContent: 'center',
+              flexWrap: 'wrap',
             }}
           >
             <Link to="/test-page-loader" className="demo-button btn-teal">
@@ -144,10 +144,10 @@ const Home: React.FC = () => {
           </div>
           <p
             style={{
-              fontSize: "0.875rem",
-              color: "rgba(255, 255, 255, 0.8)",
-              marginTop: "0.5rem",
-              textAlign: "center",
+              fontSize: '0.875rem',
+              color: 'rgba(255, 255, 255, 0.8)',
+              marginTop: '0.5rem',
+              textAlign: 'center',
             }}
           >
             These routes demonstrate page data loading with different parameter
@@ -157,16 +157,16 @@ const Home: React.FC = () => {
 
         {/* Error Handling Demo Section */}
         <div className="card">
-          <h2 style={{ color: "#ff6b6b", marginBottom: "1rem" }}>
+          <h2 style={{ color: '#ff6b6b', marginBottom: '1rem' }}>
             🚨 Error Handling Tests
           </h2>
           <div
             style={{
-              display: "flex",
-              gap: "1rem",
-              flexWrap: "wrap",
-              justifyContent: "center",
-              marginBottom: "1rem",
+              display: 'flex',
+              gap: '1rem',
+              flexWrap: 'wrap',
+              justifyContent: 'center',
+              marginBottom: '1rem',
             }}
           >
             <Link to="/test-500" className="demo-button btn-red">
@@ -183,10 +183,10 @@ const Home: React.FC = () => {
           </div>
           <p
             style={{
-              fontSize: "0.875rem",
-              color: "rgba(255, 255, 255, 0.8)",
-              marginTop: "0.5rem",
-              textAlign: "center",
+              fontSize: '0.875rem',
+              color: 'rgba(255, 255, 255, 0.8)',
+              marginTop: '0.5rem',
+              textAlign: 'center',
             }}
           >
             These routes demonstrate error handling with different error types

@@ -1,4 +1,4 @@
-export type renderType = "ssg" | "ssr";
+export type renderType = 'ssg' | 'ssr';
 import type {
   FastifyRequest,
   FastifyLoggerOptions,
@@ -7,17 +7,17 @@ import type {
   FastifyPluginCallback,
   FastifySchema,
   preHandlerHookHandler,
-} from "fastify";
-import type { CookieSerializeOptions } from "@fastify/cookie";
-import type { DataLoaderServerHandlerHelpers } from "./internal/DataLoaderServerHandlerHelpers";
+} from 'fastify';
+import type { CookieSerializeOptions } from '@fastify/cookie';
+import type { DataLoaderServerHandlerHelpers } from './internal/DataLoaderServerHandlerHelpers';
 import type {
   APIErrorResponse,
   PageErrorResponse,
   BaseMeta,
-} from "./api-envelope/api-envelope-types";
-import type { UnirendContextValue } from "./internal/UnirendContext";
+} from './api-envelope/api-envelope-types';
+import type { UnirendContextValue } from './internal/UnirendContext';
 // Reference type for pluggable API response helpers class
-import type { APIResponseHelpers } from "../api-envelope";
+import type { APIResponseHelpers } from '../api-envelope';
 export type APIResponseHelpersClass = typeof APIResponseHelpers;
 
 export interface IRenderRequest {
@@ -56,14 +56,14 @@ export interface SSGHelpers {
  * Base interface for render results with a discriminated union type
  */
 interface IRenderResultBase {
-  resultType: "page" | "response" | "render-error";
+  resultType: 'page' | 'response' | 'render-error';
 }
 
 /**
  * Page result containing HTML content
  */
 export interface IRenderPageResult extends IRenderResultBase {
-  resultType: "page";
+  resultType: 'page';
   html: string;
   preloadLinks: string;
   helmet?: {
@@ -81,7 +81,7 @@ export interface IRenderPageResult extends IRenderResultBase {
  * Used for redirects, errors, or any other non-HTML responses
  */
 export interface IRenderResponseResult extends IRenderResultBase {
-  resultType: "response";
+  resultType: 'response';
   response: Response;
 }
 
@@ -90,7 +90,7 @@ export interface IRenderResponseResult extends IRenderResultBase {
  * Used when rendering fails with an exception
  */
 export interface IRenderErrorResult extends IRenderResultBase {
-  resultType: "render-error";
+  resultType: 'render-error';
   error: Error;
 }
 
@@ -139,11 +139,11 @@ export type ServerPlugin = (
  * Includes common lifecycle hooks plus string for custom hooks
  */
 export type FastifyHookName =
-  | "onRequest"
-  | "preHandler"
-  | "onSend"
-  | "onResponse"
-  | "onError"
+  | 'onRequest'
+  | 'preHandler'
+  | 'onSend'
+  | 'onResponse'
+  | 'onError'
   | string;
 
 /**
@@ -301,9 +301,9 @@ export interface APIEndpointConfig {
  */
 export interface PluginOptions {
   /** Type of server the plugin is running on */
-  serverType: "ssr" | "api";
+  serverType: 'ssr' | 'api';
   /** Server mode (development or production) */
-  mode: "development" | "production";
+  mode: 'development' | 'production';
   /** Whether running in development mode */
   isDevelopment: boolean;
   /** Build directory (SSR only, undefined for API server) */
@@ -745,7 +745,7 @@ export interface IGeneratorPageBase {
  */
 export interface ISSGPage extends IGeneratorPageBase {
   /** Type of page generation */
-  type: "ssg";
+  type: 'ssg';
   /** The URL path for the page (required for SSG) */
   path: string;
 }
@@ -755,7 +755,7 @@ export interface ISSGPage extends IGeneratorPageBase {
  */
 export interface ISPAPage extends IGeneratorPageBase {
   /** Type of page generation */
-  type: "spa";
+  type: 'spa';
   /** Custom title for the SPA page */
   title?: string;
   /** Custom meta description for the SPA page */
@@ -774,7 +774,7 @@ export type IPageWanted = ISSGPage | ISPAPage;
 /**
  * Status code for a generated page
  */
-export type SSGPageStatus = "success" | "not_found" | "error";
+export type SSGPageStatus = 'success' | 'not_found' | 'error';
 
 /**
  * Report for a single generated page

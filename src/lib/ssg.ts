@@ -7,8 +7,8 @@ import {
   SSGReport,
   SSGLogger,
   SSGHelpers,
-} from "./types";
-import path from "path";
+} from './types';
+import path from 'path';
 import {
   checkAndLoadManifest,
   getServerEntryFromManifest,
@@ -16,9 +16,9 @@ import {
   readJSONFile,
   writeJSONFile,
   writeHTMLFile,
-} from "./internal/fs-utils";
-import { processTemplate } from "./internal/html-utils/format";
-import { injectContent } from "./internal/html-utils/inject";
+} from './internal/fs-utils';
+import { processTemplate } from './internal/html-utils/format';
+import { injectContent } from './internal/html-utils/inject';
 
 /**
  * Creates a complete SSGReport with proper typing and defaults
@@ -86,9 +86,9 @@ export async function generateSSG(
   };
 
   // Load the server manifest and find the server entry
-  const serverEntry = options.serverEntry || "entry-ssg";
-  const serverFolderName = options.serverFolderName || "server";
-  const clientFolderName = options.clientFolderName || "client";
+  const serverEntry = options.serverEntry || 'entry-ssg';
+  const serverFolderName = options.serverFolderName || 'server';
+  const clientFolderName = options.clientFolderName || 'client';
   const serverBuildDir = path.join(buildDir, serverFolderName);
 
   // Load the server's regular manifest
@@ -137,7 +137,7 @@ export async function generateSSG(
   // Check for .unirend-ssg.json file in client folder
   // This stores the process html template
   const clientBuildDir = path.join(buildDir, clientFolderName);
-  const unirendSsgPath = path.join(clientBuildDir, ".unirend-ssg.json");
+  const unirendSsgPath = path.join(clientBuildDir, '.unirend-ssg.json');
 
   const ssgConfigResult = await readJSONFile(unirendSsgPath);
 
@@ -158,7 +158,7 @@ export async function generateSSG(
   if (ssgConfigResult.exists && ssgConfigResult.data) {
     // Found the unirend SSG config file - use cached template
     const template = ssgConfigResult.data.template;
-    if (typeof template === "string") {
+    if (typeof template === 'string') {
       htmlTemplate = template;
       // Using cached template from .unirend-ssg.json
     } else {
@@ -166,14 +166,14 @@ export async function generateSSG(
         buildDir,
         startTime,
         fatalError: new Error(
-          "Invalid .unirend-ssg.json: template key is not a string",
+          'Invalid .unirend-ssg.json: template key is not a string',
         ),
       });
     }
   } else {
     // No config file found, read the HTML template and create config if needed
     // Read the HTML template from client build directory
-    const templatePath = path.join(clientBuildDir, "index.html");
+    const templatePath = path.join(clientBuildDir, 'index.html');
     const templateResult = await readHTMLFile(templatePath);
 
     if (!templateResult.exists) {
@@ -202,7 +202,7 @@ export async function generateSSG(
 
     const processResult = await processTemplate(
       templateContent,
-      "ssg", // mode
+      'ssg', // mode
       false, // isDevelopment = false for SSG
       options.containerID,
     );
@@ -247,7 +247,7 @@ export async function generateSSG(
     return createSSGReport({
       buildDir,
       startTime,
-      fatalError: new Error("HTML template is empty or invalid"),
+      fatalError: new Error('HTML template is empty or invalid'),
     });
   }
 
@@ -269,7 +269,7 @@ export async function generateSSG(
   // Validate that the imported module has a render function
   if (
     !entryServer ||
-    typeof (entryServer as { render: unknown }).render !== "function"
+    typeof (entryServer as { render: unknown }).render !== 'function'
   ) {
     return createSSGReport({
       buildDir,
@@ -290,7 +290,7 @@ export async function generateSSG(
   for (const page of pages) {
     const pageStartedAt = Date.now();
 
-    if (page.type === "ssg") {
+    if (page.type === 'ssg') {
       // Create a simulated fetch request for the current page
       const fetchRequest = new Request(`http://localhost${page.path}`);
 
@@ -309,25 +309,25 @@ export async function generateSSG(
         SSGHelpers;
 
       const renderRequest: IRenderRequest = {
-        type: "ssg",
+        type: 'ssg',
         fetchRequest: fetchRequest,
         unirendContext: {
-          renderMode: "ssg",
+          renderMode: 'ssg',
           isDevelopment: false, // SSG is always production (build-time)
           fetchRequest: fetchRequest, // Fetch request available in SSG
           frontendAppConfig,
-          requestContextRevision: "0-0", // Initial revision for this page
+          requestContextRevision: '0-0', // Initial revision for this page
         },
       };
 
       const renderResult = await render(renderRequest);
 
-      if (renderResult.resultType === "page") {
+      if (renderResult.resultType === 'page') {
         // --- Prepare Helmet data for injection ---
         const headInject = `
-        ${renderResult.helmet?.title.toString() || ""}
-        ${renderResult.helmet?.meta.toString() || ""}
-        ${renderResult.helmet?.link.toString() || ""}
+        ${renderResult.helmet?.title.toString() || ''}
+        ${renderResult.helmet?.meta.toString() || ''}
+        ${renderResult.helmet?.link.toString() || ''}
         ${renderResult.preloadLinks}
       `;
 
@@ -362,7 +362,7 @@ export async function generateSSG(
 
             pageReports.push({
               page,
-              status: "not_found",
+              status: 'not_found',
               outputPath,
               timeMs,
             });
@@ -374,7 +374,7 @@ export async function generateSSG(
 
             pageReports.push({
               page,
-              status: "success",
+              status: 'success',
               outputPath,
               timeMs,
             });
@@ -387,7 +387,7 @@ export async function generateSSG(
 
           pageReports.push({
             page,
-            status: "error",
+            status: 'error',
             errorDetails: writeResult.error,
             timeMs,
           });
@@ -402,18 +402,18 @@ export async function generateSSG(
         const timeMs = pageEndedAt - pageStartedAt;
         let errorDetails: string;
 
-        if (renderResult.resultType === "response") {
+        if (renderResult.resultType === 'response') {
           const status = renderResult.response.status;
           const statusText =
-            renderResult.response.statusText || "Unknown error";
+            renderResult.response.statusText || 'Unknown error';
           errorDetails = `Non-page response (${status}): ${statusText}`;
-        } else if (renderResult.resultType === "render-error") {
+        } else if (renderResult.resultType === 'render-error') {
           errorDetails = `Render error: ${renderResult.error.message}`;
         } else {
           // This should never happen with proper IRenderResult types, but handle gracefully
           const resultType =
             (renderResult as unknown as { resultType?: string }).resultType ||
-            "unknown";
+            'unknown';
           errorDetails = `Unexpected render result type: ${resultType}`;
         }
 
@@ -421,7 +421,7 @@ export async function generateSSG(
 
         pageReports.push({
           page,
-          status: "error",
+          status: 'error',
           errorDetails,
           timeMs,
         });
@@ -430,13 +430,13 @@ export async function generateSSG(
           `✗ Error on page ${page.path}: ${errorDetails} (${timeMs}ms)`,
         );
       }
-    } else if (page.type === "spa") {
+    } else if (page.type === 'spa') {
       // Generate SPA page with custom metadata but no server-side content
       const pageEndedAt = Date.now();
       const timeMs = pageEndedAt - pageStartedAt;
 
       // Build head content from SPA page metadata
-      let headInject = "";
+      let headInject = '';
 
       if (page.title) {
         headInject += `<title>${page.title}</title>\n`;
@@ -456,7 +456,7 @@ export async function generateSSG(
       const htmlToWrite = injectContent(
         htmlTemplate,
         headInject.trim(),
-        "", // Empty body content for SPA
+        '', // Empty body content for SPA
         {
           app: options.frontendAppConfig, // Inject app config for SPA pages if provided from options
           request: page.requestContext, // Inject request context for SPA pages that was manually provided for the specific page
@@ -474,7 +474,7 @@ export async function generateSSG(
 
         pageReports.push({
           page,
-          status: "success",
+          status: 'success',
           outputPath,
           timeMs,
         });
@@ -486,7 +486,7 @@ export async function generateSSG(
 
         pageReports.push({
           page,
-          status: "error",
+          status: 'error',
           errorDetails: writeResult.error,
           timeMs,
         });
@@ -504,13 +504,13 @@ export async function generateSSG(
 
       pageReports.push({
         page,
-        status: "error",
-        errorDetails: `Unknown page type: ${(page as unknown as { type?: string }).type || "undefined"}`,
+        status: 'error',
+        errorDetails: `Unknown page type: ${(page as unknown as { type?: string }).type || 'undefined'}`,
         timeMs,
       });
 
       logger.error(
-        `✗ Unknown page type for ${(page as unknown as { filename?: string }).filename || "unknown"}: ${(page as unknown as { type?: string }).type || "undefined"} (${timeMs}ms)`,
+        `✗ Unknown page type for ${(page as unknown as { filename?: string }).filename || 'unknown'}: ${(page as unknown as { type?: string }).type || 'undefined'} (${timeMs}ms)`,
       );
     }
   }

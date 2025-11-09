@@ -1,9 +1,9 @@
-import type { RepoConfig } from "./types";
-import { vfsReadText, vfsWrite, type FileRoot } from "./vfs";
+import type { RepoConfig } from './types';
+import { vfsReadText, vfsWrite, type FileRoot } from './vfs';
 
 export function createRepoConfigObject(name: string): RepoConfig {
   return {
-    version: "1.0",
+    version: '1.0',
     name,
     created: new Date().toISOString(),
     projects: {},
@@ -39,21 +39,21 @@ export async function ensureBaseFiles(
   log?: (message: string) => void,
 ): Promise<void> {
   // Attempt to read an existing package.json at the repo root
-  const pkgResult = await vfsReadText(repoRoot, "package.json");
+  const pkgResult = await vfsReadText(repoRoot, 'package.json');
 
   // Creation path: no package.json found; create a minimal one
   if (!pkgResult.ok) {
-    if (pkgResult.code === "ENOENT") {
+    if (pkgResult.code === 'ENOENT') {
       const pkg = {
         name: repoName,
         private: true,
-        license: "UNLICENSED",
+        license: 'UNLICENSED',
       };
 
-      await vfsWrite(repoRoot, "package.json", JSON.stringify(pkg, null, 2));
+      await vfsWrite(repoRoot, 'package.json', JSON.stringify(pkg, null, 2));
 
       if (log) {
-        log("Created repo root package.json");
+        log('Created repo root package.json');
       }
     } else {
       throw new Error(
@@ -80,27 +80,27 @@ export async function ensureBaseFiles(
   let changed = false;
 
   // Add defaults only when these fields are absent
-  if (!Object.prototype.hasOwnProperty.call(parsed, "name")) {
+  if (!Object.prototype.hasOwnProperty.call(parsed, 'name')) {
     (parsed as { name: string }).name = repoName;
     changed = true;
   }
 
-  if (!Object.prototype.hasOwnProperty.call(parsed, "private")) {
+  if (!Object.prototype.hasOwnProperty.call(parsed, 'private')) {
     (parsed as { private: boolean }).private = true;
     changed = true;
   }
 
-  if (!Object.prototype.hasOwnProperty.call(parsed, "license")) {
-    (parsed as { license: string }).license = "UNLICENSED";
+  if (!Object.prototype.hasOwnProperty.call(parsed, 'license')) {
+    (parsed as { license: string }).license = 'UNLICENSED';
     changed = true;
   }
 
   // write updated package.json only if we actually changed something
   if (changed) {
-    await vfsWrite(repoRoot, "package.json", JSON.stringify(parsed, null, 2));
+    await vfsWrite(repoRoot, 'package.json', JSON.stringify(parsed, null, 2));
 
     if (log) {
-      log("Updated repo root package.json (added missing fields)");
+      log('Updated repo root package.json (added missing fields)');
     }
   }
 }

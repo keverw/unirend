@@ -60,10 +60,10 @@ export interface RedirectInfo {
  * type PaginatedResponse = APISuccessResponse<User[], CustomMeta>;
  */
 export interface APISuccessResponse<T, M extends BaseMeta = BaseMeta> {
-  status: "success";
+  status: 'success';
   status_code: number;
   request_id: string;
-  type: "api";
+  type: 'api';
   data: T;
   meta: M;
   error: null;
@@ -75,10 +75,10 @@ export interface APISuccessResponse<T, M extends BaseMeta = BaseMeta> {
  * @template M - Additional meta properties (extends BaseMeta)
  */
 export interface APIErrorResponse<M extends BaseMeta = BaseMeta> {
-  status: "error";
+  status: 'error';
   status_code: number;
   request_id: string;
-  type: "api";
+  type: 'api';
   data: null;
   meta: M;
   error: ErrorObject;
@@ -103,10 +103,10 @@ export type APIResponseEnvelope<T = unknown, M extends BaseMeta = BaseMeta> =
  * @template M - Additional meta properties (extends BaseMeta)
  */
 export interface PageSuccessResponse<T, M extends BaseMeta = BaseMeta> {
-  status: "success";
+  status: 'success';
   status_code: number;
   request_id: string;
-  type: "page";
+  type: 'page';
   data: T;
   meta: M;
   error: null;
@@ -118,10 +118,10 @@ export interface PageSuccessResponse<T, M extends BaseMeta = BaseMeta> {
  * @template M - Additional meta properties (extends BaseMeta)
  */
 export interface PageErrorResponse<M extends BaseMeta = BaseMeta> {
-  status: "error";
+  status: 'error';
   status_code: number;
   request_id: string;
-  type: "page";
+  type: 'page';
   data: null;
   meta: M;
   error: ErrorObject;
@@ -133,10 +133,10 @@ export interface PageErrorResponse<M extends BaseMeta = BaseMeta> {
  * @template M - Additional meta properties (extends BaseMeta)
  */
 export interface PageRedirectResponse<M extends BaseMeta = BaseMeta> {
-  status: "redirect";
+  status: 'redirect';
   status_code: 200; // Always use 200 to avoid confusion with HTTP redirects
   request_id: string;
-  type: "page";
+  type: 'page';
   data: null;
   meta: M;
   error: null;

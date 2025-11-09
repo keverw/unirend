@@ -1,4 +1,4 @@
-import type { FastifyRequest, FastifyReply } from "fastify";
+import type { FastifyRequest, FastifyReply } from 'fastify';
 import type {
   ErrorDetails,
   BaseMeta,
@@ -11,7 +11,7 @@ import type {
   PageMetadata,
   APIResponseEnvelope,
   PageResponseEnvelope,
-} from "./api-envelope-types";
+} from './api-envelope-types';
 
 /**
  * Helper utilities for constructing API/Page response envelopes.
@@ -50,10 +50,10 @@ export class APIResponseHelpers {
     const defaultMeta = {} as M;
 
     return {
-      status: "success",
+      status: 'success',
       status_code: statusCode,
-      request_id: (request as { requestID?: string }).requestID ?? "unknown",
-      type: "api",
+      request_id: (request as { requestID?: string }).requestID ?? 'unknown',
+      type: 'api',
       data,
       meta: { ...defaultMeta, ...(meta as Partial<M>) } as M,
       error: null,
@@ -85,10 +85,10 @@ export class APIResponseHelpers {
     const defaultMeta = {} as M;
 
     return {
-      status: "error",
+      status: 'error',
       status_code: statusCode,
-      request_id: (request as { requestID?: string }).requestID ?? "unknown",
-      type: "api",
+      request_id: (request as { requestID?: string }).requestID ?? 'unknown',
+      type: 'api',
       data: null,
       meta: { ...defaultMeta, ...(meta as Partial<M>) } as M,
       error: {
@@ -128,10 +128,10 @@ export class APIResponseHelpers {
     };
 
     return {
-      status: "success",
+      status: 'success',
       status_code: statusCode,
-      request_id: (request as { requestID?: string }).requestID ?? "unknown",
-      type: "page",
+      request_id: (request as { requestID?: string }).requestID ?? 'unknown',
+      type: 'page',
       data,
       meta: { ...(baseMeta as M), ...(meta as Partial<M>) } as M,
       error: null,
@@ -162,10 +162,10 @@ export class APIResponseHelpers {
     };
 
     return {
-      status: "redirect",
+      status: 'redirect',
       status_code: 200,
-      request_id: (request as { requestID?: string }).requestID ?? "unknown",
-      type: "page",
+      request_id: (request as { requestID?: string }).requestID ?? 'unknown',
+      type: 'page',
       data: null,
       meta: { ...(baseMeta as M), ...(meta as Partial<M>) } as M,
       error: null,
@@ -208,10 +208,10 @@ export class APIResponseHelpers {
     };
 
     return {
-      status: "error",
+      status: 'error',
       status_code: statusCode,
-      request_id: (request as { requestID?: string }).requestID ?? "unknown",
-      type: "page",
+      request_id: (request as { requestID?: string }).requestID ?? 'unknown',
+      type: 'page',
       data: null,
       meta: { ...(baseMeta as M), ...(meta as Partial<M>) } as M,
       error: {
@@ -236,13 +236,13 @@ export class APIResponseHelpers {
     request: FastifyRequest,
     reply: FastifyReply,
   ): boolean {
-    if (!request.body || typeof request.body !== "object") {
+    if (!request.body || typeof request.body !== 'object') {
       const errorResponse = this.createAPIErrorResponse({
         request,
         statusCode: 400,
-        errorCode: "invalid_request",
+        errorCode: 'invalid_request',
         errorMessage:
-          "Request body is required and must be a valid JSON object",
+          'Request body is required and must be a valid JSON object',
       });
 
       // Send response and terminate early
@@ -262,7 +262,7 @@ export class APIResponseHelpers {
   public static isSuccessResponse<T, M extends BaseMeta = BaseMeta>(
     response: APIResponseEnvelope<T, M> | PageResponseEnvelope<T, M>,
   ): response is APISuccessResponse<T, M> | PageSuccessResponse<T, M> {
-    return response.status === "success";
+    return response.status === 'success';
   }
 
   /** Determines if envelope is an error response */
@@ -271,7 +271,7 @@ export class APIResponseHelpers {
       | APIResponseEnvelope<unknown, M>
       | PageResponseEnvelope<unknown, M>,
   ): response is APIErrorResponse<M> | PageErrorResponse<M> {
-    return response.status === "error";
+    return response.status === 'error';
   }
 
   /** Determines if envelope is a redirect response */
@@ -280,14 +280,14 @@ export class APIResponseHelpers {
       | APIResponseEnvelope<unknown, M>
       | PageResponseEnvelope<unknown, M>,
   ): response is PageRedirectResponse<M> {
-    return response.status === "redirect";
+    return response.status === 'redirect';
   }
 
   /** Determines if envelope is a page (SSR) response */
   public static isPageResponse<T, M extends BaseMeta = BaseMeta>(
     response: APIResponseEnvelope<T, M> | PageResponseEnvelope<T, M>,
   ): response is PageResponseEnvelope<T, M> {
-    return response.type === "page";
+    return response.type === 'page';
   }
 
   /**
@@ -298,7 +298,7 @@ export class APIResponseHelpers {
   public static isValidEnvelope(
     result: unknown,
   ): result is PageResponseEnvelope | APIResponseEnvelope {
-    if (!result || typeof result !== "object") {
+    if (!result || typeof result !== 'object') {
       return false;
     }
 
@@ -306,17 +306,17 @@ export class APIResponseHelpers {
 
     // Check required fields
     const hasStatus =
-      typeof envelope.status === "string" &&
-      ["success", "error", "redirect"].includes(envelope.status);
+      typeof envelope.status === 'string' &&
+      ['success', 'error', 'redirect'].includes(envelope.status);
 
-    const hasStatusCode = typeof envelope.status_code === "number";
+    const hasStatusCode = typeof envelope.status_code === 'number';
 
     const hasType =
-      typeof envelope.type === "string" &&
-      ["api", "page"].includes(envelope.type);
+      typeof envelope.type === 'string' &&
+      ['api', 'page'].includes(envelope.type);
 
-    const hasRequestID = typeof envelope.request_id === "string";
-    const hasMeta = envelope.meta && typeof envelope.meta === "object";
+    const hasRequestID = typeof envelope.request_id === 'string';
+    const hasMeta = envelope.meta && typeof envelope.meta === 'object';
 
     // Basic structure validation
     if (!hasStatus || !hasStatusCode || !hasType || !hasRequestID || !hasMeta) {
@@ -325,38 +325,38 @@ export class APIResponseHelpers {
 
     // Validate meta has required page field ONLY for page type envelopes
     // API type envelopes do not require page metadata
-    if (envelope.type === "page") {
+    if (envelope.type === 'page') {
       const meta = envelope.meta as Record<string, unknown>;
 
-      if (!meta.page || typeof meta.page !== "object") {
+      if (!meta.page || typeof meta.page !== 'object') {
         return false;
       }
 
       const page = meta.page as Record<string, unknown>;
 
       if (
-        typeof page.title !== "string" ||
-        typeof page.description !== "string"
+        typeof page.title !== 'string' ||
+        typeof page.description !== 'string'
       ) {
         return false;
       }
     }
 
     // Status-specific validation
-    if (envelope.status === "success") {
+    if (envelope.status === 'success') {
       return envelope.data !== undefined && envelope.error === null;
-    } else if (envelope.status === "error") {
+    } else if (envelope.status === 'error') {
       return (
         envelope.data === null &&
         envelope.error !== null &&
-        typeof envelope.error === "object"
+        typeof envelope.error === 'object'
       );
-    } else if (envelope.status === "redirect") {
+    } else if (envelope.status === 'redirect') {
       return (
         envelope.data === null &&
         envelope.error === null &&
         envelope.redirect !== null &&
-        typeof envelope.redirect === "object"
+        typeof envelope.redirect === 'object'
       );
     }
 

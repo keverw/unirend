@@ -26,46 +26,46 @@ Create a script to generate your static pages using the `generateSSG` function:
 > 💡 **Tip:** For a more comprehensive generation example script with detailed error handling and reporting, see [`demos/ssg/generate.ts`](../demos/ssg/generate.ts) in this repository.
 
 ```typescript
-import { generateSSG } from "unirend/server";
-import path from "path";
+import { generateSSG } from 'unirend/server';
+import path from 'path';
 
 async function main() {
   // Point to the build directory (contains both client/ and server/ subdirectories)
-  const buildDir = path.resolve(__dirname, "build");
+  const buildDir = path.resolve(__dirname, 'build');
 
   const pages = [
     // Server-rendered (SSG) pages
-    { type: "ssg", path: "/", filename: "index.html" },
-    { type: "ssg", path: "/about", filename: "about.html" },
-    { type: "ssg", path: "/contact", filename: "contact.html" },
+    { type: 'ssg', path: '/', filename: 'index.html' },
+    { type: 'ssg', path: '/about', filename: 'about.html' },
+    { type: 'ssg', path: '/contact', filename: 'contact.html' },
 
     // Client-rendered SPA pages with custom metadata
     {
-      type: "spa",
-      filename: "dashboard.html",
-      title: "Dashboard",
-      description: "SPA Dashboard Page",
+      type: 'spa',
+      filename: 'dashboard.html',
+      title: 'Dashboard',
+      description: 'SPA Dashboard Page',
     },
 
     // Client-rendered SPA page with manual request context injection
     {
-      type: "spa",
-      filename: "profile.html",
-      title: "User Profile",
-      description: "User profile page",
+      type: 'spa',
+      filename: 'profile.html',
+      title: 'User Profile',
+      description: 'User profile page',
       requestContext: {
         // This data will be injected and available on the client
         // See unirend-context.md for how to access this data in your components
-        userID: "default-user",
-        theme: "light",
+        userID: 'default-user',
+        theme: 'light',
       },
     },
   ];
 
   const options = {
-    serverEntry: "entry-ssg", // Default for SSG, customize if needed
+    serverEntry: 'entry-ssg', // Default for SSG, customize if needed
     frontendAppConfig: {
-      apiUrl: "https://api.example.com",
+      apiUrl: 'https://api.example.com',
     },
     // Optional: containerID used in template processing (defaults to "root")
     // containerID: "root",
@@ -79,7 +79,7 @@ async function main() {
   const result = await generateSSG(buildDir, pages, options);
 
   if (result.fatalError) {
-    console.error("SSG generation failed:", result.fatalError.message);
+    console.error('SSG generation failed:', result.fatalError.message);
     process.exit(1);
   }
 
@@ -220,29 +220,29 @@ server {
 ### Node.js/Express Static Server
 
 ```javascript
-app.get("*", (req, res) => {
+app.get('*', (req, res) => {
   // Map clean URLs ("/about") to built files ("/about.html")
-  const requestedPath = req.path.endsWith("/")
+  const requestedPath = req.path.endsWith('/')
     ? req.path.slice(0, -1)
     : req.path;
   const filePath = path.join(
     __dirname,
-    "build/client",
-    requestedPath + ".html",
+    'build/client',
+    requestedPath + '.html',
   );
 
   // Security check: Prevent directory traversal
   const resolvedPath = path.resolve(filePath);
-  const resolvedBuildDir = path.resolve(path.join(__dirname, "build/client"));
+  const resolvedBuildDir = path.resolve(path.join(__dirname, 'build/client'));
 
   if (!resolvedPath.startsWith(resolvedBuildDir)) {
-    return res.status(403).send("Access denied");
+    return res.status(403).send('Access denied');
   }
 
   if (fs.existsSync(filePath)) {
     res.sendFile(filePath);
   } else {
-    res.status(404).sendFile(path.join(__dirname, "build/client/404.html"));
+    res.status(404).sendFile(path.join(__dirname, 'build/client/404.html'));
   }
 });
 ```

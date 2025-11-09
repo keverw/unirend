@@ -3,23 +3,23 @@
  */
 
 export type ParsedCLIArgs =
-  | { command: "help" }
-  | { command: "version" }
-  | { command: "list" }
+  | { command: 'help' }
+  | { command: 'version' }
+  | { command: 'list' }
   | {
-      command: "init-repo";
+      command: 'init-repo';
       repoPath?: string;
       repoName?: string;
     }
   | {
-      command: "create";
+      command: 'create';
       projectType?: string;
       projectName?: string;
       repoPath?: string;
-      target?: "bun" | "node";
+      target?: 'bun' | 'node';
     }
   | {
-      command: "unknown";
+      command: 'unknown';
       unknownCommand: string;
     };
 
@@ -32,40 +32,40 @@ export type ParsedCLIArgs =
 export function parseCLIArgs(args: string[]): ParsedCLIArgs {
   // Handle empty args
   if (args.length === 0) {
-    return { command: "help" };
+    return { command: 'help' };
   }
 
   // Handle version flags
-  if (args.includes("--version") || args.includes("-v")) {
-    return { command: "version" };
+  if (args.includes('--version') || args.includes('-v')) {
+    return { command: 'version' };
   }
 
   // Handle help flags
-  if (args.includes("--help") || args.includes("-h")) {
-    return { command: "help" };
+  if (args.includes('--help') || args.includes('-h')) {
+    return { command: 'help' };
   }
 
   const firstArg = args[0];
 
   // Handle help command
-  if (firstArg === "help") {
-    return { command: "help" };
-  } else if (firstArg === "version") {
+  if (firstArg === 'help') {
+    return { command: 'help' };
+  } else if (firstArg === 'version') {
     // Handle version command
-    return { command: "version" };
-  } else if (firstArg === "list") {
+    return { command: 'version' };
+  } else if (firstArg === 'list') {
     // Handle list command
-    return { command: "list" };
-  } else if (firstArg === "init-repo") {
+    return { command: 'list' };
+  } else if (firstArg === 'init-repo') {
     // Handle init-repo command
     return parseInitRepoArgs(args);
-  } else if (firstArg === "create") {
+  } else if (firstArg === 'create') {
     // Handle create command
     return parseCreateArgs(args);
   } else {
     // Unknown command
     return {
-      command: "unknown",
+      command: 'unknown',
       unknownCommand: firstArg,
     };
   }
@@ -77,17 +77,17 @@ export function parseCLIArgs(args: string[]): ParsedCLIArgs {
 
 function parseInitRepoArgs(args: string[]): ParsedCLIArgs {
   // Get --name flag value
-  const nameIndex = args.indexOf("--name");
+  const nameIndex = args.indexOf('--name');
   const repoName =
     nameIndex !== -1 && args[nameIndex + 1] ? args[nameIndex + 1] : undefined;
 
   // Get path argument (first non-flag argument after command)
   const repoPath = args.find(
-    (arg, i) => i > 0 && !arg.startsWith("--") && args[i - 1] !== "--name",
+    (arg, i) => i > 0 && !arg.startsWith('--') && args[i - 1] !== '--name',
   );
 
   return {
-    command: "init-repo",
+    command: 'init-repo',
     repoPath,
     repoName,
   };
@@ -103,7 +103,7 @@ function parseCreateArgs(args: string[]): ParsedCLIArgs {
   let projectType: string | undefined;
   let projectName: string | undefined;
   let repoPath: string | undefined;
-  let target: "bun" | "node" | undefined;
+  let target: 'bun' | 'node' | undefined;
 
   // Capture positional args first (type, name, optional path)
   if (args.length > 1) {
@@ -118,21 +118,21 @@ function parseCreateArgs(args: string[]): ParsedCLIArgs {
   for (let i = 3; i < args.length; i++) {
     const arg = args[i];
 
-    if (arg === "--target") {
+    if (arg === '--target') {
       const value = args[i + 1];
 
-      if (value === "bun" || value === "node") {
+      if (value === 'bun' || value === 'node') {
         target = value;
       }
 
       i++; // skip value
-    } else if (!arg.startsWith("--") && repoPath === undefined) {
+    } else if (!arg.startsWith('--') && repoPath === undefined) {
       repoPath = arg;
     }
   }
 
   return {
-    command: "create",
+    command: 'create',
     projectType,
     projectName,
     repoPath,
@@ -170,7 +170,7 @@ export function formatCommandLine(
 
   // Additional lines: indent + spaces (matching indent + command width) + description
   for (let i = 1; i < descLines.length; i++) {
-    const totalSpacing = " ".repeat(indent.length + commandWidth);
+    const totalSpacing = ' '.repeat(indent.length + commandWidth);
     lines.push(`${totalSpacing}${descLines[i]}`);
   }
 
@@ -203,33 +203,33 @@ export function generateHelpText(
 
   if (errorMessage) {
     lines.push(`❌ Error: ${errorMessage}`);
-    lines.push("");
+    lines.push('');
   }
 
   lines.push(title);
-  lines.push("");
+  lines.push('');
 
   // Calculate the longest command length and add padding
   const maxCommandLength = Math.max(...commands.map((c) => c.command.length));
   const commandWidth = maxCommandLength + 4; // Add 4 spaces padding
 
   // Commands section
-  lines.push("Commands:");
+  lines.push('Commands:');
 
   for (const { command, description } of commands) {
-    lines.push(...formatCommandLine("  ", command, description, commandWidth));
+    lines.push(...formatCommandLine('  ', command, description, commandWidth));
   }
 
-  lines.push("");
+  lines.push('');
 
   // Examples section (only if examples provided)
   if (examples.length > 0) {
-    lines.push("Examples:");
+    lines.push('Examples:');
 
     for (const example of examples) {
       lines.push(`  ${example}`);
     }
   }
 
-  return lines.join("\n");
+  return lines.join('\n');
 }

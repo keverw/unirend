@@ -30,23 +30,23 @@ HTTP‑based Loader
 import {
   createPageLoader,
   createDefaultPageLoaderConfig,
-} from "unirend/router-utils";
+} from 'unirend/router-utils';
 
-const config = createDefaultPageLoaderConfig("http://localhost:3001");
-export const homeLoader = createPageLoader(config, "home");
+const config = createDefaultPageLoaderConfig('http://localhost:3001');
+export const homeLoader = createPageLoader(config, 'home');
 ```
 
 On the server, register a page data handler for the same `pageType`. See: [SSR — Page Data Handlers and Versioning](./ssr.md#page-data-handlers-and-versioning)
 
 ```ts
 // On your SSR server instance
-import { APIResponseHelpers } from "unirend/api-envelope";
+import { APIResponseHelpers } from 'unirend/api-envelope';
 
-server.registerDataLoaderHandler("home", (request, params) => {
+server.registerDataLoaderHandler('home', (request, params) => {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
-    data: { message: "Hello from server", route: params.route_params },
-    pageMetadata: { title: "Home", description: "Home page" },
+    data: { message: 'Hello from server', route: params.route_params },
+    pageMetadata: { title: 'Home', description: 'Home page' },
   });
 });
 ```
@@ -54,17 +54,17 @@ server.registerDataLoaderHandler("home", (request, params) => {
 Local Loader
 
 ```ts
-import { createPageLoader } from "unirend/router-utils";
+import { createPageLoader } from 'unirend/router-utils';
 
 export const localInfoLoader = createPageLoader(
   { timeoutMs: 8000 },
   ({ route_params, query_params }) => ({
-    status: "success",
+    status: 'success',
     status_code: 200,
     request_id: `local_${Date.now()}`,
-    type: "page",
+    type: 'page',
     data: { route_params, query_params },
-    meta: { page: { title: "Local", description: "Local loader" } },
+    meta: { page: { title: 'Local', description: 'Local loader' } },
     error: null,
   }),
 );
@@ -83,12 +83,12 @@ Uses HTTP to call your API server page data handlers when they are not co‑loca
 import {
   createPageLoader,
   createDefaultPageLoaderConfig,
-} from "unirend/router-utils";
+} from 'unirend/router-utils';
 
-const config = createDefaultPageLoaderConfig("http://localhost:3001");
+const config = createDefaultPageLoaderConfig('http://localhost:3001');
 
 // Per-route loader (pageType mapped to handlers on the server)
-export const homeLoader = createPageLoader(config, "home");
+export const homeLoader = createPageLoader(config, 'home');
 ```
 
 Notes:
@@ -124,19 +124,19 @@ Configuration (HTTP‑based Loader):
 Runs a page data handler locally without framework dataLoader HTTP request. Primarily intended for SSG, but can be used in SSR if you don't need cookie propagation.
 
 ```ts
-import { createPageLoader } from "unirend/router-utils";
+import { createPageLoader } from 'unirend/router-utils';
 
 // Local handler receives routing context; no Fastify request object
 export const localInfoLoader = createPageLoader(
   { timeoutMs: 8000 },
   function ({ route_params, query_params }) {
     return {
-      status: "success",
+      status: 'success',
       status_code: 200,
       request_id: `local_${Date.now()}`,
-      type: "page",
+      type: 'page',
       data: { route_params, query_params },
-      meta: { page: { title: "Local", description: "Local loader" } },
+      meta: { page: { title: 'Local', description: 'Local loader' } },
       error: null,
     };
   },

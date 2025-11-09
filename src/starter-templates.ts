@@ -9,7 +9,7 @@ import {
   STARTER_TEMPLATES,
   REPO_CONFIG_FILE,
   DEFAULT_REPO_NAME,
-} from "./lib/starter-templates/consts";
+} from './lib/starter-templates/consts';
 import type {
   TemplateInfo,
   RepoConfig,
@@ -18,20 +18,20 @@ import type {
   CreateProjectResult,
   RepoConfigResult,
   InitRepoResult,
-} from "./lib/starter-templates/types";
+} from './lib/starter-templates/types';
 import {
   createRepoConfigObject,
   addProjectToRepo,
   ensureBaseFiles,
-} from "./lib/starter-templates/internal-helpers";
-import { validateName } from "./lib/starter-templates/validate-name";
+} from './lib/starter-templates/internal-helpers';
+import { validateName } from './lib/starter-templates/validate-name';
 import {
   vfsDisplayPath,
   vfsEnsureDir,
   vfsReadText,
   vfsWrite,
   type FileRoot,
-} from "./lib/starter-templates/vfs";
+} from './lib/starter-templates/vfs';
 
 /**
  * Create a new project from a starter template
@@ -46,14 +46,14 @@ export async function createProject(
   const log: Logger = options.logger || (() => {});
 
   try {
-    log("info", "🚀 Starting project creation...");
-    log("info", `Template: ${options.templateID}`);
-    log("info", `Project Name: ${options.projectName}`);
-    log("info", `Repo Path: ${repoRootDisplay}`);
+    log('info', '🚀 Starting project creation...');
+    log('info', `Template: ${options.templateID}`);
+    log('info', `Project Name: ${options.projectName}`);
+    log('info', `Repo Path: ${repoRootDisplay}`);
 
     if (options.starterFiles && Object.keys(options.starterFiles).length > 0) {
       log(
-        "info",
+        'info',
         `Custom starter files: ${Object.keys(options.starterFiles).length}`,
       );
     }
@@ -63,19 +63,19 @@ export async function createProject(
 
     if (!nameValidation.valid) {
       log(
-        "error",
-        `❌ Invalid project name: ${nameValidation.error ?? "Invalid name"}`,
+        'error',
+        `❌ Invalid project name: ${nameValidation.error ?? 'Invalid name'}`,
       );
-      log("info", "");
-      log("info", "Valid names must:");
-      log("info", "  - Contain at least one alphanumeric character");
-      log("info", "  - Not start or end with special characters");
-      log("info", "  - Not contain invalid filesystem characters");
-      log("info", "  - Not be reserved system names");
+      log('info', '');
+      log('info', 'Valid names must:');
+      log('info', '  - Contain at least one alphanumeric character');
+      log('info', '  - Not start or end with special characters');
+      log('info', '  - Not contain invalid filesystem characters');
+      log('info', '  - Not be reserved system names');
 
       return {
         success: false,
-        error: nameValidation.error ?? "Invalid project name",
+        error: nameValidation.error ?? 'Invalid project name',
         metadata: {
           templateID: options.templateID,
           projectName: options.projectName,
@@ -89,8 +89,8 @@ export async function createProject(
       const available = listAvailableTemplates();
 
       log(
-        "error",
-        `❌ Template "${options.templateID}" not found. Available templates: ${available.join(", ")}`,
+        'error',
+        `❌ Template "${options.templateID}" not found. Available templates: ${available.join(', ')}`,
       );
 
       return {
@@ -113,14 +113,14 @@ export async function createProject(
     // Step 1: Read repository configuration (if present)
     let repoStatus = await readRepoConfig(options.repoRoot);
 
-    if (repoStatus.status === "parse_error") {
+    if (repoStatus.status === 'parse_error') {
       log(
-        "error",
+        'error',
         `❌ Found ${configFullPathDisplay} but it contains invalid JSON`,
       );
 
       if (repoStatus.errorMessage) {
-        log("error", `   ${repoStatus.errorMessage}`);
+        log('error', `   ${repoStatus.errorMessage}`);
       }
 
       return {
@@ -132,11 +132,11 @@ export async function createProject(
           repoPath: repoRootDisplay,
         },
       };
-    } else if (repoStatus.status === "read_error") {
-      log("error", `❌ Found ${configFullPathDisplay} but cannot read it`);
+    } else if (repoStatus.status === 'read_error') {
+      log('error', `❌ Found ${configFullPathDisplay} but cannot read it`);
 
       if (repoStatus.errorMessage) {
-        log("error", `   ${repoStatus.errorMessage}`);
+        log('error', `   ${repoStatus.errorMessage}`);
       }
 
       return {
@@ -148,24 +148,24 @@ export async function createProject(
           repoPath: repoRootDisplay,
         },
       };
-    } else if (repoStatus.status === "not_found") {
+    } else if (repoStatus.status === 'not_found') {
       // Auto-initialize repo if missing to keep flow simple
       const repoName = DEFAULT_REPO_NAME;
       const initResult = await initRepo(options.repoRoot, repoName);
 
       if (initResult.success) {
-        log("info", `🛠️  Created ${REPO_CONFIG_FILE} (repo: ${repoName})`);
-        repoStatus = { status: "found", config: initResult.config };
+        log('info', `🛠️  Created ${REPO_CONFIG_FILE} (repo: ${repoName})`);
+        repoStatus = { status: 'found', config: initResult.config };
       } else {
-        log("error", "❌ Failed to initialize repository configuration");
+        log('error', '❌ Failed to initialize repository configuration');
 
         if (initResult.errorMessage) {
-          log("error", `   ${initResult.errorMessage}`);
+          log('error', `   ${initResult.errorMessage}`);
       }
 
       return {
         success: false,
-          error: "Failed to initialize repository configuration",
+          error: 'Failed to initialize repository configuration',
         metadata: {
           templateID: options.templateID,
           projectName: options.projectName,
@@ -173,12 +173,12 @@ export async function createProject(
         },
       };
     }
-    } else if (repoStatus.status !== "found") {
-      log("error", "❌ Unsupported repository status returned");
+    } else if (repoStatus.status !== 'found') {
+      log('error', '❌ Unsupported repository status returned');
 
       return {
         success: false,
-        error: "Unsupported repository status returned",
+        error: 'Unsupported repository status returned',
         metadata: {
           templateID: options.templateID,
           projectName: options.projectName,
@@ -198,7 +198,7 @@ export async function createProject(
 
     // Step 2: Update repo config to add project entry
     try {
-      if (repoStatus.status === "found") {
+      if (repoStatus.status === 'found') {
         const updated = addProjectToRepo(
           repoStatus.config,
           options.projectName,
@@ -212,18 +212,18 @@ export async function createProject(
           JSON.stringify(updated, null, 2),
         );
 
-        log("info", `📝 Updated ${REPO_CONFIG_FILE}`);
+        log('info', `📝 Updated ${REPO_CONFIG_FILE}`);
       }
     } catch (err) {
       log(
-        "error",
+        'error',
         `❌ Failed to update ${REPO_CONFIG_FILE}, Aborting project creation`,
       );
 
       const errorMessage = err instanceof Error ? err.message : String(err);
 
       if (errorMessage) {
-        log("error", `   ${errorMessage}`);
+        log('error', `   ${errorMessage}`);
       }
 
       return {
@@ -241,22 +241,22 @@ export async function createProject(
     try {
       await ensureBaseFiles(
         options.repoRoot,
-        (repoStatus.status === "found"
+        (repoStatus.status === 'found'
           ? repoStatus.config.name
           : DEFAULT_REPO_NAME) as string,
-        (message) => log("info", message),
+        (message) => log('info', message),
       );
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      log("error", "❌ Failed to ensure base files, aborting project creation");
+      log('error', '❌ Failed to ensure base files, aborting project creation');
 
       if (errorMessage) {
-        log("error", `   ${errorMessage}`);
+        log('error', `   ${errorMessage}`);
       }
 
       return {
         success: false,
-        error: "Failed to ensure base files",
+        error: 'Failed to ensure base files',
         metadata: {
           templateID: options.templateID,
           projectName: options.projectName,
@@ -269,25 +269,25 @@ export async function createProject(
     if (options.starterFiles && Object.keys(options.starterFiles).length > 0) {
       try {
         log(
-          "info",
+          'info',
           `📄 Writing ${Object.keys(options.starterFiles).length} starter files`,
         );
 
         for (const [relPath, content] of Object.entries(options.starterFiles)) {
           await vfsWrite(options.repoRoot, relPath, content);
-          log("info", `   ${vfsDisplayPath(options.repoRoot, relPath)}`);
+          log('info', `   ${vfsDisplayPath(options.repoRoot, relPath)}`);
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
-        log("error", "❌ Failed to write starter files");
+        log('error', '❌ Failed to write starter files');
 
         if (errorMessage) {
-          log("error", `   ${errorMessage}`);
+          log('error', `   ${errorMessage}`);
         }
 
         return {
           success: false,
-          error: "Failed to write starter files",
+          error: 'Failed to write starter files',
           metadata: {
             templateID: options.templateID,
             projectName: options.projectName,
@@ -299,7 +299,7 @@ export async function createProject(
     return result;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    log("error", `❌ Failed to create project: ${errorMessage}`);
+    log('error', `❌ Failed to create project: ${errorMessage}`);
 
     return {
       success: false,
@@ -356,28 +356,28 @@ export async function readRepoConfig(
     const result = await vfsReadText(dirPath, REPO_CONFIG_FILE);
 
     if (!result.ok) {
-      if (result.code === "ENOENT") {
-        return { status: "not_found" };
+      if (result.code === 'ENOENT') {
+        return { status: 'not_found' };
       }
 
-      return { status: "read_error", errorMessage: result.message };
+      return { status: 'read_error', errorMessage: result.message };
     }
 
     try {
       const config = JSON.parse(result.text) as RepoConfig;
-      return { status: "found", config };
+      return { status: 'found', config };
     } catch (parseError) {
       return {
-        status: "parse_error",
+        status: 'parse_error',
         errorMessage:
-          parseError instanceof Error ? parseError.message : "Invalid JSON",
+          parseError instanceof Error ? parseError.message : 'Invalid JSON',
       };
     }
   } catch (error: unknown) {
     return {
-      status: "read_error",
+      status: 'read_error',
       errorMessage:
-        error instanceof Error ? error.message : "Failed to read file",
+        error instanceof Error ? error.message : 'Failed to read file',
     };
   }
 }
@@ -389,27 +389,27 @@ export async function initRepo(
   // Check for existing or problematic config first
   const existing = await readRepoConfig(dirPath);
 
-  if (existing.status === "found") {
-    return { success: false, error: "already_exists" };
-  } else if (existing.status === "parse_error") {
+  if (existing.status === 'found') {
+    return { success: false, error: 'already_exists' };
+  } else if (existing.status === 'parse_error') {
     return {
       success: false,
-      error: "parse_error",
+      error: 'parse_error',
       errorMessage: existing.errorMessage,
     };
-  } else if (existing.status === "read_error") {
+  } else if (existing.status === 'read_error') {
     return {
       success: false,
-      error: "read_error",
+      error: 'read_error',
       errorMessage: existing.errorMessage,
     };
-  } else if (existing.status !== "not_found") {
+  } else if (existing.status !== 'not_found') {
     // Guard for any future status values we don't explicitly handle yet
     return {
       success: false,
-      error: "unsupported_status",
+      error: 'unsupported_status',
       errorMessage: `Unsupported repo status: ${String(
-        (existing as Record<string, unknown>).status ?? "unknown",
+        (existing as Record<string, unknown>).status ?? 'unknown',
       )}`,
     };
   }
@@ -420,7 +420,7 @@ export async function initRepo(
   if (!validation.valid) {
     return {
       success: false,
-      error: "invalid_name",
+      error: 'invalid_name',
       errorMessage: validation.error,
     };
   }
@@ -447,9 +447,9 @@ export async function initRepo(
     // Return error result
     return {
       success: false,
-      error: "write_error",
+      error: 'write_error',
       errorMessage:
-        error instanceof Error ? error.message : "Failed to write file",
+        error instanceof Error ? error.message : 'Failed to write file',
     };
   }
 }
@@ -459,7 +459,7 @@ export {
   STARTER_TEMPLATES,
   REPO_CONFIG_FILE,
   DEFAULT_REPO_NAME,
-} from "./lib/starter-templates/consts";
+} from './lib/starter-templates/consts';
 
 // Re-export types for public API consumers
 export type {
@@ -473,13 +473,13 @@ export type {
   NameValidationResult,
   RepoConfigResult,
   InitRepoResult,
-} from "./lib/starter-templates/types";
+} from './lib/starter-templates/types';
 
 export type {
   InMemoryDir,
   FileRoot,
   FileContent,
-} from "./lib/starter-templates/vfs";
+} from './lib/starter-templates/vfs';
 
 // Re-export validation function
-export { validateName } from "./lib/starter-templates/validate-name";
+export { validateName } from './lib/starter-templates/validate-name';

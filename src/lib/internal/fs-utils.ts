@@ -1,5 +1,5 @@
-import fs from "fs/promises";
-import path from "path";
+import fs from 'fs/promises';
+import path from 'path';
 
 interface ManifestResult {
   success: boolean;
@@ -41,11 +41,11 @@ export async function checkAndLoadManifest(
   buildDir: string,
   isSSR: boolean = false,
 ): Promise<ManifestResult> {
-  const manifestFile = isSSR ? "ssr-manifest.json" : "manifest.json";
+  const manifestFile = isSSR ? 'ssr-manifest.json' : 'manifest.json';
   const manifestPath = path.resolve(buildDir, `.vite/${manifestFile}`);
 
   try {
-    const manifestContent = await fs.readFile(manifestPath, "utf-8");
+    const manifestContent = await fs.readFile(manifestPath, 'utf-8');
     const manifest = JSON.parse(manifestContent);
 
     return {
@@ -55,7 +55,7 @@ export async function checkAndLoadManifest(
   } catch (error) {
     return {
       success: false,
-      error: `Failed to load ${isSSR ? "SSR " : ""}manifest from ${manifestPath}: ${error}`,
+      error: `Failed to load ${isSSR ? 'SSR ' : ''}manifest from ${manifestPath}: ${error}`,
     };
   }
 }
@@ -70,15 +70,15 @@ export async function checkAndLoadManifest(
 export function getServerEntryFromManifest(
   manifest: Record<string, unknown>,
   serverBuildDir: string,
-  serverEntry: string = "entry-server",
+  serverEntry: string = 'entry-server',
 ): ServerEntryResult {
   // Find the entry in the manifest
   for (const [key, value] of Object.entries(manifest)) {
     if (
       key.includes(serverEntry) &&
-      typeof value === "object" &&
+      typeof value === 'object' &&
       value !== null &&
-      "file" in value
+      'file' in value
     ) {
       const fileName = (value as { file: string }).file;
       const entryPath = path.resolve(serverBuildDir, fileName);
@@ -103,7 +103,7 @@ export function getServerEntryFromManifest(
  */
 export async function readHTMLFile(filePath: string): Promise<HTMLFileResult> {
   try {
-    const content = await fs.readFile(filePath, "utf-8");
+    const content = await fs.readFile(filePath, 'utf-8');
     return {
       exists: true,
       content,
@@ -112,9 +112,9 @@ export async function readHTMLFile(filePath: string): Promise<HTMLFileResult> {
     // Check if it's a file not found error
     if (
       error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "ENOENT"
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === 'ENOENT'
     ) {
       return {
         exists: false,
@@ -136,7 +136,7 @@ export async function readHTMLFile(filePath: string): Promise<HTMLFileResult> {
  */
 export async function readJSONFile(filePath: string): Promise<JSONFileResult> {
   try {
-    const content = await fs.readFile(filePath, "utf-8");
+    const content = await fs.readFile(filePath, 'utf-8');
     const data = JSON.parse(content) as Record<string, unknown>;
 
     return {
@@ -147,9 +147,9 @@ export async function readJSONFile(filePath: string): Promise<JSONFileResult> {
     // Check if it's a file not found error
     if (
       error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "ENOENT"
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === 'ENOENT'
     ) {
       return {
         exists: false,
@@ -177,7 +177,7 @@ export async function writeJSONFile(
   try {
     // Format JSON with 2-space indentation for human readability
     const jsonContent = JSON.stringify(data, null, 2);
-    await fs.writeFile(filePath, jsonContent, "utf-8");
+    await fs.writeFile(filePath, jsonContent, 'utf-8');
 
     return {
       success: true,
@@ -201,7 +201,7 @@ export async function writeHTMLFile(
   content: string,
 ): Promise<WriteResult> {
   try {
-    await fs.writeFile(filePath, content, "utf-8");
+    await fs.writeFile(filePath, content, 'utf-8');
 
     return {
       success: true,

@@ -1,4 +1,4 @@
-import { getDomain, getSubdomain, getPublicSuffix } from "tldts";
+import { getDomain, getSubdomain, getPublicSuffix } from 'tldts';
 import {
   isAllWildcards,
   hasPartialLabelWildcard,
@@ -13,7 +13,7 @@ import {
   normalizeWildcardPattern,
   INTERNAL_PSEUDO_TLDS,
   INVALID_DOMAIN_CHARS,
-} from "./helpers";
+} from './helpers';
 
 /**
  * Normalize origin URL for consistent comparison
@@ -22,8 +22,8 @@ import {
  */
 export function normalizeOrigin(origin: string): string {
   // Preserve literal "null" origin exactly; treat all other invalids as empty sentinel
-  if (origin === "null") {
-    return "null";
+  if (origin === 'null') {
+    return 'null';
   }
 
   try {
@@ -36,21 +36,21 @@ export function normalizeOrigin(origin: string): string {
 
     // If hostname normalization fails (pathological IDN), return original origin
     // to avoid emitting values like "https://" with an empty host.
-    if (normalizedHostname === "") {
-      return "";
+    if (normalizedHostname === '') {
+      return '';
     }
 
     // Preserve brackets for IPv6 hosts; avoid double-bracketing if already present
     let host: string;
     // Extract the raw bracketed host (if present) from the authority portion only
     // to prevent matching brackets in path/query/fragment portions of full URLs.
-    const schemeSep = normalizedOrigin.indexOf("://");
+    const schemeSep = normalizedOrigin.indexOf('://');
     const afterScheme = normalizedOrigin.slice(schemeSep + 3);
     const cut = Math.min(
       ...[
-        afterScheme.indexOf("/"),
-        afterScheme.indexOf("?"),
-        afterScheme.indexOf("#"),
+        afterScheme.indexOf('/'),
+        afterScheme.indexOf('?'),
+        afterScheme.indexOf('#'),
       ].filter((i) => i !== -1),
     );
     const authority =
@@ -62,14 +62,14 @@ export function normalizeOrigin(origin: string): string {
     const hostnameForIpv6Check = (
       rawBracketContent ? rawBracketContent : normalizedHostname
     )
-      .replace(/%25/g, "%")
+      .replace(/%25/g, '%')
       .toLowerCase();
 
     if (isIPv6(hostnameForIpv6Check)) {
       // Canonicalize bracket content using shared helper (do not decode %25)
       const raw = rawBracketContent
         ? rawBracketContent
-        : normalizedHostname.replace(/^\[|\]$/g, "");
+        : normalizedHostname.replace(/^\[|\]$/g, '');
 
       const canon = canonicalizeBracketedIPv6Content(
         raw /* preserveZoneIdCase: false */,
@@ -80,18 +80,18 @@ export function normalizeOrigin(origin: string): string {
     }
 
     // Normalize default ports for http/https
-    let port = "";
+    let port = '';
     const protocolLower = url.protocol.toLowerCase();
     const defaultPort =
-      protocolLower === "https:"
-        ? "443"
-        : protocolLower === "http:"
-          ? "80"
-          : "";
+      protocolLower === 'https:'
+        ? '443'
+        : protocolLower === 'http:'
+          ? '80'
+          : '';
 
     if (url.port) {
       // Remove default ports for known protocols
-      port = url.port === defaultPort ? "" : `:${url.port}`;
+      port = url.port === defaultPort ? '' : `:${url.port}`;
     } else {
       // Fallback: some URL implementations with exotic hosts might not populate url.port
       // even if an explicit port exists in the original string. Detect and normalize manually.
@@ -102,13 +102,13 @@ export function normalizeOrigin(origin: string): string {
 
       if (portMatch) {
         const explicit = portMatch[1];
-        port = explicit === defaultPort ? "" : `:${explicit}`;
+        port = explicit === defaultPort ? '' : `:${explicit}`;
       } else {
         // Fallback for non-IPv6 authorities: detect :port after host
         portMatch = authority.match(/^(?:[^@]*@)?([^:]+):(\d+)$/);
         if (portMatch) {
           const explicit = portMatch[2];
-          port = explicit === defaultPort ? "" : `:${explicit}`;
+          port = explicit === defaultPort ? '' : `:${explicit}`;
         }
       }
     }
@@ -123,9 +123,9 @@ export function normalizeOrigin(origin: string): string {
     if (m) {
       const schemeLower = m[1].toLowerCase();
       const bracketContent = m[3];
-      const portStr = m[4] || "";
+      const portStr = m[4] || '';
       const defaultPort =
-        schemeLower === "https" ? "443" : schemeLower === "http" ? "80" : "";
+        schemeLower === 'https' ? '443' : schemeLower === 'http' ? '80' : '';
 
       // Canonicalize bracket content using shared helper
       const canon = canonicalizeBracketedIPv6Content(
@@ -133,13 +133,13 @@ export function normalizeOrigin(origin: string): string {
       );
 
       const host = `[${canon}]`;
-      const port = portStr && portStr !== defaultPort ? `:${portStr}` : "";
+      const port = portStr && portStr !== defaultPort ? `:${portStr}` : '';
       return `${schemeLower}://${host}${port}`;
     }
 
     // If URL parsing fails and pattern doesn't match bracketed IPv6, return empty sentinel
     // (handles invalid URLs). Literal "null" is handled above.
-    return "";
+    return '';
   }
 }
 
@@ -168,7 +168,7 @@ export function matchesWildcardDomain(
 ): boolean {
   const normalizedDomain = normalizeDomain(domain);
 
-  if (normalizedDomain === "") {
+  if (normalizedDomain === '') {
     return false; // invalid domain cannot match
   }
 
@@ -179,12 +179,12 @@ export function matchesWildcardDomain(
   }
 
   // Check if pattern contains wildcards
-  if (!normalizedPattern.includes("*")) {
+  if (!normalizedPattern.includes('*')) {
     return false;
   }
 
   // Allow single "*" as global wildcard - matches both domains and IP addresses
-  if (normalizedPattern === "*") {
+  if (normalizedPattern === '*') {
     return true;
   }
 
@@ -201,14 +201,14 @@ export function matchesWildcardDomain(
   // PSL/IP tail guard: ensure the fixed tail is neither a PSL nor an IP (except explicit localhost)
   // This prevents patterns like "*.com" or "**.co.uk" from matching
 
-  const labels = normalizedPattern.split(".");
+  const labels = normalizedPattern.split('.');
   const { fixedTail: fixedTailLabels } =
     extractFixedTailAfterLastWildcard(labels);
   if (fixedTailLabels.length === 0) {
     return false; // require a concrete tail
   }
 
-  const tail = fixedTailLabels.join(".");
+  const tail = fixedTailLabels.join('.');
 
   if (!INTERNAL_PSEUDO_TLDS.has(tail)) {
     if (isIPAddress(tail)) {
@@ -224,7 +224,7 @@ export function matchesWildcardDomain(
 
   // Special case: prevent "**.<registrable>" from matching the apex registrable domain itself
   // e.g., "**.example.com" should NOT match "example.com"
-  if (normalizedPattern.startsWith("**.")) {
+  if (normalizedPattern.startsWith('**.')) {
     const remainder = normalizedPattern.slice(3);
     const remainderNormalized = normalizeDomain(remainder);
 
@@ -302,25 +302,25 @@ export function matchesWildcardOrigin(
   // For CORS, only http/https are relevant; reject other schemes early when parsed.
   if (originUrl) {
     const scheme = originUrl.protocol.toLowerCase();
-    if (scheme !== "http:" && scheme !== "https:") {
+    if (scheme !== 'http:' && scheme !== 'https:') {
       return false;
     }
   }
 
   // Global wildcard: single "*" matches any valid HTTP(S) origin
-  if (normalizedPattern === "*") {
+  if (normalizedPattern === '*') {
     return originUrl !== null; // Must be a valid URL with HTTP(S) scheme
   }
 
   // Protocol-only wildcards: require valid URL parsing for security
   const patternLower = normalizedPattern.toLowerCase();
 
-  if (patternLower === "https://*" || patternLower === "http://*") {
+  if (patternLower === 'https://*' || patternLower === 'http://*') {
     if (!originUrl) {
       return false; // must be a valid URL
     }
 
-    const want = patternLower === "https://*" ? "https:" : "http:";
+    const want = patternLower === 'https://*' ? 'https:' : 'http:';
     return originUrl.protocol.toLowerCase() === want;
   }
 
@@ -332,16 +332,16 @@ export function matchesWildcardOrigin(
   try {
     const normalizedHostname = normalizeDomain(originUrl.hostname);
 
-    if (normalizedHostname === "") {
+    if (normalizedHostname === '') {
       return false;
     }
 
     const originProtocol = originUrl.protocol.slice(0, -1).toLowerCase(); // Remove trailing ":" and lowercase
 
     // Handle protocol-specific domain wildcards: https://*.example.com
-    if (normalizedPattern.includes("://")) {
-      const [patternProtocol, ...rest] = normalizedPattern.split("://");
-      const domainPattern = rest.join("://");
+    if (normalizedPattern.includes('://')) {
+      const [patternProtocol, ...rest] = normalizedPattern.split('://');
+      const domainPattern = rest.join('://');
 
       // Reject non-domain characters in the domain pattern portion
       if (INVALID_DOMAIN_CHARS.test(domainPattern)) {
@@ -354,7 +354,7 @@ export function matchesWildcardOrigin(
       }
 
       // Fast reject: domain pattern must contain at least one wildcard and not be all-wildcards
-      if (!domainPattern.includes("*") || isAllWildcards(domainPattern)) {
+      if (!domainPattern.includes('*') || isAllWildcards(domainPattern)) {
         return false;
       }
 
@@ -363,10 +363,10 @@ export function matchesWildcardOrigin(
     }
 
     // Handle domain wildcard patterns (including multi-label patterns)
-    if (normalizedPattern.includes("*")) {
+    if (normalizedPattern.includes('*')) {
       // Fast reject for invalid all-wildcards patterns (e.g., "*.*", "**.*")
       // Note: single "*" is handled above as global wildcard
-      if (normalizedPattern !== "*" && isAllWildcards(normalizedPattern)) {
+      if (normalizedPattern !== '*' && isAllWildcards(normalizedPattern)) {
         return false;
       }
 
@@ -396,7 +396,7 @@ export function matchesDomainList(
   const normalizedDomain = normalizeDomain(domain);
 
   // Early exit: invalid input cannot match any allowed domain
-  if (normalizedDomain === "") {
+  if (normalizedDomain === '') {
     return false;
   }
 
@@ -411,12 +411,12 @@ export function matchesDomainList(
 
   if (originLike.length > 0) {
     throw new Error(
-      `matchesDomainList: origin-style patterns are not allowed in domain lists: ${originLike.join(", ")}`,
+      `matchesDomainList: origin-style patterns are not allowed in domain lists: ${originLike.join(', ')}`,
     );
   }
 
   for (const allowed of cleaned) {
-    if (allowed.includes("*")) {
+    if (allowed.includes('*')) {
       if (matchesWildcardDomain(domain, allowed)) {
         return true;
       }
@@ -449,16 +449,16 @@ export function matchesDomainList(
  * - Wildcards cannot target IP tails.
  * - PSL tail guard (with allowlist for internal pseudo-TLDs like localhost).
  */
-export type WildcardKind = "none" | "global" | "protocol" | "subdomain";
+export type WildcardKind = 'none' | 'global' | 'protocol' | 'subdomain';
 
 export function validateConfigEntry(
   entry: string,
-  context: "domain" | "origin",
+  context: 'domain' | 'origin',
   options?: { allowGlobalWildcard?: boolean; allowProtocolWildcard?: boolean },
 ): { valid: boolean; info?: string; wildcardKind: WildcardKind } {
-  const raw = (entry ?? "").trim();
+  const raw = (entry ?? '').trim();
   if (!raw) {
-    return { valid: false, info: "empty entry", wildcardKind: "none" };
+    return { valid: false, info: 'empty entry', wildcardKind: 'none' };
   }
 
   // Normalize options with secure defaults
@@ -473,10 +473,10 @@ export function validateConfigEntry(
 
   // Helper: validate non-wildcard labels (punycode + DNS limits)
   function validateConcreteLabels(pattern: string): boolean {
-    const labels = pattern.split(".");
+    const labels = pattern.split('.');
     const concrete: string[] = [];
     for (const lbl of labels) {
-      if (lbl === "*" || lbl === "**") {
+      if (lbl === '*' || lbl === '**') {
         continue;
       }
 
@@ -486,7 +486,7 @@ export function validateConfigEntry(
 
       const nd = normalizeDomain(lbl);
 
-      if (nd === "") {
+      if (nd === '') {
         return false;
       }
 
@@ -498,7 +498,7 @@ export function validateConfigEntry(
     }
 
     if (concrete.length > 0) {
-      if (!checkDnsLengths(concrete.join("."))) {
+      if (!checkDnsLengths(concrete.join('.'))) {
         return false;
       }
     }
@@ -514,7 +514,7 @@ export function validateConfigEntry(
       return true; // invalid pattern
     }
 
-    const labels = normalized.split(".");
+    const labels = normalized.split('.');
 
     // Extract the fixed tail after the last wildcard
     const { fixedTail: fixedTailLabels } =
@@ -523,7 +523,7 @@ export function validateConfigEntry(
       return true; // require a concrete tail
     }
 
-    const tail = fixedTailLabels.join(".");
+    const tail = fixedTailLabels.join('.');
     if (INTERNAL_PSEUDO_TLDS.has(tail)) {
       return false; // allow *.localhost etc.
     }
@@ -546,18 +546,18 @@ export function validateConfigEntry(
     // Normalize Unicode dots and trim
     const trimmed = pattern
       .trim()
-      .normalize("NFC")
-      .replace(/[．。｡]/g, "."); // normalize Unicode dot variants to ASCII
+      .normalize('NFC')
+      .replace(/[．。｡]/g, '.'); // normalize Unicode dot variants to ASCII
 
-    if (!trimmed.includes("*")) {
-      return { valid: false, wildcardKind: "none" };
+    if (!trimmed.includes('*')) {
+      return { valid: false, wildcardKind: 'none' };
     }
 
     if (isAllWildcards(trimmed)) {
       return {
         valid: false,
-        info: "all-wildcards pattern is not allowed",
-        wildcardKind: "none",
+        info: 'all-wildcards pattern is not allowed',
+        wildcardKind: 'none',
       };
     }
 
@@ -565,36 +565,36 @@ export function validateConfigEntry(
     if (INVALID_DOMAIN_CHARS.test(trimmed)) {
       return {
         valid: false,
-        info: "invalid characters in domain pattern",
-        wildcardKind: "none",
+        info: 'invalid characters in domain pattern',
+        wildcardKind: 'none',
       };
     }
 
     if (hasPartialLabelWildcard(trimmed)) {
       return {
         valid: false,
-        info: "partial-label wildcards are not allowed",
-        wildcardKind: "none",
+        info: 'partial-label wildcards are not allowed',
+        wildcardKind: 'none',
       };
     }
 
     if (!validateConcreteLabels(trimmed)) {
       return {
         valid: false,
-        info: "invalid domain labels",
-        wildcardKind: "none",
+        info: 'invalid domain labels',
+        wildcardKind: 'none',
       };
     }
 
     if (wildcardTailIsInvalid(trimmed)) {
       return {
         valid: false,
-        info: "wildcard tail targets public suffix or IP (disallowed)",
-        wildcardKind: "none",
+        info: 'wildcard tail targets public suffix or IP (disallowed)',
+        wildcardKind: 'none',
       };
     }
 
-    return { valid: true, wildcardKind: "subdomain" };
+    return { valid: true, wildcardKind: 'subdomain' };
   }
 
   // Helper: exact domain check (no protocols). Reject apex public suffixes.
@@ -606,8 +606,8 @@ export function validateConfigEntry(
     if (/^[a-z][a-z0-9+\-.]*:\/\//i.test(s)) {
       return {
         valid: false,
-        info: "protocols are not allowed in domain context",
-        wildcardKind: "none",
+        info: 'protocols are not allowed in domain context',
+        wildcardKind: 'none',
       };
     }
 
@@ -617,30 +617,30 @@ export function validateConfigEntry(
     const sDots = toAsciiDots(s);
     if (isIPAddress(sDots)) {
       const nd = normalizeDomain(sDots);
-      if (nd === "") {
+      if (nd === '') {
         return {
           valid: false,
-          info: "invalid IP address",
-          wildcardKind: "none",
+          info: 'invalid IP address',
+          wildcardKind: 'none',
         };
       }
 
-      return { valid: true, wildcardKind: "none" };
+      return { valid: true, wildcardKind: 'none' };
     }
 
     // For non-IP addresses, reject URL-like characters
     if (INVALID_DOMAIN_CHARS.test(s)) {
       return {
         valid: false,
-        info: "invalid characters in domain",
-        wildcardKind: "none",
+        info: 'invalid characters in domain',
+        wildcardKind: 'none',
       };
     }
 
     const nd = normalizeDomain(s);
 
-    if (nd === "") {
-      return { valid: false, info: "invalid domain", wildcardKind: "none" };
+    if (nd === '') {
+      return { valid: false, info: 'invalid domain', wildcardKind: 'none' };
     }
 
     const ps = getPublicSuffix(nd);
@@ -648,36 +648,36 @@ export function validateConfigEntry(
     if (ps && ps === nd && !INTERNAL_PSEUDO_TLDS.has(nd)) {
       return {
         valid: false,
-        info: "entry equals a public suffix (not registrable)",
-        wildcardKind: "none",
+        info: 'entry equals a public suffix (not registrable)',
+        wildcardKind: 'none',
       };
     }
-    return { valid: true, wildcardKind: "none" };
+    return { valid: true, wildcardKind: 'none' };
   }
 
   // Domain context path
-  if (context === "domain") {
+  if (context === 'domain') {
     // Reject any origin-style entries (with protocols) upfront
     if (/^[a-z][a-z0-9+\-.]*:\/\//i.test(raw)) {
       return {
         valid: false,
-        info: "protocols are not allowed in domain context",
-        wildcardKind: "none",
+        info: 'protocols are not allowed in domain context',
+        wildcardKind: 'none',
       };
     }
 
     // Special-case: global wildcard in domain context (config-time validation)
-    if (raw === "*") {
+    if (raw === '*') {
       return opts.allowGlobalWildcard
-        ? { valid: true, wildcardKind: "global" }
+        ? { valid: true, wildcardKind: 'global' }
         : {
             valid: false,
             info: "global wildcard '*' not allowed in this context",
-            wildcardKind: "none",
+            wildcardKind: 'none',
           };
     }
 
-    if (raw.includes("*")) {
+    if (raw.includes('*')) {
       return validateDomainWildcard(raw);
     }
     return validateExactDomain(raw);
@@ -685,25 +685,25 @@ export function validateConfigEntry(
 
   // Origin context
   // Special-case: literal "null" origin is allowed by exact inclusion
-  if (raw.toLowerCase() === "null") {
-    return { valid: true, wildcardKind: "none" };
+  if (raw.toLowerCase() === 'null') {
+    return { valid: true, wildcardKind: 'none' };
   }
 
   // Special-case: global wildcard in origin context (config-time validation)
-  if (raw === "*") {
+  if (raw === '*') {
     return opts.allowGlobalWildcard
-      ? { valid: true, wildcardKind: "global" }
+      ? { valid: true, wildcardKind: 'global' }
       : {
           valid: false,
           info: "global wildcard '*' not allowed in this context",
-          wildcardKind: "none",
+          wildcardKind: 'none',
         };
   }
 
-  const schemeIdx = raw.indexOf("://");
+  const schemeIdx = raw.indexOf('://');
   if (schemeIdx === -1) {
     // Bare domain/or domain pattern allowed in origin lists; reuse domain rules
-    if (raw.includes("*")) {
+    if (raw.includes('*')) {
       return validateDomainWildcard(raw);
     }
     return validateExactDomain(raw);
@@ -714,75 +714,75 @@ export function validateConfigEntry(
   if (!rest) {
     return {
       valid: false,
-      info: "missing host in origin",
-      wildcardKind: "none",
+      info: 'missing host in origin',
+      wildcardKind: 'none',
     };
   }
 
   // Disallow path/query/fragment in origin entries
-  if (rest.includes("/") || rest.includes("#") || rest.includes("?")) {
+  if (rest.includes('/') || rest.includes('#') || rest.includes('?')) {
     return {
       valid: false,
-      info: "origin must not contain path, query, or fragment",
-      wildcardKind: "none",
+      info: 'origin must not contain path, query, or fragment',
+      wildcardKind: 'none',
     };
   }
 
   // Reject userinfo in origin entries for security and clarity
-  if (rest.includes("@")) {
+  if (rest.includes('@')) {
     return {
       valid: false,
-      info: "origin must not include userinfo",
-      wildcardKind: "none",
+      info: 'origin must not include userinfo',
+      wildcardKind: 'none',
     };
   }
 
   // Protocol-only wildcard: scheme://*
-  if (rest === "*") {
+  if (rest === '*') {
     if (!opts.allowProtocolWildcard) {
       return {
         valid: false,
-        info: "protocol wildcard not allowed",
-        wildcardKind: "none",
+        info: 'protocol wildcard not allowed',
+        wildcardKind: 'none',
       };
     }
 
     const info =
-      scheme === "http" || scheme === "https"
+      scheme === 'http' || scheme === 'https'
         ? undefined
-        : "non-http(s) scheme; CORS may not match";
-    return { valid: true, info, wildcardKind: "protocol" };
+        : 'non-http(s) scheme; CORS may not match';
+    return { valid: true, info, wildcardKind: 'protocol' };
   }
 
   // Extract host (and optional port) while respecting IPv6 brackets
   let host = rest;
   let portPresent = false;
 
-  if (rest.startsWith("[")) {
-    const end = rest.indexOf("]");
+  if (rest.startsWith('[')) {
+    const end = rest.indexOf(']');
     if (end === -1) {
       return {
         valid: false,
-        info: "unclosed IPv6 bracket",
-        wildcardKind: "none",
+        info: 'unclosed IPv6 bracket',
+        wildcardKind: 'none',
       };
     }
     host = rest.slice(0, end + 1);
     const after = rest.slice(end + 1);
-    if (after.startsWith(":")) {
+    if (after.startsWith(':')) {
       // port present -> allowed for exact origins, but reject with wildcard hosts below
       // leave host as bracketed literal
       portPresent = true;
     } else if (after.length > 0) {
       return {
         valid: false,
-        info: "unexpected characters after IPv6 host",
-        wildcardKind: "none",
+        info: 'unexpected characters after IPv6 host',
+        wildcardKind: 'none',
       };
     }
   } else {
     // strip port if present
-    const colon = rest.indexOf(":");
+    const colon = rest.indexOf(':');
     if (colon !== -1) {
       host = rest.slice(0, colon);
       // optional port part is fine for exact origins
@@ -791,21 +791,21 @@ export function validateConfigEntry(
   }
 
   // If wildcard present in origin authority, treat as protocol+domain wildcard
-  if (host.includes("*")) {
+  if (host.includes('*')) {
     // Forbid ports/brackets with wildcard hosts
-    if (host.includes("[") || host.includes("]")) {
+    if (host.includes('[') || host.includes(']')) {
       return {
         valid: false,
-        info: "wildcard host cannot be an IP literal",
-        wildcardKind: "none",
+        info: 'wildcard host cannot be an IP literal',
+        wildcardKind: 'none',
       };
     }
 
     if (portPresent) {
       return {
         valid: false,
-        info: "ports are not allowed in wildcard origins",
-        wildcardKind: "none",
+        info: 'ports are not allowed in wildcard origins',
+        wildcardKind: 'none',
       };
     }
 
@@ -816,55 +816,55 @@ export function validateConfigEntry(
     }
 
     const info =
-      scheme === "http" || scheme === "https"
+      scheme === 'http' || scheme === 'https'
         ? undefined
-        : "non-http(s) scheme; CORS may not match";
-    return { valid: true, info, wildcardKind: "subdomain" };
+        : 'non-http(s) scheme; CORS may not match';
+    return { valid: true, info, wildcardKind: 'subdomain' };
   }
 
   // Exact origin: allow any scheme; validate host as domain or IP
-  if (host.startsWith("[")) {
+  if (host.startsWith('[')) {
     // Bracketed IPv6 literal
     // basic bracket shape already checked; accept as valid exact host
     const info =
-      scheme === "http" || scheme === "https"
+      scheme === 'http' || scheme === 'https'
         ? undefined
-        : "non-http(s) scheme; CORS may not match";
-    return { valid: true, info, wildcardKind: "none" };
+        : 'non-http(s) scheme; CORS may not match';
+    return { valid: true, info, wildcardKind: 'none' };
   }
 
   const hostDots = toAsciiDots(host);
   if (isIPAddress(hostDots)) {
     const info =
-      scheme === "http" || scheme === "https"
+      scheme === 'http' || scheme === 'https'
         ? undefined
-        : "non-http(s) scheme; CORS may not match";
-    return { valid: true, info, wildcardKind: "none" };
+        : 'non-http(s) scheme; CORS may not match';
+    return { valid: true, info, wildcardKind: 'none' };
   }
 
   // Domain host
   const nd = normalizeDomain(host);
 
-  if (nd === "") {
+  if (nd === '') {
     return {
       valid: false,
-      info: "invalid domain in origin",
-      wildcardKind: "none",
+      info: 'invalid domain in origin',
+      wildcardKind: 'none',
     };
   }
   const ps = getPublicSuffix(nd);
   if (ps && ps === nd && !INTERNAL_PSEUDO_TLDS.has(nd)) {
     return {
       valid: false,
-      info: "origin host equals a public suffix (not registrable)",
-      wildcardKind: "none",
+      info: 'origin host equals a public suffix (not registrable)',
+      wildcardKind: 'none',
     };
   }
   const info =
-    scheme === "http" || scheme === "https"
+    scheme === 'http' || scheme === 'https'
       ? undefined
-      : "non-http(s) scheme; CORS may not match";
-  return { valid: true, info, wildcardKind: "none" };
+      : 'non-http(s) scheme; CORS may not match';
+  return { valid: true, info, wildcardKind: 'none' };
 }
 
 /**
@@ -886,18 +886,18 @@ export function matchesOriginList(
 
   if (!origin) {
     // Only allow requests without Origin header if explicitly opted in AND "*" is in the list
-    return !!opts.treatNoOriginAsAllowed && cleaned.includes("*");
+    return !!opts.treatNoOriginAsAllowed && cleaned.includes('*');
   }
 
   const normalizedOrigin = normalizeOrigin(origin);
 
   return cleaned.some((allowed) => {
     // Global wildcard: single "*" matches any origin - delegate to matchesWildcardOrigin for proper validation
-    if (allowed === "*") {
-      return matchesWildcardOrigin(origin, "*");
+    if (allowed === '*') {
+      return matchesWildcardOrigin(origin, '*');
     }
 
-    if (allowed.includes("*")) {
+    if (allowed.includes('*')) {
       // Avoid double-normalizing/parsing; wildcard matcher handles parsing + normalization itself
       // We pass the raw origin/pattern here (vs normalized in the non-wildcard path) because
       // the wildcard matcher needs to parse the origin as a URL for protocol/host extraction
@@ -928,7 +928,7 @@ export function matchesCORSCredentialsList(
 
   for (const allowed of cleaned) {
     // Optional wildcard support for credentials lists (subdomain patterns only)
-    if (allowWildcard && allowed.includes("*")) {
+    if (allowWildcard && allowed.includes('*')) {
       if (matchesWildcardOrigin(origin, allowed)) {
         return true;
       }

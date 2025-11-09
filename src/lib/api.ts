@@ -1,5 +1,5 @@
-import { APIServer } from "./internal/APIServer";
-import type { APIServerOptions } from "./types";
+import { APIServer } from './internal/APIServer';
+import type { APIServerOptions } from './types';
 
 /**
  * Create an API server instance
@@ -45,4 +45,4 @@ export function serveAPI(options: APIServerOptions = {}): APIServer {
   return new APIServer(options);
 }
 
-export { APIServer } from "./internal/APIServer";
+export { APIServer } from './internal/APIServer';

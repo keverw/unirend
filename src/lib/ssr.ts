@@ -1,5 +1,5 @@
-import { SSRServer } from "./internal/SSRServer";
-import { ServeSSRDevOptions, ServeSSRProdOptions, SSRDevPaths } from "./types";
+import { SSRServer } from './internal/SSRServer';
+import { ServeSSRDevOptions, ServeSSRProdOptions, SSRDevPaths } from './types';
 
 /**
  * Development server handler for SSR applications using Vite's HMR and middleware.
@@ -16,7 +16,7 @@ export function serveSSRDev(
   options: ServeSSRDevOptions = {},
 ): SSRServer {
   return new SSRServer({
-    mode: "development",
+    mode: 'development',
     paths,
     options,
   });
@@ -38,7 +38,7 @@ export function serveSSRProd(
   options: ServeSSRProdOptions = {},
 ): SSRServer {
   return new SSRServer({
-    mode: "production",
+    mode: 'production',
     buildDir,
     options,
   });

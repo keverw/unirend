@@ -1,25 +1,25 @@
-import { exec } from "child_process";
-import { promisify } from "util";
-import * as path from "path";
-import { promises as fs } from "fs";
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import * as path from 'path';
+import { promises as fs } from 'fs';
 import type {
   BuildInfo,
   GenerateBuildInfoOptions,
   GenerationResult,
   SaveResult,
-} from "./types";
+} from './types';
 
 const execAsync = promisify(exec);
 
 // Fallback value for when build info cannot be determined
-const FALLBACK_VALUE = "(unknown)";
+const FALLBACK_VALUE = '(unknown)';
 
 // Core BuildInfo property names that cannot be overridden by custom properties
 const CORE_BUILD_INFO_PROPERTIES = new Set([
-  "build_timestamp",
-  "version",
-  "git_hash",
-  "git_branch",
+  'build_timestamp',
+  'version',
+  'git_hash',
+  'git_branch',
 ]);
 
 // Get the current timestamp
@@ -30,7 +30,7 @@ function getBuildTimestamp(): string {
 // Check if git CLI is available
 async function isGitAvailable(): Promise<boolean> {
   try {
-    await execAsync("git --version");
+    await execAsync('git --version');
     return true;
   } catch {
     return false;
@@ -44,9 +44,9 @@ async function getGitHash(workingDir: string): Promise<{
 }> {
   try {
     // Get the short hash (7 characters)
-    const { stdout } = await execAsync("git rev-parse --short HEAD", {
+    const { stdout } = await execAsync('git rev-parse --short HEAD', {
       cwd: workingDir,
-      encoding: "utf8",
+      encoding: 'utf8',
     });
 
     return { value: stdout.trim() };
@@ -64,9 +64,9 @@ async function getGitBranch(workingDir: string): Promise<{
   warning?: string;
 }> {
   try {
-    const { stdout } = await execAsync("git rev-parse --abbrev-ref HEAD", {
+    const { stdout } = await execAsync('git rev-parse --abbrev-ref HEAD', {
       cwd: workingDir,
-      encoding: "utf8",
+      encoding: 'utf8',
     });
 
     return { value: stdout.trim() };
@@ -108,7 +108,7 @@ export class GenerateBuildInfo {
     const gitAvailable = await isGitAvailable();
 
     if (!gitAvailable) {
-      warnings.push("Git CLI not found. Build info will use fallback values.");
+      warnings.push('Git CLI not found. Build info will use fallback values.');
     }
 
     // Check project version if needed
@@ -117,8 +117,8 @@ export class GenerateBuildInfo {
     if (!version) {
       // no version provided, try to read from package.json
       try {
-        const packageJsonPath = path.join(this.workingDir, "package.json");
-        const packageJsonContent = await fs.readFile(packageJsonPath, "utf8");
+        const packageJsonPath = path.join(this.workingDir, 'package.json');
+        const packageJsonContent = await fs.readFile(packageJsonPath, 'utf8');
         const packageJson = JSON.parse(packageJsonContent);
 
         // version found in package.json
@@ -201,29 +201,29 @@ export class GenerateBuildInfo {
       this.lastGeneratedResults || (await this.generateInfo());
 
     // Indentation for object properties
-    const indent = "  ";
+    const indent = '  ';
 
     // Core properties that always exist
     const coreProperties = [
       {
-        key: "build_timestamp",
+        key: 'build_timestamp',
         value: resultsToSave.buildInfo.build_timestamp,
-        exportName: "BUILD_TIMESTAMP",
+        exportName: 'BUILD_TIMESTAMP',
       },
       {
-        key: "version",
+        key: 'version',
         value: resultsToSave.buildInfo.version,
-        exportName: "APP_VERSION",
+        exportName: 'APP_VERSION',
       },
       {
-        key: "git_hash",
+        key: 'git_hash',
         value: resultsToSave.buildInfo.git_hash,
-        exportName: "GIT_HASH",
+        exportName: 'GIT_HASH',
       },
       {
-        key: "git_branch",
+        key: 'git_branch',
         value: resultsToSave.buildInfo.git_branch,
-        exportName: "GIT_BRANCH",
+        exportName: 'GIT_BRANCH',
       },
     ];
 
@@ -240,7 +240,7 @@ export class GenerateBuildInfo {
       // Skip core properties we already handled
       if (!coreProperties.some((p) => p.key === key)) {
         const serializedValue = JSON.stringify(value);
-        buildInfoObjectLines.push(indent + key + ": " + serializedValue + ",");
+        buildInfoObjectLines.push(indent + key + ': ' + serializedValue + ',');
       }
     }
 
@@ -248,27 +248,27 @@ export class GenerateBuildInfo {
     const lines: string[] = [];
 
     // Header comments
-    lines.push("// This file is auto-generated. Do not edit manually.");
-    lines.push("// Generated on " + resultsToSave.buildInfo.build_timestamp);
-    lines.push("");
+    lines.push('// This file is auto-generated. Do not edit manually.');
+    lines.push('// Generated on ' + resultsToSave.buildInfo.build_timestamp);
+    lines.push('');
 
     // BUILD_INFO object
-    lines.push("export const BUILD_INFO = {");
+    lines.push('export const BUILD_INFO = {');
     lines.push(...buildInfoObjectLines);
-    lines.push("};");
-    lines.push("");
+    lines.push('};');
+    lines.push('');
 
     // Individual exports for core properties
-    lines.push("// Export individual properties for convenience");
+    lines.push('// Export individual properties for convenience');
 
     for (const prop of coreProperties) {
       lines.push(
-        "export const " + prop.exportName + " = '" + prop.value + "';",
+        'export const ' + prop.exportName + " = '" + prop.value + "';",
       );
     }
 
     // Return the generated source code
-    return lines.join("\n");
+    return lines.join('\n');
   }
 
   /**
@@ -292,14 +292,14 @@ export class GenerateBuildInfo {
    * @returns Promise that resolves to save result with warnings
    */
   public async saveTS(
-    fileName: string = "current-build-info.ts",
+    fileName: string = 'current-build-info.ts',
   ): Promise<SaveResult> {
     const resultsToSave =
       this.lastGeneratedResults || (await this.generateInfo());
 
     const sourceCode = await this.generateSourceCode();
     const filePath = path.join(this.workingDir, fileName);
-    await fs.writeFile(filePath, sourceCode, "utf8");
+    await fs.writeFile(filePath, sourceCode, 'utf8');
 
     return {
       saved: true,
@@ -315,14 +315,14 @@ export class GenerateBuildInfo {
    * @returns Promise that resolves to save result with warnings
    */
   public async saveJSON(
-    fileName: string = "current-build-info.json",
+    fileName: string = 'current-build-info.json',
   ): Promise<SaveResult> {
     const resultsToSave =
       this.lastGeneratedResults || (await this.generateInfo());
 
     const jsonContent = await this.generateJSON();
     const filePath = path.join(this.workingDir, fileName);
-    await fs.writeFile(filePath, jsonContent, "utf8");
+    await fs.writeFile(filePath, jsonContent, 'utf8');
 
     return {
       saved: true,

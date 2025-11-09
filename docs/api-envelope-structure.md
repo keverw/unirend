@@ -84,17 +84,17 @@ Note:
 To set proper request IDs, add a plugin to your server that assigns a `requestID` property to the Fastify request object:
 
 ```typescript
-import { type ServerPlugin } from "unirend/server";
-import { randomUUID } from "crypto";
+import { type ServerPlugin } from 'unirend/server';
+import { randomUUID } from 'crypto';
 
 // Example plugin for request ID generation
 const requestIdPlugin: ServerPlugin = async (pluginHost, options) => {
-  pluginHost.addHook("onRequest", async (request, reply) => {
+  pluginHost.addHook('onRequest', async (request, reply) => {
     // Always generate a unique request ID
     (request as { requestID?: string }).requestID = randomUUID();
   });
-  pluginHost.addHook("onSend", async (request, reply, payload) => {
-    reply.header("X-Request-ID", (request as { requestID?: string }).requestID);
+  pluginHost.addHook('onSend', async (request, reply, payload) => {
+    reply.header('X-Request-ID', (request as { requestID?: string }).requestID);
     return payload;
   });
 };
@@ -683,8 +683,8 @@ You can configure a custom helpers class for the SSR and API servers so all serv
 Example:
 
 ```ts
-import { serveSSRDev, serveAPI } from "unirend/server";
-import { APIResponseHelpers } from "unirend/api-envelope";
+import { serveSSRDev, serveAPI } from 'unirend/server';
+import { APIResponseHelpers } from 'unirend/api-envelope';
 
 // Your custom subclass (optional)
 class AppResponseHelpers extends APIResponseHelpers {
@@ -694,9 +694,9 @@ class AppResponseHelpers extends APIResponseHelpers {
 // SSR
 const ssr = serveSSRDev(
   {
-    serverEntry: "./src/entry-server.tsx",
-    template: "./index.html",
-    viteConfig: "./vite.config.ts",
+    serverEntry: './src/entry-server.tsx',
+    template: './index.html',
+    viteConfig: './vite.config.ts',
   },
   {
     APIResponseHelpersClass: AppResponseHelpers,
@@ -714,8 +714,8 @@ const api = serveAPI({
 #### Per-call generics
 
 ```ts
-import type { BaseMeta } from "unirend/api-envelope";
-import { APIResponseHelpers } from "unirend/api-envelope";
+import type { BaseMeta } from 'unirend/api-envelope';
+import { APIResponseHelpers } from 'unirend/api-envelope';
 
 interface AppMeta extends BaseMeta {
   account?: { isAuthenticated: boolean; userID?: string; workspaceID?: string };
@@ -725,7 +725,7 @@ interface AppMeta extends BaseMeta {
 return APIResponseHelpers.createPageSuccessResponse<MyData, AppMeta>({
   request,
   data,
-  pageMetadata: { title: "Dashboard", description: "Overview" },
+  pageMetadata: { title: 'Dashboard', description: 'Overview' },
   meta: {
     account: {
       isAuthenticated: Boolean((request as any).user?.id),
@@ -739,9 +739,9 @@ return APIResponseHelpers.createPageSuccessResponse<MyData, AppMeta>({
 #### Subclass to inject defaults from the request
 
 ```ts
-import { APIResponseHelpers } from "unirend/api-envelope";
-import type { BaseMeta, PageMetadata } from "unirend/api-envelope";
-import type { FastifyRequest } from "unirend/server";
+import { APIResponseHelpers } from 'unirend/api-envelope';
+import type { BaseMeta, PageMetadata } from 'unirend/api-envelope';
+import type { FastifyRequest } from 'unirend/server';
 
 interface AppMeta extends BaseMeta {
   account?: { isAuthenticated: boolean; userID?: string; workspaceID?: string };

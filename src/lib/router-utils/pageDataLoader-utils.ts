@@ -3,16 +3,16 @@ import {
   ErrorDetails,
   PageErrorResponse,
   PageResponseEnvelope,
-} from "../api-envelope/api-envelope-types";
+} from '../api-envelope/api-envelope-types';
 import {
   DEBUG_PAGE_LOADER,
   DEFAULT_FALLBACK_REQUEST_ID_GENERATOR,
   DEFAULT_TIMEOUT_MS,
-} from "./pageDataLoader-consts";
+} from './pageDataLoader-consts';
 import {
   LocalPageLoaderConfig,
   PageLoaderConfig,
-} from "./pageDataLoader-types";
+} from './pageDataLoader-types';
 
 /**
  * Helper function to create base headers with Content-Type: application/json
@@ -20,7 +20,7 @@ import {
  */
 export function createBaseHeaders() {
   const headers = new Headers();
-  headers.set("Content-Type", "application/json");
+  headers.set('Content-Type', 'application/json');
   return headers;
 }
 
@@ -28,7 +28,7 @@ export function decorateWithSsrOnlyData(
   response: PageResponseEnvelope,
   SSR_ONLY_DATA: Record<string, unknown>,
 ) {
-  const isServer = typeof window === "undefined"; // detecting here again instead of passing to promote tree-shaking
+  const isServer = typeof window === 'undefined'; // detecting here again instead of passing to promote tree-shaking
 
   if (isServer) {
     return {
@@ -56,7 +56,7 @@ export function isSafeRedirect(
   }
 
   // Always allow relative paths (starting with "/")
-  if (target.startsWith("/")) {
+  if (target.startsWith('/')) {
     return true;
   }
 
@@ -104,7 +104,7 @@ export async function fetchWithTimeout(
     controller.abort();
 
     // Check if the error is due to abortion (timeout)
-    if (error instanceof Error && error.name === "AbortError") {
+    if (error instanceof Error && error.name === 'AbortError') {
       throw new Error(`Request timeout after ${timeoutMs}ms`);
     }
 
@@ -180,14 +180,14 @@ export function createErrorResponse(
     : baseMeta;
 
   return {
-    status: "error",
+    status: 'error',
     status_code: statusCode,
     request_id:
       requestID ||
       (config.generateFallbackRequestID
-        ? config.generateFallbackRequestID("error")
-        : DEFAULT_FALLBACK_REQUEST_ID_GENERATOR("error")),
-    type: "page",
+        ? config.generateFallbackRequestID('error')
+        : DEFAULT_FALLBACK_REQUEST_ID_GENERATOR('error')),
+    type: 'page',
     data: null,
     meta: finalMeta as BaseMeta,
     error: {
@@ -213,7 +213,7 @@ export function applyCustomHttpStatusHandler(
     config.statusCodeHandlers?.[statusCode.toString()];
 
   // Check for wildcard handler as fallback
-  const wildcardHandler = config.statusCodeHandlers?.["*"];
+  const wildcardHandler = config.statusCodeHandlers?.['*'];
 
   const statusHandler = specificHandler || wildcardHandler;
 

@@ -30,15 +30,15 @@ The `cors` plugin provides dynamic CORS (Cross-Origin Resource Sharing) handling
 ## Usage
 
 ```typescript
-import { cors } from "unirend/plugins";
+import { cors } from 'unirend/plugins';
 
 const server = serveSSRProd(buildDir, {
   plugins: [
     cors({
-      origin: "*", // Allow any origin for public API access
-      credentials: ["https://myapp.com", "https://admin.myapp.com"], // Only these can send cookies
-      methods: ["GET", "POST", "PUT", "DELETE"],
-      allowedHeaders: ["Content-Type", "Authorization"],
+      origin: '*', // Allow any origin for public API access
+      credentials: ['https://myapp.com', 'https://admin.myapp.com'], // Only these can send cookies
+      methods: ['GET', 'POST', 'PUT', 'DELETE'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
     }),
   ],
 });
@@ -120,16 +120,16 @@ const server = serveSSRProd(buildDir, {
 ```typescript
 // Wildcard origins with explicit credentials (recommended)
 cors({
-  origin: ["**.myapp.com", "https://myapp.com"], // All subdomains + explicit apex
-  credentials: ["https://app.myapp.com", "https://admin.myapp.com"], // Explicit only
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  origin: ['**.myapp.com', 'https://myapp.com'], // All subdomains + explicit apex
+  credentials: ['https://app.myapp.com', 'https://admin.myapp.com'], // Explicit only
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 });
 
 // Protocol-specific wildcards
 cors({
-  origin: ["https://*.myapp.com"], // HTTPS subdomains
-  credentials: ["https://app.myapp.com"],
+  origin: ['https://*.myapp.com'], // HTTPS subdomains
+  credentials: ['https://app.myapp.com'],
   // To allow wildcard credentials for subdomains, enable the flag and list patterns explicitly
   // credentials: ["*.myapp.com"],
   // credentialsAllowWildcardSubdomains: true,
@@ -137,20 +137,20 @@ cors({
 
 // Protocol wildcard + credentials (explicit opt-in)
 cors({
-  origin: ["https://*"],
+  origin: ['https://*'],
   credentials: true,
   allowCredentialsWithProtocolWildcard: true,
 });
 
 // Global wildcard with explicit null (sandboxed/file contexts)
 cors({
-  origin: ["*", "null"],
+  origin: ['*', 'null'],
   credentials: false,
 });
 
 // Mixed wildcard patterns (with explicit null)
 cors({
-  origin: ["https://*", "null"], // Any HTTPS + sandboxed/file contexts
+  origin: ['https://*', 'null'], // Any HTTPS + sandboxed/file contexts
   credentials: false, // No credentials for broad access
 });
 
@@ -158,25 +158,25 @@ cors({
 cors({
   origin: (origin, request) => {
     // Allow any origin for public endpoints
-    if (request.url?.startsWith("/api/public/")) return true;
+    if (request.url?.startsWith('/api/public/')) return true;
     // Restrict private endpoints to trusted domains
-    return origin === "https://myapp.com";
+    return origin === 'https://myapp.com';
   },
   credentials: (origin, request) => {
     // Only allow credentials for auth endpoints from trusted origins
     return (
-      request.url?.startsWith("/api/auth/") && origin === "https://myapp.com"
+      request.url?.startsWith('/api/auth/') && origin === 'https://myapp.com'
     );
   },
 });
 
 // Traditional CORS (like @fastify/cors)
 cors({
-  origin: ["https://myapp.com", "https://www.myapp.com"],
+  origin: ['https://myapp.com', 'https://www.myapp.com'],
   credentials: true, // Allow credentials for all allowed origins
-  methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  exposedHeaders: ["X-Total-Count"],
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['X-Total-Count'],
 });
 
 // Development setup with flexible origins
@@ -185,9 +185,9 @@ cors({
     // Allow localhost and development domains
     if (!origin) return true; // Mobile apps, curl, etc.
     return (
-      origin.includes("localhost") ||
-      origin.includes("127.0.0.1") ||
-      origin === "https://dev.myapp.com"
+      origin.includes('localhost') ||
+      origin.includes('127.0.0.1') ||
+      origin === 'https://dev.myapp.com'
     );
   },
   credentials: true,
@@ -227,47 +227,47 @@ cors({
 ```typescript
 // Comprehensive production setup
 cors({
-  origin: ["**.myapp.com", "https://myapp.com"], // All subdomains + explicit apex
+  origin: ['**.myapp.com', 'https://myapp.com'], // All subdomains + explicit apex
   credentials: [
-    "https://app.myapp.com",
-    "https://admin.myapp.com",
-    "https://myapp.com",
+    'https://app.myapp.com',
+    'https://admin.myapp.com',
+    'https://myapp.com',
   ], // Explicit credentials only - cookies sent automatically by browser
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-  allowedHeaders: ["Content-Type", "Authorization"], // No need for "Cookie" header
-  exposedHeaders: ["X-Total-Count", "X-Rate-Limit"], // Non-safelisted headers need explicit exposure
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization'], // No need for "Cookie" header
+  exposedHeaders: ['X-Total-Count', 'X-Rate-Limit'], // Non-safelisted headers need explicit exposure
   maxAge: 86400, // 24 hours preflight cache
   preflightContinue: false, // Handle OPTIONS completely
 });
 
 // Client-side usage (cookies included automatically when credentials allowed)
-fetch("https://api.myapp.com/data", {
-  credentials: "include", // Required to send cookies
+fetch('https://api.myapp.com/data', {
+  credentials: 'include', // Required to send cookies
   headers: {
-    "Content-Type": "application/json",
-    Authorization: "Bearer token123", // Custom auth headers need to be in allowedHeaders
+    'Content-Type': 'application/json',
+    Authorization: 'Bearer token123', // Custom auth headers need to be in allowedHeaders
   },
 });
 
 // Header reflection with fallback
 cors({
-  origin: "*",
-  allowedHeaders: ["*"], // Reflects Access-Control-Request-Headers
+  origin: '*',
+  allowedHeaders: ['*'], // Reflects Access-Control-Request-Headers
   // If no headers requested, falls back to configured list (minus '*')
   // Reflection caps: at most 100 header names are reflected; names longer than 256 chars are ignored
 });
 
 // Local development with private network access
 cors({
-  origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
+  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
   credentials: true,
   allowPrivateNetwork: true, // Enable Chrome private network requests
 });
 
 // Security headers via CORS plugin (off by default)
 cors({
-  origin: ["**.myapp.com", "https://myapp.com"],
-  xFrameOptions: "SAMEORIGIN", // or "DENY"
+  origin: ['**.myapp.com', 'https://myapp.com'],
+  xFrameOptions: 'SAMEORIGIN', // or "DENY"
   hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
   // Note: enable HSTS only when serving over HTTPS in production
 });

@@ -1,13 +1,13 @@
-import { useState } from "react";
-import { Header } from "../components/Header";
+import { useState } from 'react';
+import { Header } from '../components/Header';
 
 function App() {
   const [todos, setTodos] = useState([
-    { id: 1, text: "Learn about SSG", completed: true },
-    { id: 2, text: "Try SPA routing", completed: false },
-    { id: 3, text: "Build awesome apps", completed: false },
+    { id: 1, text: 'Learn about SSG', completed: true },
+    { id: 2, text: 'Try SPA routing', completed: false },
+    { id: 3, text: 'Build awesome apps', completed: false },
   ]);
-  const [newTodo, setNewTodo] = useState("");
+  const [newTodo, setNewTodo] = useState('');
 
   const addTodo = () => {
     if (newTodo.trim()) {
@@ -19,7 +19,7 @@ function App() {
           completed: false,
         },
       ]);
-      setNewTodo("");
+      setNewTodo('');
     }
   };
 
@@ -49,35 +49,35 @@ function App() {
         <div className="card">
           <h2>Todo Manager</h2>
 
-          <div style={{ marginBottom: "2rem" }}>
-            <div style={{ display: "flex", gap: "1rem", marginBottom: "1rem" }}>
+          <div style={{ marginBottom: '2rem' }}>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
               <input
                 type="text"
                 value={newTodo}
                 onChange={(e) => setNewTodo(e.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && addTodo()}
+                onKeyPress={(e) => e.key === 'Enter' && addTodo()}
                 placeholder="Add a new todo..."
                 style={{
                   flex: 1,
-                  padding: "0.75rem",
-                  borderRadius: "8px",
-                  border: "1px solid rgba(255, 255, 255, 0.3)",
-                  background: "rgba(255, 255, 255, 0.1)",
-                  color: "inherit",
-                  fontSize: "1rem",
+                  padding: '0.75rem',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  color: 'inherit',
+                  fontSize: '1rem',
                 }}
               />
               <button
                 onClick={addTodo}
                 style={{
-                  padding: "0.75rem 1.5rem",
-                  borderRadius: "8px",
-                  border: "none",
-                  background: "#4CAF50",
-                  color: "white",
-                  cursor: "pointer",
-                  fontSize: "1rem",
-                  fontWeight: "500",
+                  padding: '0.75rem 1.5rem',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: '#4CAF50',
+                  color: 'white',
+                  cursor: 'pointer',
+                  fontSize: '1rem',
+                  fontWeight: '500',
                 }}
               >
                 Add
@@ -85,44 +85,44 @@ function App() {
             </div>
           </div>
 
-          <div style={{ textAlign: "left" }}>
+          <div style={{ textAlign: 'left' }}>
             {todos.length === 0 ? (
               <p
                 style={{
-                  textAlign: "center",
-                  color: "rgba(255, 255, 255, 0.7)",
+                  textAlign: 'center',
+                  color: 'rgba(255, 255, 255, 0.7)',
                 }}
               >
                 No todos yet. Add one above!
               </p>
             ) : (
-              <ul style={{ listStyle: "none", padding: 0 }}>
+              <ul style={{ listStyle: 'none', padding: 0 }}>
                 {todos.map((todo) => (
                   <li
                     key={todo.id}
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "1rem",
-                      padding: "1rem",
-                      marginBottom: "0.5rem",
-                      background: "rgba(255, 255, 255, 0.1)",
-                      borderRadius: "8px",
-                      border: "1px solid rgba(255, 255, 255, 0.2)",
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '1rem',
+                      padding: '1rem',
+                      marginBottom: '0.5rem',
+                      background: 'rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
                     }}
                   >
                     <input
                       type="checkbox"
                       checked={todo.completed}
                       onChange={() => toggleTodo(todo.id)}
-                      style={{ transform: "scale(1.2)" }}
+                      style={{ transform: 'scale(1.2)' }}
                     />
                     <span
                       style={{
                         flex: 1,
                         textDecoration: todo.completed
-                          ? "line-through"
-                          : "none",
+                          ? 'line-through'
+                          : 'none',
                         opacity: todo.completed ? 0.7 : 1,
                       }}
                     >
@@ -131,13 +131,13 @@ function App() {
                     <button
                       onClick={() => deleteTodo(todo.id)}
                       style={{
-                        padding: "0.5rem",
-                        borderRadius: "4px",
-                        border: "none",
-                        background: "#f44336",
-                        color: "white",
-                        cursor: "pointer",
-                        fontSize: "0.8rem",
+                        padding: '0.5rem',
+                        borderRadius: '4px',
+                        border: 'none',
+                        background: '#f44336',
+                        color: 'white',
+                        cursor: 'pointer',
+                        fontSize: '0.8rem',
                       }}
                     >
                       Delete
@@ -150,11 +150,11 @@ function App() {
 
           <div
             style={{
-              marginTop: "2rem",
-              padding: "1rem",
-              background: "rgba(33, 150, 243, 0.2)",
-              borderRadius: "8px",
-              borderLeft: "4px solid #2196F3",
+              marginTop: '2rem',
+              padding: '1rem',
+              background: 'rgba(33, 150, 243, 0.2)',
+              borderRadius: '8px',
+              borderLeft: '4px solid #2196F3',
             }}
           >
             <p>

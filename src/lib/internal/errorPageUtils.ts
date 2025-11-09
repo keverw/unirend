@@ -1,4 +1,4 @@
-import { FastifyRequest } from "fastify";
+import { FastifyRequest } from 'fastify';
 
 /**
  * Generates a default 500 error page.
@@ -20,7 +20,7 @@ export function generateDefault500ErrorPage(
     </div>
     <div class="ep-section">
       <div class="ep-label">Stack Trace:</div>
-      <div class="ep-panel ep-stack">${escapeHtml(error.stack || "No stack trace available")}</div>
+      <div class="ep-panel ep-stack">${escapeHtml(error.stack || 'No stack trace available')}</div>
     </div>
     <div class="ep-section">
       <div class="ep-label">Request Info:</div>
@@ -29,7 +29,7 @@ export function generateDefault500ErrorPage(
         Method: ${request.method}
       </div>
     </div>`
-    : "";
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -125,7 +125,7 @@ export function generateDefault500ErrorPage(
   <main class="ep-card">
     <div class="ep-title">500 - Internal Server Error</div>
     <div class="ep-sub">
-      ${isDevelopment ? "Error Details (Development Mode)" : "We're sorry, something went wrong."}
+      ${isDevelopment ? 'Error Details (Development Mode)' : "We're sorry, something went wrong."}
     </div>
     ${
       isDevelopment
@@ -136,7 +136,7 @@ export function generateDefault500ErrorPage(
     ${
       isDevelopment
         ? '<div class="ep-note"><b>Note:</b> Detailed error information is only shown in development mode.</div>'
-        : ""
+        : ''
     }
   </main>
 </body>
@@ -146,9 +146,9 @@ export function generateDefault500ErrorPage(
 // Escape HTML for safe display in error panels
 function escapeHtml(str: string): string {
   return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

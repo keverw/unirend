@@ -66,12 +66,12 @@ Both server classes expose the same operational methods:
 Create a server file that uses the `serveSSRProd` function:
 
 ```typescript
-import { serveSSRProd } from "unirend/server";
-import path from "path";
+import { serveSSRProd } from 'unirend/server';
+import path from 'path';
 
 async function main() {
   // Point to the build directory (contains both client/ and server/ subdirectories)
-  const buildDir = path.resolve(__dirname, "build");
+  const buildDir = path.resolve(__dirname, 'build');
 
   const server = serveSSRProd(buildDir, {
     // Optional: Custom server entry name (default: "entry-server")
@@ -82,8 +82,8 @@ async function main() {
     // Available via useFrontendAppConfig() hook on both server and client.
     // Tip: Keep this minimal and non-sensitive; it will be passed to the client.
     frontendAppConfig: {
-      apiUrl: process.env.API_URL || "https://api.example.com",
-      environment: "production",
+      apiUrl: process.env.API_URL || 'https://api.example.com',
+      environment: 'production',
       // Optionally include selected build info for troubleshooting/version display.
       // See docs/build-info.md for generating/loading and safe exposure.
       // build: { version: "1.2.3" },
@@ -92,7 +92,7 @@ async function main() {
   });
 
   const port = Number(process.env.PORT || 3000);
-  await server.listen(port, "localhost");
+  await server.listen(port, 'localhost');
   console.log(`SSR server running on http://localhost:${port}`);
 }
 
@@ -113,14 +113,14 @@ Host binding:
 Use `serveSSRDev(paths, options)` to run the SSR server in development with Vite middleware and HMR:
 
 ```typescript
-import { serveSSRDev } from "unirend/server";
+import { serveSSRDev } from 'unirend/server';
 
 async function main() {
   const server = serveSSRDev(
     {
-      serverEntry: "./src/entry-server.tsx",
-      template: "./index.html",
-      viteConfig: "./vite.config.ts",
+      serverEntry: './src/entry-server.tsx',
+      template: './index.html',
+      viteConfig: './vite.config.ts',
     },
     {
       // Optional: same options surface as production where applicable
@@ -133,7 +133,7 @@ async function main() {
     },
   );
 
-  await server.listen(3000, "localhost");
+  await server.listen(3000, 'localhost');
 }
 
 main().catch(console.error);
@@ -275,11 +275,11 @@ Both SSR and API servers expose read-only helpers to access server-level decorat
 
 ```ts
 // Example: read cookie plugin info if the cookies plugin is registered
-const has = server.hasDecoration("cookiePluginInfo");
+const has = server.hasDecoration('cookiePluginInfo');
 const info = server.getDecoration<{
   signingSecretProvided: boolean;
   algorithm: string;
-}>("cookiePluginInfo");
+}>('cookiePluginInfo');
 ```
 
 ### Environment flag in handlers
@@ -287,13 +287,13 @@ const info = server.getDecoration<{
 Within your request handlers (including page data handlers), you can check a boolean environment flag on the request to tailor behavior:
 
 ```ts
-server.registerDataLoaderHandler("example", (request, params) => {
+server.registerDataLoaderHandler('example', (request, params) => {
   const isDev = (request as FastifyRequest & { isDevelopment?: boolean })
     .isDevelopment;
   return APIResponseHelpers.createPageSuccessResponse({
     request,
-    data: { environment: isDev ? "development" : "production" },
-    pageMetadata: { title: "Env", description: "Env demo" },
+    data: { environment: isDev ? 'development' : 'production' },
+    pageMetadata: { title: 'Env', description: 'Env demo' },
   });
 });
 ```
@@ -355,31 +355,31 @@ Recommendation:
 Examples:
 
 ```ts
-import { APIResponseHelpers } from "unirend/api-envelope";
+import { APIResponseHelpers } from 'unirend/api-envelope';
 
 // Unversioned handler (uses defaultVersion under the hood if versioned=true)
-server.registerDataLoaderHandler("test", function (request, params) {
+server.registerDataLoaderHandler('test', function (request, params) {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
-    data: { message: "v-default", version: params.version },
-    pageMetadata: { title: "Test", description: "Default version" },
+    data: { message: 'v-default', version: params.version },
+    pageMetadata: { title: 'Test', description: 'Default version' },
   });
 });
 
 // Versioned handlers
-server.registerDataLoaderHandler("test", 1, function (request, params) {
+server.registerDataLoaderHandler('test', 1, function (request, params) {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
-    data: { message: "v1", version: params.version },
-    pageMetadata: { title: "Test v1", description: "Version 1" },
+    data: { message: 'v1', version: params.version },
+    pageMetadata: { title: 'Test v1', description: 'Version 1' },
   });
 });
 
-server.registerDataLoaderHandler("test", 2, function (request, params) {
+server.registerDataLoaderHandler('test', 2, function (request, params) {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
-    data: { message: "v2", version: params.version },
-    pageMetadata: { title: "Test v2", description: "Version 2" },
+    data: { message: 'v2', version: params.version },
+    pageMetadata: { title: 'Test v2', description: 'Version 2' },
   });
 });
 ```
@@ -419,14 +419,14 @@ When page data handlers are registered on the same `SSRServer` instance instead 
 You can register versioned custom API routes using the server's `.api` shortcuts surface (available on both `SSRServer` and `APIServer`, and inside plugins as `pluginHost.api`). These return standardized API envelopes and automatically set the HTTP response status to `status_code`.
 
 ```ts
-import { APIResponseHelpers } from "unirend/api-envelope";
+import { APIResponseHelpers } from 'unirend/api-envelope';
 
 // Register a simple GET endpoint at /api/v1/demo/echo/:id (with defaults)
-server.api.get("demo/echo/:id", async (request) => {
+server.api.get('demo/echo/:id', async (request) => {
   return APIResponseHelpers.createAPISuccessResponse({
     request,
     data: {
-      message: "Hello from API shortcuts",
+      message: 'Hello from API shortcuts',
       id: (request.params as Record<string, unknown>).id,
       query: request.query,
     },
@@ -435,7 +435,7 @@ server.api.get("demo/echo/:id", async (request) => {
 });
 
 // Versioned registration example (explicit version 2)
-server.api.post("demo/items", 2, async (request) => {
+server.api.post('demo/items', 2, async (request) => {
   const body = request.body as Record<string, unknown>;
   return APIResponseHelpers.createAPISuccessResponse({
     request,
@@ -514,7 +514,7 @@ The `APIServer` is a JSON API server with the same plugin surface. It’s intend
 ### Basic usage
 
 ```typescript
-import { serveAPI } from "unirend/server";
+import { serveAPI } from 'unirend/server';
 
 async function main() {
   const api = serveAPI({
@@ -531,7 +531,7 @@ async function main() {
     // notFoundHandler: (request) => APIResponseHelpers.createAPIErrorResponse({ statusCode: 404, ... }),
   });
 
-  await api.listen(3001, "localhost");
+  await api.listen(3001, 'localhost');
 }
 
 main().catch(console.error);

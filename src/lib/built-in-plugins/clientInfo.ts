@@ -1,7 +1,7 @@
-import type { PluginHostInstance, PluginOptions, ServerPlugin } from "../types";
-import type { FastifyRequest } from "fastify";
-import { ulid, isValid as isValidULID } from "ulid";
-import { isPrivateIP } from "range_check";
+import type { PluginHostInstance, PluginOptions, ServerPlugin } from '../types';
+import type { FastifyRequest } from 'fastify';
+import { ulid, isValid as isValidULID } from 'ulid';
+import { isPrivateIP } from 'range_check';
 
 export interface ClientInfo {
   requestID: string; // Unique ID for this specific request
@@ -15,7 +15,7 @@ export interface ClientInfo {
 }
 
 // Extend FastifyRequest to include client info
-declare module "fastify" {
+declare module 'fastify' {
   interface FastifyRequest {
     /** Optional unique request ID used by response helpers */
     requestID?: string;
@@ -60,27 +60,27 @@ export interface ClientInfoConfig {
 export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
   return async (pluginHost: PluginHostInstance, _options: PluginOptions) => {
     // Set default values for the clientInfo property
-    pluginHost.decorateRequest("clientInfo", null);
+    pluginHost.decorateRequest('clientInfo', null);
     // Ensure requestID is a known property on FastifyRequest
-    pluginHost.decorateRequest("requestID", null);
+    pluginHost.decorateRequest('requestID', null);
 
     const generateRequestID =
-      typeof config.requestIDGenerator === "function"
+      typeof config.requestIDGenerator === 'function'
         ? config.requestIDGenerator
         : () => ulid();
 
     const validateRequestID =
-      typeof config.requestIDValidator === "function"
+      typeof config.requestIDValidator === 'function'
         ? config.requestIDValidator
         : (id: string) => isValidULID(id);
 
-    pluginHost.addHook("onRequest", async (request, reply) => {
+    pluginHost.addHook('onRequest', async (request, reply) => {
       const loggingConfig = config.logging;
       const logAll = loggingConfig === true;
       const logNone =
-        loggingConfig === false || typeof loggingConfig === "undefined";
+        loggingConfig === false || typeof loggingConfig === 'undefined';
       const loggingObject: ClientInfoLoggingOptions | undefined =
-        typeof loggingConfig === "object" && loggingConfig !== null
+        typeof loggingConfig === 'object' && loggingConfig !== null
           ? (loggingConfig as ClientInfoLoggingOptions)
           : undefined;
 
@@ -111,8 +111,8 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
         requestID: requestID,
         correlationID: null,
         isFromSSRServerAPICall: false,
-        IPAddress: "",
-        userAgent: "",
+        IPAddress: '',
+        userAgent: '',
         isIPFromHeader: false,
         isUserAgentFromHeader: false,
       };
@@ -125,8 +125,8 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
       let isIPFromHeader = false;
 
       // Handle User-Agent header safely
-      const uaHeader = request.headers["user-agent"];
-      let userAgent = typeof uaHeader === "string" ? uaHeader : "";
+      const uaHeader = request.headers['user-agent'];
+      let userAgent = typeof uaHeader === 'string' ? uaHeader : '';
       let isUserAgentFromHeader = false;
 
       let isFromSSRServerAPICall = false;
@@ -139,23 +139,23 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
 
       // Decide whether to trust forwarded headers using config or default private IP check
       const shouldTrustForwarded =
-        (typeof config.trustForwardedHeaders === "function"
+        (typeof config.trustForwardedHeaders === 'function'
           ? config.trustForwardedHeaders(request)
           : isPrivateIP(request.ip)) === true;
 
       if (shouldTrustForwarded) {
         // keep going
         // Safely check if x-ssr-request header is 'true'
-        const ssrHeader = request.headers["x-ssr-request"];
+        const ssrHeader = request.headers['x-ssr-request'];
         const isSSRRequest =
-          typeof ssrHeader === "string" && ssrHeader === "true";
+          typeof ssrHeader === 'string' && ssrHeader === 'true';
 
         // Check if we have any forwarded client info headers
         const hasForwardedClientInfo =
           isSSRRequest ||
-          request.headers["x-ssr-original-ip"] ||
-          request.headers["x-ssr-forwarded-user-agent"] ||
-          request.headers["x-correlation-id"];
+          request.headers['x-ssr-original-ip'] ||
+          request.headers['x-ssr-forwarded-user-agent'] ||
+          request.headers['x-correlation-id'];
 
         // Set SSR flag only if the x-ssr-request header is explicitly true
         if (isSSRRequest) {
@@ -164,27 +164,27 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
 
         if (hasForwardedClientInfo) {
           // Use X-SSR-Original-IP if provided
-          const originalIPHeader = request.headers["x-ssr-original-ip"];
+          const originalIPHeader = request.headers['x-ssr-original-ip'];
 
-          if (typeof originalIPHeader === "string") {
+          if (typeof originalIPHeader === 'string') {
             IPAddress = originalIPHeader;
             isIPFromHeader = true;
           }
 
           // Use X-SSR-Forwarded-User-Agent if provided
           const forwardedUserAgentHeader =
-            request.headers["x-ssr-forwarded-user-agent"];
+            request.headers['x-ssr-forwarded-user-agent'];
 
-          if (typeof forwardedUserAgentHeader === "string") {
+          if (typeof forwardedUserAgentHeader === 'string') {
             userAgent = forwardedUserAgentHeader;
             isUserAgentFromHeader = true;
           }
 
           // Use X-Correlation-ID from SSR if it's valid
-          const correlationHeader = request.headers["x-correlation-id"];
+          const correlationHeader = request.headers['x-correlation-id'];
 
           if (
-            typeof correlationHeader === "string" &&
+            typeof correlationHeader === 'string' &&
             validateRequestID(correlationHeader)
           ) {
             correlationID = correlationHeader;
@@ -199,16 +199,16 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
                 ssrIP: request.ip,
                 isFromSSRServerAPICall,
               },
-              "Using forwarded client info from trusted source",
+              'Using forwarded client info from trusted source',
             );
           }
         }
       } else if (
-        (typeof request.headers["x-ssr-request"] === "string" &&
-          request.headers["x-ssr-request"] === "true") ||
-        request.headers["x-ssr-original-ip"] ||
-        request.headers["x-ssr-forwarded-user-agent"] ||
-        request.headers["x-correlation-id"]
+        (typeof request.headers['x-ssr-request'] === 'string' &&
+          request.headers['x-ssr-request'] === 'true') ||
+        request.headers['x-ssr-original-ip'] ||
+        request.headers['x-ssr-forwarded-user-agent'] ||
+        request.headers['x-correlation-id']
       ) {
         // Log a warning if SSR headers are present but from a non-private IP
         // As someone might be trying to spoof the request?
@@ -218,7 +218,7 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
               requestID,
               ip: request.ip,
             },
-            "Rejected SSR headers from untrusted source",
+            'Rejected SSR headers from untrusted source',
           );
         }
       }
@@ -232,8 +232,8 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
       // -- Set the headers and request.clientInfo --
       // Optionally add the request ID and correlation ID to response headers for client-side tracking after we've validated the source
       if (config.setResponseHeaders !== false) {
-        reply.header("X-Request-ID", requestID);
-        reply.header("X-Correlation-ID", correlationID);
+        reply.header('X-Request-ID', requestID);
+        reply.header('X-Correlation-ID', correlationID);
       }
 
       // Log the request with its IDs (optional)
@@ -261,7 +261,7 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
     });
 
     return {
-      name: "client-info",
+      name: 'client-info',
     };
   };
 }

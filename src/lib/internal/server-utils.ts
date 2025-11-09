@@ -5,7 +5,7 @@ import type {
   FastifyRequest,
   FastifyReply,
   RouteHandler,
-} from "fastify";
+} from 'fastify';
 import type {
   PluginMetadata,
   PluginHostInstance,
@@ -13,8 +13,8 @@ import type {
   SafeRouteOptions,
   ControlledReply,
   APIResponseHelpersClass,
-} from "../types";
-import type { CookieSerializeOptions } from "@fastify/cookie";
+} from '../types';
+import type { CookieSerializeOptions } from '@fastify/cookie';
 
 /**
  * Detect if a request URL targets a React-Router DataLoader page-data JSON endpoint.
@@ -44,7 +44,7 @@ export function isAPIRequest(rawPath: string, apiPrefix: string): boolean {
     return false;
   }
 
-  return rawPath.startsWith(apiPrefix + "/") || rawPath === apiPrefix;
+  return rawPath.startsWith(apiPrefix + '/') || rawPath === apiPrefix;
 }
 
 /**
@@ -65,7 +65,7 @@ export function createDefaultAPIErrorResponse(
   apiPrefix?: string,
 ): unknown {
   // Determine path for page detection
-  const rawPath = request.url.split("?")[0];
+  const rawPath = request.url.split('?')[0];
   const pathForPageCheck =
     apiPrefix && rawPath.startsWith(apiPrefix)
       ? rawPath.slice(apiPrefix.length)
@@ -75,8 +75,8 @@ export function createDefaultAPIErrorResponse(
   const statusCode =
     (error as Error & { statusCode?: number }).statusCode || 500;
   const errorCode =
-    statusCode === 500 ? "internal_server_error" : "request_error";
-  const errorMessage = isDevelopment ? error.message : "Internal Server Error";
+    statusCode === 500 ? 'internal_server_error' : 'request_error';
+  const errorMessage = isDevelopment ? error.message : 'Internal Server Error';
 
   if (isPage) {
     return HelpersClass.createPageErrorResponse({
@@ -85,8 +85,8 @@ export function createDefaultAPIErrorResponse(
       errorCode,
       errorMessage,
       pageMetadata: {
-        title: "Error",
-        description: "An error occurred while processing your request",
+        title: 'Error',
+        description: 'An error occurred while processing your request',
       },
     });
   }
@@ -112,7 +112,7 @@ export function createDefaultAPINotFoundResponse(
   apiPrefix?: string,
 ): unknown {
   // Determine path for page detection
-  const rawPath = request.url.split("?")[0];
+  const rawPath = request.url.split('?')[0];
   const pathForPageCheck =
     apiPrefix && rawPath.startsWith(apiPrefix)
       ? rawPath.slice(apiPrefix.length)
@@ -125,11 +125,11 @@ export function createDefaultAPINotFoundResponse(
     return HelpersClass.createPageErrorResponse({
       request,
       statusCode,
-      errorCode: "not_found",
-      errorMessage: "Page Not Found",
+      errorCode: 'not_found',
+      errorMessage: 'Page Not Found',
       pageMetadata: {
-        title: "Not Found",
-        description: "The requested page could not be found",
+        title: 'Not Found',
+        description: 'The requested page could not be found',
       },
     });
   }
@@ -137,8 +137,8 @@ export function createDefaultAPINotFoundResponse(
   return HelpersClass.createAPIErrorResponse({
     request,
     statusCode,
-    errorCode: "not_found",
-    errorMessage: "Resource Not Found",
+    errorCode: 'not_found',
+    errorMessage: 'Resource Not Found',
   });
 }
 
@@ -177,9 +177,9 @@ export function createControlledInstance(
       ) => Promise<unknown> | unknown,
     ) => {
       // Prevent plugins from overriding critical hooks
-      if (hookName === "onRoute" || hookName.includes("*")) {
+      if (hookName === 'onRoute' || hookName.includes('*')) {
         throw new Error(
-          "Plugins cannot register catch-all route hooks that would conflict with SSR",
+          'Plugins cannot register catch-all route hooks that would conflict with SSR',
         );
       }
       // Note: Fastify's addHook has complex overloads for different hook types.
@@ -206,9 +206,9 @@ export function createControlledInstance(
         | undefined,
     route: (opts: SafeRouteOptions) => {
       // Prevent catch-all routes that would conflict with SSR
-      if (opts.url === "*" || opts.url.includes("*")) {
+      if (opts.url === '*' || opts.url.includes('*')) {
         throw new Error(
-          "Plugins cannot register catch-all routes that would conflict with SSR rendering",
+          'Plugins cannot register catch-all routes that would conflict with SSR rendering',
         );
       }
       // Note: SafeRouteOptions may not perfectly match Fastify's RouteOptions interface.
@@ -218,9 +218,9 @@ export function createControlledInstance(
       );
     },
     get: (path: string, handler: RouteHandler) => {
-      if (disableRootWildcard && (path === "*" || path === "/*")) {
+      if (disableRootWildcard && (path === '*' || path === '/*')) {
         throw new Error(
-          "Plugins cannot register root wildcard GET routes that would conflict with SSR rendering",
+          'Plugins cannot register root wildcard GET routes that would conflict with SSR rendering',
         );
       }
       return fastifyInstance.get(path, handler);
@@ -256,7 +256,7 @@ export function createControlledReply(reply: FastifyReply): ControlledReply {
     sent: reply.sent,
     setCookie:
       typeof (reply as unknown as { setCookie?: unknown }).setCookie ===
-      "function"
+      'function'
         ? (
             reply as unknown as {
               setCookie: (
@@ -268,7 +268,7 @@ export function createControlledReply(reply: FastifyReply): ControlledReply {
           ).setCookie
         : undefined,
     cookie:
-      typeof (reply as unknown as { cookie?: unknown }).cookie === "function"
+      typeof (reply as unknown as { cookie?: unknown }).cookie === 'function'
         ? (
             reply as unknown as {
               cookie: (
@@ -281,7 +281,7 @@ export function createControlledReply(reply: FastifyReply): ControlledReply {
         : undefined,
     clearCookie:
       typeof (reply as unknown as { clearCookie?: unknown }).clearCookie ===
-      "function"
+      'function'
         ? (
             reply as unknown as {
               clearCookie: (
@@ -293,7 +293,7 @@ export function createControlledReply(reply: FastifyReply): ControlledReply {
         : undefined,
     unsignCookie:
       typeof (reply as unknown as { unsignCookie?: unknown }).unsignCookie ===
-      "function"
+      'function'
         ? (
             reply as unknown as {
               unsignCookie: (
@@ -306,7 +306,7 @@ export function createControlledReply(reply: FastifyReply): ControlledReply {
         : undefined,
     signCookie:
       typeof (reply as unknown as { signCookie?: unknown }).signCookie ===
-      "function"
+      'function'
         ? (
             reply as unknown as {
               signCookie: (value: string) => string;

@@ -1,12 +1,12 @@
-import type { FastifyRequest, FastifyInstance } from "fastify";
+import type { FastifyRequest, FastifyInstance } from 'fastify';
 import type {
   PageResponseEnvelope,
   APIResponseEnvelope,
   BaseMeta,
-} from "../api-envelope/api-envelope-types";
-import { APIResponseHelpers } from "../api-envelope/response-helpers";
-import type { APIEndpointConfig, ControlledReply } from "../types";
-import { createControlledReply } from "./server-utils";
+} from '../api-envelope/api-envelope-types';
+import { APIResponseHelpers } from '../api-envelope/response-helpers';
+import type { APIEndpointConfig, ControlledReply } from '../types';
+import { createControlledReply } from './server-utils';
 
 /**
  * Parameters passed to page data handlers with shortcuts to common fields
@@ -25,7 +25,7 @@ export interface PageDataHandlerParams {
   pageType: string;
   version?: number;
   /** Indicates how the handler was invoked: via HTTP route or internal short-circuit */
-  invocation_origin: "http" | "internal";
+  invocation_origin: 'http' | 'internal';
   // Shortcuts to common page data loader fields (extracted from request.body)
   route_params: Record<string, string>;
   query_params: Record<string, string>;
@@ -89,7 +89,7 @@ export class DataLoaderServerHandlerHelpers {
       versionOrHandler: number | PageDataHandler,
       handlerMaybe?: PageDataHandler,
     ): void => {
-      if (typeof versionOrHandler === "number") {
+      if (typeof versionOrHandler === 'number') {
         this.registerDataLoaderHandler(
           pageType,
           versionOrHandler,
@@ -152,7 +152,7 @@ export class DataLoaderServerHandlerHelpers {
     let version: number;
     let actualHandler: PageDataHandler;
 
-    if (typeof versionOrHandler === "function") {
+    if (typeof versionOrHandler === 'function') {
       // 2-param overload: registerDataLoaderHandler(pageType, handler)
       version = 1; // Default version
       actualHandler = versionOrHandler;
@@ -160,7 +160,7 @@ export class DataLoaderServerHandlerHelpers {
       // 3-param overload: registerDataLoaderHandler(pageType, version, handler)
       if (!handler) {
         throw new Error(
-          "Handler function is required when version is specified",
+          'Handler function is required when version is specified',
         );
       }
 
@@ -192,24 +192,24 @@ export class DataLoaderServerHandlerHelpers {
     const resolvedConfig: Required<
       Pick<
         APIEndpointConfig,
-        | "apiEndpointPrefix"
-        | "versioned"
-        | "defaultVersion"
-        | "pageDataEndpoint"
+        | 'apiEndpointPrefix'
+        | 'versioned'
+        | 'defaultVersion'
+        | 'pageDataEndpoint'
       >
     > = {
-      apiEndpointPrefix: "/api",
+      apiEndpointPrefix: '/api',
       versioned: true,
       defaultVersion: 1,
-      pageDataEndpoint: "page_data",
+      pageDataEndpoint: 'page_data',
       ...config,
     } as unknown as Required<
       Pick<
         APIEndpointConfig,
-        | "apiEndpointPrefix"
-        | "versioned"
-        | "defaultVersion"
-        | "pageDataEndpoint"
+        | 'apiEndpointPrefix'
+        | 'versioned'
+        | 'defaultVersion'
+        | 'pageDataEndpoint'
       >
     >;
 
@@ -220,7 +220,7 @@ export class DataLoaderServerHandlerHelpers {
         const versions = Array.from(versionMap.keys()).sort((a, b) => a - b);
 
         throw new Error(
-          `Page type "${pageType}" has multiple versions (${versions.join(", ")}) but versioning is disabled. ` +
+          `Page type "${pageType}" has multiple versions (${versions.join(', ')}) but versioning is disabled. ` +
             `Either enable versioning or register only one version per page type.`,
         );
       }
@@ -247,7 +247,7 @@ export class DataLoaderServerHandlerHelpers {
               {
                 pageType,
                 version,
-                invocation_origin: "http",
+                invocation_origin: 'http',
                 // Shortcuts to common page data loader fields
                 route_params:
                   (requestBody.route_params as Record<string, string>) || {},
@@ -278,10 +278,10 @@ export class DataLoaderServerHandlerHelpers {
               (
                 error as unknown as { handlerResponseType: string }
               ).handlerResponseType =
-                typeof result === "object" ? "invalid_object" : typeof result;
+                typeof result === 'object' ? 'invalid_object' : typeof result;
 
               (error as unknown as { errorCode: string }).errorCode =
-                "invalid_handler_response";
+                'invalid_handler_response';
 
               throw error;
             }
@@ -290,7 +290,7 @@ export class DataLoaderServerHandlerHelpers {
             reply.code(result.status_code);
 
             if (result.status_code >= 400) {
-              reply.header("Cache-Control", "no-store");
+              reply.header('Cache-Control', 'no-store');
             }
 
             return result;
@@ -376,7 +376,7 @@ export class DataLoaderServerHandlerHelpers {
     const finalParams: PageDataHandlerParams = {
       pageType,
       version: latestVersion,
-      invocation_origin: "internal",
+      invocation_origin: 'internal',
       route_params,
       query_params,
       request_path,
@@ -425,7 +425,7 @@ export class DataLoaderServerHandlerHelpers {
                 (error as unknown as { timeoutMs: number }).timeoutMs =
                   timeoutMs as number;
                 (error as unknown as { errorCode: string }).errorCode =
-                  "handler_timeout";
+                  'handler_timeout';
                 reject(error);
               }, timeoutMs);
             }),
@@ -452,9 +452,9 @@ export class DataLoaderServerHandlerHelpers {
       (
         error as unknown as { handlerResponseType: string }
       ).handlerResponseType =
-        typeof result === "object" ? "invalid_object" : typeof result;
+        typeof result === 'object' ? 'invalid_object' : typeof result;
       (error as unknown as { errorCode: string }).errorCode =
-        "invalid_handler_response";
+        'invalid_handler_response';
       throw error;
     }
 

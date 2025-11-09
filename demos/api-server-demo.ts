@@ -5,18 +5,18 @@
  * using the serveAPI function from unirend.
  */
 
-import { serveAPI, type APIServerOptions } from "../src/server";
+import { serveAPI, type APIServerOptions } from '../src/server';
 // import { APIResponseHelpers } from "../src/api-envelope"; // Uncomment when using custom handlers
 
 async function runAPIServerDemo() {
-  console.log("🚀 Starting API Server Demo...\n");
+  console.log('🚀 Starting API Server Demo...\n');
 
   const options: APIServerOptions = {
     isDevelopment: true,
     plugins: [
       // Plugin demonstrating full wildcard support
       async (fastify, pluginOptions) => {
-        console.log("📦 Registering API plugin with options:", pluginOptions);
+        console.log('📦 Registering API plugin with options:', pluginOptions);
 
         // Root wildcard route - this would be blocked in SSR servers!
         // commented out to test 404 handling
@@ -30,9 +30,9 @@ async function runAPIServerDemo() {
         // });
 
         // API wildcard routes
-        fastify.get("/api/*", async (request, _reply) => {
+        fastify.get('/api/*', async (request, _reply) => {
           return {
-            message: "API wildcard route",
+            message: 'API wildcard route',
             path: request.url,
             api: true,
             timestamp: new Date().toISOString(),
@@ -40,47 +40,47 @@ async function runAPIServerDemo() {
         });
 
         // Specific API endpoints
-        fastify.get("/api/users", async (_request, _reply) => {
+        fastify.get('/api/users', async (_request, _reply) => {
           return {
             users: [
-              { id: 1, name: "Alice" },
-              { id: 2, name: "Bob" },
+              { id: 1, name: 'Alice' },
+              { id: 2, name: 'Bob' },
             ],
           };
         });
 
-        fastify.post("/api/users", async (request, _reply) => {
+        fastify.post('/api/users', async (request, _reply) => {
           return {
-            message: "User created",
+            message: 'User created',
             user: request.body,
             timestamp: new Date().toISOString(),
           };
         });
 
         // Health check
-        fastify.get("/health", async (_request, _reply) => {
+        fastify.get('/health', async (_request, _reply) => {
           return {
-            status: "healthy",
+            status: 'healthy',
             timestamp: new Date().toISOString(),
-            server: "unirend-api",
+            server: 'unirend-api',
           };
         });
 
         // Error testing routes
-        fastify.get("/api/error", async (_request, _reply) => {
-          throw new Error("This is a test error!");
+        fastify.get('/api/error', async (_request, _reply) => {
+          throw new Error('This is a test error!');
         });
 
-        fastify.get("/api/error/500", async (_request, _reply) => {
-          const error = new Error("Custom 500 error") as Error & {
+        fastify.get('/api/error/500', async (_request, _reply) => {
+          const error = new Error('Custom 500 error') as Error & {
             statusCode?: number;
           };
           error.statusCode = 500;
           throw error;
         });
 
-        fastify.get("/api/error/400", async (_request, _reply) => {
-          const error = new Error("Bad request error") as Error & {
+        fastify.get('/api/error/400', async (_request, _reply) => {
+          const error = new Error('Bad request error') as Error & {
             statusCode?: number;
           };
           error.statusCode = 400;
@@ -88,8 +88,8 @@ async function runAPIServerDemo() {
         });
 
         // Page-data error route (to test envelope detection)
-        fastify.get("/page_data/error", async (_request, _reply) => {
-          throw new Error("Page data error!");
+        fastify.get('/page_data/error', async (_request, _reply) => {
+          throw new Error('Page data error!');
         });
       },
     ],
@@ -175,38 +175,38 @@ async function runAPIServerDemo() {
     // },
     fastifyOptions: {
       logger: {
-        level: "info",
+        level: 'info',
       },
     },
   };
 
   try {
     const server = serveAPI(options);
-    await server.listen(3001, "localhost");
+    await server.listen(3001, 'localhost');
 
-    console.log("✅ API Server started successfully!");
-    console.log("🌐 Try these endpoints:");
-    console.log("\n📋 Working routes:");
-    console.log("   GET  http://localhost:3001/health");
-    console.log("   GET  http://localhost:3001/api/users");
-    console.log("   POST http://localhost:3001/api/users");
-    console.log("   GET  http://localhost:3001/api/anything (wildcard)");
-    console.log("\n🚨 Error testing routes:");
-    console.log("   GET  http://localhost:3001/api/error (throws error)");
-    console.log("   GET  http://localhost:3001/api/error/500 (custom 500)");
-    console.log("   GET  http://localhost:3001/api/error/400 (custom 400)");
+    console.log('✅ API Server started successfully!');
+    console.log('🌐 Try these endpoints:');
+    console.log('\n📋 Working routes:');
+    console.log('   GET  http://localhost:3001/health');
+    console.log('   GET  http://localhost:3001/api/users');
+    console.log('   POST http://localhost:3001/api/users');
+    console.log('   GET  http://localhost:3001/api/anything (wildcard)');
+    console.log('\n🚨 Error testing routes:');
+    console.log('   GET  http://localhost:3001/api/error (throws error)');
+    console.log('   GET  http://localhost:3001/api/error/500 (custom 500)');
+    console.log('   GET  http://localhost:3001/api/error/400 (custom 400)');
     console.log(
-      "   GET  http://localhost:3001/page_data/error (page envelope)",
+      '   GET  http://localhost:3001/page_data/error (page envelope)',
     );
-    console.log("\n🔍 404 testing routes:");
-    console.log("   GET  http://localhost:3001/not-found (API 404 envelope)");
+    console.log('\n🔍 404 testing routes:');
+    console.log('   GET  http://localhost:3001/not-found (API 404 envelope)');
     console.log(
-      "   GET  http://localhost:3001/page_data/not-found (Page 404 envelope)",
+      '   GET  http://localhost:3001/page_data/not-found (Page 404 envelope)',
     );
     console.log(
-      "\n💡 Notice: Wildcard route commented out to test 404 handling!",
+      '\n💡 Notice: Wildcard route commented out to test 404 handling!',
     );
-    console.log("   Uncomment the wildcard to see catch-all behavior.");
+    console.log('   Uncomment the wildcard to see catch-all behavior.');
 
     // Keep the demo running for a bit
     // console.log("\n⏱️  Demo will run for 30 seconds...");
@@ -216,7 +216,7 @@ async function runAPIServerDemo() {
     //   console.log("✅ Demo completed!");
     // }, 30000);
   } catch (error) {
-    console.error("❌ Failed to start API server:", error);
+    console.error('❌ Failed to start API server:', error);
     process.exit(1);
   }
 }

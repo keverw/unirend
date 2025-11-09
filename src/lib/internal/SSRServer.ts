@@ -8,23 +8,23 @@ import {
   type SSRHelpers,
   type PluginMetadata,
   type APIResponseHelpersClass,
-} from "../types";
+} from '../types';
 import {
   readHTMLFile,
   checkAndLoadManifest,
   getServerEntryFromManifest,
   validateDevPaths,
-} from "./fs-utils";
-import { processTemplate } from "./html-utils/format";
-import { injectContent } from "./html-utils/inject";
-import path from "path";
+} from './fs-utils';
+import { processTemplate } from './html-utils/format';
+import { injectContent } from './html-utils/inject';
+import path from 'path';
 import type {
   FastifyRequest,
   FastifyReply,
   FastifyServerOptions,
   FastifyError,
-} from "fastify";
-import type { ViteDevServer } from "vite";
+} from 'fastify';
+import type { ViteDevServer } from 'vite';
 import {
   createControlledInstance,
   isAPIRequest,
@@ -33,34 +33,34 @@ import {
   createDefaultAPINotFoundResponse,
   createControlledReply,
   validateAndRegisterPlugin,
-} from "./server-utils";
-import { generateDefault500ErrorPage } from "./errorPageUtils";
-import StaticContentRouterPlugin from "./middleware/static-content-router";
-import { BaseServer } from "./BaseServer";
+} from './server-utils';
+import { generateDefault500ErrorPage } from './errorPageUtils';
+import StaticContentRouterPlugin from './middleware/static-content-router';
+import { BaseServer } from './BaseServer';
 import {
   DataLoaderServerHandlerHelpers,
   type PageDataHandler,
-} from "./DataLoaderServerHandlerHelpers";
-import { APIRoutesServerHelpers } from "./APIRoutesServerHelpers";
+} from './DataLoaderServerHandlerHelpers';
+import { APIRoutesServerHelpers } from './APIRoutesServerHelpers';
 import {
   WebSocketServerHelpers,
   type WebSocketHandlerConfig,
-} from "./WebSocketServerHelpers";
+} from './WebSocketServerHelpers';
 import {
   filterIncomingCookieHeader as applyCookiePolicyToCookieHeader,
   filterSetCookieHeaderValues as applyCookiePolicyToSetCookie,
-} from "./cookie-utils";
-import { APIResponseHelpers } from "../../api-envelope";
-import type { WebSocket, WebSocketServer } from "ws";
+} from './cookie-utils';
+import { APIResponseHelpers } from '../../api-envelope';
+import type { WebSocket, WebSocketServer } from 'ws';
 
 type SSRServerConfigDev = {
-  mode: "development";
+  mode: 'development';
   paths: SSRDevPaths; // Contains serverEntry, template, and viteConfig paths
   options: ServeSSRDevOptions;
 };
 
 type SSRServerConfigProd = {
-  mode: "production";
+  mode: 'production';
   buildDir: string; // Directory containing built assets (HTML template, static files, manifest, etc.)
   options: ServeSSRProdOptions;
 };
@@ -101,8 +101,8 @@ export class SSRServer extends BaseServer {
     this.config = config;
 
     // Set folder names with defaults
-    this.clientFolderName = config.options.clientFolderName || "client";
-    this.serverFolderName = config.options.serverFolderName || "server";
+    this.clientFolderName = config.options.clientFolderName || 'client';
+    this.serverFolderName = config.options.serverFolderName || 'server';
 
     // Set helpers class (custom or default)
     this.APIResponseHelpersClass =
@@ -142,16 +142,16 @@ export class SSRServer extends BaseServer {
    * @param host Host to bind to (defaults to localhost)
    * @returns Promise that resolves when server is listening
    */
-  async listen(port: number = 3000, host: string = "localhost"): Promise<void> {
+  async listen(port: number = 3000, host: string = 'localhost'): Promise<void> {
     if (this._isListening) {
       throw new Error(
-        "SSRServer is already listening. Call stop() first before listening again.",
+        'SSRServer is already listening. Call stop() first before listening again.',
       );
     }
 
     if (this._isStarting) {
       throw new Error(
-        "SSRServer is already starting. Please wait for the current startup to complete.",
+        'SSRServer is already starting. Please wait for the current startup to complete.',
       );
     }
 
@@ -183,11 +183,11 @@ export class SSRServer extends BaseServer {
 
     try {
       // Validate development paths exist before proceeding
-      if (this.config.mode === "development") {
+      if (this.config.mode === 'development') {
         const pathValidation = await validateDevPaths(this.config.paths);
         if (!pathValidation.success) {
           throw new Error(
-            `Development paths validation failed:\n${pathValidation.errors.join("\n")}`,
+            `Development paths validation failed:\n${pathValidation.errors.join('\n')}`,
           );
         }
       }
@@ -195,13 +195,13 @@ export class SSRServer extends BaseServer {
       // Load HTML template (in production only - dev will read fresh per request)
       let htmlTemplate: string | undefined;
 
-      if (this.config.mode === "production") {
+      if (this.config.mode === 'production') {
         const templateResult = await this.loadHTMLTemplate();
         htmlTemplate = templateResult.content;
       }
 
       // Dynamic import to prevent bundling in client builds
-      const { default: fastify } = await import("fastify");
+      const { default: fastify } = await import('fastify');
 
       // Build Fastify options from curated subset
       const fastifyOptions: FastifyServerOptions = {};
@@ -237,12 +237,12 @@ export class SSRServer extends BaseServer {
       }
 
       // Decorate requests with environment info (per-request)
-      const mode: "development" | "production" = this.config.mode;
-      const isDevelopment = mode === "development";
-      this.fastifyInstance.decorateRequest("isDevelopment", isDevelopment);
+      const mode: 'development' | 'production' = this.config.mode;
+      const isDevelopment = mode === 'development';
+      this.fastifyInstance.decorateRequest('isDevelopment', isDevelopment);
 
       // Initialize request context for all requests
-      this.fastifyInstance.addHook("onRequest", async (request, _reply) => {
+      this.fastifyInstance.addHook('onRequest', async (request, _reply) => {
         (
           request as FastifyRequest & {
             requestContext?: Record<string, unknown>;
@@ -261,12 +261,12 @@ export class SSRServer extends BaseServer {
             return;
           }
 
-          const isDevelopment = this.config.mode === "development";
+          const isDevelopment = this.config.mode === 'development';
 
           // Log the error using Fastify's logger
           if (this.fastifyInstance) {
             this.fastifyInstance.log.error(
-              "Global Error Handler Caught:",
+              'Global Error Handler Caught:',
               error,
             );
           }
@@ -279,8 +279,8 @@ export class SSRServer extends BaseServer {
           // If the response hasn't been sent, determine response type
           if (!reply.sent) {
             // Check if this is an API request (if APIHandling is enabled)
-            const rawPath = request.url.split("?")[0];
-            const apiPrefix = this.config.options.APIHandling?.prefix ?? "/api";
+            const rawPath = request.url.split('?')[0];
+            const apiPrefix = this.config.options.APIHandling?.prefix ?? '/api';
             const isAPI =
               apiPrefix !== false && isAPIRequest(rawPath, apiPrefix);
 
@@ -293,8 +293,8 @@ export class SSRServer extends BaseServer {
 
               reply
                 .code(500)
-                .header("Content-Type", "text/html")
-                .header("Cache-Control", "no-store")
+                .header('Content-Type', 'text/html')
+                .header('Cache-Control', 'no-store')
                 .send(errorPage);
             }
           }
@@ -340,17 +340,17 @@ export class SSRServer extends BaseServer {
       }
 
       // Create Vite Dev Server Middleware (Development Only)
-      if (this.config.mode === "development") {
+      if (this.config.mode === 'development') {
         this.viteDevServer = await (
-          await import("vite")
+          await import('vite')
         ).createServer({
           configFile: this.config.paths.viteConfig,
           server: { middlewareMode: true },
-          appType: "custom",
+          appType: 'custom',
         });
 
         // Mount Vite's dev server middleware after Fastify's error handling and logging
-        await this.fastifyInstance.register(import("@fastify/middie"));
+        await this.fastifyInstance.register(import('@fastify/middie'));
 
         // Now we can use middleware
         this.fastifyInstance.use(this.viteDevServer.middlewares);
@@ -364,7 +364,7 @@ export class SSRServer extends BaseServer {
           const clientBuildAssetDir = path.join(
             this.config.buildDir,
             this.clientFolderName,
-            "assets",
+            'assets',
           );
 
           // Use the static router configuration provided by the user, or use the default
@@ -372,7 +372,7 @@ export class SSRServer extends BaseServer {
             .config.options.staticContentRouter || {
             // Default: just serve the assets folder with immutable caching
             folderMap: {
-              "/assets": {
+              '/assets': {
                 path: clientBuildAssetDir,
                 detectImmutableAssets: true, // Enable immutable caching for hashed assets
               },
@@ -389,11 +389,11 @@ export class SSRServer extends BaseServer {
 
       // This handler will catch all requests
       this.fastifyInstance.get(
-        "*",
+        '*',
         async (request: FastifyRequest, reply: FastifyReply) => {
           // (if APIHandling is enabled), Check if this is an API request that should return 404 JSON instead of SSR
-          const rawPath = request.url.split("?")[0];
-          const apiPrefix = this.config.options.APIHandling?.prefix ?? "/api";
+          const rawPath = request.url.split('?')[0];
+          const apiPrefix = this.config.options.APIHandling?.prefix ?? '/api';
           const isAPI = apiPrefix !== false && isAPIRequest(rawPath, apiPrefix);
 
           if (isAPI) {
@@ -408,7 +408,7 @@ export class SSRServer extends BaseServer {
 
           let template: string;
 
-          if (this.config.mode === "development" && this.viteDevServer) {
+          if (this.config.mode === 'development' && this.viteDevServer) {
             // --- Development SSR ---
             // Read template fresh per request in dev mode
             const templateResult = await this.loadHTMLTemplate();
@@ -427,7 +427,7 @@ export class SSRServer extends BaseServer {
 
             if (
               !entryServer.render ||
-              typeof entryServer.render !== "function"
+              typeof entryServer.render !== 'function'
             ) {
               throw new Error(
                 "Server entry module must export a 'render' function",
@@ -440,7 +440,7 @@ export class SSRServer extends BaseServer {
             // Use the template loaded at startup and cached render function
             // Loaded once for performance in production mode
             if (!htmlTemplate) {
-              throw new Error("HTML template not loaded in production mode");
+              throw new Error('HTML template not loaded in production mode');
             }
 
             template = htmlTemplate;
@@ -464,7 +464,7 @@ export class SSRServer extends BaseServer {
                 for (const key in reqHeaders) {
                   const value = reqHeaders[key];
 
-                  if (typeof value === "string") {
+                  if (typeof value === 'string') {
                     headers.set(key, value);
                   } else if (Array.isArray(value)) {
                     for (const v of value) {
@@ -475,32 +475,32 @@ export class SSRServer extends BaseServer {
 
                 // First, delete any sensitive SSR headers that might be present in the client request
                 // This prevents clients from spoofing these secure headers
-                headers.delete("X-SSR-Request");
-                headers.delete("X-SSR-Original-IP");
-                headers.delete("X-SSR-Forwarded-User-Agent");
-                headers.delete("X-Correlation-ID");
+                headers.delete('X-SSR-Request');
+                headers.delete('X-SSR-Original-IP');
+                headers.delete('X-SSR-Forwarded-User-Agent');
+                headers.delete('X-Correlation-ID');
 
                 // Now set these headers with our trusted server-side values
-                headers.set("X-SSR-Request", "true");
-                headers.set("X-SSR-Original-IP", request.ip);
+                headers.set('X-SSR-Request', 'true');
+                headers.set('X-SSR-Original-IP', request.ip);
 
                 // Forward the user agent if needed
-                const userAgent = request.headers["user-agent"];
+                const userAgent = request.headers['user-agent'];
 
-                if (typeof userAgent === "string") {
-                  headers.set("X-SSR-Forwarded-User-Agent", userAgent);
+                if (typeof userAgent === 'string') {
+                  headers.set('X-SSR-Forwarded-User-Agent', userAgent);
                 }
 
                 // Forward the correlation ID (which is the same as request ID at this point)
                 if ((request as unknown as { requestID: string }).requestID) {
                   headers.set(
-                    "X-Correlation-ID",
+                    'X-Correlation-ID',
                     (request as unknown as { requestID: string }).requestID,
                   );
                 }
 
                 // Apply cookie forwarding policy to inbound Cookie header
-                const originalCookieHeader = headers.get("cookie");
+                const originalCookieHeader = headers.get('cookie');
                 const filteredCookieHeader = applyCookiePolicyToCookieHeader(
                   originalCookieHeader || undefined,
                   this.cookieAllowList,
@@ -508,9 +508,9 @@ export class SSRServer extends BaseServer {
                 );
 
                 if (filteredCookieHeader && filteredCookieHeader.length > 0) {
-                  headers.set("cookie", filteredCookieHeader);
+                  headers.set('cookie', filteredCookieHeader);
                 } else {
-                  headers.delete("cookie");
+                  headers.delete('cookie');
                 }
 
                 return headers;
@@ -524,11 +524,11 @@ export class SSRServer extends BaseServer {
             fastifyRequest: request,
             controlledReply: createControlledReply(reply),
             handlers: this.pageDataHandlers,
-            isDevelopment: this.config.mode === "development",
+            isDevelopment: this.config.mode === 'development',
           } as const;
 
           try {
-            Object.defineProperty(fetchRequest, "SSRHelpers", {
+            Object.defineProperty(fetchRequest, 'SSRHelpers', {
               value: SSRHelpers,
               enumerable: false,
               configurable: false,
@@ -551,18 +551,18 @@ export class SSRServer extends BaseServer {
               : undefined;
 
             const renderResult = await render({
-              type: "ssr",
+              type: 'ssr',
               fetchRequest,
               unirendContext: {
-                renderMode: "ssr",
-                isDevelopment: this.config.mode === "development",
+                renderMode: 'ssr',
+                isDevelopment: this.config.mode === 'development',
                 fetchRequest: fetchRequest,
                 frontendAppConfig,
-                requestContextRevision: "0-0", // Initial revision for this request
+                requestContextRevision: '0-0', // Initial revision for this request
               },
             });
 
-            if (renderResult.resultType === "page") {
+            if (renderResult.resultType === 'page') {
               // ---> Extract status code from render result
               const statusCode = renderResult.statusCode || 200;
 
@@ -579,7 +579,7 @@ export class SSRServer extends BaseServer {
                 );
 
                 for (const cookie of filteredCookies) {
-                  reply.header("Set-Cookie", cookie);
+                  reply.header('Set-Cookie', cookie);
                 }
               }
 
@@ -589,7 +589,7 @@ export class SSRServer extends BaseServer {
               if (statusCode === 500) {
                 const error =
                   renderResult.errorDetails ||
-                  new Error("Internal Server Error");
+                  new Error('Internal Server Error');
 
                 await this.handleSSRError(
                   request,
@@ -603,13 +603,13 @@ export class SSRServer extends BaseServer {
 
               // --- Prepare Helmet data for injection ---
               const headParts = [
-                renderResult.helmet?.title.toString() || "",
-                renderResult.helmet?.meta.toString() || "",
-                renderResult.helmet?.link.toString() || "",
-                renderResult.preloadLinks || "",
+                renderResult.helmet?.title.toString() || '',
+                renderResult.helmet?.meta.toString() || '',
+                renderResult.helmet?.link.toString() || '',
+                renderResult.preloadLinks || '',
               ].filter(Boolean);
 
-              const headInject = headParts.join("\n");
+              const headInject = headParts.join('\n');
 
               // Get config and request context for injection
               const frontendAppConfig = this.config.options.frontendAppConfig;
@@ -633,33 +633,33 @@ export class SSRServer extends BaseServer {
 
               // ---> Send response with the extracted status code
               if (statusCode >= 400) {
-                reply.header("Cache-Control", "no-store");
+                reply.header('Cache-Control', 'no-store');
               }
 
               reply
                 .code(statusCode)
-                .header("Content-Type", "text/html")
+                .header('Content-Type', 'text/html')
                 .send(finalHtml);
 
               return; // Stop further processing
-            } else if (renderResult.resultType === "response") {
+            } else if (renderResult.resultType === 'response') {
               // If React Router returned a Response (redirect/error as a response), handle it
               // Forward status and headers
               reply.code(renderResult.response.status);
 
               // Apply no-store for all 4xx/5xx in SSR Response path
               if (renderResult.response.status >= 400) {
-                reply.header("Cache-Control", "no-store");
+                reply.header('Cache-Control', 'no-store');
               }
 
               // Forward headers safe for redirects/responses
               for (const [key, value] of renderResult.response
                 .headers as unknown as Iterable<[string, string]>) {
                 if (
-                  key.toLowerCase().startsWith("location") ||
-                  key.toLowerCase().startsWith("set-cookie")
+                  key.toLowerCase().startsWith('location') ||
+                  key.toLowerCase().startsWith('set-cookie')
                 ) {
-                  if (key.toLowerCase().startsWith("set-cookie")) {
+                  if (key.toLowerCase().startsWith('set-cookie')) {
                     const filtered = applyCookiePolicyToSetCookie(
                       value,
                       this.cookieAllowList,
@@ -667,7 +667,7 @@ export class SSRServer extends BaseServer {
                     );
 
                     for (const v of filtered) {
-                      reply.header("Set-Cookie", v);
+                      reply.header('Set-Cookie', v);
                     }
                   } else {
                     reply.header(key, value);
@@ -686,14 +686,14 @@ export class SSRServer extends BaseServer {
                 }
               } catch (bodyError) {
                 this.fastifyInstance?.log.error(
-                  "Error reading response body:",
+                  'Error reading response body:',
                   bodyError,
                 );
                 reply.send(); // End response even if body reading fails
               }
 
               return; // Stop further processing
-            } else if (renderResult.resultType === "render-error") {
+            } else if (renderResult.resultType === 'render-error') {
               // Handle render errors
               await this.handleSSRError(
                 request,
@@ -708,7 +708,7 @@ export class SSRServer extends BaseServer {
               // TypeScript knows this is never, but we handle it for runtime safety
               const resultType =
                 (renderResult as { resultType?: string }).resultType ||
-                "unknown";
+                'unknown';
               const unexpectedError = new Error(
                 `Unexpected render result type: ${resultType}`,
               );
@@ -736,12 +736,12 @@ export class SSRServer extends BaseServer {
           // Safety check - if we somehow reach here without sending a response
           if (!reply.sent) {
             this.fastifyInstance?.log.warn(
-              "No response was sent, sending 500 error",
+              'No response was sent, sending 500 error',
             );
             await this.handleSSRError(
               request,
               reply,
-              new Error("No response was generated"),
+              new Error('No response was generated'),
               this.viteDevServer,
             );
           }
@@ -751,7 +751,7 @@ export class SSRServer extends BaseServer {
       // Start the server
       await this.fastifyInstance.listen({
         port,
-        host: host || "localhost",
+        host: host || 'localhost',
       });
 
       this._isListening = true;
@@ -795,7 +795,7 @@ export class SSRServer extends BaseServer {
       // Append cleanup errors to original error message if any
       if (cleanupErrors.length > 0 && error instanceof Error) {
         // Modify the original error's message directly
-        error.message = `${error.message}. Additional errors occurred: ${cleanupErrors.join(", ")}`;
+        error.message = `${error.message}. Additional errors occurred: ${cleanupErrors.join(', ')}`;
       }
 
       throw error;
@@ -852,10 +852,10 @@ export class SSRServer extends BaseServer {
     versionOrHandler: number | PageDataHandler,
     handler?: PageDataHandler,
   ): void {
-    if (typeof versionOrHandler === "number") {
+    if (typeof versionOrHandler === 'number') {
       // Called with version: registerDataLoaderHandler(pageType, version, handler)
       if (!handler) {
-        throw new Error("Handler is required when version is specified");
+        throw new Error('Handler is required when version is specified');
       }
 
       this.pageDataHandlers.registerDataLoaderHandler(
@@ -933,11 +933,11 @@ export class SSRServer extends BaseServer {
 
     // Plugin options to pass to each plugin
     const pluginOptions = {
-      serverType: "ssr" as const,
+      serverType: 'ssr' as const,
       mode: this.config.mode,
-      isDevelopment: this.config.mode === "development",
+      isDevelopment: this.config.mode === 'development',
       buildDir:
-        this.config.mode === "production" ? this.config.buildDir : undefined,
+        this.config.mode === 'production' ? this.config.buildDir : undefined,
       apiEndpoints: this.config.options.apiEndpoints,
     };
 
@@ -950,7 +950,7 @@ export class SSRServer extends BaseServer {
         // Validate dependencies and track plugin
         validateAndRegisterPlugin(this.registeredPlugins, pluginResult);
       } catch (error) {
-        this.fastifyInstance?.log.error("Failed to register plugin:", error);
+        this.fastifyInstance?.log.error('Failed to register plugin:', error);
         throw new Error(
           `Plugin registration failed: ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -971,14 +971,14 @@ export class SSRServer extends BaseServer {
       return this.cachedRenderFunction;
     }
 
-    if (this.config.mode !== "production") {
+    if (this.config.mode !== 'production') {
       throw new Error(
-        "loadProductionRenderFunction should only be called in production mode",
+        'loadProductionRenderFunction should only be called in production mode',
       );
     }
 
     const prodConfig = this.config as SSRServerConfigProd;
-    const serverEntry = prodConfig.options.serverEntry || "entry-server";
+    const serverEntry = prodConfig.options.serverEntry || 'entry-server';
     const serverBuildDir = path.join(
       prodConfig.buildDir,
       this.serverFolderName,
@@ -1017,7 +1017,7 @@ export class SSRServer extends BaseServer {
       );
     }
 
-    if (!entryServer.render || typeof entryServer.render !== "function") {
+    if (!entryServer.render || typeof entryServer.render !== 'function') {
       throw new Error("Server entry module must export a 'render' function");
     }
 
@@ -1035,7 +1035,7 @@ export class SSRServer extends BaseServer {
     // Determine template path based on mode
     let htmlTemplatePath: string;
 
-    if (this.config.mode === "development") {
+    if (this.config.mode === 'development') {
       // Development mode: use provided template path
       htmlTemplatePath = this.config.paths.template;
     } else {
@@ -1043,7 +1043,7 @@ export class SSRServer extends BaseServer {
       htmlTemplatePath = path.join(
         this.config.buildDir,
         this.clientFolderName,
-        "index.html",
+        'index.html',
       );
     }
 
@@ -1053,9 +1053,9 @@ export class SSRServer extends BaseServer {
     if (!templateResult.exists) {
       throw new Error(
         `HTML template not found at ${htmlTemplatePath}. ` +
-          (this.config.mode === "development"
-            ? "Please check the templatePath parameter."
-            : "Make sure to run the client build first."),
+          (this.config.mode === 'development'
+            ? 'Please check the templatePath parameter.'
+            : 'Make sure to run the client build first.'),
       );
     }
 
@@ -1073,12 +1073,12 @@ export class SSRServer extends BaseServer {
     }
 
     // Process the template based on mode and options
-    const isDevelopment = this.config.mode === "development";
-    const containerID = this.config.options.containerID || "root";
+    const isDevelopment = this.config.mode === 'development';
+    const containerID = this.config.options.containerID || 'root';
 
     const processResult = await processTemplate(
       rawHtmlTemplate,
-      "ssr", // mode
+      'ssr', // mode
       isDevelopment,
       containerID,
     );
@@ -1117,7 +1117,7 @@ export class SSRServer extends BaseServer {
       return;
     }
 
-    const isDevelopment = this.config.mode === "development";
+    const isDevelopment = this.config.mode === 'development';
 
     // If an error is caught, let Vite fix the stack trace so it maps back
     // to your actual source code.
@@ -1129,8 +1129,8 @@ export class SSRServer extends BaseServer {
     const errorPage = await this.generate500ErrorPage(request, error);
     reply
       .code(500)
-      .header("Content-Type", "text/html")
-      .header("Cache-Control", "no-store")
+      .header('Content-Type', 'text/html')
+      .header('Cache-Control', 'no-store')
       .send(errorPage);
   }
 
@@ -1145,7 +1145,7 @@ export class SSRServer extends BaseServer {
     request: FastifyRequest,
     error: Error,
   ): Promise<string> {
-    const isDevelopment = this.config.mode === "development";
+    const isDevelopment = this.config.mode === 'development';
 
     // Log error details for server logs (always log, regardless of mode)
     this.fastifyInstance?.log.error(
@@ -1168,7 +1168,7 @@ export class SSRServer extends BaseServer {
     } catch (errorHandlerError) {
       // If custom error handler itself throws, fall back to the default error page
       this.fastifyInstance?.log.error(
-        "[SSR Error Handler Error]:",
+        '[SSR Error Handler Error]:',
         errorHandlerError,
       );
       return generateDefault500ErrorPage(request, error, isDevelopment);
@@ -1189,10 +1189,10 @@ export class SSRServer extends BaseServer {
     error: Error,
     apiPrefix: string,
   ): Promise<void> {
-    const isDevelopment = this.config.mode === "development";
+    const isDevelopment = this.config.mode === 'development';
 
     // Remove API prefix to check for page-data pattern
-    const rawPath = request.url.split("?")[0];
+    const rawPath = request.url.split('?')[0];
     const pathWithoutAPI = rawPath.startsWith(apiPrefix)
       ? rawPath.slice(apiPrefix.length)
       : rawPath;
@@ -1212,13 +1212,13 @@ export class SSRServer extends BaseServer {
 
         // Extract status code from envelope response
         const statusCode = customResponse.status_code || 500;
-        reply.code(statusCode).header("Cache-Control", "no-store");
+        reply.code(statusCode).header('Cache-Control', 'no-store');
 
         return reply.send(customResponse);
       } catch (handlerError) {
         // If custom handler fails, fall back to default
         this.fastifyInstance?.log.error(
-          "[API Error Handler Error]:",
+          '[API Error Handler Error]:',
           handlerError,
         );
       }
@@ -1226,7 +1226,7 @@ export class SSRServer extends BaseServer {
 
     // Default case
     const statusCode = (error as FastifyError).statusCode || 500;
-    reply.code(statusCode).header("Cache-Control", "no-store");
+    reply.code(statusCode).header('Cache-Control', 'no-store');
 
     // Default API error response using shared utility
     const response = createDefaultAPIErrorResponse(
@@ -1253,7 +1253,7 @@ export class SSRServer extends BaseServer {
     apiPrefix: string,
   ): Promise<void> {
     // Remove API prefix to check for page-data pattern
-    const rawPath = request.url.split("?")[0];
+    const rawPath = request.url.split('?')[0];
     const pathWithoutAPI = rawPath.startsWith(apiPrefix)
       ? rawPath.slice(apiPrefix.length)
       : rawPath;
@@ -1268,13 +1268,13 @@ export class SSRServer extends BaseServer {
 
         // Extract status code from envelope response
         const statusCode = customResponse.status_code || 404;
-        reply.code(statusCode).header("Cache-Control", "no-store");
+        reply.code(statusCode).header('Cache-Control', 'no-store');
 
         return reply.send(customResponse);
       } catch (handlerError) {
         // If custom handler fails, fall back to default
         this.fastifyInstance?.log.error(
-          "[API Not Found Handler Error]:",
+          '[API Not Found Handler Error]:',
           handlerError,
         );
       }
@@ -1282,7 +1282,7 @@ export class SSRServer extends BaseServer {
 
     // Default case
     const statusCode = 404;
-    reply.code(statusCode).header("Cache-Control", "no-store");
+    reply.code(statusCode).header('Cache-Control', 'no-store');
 
     // Default API not-found response using shared utility
     const response = createDefaultAPINotFoundResponse(

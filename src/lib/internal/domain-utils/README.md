@@ -32,12 +32,12 @@ Example:
 
 ```ts
 for (const e of allowedOrigins) {
-  const v = validateConfigEntry(e, "origin", { allowGlobalWildcard: false });
+  const v = validateConfigEntry(e, 'origin', { allowGlobalWildcard: false });
   if (!v.valid) throw new Error(`Invalid origin: ${e} (${v.info})`);
 }
 
 const ok = matchesOriginList(
-  req.headers.get("Origin") ?? undefined,
+  req.headers.get('Origin') ?? undefined,
   allowedOrigins,
 );
 ```
@@ -87,7 +87,7 @@ Validate every allowlist entry (domain/origin) at startup with `validateConfigEn
 
 ```ts
 for (const entry of allowedOrigins) {
-  const v = validateConfigEntry(entry, "origin", {
+  const v = validateConfigEntry(entry, 'origin', {
     allowGlobalWildcard: false,
   });
 
@@ -99,7 +99,7 @@ Domain list example (reject origin-style entries early):
 
 ```ts
 for (const entry of allowedDomains) {
-  const v = validateConfigEntry(entry, "domain");
+  const v = validateConfigEntry(entry, 'domain');
   if (!v.valid) throw new Error(`Invalid domain: ${entry} (${v.info})`);
 }
 ```
@@ -111,19 +111,19 @@ Outputs: `{ valid, info?, wildcardKind }`, where `wildcardKind` is `"none" | "gl
 ## End-to-end example
 
 ```ts
-import { matchesOriginList, validateConfigEntry } from "./domain-utils";
+import { matchesOriginList, validateConfigEntry } from './domain-utils';
 
-const allowed = ["https://*.example.com", "https://partner.io", "*"]; // example
+const allowed = ['https://*.example.com', 'https://partner.io', '*']; // example
 
 // Validate at config time
 for (const entry of allowed) {
-  const v = validateConfigEntry(entry, "origin", { allowGlobalWildcard: true });
+  const v = validateConfigEntry(entry, 'origin', { allowGlobalWildcard: true });
   if (!v.valid) throw new Error(`Invalid origin entry: ${entry} (${v.info})`);
 }
 
 // At runtime
 const ok = matchesOriginList(
-  request.headers.get("Origin") ?? undefined,
+  request.headers.get('Origin') ?? undefined,
   allowed,
   {
     treatNoOriginAsAllowed: false,
@@ -201,34 +201,34 @@ Allow HTTPS subdomains, include the apex, and one exact partner origin; disallow
 
 ```ts
 const allowed = [
-  "https://example.com", // apex must be listed explicitly
-  "https://*.example.com", // direct subdomains only
-  "https://partner.io",
+  'https://example.com', // apex must be listed explicitly
+  'https://*.example.com', // direct subdomains only
+  'https://partner.io',
 ]; // no "*"
 
 for (const e of allowed) {
-  const v = validateConfigEntry(e, "origin", { allowGlobalWildcard: false });
+  const v = validateConfigEntry(e, 'origin', { allowGlobalWildcard: false });
   if (!v.valid) throw new Error(`Invalid: ${e} (${v.info})`);
 }
 
-const ok = matchesOriginList(req.headers.get("Origin") ?? undefined, allowed);
+const ok = matchesOriginList(req.headers.get('Origin') ?? undefined, allowed);
 ```
 
 Credentials (exact only):
 
 ```ts
 const allowedCreds = [
-  "https://admin.example.com",
-  "https://console.example.com",
+  'https://admin.example.com',
+  'https://console.example.com',
 ];
 
 for (const e of allowedCreds) {
-  const v = validateConfigEntry(e, "origin");
+  const v = validateConfigEntry(e, 'origin');
   if (!v.valid) throw new Error(`Invalid: ${e} (${v.info})`);
 }
 
 const okCreds = matchesCORSCredentialsList(
-  req.headers.get("Origin") ?? undefined,
+  req.headers.get('Origin') ?? undefined,
   allowedCreds,
 );
 ```
@@ -236,15 +236,15 @@ const okCreds = matchesCORSCredentialsList(
 Credentials (subdomains required):
 
 ```ts
-const allowedCredsWildcard = ["https://*.example.com"]; // consider risk
+const allowedCredsWildcard = ['https://*.example.com']; // consider risk
 
 for (const e of allowedCredsWildcard) {
-  const v = validateConfigEntry(e, "origin");
+  const v = validateConfigEntry(e, 'origin');
   if (!v.valid) throw new Error(`Invalid: ${e} (${v.info})`);
 }
 
 const okCredsWildcard = matchesCORSCredentialsList(
-  req.headers.get("Origin") ?? undefined,
+  req.headers.get('Origin') ?? undefined,
   allowedCredsWildcard,
   { allowWildcardSubdomains: true },
 );

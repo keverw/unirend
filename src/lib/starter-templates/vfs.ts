@@ -3,8 +3,8 @@ import {
   writeFile as fsWriteFile,
   mkdir as fsMkdir,
   rm as fsRm,
-} from "fs/promises";
-import { join } from "path";
+} from 'fs/promises';
+import { join } from 'path';
 
 /**
  * Virtual File System (VFS) helpers
@@ -35,18 +35,18 @@ export type FileContent = string | Uint8Array;
  * - Throws if traversal would escape the root (leading to an empty stack)
  */
 export function normalizeRelPath(relPath: string): string {
-  const trimmed = relPath.replace(/^[\\/]+/, "");
+  const trimmed = relPath.replace(/^[\\/]+/, '');
   const raw = trimmed.split(/[\\/]+/);
   const parts: string[] = [];
 
   for (const part of raw) {
-    if (!part || part === ".") {
+    if (!part || part === '.') {
       continue;
     }
 
-    if (part === "..") {
+    if (part === '..') {
       if (parts.length === 0) {
-        throw new Error("Path traversal outside root is not allowed");
+        throw new Error('Path traversal outside root is not allowed');
       }
 
       parts.pop();
@@ -55,11 +55,11 @@ export function normalizeRelPath(relPath: string): string {
     }
   }
 
-  return parts.join("/");
+  return parts.join('/');
 }
 
 export function isInMemoryFileRoot(root: FileRoot): root is InMemoryDir {
-  return typeof root === "object" && root !== null;
+  return typeof root === 'object' && root !== null;
 }
 
 /** Ensure the directory exists when using a real filesystem root. No-op for in-memory roots. */
@@ -87,7 +87,7 @@ export async function vfsWrite(
   }
 
   const abs = join(root, norm);
-  await fsMkdir(join(abs, ".."), { recursive: true }).catch(() => {});
+  await fsMkdir(join(abs, '..'), { recursive: true }).catch(() => {});
   await fsWriteFile(abs, content);
 }
 
@@ -95,10 +95,10 @@ export async function vfsWrite(
 async function vfsReadRaw(
   root: FileRoot,
   relPath: string,
-  desired: "text" | "Uint8Array",
+  desired: 'text' | 'Uint8Array',
 ): Promise<
   | { ok: true; data: string | Uint8Array }
-  | { ok: false; code: "ENOENT" | "READ_ERROR"; message?: string }
+  | { ok: false; code: 'ENOENT' | 'READ_ERROR'; message?: string }
 > {
   try {
     if (isInMemoryFileRoot(root)) {
@@ -106,10 +106,10 @@ async function vfsReadRaw(
       const data = root[norm];
 
       if (data === undefined) {
-        return { ok: false, code: "ENOENT" };
+        return { ok: false, code: 'ENOENT' };
       }
 
-      if (desired === "Uint8Array") {
+      if (desired === 'Uint8Array') {
         if (data instanceof Uint8Array) {
           return { ok: true, data };
         }
@@ -118,7 +118,7 @@ async function vfsReadRaw(
       }
 
       // desired text
-      if (typeof data === "string") {
+      if (typeof data === 'string') {
         return { ok: true, data };
       }
 
@@ -129,24 +129,24 @@ async function vfsReadRaw(
     const abs = join(root, norm);
     const buf = await fsReadFile(abs);
 
-    if (desired === "Uint8Array") {
+    if (desired === 'Uint8Array') {
       return { ok: true, data: buf };
     }
 
-    return { ok: true, data: buf.toString("utf8") };
+    return { ok: true, data: buf.toString('utf8') };
   } catch (err) {
     if (
       err &&
-      typeof err === "object" &&
-      "code" in err &&
-      (err as { code?: unknown }).code === "ENOENT"
+      typeof err === 'object' &&
+      'code' in err &&
+      (err as { code?: unknown }).code === 'ENOENT'
     ) {
-      return { ok: false, code: "ENOENT" };
+      return { ok: false, code: 'ENOENT' };
     }
 
     return {
       ok: false,
-      code: "READ_ERROR",
+      code: 'READ_ERROR',
       message: err instanceof Error ? err.message : String(err),
     };
   }
@@ -158,9 +158,9 @@ export async function vfsReadText(
   relPath: string,
 ): Promise<
   | { ok: true; text: string }
-  | { ok: false; code: "ENOENT" | "READ_ERROR"; message?: string }
+  | { ok: false; code: 'ENOENT' | 'READ_ERROR'; message?: string }
 > {
-  const res = await vfsReadRaw(root, relPath, "text");
+  const res = await vfsReadRaw(root, relPath, 'text');
 
   if (!res.ok) {
     return res;
@@ -175,9 +175,9 @@ export async function vfsReadBinary(
   relPath: string,
 ): Promise<
   | { ok: true; data: Uint8Array }
-  | { ok: false; code: "ENOENT" | "READ_ERROR"; message?: string }
+  | { ok: false; code: 'ENOENT' | 'READ_ERROR'; message?: string }
 > {
-  const res = await vfsReadRaw(root, relPath, "Uint8Array");
+  const res = await vfsReadRaw(root, relPath, 'Uint8Array');
 
   if (!res.ok) {
     return res;

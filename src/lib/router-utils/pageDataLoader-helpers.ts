@@ -1,23 +1,23 @@
 import {
   PageResponseEnvelope,
   RedirectInfo,
-} from "../api-envelope/api-envelope-types";
+} from '../api-envelope/api-envelope-types';
 import {
   LocalPageLoaderConfig,
   PageLoaderConfig,
-} from "./pageDataLoader-types";
+} from './pageDataLoader-types';
 import {
   applyCustomHttpStatusHandler,
   createErrorResponse,
   decorateWithSsrOnlyData,
   isSafeRedirect,
-} from "./pageDataLoader-utils";
+} from './pageDataLoader-utils';
 import {
   DEBUG_PAGE_LOADER,
   DEFAULT_FALLBACK_REQUEST_ID_GENERATOR,
   DEFAULT_RETURN_TO_PARAM,
-} from "./pageDataLoader-consts";
-import { redirect } from "react-router";
+} from './pageDataLoader-consts';
+import { redirect } from 'react-router';
 
 export async function processRedirectResponse(
   config: PageLoaderConfig | LocalPageLoaderConfig,
@@ -60,19 +60,19 @@ export async function processRedirectResponse(
   // If preserve_query is true and we have a URL object, preserve query params
   let redirectTarget = target;
   const currentUrl =
-    typeof window !== "undefined" ? window.location.href : null;
+    typeof window !== 'undefined' ? window.location.href : null;
 
   if (redirectInfo.preserve_query && currentUrl) {
     try {
       const url = new URL(currentUrl);
       // Only append query if the target doesn't already have query params
-      if (!target.includes("?") && url.search) {
+      if (!target.includes('?') && url.search) {
         redirectTarget = `${target}${url.search}`;
       }
     } catch (error) {
       if (DEBUG_PAGE_LOADER) {
         // eslint-disable-next-line no-console
-        console.warn("Failed to preserve query parameters in redirect", error);
+        console.warn('Failed to preserve query parameters in redirect', error);
       }
     }
   }
@@ -80,7 +80,7 @@ export async function processRedirectResponse(
   if (DEBUG_PAGE_LOADER) {
     // eslint-disable-next-line no-console
     console.log(
-      `Application redirect to: ${redirectTarget} (${redirectInfo.permanent ? "permanent" : "temporary"})`,
+      `Application redirect to: ${redirectTarget} (${redirectInfo.permanent ? 'permanent' : 'temporary'})`,
     );
   }
 
@@ -94,7 +94,7 @@ export async function processApiResponse(
   response: Response,
   config: PageLoaderConfig,
 ): Promise<PageResponseEnvelope> {
-  const isServer = typeof window === "undefined"; // detecting here again instead of passing to promote tree-shaking
+  const isServer = typeof window === 'undefined'; // detecting here again instead of passing to promote tree-shaking
   const statusCode = response.status;
 
   // Extract cookies from response when on server
@@ -105,13 +105,13 @@ export async function processApiResponse(
 
   // Handle HTTP redirects explicitly before attempting to parse JSON
   if (
-    response.type === "opaqueredirect" ||
+    response.type === 'opaqueredirect' ||
     [301, 302, 303, 307, 308].includes(statusCode)
   ) {
     if (DEBUG_PAGE_LOADER) {
       // eslint-disable-next-line no-console
       console.warn(
-        `API returned a HTTP redirect to: ${response.headers.get("Location")}`,
+        `API returned a HTTP redirect to: ${response.headers.get('Location')}`,
       );
     }
 
@@ -122,12 +122,12 @@ export async function processApiResponse(
         config.errorDefaults.redirectNotFollowed.code,
         config.errorDefaults.redirectNotFollowed.message,
         config.generateFallbackRequestID
-          ? config.generateFallbackRequestID("redirect")
-          : DEFAULT_FALLBACK_REQUEST_ID_GENERATOR("redirect"),
+          ? config.generateFallbackRequestID('redirect')
+          : DEFAULT_FALLBACK_REQUEST_ID_GENERATOR('redirect'),
         undefined,
         {
           originalStatus: statusCode,
-          location: response.headers.get("Location"),
+          location: response.headers.get('Location'),
         },
       ),
       ssrOnlyData,
@@ -147,7 +147,7 @@ export async function processApiResponse(
 
   if (DEBUG_PAGE_LOADER) {
     // eslint-disable-next-line no-console
-    console.log("response Info", {
+    console.log('response Info', {
       isValidJson,
       statusCode,
       responseData,
@@ -166,8 +166,8 @@ export async function processApiResponse(
     if (customHandlerResult) {
       // If the custom handler returned a redirect, process it.
       if (
-        customHandlerResult.status === "redirect" &&
-        customHandlerResult.type === "page" &&
+        customHandlerResult.status === 'redirect' &&
+        customHandlerResult.type === 'page' &&
         customHandlerResult.redirect
       ) {
         return processRedirectResponse(
@@ -184,25 +184,25 @@ export async function processApiResponse(
     // Check for redirect status - only for page-type responses with status 200
     // Our convention is that redirect responses always use status_code 200
     if (
-      responseData?.status === "redirect" &&
-      responseData?.type === "page" &&
+      responseData?.status === 'redirect' &&
+      responseData?.type === 'page' &&
       responseData?.redirect
     ) {
       return processRedirectResponse(config, responseData, ssrOnlyData);
     }
 
     // Continue with existing checks for page responses and auth redirects
-    if (statusCode === 200 && responseData?.type === "page") {
+    if (statusCode === 200 && responseData?.type === 'page') {
       // successful page response as is
       return decorateWithSsrOnlyData(responseData, ssrOnlyData);
     } else {
       // if it already is a page / error response, return it as is
-      if (responseData?.type === "page") {
+      if (responseData?.type === 'page') {
         return decorateWithSsrOnlyData(responseData, ssrOnlyData);
       } else if (
         statusCode === 401 &&
-        responseData?.status === "error" &&
-        responseData?.error?.code === "authentication_required"
+        responseData?.status === 'error' &&
+        responseData?.error?.code === 'authentication_required'
       ) {
         // redirect to login - check for return_to in the error details
         const returnTo = responseData?.error?.details?.return_to;
@@ -221,13 +221,13 @@ export async function processApiResponse(
         // Convert API responses to page responses
         // This happens when the API returns an "api" type response but we need a "page" type
         // for React Router data loaders. We preserve metadata from the original API response.
-        if (responseData?.type === "api") {
-          if (responseData?.status === "error") {
+        if (responseData?.type === 'api') {
+          if (responseData?.status === 'error') {
             const requestID =
               responseData?.request_id ||
               (config.generateFallbackRequestID
-                ? config.generateFallbackRequestID("error")
-                : DEFAULT_FALLBACK_REQUEST_ID_GENERATOR("error"));
+                ? config.generateFallbackRequestID('error')
+                : DEFAULT_FALLBACK_REQUEST_ID_GENERATOR('error'));
 
             if (statusCode === 404) {
               return decorateWithSsrOnlyData(
@@ -254,7 +254,7 @@ export async function processApiResponse(
                   responseData?.meta,
                   // If in development mode, include error details
                   (config.isDevelopment ??
-                    process.env.NODE_ENV === "development")
+                    process.env.NODE_ENV === 'development')
                     ? responseData?.error?.details
                     : undefined,
                 ),
@@ -334,7 +334,7 @@ export async function processApiResponse(
               createErrorResponse(
                 config,
                 statusCode,
-                "http_error",
+                'http_error',
                 `HTTP Error: ${statusCode}`,
               ),
               ssrOnlyData,
@@ -355,8 +355,8 @@ export async function processApiResponse(
     if (customHandlerResult) {
       // If the custom handler returned a redirect, process it.
       if (
-        customHandlerResult.status === "redirect" &&
-        customHandlerResult.type === "page" &&
+        customHandlerResult.status === 'redirect' &&
+        customHandlerResult.type === 'page' &&
         customHandlerResult.redirect
       ) {
         return processRedirectResponse(

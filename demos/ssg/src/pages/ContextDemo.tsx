@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { Helmet } from "react-helmet-async";
-import { Header } from "../components/Header";
+import React, { useState, useEffect } from 'react';
+import { Helmet } from 'react-helmet-async';
+import { Header } from '../components/Header';
 import {
   useIsSSR,
   useIsSSG,
@@ -12,7 +12,7 @@ import {
   useRequestContext,
   useRequestContextValue,
   useRequestContextObjectRaw,
-} from "../../../../src/client";
+} from '../../../../src/client';
 
 const ContextDemo: React.FC = () => {
   // State to track if we're hydrated (client-side)
@@ -39,9 +39,9 @@ const ContextDemo: React.FC = () => {
 
   // Store initial render values in request context (for debugging)
   // This runs on both server and client, storing what was seen at render time
-  if (!requestContext.has("__debug_initialRenderMode")) {
-    requestContext.set("__debug_initialRenderMode", renderMode);
-    requestContext.set("__debug_initialIsDevelopment", isDevelopment);
+  if (!requestContext.has('__debug_initialRenderMode')) {
+    requestContext.set('__debug_initialRenderMode', renderMode);
+    requestContext.set('__debug_initialIsDevelopment', isDevelopment);
   }
 
   // Populate context snapshot after hydration
@@ -78,14 +78,14 @@ const ContextDemo: React.FC = () => {
           {!isHydrated ? (
             <div
               style={{
-                backgroundColor: "rgba(0, 0, 0, 0.2)",
-                padding: "1.5rem",
-                borderRadius: "8px",
-                marginTop: "1rem",
-                textAlign: "center",
+                backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                padding: '1.5rem',
+                borderRadius: '8px',
+                marginTop: '1rem',
+                textAlign: 'center',
               }}
             >
-              <p style={{ margin: 0, color: "rgba(255, 255, 255, 0.8)" }}>
+              <p style={{ margin: 0, color: 'rgba(255, 255, 255, 0.8)' }}>
                 Hydrating... Context will populate on client-side.
               </p>
             </div>
@@ -100,152 +100,152 @@ const ContextDemo: React.FC = () => {
 
               <div
                 style={{
-                  backgroundColor: "rgba(0, 0, 0, 0.2)",
-                  padding: "1.5rem",
-                  borderRadius: "8px",
-                  marginTop: "1rem",
-                  fontFamily: "monospace",
-                  textAlign: "left",
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  padding: '1.5rem',
+                  borderRadius: '8px',
+                  marginTop: '1rem',
+                  fontFamily: 'monospace',
+                  textAlign: 'left',
                 }}
               >
                 <div
                   style={{
-                    display: "grid",
-                    gap: "0.75rem",
-                    fontSize: "0.95rem",
-                    textAlign: "left",
+                    display: 'grid',
+                    gap: '0.75rem',
+                    fontSize: '0.95rem',
+                    textAlign: 'left',
                   }}
                 >
                   <div>
-                    <strong>useRenderMode():</strong>{" "}
+                    <strong>useRenderMode():</strong>{' '}
                     <code
                       style={{
-                        backgroundColor: "rgba(0, 0, 0, 0.3)",
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "4px",
-                        color: "#fff",
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
                       }}
                     >
                       "{contextSnapshot?.renderMode}"
                     </code>
                   </div>
                   <div>
-                    <strong>useIsSSR():</strong>{" "}
+                    <strong>useIsSSR():</strong>{' '}
                     <code
                       style={{
-                        backgroundColor: "rgba(0, 0, 0, 0.3)",
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "4px",
-                        color: "#fff",
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
                       }}
                     >
                       {String(isSSR)}
                     </code>
                   </div>
                   <div>
-                    <strong>useIsSSG():</strong>{" "}
+                    <strong>useIsSSG():</strong>{' '}
                     <code
                       style={{
-                        backgroundColor: "rgba(0, 0, 0, 0.3)",
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "4px",
-                        color: "#fff",
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
                       }}
                     >
                       {String(isSSG)}
                     </code>
                   </div>
                   <div>
-                    <strong>useIsClient():</strong>{" "}
+                    <strong>useIsClient():</strong>{' '}
                     <code
                       style={{
-                        backgroundColor: "rgba(0, 0, 0, 0.3)",
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "4px",
-                        color: "#fff",
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
                       }}
                     >
                       {String(isClient)}
                     </code>
                   </div>
                   <div>
-                    <strong>useIsDevelopment():</strong>{" "}
+                    <strong>useIsDevelopment():</strong>{' '}
                     <code
                       style={{
-                        backgroundColor: "rgba(0, 0, 0, 0.3)",
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "4px",
-                        color: "#fff",
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
                       }}
                     >
                       {String(contextSnapshot?.isDevelopment)}
                     </code>
                   </div>
                   <div>
-                    <strong>useIsServer():</strong>{" "}
+                    <strong>useIsServer():</strong>{' '}
                     <code
                       style={{
-                        backgroundColor: "rgba(0, 0, 0, 0.3)",
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "4px",
-                        color: "#fff",
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
                       }}
                     >
                       {String(contextSnapshot?.isServer)}
                     </code>
                   </div>
                   <div>
-                    <strong>useFrontendAppConfig():</strong>{" "}
+                    <strong>useFrontendAppConfig():</strong>{' '}
                     <code
                       style={{
-                        backgroundColor: "rgba(0, 0, 0, 0.3)",
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "4px",
-                        color: "#fff",
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
                       }}
                     >
                       {contextSnapshot?.hasFrontendConfig
-                        ? "Populated"
-                        : "undefined"}
+                        ? 'Populated'
+                        : 'undefined'}
                     </code>
                   </div>
                   <div>
-                    <strong>useRequestContext():</strong>{" "}
+                    <strong>useRequestContext():</strong>{' '}
                     <code
                       style={{
-                        backgroundColor: "rgba(0, 0, 0, 0.3)",
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "4px",
-                        color: "#fff",
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
                       }}
                     >
                       Available
                     </code>
                   </div>
                   <div>
-                    <strong>useRequestContextValue():</strong>{" "}
+                    <strong>useRequestContextValue():</strong>{' '}
                     <code
                       style={{
-                        backgroundColor: "rgba(0, 0, 0, 0.3)",
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "4px",
-                        color: "#fff",
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
                       }}
                     >
                       Available
                     </code>
                   </div>
                   <div>
-                    <strong>useRequestContextObjectRaw():</strong>{" "}
+                    <strong>useRequestContextObjectRaw():</strong>{' '}
                     <code
                       style={{
-                        backgroundColor: "rgba(0, 0, 0, 0.3)",
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "4px",
-                        color: "#fff",
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
                       }}
                     >
-                      {rawRequestContext ? "Populated" : "undefined"}
+                      {rawRequestContext ? 'Populated' : 'undefined'}
                     </code>
                   </div>
                 </div>
@@ -259,14 +259,14 @@ const ContextDemo: React.FC = () => {
           {!isHydrated ? (
             <div
               style={{
-                backgroundColor: "rgba(0, 0, 0, 0.2)",
-                padding: "1.5rem",
-                borderRadius: "8px",
-                marginTop: "1rem",
-                textAlign: "center",
+                backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                padding: '1.5rem',
+                borderRadius: '8px',
+                marginTop: '1rem',
+                textAlign: 'center',
               }}
             >
-              <p style={{ margin: 0, color: "rgba(255, 255, 255, 0.8)" }}>
+              <p style={{ margin: 0, color: 'rgba(255, 255, 255, 0.8)' }}>
                 Hydrating... Initial values will populate on client-side.
               </p>
             </div>
@@ -280,69 +280,69 @@ const ContextDemo: React.FC = () => {
               </p>
               <div
                 style={{
-                  backgroundColor: "rgba(0, 0, 0, 0.2)",
-                  padding: "1.5rem",
-                  borderRadius: "8px",
-                  marginTop: "1rem",
-                  fontFamily: "monospace",
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  padding: '1.5rem',
+                  borderRadius: '8px',
+                  marginTop: '1rem',
+                  fontFamily: 'monospace',
                 }}
               >
                 <div
                   style={{
-                    display: "grid",
-                    gap: "0.75rem",
-                    fontSize: "0.95rem",
+                    display: 'grid',
+                    gap: '0.75rem',
+                    fontSize: '0.95rem',
                   }}
                 >
                   <div>
-                    <strong>Initial Render Mode:</strong>{" "}
+                    <strong>Initial Render Mode:</strong>{' '}
                     <code
                       style={{
-                        backgroundColor: "rgba(0, 0, 0, 0.3)",
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "4px",
-                        color: "#fff",
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
                       }}
                     >
-                      {String(requestContext.get("__debug_initialRenderMode"))}
+                      {String(requestContext.get('__debug_initialRenderMode'))}
                     </code>
                   </div>
                   <div>
-                    <strong>Initial isDevelopment:</strong>{" "}
+                    <strong>Initial isDevelopment:</strong>{' '}
                     <code
                       style={{
-                        backgroundColor: "rgba(0, 0, 0, 0.3)",
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "4px",
-                        color: "#fff",
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
                       }}
                     >
                       {String(
-                        requestContext.get("__debug_initialIsDevelopment"),
+                        requestContext.get('__debug_initialIsDevelopment'),
                       )}
                     </code>
                   </div>
                   <div>
-                    <strong>Current Render Mode:</strong>{" "}
+                    <strong>Current Render Mode:</strong>{' '}
                     <code
                       style={{
-                        backgroundColor: "rgba(0, 0, 0, 0.3)",
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "4px",
-                        color: "#fff",
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
                       }}
                     >
                       {String(renderMode)}
                     </code>
                   </div>
                   <div>
-                    <strong>Current isDevelopment:</strong>{" "}
+                    <strong>Current isDevelopment:</strong>{' '}
                     <code
                       style={{
-                        backgroundColor: "rgba(0, 0, 0, 0.3)",
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "4px",
-                        color: "#fff",
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
                       }}
                     >
                       {String(isDevelopment)}
@@ -359,14 +359,14 @@ const ContextDemo: React.FC = () => {
           {!isHydrated ? (
             <div
               style={{
-                backgroundColor: "rgba(0, 0, 0, 0.2)",
-                padding: "1.5rem",
-                borderRadius: "8px",
-                marginTop: "1rem",
-                textAlign: "center",
+                backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                padding: '1.5rem',
+                borderRadius: '8px',
+                marginTop: '1rem',
+                textAlign: 'center',
               }}
             >
-              <p style={{ margin: 0, color: "rgba(255, 255, 255, 0.8)" }}>
+              <p style={{ margin: 0, color: 'rgba(255, 255, 255, 0.8)' }}>
                 Hydrating... Config will populate on client-side.
               </p>
             </div>
@@ -380,20 +380,20 @@ const ContextDemo: React.FC = () => {
               {frontendAppConfig ? (
                 <pre
                   style={{
-                    backgroundColor: "rgba(0, 0, 0, 0.3)",
-                    padding: "1rem",
-                    borderRadius: "4px",
-                    overflow: "auto",
-                    marginTop: "1rem",
-                    color: "#fff",
-                    fontFamily: "monospace",
-                    textAlign: "left",
+                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                    padding: '1rem',
+                    borderRadius: '4px',
+                    overflow: 'auto',
+                    marginTop: '1rem',
+                    color: '#fff',
+                    fontFamily: 'monospace',
+                    textAlign: 'left',
                   }}
                 >
                   {JSON.stringify(frontendAppConfig, null, 2)}
                 </pre>
               ) : (
-                <p style={{ marginTop: "1rem", fontStyle: "italic" }}>
+                <p style={{ marginTop: '1rem', fontStyle: 'italic' }}>
                   No frontend config was provided to the server.
                 </p>
               )}
@@ -406,53 +406,53 @@ const ContextDemo: React.FC = () => {
           {!isHydrated ? (
             <div
               style={{
-                backgroundColor: "rgba(0, 0, 0, 0.2)",
-                padding: "1.5rem",
-                borderRadius: "8px",
-                marginTop: "1rem",
-                textAlign: "center",
+                backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                padding: '1.5rem',
+                borderRadius: '8px',
+                marginTop: '1rem',
+                textAlign: 'center',
               }}
             >
-              <p style={{ margin: 0, color: "rgba(255, 255, 255, 0.8)" }}>
+              <p style={{ margin: 0, color: 'rgba(255, 255, 255, 0.8)' }}>
                 Hydrating... Raw context will populate on client-side.
               </p>
             </div>
           ) : (
             <>
               <p>
-                The raw request context object for debugging purposes via the{" "}
+                The raw request context object for debugging purposes via the{' '}
                 <code>useRequestContextObjectRaw()</code> hook. This returns a
                 cloned, immutable copy of the entire context.
               </p>
               <p
                 style={{
-                  marginTop: "1rem",
-                  fontStyle: "italic",
-                  fontSize: "0.9rem",
+                  marginTop: '1rem',
+                  fontStyle: 'italic',
+                  fontSize: '0.9rem',
                 }}
               >
-                <strong>Note:</strong> This is primarily for debugging. Use{" "}
-                <code>useRequestContextValue()</code> or{" "}
+                <strong>Note:</strong> This is primarily for debugging. Use{' '}
+                <code>useRequestContextValue()</code> or{' '}
                 <code>useRequestContext()</code> for production code.
               </p>
               {rawRequestContext ? (
                 <pre
                   style={{
-                    backgroundColor: "rgba(0, 0, 0, 0.3)",
-                    padding: "1rem",
-                    borderRadius: "4px",
-                    overflow: "auto",
-                    marginTop: "1rem",
-                    color: "#fff",
-                    fontFamily: "monospace",
-                    textAlign: "left",
-                    maxHeight: "300px",
+                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                    padding: '1rem',
+                    borderRadius: '4px',
+                    overflow: 'auto',
+                    marginTop: '1rem',
+                    color: '#fff',
+                    fontFamily: 'monospace',
+                    textAlign: 'left',
+                    maxHeight: '300px',
                   }}
                 >
                   {JSON.stringify(rawRequestContext, null, 2)}
                 </pre>
               ) : (
-                <p style={{ marginTop: "1rem", fontStyle: "italic" }}>
+                <p style={{ marginTop: '1rem', fontStyle: 'italic' }}>
                   Request context not populated.
                 </p>
               )}
@@ -463,21 +463,21 @@ const ContextDemo: React.FC = () => {
         <div className="card">
           <h2>⚠️ Hydration Safety</h2>
           <p>
-            To avoid hydration mismatches, this demo uses{" "}
+            To avoid hydration mismatches, this demo uses{' '}
             <code
               style={{
-                backgroundColor: "rgba(0, 0, 0, 0.2)",
-                padding: "0.25rem 0.5rem",
-                borderRadius: "4px",
-                color: "#fff",
+                backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                padding: '0.25rem 0.5rem',
+                borderRadius: '4px',
+                color: '#fff',
               }}
             >
               useEffect
-            </code>{" "}
+            </code>{' '}
             to populate context values only after the component hydrates on the
             client.
           </p>
-          <p style={{ marginTop: "1rem" }}>
+          <p style={{ marginTop: '1rem' }}>
             This ensures the server-rendered HTML doesn't contain values that
             might differ during client-side hydration.
           </p>
@@ -485,19 +485,19 @@ const ContextDemo: React.FC = () => {
 
         <div className="card">
           <h2>🎯 Hook Reference</h2>
-          <div style={{ display: "grid", gap: "1rem" }}>
+          <div style={{ display: 'grid', gap: '1rem' }}>
             <div>
               <code
                 style={{
-                  backgroundColor: "rgba(0, 0, 0, 0.2)",
-                  padding: "0.25rem 0.5rem",
-                  borderRadius: "4px",
-                  color: "#fff",
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  padding: '0.25rem 0.5rem',
+                  borderRadius: '4px',
+                  color: '#fff',
                 }}
               >
                 useRenderMode()
               </code>
-              <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+              <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Returns "ssr", "ssg", or "client" based on the current rendering
                 environment.
               </p>
@@ -505,15 +505,15 @@ const ContextDemo: React.FC = () => {
             <div>
               <code
                 style={{
-                  backgroundColor: "rgba(0, 0, 0, 0.2)",
-                  padding: "0.25rem 0.5rem",
-                  borderRadius: "4px",
-                  color: "#fff",
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  padding: '0.25rem 0.5rem',
+                  borderRadius: '4px',
+                  color: '#fff',
                 }}
               >
                 useIsSSR() / useIsSSG() / useIsClient()
               </code>
-              <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+              <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Boolean checks for specific rendering modes. useIsSSG() returns
                 true during static site generation.
               </p>
@@ -521,15 +521,15 @@ const ContextDemo: React.FC = () => {
             <div>
               <code
                 style={{
-                  backgroundColor: "rgba(0, 0, 0, 0.2)",
-                  padding: "0.25rem 0.5rem",
-                  borderRadius: "4px",
-                  color: "#fff",
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  padding: '0.25rem 0.5rem',
+                  borderRadius: '4px',
+                  color: '#fff',
                 }}
               >
                 useIsDevelopment()
               </code>
-              <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+              <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Returns true if running in development mode. Always false during
                 SSG (build-time).
               </p>
@@ -537,15 +537,15 @@ const ContextDemo: React.FC = () => {
             <div>
               <code
                 style={{
-                  backgroundColor: "rgba(0, 0, 0, 0.2)",
-                  padding: "0.25rem 0.5rem",
-                  borderRadius: "4px",
-                  color: "#fff",
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  padding: '0.25rem 0.5rem',
+                  borderRadius: '4px',
+                  color: '#fff',
                 }}
               >
                 useIsServer()
               </code>
-              <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+              <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Returns true if code is running on the SSR server (has
                 SSRHelpers attached to fetchRequest).
               </p>
@@ -553,15 +553,15 @@ const ContextDemo: React.FC = () => {
             <div>
               <code
                 style={{
-                  backgroundColor: "rgba(0, 0, 0, 0.2)",
-                  padding: "0.25rem 0.5rem",
-                  borderRadius: "4px",
-                  color: "#fff",
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  padding: '0.25rem 0.5rem',
+                  borderRadius: '4px',
+                  color: '#fff',
                 }}
               >
                 useFrontendAppConfig()
               </code>
-              <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+              <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Returns the frontend application configuration object (frozen
                 and immutable).
               </p>
@@ -569,15 +569,15 @@ const ContextDemo: React.FC = () => {
             <div>
               <code
                 style={{
-                  backgroundColor: "rgba(0, 0, 0, 0.2)",
-                  padding: "0.25rem 0.5rem",
-                  borderRadius: "4px",
-                  color: "#fff",
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  padding: '0.25rem 0.5rem',
+                  borderRadius: '4px',
+                  color: '#fff',
                 }}
               >
                 useRequestContext()
               </code>
-              <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+              <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Returns a manager object with methods to get, set, has, delete,
                 clear, keys, and size for request context.
               </p>
@@ -585,15 +585,15 @@ const ContextDemo: React.FC = () => {
             <div>
               <code
                 style={{
-                  backgroundColor: "rgba(0, 0, 0, 0.2)",
-                  padding: "0.25rem 0.5rem",
-                  borderRadius: "4px",
-                  color: "#fff",
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  padding: '0.25rem 0.5rem',
+                  borderRadius: '4px',
+                  color: '#fff',
                 }}
               >
                 useRequestContextValue(key)
               </code>
-              <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+              <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Returns [value, setValue] tuple for a reactive value stored in
                 request context by key.
               </p>
@@ -601,15 +601,15 @@ const ContextDemo: React.FC = () => {
             <div>
               <code
                 style={{
-                  backgroundColor: "rgba(0, 0, 0, 0.2)",
-                  padding: "0.25rem 0.5rem",
-                  borderRadius: "4px",
-                  color: "#fff",
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  padding: '0.25rem 0.5rem',
+                  borderRadius: '4px',
+                  color: '#fff',
                 }}
               >
                 useRequestContextObjectRaw()
               </code>
-              <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+              <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Returns a cloned, immutable copy of the entire request context
                 object for debugging purposes.
               </p>
@@ -622,14 +622,14 @@ const ContextDemo: React.FC = () => {
           {!isHydrated ? (
             <div
               style={{
-                backgroundColor: "rgba(0, 0, 0, 0.2)",
-                padding: "1.5rem",
-                borderRadius: "8px",
-                marginTop: "1rem",
-                textAlign: "center",
+                backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                padding: '1.5rem',
+                borderRadius: '8px',
+                marginTop: '1rem',
+                textAlign: 'center',
               }}
             >
-              <p style={{ margin: 0, color: "rgba(255, 255, 255, 0.8)" }}>
+              <p style={{ margin: 0, color: 'rgba(255, 255, 255, 0.8)' }}>
                 Hydrating... Interactive demo will be available on client-side.
               </p>
             </div>
@@ -643,14 +643,14 @@ const ContextDemo: React.FC = () => {
           {!isHydrated ? (
             <div
               style={{
-                backgroundColor: "rgba(0, 0, 0, 0.2)",
-                padding: "1.5rem",
-                borderRadius: "8px",
-                marginTop: "1rem",
-                textAlign: "center",
+                backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                padding: '1.5rem',
+                borderRadius: '8px',
+                marginTop: '1rem',
+                textAlign: 'center',
               }}
             >
-              <p style={{ margin: 0, color: "rgba(255, 255, 255, 0.8)" }}>
+              <p style={{ margin: 0, color: 'rgba(255, 255, 255, 0.8)' }}>
                 Hydrating... Interactive demo will be available on client-side.
               </p>
             </div>
@@ -672,13 +672,13 @@ const ContextDemo: React.FC = () => {
 // Interactive demo component for useRequestContext()
 const RequestContextDemo: React.FC = () => {
   const requestContext = useRequestContext();
-  const [key, setKey] = useState("");
-  const [value, setValue] = useState("");
-  const [output, setOutput] = useState("");
+  const [key, setKey] = useState('');
+  const [value, setValue] = useState('');
+  const [output, setOutput] = useState('');
 
   const handleSet = () => {
     if (!key.trim()) {
-      setOutput("❌ Key cannot be empty");
+      setOutput('❌ Key cannot be empty');
       return;
     }
     requestContext.set(key, value);
@@ -687,7 +687,7 @@ const RequestContextDemo: React.FC = () => {
 
   const handleGet = () => {
     if (!key.trim()) {
-      setOutput("❌ Key cannot be empty");
+      setOutput('❌ Key cannot be empty');
       return;
     }
     const result = requestContext.get(key);
@@ -696,7 +696,7 @@ const RequestContextDemo: React.FC = () => {
 
   const handleHas = () => {
     if (!key.trim()) {
-      setOutput("❌ Key cannot be empty");
+      setOutput('❌ Key cannot be empty');
       return;
     }
     const exists = requestContext.has(key);
@@ -705,11 +705,11 @@ const RequestContextDemo: React.FC = () => {
 
   const handleDelete = () => {
     if (!key.trim()) {
-      setOutput("❌ Key cannot be empty");
+      setOutput('❌ Key cannot be empty');
       return;
     }
     const existed = requestContext.delete(key);
-    setOutput(`🗑️ Delete "${key}" = ${existed ? "deleted" : "not found"}`);
+    setOutput(`🗑️ Delete "${key}" = ${existed ? 'deleted' : 'not found'}`);
   };
 
   const handleClear = () => {
@@ -719,7 +719,7 @@ const RequestContextDemo: React.FC = () => {
 
   const handleKeys = () => {
     const keys = requestContext.keys();
-    setOutput(`🔑 Keys: [${keys.map((k) => `"${k}"`).join(", ")}]`);
+    setOutput(`🔑 Keys: [${keys.map((k) => `"${k}"`).join(', ')}]`);
   };
 
   const handleSize = () => {
@@ -728,28 +728,28 @@ const RequestContextDemo: React.FC = () => {
   };
 
   return (
-    <div style={{ marginTop: "1rem" }}>
+    <div style={{ marginTop: '1rem' }}>
       <p>
         Test the <code>useRequestContext()</code> hook methods. Values persist
         across the entire request lifecycle.
       </p>
 
-      <div style={{ display: "grid", gap: "1rem", marginTop: "1rem" }}>
+      <div style={{ display: 'grid', gap: '1rem', marginTop: '1rem' }}>
         <div
           style={{
-            display: "flex",
-            gap: "1rem",
-            flexWrap: "wrap",
-            alignItems: "end",
-            justifyContent: "center",
+            display: 'flex',
+            gap: '1rem',
+            flexWrap: 'wrap',
+            alignItems: 'end',
+            justifyContent: 'center',
           }}
         >
           <div>
             <label
               style={{
-                display: "block",
-                marginBottom: "0.25rem",
-                fontSize: "0.9rem",
+                display: 'block',
+                marginBottom: '0.25rem',
+                fontSize: '0.9rem',
               }}
             >
               Key:
@@ -760,21 +760,21 @@ const RequestContextDemo: React.FC = () => {
               value={key}
               onChange={(e) => setKey(e.target.value)}
               style={{
-                padding: "0.5rem",
-                borderRadius: "4px",
-                border: "1px solid rgba(0, 0, 0, 0.3)",
-                backgroundColor: "rgba(255, 255, 255, 0.9)",
-                color: "#333",
-                minWidth: "120px",
+                padding: '0.5rem',
+                borderRadius: '4px',
+                border: '1px solid rgba(0, 0, 0, 0.3)',
+                backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                color: '#333',
+                minWidth: '120px',
               }}
             />
           </div>
           <div>
             <label
               style={{
-                display: "block",
-                marginBottom: "0.25rem",
-                fontSize: "0.9rem",
+                display: 'block',
+                marginBottom: '0.25rem',
+                fontSize: '0.9rem',
               }}
             >
               Value:
@@ -785,12 +785,12 @@ const RequestContextDemo: React.FC = () => {
               value={value}
               onChange={(e) => setValue(e.target.value)}
               style={{
-                padding: "0.5rem",
-                borderRadius: "4px",
-                border: "1px solid rgba(0, 0, 0, 0.3)",
-                backgroundColor: "rgba(255, 255, 255, 0.9)",
-                color: "#333",
-                minWidth: "120px",
+                padding: '0.5rem',
+                borderRadius: '4px',
+                border: '1px solid rgba(0, 0, 0, 0.3)',
+                backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                color: '#333',
+                minWidth: '120px',
               }}
             />
           </div>
@@ -798,10 +798,10 @@ const RequestContextDemo: React.FC = () => {
 
         <div
           style={{
-            display: "flex",
-            gap: "0.5rem",
-            flexWrap: "wrap",
-            justifyContent: "center",
+            display: 'flex',
+            gap: '0.5rem',
+            flexWrap: 'wrap',
+            justifyContent: 'center',
           }}
         >
           <button onClick={handleSet} style={buttonStyle}>
@@ -830,11 +830,11 @@ const RequestContextDemo: React.FC = () => {
         {output && (
           <div
             style={{
-              backgroundColor: "rgba(0, 0, 0, 0.3)",
-              padding: "1rem",
-              borderRadius: "4px",
-              fontFamily: "monospace",
-              color: "#fff",
+              backgroundColor: 'rgba(0, 0, 0, 0.3)',
+              padding: '1rem',
+              borderRadius: '4px',
+              fontFamily: 'monospace',
+              color: '#fff',
             }}
           >
             {output}
@@ -847,63 +847,63 @@ const RequestContextDemo: React.FC = () => {
 
 // Interactive demo component for useRequestContextValue()
 const RequestContextValueDemo: React.FC = () => {
-  const [name, setName] = useRequestContextValue<string>("demo_name");
-  const displayName = name || "Anonymous";
+  const [name, setName] = useRequestContextValue<string>('demo_name');
+  const displayName = name || 'Anonymous';
 
   return (
-    <div style={{ marginTop: "1rem" }}>
+    <div style={{ marginTop: '1rem' }}>
       <p>
         Test the <code>useRequestContextValue()</code> hook. This creates a
         reactive value that persists in the request context.
       </p>
 
-      <div style={{ display: "grid", gap: "1rem", marginTop: "1rem" }}>
+      <div style={{ display: 'grid', gap: '1rem', marginTop: '1rem' }}>
         <div>
-          <label style={{ display: "block", marginBottom: "0.5rem" }}>
+          <label style={{ display: 'block', marginBottom: '0.5rem' }}>
             Your Name:
           </label>
           <input
             type="text"
-            value={name || ""}
+            value={name || ''}
             onChange={(e) => setName(e.target.value)}
             placeholder="Enter your name"
             style={{
-              padding: "0.5rem",
-              borderRadius: "4px",
-              border: "1px solid rgba(255, 255, 255, 0.3)",
-              backgroundColor: "rgba(0, 0, 0, 0.2)",
-              color: "#fff",
-              width: "200px",
+              padding: '0.5rem',
+              borderRadius: '4px',
+              border: '1px solid rgba(255, 255, 255, 0.3)',
+              backgroundColor: 'rgba(0, 0, 0, 0.2)',
+              color: '#fff',
+              width: '200px',
             }}
           />
         </div>
 
         <div
           style={{
-            backgroundColor: "rgba(0, 0, 0, 0.3)",
-            padding: "1rem",
-            borderRadius: "4px",
-            fontFamily: "monospace",
+            backgroundColor: 'rgba(0, 0, 0, 0.3)',
+            padding: '1rem',
+            borderRadius: '4px',
+            fontFamily: 'monospace',
           }}
         >
           <div>
-            <strong>Current Value:</strong> <code>"{name || ""}"</code>
+            <strong>Current Value:</strong> <code>"{name || ''}"</code>
           </div>
-          <div style={{ marginTop: "0.5rem", fontSize: "0.9em", opacity: 0.8 }}>
+          <div style={{ marginTop: '0.5rem', fontSize: '0.9em', opacity: 0.8 }}>
             This value is stored in request context with key "demo_name"
           </div>
         </div>
 
         <div
           style={{
-            backgroundColor: "rgba(0, 100, 200, 0.2)",
-            padding: "1rem",
-            borderRadius: "4px",
-            border: "1px solid rgba(0, 100, 200, 0.3)",
+            backgroundColor: 'rgba(0, 100, 200, 0.2)',
+            padding: '1rem',
+            borderRadius: '4px',
+            border: '1px solid rgba(0, 100, 200, 0.3)',
           }}
         >
           <strong>Hello, {displayName}! 👋</strong>
-          <div style={{ marginTop: "0.5rem", fontSize: "0.9em", opacity: 0.8 }}>
+          <div style={{ marginTop: '0.5rem', fontSize: '0.9em', opacity: 0.8 }}>
             This greeting updates reactively as you type!
           </div>
         </div>
@@ -913,13 +913,13 @@ const RequestContextValueDemo: React.FC = () => {
 };
 
 const buttonStyle: React.CSSProperties = {
-  padding: "0.5rem 1rem",
-  borderRadius: "4px",
-  border: "1px solid rgba(255, 255, 255, 0.3)",
-  backgroundColor: "rgba(0, 0, 0, 0.2)",
-  color: "#fff",
-  cursor: "pointer",
-  fontSize: "0.9rem",
+  padding: '0.5rem 1rem',
+  borderRadius: '4px',
+  border: '1px solid rgba(255, 255, 255, 0.3)',
+  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+  color: '#fff',
+  cursor: 'pointer',
+  fontSize: '0.9rem',
 };
 
 export default ContextDemo;

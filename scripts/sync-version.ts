@@ -3,20 +3,20 @@
  * This ensures the CLI always shows the correct version
  */
 
-import { readFileSync, writeFileSync } from "fs";
-import { join } from "path";
+import { readFileSync, writeFileSync } from 'fs';
+import { join } from 'path';
 
-const projectRoot = join(import.meta.dir, "..");
-const packageJsonPath = join(projectRoot, "package.json");
-const versionFilePath = join(projectRoot, "src", "version.ts");
+const projectRoot = join(import.meta.dir, '..');
+const packageJsonPath = join(projectRoot, 'package.json');
+const versionFilePath = join(projectRoot, 'src', 'version.ts');
 
 try {
   // Read package.json
-  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
   const version = packageJson.version;
 
   if (!version) {
-    console.error("❌ No version found in package.json");
+    console.error('❌ No version found in package.json');
     process.exit(1);
   }
 
@@ -31,10 +31,10 @@ export const CLI_VERSION = "${version}";
 `;
 
   // Write version.ts
-  writeFileSync(versionFilePath, versionFileContent, "utf-8");
+  writeFileSync(versionFilePath, versionFileContent, 'utf-8');
 
   console.log(`✅ Synced version ${version} to src/version.ts`);
 } catch (error) {
-  console.error("❌ Failed to sync version:", error);
+  console.error('❌ Failed to sync version:', error);
   process.exit(1);
 }
