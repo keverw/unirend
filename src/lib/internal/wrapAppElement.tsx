@@ -41,13 +41,13 @@ export type WrapAppElementOptions = {
  * Conditional StrictMode wrapper component
  */
 function ConditionalStrictMode({
-  enabled,
+  isEnabled,
   children,
 }: {
-  enabled: boolean;
+  isEnabled: boolean;
   children: ReactNode;
 }) {
-  if (enabled) {
+  if (isEnabled) {
     return <React.StrictMode>{children}</React.StrictMode>;
   }
 
@@ -105,10 +105,14 @@ function createAppWrapper(
   options: WrapAppElementOptions,
   helmetContext?: { helmet?: HelmetServerState },
 ): React.ReactElement {
-  const { strictMode = true, wrapProviders, unirendContext } = options;
+  const {
+    strictMode: isStrictMode = true,
+    wrapProviders,
+    unirendContext,
+  } = options;
 
   return (
-    <ConditionalStrictMode enabled={strictMode}>
+    <ConditionalStrictMode isEnabled={isStrictMode}>
       <UnirendProvider value={unirendContext}>
         <HelmetWrapper context={helmetContext}>
           <CustomWrapper WrapComponent={wrapProviders}>

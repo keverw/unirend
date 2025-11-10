@@ -2,8 +2,28 @@ import { describe, it, expect, mock } from 'bun:test';
 import { cors, type CORSConfig } from './cors';
 import type { PluginOptions, PluginHostInstance } from '../types';
 
+interface MockRequest {
+  url: string;
+  method: string;
+  headers: Record<string, string | undefined>;
+  corsOriginAllowed?: boolean;
+  [key: string]: unknown;
+}
+
+interface MockReply {
+  code: ReturnType<typeof mock>;
+  type: ReturnType<typeof mock>;
+  send: ReturnType<typeof mock>;
+  header: ReturnType<typeof mock>;
+  headers: Record<string, string | undefined>;
+  getHeader: ReturnType<typeof mock>;
+  status: ReturnType<typeof mock>;
+}
+
 // Mock Fastify request/reply objects
-const createMockRequest = (overrides: any = {}) => ({
+const createMockRequest = (
+  overrides: Partial<MockRequest> = {},
+): MockRequest => ({
   url: '/test',
   method: 'GET',
   headers: {
@@ -13,37 +33,44 @@ const createMockRequest = (overrides: any = {}) => ({
   ...overrides,
 });
 
-const createMockReply = () => {
-  const reply = {
-    code: mock(() => reply),
-    type: mock(() => reply),
-    send: mock(() => reply),
-    header: mock(() => reply),
+const createMockReply = (): MockReply => {
+  const reply: Partial<MockReply> = {
     headers: {},
-    getHeader: mock((name: string) => reply.headers[name]),
-    status: mock((_code: number) => reply),
   };
-  return reply;
+
+  reply.code = mock(() => reply as MockReply);
+  reply.type = mock(() => reply as MockReply);
+  reply.send = mock(() => reply as MockReply);
+  reply.header = mock(() => reply as MockReply);
+  reply.getHeader = mock((name: string) => reply.headers?.[name]);
+  reply.status = mock((_code: number) => reply as MockReply);
+
+  return reply as MockReply;
 };
 
-const createMockPluginHost = () => {
+interface MockPluginHost extends PluginHostInstance {
+  getHooks: () => Array<{
+    event: string;
+    handler: (...args: any[]) => Promise<void>;
+  }>;
+}
+
+const createMockPluginHost = (): MockPluginHost => {
   const hooks: Array<{
     event: string;
-    handler: (req: any, reply: any) => Promise<void>;
+    handler: (...args: any[]) => Promise<void>;
   }> = [];
 
   const mockHost = {
     addHook: mock(
-      (event: string, handler: (req: any, reply: any) => Promise<void>) => {
+      (event: string, handler: (...args: any[]) => Promise<void>) => {
         hooks.push({ event, handler });
       },
     ),
     getHooks: () => hooks,
   };
 
-  return mockHost as unknown as PluginHostInstance & {
-    getHooks: () => typeof hooks;
-  };
+  return mockHost as unknown as MockPluginHost;
 };
 
 const createMockOptions = (
@@ -733,7 +760,7 @@ describe('cors', () => {
         headers: { origin: 'https://example.com' },
       });
       const reply = createMockReply();
-      (request as any).corsOriginAllowed = true;
+      request.corsOriginAllowed = true;
 
       const plugin = cors(config);
       await plugin(pluginHost, options);
@@ -1536,7 +1563,7 @@ describe('cors', () => {
       );
     });
 
-    it('should allow multi-label wildcard patterns that match matcher capabilities', async () => {
+    it('should allow multi-label wildcard patterns that match matcher capabilities', () => {
       const config: CORSConfig = {
         origin: '*',
         credentials: ['*.*.example.com', '*.api.*.example.com'], // Now valid patterns
@@ -1614,7 +1641,7 @@ describe('cors', () => {
       );
     });
 
-    it('should reject wildcard patterns when credentialsAllowWildcardSubdomains is false', async () => {
+    it('should reject wildcard patterns when credentialsAllowWildcardSubdomains is false', () => {
       const config: CORSConfig = {
         origin: '*',
         credentials: ['*.example.com'],
@@ -1627,7 +1654,7 @@ describe('cors', () => {
       );
     });
 
-    it("should reject raw wildcard '*' in credentials", async () => {
+    it("should reject raw wildcard '*' in credentials", () => {
       const config: CORSConfig = {
         origin: '*',
         credentials: ['*'],
@@ -1639,7 +1666,7 @@ describe('cors', () => {
       );
     });
 
-    it('should reject protocol wildcards in credentials', async () => {
+    it('should reject protocol wildcards in credentials', () => {
       const testCases = [
         {
           pattern: 'https://*',
@@ -1679,7 +1706,7 @@ describe('cors', () => {
 
       const mockHost = createMockPluginHost();
       const mockOptions = createMockOptions();
-      cors(config)(mockHost, mockOptions);
+      await cors(config)(mockHost, mockOptions);
 
       const hooks = mockHost.getHooks();
       const onRequestHook = hooks.find((h) => h.event === 'onRequest');
@@ -1714,7 +1741,7 @@ describe('cors', () => {
 
       const mockHost = createMockPluginHost();
       const mockOptions = createMockOptions();
-      cors(config)(mockHost, mockOptions);
+      await cors(config)(mockHost, mockOptions);
 
       const hooks = mockHost.getHooks();
       const onRequestHook = hooks.find((h) => h.event === 'onRequest');
@@ -1749,7 +1776,7 @@ describe('cors', () => {
 
       const mockHost = createMockPluginHost();
       const mockOptions = createMockOptions();
-      cors(config)(mockHost, mockOptions);
+      await cors(config)(mockHost, mockOptions);
 
       const hooks = mockHost.getHooks();
       const onRequestHook = hooks.find((h) => h.event === 'onRequest');
@@ -1783,7 +1810,7 @@ describe('cors', () => {
 
       const mockHost = createMockPluginHost();
       const mockOptions = createMockOptions();
-      cors(config)(mockHost, mockOptions);
+      await cors(config)(mockHost, mockOptions);
 
       const hooks = mockHost.getHooks();
       const onRequestHook = hooks.find((h) => h.event === 'onRequest');

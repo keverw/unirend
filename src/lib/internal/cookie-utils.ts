@@ -26,7 +26,7 @@ export function isCookieNameAllowed(
     return false;
   }
 
-  if (blockList && (blockList as ReadonlySet<string>).has(cookieName)) {
+  if (blockList && blockList.has(cookieName)) {
     return false;
   }
 

@@ -46,16 +46,18 @@ export async function checkAndLoadManifest(
 
   try {
     const manifestContent = await fs.readFile(manifestPath, 'utf-8');
-    const manifest = JSON.parse(manifestContent);
+    const manifest = JSON.parse(manifestContent) as Record<string, unknown>;
 
     return {
       success: true,
       manifest,
     };
-  } catch (error) {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
     return {
       success: false,
-      error: `Failed to load ${isSSR ? 'SSR ' : ''}manifest from ${manifestPath}: ${error}`,
+      error: `Failed to load ${isSSR ? 'SSR ' : ''}manifest from ${manifestPath}: ${errorMessage}`,
     };
   }
 }
@@ -122,9 +124,11 @@ export async function readHTMLFile(filePath: string): Promise<HTMLFileResult> {
     }
 
     // File exists but couldn't be read
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
     return {
       exists: true,
-      error: `Failed to read HTML file ${filePath}: ${error}`,
+      error: `Failed to read HTML file ${filePath}: ${errorMessage}`,
     };
   }
 }
@@ -157,9 +161,11 @@ export async function readJSONFile(filePath: string): Promise<JSONFileResult> {
     }
 
     // File exists but couldn't be read or parsed
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
     return {
       exists: true,
-      error: `Failed to read or parse JSON file ${filePath}: ${error}`,
+      error: `Failed to read or parse JSON file ${filePath}: ${errorMessage}`,
     };
   }
 }
@@ -183,9 +189,11 @@ export async function writeJSONFile(
       success: true,
     };
   } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
     return {
       success: false,
-      error: `Failed to write JSON file ${filePath}: ${error}`,
+      error: `Failed to write JSON file ${filePath}: ${errorMessage}`,
     };
   }
 }
@@ -207,9 +215,11 @@ export async function writeHTMLFile(
       success: true,
     };
   } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
     return {
       success: false,
-      error: `Failed to write HTML file ${filePath}: ${error}`,
+      error: `Failed to write HTML file ${filePath}: ${errorMessage}`,
     };
   }
 }

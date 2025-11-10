@@ -11,7 +11,10 @@ const rootDir = path.resolve(__dirname, '..');
 
 // Read the package.json file
 const packageJsonPath = path.join(rootDir, 'package.json');
-const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as {
+  version: string;
+};
+
 const version = packageJson.version;
 
 // Read the README.md file

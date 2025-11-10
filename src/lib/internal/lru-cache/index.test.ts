@@ -68,7 +68,7 @@ describe('LRUCache', () => {
   });
 
   describe('TTL expiration', () => {
-    test('should expire items after TTL', async () => {
+    test('should expire items after TTL', () => {
       // Mock Date.now to control time
       const originalNow = Date.now;
       let currentTime = 1000;
@@ -92,7 +92,7 @@ describe('LRUCache', () => {
       }
     });
 
-    test('should respect custom TTL for specific entries', async () => {
+    test('should respect custom TTL for specific entries', () => {
       // Mock Date.now to control time
       const originalNow = Date.now;
       let currentTime = 1000;

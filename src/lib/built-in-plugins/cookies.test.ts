@@ -2,35 +2,39 @@ import { describe, it, expect, mock } from 'bun:test';
 import { cookies, type CookiesConfig } from './cookies';
 import type { PluginHostInstance, PluginOptions } from '../types';
 
-const createMockPluginHost = () => {
-  const host = {
-    register: mock(
-      async (
-        plugin: unknown,
-        opts?: Record<string, unknown>,
-      ): Promise<void> => {
-        (host as any)._lastRegistered = { plugin, opts };
-      },
-    ),
-    decorate: mock((property: string, value: unknown) => {
-      ((host as unknown as Record<string, unknown>)._decorations ||=
-        Object.create(null))[property] = value;
-    }),
-    addHook: mock(() => {}),
-    decorateRequest: mock(() => {}),
-    decorateReply: mock(() => {}),
-    route: mock(() => {}),
-    get: mock(() => {}),
-    post: mock(() => {}),
-    put: mock(() => {}),
-    delete: mock(() => {}),
-    patch: mock(() => {}),
-  } as unknown as PluginHostInstance & {
-    _lastRegistered?: { plugin: unknown; opts?: Record<string, unknown> };
-    _decorations?: Record<string, unknown>;
-  };
+interface MockPluginHost extends PluginHostInstance {
+  _lastRegistered?: { plugin: unknown; opts?: Record<string, unknown> };
+  _decorations?: Record<string, unknown>;
+}
 
-  return host;
+const createMockPluginHost = (): MockPluginHost => {
+  const host: Partial<MockPluginHost> = {};
+
+  host.register = mock(
+    (plugin: unknown, opts?: Record<string, unknown>): Promise<void> => {
+      (host as MockPluginHost)._lastRegistered = { plugin, opts };
+      return Promise.resolve();
+    },
+  );
+
+  host.decorate = mock((property: string, value: unknown) => {
+    const decorations =
+      (host as MockPluginHost)._decorations ||
+      (Object.create(null) as Record<string, unknown>);
+    decorations[property] = value;
+    (host as MockPluginHost)._decorations = decorations;
+  });
+  host.addHook = mock(() => {});
+  host.decorateRequest = mock(() => {});
+  host.decorateReply = mock(() => {});
+  host.route = mock(() => {});
+  host.get = mock(() => {});
+  host.post = mock(() => {});
+  host.put = mock(() => {});
+  host.delete = mock(() => {});
+  host.patch = mock(() => {});
+
+  return host as MockPluginHost;
 };
 
 const createMockOptions = (
@@ -48,6 +52,7 @@ describe('cookies plugin', () => {
     const host = createMockPluginHost();
     const options = createMockOptions();
     const config: CookiesConfig = {
+      // cspell:disable-next-line
       secret: 'shhh',
       hook: 'preHandler',
       parseOptions: { path: '/', sameSite: 'lax', signed: true },
@@ -60,10 +65,11 @@ describe('cookies plugin', () => {
     expect(meta).toEqual({ name: 'cookies' });
 
     // Registration invoked
-    expect((host as any).register).toHaveBeenCalledTimes(1);
-    const last = (host as any)._lastRegistered;
-    expect(typeof last.plugin).toBe('function');
-    expect(last.opts).toEqual(config as Record<string, unknown>);
+    expect(host.register).toHaveBeenCalledTimes(1);
+    const last = host._lastRegistered;
+    expect(last).toBeDefined();
+    expect(typeof last?.plugin).toBe('function');
+    expect(last?.opts).toEqual(config as Record<string, unknown>);
   });
 
   it('decorates cookiePluginInfo when secret present (with custom algorithm)', async () => {
@@ -79,7 +85,7 @@ describe('cookies plugin', () => {
     const plugin = cookies(config);
     await plugin(host, options);
 
-    const info = ((host as any)._decorations || {}).cookiePluginInfo as
+    const info = host._decorations?.cookiePluginInfo as
       | { signingSecretProvided: boolean; algorithm: string }
       | undefined;
 
@@ -96,7 +102,7 @@ describe('cookies plugin', () => {
     const plugin = cookies(config);
     await plugin(host, options);
 
-    const info = ((host as any)._decorations || {}).cookiePluginInfo as
+    const info = host._decorations?.cookiePluginInfo as
       | { signingSecretProvided: boolean; algorithm: string }
       | undefined;
 

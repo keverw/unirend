@@ -19,8 +19,9 @@ export function useDataloaderEnvelopeError() {
   // We need to check all matches because the error could be in any child route
   for (const match of matches) {
     const data = match.data as PageResponseEnvelope | undefined;
+
     if (data?.status === 'error') {
-      errorResponse = data as PageErrorResponse;
+      errorResponse = data;
       break;
     }
   }

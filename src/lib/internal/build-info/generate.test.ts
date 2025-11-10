@@ -305,14 +305,14 @@ describe('GenerateBuildInfo', () => {
       });
 
       const jsonString = await generator.generateJSON();
-      const parsed = JSON.parse(jsonString);
+      const parsed = JSON.parse(jsonString) as Record<string, unknown>;
 
       expect(parsed).toMatchObject({
         version: '1.0.0',
         git_hash: '(unknown)', // Will be unknown in non-git environment
         git_branch: '(unknown)', // Will be unknown in non-git environment
       });
-      expect(parsed.build_timestamp).toMatch(
+      expect(parsed.build_timestamp as string).toMatch(
         /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/,
       );
     });
@@ -327,9 +327,9 @@ describe('GenerateBuildInfo', () => {
       await generator.generateInfo();
 
       const jsonString = await generator.generateJSON();
-      const parsed = JSON.parse(jsonString);
+      const parsed = JSON.parse(jsonString) as Record<string, unknown>;
 
-      expect(parsed.version).toBe('2.0.0');
+      expect(parsed.version as string).toBe('2.0.0');
     });
   });
 
@@ -347,11 +347,11 @@ describe('GenerateBuildInfo', () => {
 
       // Check file was created
       const filePath = path.join(tempDir, 'current-build-info.ts');
-      const fileExists = await fs
+      const doesFileExist = await fs
         .access(filePath)
         .then(() => true)
         .catch(() => false);
-      expect(fileExists).toBe(true);
+      expect(doesFileExist).toBe(true);
 
       // Check file content
       const fileContent = await fs.readFile(filePath, 'utf8');
@@ -372,11 +372,11 @@ describe('GenerateBuildInfo', () => {
 
       // Check file was created with custom name
       const filePath = path.join(tempDir, customFileName);
-      const fileExists = await fs
+      const doesFileExist = await fs
         .access(filePath)
         .then(() => true)
         .catch(() => false);
-      expect(fileExists).toBe(true);
+      expect(doesFileExist).toBe(true);
     });
   });
 
@@ -394,17 +394,18 @@ describe('GenerateBuildInfo', () => {
 
       // Check file was created
       const filePath = path.join(tempDir, 'current-build-info.json');
-      const fileExists = await fs
+      const doesFileExist = await fs
         .access(filePath)
         .then(() => true)
         .catch(() => false);
-      expect(fileExists).toBe(true);
+
+      expect(doesFileExist).toBe(true);
 
       // Check file content
       const fileContent = await fs.readFile(filePath, 'utf8');
-      const parsed = JSON.parse(fileContent);
-      expect(parsed.version).toBe('1.0.0');
-      expect(parsed.git_hash).toBe('(unknown)'); // Will be unknown in non-git environment
+      const parsed = JSON.parse(fileContent) as Record<string, unknown>;
+      expect(parsed.version as string).toBe('1.0.0');
+      expect(parsed.git_hash as string).toBe('(unknown)'); // Will be unknown in non-git environment
     });
 
     it('should save JSON file with custom name', async () => {
@@ -420,15 +421,15 @@ describe('GenerateBuildInfo', () => {
 
       // Check file was created with custom name
       const filePath = path.join(tempDir, customFileName);
-      const fileExists = await fs
+      const doesFileExist = await fs
         .access(filePath)
         .then(() => true)
         .catch(() => false);
-      expect(fileExists).toBe(true);
+      expect(doesFileExist).toBe(true);
 
       const fileContent = await fs.readFile(filePath, 'utf8');
-      const parsed = JSON.parse(fileContent);
-      expect(parsed.version).toBe('2.0.0');
+      const parsed = JSON.parse(fileContent) as Record<string, unknown>;
+      expect(parsed.version as string).toBe('2.0.0');
     });
   });
 
@@ -472,7 +473,9 @@ describe('GenerateBuildInfo', () => {
 
       expect(info.buildInfo.version).toBe('1.0.0');
       expect(sourceCode).toContain('export const BUILD_INFO = {');
-      expect(JSON.parse(jsonString).version).toBe('1.0.0');
+      expect(
+        (JSON.parse(jsonString) as Record<string, unknown>).version as string,
+      ).toBe('1.0.0');
       expect(tsResult.saved).toBe(true);
       expect(jsonResult.saved).toBe(true);
 
@@ -480,17 +483,17 @@ describe('GenerateBuildInfo', () => {
       const tsPath = path.join(tempDir, 'current-build-info.ts');
       const jsonPath = path.join(tempDir, 'current-build-info.json');
 
-      const tsExists = await fs
+      const doesTsExist = await fs
         .access(tsPath)
         .then(() => true)
         .catch(() => false);
-      const jsonExists = await fs
+      const doesJsonExist = await fs
         .access(jsonPath)
         .then(() => true)
         .catch(() => false);
 
-      expect(tsExists).toBe(true);
-      expect(jsonExists).toBe(true);
+      expect(doesTsExist).toBe(true);
+      expect(doesJsonExist).toBe(true);
     });
 
     it('should handle complex custom properties correctly', async () => {
@@ -540,10 +543,16 @@ describe('GenerateBuildInfo', () => {
       expect(sourceCode).toContain('"apiUrl":"https://api.example.com"');
 
       // Check JSON generation
-      const parsed = JSON.parse(jsonString);
-      expect(parsed.environment).toBe('production');
-      expect(parsed.features).toEqual(['auth', 'payments', 'notifications']);
-      expect(parsed.config.apiUrl).toBe('https://api.example.com');
+      const parsed = JSON.parse(jsonString) as Record<string, unknown>;
+      expect(parsed.environment as string).toBe('production');
+      expect(parsed.features as string[]).toEqual([
+        'auth',
+        'payments',
+        'notifications',
+      ]);
+      expect((parsed.config as Record<string, unknown>).apiUrl as string).toBe(
+        'https://api.example.com',
+      );
     });
 
     it('should generate consistent timestamps across calls when using cached info', async () => {
@@ -559,10 +568,12 @@ describe('GenerateBuildInfo', () => {
       const sourceCode = await generator.generateSourceCode();
       const jsonString = await generator.generateJSON();
 
-      const parsed = JSON.parse(jsonString);
+      const parsed = JSON.parse(jsonString) as Record<string, unknown>;
 
       // All should have the same timestamp
-      expect(info1.buildInfo.build_timestamp).toBe(parsed.build_timestamp);
+      expect(info1.buildInfo.build_timestamp).toBe(
+        parsed.build_timestamp as string,
+      );
       expect(sourceCode).toContain(info1.buildInfo.build_timestamp);
     });
   });

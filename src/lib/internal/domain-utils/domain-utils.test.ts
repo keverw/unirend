@@ -97,6 +97,7 @@ describe('domain-utils', () => {
       expect(normalizeDomain('CAFÉ.COM')).toBe('xn--caf-dma.com');
     });
 
+    // cspell:ignore nxasmq münchen mnchen
     it('should handle punycode domains', () => {
       expect(normalizeDomain('xn--nxasmq6b.com')).toBe('xn--nxasmq6b.com');
       expect(normalizeDomain('münchen.de')).toBe('xn--mnchen-3ya.de');
@@ -119,6 +120,7 @@ describe('domain-utils', () => {
       expect(normalizeDomain(`${tooLongLabel}.com`)).toBe('');
     });
 
+    // cspell:ignore punycoded
     it('should return empty string for punycoded labels exceeding 63 octets (IDN)', () => {
       // Create a Unicode label that becomes >63 chars after punycode
       const longUnicodeLabel = 'café'.repeat(20);
@@ -139,27 +141,29 @@ describe('domain-utils', () => {
 
       // normalizeWildcardPattern should detect this and return original pattern
       // The caller (matchesWildcardDomain) will then handle it appropriately
-      const result = matchesWildcardDomain(
+      const doesMatch = matchesWildcardDomain(
         'test.example.com',
         pathologicalPattern,
       );
-      expect(result).toBe(false); // Should not match due to invalid pattern
+
+      expect(doesMatch).toBe(false); // Should not match due to invalid pattern
 
       // Test with double asterisk pattern
       const pathologicalPattern2 = `**.${longUnicodeLabel}.example.com`;
-      const result2 = matchesWildcardDomain(
+      const doesMatch2 = matchesWildcardDomain(
         'api.test.example.com',
         pathologicalPattern2,
       );
-      expect(result2).toBe(false); // Should not match due to invalid pattern
+
+      expect(doesMatch2).toBe(false); // Should not match due to invalid pattern
 
       // Test with multiple long labels
       const multiLongPattern = `*.${longUnicodeLabel}.${longUnicodeLabel}.com`;
-      const result3 = matchesWildcardDomain(
+      const doesMatch3 = matchesWildcardDomain(
         'api.test.example.com',
         multiLongPattern,
       );
-      expect(result3).toBe(false); // Should not match due to invalid pattern
+      expect(doesMatch3).toBe(false); // Should not match due to invalid pattern
     });
 
     it('should validate concrete labels in wildcard patterns', () => {
@@ -187,16 +191,16 @@ describe('domain-utils', () => {
       const pattern = `*.${longLabel}.com`;
 
       // The function should return the original pattern, and matching should fail.
-      const result = matchesWildcardDomain('test.whatever.com', pattern);
-      expect(result).toBe(false);
+      const doesMatch = matchesWildcardDomain('test.whatever.com', pattern);
+      expect(doesMatch).toBe(false);
     });
 
     it('should reject wildcard patterns with a single oversized label (pre-punycode)', () => {
       const longLabel = 'a'.repeat(64);
       const pattern = `*.${longLabel}.com`;
 
-      const result = matchesWildcardDomain('test.whatever.com', pattern);
-      expect(result).toBe(false);
+      const doesMatch = matchesWildcardDomain('test.whatever.com', pattern);
+      expect(doesMatch).toBe(false);
     });
 
     it('should accept boundary-length ASCII labels (63) in wildcard patterns', () => {
@@ -208,6 +212,7 @@ describe('domain-utils', () => {
     });
   });
 
+  // cspell:ignore tést münchen mple Halfwidth
   describe('normalizeOrigin', () => {
     it('should normalize origins with protocol and port', () => {
       expect(normalizeOrigin('https://Example.COM')).toBe(

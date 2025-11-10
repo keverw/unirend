@@ -22,19 +22,32 @@ function hasSSRRequestContext(request: Request): request is Request & {
     fastifyRequest: { requestContext: Record<string, unknown> };
   };
 } {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const helpers = (request as any).SSRHelpers;
+  if (!('SSRHelpers' in request)) {
+    return false;
+  }
 
-  return (
-    'SSRHelpers' in request &&
-    typeof helpers === 'object' &&
-    helpers !== null &&
-    'fastifyRequest' in helpers &&
-    typeof helpers.fastifyRequest === 'object' &&
-    helpers.fastifyRequest !== null &&
-    'requestContext' in helpers.fastifyRequest &&
-    typeof helpers.fastifyRequest.requestContext === 'object'
-  );
+  const helpers = (request as Request & { SSRHelpers: unknown }).SSRHelpers;
+
+  if (typeof helpers !== 'object' || helpers === null) {
+    return false;
+  }
+
+  if (!('fastifyRequest' in helpers)) {
+    return false;
+  }
+
+  const fastifyReq = (helpers as { fastifyRequest: unknown }).fastifyRequest;
+
+  if (typeof fastifyReq !== 'object' || fastifyReq === null) {
+    return false;
+  }
+
+  if (!('requestContext' in fastifyReq)) {
+    return false;
+  }
+
+  const reqCtx = (fastifyReq as { requestContext: unknown }).requestContext;
+  return typeof reqCtx === 'object' && reqCtx !== null;
 }
 
 /**
@@ -43,16 +56,21 @@ function hasSSRRequestContext(request: Request): request is Request & {
 function hasSSGRequestContext(request: Request): request is Request & {
   SSGHelpers: { requestContext: Record<string, unknown> };
 } {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const helpers = (request as any).SSGHelpers;
+  if (!('SSGHelpers' in request)) {
+    return false;
+  }
 
-  return (
-    'SSGHelpers' in request &&
-    typeof helpers === 'object' &&
-    helpers !== null &&
-    'requestContext' in helpers &&
-    typeof helpers.requestContext === 'object'
-  );
+  const helpers = (request as Request & { SSGHelpers: unknown }).SSGHelpers;
+  if (typeof helpers !== 'object' || helpers === null) {
+    return false;
+  }
+
+  if (!('requestContext' in helpers)) {
+    return false;
+  }
+
+  const reqCtx = (helpers as { requestContext: unknown }).requestContext;
+  return typeof reqCtx === 'object' && reqCtx !== null;
 }
 
 /**
@@ -63,8 +81,8 @@ function hasWindowRequestContext(): boolean {
     return false;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ctx = (window as any).__FRONTEND_REQUEST_CONTEXT__;
+  const ctx = (window as Window & { __FRONTEND_REQUEST_CONTEXT__?: unknown })
+    .__FRONTEND_REQUEST_CONTEXT__;
 
   return '__FRONTEND_REQUEST_CONTEXT__' in window && typeof ctx === 'object';
 }
@@ -88,8 +106,11 @@ function getRequestContextValue(
     return context.fetchRequest.SSGHelpers.requestContext[key];
   } else if (hasWindowRequestContext()) {
     // Client: Read from window global
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (window as any).__FRONTEND_REQUEST_CONTEXT__[key];
+    return (
+      window as unknown as {
+        __FRONTEND_REQUEST_CONTEXT__: Record<string, unknown>;
+      }
+    ).__FRONTEND_REQUEST_CONTEXT__[key];
   } else {
     // No context available
     return undefined;
@@ -119,14 +140,20 @@ function setRequestContextValue(
     incrementContextRevision(context);
   } else if (hasWindowRequestContext()) {
     // Client: Write to window global
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).__FRONTEND_REQUEST_CONTEXT__[key] = value;
+    (
+      window as unknown as {
+        __FRONTEND_REQUEST_CONTEXT__: Record<string, unknown>;
+      }
+    ).__FRONTEND_REQUEST_CONTEXT__[key] = value;
     incrementContextRevision(context);
   } else {
     // No context available - create one on window for client-side
     if (typeof window !== 'undefined') {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (window as any).__FRONTEND_REQUEST_CONTEXT__ = { [key]: value };
+      (
+        window as unknown as {
+          __FRONTEND_REQUEST_CONTEXT__?: Record<string, unknown>;
+        }
+      ).__FRONTEND_REQUEST_CONTEXT__ = { [key]: value };
       incrementContextRevision(context);
     } else {
       // Server-side with no context - this shouldn't happen in normal usage
@@ -417,8 +444,11 @@ function getRequestContextObject(
     return context.fetchRequest.SSGHelpers.requestContext;
   } else if (hasWindowRequestContext()) {
     // Client: Read from window global
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (window as any).__FRONTEND_REQUEST_CONTEXT__;
+    return (
+      window as unknown as {
+        __FRONTEND_REQUEST_CONTEXT__: Record<string, unknown>;
+      }
+    ).__FRONTEND_REQUEST_CONTEXT__;
   } else {
     // No context available
     return undefined;
@@ -588,21 +618,28 @@ export function useRequestContext(): RequestContextManager {
         return key in context.fetchRequest.SSGHelpers.requestContext;
       } else if (hasWindowRequestContext()) {
         // Client: Check if key exists in window global
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return key in (window as any).__FRONTEND_REQUEST_CONTEXT__;
+        return (
+          key in
+          (
+            window as unknown as {
+              __FRONTEND_REQUEST_CONTEXT__: Record<string, unknown>;
+            }
+          ).__FRONTEND_REQUEST_CONTEXT__
+        );
       } else {
         // No context available
         return false;
       }
     },
     delete: (key: string): boolean => {
-      let existed = false;
+      let didExist = false;
 
       // Try SSR first - check if we have SSR helpers with request context
       if (context.fetchRequest && hasSSRRequestContext(context.fetchRequest)) {
         // SSR: Delete from fastify request context
-        existed =
+        didExist =
           key in context.fetchRequest.SSRHelpers.fastifyRequest.requestContext;
+
         delete context.fetchRequest.SSRHelpers.fastifyRequest.requestContext[
           key
         ];
@@ -612,22 +649,26 @@ export function useRequestContext(): RequestContextManager {
         hasSSGRequestContext(context.fetchRequest)
       ) {
         // SSG: Delete from SSG request context
-        existed = key in context.fetchRequest.SSGHelpers.requestContext;
+        didExist = key in context.fetchRequest.SSGHelpers.requestContext;
         delete context.fetchRequest.SSGHelpers.requestContext[key];
       } else if (hasWindowRequestContext()) {
         // Client: Delete from window global
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ctx = (window as any).__FRONTEND_REQUEST_CONTEXT__;
-        existed = key in ctx;
+        const ctx = (
+          window as unknown as {
+            __FRONTEND_REQUEST_CONTEXT__: Record<string, unknown>;
+          }
+        ).__FRONTEND_REQUEST_CONTEXT__;
+
+        didExist = key in ctx;
         delete ctx[key];
       }
 
       // Increment revision to trigger re-renders if key existed
-      if (existed) {
+      if (didExist) {
         incrementContextRevision(context);
       }
 
-      return existed;
+      return didExist;
     },
     clear: (): number => {
       let count = 0;
@@ -660,8 +701,12 @@ export function useRequestContext(): RequestContextManager {
         }
       } else if (hasWindowRequestContext()) {
         // Client: Clear all keys from window global
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ctx = (window as any).__FRONTEND_REQUEST_CONTEXT__;
+        const ctx = (
+          window as unknown as {
+            __FRONTEND_REQUEST_CONTEXT__: Record<string, unknown>;
+          }
+        ).__FRONTEND_REQUEST_CONTEXT__;
+
         const keys = Object.keys(ctx);
         count = keys.length;
 
@@ -694,8 +739,13 @@ export function useRequestContext(): RequestContextManager {
         return Object.keys(context.fetchRequest.SSGHelpers.requestContext);
       } else if (hasWindowRequestContext()) {
         // Client: Return keys from window global
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return Object.keys((window as any).__FRONTEND_REQUEST_CONTEXT__);
+        return Object.keys(
+          (
+            window as unknown as {
+              __FRONTEND_REQUEST_CONTEXT__: Record<string, unknown>;
+            }
+          ).__FRONTEND_REQUEST_CONTEXT__,
+        );
       } else {
         // No context available - return empty array
         return [];
@@ -718,8 +768,13 @@ export function useRequestContext(): RequestContextManager {
           .length;
       } else if (hasWindowRequestContext()) {
         // Client: Return count of keys from window global
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return Object.keys((window as any).__FRONTEND_REQUEST_CONTEXT__).length;
+        return Object.keys(
+          (
+            window as unknown as {
+              __FRONTEND_REQUEST_CONTEXT__: Record<string, unknown>;
+            }
+          ).__FRONTEND_REQUEST_CONTEXT__,
+        ).length;
       } else {
         // No context available - return 0
         return 0;

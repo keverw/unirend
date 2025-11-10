@@ -4,48 +4,93 @@ import { ulid, isValid as isValidULID } from 'ulid';
 import type { PluginOptions, PluginHostInstance } from '../types';
 
 // Helpers to create mock Fastify-like request/reply and plugin host
-const createMockRequest = (overrides: any = {}) => ({
-  method: 'GET',
-  url: '/test',
-  ip: '127.0.0.1',
+interface MockRequest {
+  method: string;
+  url: string;
+  ip: string;
   log: {
-    info: mock(() => {}),
-    debug: mock(() => {}),
-    warn: mock(() => {}),
-  },
-  ...overrides,
-  headers: {
-    'user-agent': 'UA',
-    ...(overrides.headers ?? {}),
-  },
-});
+    info: ReturnType<typeof mock>;
+    debug: ReturnType<typeof mock>;
+    warn: ReturnType<typeof mock>;
+  };
+  headers: Record<string, string | undefined>;
+  requestID?: string;
+  clientInfo?: {
+    requestID: string;
+    correlationID: string;
+    isFromSSRServerAPICall: boolean;
+    IPAddress: string;
+    userAgent: string;
+    isIPFromHeader: boolean;
+    isUserAgentFromHeader: boolean;
+  };
+}
 
-const createMockReply = () => {
-  const reply = {
-    header: mock(() => reply),
-  } as any;
+const createMockRequest = (
+  overrides: Partial<MockRequest> = {},
+): MockRequest => {
+  const baseHeaders: Record<string, string | undefined> = {
+    'user-agent': 'UA',
+  };
+
+  return {
+    method: 'GET',
+    url: '/test',
+    ip: '127.0.0.1',
+    log: {
+      info: mock(() => {}),
+      debug: mock(() => {}),
+      warn: mock(() => {}),
+    },
+    ...overrides,
+    headers: {
+      ...baseHeaders,
+      ...(overrides.headers ?? {}),
+    },
+  };
+};
+
+interface MockReply {
+  header: ReturnType<typeof mock>;
+}
+
+const createMockReply = (): MockReply => {
+  const reply: MockReply = {
+    header: mock(function (this: MockReply) {
+      return this;
+    }),
+  };
   return reply;
 };
 
-const createMockPluginHost = () => {
-  const hooks: Array<{
-    event: string;
-    handler: (req: any, reply: any) => Promise<void>;
-  }> = [];
+interface MockHook {
+  event: string;
+  handler: (req: MockRequest, reply: MockReply) => Promise<void>;
+}
 
-  const mockHost = {
+interface MockPluginHost {
+  addHook: ReturnType<typeof mock>;
+  decorateRequest: ReturnType<typeof mock>;
+  getHooks: () => MockHook[];
+}
+
+const createMockPluginHost = () => {
+  const hooks: MockHook[] = [];
+
+  const mockHost: MockPluginHost = {
     addHook: mock(
-      (event: string, handler: (req: any, reply: any) => Promise<void>) => {
+      (
+        event: string,
+        handler: (req: MockRequest, reply: MockReply) => Promise<void>,
+      ) => {
         hooks.push({ event, handler });
       },
     ),
     decorateRequest: mock((_name: string, _value: unknown) => {}),
     getHooks: () => hooks,
-  } as any;
-
-  return mockHost as unknown as PluginHostInstance & {
-    getHooks: () => typeof hooks;
   };
+
+  return mockHost as unknown as PluginHostInstance & MockPluginHost;
 };
 
 const createMockOptions = (
@@ -91,8 +136,11 @@ describe('clientInfo', () => {
 
     // Should log twice: once at start, once after setting correlationID
     expect(request.log.info).toHaveBeenCalledTimes(2);
-    const firstArgs = (request.log.info as any).mock.calls[0];
-    const secondArgs = (request.log.info as any).mock.calls[1];
+    const infoMock = request.log.info as ReturnType<typeof mock> & {
+      mock: { calls: unknown[][] };
+    };
+    const firstArgs = infoMock.mock.calls[0];
+    const secondArgs = infoMock.mock.calls[1];
 
     // First log contains requestID
     expect(firstArgs[0]).toEqual({ requestID: 'req-log' });
@@ -131,7 +179,10 @@ describe('clientInfo', () => {
     await onRequestHook?.handler(request, reply);
 
     expect(request.log.debug).toHaveBeenCalled();
-    const [meta, msg] = (request.log.debug as any).mock.calls[0];
+    const debugMock = request.log.debug as ReturnType<typeof mock> & {
+      mock: { calls: unknown[][] };
+    };
+    const [meta, msg] = debugMock.mock.calls[0];
     expect(meta).toMatchObject({
       requestID: 'req-fwd',
       correlationID: 'corr-fwd',
@@ -167,7 +218,10 @@ describe('clientInfo', () => {
     await onRequestHook?.handler(request, reply);
 
     expect(request.log.warn).toHaveBeenCalled();
-    const [meta, msg] = (request.log.warn as any).mock.calls[0];
+    const warnMock = request.log.warn as ReturnType<typeof mock> & {
+      mock: { calls: unknown[][] };
+    };
+    const [meta, msg] = warnMock.mock.calls[0];
     expect(meta).toMatchObject({ requestID: 'req-warn', ip: '203.0.113.50' });
     expect(msg).toContain('Rejected SSR headers from untrusted source');
   });
@@ -352,7 +406,7 @@ describe('clientInfo', () => {
     await onRequestHook?.handler(request, reply);
 
     // Generated requestID should be a valid ULID
-    expect(isValidULID(request.requestID)).toBe(true);
+    expect(isValidULID(request.requestID ?? '')).toBe(true);
     // Correlation should reflect forwarded value
     expect(request.clientInfo?.correlationID).toBe(forwardedCorrelation);
     expect(reply.header).toHaveBeenCalledWith(

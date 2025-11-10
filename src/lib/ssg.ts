@@ -124,12 +124,15 @@ export async function generateSSG(
   }
 
   // Create the import function
-  const importFn = async () => {
+  // At this point we know entryPath exists due to the check above
+  const entryPath = entryResult.entryPath;
+
+  const importFn = async (): Promise<unknown> => {
     try {
-      return await import(entryResult.entryPath as string);
-    } catch (error) {
+      return await import(entryPath);
+    } catch (error: unknown) {
       throw new Error(
-        `Failed to import server entry from ${entryResult.entryPath}: ${error}`,
+        `Failed to import server entry from ${entryPath}: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   };

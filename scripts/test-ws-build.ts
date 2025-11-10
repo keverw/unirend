@@ -76,11 +76,11 @@ async function buildDemo(): Promise<void> {
     let stdout = '';
     let stderr = '';
 
-    buildProcess.stdout?.on('data', (data) => {
+    buildProcess.stdout?.on('data', (data: Buffer) => {
       stdout += data.toString();
     });
 
-    buildProcess.stderr?.on('data', (data) => {
+    buildProcess.stderr?.on('data', (data: Buffer) => {
       stderr += data.toString();
     });
 
@@ -125,7 +125,7 @@ async function startBuiltDemo(): Promise<ChildProcess> {
       reject(new Error('Server startup timeout'));
     }, 10000);
 
-    serverProcess.stdout?.on('data', (data) => {
+    serverProcess.stdout?.on('data', (data: Buffer) => {
       const chunk = data.toString();
       output += chunk;
       console.log(chunk.trim());
@@ -140,7 +140,7 @@ async function startBuiltDemo(): Promise<ChildProcess> {
       }
     });
 
-    serverProcess.stderr?.on('data', (data) => {
+    serverProcess.stderr?.on('data', (data: Buffer) => {
       console.error('Server error:', data.toString());
     });
 
@@ -167,7 +167,7 @@ async function testWebSocketConnection(
   return new Promise((resolve) => {
     const ws = new WebSocket(url);
     const messages: string[] = [];
-    let connected = false;
+    let isConnected = false;
 
     const timeout = setTimeout(() => {
       ws.close();
@@ -180,7 +180,7 @@ async function testWebSocketConnection(
     }, 5000);
 
     ws.on('open', () => {
-      connected = true;
+      isConnected = true;
       console.log(`  ✅ Connected to ${endpoint}`);
 
       if (expectedBehavior === 'reject') {
@@ -206,7 +206,7 @@ async function testWebSocketConnection(
       }, 1000);
     });
 
-    ws.on('message', (data) => {
+    ws.on('message', (data: Buffer) => {
       const message = data.toString();
       messages.push(message);
       console.log(`  📨 Received: ${message}`);
@@ -215,14 +215,14 @@ async function testWebSocketConnection(
     ws.on('close', (code, _reason) => {
       clearTimeout(timeout);
 
-      if (expectedBehavior === 'reject' && !connected) {
+      if (expectedBehavior === 'reject' && !isConnected) {
         resolve({
           endpoint,
           port,
           success: true,
           messages: [`Connection rejected as expected (code: ${code})`],
         });
-      } else if (expectedBehavior === 'connect' && connected) {
+      } else if (expectedBehavior === 'connect' && isConnected) {
         resolve({
           endpoint,
           port,
@@ -234,7 +234,7 @@ async function testWebSocketConnection(
           endpoint,
           port,
           success: false,
-          error: `Unexpected behavior: expected ${expectedBehavior}, got ${connected ? 'connect' : 'reject'}`,
+          error: `Unexpected behavior: expected ${expectedBehavior}, got ${isConnected ? 'connect' : 'reject'}`,
         });
       }
     });
@@ -283,7 +283,9 @@ async function testClientCountProgression(port: number): Promise<TestResult> {
         );
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as {
+        data?: { websocketClients?: number };
+      };
 
       if (!data.data || typeof data.data.websocketClients !== 'number') {
         throw new Error(
@@ -331,10 +333,10 @@ async function testClientCountProgression(port: number): Promise<TestResult> {
 
     // Verify progression
     const expectedProgression = [0, 1, 2, 1, 0];
-    const success =
+    const isSuccess =
       JSON.stringify(expectedProgression) === JSON.stringify(counts);
 
-    if (success) {
+    if (isSuccess) {
       messages.push(`✅ Progression: ${counts.join('→')}`);
     } else {
       messages.push(
@@ -342,7 +344,7 @@ async function testClientCountProgression(port: number): Promise<TestResult> {
       );
     }
 
-    return { endpoint, port, success, messages };
+    return { endpoint, port, success: isSuccess, messages };
   } catch (error) {
     return {
       endpoint,

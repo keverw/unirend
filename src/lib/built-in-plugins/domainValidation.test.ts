@@ -6,7 +6,13 @@ import {
 import type { PluginOptions, PluginHostInstance } from '../types';
 
 // Mock Fastify request/reply objects
-const createMockRequest = (overrides: any = {}) => ({
+interface MockRequestOverrides {
+  url?: string;
+  headers?: Record<string, string>;
+  protocol?: string;
+}
+
+const createMockRequest = (overrides: MockRequestOverrides = {}): unknown => ({
   url: '/test',
   headers: {
     host: 'example.com',
@@ -838,6 +844,7 @@ describe('domainValidation', () => {
       const options = createMockOptions();
       const request = createMockRequest({
         headers: { host: 'evil.com' },
+        // cspell:disable-next-line
         url: '/apix', // Should not match /api
       });
       const reply = createMockReply();
@@ -1055,7 +1062,7 @@ describe('domainValidation', () => {
   });
 
   describe('configuration validation', () => {
-    it("should reject global wildcard '*' in validProductionDomains", async () => {
+    it("should reject global wildcard '*' in validProductionDomains", () => {
       const config: DomainValidationConfig = {
         validProductionDomains: ['*'],
       };
@@ -1064,12 +1071,12 @@ describe('domainValidation', () => {
       const options = createMockOptions();
       const plugin = domainValidation(config);
 
-      await expect(plugin(pluginHost, options)).rejects.toThrow(
+      expect(plugin(pluginHost, options)).rejects.toThrow(
         /global wildcard '\*' not allowed/i,
       );
     });
 
-    it("should reject protocol wildcard entries like 'https://*'", async () => {
+    it("should reject protocol wildcard entries like 'https://*'", () => {
       const config: DomainValidationConfig = {
         validProductionDomains: ['https://*'],
       };
@@ -1078,12 +1085,12 @@ describe('domainValidation', () => {
       const options = createMockOptions();
       const plugin = domainValidation(config);
 
-      await expect(plugin(pluginHost, options)).rejects.toThrow(
+      expect(plugin(pluginHost, options)).rejects.toThrow(
         /protocols are not allowed in domain context/i,
       );
     });
 
-    it("should reject origin-style entries like 'https://example.com'", async () => {
+    it("should reject origin-style entries like 'https://example.com'", () => {
       const config: DomainValidationConfig = {
         validProductionDomains: ['https://example.com'],
       };
@@ -1092,7 +1099,7 @@ describe('domainValidation', () => {
       const options = createMockOptions();
       const plugin = domainValidation(config);
 
-      await expect(plugin(pluginHost, options)).rejects.toThrow(
+      expect(plugin(pluginHost, options)).rejects.toThrow(
         /protocols are not allowed in domain context/i,
       );
     });

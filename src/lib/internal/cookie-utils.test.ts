@@ -133,6 +133,7 @@ describe('cookie-utils: filterSetCookieHeaderValues', () => {
   });
 
   it('drops invalid Set-Cookie values (no name=value)', () => {
+    // cspell:ignore invalidcookie
     const invalid = 'invalidcookie';
     const result = filterSetCookieHeaderValues([invalid, cA]);
     expect(result).toEqual([cA]);

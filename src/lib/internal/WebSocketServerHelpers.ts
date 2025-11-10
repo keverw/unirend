@@ -134,7 +134,7 @@ export class WebSocketServerHelpers {
   registerRoutes(fastify: FastifyInstance): void {
     // Register all stored WebSocket handlers
     for (const [path, config] of this.handlersByPath) {
-      fastify.register(async function (fastify) {
+      fastify.register(function (fastify) {
         fastify.get(path, { websocket: true }, (socket, request) => {
           // Check upgrade validation info from preValidation hook
           const upgradeInfo = (

@@ -72,8 +72,9 @@ export function normalizeOrigin(origin: string): string {
         : normalizedHostname.replace(/^\[|\]$/g, '');
 
       const canon = canonicalizeBracketedIPv6Content(
-        raw /* preserveZoneIdCase: false */,
+        raw /* shouldPreserveZoneIDCase: false */,
       );
+
       host = `[${canon}]`;
     } else {
       host = normalizedHostname;
@@ -129,7 +130,7 @@ export function normalizeOrigin(origin: string): string {
 
       // Canonicalize bracket content using shared helper
       const canon = canonicalizeBracketedIPv6Content(
-        bracketContent /* preserveZoneIdCase: false */,
+        bracketContent /* shouldPreserveZoneIDCase: false */,
       );
 
       const host = `[${canon}]`;
@@ -756,7 +757,7 @@ export function validateConfigEntry(
 
   // Extract host (and optional port) while respecting IPv6 brackets
   let host = rest;
-  let portPresent = false;
+  let hasPort = false;
 
   if (rest.startsWith('[')) {
     const end = rest.indexOf(']');
@@ -772,7 +773,7 @@ export function validateConfigEntry(
     if (after.startsWith(':')) {
       // port present -> allowed for exact origins, but reject with wildcard hosts below
       // leave host as bracketed literal
-      portPresent = true;
+      hasPort = true;
     } else if (after.length > 0) {
       return {
         valid: false,
@@ -786,7 +787,7 @@ export function validateConfigEntry(
     if (colon !== -1) {
       host = rest.slice(0, colon);
       // optional port part is fine for exact origins
-      portPresent = true;
+      hasPort = true;
     }
   }
 
@@ -801,7 +802,7 @@ export function validateConfigEntry(
       };
     }
 
-    if (portPresent) {
+    if (hasPort) {
       return {
         valid: false,
         info: 'ports are not allowed in wildcard origins',

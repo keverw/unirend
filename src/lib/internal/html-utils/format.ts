@@ -25,7 +25,9 @@ function formatNode(
   // @ts-expect-error: 'root' is a valid node type at runtime, but not in the types
   if (el.type === 'root') {
     // @ts-expect-error: 'children' exists on root node at runtime
-    return (el.children || [])
+    const children = (el.children || []) as cheerio.Element[];
+
+    return children
       .map((child: cheerio.Element) =>
         formatNode(child, level, false, containerID),
       )
@@ -104,22 +106,23 @@ function formatNode(
       // everything on a single line to avoid introducing whitespace nodes that would
       // break React hydration. Therefore, we skip inserting newlines in that case.
 
-      const inline = isInRoot;
+      const isInline = isInRoot;
       let result = `${indent}${openTag}`;
 
       for (const child of tag.children) {
         const childStr = formatNode(
           child,
-          inline ? 0 : level + 1,
+          isInline ? 0 : level + 1,
           isInRoot,
           containerID,
         );
+
         if (childStr) {
-          result += inline ? childStr : `\n${childStr}`;
+          result += isInline ? childStr : `\n${childStr}`;
         }
       }
 
-      result += inline ? `</${tagName}>` : `\n${indent}</${tagName}>`;
+      result += isInline ? `</${tagName}>` : `\n${indent}</${tagName}>`;
       return result;
     }
   }

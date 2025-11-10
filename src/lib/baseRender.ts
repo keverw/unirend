@@ -140,9 +140,14 @@ export async function unirendBaseRender(
 
   // Check for __ssOnly data, extract it and remove it from the context
   for (const key in context.loaderData) {
-    const data = context.loaderData[key];
+    const data = context.loaderData[key] as Record<string, unknown> | undefined;
 
-    if (data?.__ssOnly) {
+    if (
+      data &&
+      typeof data === 'object' &&
+      '__ssOnly' in data &&
+      data.__ssOnly
+    ) {
       // Clone the __ssOnly data to avoid modifying the original
       Object.assign(ssOnlyData, structuredClone(data.__ssOnly));
 
@@ -155,7 +160,7 @@ export async function unirendBaseRender(
   // Check for React Router context.errors first (the status code will default if error boundary is hit)
   if (context.errors && statusCode === 500) {
     for (const key in context.errors) {
-      const error = context.errors[key];
+      const error = context.errors[key] as Error & { status?: number };
 
       // Extract status code if available
       if (error.status && typeof error.status === 'number') {
@@ -171,24 +176,43 @@ export async function unirendBaseRender(
   // Check if any loaders returned a status code or error following our API envelope
   else if (context?.loaderData) {
     for (const key in context.loaderData) {
-      const data = context.loaderData[key];
+      const data = context.loaderData[key] as
+        | {
+            status_code?: number;
+            error?: {
+              message?: string;
+              details?: { stacktrace?: string };
+            };
+          }
+        | undefined;
 
-      let foundDataInThisEntry = false;
+      let hasDataInThisEntry = false;
 
       // Check for our API envelope status_code if a custom status code is not already set
-      if (data?.status_code && statusCode === 200) {
+      if (
+        data?.status_code &&
+        typeof data.status_code === 'number' &&
+        statusCode === 200
+      ) {
         statusCode = data.status_code;
-        foundDataInThisEntry = true;
+        hasDataInThisEntry = true;
       }
 
       // Check for our API envelope error object
-      if (data?.error) {
+      if (data?.error && typeof data.error === 'object') {
         // Create Error object from the envelope
-        const errorMessage = data.error.message || 'Unknown error';
+        const errorMessage =
+          typeof data.error.message === 'string'
+            ? data.error.message
+            : 'Unknown error';
         const errorObj = new Error(errorMessage);
 
         // Add stack trace if available
-        if (data.error.details?.stacktrace) {
+        if (
+          data.error.details &&
+          typeof data.error.details === 'object' &&
+          typeof data.error.details.stacktrace === 'string'
+        ) {
           errorObj.stack = data.error.details.stacktrace;
         }
 
@@ -196,11 +220,11 @@ export async function unirendBaseRender(
         (errorObj as Error & { source?: string }).source = 'api-envelope';
 
         errorDetails = errorObj;
-        foundDataInThisEntry = true;
+        hasDataInThisEntry = true;
       }
 
       // If we found relevant data in this entry, we can break
-      if (foundDataInThisEntry) {
+      if (hasDataInThisEntry) {
         break;
       }
     }

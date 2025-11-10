@@ -58,7 +58,7 @@ export interface ClientInfoConfig {
  */
 
 export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
-  return async (pluginHost: PluginHostInstance, _options: PluginOptions) => {
+  return (pluginHost: PluginHostInstance, _options: PluginOptions) => {
     // Set default values for the clientInfo property
     pluginHost.decorateRequest('clientInfo', null);
     // Ensure requestID is a known property on FastifyRequest
@@ -76,21 +76,23 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
 
     pluginHost.addHook('onRequest', async (request, reply) => {
       const loggingConfig = config.logging;
-      const logAll = loggingConfig === true;
-      const logNone =
+      const shouldLogAll = loggingConfig === true;
+      const shouldLogNone =
         loggingConfig === false || typeof loggingConfig === 'undefined';
       const loggingObject: ClientInfoLoggingOptions | undefined =
         typeof loggingConfig === 'object' && loggingConfig !== null
-          ? (loggingConfig as ClientInfoLoggingOptions)
+          ? loggingConfig
           : undefined;
 
-      const logRequestReceived =
-        logAll || (!logNone && loggingObject?.requestReceived === true);
-      const logForwardedClientInfo =
-        logAll || (!logNone && loggingObject?.forwardedClientInfo === true);
-      const logRejectedForwardedHeaders =
-        logAll ||
-        (!logNone && loggingObject?.rejectedForwardedHeaders === true);
+      const shouldLogRequestReceived =
+        shouldLogAll ||
+        (!shouldLogNone && loggingObject?.requestReceived === true);
+      const shouldLogForwardedClientInfo =
+        shouldLogAll ||
+        (!shouldLogNone && loggingObject?.forwardedClientInfo === true);
+      const shouldLogRejectedForwardedHeaders =
+        shouldLogAll ||
+        (!shouldLogNone && loggingObject?.rejectedForwardedHeaders === true);
 
       // Generate a request ID for each request
       const requestID = generateRequestID();
@@ -99,7 +101,7 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
       // This will be forwarded to the API server
 
       // Optionally log the request with its ID
-      if (logRequestReceived) {
+      if (shouldLogRequestReceived) {
         request.log?.info?.(
           { requestID },
           `Request received: ${request.method} ${request.url}`,
@@ -190,7 +192,7 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
             correlationID = correlationHeader;
           }
 
-          if (logForwardedClientInfo) {
+          if (shouldLogForwardedClientInfo) {
             request.log?.debug?.(
               {
                 requestID,
@@ -212,7 +214,7 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
       ) {
         // Log a warning if SSR headers are present but from a non-private IP
         // As someone might be trying to spoof the request?
-        if (logRejectedForwardedHeaders) {
+        if (shouldLogRejectedForwardedHeaders) {
           request.log?.warn?.(
             {
               requestID,
@@ -237,7 +239,7 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
       }
 
       // Log the request with its IDs (optional)
-      if (logRequestReceived) {
+      if (shouldLogRequestReceived) {
         request.log?.info?.(
           {
             requestID,

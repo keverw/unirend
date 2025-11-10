@@ -300,8 +300,8 @@ async function main() {
     // Name and template validation are handled by the library
     // Repo config updates are handled by createProject internally
     const result = await createProject({
-      templateID: parsed.projectType as string,
-      projectName: parsed.projectName as string,
+      templateID: parsed.projectType,
+      projectName: parsed.projectName,
       repoRoot,
       logger: colorPrint,
       serverTarget: (parsed.target as 'bun' | 'node') ?? 'bun',

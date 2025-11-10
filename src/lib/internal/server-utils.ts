@@ -146,13 +146,13 @@ export function createDefaultAPINotFoundResponse(
  * Creates a controlled wrapper around the Fastify instance
  * This prevents plugins from accessing dangerous methods
  * @param fastifyInstance The real Fastify instance
- * @param disableRootWildcard Whether to disable root wildcard routes (e.g., "*" or "/*")
+ * @param shouldDisableRootWildcard Whether to disable root wildcard routes (e.g., "*" or "/*")
  * @returns Controlled interface for plugins
  */
 
 export function createControlledInstance(
   fastifyInstance: FastifyInstance,
-  disableRootWildcard: boolean,
+  shouldDisableRootWildcard: boolean,
   apiShortcuts: unknown,
   pageLoaderShortcuts: unknown,
 ): PluginHostInstance {
@@ -174,7 +174,7 @@ export function createControlledInstance(
         request: FastifyRequest,
         reply: FastifyReply,
         ...args: unknown[]
-      ) => Promise<unknown> | unknown,
+      ) => void | Promise<unknown>,
     ) => {
       // Prevent plugins from overriding critical hooks
       if (hookName === 'onRoute' || hookName.includes('*')) {
@@ -184,9 +184,12 @@ export function createControlledInstance(
       }
       // Note: Fastify's addHook has complex overloads for different hook types.
       // These casts align our simplified interface with Fastify's internal expectations.
+      // The handler is cast to 'any' because Fastify's hook types are too complex to satisfy
+      // with our simplified generic signature, but the runtime behavior is correct.
       return fastifyInstance.addHook(
         hookName as Parameters<typeof fastifyInstance.addHook>[0],
-        handler as Parameters<typeof fastifyInstance.addHook>[1],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument
+        handler as any,
       );
     },
     decorate: (property: string, value: unknown) =>
@@ -218,7 +221,7 @@ export function createControlledInstance(
       );
     },
     get: (path: string, handler: RouteHandler) => {
-      if (disableRootWildcard && (path === '*' || path === '/*')) {
+      if (shouldDisableRootWildcard && (path === '*' || path === '/*')) {
         throw new Error(
           'Plugins cannot register root wildcard GET routes that would conflict with SSR rendering',
         );
@@ -243,7 +246,9 @@ export function createControlledInstance(
  */
 export function createControlledReply(reply: FastifyReply): ControlledReply {
   return {
-    header: (name: string, value: string) => reply.header(name, value),
+    header: (name: string, value: string) => {
+      reply.header(name, value);
+    },
     getHeader: (name: string) =>
       reply.getHeader(name) as unknown as
         | string
@@ -251,7 +256,9 @@ export function createControlledReply(reply: FastifyReply): ControlledReply {
         | string[]
         | undefined,
     getHeaders: () => reply.getHeaders() as unknown as Record<string, unknown>,
-    removeHeader: (name: string) => reply.removeHeader(name),
+    removeHeader: (name: string) => {
+      reply.removeHeader(name);
+    },
     hasHeader: (name: string) => reply.hasHeader(name),
     sent: reply.sent,
     setCookie:

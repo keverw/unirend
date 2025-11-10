@@ -365,12 +365,13 @@ export class DataLoaderServerHandlerHelpers {
       return { exists: false };
     }
 
-    const handlerUncast = versionMap.get(latestVersion);
-    if (!handlerUncast) {
+    const handlerUncasted = versionMap.get(latestVersion);
+
+    if (!handlerUncasted) {
       return { exists: false };
     }
 
-    const handler = handlerUncast as PageDataHandler<T, M>;
+    const handler = handlerUncasted as PageDataHandler<T, M>;
 
     // Assemble the request body
     const finalParams: PageDataHandlerParams = {
@@ -423,7 +424,7 @@ export class DataLoaderServerHandlerHelpers {
                 (error as unknown as { version: number }).version =
                   latestVersion;
                 (error as unknown as { timeoutMs: number }).timeoutMs =
-                  timeoutMs as number;
+                  timeoutMs;
                 (error as unknown as { errorCode: string }).errorCode =
                   'handler_timeout';
                 reject(error);
@@ -488,14 +489,14 @@ export class DataLoaderServerHandlerHelpers {
     }
 
     const targetVersion = version ?? 1; // Default to version 1 if not specified
-    const removed = versionMap.delete(targetVersion);
+    const didRemove = versionMap.delete(targetVersion);
 
     // Clean up empty version map
     if (versionMap.size === 0) {
       this.handlersByPageType.delete(pageType);
     }
 
-    return removed;
+    return didRemove;
   }
 
   /**

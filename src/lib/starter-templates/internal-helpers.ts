@@ -77,26 +77,26 @@ export async function ensureBaseFiles(
     );
   }
 
-  let changed = false;
+  let didChange = false;
 
   // Add defaults only when these fields are absent
   if (!Object.prototype.hasOwnProperty.call(parsed, 'name')) {
     (parsed as { name: string }).name = repoName;
-    changed = true;
+    didChange = true;
   }
 
   if (!Object.prototype.hasOwnProperty.call(parsed, 'private')) {
     (parsed as { private: boolean }).private = true;
-    changed = true;
+    didChange = true;
   }
 
   if (!Object.prototype.hasOwnProperty.call(parsed, 'license')) {
     (parsed as { license: string }).license = 'UNLICENSED';
-    changed = true;
+    didChange = true;
   }
 
   // write updated package.json only if we actually changed something
-  if (changed) {
+  if (didChange) {
     await vfsWrite(repoRoot, 'package.json', JSON.stringify(parsed, null, 2));
 
     if (log) {

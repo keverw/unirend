@@ -105,9 +105,9 @@ export class GenerateBuildInfo {
     const warnings: string[] = [];
 
     // Check if git is available first
-    const gitAvailable = await isGitAvailable();
+    const isGitCLIAvailable = await isGitAvailable();
 
-    if (!gitAvailable) {
+    if (!isGitCLIAvailable) {
       warnings.push('Git CLI not found. Build info will use fallback values.');
     }
 
@@ -119,10 +119,12 @@ export class GenerateBuildInfo {
       try {
         const packageJsonPath = path.join(this.workingDir, 'package.json');
         const packageJsonContent = await fs.readFile(packageJsonPath, 'utf8');
-        const packageJson = JSON.parse(packageJsonContent);
+        const packageJson = JSON.parse(packageJsonContent) as {
+          version?: string;
+        };
 
         // version found in package.json
-        if (packageJson.version) {
+        if (packageJson.version && typeof packageJson.version === 'string') {
           version = packageJson.version;
         }
       } catch (error) {
@@ -136,7 +138,7 @@ export class GenerateBuildInfo {
     let gitHash = FALLBACK_VALUE;
     let gitBranch = FALLBACK_VALUE;
 
-    if (gitAvailable) {
+    if (isGitCLIAvailable) {
       // get git hash
       const gitHashResult = await getGitHash(this.workingDir);
 

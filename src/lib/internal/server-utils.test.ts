@@ -9,6 +9,8 @@ import {
   validateAndRegisterPlugin,
 } from './server-utils';
 
+// cspell:ignore regs apix datax falsey
+
 const createMockReply = () => {
   const headers: Record<string, string> = {};
   const reply = {
@@ -250,6 +252,7 @@ describe('createControlledInstance', () => {
     // addHook blocks onRoute
     expect(() => host.addHook('onRoute', () => {})).toThrow(/cannot register/i);
     // addHook blocks wildcard-like names
+    // @ts-expect-error testing invalid hook name
     expect(() => host.addHook('*', () => {})).toThrow(/cannot register/i);
 
     // route blocks '*' and urls containing '*'

@@ -265,8 +265,8 @@ export interface PageLoaderOptions {
 // ---------------------------------------------------------------------------
 
 export interface LocalPageHandlerParams {
-  /** Logical page type for the local handler */
-  pageType: string | 'local';
+  /** Logical page type - set to 'local' by the framework */
+  pageType: 'local';
   /** Origin indicator for debugging */
   invocation_origin: 'local';
   /** Router params */

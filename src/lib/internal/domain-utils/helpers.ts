@@ -112,12 +112,12 @@ export function isIPAddress(str: string): boolean {
 
 /**
  * Canonicalize bracketed IPv6 literal content for deterministic origin comparison.
- * Lowercases the IPv6 address; optionally preserves zone-id casing when preserveZoneIdCase is true.
+ * Lowercases the IPv6 address; optionally preserves zone-id casing when shouldPreserveZoneIDCase is true.
  * The zone-id delimiter is expected percent-encoded as "%25" (e.g., fe80::1%25eth0).
  */
 export function canonicalizeBracketedIPv6Content(
   content: string,
-  preserveZoneIdCase = false,
+  shouldPreserveZoneIDCase = false,
 ): string {
   const i = content.indexOf('%25');
 
@@ -127,7 +127,9 @@ export function canonicalizeBracketedIPv6Content(
 
   const addr = content.slice(0, i).toLowerCase();
   const zone = content.slice(i);
-  return preserveZoneIdCase ? `${addr}${zone}` : `${addr}${zone.toLowerCase()}`;
+  return shouldPreserveZoneIDCase
+    ? `${addr}${zone}`
+    : `${addr}${zone.toLowerCase()}`;
 }
 
 /**
@@ -369,7 +371,7 @@ export function normalizeDomain(domain: string): string {
       checkHyphens: true,
       checkBidi: true,
       checkJoiners: true,
-      transitionalProcessing: false, // matches modern browser behavior (nontransitional)
+      transitionalProcessing: false, // matches modern browser behavior (non-transitional)
       verifyDNSLength: false, // we already do our own length checks
     });
     if (!ascii) {
@@ -385,7 +387,7 @@ export function normalizeDomain(domain: string): string {
 
 /**
  * Normalize a wildcard domain pattern by preserving wildcard labels
- * and punycoding only non-wildcard labels. Also trims and removes
+ * and punycode only non-wildcard labels. Also trims and removes
  * a trailing dot if present.
  */
 export function normalizeWildcardPattern(pattern: string): string {

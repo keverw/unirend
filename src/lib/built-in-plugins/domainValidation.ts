@@ -133,9 +133,9 @@ function checkIfAPIEndpoint(url: string, options: PluginOptions): boolean {
  */
 function getProtocol(
   request: FastifyRequest,
-  trustProxyHeaders: boolean,
+  shouldTrustProxyHeaders: boolean,
 ): string {
-  if (trustProxyHeaders) {
+  if (shouldTrustProxyHeaders) {
     const forwardedProto = request.headers['x-forwarded-proto'];
 
     if (forwardedProto) {
@@ -155,9 +155,12 @@ function getProtocol(
 /**
  * Helper function to safely extract host from headers (proxy-aware)
  */
-function getHost(request: FastifyRequest, trustProxyHeaders: boolean): string {
+function getHost(
+  request: FastifyRequest,
+  shouldTrustProxyHeaders: boolean,
+): string {
   // Prefer x-forwarded-host only when explicitly trusted
-  if (trustProxyHeaders) {
+  if (shouldTrustProxyHeaders) {
     const forwardedHost = request.headers['x-forwarded-host'];
 
     if (forwardedHost) {
@@ -258,21 +261,21 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
     // Register onRequest hook for domain security checks
     pluginHost.addHook('onRequest', async (request, reply) => {
       // Normalize config defaults
-      const skipInDev = config.skipInDevelopment ?? true;
-      const enforceHttps = config.enforceHttps ?? true;
+      const shouldSkipInDev = config.skipInDevelopment ?? true;
+      const shouldEnforceHttps = config.enforceHttps ?? true;
 
-      if (options.isDevelopment && skipInDev) {
+      if (options.isDevelopment && shouldSkipInDev) {
         return; // Skip in development mode, continue to next handler
       }
 
       const isAPIEndpoint = checkIfAPIEndpoint(request.url, options);
-      const trustProxyHeaders = !!config.trustProxyHeaders;
-      const host = getHost(request, trustProxyHeaders);
+      const shouldTrustProxyHeaders = !!config.trustProxyHeaders;
+      const host = getHost(request, shouldTrustProxyHeaders);
       const parsed = parseHostHeader(host);
       const originalDomain = parsed.domain; // Keep original for error messages
       const domain = normalizeDomain(originalDomain);
       const port = parsed.port;
-      const protocol = getProtocol(request, trustProxyHeaders);
+      const protocol = getProtocol(request, shouldTrustProxyHeaders);
 
       // Skip all validation and redirects for localhost (including IPv4/IPv6)
       if (
@@ -342,12 +345,12 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
       }
 
       // Single redirect logic - construct final target URL once
-      let needsRedirect = false;
+      let shouldRedirect = false;
       let finalProtocol = protocol;
       // Build redirect host from normalized domain by default (avoid reflecting raw headers)
       let finalHost = domain; // For URL construction (may add port below)
       let finalDomain = domain; // For logic decisions (never includes port)
-      let protocolChanged = false;
+      let hasProtocolChanged = false;
       // Track a port part to append at assembly time (avoid mixing IPv6 colons)
       let finalPortPart = '';
 
@@ -363,14 +366,14 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
       if (normalizedCanonical && domain !== normalizedCanonical) {
         finalDomain = normalizedCanonical;
         finalHost = normalizedCanonical;
-        needsRedirect = true;
+        shouldRedirect = true;
       }
 
       // 2. Apply HTTPS enforcement
-      if (enforceHttps && protocol === 'http') {
+      if (shouldEnforceHttps && protocol === 'http') {
         finalProtocol = 'https';
-        protocolChanged = true;
-        needsRedirect = true;
+        hasProtocolChanged = true;
+        shouldRedirect = true;
       }
 
       // 3. Apply WWW handling (only for apex domains)
@@ -380,26 +383,26 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
         if (wwwMode === 'add' && !hasWww) {
           finalHost = `www.${finalHost}`;
           finalDomain = `www.${finalDomain}`; // keep in sync
-          needsRedirect = true;
+          shouldRedirect = true;
         } else if (wwwMode === 'remove' && hasWww) {
           finalHost = finalHost.substring(4);
           finalDomain = finalDomain.substring(4); // keep in sync
-          needsRedirect = true;
+          shouldRedirect = true;
         }
       }
 
       // 4. Handle port preservation/stripping
-      if (needsRedirect) {
+      if (shouldRedirect) {
         // Always strip port if protocol changed (HTTP->HTTPS)
         // Otherwise, only preserve port if explicitly configured
         const shouldPreservePort =
-          !protocolChanged && config.preservePort && port;
+          !hasProtocolChanged && config.preservePort && port;
 
         finalPortPart = shouldPreservePort ? `:${port}` : '';
       }
 
       // Perform single redirect if needed
-      if (needsRedirect) {
+      if (shouldRedirect) {
         // Bracket IPv6 literals in the host component; append preserved port if any
         let hostForUrl = finalHost;
 
@@ -417,5 +420,7 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
       // Continue to next handler - no redirects needed
       return;
     });
+
+    return Promise.resolve();
   };
 }

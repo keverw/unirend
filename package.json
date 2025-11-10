@@ -85,7 +85,7 @@
     "node": ">=18.17.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.31.0",
+    "@eslint/js": "^9.39.1",
     "@fastify/multipart": "^9.0.3",
     "@types/bun": "^1.2.13",
     "@types/cheerio": "^0.22.35",
@@ -93,17 +93,18 @@
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
     "@types/tr46": "^5.0.1",
-    "@typescript-eslint/eslint-plugin": "^6.13.0",
-    "@typescript-eslint/parser": "^6.13.0",
+    "@typescript-eslint/eslint-plugin": "^8.46.3",
+    "@typescript-eslint/parser": "^8.46.3",
     "@vitejs/plugin-react": "^4.3.4",
-    "eslint": "^9.31.0",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react": "^7.37.5",
     "markdown-toc-gen": "^1.2.0",
     "prettier": "^3.5.3",
     "react-helmet-async": "^2.0.0",
     "react-router": "^7.0.0",
     "tsup": "^8.4.0",
-    "typescript": "^5.3.0",
-    "typescript-eslint": "^8.36.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.3",
     "vite": "^7.0.4"
   },
   "peerDependencies": {

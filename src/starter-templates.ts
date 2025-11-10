@@ -241,9 +241,9 @@ export async function createProject(
     try {
       await ensureBaseFiles(
         options.repoRoot,
-        (repoStatus.status === 'found'
+        repoStatus.status === 'found'
           ? repoStatus.config.name
-          : DEFAULT_REPO_NAME) as string,
+          : DEFAULT_REPO_NAME,
         (message) => log('info', message),
       );
     } catch (err) {
@@ -405,12 +405,16 @@ export async function initRepo(
     };
   } else if (existing.status !== 'not_found') {
     // Guard for any future status values we don't explicitly handle yet
+    const statusValue = (existing as Record<string, unknown>).status;
+    const statusString =
+      typeof statusValue === 'string' || typeof statusValue === 'number'
+        ? String(statusValue)
+        : 'unknown';
+
     return {
       success: false,
       error: 'unsupported_status',
-      errorMessage: `Unsupported repo status: ${String(
-        (existing as Record<string, unknown>).status ?? 'unknown',
-      )}`,
+      errorMessage: `Unsupported repo status: ${statusString}`,
     };
   }
 

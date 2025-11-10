@@ -131,18 +131,18 @@ export class APIRoutesServerHelpers<
   // Registration API (explicit method)
   // ---------------------------------------------------------------------------
   registerAPIHandler(
-    method: HTTPMethod | string,
+    method: HTTPMethod,
     endpoint: string,
     handler: APIRouteHandler<T, M>,
   ): void;
   registerAPIHandler(
-    method: HTTPMethod | string,
+    method: HTTPMethod,
     endpoint: string,
     version: number,
     handler: APIRouteHandler<T, M>,
   ): void;
   registerAPIHandler(
-    method: HTTPMethod | string,
+    method: HTTPMethod,
     endpoint: string,
     versionOrHandler: number | APIRouteHandler<T, M>,
     handlerMaybe?: APIRouteHandler<T, M>,
@@ -430,10 +430,10 @@ export class APIRoutesServerHelpers<
   private buildPath(
     prefix: string,
     endpoint: string,
-    versioned: boolean,
+    useVersioning: boolean,
     version: number,
   ): string {
-    const base = versioned ? prefix + '/v' + version : prefix;
+    const base = useVersioning ? prefix + '/v' + version : prefix;
     return base + '/' + endpoint;
   }
 }

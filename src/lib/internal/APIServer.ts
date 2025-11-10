@@ -10,6 +10,7 @@ import type {
   APIServerOptions,
   PluginMetadata,
   APIResponseHelpersClass,
+  PluginOptions,
 } from '../types';
 import { BaseServer } from './BaseServer';
 import {
@@ -26,7 +27,7 @@ import type { WebSocket, WebSocketServer } from 'ws';
 
 /**
  * API Server class for creating JSON API servers with plugin support
- * Uses createControlledInstance with disableRootWildcard: false to allow full wildcard flexibility
+ * Uses createControlledInstance with shouldDisableRootWildcard: false to allow full wildcard flexibility
  */
 
 export class APIServer extends BaseServer {
@@ -445,11 +446,9 @@ export class APIServer extends BaseServer {
     );
 
     // Plugin options to pass to each plugin
-    const pluginOptions = {
-      serverType: 'api' as const,
-      mode: (this.options.isDevelopment ? 'development' : 'production') as
-        | 'development'
-        | 'production',
+    const pluginOptions: PluginOptions = {
+      serverType: 'api',
+      mode: this.options.isDevelopment ? 'development' : 'production',
       isDevelopment: this.options.isDevelopment ?? false,
       buildDir: undefined, // Not applicable for API servers
       apiEndpoints: this.options.apiEndpoints,

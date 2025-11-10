@@ -1,4 +1,5 @@
-import {
+import type {
+  ErrorObject,
   PageResponseEnvelope,
   RedirectInfo,
 } from '../api-envelope/api-envelope-types';
@@ -19,11 +20,11 @@ import {
 } from './pageDataLoader-consts';
 import { redirect } from 'react-router';
 
-export async function processRedirectResponse(
+export function processRedirectResponse(
   config: PageLoaderConfig | LocalPageLoaderConfig,
   responseData: Record<string, unknown>,
   ssrOnlyData: Record<string, unknown>,
-): Promise<PageResponseEnvelope> {
+): PageResponseEnvelope {
   const redirectInfo = responseData.redirect as RedirectInfo;
   const target = redirectInfo.target;
 
@@ -135,11 +136,11 @@ export async function processApiResponse(
   }
 
   // extract the response data and check if it is valid json
-  let responseData;
+  let responseData: unknown;
   let isValidJson = false;
 
   try {
-    responseData = await response.json();
+    responseData = (await response.json()) as unknown;
     isValidJson = true;
   } catch {
     responseData = null;
@@ -184,28 +185,67 @@ export async function processApiResponse(
     // Check for redirect status - only for page-type responses with status 200
     // Our convention is that redirect responses always use status_code 200
     if (
-      responseData?.status === 'redirect' &&
-      responseData?.type === 'page' &&
-      responseData?.redirect
+      typeof responseData === 'object' &&
+      responseData !== null &&
+      'status' in responseData &&
+      responseData.status === 'redirect' &&
+      'type' in responseData &&
+      responseData.type === 'page' &&
+      'redirect' in responseData &&
+      responseData.redirect
     ) {
-      return processRedirectResponse(config, responseData, ssrOnlyData);
+      return processRedirectResponse(
+        config,
+        responseData as Record<string, unknown>,
+        ssrOnlyData,
+      );
     }
 
     // Continue with existing checks for page responses and auth redirects
-    if (statusCode === 200 && responseData?.type === 'page') {
+    if (
+      statusCode === 200 &&
+      typeof responseData === 'object' &&
+      responseData !== null &&
+      'type' in responseData &&
+      responseData.type === 'page'
+    ) {
       // successful page response as is
-      return decorateWithSsrOnlyData(responseData, ssrOnlyData);
+      return decorateWithSsrOnlyData(
+        responseData as PageResponseEnvelope,
+        ssrOnlyData,
+      );
     } else {
       // if it already is a page / error response, return it as is
-      if (responseData?.type === 'page') {
-        return decorateWithSsrOnlyData(responseData, ssrOnlyData);
+      if (
+        typeof responseData === 'object' &&
+        responseData !== null &&
+        'type' in responseData &&
+        responseData.type === 'page'
+      ) {
+        return decorateWithSsrOnlyData(
+          responseData as PageResponseEnvelope,
+          ssrOnlyData,
+        );
       } else if (
         statusCode === 401 &&
-        responseData?.status === 'error' &&
-        responseData?.error?.code === 'authentication_required'
+        typeof responseData === 'object' &&
+        responseData !== null &&
+        'status' in responseData &&
+        responseData.status === 'error' &&
+        'error' in responseData &&
+        typeof responseData.error === 'object' &&
+        responseData.error !== null &&
+        'code' in responseData.error &&
+        responseData.error.code === 'authentication_required'
       ) {
         // redirect to login - check for return_to in the error details
-        const returnTo = responseData?.error?.details?.return_to;
+        // Type guard already confirmed error exists and is an object with code property
+        const errorObj = responseData.error as ErrorObject;
+        const returnTo =
+          errorObj.details && typeof errorObj.details.return_to === 'string'
+            ? errorObj.details.return_to
+            : undefined;
+
         const returnToParam = config.returnToParam || DEFAULT_RETURN_TO_PARAM;
 
         // Only include return_to in the URL if it has a value, and ensure it's properly encoded
@@ -221,10 +261,21 @@ export async function processApiResponse(
         // Convert API responses to page responses
         // This happens when the API returns an "api" type response but we need a "page" type
         // for React Router data loaders. We preserve metadata from the original API response.
-        if (responseData?.type === 'api') {
-          if (responseData?.status === 'error') {
+        if (
+          typeof responseData === 'object' &&
+          responseData !== null &&
+          'type' in responseData &&
+          responseData.type === 'api'
+        ) {
+          if ('status' in responseData && responseData.status === 'error') {
+            const apiResponse = responseData as {
+              request_id?: string;
+              error?: ErrorObject;
+              meta?: Record<string, unknown>;
+            };
+
             const requestID =
-              responseData?.request_id ||
+              apiResponse.request_id ||
               (config.generateFallbackRequestID
                 ? config.generateFallbackRequestID('error')
                 : DEFAULT_FALLBACK_REQUEST_ID_GENERATOR('error'));
@@ -235,10 +286,10 @@ export async function processApiResponse(
                   config,
                   404,
                   config.errorDefaults.notFound.code,
-                  responseData?.error?.message ||
+                  apiResponse.error?.message ||
                     config.errorDefaults.notFound.message,
                   requestID,
-                  responseData?.meta,
+                  apiResponse.meta,
                 ),
                 ssrOnlyData,
               );
@@ -248,14 +299,14 @@ export async function processApiResponse(
                   config,
                   500,
                   config.errorDefaults.internalError.code,
-                  responseData?.error?.message ||
+                  apiResponse.error?.message ||
                     config.errorDefaults.internalError.message,
                   requestID,
-                  responseData?.meta,
+                  apiResponse.meta,
                   // If in development mode, include error details
                   (config.isDevelopment ??
                     process.env.NODE_ENV === 'development')
-                    ? responseData?.error?.details
+                    ? apiResponse.error?.details
                     : undefined,
                 ),
                 ssrOnlyData,
@@ -267,11 +318,11 @@ export async function processApiResponse(
                   config,
                   403,
                   config.errorDefaults.accessDenied.code,
-                  responseData?.error?.message ||
+                  apiResponse.error?.message ||
                     config.errorDefaults.accessDenied.message,
                   requestID,
-                  responseData?.meta,
-                  responseData?.error?.details,
+                  apiResponse.meta,
+                  apiResponse.error?.details,
                 ),
                 ssrOnlyData,
               );
@@ -281,27 +332,32 @@ export async function processApiResponse(
                 createErrorResponse(
                   config,
                   statusCode,
-                  responseData?.error?.code ||
+                  apiResponse.error?.code ||
                     config.errorDefaults.genericError.code,
-                  responseData?.error?.message ||
+                  apiResponse.error?.message ||
                     config.errorDefaults.genericError.message,
                   requestID,
-                  responseData?.meta,
-                  responseData?.error?.details,
+                  apiResponse.meta,
+                  apiResponse.error?.details,
                 ),
                 ssrOnlyData,
               );
             }
           } else {
             // Success API response that should be a page response
+            const apiResponse = responseData as {
+              request_id?: string;
+              meta?: Record<string, unknown>;
+            };
+
             return decorateWithSsrOnlyData(
               createErrorResponse(
                 config,
                 500,
                 config.errorDefaults.invalidResponse.code,
                 config.errorDefaults.invalidResponse.message,
-                responseData?.request_id,
-                responseData?.meta,
+                apiResponse.request_id,
+                apiResponse.meta,
               ),
               ssrOnlyData,
             );

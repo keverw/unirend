@@ -132,7 +132,7 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
       const url = cleanedUrl.startsWith('/') ? cleanedUrl : '/' + cleanedUrl;
 
       let resolved = '';
-      let detectImmutable = false;
+      let shouldDetectImmutable = false;
 
       // 1. Try singleAssetMap first (exact URL → file)
       if (normalizedSingleAssetMap.has(url)) {
@@ -162,7 +162,7 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
               !safeRelativePath.includes('..\\')
             ) {
               resolved = path.join(folderConfig.path, safeRelativePath);
-              detectImmutable = folderConfig.detectImmutableAssets;
+              shouldDetectImmutable = folderConfig.detectImmutableAssets;
             }
           }
         }
@@ -172,7 +172,7 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
       // otherwise: fall through to next route/not found
 
       if (resolved) {
-        return serveFile(req, reply, resolved, detectImmutable);
+        return serveFile(req, reply, resolved, shouldDetectImmutable);
       }
     },
   );
@@ -196,7 +196,7 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
     req: FastifyRequest,
     reply: FastifyReply,
     resolved: string,
-    detectImmutable: boolean = false,
+    shouldDetectImmutable: boolean = false,
   ) {
     // Try to get file stats from cache to avoid filesystem operations
     const cachedStat = statCache.get(resolved);
@@ -334,7 +334,8 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
     // Determine if we should use immutable cache headers based on the filename pattern
     // A fingerprinted file typically has a name like main.a1b2c3.js or chunk-5a7d9c8b.js
     let headerCacheControl = cacheControl;
-    if (detectImmutable) {
+
+    if (shouldDetectImmutable) {
       // Check for fingerprint pattern: either .{hash}. or -{hash} format
       // Matches patterns like main.a1b2c3d4.js or chunk-a1b2c3d4.js
       const fileBasename = path.basename(resolved);
@@ -427,6 +428,9 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
       return reply.send(fs.createReadStream(resolved));
     }
   }
+
+  // Satisfy async function requirement (plugin registration is synchronous)
+  return Promise.resolve();
 };
 
 // Simple extension-based MIME lookup (alphabetical order)

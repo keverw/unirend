@@ -26,7 +26,9 @@ describe('build-info load', () => {
     it('should return default build info in development mode', async () => {
       // Test development mode (isProduction = false)
       const result = await loadBuildInfo(false, async () => {
-        throw new Error('This should not be called in development mode');
+        return await Promise.reject(
+          new Error('This should not be called in development mode'),
+        );
       });
 
       // Should return default build info with correct status
@@ -48,7 +50,7 @@ describe('build-info load', () => {
 
       const result = await loadBuildInfo(
         true, // isProduction = true
-        async () => ({ BUILD_INFO: mockBuildInfo }),
+        async () => Promise.resolve({ BUILD_INFO: mockBuildInfo }),
       );
 
       // Should return the loaded build info with correct status
@@ -71,9 +73,11 @@ describe('build-info load', () => {
         environment: 'staging',
       };
 
-      const result = await loadBuildInfo(true, async () => ({
-        BUILD_INFO: mockBuildInfo,
-      }));
+      const result = await loadBuildInfo(true, async () => {
+        return await Promise.resolve({
+          BUILD_INFO: mockBuildInfo,
+        });
+      });
 
       expect(result).toEqual({
         status: 'LOADED_SUCCESSFULLY',
@@ -86,7 +90,7 @@ describe('build-info load', () => {
       // Mock import that returns a module without BUILD_INFO
       const result = await loadBuildInfo(
         true, // isProduction = true
-        async () => ({ someOtherProperty: 'value' }),
+        async () => await Promise.resolve({ someOtherProperty: 'value' }),
       );
 
       // Should return default build info with correct status
@@ -99,9 +103,11 @@ describe('build-info load', () => {
 
     it('should handle module with BUILD_INFO but wrong type', async () => {
       // Mock import that returns BUILD_INFO as wrong type
-      const result = await loadBuildInfo(true, async () => ({
-        BUILD_INFO: 'not an object',
-      }));
+      const result = await loadBuildInfo(true, async () => {
+        return await Promise.resolve({
+          BUILD_INFO: 'not an object',
+        });
+      });
 
       // Should return default build info with MODULE_INVALID_DATA status
       // (the function validates the structure of BUILD_INFO)
@@ -112,7 +118,7 @@ describe('build-info load', () => {
           version: '1.0.0',
           git_hash: 'dev',
           git_branch: 'dev',
-          build_timestamp: expect.any(String),
+          build_timestamp: expect.any(String) as string,
         },
       });
     });
@@ -122,7 +128,7 @@ describe('build-info load', () => {
       const result = await loadBuildInfo(
         true, // isProduction = true
         async () => {
-          throw new Error('Failed to import build info');
+          return await Promise.reject(new Error('Failed to import build info'));
         },
       );
 
@@ -138,7 +144,7 @@ describe('build-info load', () => {
       // Mock import that returns null
       const resultNull = await loadBuildInfo(
         true, // isProduction = true
-        async () => null as any,
+        async () => await Promise.resolve(null as unknown),
       );
 
       // Should return default build info with correct status
@@ -151,7 +157,7 @@ describe('build-info load', () => {
       // Mock import that returns undefined
       const resultUndefined = await loadBuildInfo(
         true, // isProduction = true
-        async () => undefined as any,
+        async () => await Promise.resolve(undefined as unknown),
       );
 
       // Should return default build info with correct status
@@ -164,7 +170,10 @@ describe('build-info load', () => {
 
     it('should handle empty object module', async () => {
       // Mock import that returns empty object
-      const result = await loadBuildInfo(true, async () => ({}));
+      const result = await loadBuildInfo(
+        true,
+        async () => await Promise.resolve({}),
+      );
 
       expect(result).toEqual({
         status: 'MODULE_MISSING_DATA',
@@ -201,9 +210,11 @@ describe('build-info load', () => {
     });
 
     it('should handle module with BUILD_INFO as null', async () => {
-      const result = await loadBuildInfo(true, async () => ({
-        BUILD_INFO: null,
-      }));
+      const result = await loadBuildInfo(true, async () => {
+        return await Promise.resolve({
+          BUILD_INFO: null,
+        });
+      });
 
       // Should return default build info with MODULE_INVALID_DATA status
       // (null is not a valid BuildInfo object)
@@ -214,18 +225,20 @@ describe('build-info load', () => {
           version: '1.0.0',
           git_hash: 'dev',
           git_branch: 'dev',
-          build_timestamp: expect.any(String),
+          build_timestamp: expect.any(String) as string,
         },
       });
     });
 
     it('should handle module with BUILD_INFO missing required fields', async () => {
-      const result = await loadBuildInfo(true, async () => ({
-        BUILD_INFO: {
-          version: '1.0.0',
-          // Missing git_hash, git_branch, build_timestamp
-        },
-      }));
+      const result = await loadBuildInfo(true, async () => {
+        return await Promise.resolve({
+          BUILD_INFO: {
+            version: '1.0.0',
+            // Missing git_hash, git_branch, build_timestamp
+          },
+        });
+      });
 
       // Should return default build info with MODULE_INVALID_DATA status
       // (incomplete BuildInfo object)
@@ -236,7 +249,7 @@ describe('build-info load', () => {
           version: '1.0.0',
           git_hash: 'dev',
           git_branch: 'dev',
-          build_timestamp: expect.any(String),
+          build_timestamp: expect.any(String) as string,
         },
       });
     });
@@ -299,22 +312,24 @@ describe('build-info load', () => {
     it('should be true when using default build info', async () => {
       // Test development mode
       const devResult = await loadBuildInfo(false, async () => {
-        throw new Error('Should not be called');
+        return await Promise.reject(new Error('Should not be called'));
       });
 
       expect(devResult.isDefault).toBe(true);
 
       // Test production with import error
       const errorResult = await loadBuildInfo(true, async () => {
-        throw new Error('Import failed');
+        return await Promise.reject(new Error('Import failed'));
       });
 
       expect(errorResult.isDefault).toBe(true);
 
       // Test production with invalid data
-      const invalidResult = await loadBuildInfo(true, async () => ({
-        BUILD_INFO: 'invalid',
-      }));
+      const invalidResult = await loadBuildInfo(true, async () => {
+        return await Promise.resolve({
+          BUILD_INFO: 'invalid',
+        });
+      });
 
       expect(invalidResult.isDefault).toBe(true);
     });
@@ -327,9 +342,11 @@ describe('build-info load', () => {
         build_timestamp: '2025-05-18T21:00:00.000Z',
       };
 
-      const result = await loadBuildInfo(true, async () => ({
-        BUILD_INFO: mockBuildInfo,
-      }));
+      const result = await loadBuildInfo(true, async () => {
+        return await Promise.resolve({
+          BUILD_INFO: mockBuildInfo,
+        });
+      });
 
       expect(result.isDefault).toBe(false);
       expect(result.status).toBe('LOADED_SUCCESSFULLY');
@@ -337,7 +354,10 @@ describe('build-info load', () => {
 
     it('allows easy checking without status codes', async () => {
       // Example of how developers can use the isDefault flag
-      const result = await loadBuildInfo(false, async () => ({}));
+      const result = await loadBuildInfo(
+        false,
+        async () => await Promise.resolve({}),
+      );
 
       if (result.isDefault) {
         // Using fallback build info - might want to show different UI

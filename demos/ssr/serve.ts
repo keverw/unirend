@@ -565,7 +565,7 @@ POST: curl -X POST http://localhost:3000/api/contact -H 'Content-Type: applicati
 Sample Data:
 {
   "name": "John Doe",
-  "email": "john@example.com", 
+  "email": "john@example.com",
   "message": "Hello from the contact form!"
 }`;
   });
@@ -797,13 +797,13 @@ const fileUploadPlugin: ServerPlugin = async (
 
 Route-specific size limits (enforced during STREAMING - monitoring actual bytes):
 /api/upload/avatar    - Max 1MB   (profile pictures, images only)
-/api/upload/document  - Max 5MB   (PDFs, docs only) 
+/api/upload/document  - Max 5MB   (PDFs, docs only)
 /api/upload/media     - Max 10MB  (videos, images, audio)
 /api/upload/test      - Global limit (1 byte for testing)
 
 Examples:
 curl -X POST -F 'file=@small-pic.jpg' http://localhost:3000/api/upload/avatar
-curl -X POST -F 'file=@document.pdf' http://localhost:3000/api/upload/document  
+curl -X POST -F 'file=@document.pdf' http://localhost:3000/api/upload/document
 curl -X POST -F 'file=@video.mp4' http://localhost:3000/api/upload/media
 curl -X POST -F 'file=@tiny.txt' http://localhost:3000/api/upload/test
 

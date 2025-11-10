@@ -186,10 +186,10 @@ const MAX_HEADER_LEN = 256;
  * Validate credentials origins using centralized validateConfigEntry
  */
 function validateCredentialsOrigins(
-  creds: string[],
+  credentials: string[],
   allowWildcard: boolean,
 ): void {
-  for (const o of creds) {
+  for (const o of credentials) {
     // Never allow credentials for the special "null" origin
     if (o === 'null') {
       throw new Error(
@@ -352,7 +352,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
   // Config-time validations:
   // - Origin '*' special handling:
   //   - Disallow credentials: true (spec prohibits ACA-C: true with ACA-O: *)
-  //   - Disallow dynamic credentials function (avoid reflect+creds footgun)
+  //   - Disallow dynamic credentials function (avoid reflect+credentials footgun)
   //   - If credentials is a string[] allowlist, validate and upgrade origin to that list
   // - Origin arrays are validated using validateConfigEntry (domain-utils) plus policy:
   //   - Allow at most one wildcard token ('*' or a protocol wildcard)
@@ -393,9 +393,9 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
     }
   }
 
-  // Additional guard: prevent reflect+creds when origin is '*'
+  // Additional guard: prevent reflect+credentials when origin is '*'
   if (resolvedConfig.origin === '*') {
-    // Dynamic function with '*' would enable reflecting arbitrary origins with creds
+    // Dynamic function with '*' would enable reflecting arbitrary origins with credentials
     if (typeof resolvedConfig.credentials === 'function') {
       throw new Error(
         "Unsafe CORS: cannot combine origin '*' with dynamic credentials. Use a concrete origin list when enabling credentials.",
@@ -445,7 +445,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
       }
     }
   } else if (Array.isArray(resolvedConfig.origin)) {
-    const entries = resolvedConfig.origin as string[];
+    const entries = resolvedConfig.origin;
     // Normalize ["*"] to "*"
     const unique = Array.from(new Set(entries));
     if (unique.length === 1 && unique[0] === '*') {
@@ -453,8 +453,11 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
     } else {
       // Special policy: '*' inside an array is only allowed when paired solely with 'null'
       if (entries.includes('*')) {
-        const onlyStarAndNull = entries.every((e) => e === '*' || e === 'null');
-        if (!onlyStarAndNull) {
+        const isOnlyStarAndNull = entries.every(
+          (e) => e === '*' || e === 'null',
+        );
+
+        if (!isOnlyStarAndNull) {
           throw new Error(
             "Invalid CORS config: Do not include '*' inside an origin array. Use origin: '*' (string) to allow all, or list specific origins.",
           );
@@ -622,7 +625,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
         }
 
         // Check if origin is allowed and cache result on request
-        const originAllowed = await isOriginAllowed(
+        const isOriginAllowedResult = await isOriginAllowed(
           origin,
           resolvedConfig.origin,
           request,
@@ -631,7 +634,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
         // Cache the result to avoid recomputing in onSend hook
         (
           request as FastifyRequest & { corsOriginAllowed?: boolean }
-        ).corsOriginAllowed = originAllowed;
+        ).corsOriginAllowed = isOriginAllowedResult;
 
         // Handle preflight OPTIONS requests
         if (method === 'OPTIONS') {
@@ -644,7 +647,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
           );
 
           // Return 403 for disallowed origins on preflight
-          if (!originAllowed && origin) {
+          if (!isOriginAllowedResult && origin) {
             reply.code(403).header('Cache-Control', 'no-store');
             return reply.send({ error: 'Origin not allowed by CORS policy' });
           }
@@ -787,16 +790,16 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
 
           if (resolvedConfig.preflightContinue) {
             // Continue to route handler but set CORS headers first
-            if (origin && originAllowed) {
+            if (origin && isOriginAllowedResult) {
               reply.header('Access-Control-Allow-Origin', origin);
-              const credentialsAllowed = await areCredentialsAllowed(
+              const isCredentialsAllowed = await areCredentialsAllowed(
                 origin,
                 resolvedConfig.credentials,
                 request,
                 resolvedConfig.credentialsAllowWildcardSubdomains,
               );
 
-              if (credentialsAllowed) {
+              if (isCredentialsAllowed) {
                 // Never send credentials for the special 'null' origin
                 if (origin !== 'null') {
                   reply.header('Access-Control-Allow-Credentials', 'true');
@@ -808,15 +811,16 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
             return;
           } else {
             // Handle preflight completely here
-            if (origin && originAllowed) {
+            if (origin && isOriginAllowedResult) {
               reply.header('Access-Control-Allow-Origin', origin);
-              const credentialsAllowed = await areCredentialsAllowed(
+              const isCredentialsAllowed = await areCredentialsAllowed(
                 origin,
                 resolvedConfig.credentials,
                 request,
                 resolvedConfig.credentialsAllowWildcardSubdomains,
               );
-              if (credentialsAllowed) {
+
+              if (isCredentialsAllowed) {
                 // Never send credentials for the special 'null' origin
                 if (origin !== 'null') {
                   reply.header('Access-Control-Allow-Credentials', 'true');
@@ -833,24 +837,25 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
 
         // For non-preflight requests, let them proceed without CORS headers if origin not allowed
         // This allows same-origin requests to work while cross-origin fails in the browser
-        if (!originAllowed && origin) {
+        if (!isOriginAllowedResult && origin) {
           // Don't set CORS headers, let browser handle the CORS failure
           return;
         }
 
         // Set Access-Control-Allow-Origin header for actual requests
-        if (origin && originAllowed) {
+        if (origin && isOriginAllowedResult) {
           // Echo the specific origin that was validated (not the full list)
           reply.header('Access-Control-Allow-Origin', origin);
 
           // Only set credentials when origin is present and allowed
-          const credentialsAllowed = await areCredentialsAllowed(
+          const isCredentialsAllowed = await areCredentialsAllowed(
             origin,
             resolvedConfig.credentials,
             request,
             resolvedConfig.credentialsAllowWildcardSubdomains,
           );
-          if (credentialsAllowed) {
+
+          if (isCredentialsAllowed) {
             // Never send credentials for the special 'null' origin
             if (origin !== 'null') {
               reply.header('Access-Control-Allow-Credentials', 'true');
@@ -871,13 +876,13 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
         async (request: FastifyRequest, reply: FastifyReply) => {
           const origin = request.headers.origin;
           // Use cached result from onRequest hook to avoid recomputing
-          const originAllowed =
+          const isOriginAllowedResult =
             (request as FastifyRequest & { corsOriginAllowed?: boolean })
               .corsOriginAllowed ??
             (await isOriginAllowed(origin, resolvedConfig.origin, request));
 
           // Only add exposed headers if origin is allowed and present
-          if (origin && originAllowed) {
+          if (origin && isOriginAllowedResult) {
             // Ensure Vary: Origin is set for non-preflight responses too
             addToVaryHeader(reply, 'Origin');
 
@@ -889,5 +894,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
         },
       );
     }
+
+    return Promise.resolve();
   };
 }

@@ -12,7 +12,10 @@ const versionFilePath = join(projectRoot, 'src', 'version.ts');
 
 try {
   // Read package.json
-  const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as {
+    version?: string;
+  };
+
   const version = packageJson.version;
 
   if (!version) {

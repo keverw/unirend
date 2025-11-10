@@ -264,6 +264,7 @@ export function createPageLoader(
   // If the pageTypeOrHandler is a string, create a page loader that uses the page type
   if (typeof pageTypeOrHandler === 'string') {
     const pageType = pageTypeOrHandler;
+
     return ({ request, params }: LoaderFunctionArgs) =>
       pageLoader({
         request,
@@ -274,7 +275,7 @@ export function createPageLoader(
   }
 
   // If the pageTypeOrHandler is a LocalPageHandler, create a page loader that uses the handler
-  const handler = pageTypeOrHandler as LocalPageHandler;
+  const handler = pageTypeOrHandler;
   return (args: LoaderFunctionArgs) =>
     localPageLoader(config as LocalPageLoaderConfig, handler, args);
 }

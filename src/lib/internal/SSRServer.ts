@@ -350,6 +350,7 @@ export class SSRServer extends BaseServer {
         });
 
         // Mount Vite's dev server middleware after Fastify's error handling and logging
+        // c:spell:ignore middie
         await this.fastifyInstance.register(import('@fastify/middie'));
 
         // Now we can use middleware
@@ -434,7 +435,10 @@ export class SSRServer extends BaseServer {
               );
             }
 
-            render = entryServer.render;
+            // Type assertion: We've validated render exists and is a function
+            render = entryServer.render as (
+              renderRequest: IRenderRequest,
+            ) => Promise<IRenderResult>;
           } else {
             // --- Production SSR ---
             // Use the template loaded at startup and cached render function
@@ -977,7 +981,7 @@ export class SSRServer extends BaseServer {
       );
     }
 
-    const prodConfig = this.config as SSRServerConfigProd;
+    const prodConfig = this.config;
     const serverEntry = prodConfig.options.serverEntry || 'entry-server';
     const serverBuildDir = path.join(
       prodConfig.buildDir,
@@ -1007,23 +1011,38 @@ export class SSRServer extends BaseServer {
     }
 
     // Import the server entry module
-    let entryServer;
+    let entryServer: unknown;
 
     try {
       entryServer = await import(entryResult.entryPath);
     } catch (error) {
+      // Type assertion for error message - error could be anything
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+
       throw new Error(
-        `Failed to import server entry from ${entryResult.entryPath}: ${error}`,
+        `Failed to import server entry from ${entryResult.entryPath}: ${errorMessage}`,
       );
     }
 
-    if (!entryServer.render || typeof entryServer.render !== 'function') {
+    // Validate the imported module has a render function
+    if (
+      !entryServer ||
+      typeof entryServer !== 'object' ||
+      !('render' in entryServer) ||
+      typeof entryServer.render !== 'function'
+    ) {
       throw new Error("Server entry module must export a 'render' function");
     }
 
+    // Type assertion: We've validated render exists and is a function
+    const renderFunction = entryServer.render as (
+      renderRequest: IRenderRequest,
+    ) => Promise<IRenderResult>;
+
     // Cache the render function for subsequent requests
-    this.cachedRenderFunction = entryServer.render;
-    return entryServer.render;
+    this.cachedRenderFunction = renderFunction;
+    return renderFunction;
   }
 
   /**

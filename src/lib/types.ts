@@ -7,6 +7,7 @@ import type {
   FastifyPluginCallback,
   FastifySchema,
   preHandlerHookHandler,
+  FastifyInstance,
 } from 'fastify';
 import type { CookieSerializeOptions } from '@fastify/cookie';
 import type { DataLoaderServerHandlerHelpers } from './internal/DataLoaderServerHandlerHelpers';
@@ -138,13 +139,7 @@ export type ServerPlugin = (
  * Fastify hook names that plugins can register
  * Includes common lifecycle hooks plus string for custom hooks
  */
-export type FastifyHookName =
-  | 'onRequest'
-  | 'preHandler'
-  | 'onSend'
-  | 'onResponse'
-  | 'onError'
-  | string;
+export type FastifyHookName = Parameters<FastifyInstance['addHook']>[0];
 
 /**
  * Controlled Fastify instance interface for plugins
@@ -163,7 +158,7 @@ export interface PluginHostInstance {
       request: FastifyRequest,
       reply: FastifyReply,
       ...args: unknown[]
-    ) => Promise<unknown> | unknown,
+    ) => void | Promise<unknown>,
   ) => void;
   /** Add decorators to request/reply objects */
   decorate: (property: string, value: unknown) => void;
@@ -247,7 +242,7 @@ export interface SafeRouteOptions {
 export type RouteHandler = (
   request: FastifyRequest,
   reply: FastifyReply,
-) => Promise<void | unknown> | void | unknown;
+) => void | Promise<unknown>;
 
 /**
  * WebSocket server configuration options

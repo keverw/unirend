@@ -112,23 +112,26 @@ describe('VFS', () => {
 
   describe('memory', () => {
     test('isInMemoryFileRoot detects object roots', () => {
-      expect(isInMemoryFileRoot({} as any)).toBe(true);
-      expect(isInMemoryFileRoot({ 'a.txt': 'hello' } as any)).toBe(true);
-      expect(
-        isInMemoryFileRoot({ 'b.bin': new Uint8Array([1, 2, 3]) } as any),
-      ).toBe(true);
+      expect(isInMemoryFileRoot({})).toBe(true);
+      expect(isInMemoryFileRoot({ 'a.txt': 'hello' })).toBe(true);
+      expect(isInMemoryFileRoot({ 'b.bin': new Uint8Array([1, 2, 3]) })).toBe(
+        true,
+      );
     });
 
     test('isInMemoryFileRoot returns false for non-objects', () => {
-      expect(isInMemoryFileRoot('/tmp/project' as any)).toBe(false);
+      expect(isInMemoryFileRoot('/tmp/project')).toBe(false);
+
       expect(isInMemoryFileRoot(123 as any)).toBe(false);
+
       expect(isInMemoryFileRoot(null as any)).toBe(false);
+
       expect(isInMemoryFileRoot(undefined as any)).toBe(false);
     });
 
-    test('vfsEnsureDir is a no-op for in-memory roots', async () => {
+    test('vfsEnsureDir is a no-op for in-memory roots', () => {
       const mem: InMemoryDir = {};
-      await expect(vfsEnsureDir(mem)).resolves.toBeUndefined();
+      expect(vfsEnsureDir(mem)).resolves.toBeUndefined();
       expect(isInMemoryFileRoot(mem)).toBe(true);
     });
 
@@ -212,9 +215,9 @@ describe('VFS', () => {
       expect(res).toEqual({ ok: false, code: 'ENOENT' });
     });
 
-    test('vfsDelete on missing in-memory path does not throw', async () => {
+    test('vfsDelete on missing in-memory path does not throw', () => {
       const mem: InMemoryDir = {};
-      await expect(vfsDelete(mem, 'missing.txt')).resolves.toBeUndefined();
+      expect(vfsDelete(mem, 'missing.txt')).resolves.toBeUndefined();
     });
   });
 
@@ -344,7 +347,7 @@ describe('VFS', () => {
     test('vfsDelete on missing filesystem path does not throw', async () => {
       const base = await createTmpDir();
       try {
-        await expect(vfsDelete(base, 'nope.txt')).resolves.toBeUndefined();
+        expect(vfsDelete(base, 'nope.txt')).resolves.toBeUndefined();
       } finally {
         await cleanupTmpDir(base);
       }

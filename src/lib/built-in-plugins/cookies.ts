@@ -20,7 +20,7 @@ export function cookies(config: CookiesConfig = {}): ServerPlugin {
     // Expose simple runtime metadata so other plugins/handlers can check
     // whether a signing secret/signer is configured and which algorithm is set.
     pluginHost.decorate('cookiePluginInfo', {
-      signingSecretProvided: !!(config as FastifyCookieOptions).secret,
+      signingSecretProvided: !!config.secret,
       algorithm:
         (config as FastifyCookieOptions & { algorithm?: string }).algorithm ??
         'sha256',

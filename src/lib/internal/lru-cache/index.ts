@@ -90,7 +90,11 @@ export class LRUCache<K, V> {
     } else if (Array.isArray(value)) {
       // Rough estimate for arrays
       return (
-        40 + value.reduce((acc, item) => acc + this.calculateSize(item), 0)
+        40 +
+        value.reduce(
+          (acc: number, item: unknown) => acc + this.calculateSize(item),
+          0,
+        )
       );
     } else if (typeof value === 'object') {
       try {

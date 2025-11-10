@@ -77,6 +77,7 @@ describe('injectContent', () => {
   });
 
   it('should preserve React attributes in template', () => {
+    // c:spell:ignore reactroot
     const template =
       '<!DOCTYPE html><html><head><!--ss-head--></head><body><div id="root" data-reactroot=""><!--ss-outlet--></div><!--context-scripts-injection-point--></body></html>';
     const headContent = '<title>React App</title>';
