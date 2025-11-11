@@ -2,6 +2,7 @@ import {
   ensurePackageJSON,
   type EnsurePackageJSONOptions,
 } from './base-files/package-json';
+import { ensureGitignore } from './base-files/ensure-gitignore';
 import { ensureTsConfig } from './base-files/ensure-tsconfig';
 import { ensureEditorConfig } from './base-files/ensure-editor-config';
 import type { RepoConfig } from './types';
@@ -47,7 +48,7 @@ export type EnsureBaseFilesOptions = EnsurePackageJSONOptions;
 
 /**
  * Ensure base repo files exist at the workspace root.
- * Creates or updates package.json, tsconfig.json, .editorconfig, and other base files.
+ * Creates or updates .gitignore, package.json, tsconfig.json, .editorconfig, and other base files.
  *
  * @throws {Error} If any file creation/update fails
  */
@@ -57,6 +58,9 @@ export async function ensureBaseFiles(
   options?: EnsureBaseFilesOptions,
 ): Promise<void> {
   // Each separate helper function will throw on error, allowing errors to propagate to the caller
+
+  // Ensure .gitignore exists first (only creates if missing)
+  await ensureGitignore(repoRoot, options?.log);
 
   // Ensure package.json exists with required fields
   await ensurePackageJSON(repoRoot, repoName, options);
