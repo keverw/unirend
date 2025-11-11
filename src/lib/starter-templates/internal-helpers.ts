@@ -7,6 +7,7 @@ import { ensureTsConfig } from './base-files/ensure-tsconfig';
 import { ensureEditorConfig } from './base-files/ensure-editor-config';
 import { ensurePrettierConfig } from './base-files/ensure-prettier-config';
 import { ensurePrettierIgnore } from './base-files/ensure-prettier-ignore';
+import { ensureEslintConfig } from './base-files/ensure-eslint-config';
 import type { RepoConfig } from './types';
 import { type FileRoot } from './vfs';
 
@@ -79,6 +80,9 @@ export async function ensureBaseFiles(
 
   // Ensure .prettierignore exists (only creates if missing)
   await ensurePrettierIgnore(repoRoot, options?.log);
+
+  // Ensure eslint.config.js exists (only creates if missing)
+  await ensureEslintConfig(repoRoot, options?.log);
 
   // Future: Add more base file creation functions here
 }
