@@ -28,8 +28,9 @@ import { validateName } from './lib/starter-templates/validate-name';
 import {
   vfsDisplayPath,
   vfsEnsureDir,
-  vfsReadText,
+  vfsReadJSON,
   vfsWrite,
+  vfsWriteJSON,
   type FileRoot,
 } from './lib/starter-templates/vfs';
 
@@ -206,11 +207,7 @@ export async function createProject(
           `./${options.projectName}`,
         );
 
-        await vfsWrite(
-          options.repoRoot,
-          REPO_CONFIG_FILE,
-          JSON.stringify(updated, null, 2),
-        );
+        await vfsWriteJSON(options.repoRoot, REPO_CONFIG_FILE, updated);
 
         log('info', `📝 Updated ${REPO_CONFIG_FILE}`);
       }
@@ -352,34 +349,19 @@ export function listAvailableTemplatesWithInfo(): TemplateInfo[] {
 export async function readRepoConfig(
   dirPath: FileRoot,
 ): Promise<RepoConfigResult> {
-  try {
-    const result = await vfsReadText(dirPath, REPO_CONFIG_FILE);
+  const result = await vfsReadJSON<RepoConfig>(dirPath, REPO_CONFIG_FILE);
 
-    if (!result.ok) {
-      if (result.code === 'ENOENT') {
-        return { status: 'not_found' };
-      }
-
+  if (!result.ok) {
+    if (result.code === 'ENOENT') {
+      return { status: 'not_found' };
+    } else if (result.code === 'PARSE_ERROR') {
+      return { status: 'parse_error', errorMessage: result.message };
+    } else {
       return { status: 'read_error', errorMessage: result.message };
     }
-
-    try {
-      const config = JSON.parse(result.text) as RepoConfig;
-      return { status: 'found', config };
-    } catch (parseError) {
-      return {
-        status: 'parse_error',
-        errorMessage:
-          parseError instanceof Error ? parseError.message : 'Invalid JSON',
-      };
-    }
-  } catch (error: unknown) {
-    return {
-      status: 'read_error',
-      errorMessage:
-        error instanceof Error ? error.message : 'Failed to read file',
-    };
   }
+
+  return { status: 'found', config: result.data };
 }
 
 export async function initRepo(
@@ -436,7 +418,7 @@ export async function initRepo(
     await vfsEnsureDir(dirPath);
 
     // Write repo config file
-    await vfsWrite(dirPath, REPO_CONFIG_FILE, JSON.stringify(config, null, 2));
+    await vfsWriteJSON(dirPath, REPO_CONFIG_FILE, config);
 
     // Try to ensure base files exist, otherwise createProject will run this again once a project is created within the repo
     try {

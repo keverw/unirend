@@ -203,6 +203,61 @@ export async function vfsDelete(
 }
 
 /**
+ * Write JSON data to a file with optional human-readable formatting.
+ * @param root - File root (filesystem path or in-memory object)
+ * @param relPath - Relative path to the JSON file
+ * @param data - Data to serialize as JSON
+ * @param useHumanFormat - Whether to format with indentation (default: true)
+ */
+export async function vfsWriteJSON(
+  root: FileRoot,
+  relPath: string,
+  data: unknown,
+  useHumanFormat = true,
+): Promise<void> {
+  const jsonString = useHumanFormat
+    ? JSON.stringify(data, null, 2)
+    : JSON.stringify(data);
+
+  await vfsWrite(root, relPath, jsonString);
+}
+
+/**
+ * Read and parse JSON data from a file.
+ * Returns a discriminated result with parse error handling.
+ */
+export async function vfsReadJSON<T = unknown>(
+  root: FileRoot,
+  relPath: string,
+): Promise<
+  | { ok: true; data: T }
+  | {
+      ok: false;
+      code: 'ENOENT' | 'READ_ERROR' | 'PARSE_ERROR';
+      message?: string;
+    }
+> {
+  const textResult = await vfsReadText(root, relPath);
+
+  if (!textResult.ok) {
+    return textResult;
+  }
+
+  try {
+    const data = JSON.parse(textResult.text) as T;
+
+    return { ok: true, data };
+  } catch (parseError) {
+    return {
+      ok: false,
+      code: 'PARSE_ERROR',
+      message:
+        parseError instanceof Error ? parseError.message : 'Invalid JSON',
+    };
+  }
+}
+
+/**
  * Display helper for logging/debugging paths in a consistent format across roots.
  * - Memory roots: "[in-memory]" optionally followed by normalized (or raw if invalid) path
  * - Filesystem roots: absolute path via join(root, normalizedRelPath) or join(root, rawRelPath) if invalid

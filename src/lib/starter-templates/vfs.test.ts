@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
 import {
   normalizeRelPath,
   isInMemoryFileRoot,
@@ -8,6 +8,8 @@ import {
   vfsReadBinary,
   vfsDelete,
   vfsDisplayPath,
+  vfsReadJSON,
+  vfsWriteJSON,
   type InMemoryDir,
 } from './vfs';
 import { tmpdir } from 'os';
@@ -76,36 +78,29 @@ describe('VFS', () => {
     });
 
     describe('file system', () => {
-      test('returns root when no relPath provided', async () => {
-        const base = await createTmpDir();
-        try {
-          expect(vfsDisplayPath(base)).toBe(base);
-        } finally {
-          await cleanupTmpDir(base);
-        }
+      let base: string;
+
+      beforeEach(async () => {
+        base = await createTmpDir();
       });
 
-      test('normalizes relative path under root', async () => {
-        const base = await createTmpDir();
-        try {
-          expect(vfsDisplayPath(base, 'a/b/c')).toBe(join(base, 'a/b/c'));
-          expect(vfsDisplayPath(base, '/a\\b//c')).toBe(join(base, 'a/b/c'));
-          expect(vfsDisplayPath(base, 'a/./b/../c')).toBe(join(base, 'a/c'));
-        } finally {
-          await cleanupTmpDir(base);
-        }
+      afterEach(async () => {
+        await cleanupTmpDir(base);
       });
 
-      test('keeps raw when normalize throws and joins with root', async () => {
-        const base = await createTmpDir();
-        try {
-          expect(vfsDisplayPath(base, '..')).toBe(join(base, '..'));
-          expect(vfsDisplayPath(base, '../escape')).toBe(
-            join(base, '../escape'),
-          );
-        } finally {
-          await cleanupTmpDir(base);
-        }
+      test('returns root when no relPath provided', () => {
+        expect(vfsDisplayPath(base)).toBe(base);
+      });
+
+      test('normalizes relative path under root', () => {
+        expect(vfsDisplayPath(base, 'a/b/c')).toBe(join(base, 'a/b/c'));
+        expect(vfsDisplayPath(base, '/a\\b//c')).toBe(join(base, 'a/b/c'));
+        expect(vfsDisplayPath(base, 'a/./b/../c')).toBe(join(base, 'a/c'));
+      });
+
+      test('keeps raw when normalize throws and joins with root', () => {
+        expect(vfsDisplayPath(base, '..')).toBe(join(base, '..'));
+        expect(vfsDisplayPath(base, '../escape')).toBe(join(base, '../escape'));
       });
     });
   });
@@ -222,135 +217,212 @@ describe('VFS', () => {
   });
 
   describe('file system', () => {
+    let base: string;
+
+    beforeEach(async () => {
+      base = await createTmpDir();
+    });
+
+    afterEach(async () => {
+      await cleanupTmpDir(base);
+    });
+
     test('vfsEnsureDir creates missing directory path', async () => {
-      const base = await createTmpDir();
-      try {
-        const target = join(base, 'new-project');
-        await vfsEnsureDir(target);
-        const s = await stat(target);
-        expect(s.isDirectory()).toBe(true);
-      } finally {
-        await cleanupTmpDir(base);
-      }
+      const target = join(base, 'new-project');
+      await vfsEnsureDir(target);
+      const s = await stat(target);
+      expect(s.isDirectory()).toBe(true);
     });
 
     test('vfsWrite writes string file on disk', async () => {
-      const base = await createTmpDir();
-      try {
-        await vfsWrite(base, 'notes/readme.txt', 'hello fs');
-        const abs = join(base, 'notes/readme.txt');
+      await vfsWrite(base, 'notes/readme.txt', 'hello fs');
+      const abs = join(base, 'notes/readme.txt');
 
-        const content = await fsReadFile(abs, 'utf8');
-        expect(content).toBe('hello fs');
+      const content = await fsReadFile(abs, 'utf8');
+      expect(content).toBe('hello fs');
 
-        const read = await vfsReadText(base, 'notes/readme.txt');
-        expect(read).toEqual({ ok: true, text: 'hello fs' });
-      } finally {
-        await cleanupTmpDir(base);
-      }
+      const read = await vfsReadText(base, 'notes/readme.txt');
+      expect(read).toEqual({ ok: true, text: 'hello fs' });
     });
 
     test('vfsWrite writes binary file on disk', async () => {
-      const base = await createTmpDir();
-      try {
-        const bytes = new Uint8Array([10, 20, 30, 40, 50]);
-        await vfsWrite(base, 'bin/blob.bin', bytes);
-        const abs = join(base, 'bin/blob.bin');
+      const bytes = new Uint8Array([10, 20, 30, 40, 50]);
+      await vfsWrite(base, 'bin/blob.bin', bytes);
+      const abs = join(base, 'bin/blob.bin');
 
-        const content = await fsReadFile(abs);
-        expect(Array.from(content)).toEqual(Array.from(bytes));
+      const content = await fsReadFile(abs);
+      expect(Array.from(content)).toEqual(Array.from(bytes));
 
-        const read = await vfsReadBinary(base, 'bin/blob.bin');
-        expect(read.ok).toBe(true);
+      const read = await vfsReadBinary(base, 'bin/blob.bin');
+      expect(read.ok).toBe(true);
 
-        if (read.ok) {
-          expect(Array.from(read.data)).toEqual(Array.from(bytes));
-        }
-      } finally {
-        await cleanupTmpDir(base);
+      if (read.ok) {
+        expect(Array.from(read.data)).toEqual(Array.from(bytes));
       }
     });
 
     test('vfsReadBinary returns UTF-8 bytes for string file', async () => {
-      const base = await createTmpDir();
-      try {
-        const text = 'fs string ✓';
-        await vfsWrite(base, 't/utf8.txt', text);
-        const res = await vfsReadBinary(base, 't/utf8.txt');
-        expect(res.ok).toBe(true);
-        if (res.ok) {
-          const decoded = new TextDecoder().decode(res.data);
-          expect(decoded).toBe(text);
-        }
-      } finally {
-        await cleanupTmpDir(base);
+      const text = 'fs string ✓';
+      await vfsWrite(base, 't/utf8.txt', text);
+      const res = await vfsReadBinary(base, 't/utf8.txt');
+      expect(res.ok).toBe(true);
+      if (res.ok) {
+        const decoded = new TextDecoder().decode(res.data);
+        expect(decoded).toBe(text);
       }
     });
 
     test('vfsReadText decodes UTF-8 from binary file', async () => {
-      const base = await createTmpDir();
-      try {
-        const text = 'fs bytes → text';
-        const bytes = new TextEncoder().encode(text);
-        await vfsWrite(base, 't/bytes.bin', bytes);
-        const res = await vfsReadText(base, 't/bytes.bin');
-        expect(res).toEqual({ ok: true, text });
-      } finally {
-        await cleanupTmpDir(base);
-      }
+      const text = 'fs bytes → text';
+      const bytes = new TextEncoder().encode(text);
+      await vfsWrite(base, 't/bytes.bin', bytes);
+      const res = await vfsReadText(base, 't/bytes.bin');
+      expect(res).toEqual({ ok: true, text });
     });
 
     test('vfsReadText returns ENOENT for missing filesystem path', async () => {
-      const base = await createTmpDir();
-      try {
-        const res = await vfsReadText(base, 'nope/missing.txt');
-        expect(res).toEqual({ ok: false, code: 'ENOENT' });
-      } finally {
-        await cleanupTmpDir(base);
-      }
+      const res = await vfsReadText(base, 'nope/missing.txt');
+      expect(res).toEqual({ ok: false, code: 'ENOENT' });
     });
 
     test('vfsReadBinary returns ENOENT for missing filesystem path', async () => {
-      const base = await createTmpDir();
-      try {
-        const res = await vfsReadBinary(base, 'missing.bin');
-        expect(res).toEqual({ ok: false, code: 'ENOENT' });
-      } finally {
-        await cleanupTmpDir(base);
-      }
+      const res = await vfsReadBinary(base, 'missing.bin');
+      expect(res).toEqual({ ok: false, code: 'ENOENT' });
     });
 
     test('vfsDelete removes string file on disk and subsequent reads return ENOENT', async () => {
-      const base = await createTmpDir();
-      try {
-        await vfsWrite(base, 'del/notes.txt', 'bye');
-        await vfsDelete(base, 'del/notes.txt');
-        const res = await vfsReadText(base, 'del/notes.txt');
-        expect(res).toEqual({ ok: false, code: 'ENOENT' });
-      } finally {
-        await cleanupTmpDir(base);
-      }
+      await vfsWrite(base, 'del/notes.txt', 'bye');
+      await vfsDelete(base, 'del/notes.txt');
+      const res = await vfsReadText(base, 'del/notes.txt');
+      expect(res).toEqual({ ok: false, code: 'ENOENT' });
     });
 
     test('vfsDelete removes binary file on disk and subsequent reads return ENOENT', async () => {
-      const base = await createTmpDir();
-      try {
-        await vfsWrite(base, 'del/blob.bin', new Uint8Array([9, 8, 7]));
-        await vfsDelete(base, 'del/blob.bin');
-        const res = await vfsReadBinary(base, 'del/blob.bin');
-        expect(res).toEqual({ ok: false, code: 'ENOENT' });
-      } finally {
-        await cleanupTmpDir(base);
-      }
+      await vfsWrite(base, 'del/blob.bin', new Uint8Array([9, 8, 7]));
+      await vfsDelete(base, 'del/blob.bin');
+      const res = await vfsReadBinary(base, 'del/blob.bin');
+      expect(res).toEqual({ ok: false, code: 'ENOENT' });
     });
 
-    test('vfsDelete on missing filesystem path does not throw', async () => {
-      const base = await createTmpDir();
-      try {
-        expect(vfsDelete(base, 'nope.txt')).resolves.toBeUndefined();
-      } finally {
+    test('vfsDelete on missing filesystem path does not throw', () => {
+      return vfsDelete(base, 'nope.txt');
+    });
+  });
+
+  describe('JSON operations', () => {
+    describe('memory', () => {
+      test('vfsWriteJSON writes human-readable JSON by default', async () => {
+        const mem: InMemoryDir = {};
+        const data = { name: 'test', value: 42 };
+        await vfsWriteJSON(mem, 'config.json', data);
+        expect(mem['config.json']).toBe(JSON.stringify(data, null, 2));
+      });
+
+      test('vfsWriteJSON writes compact JSON when useHumanFormat is false', async () => {
+        const mem: InMemoryDir = {};
+        const data = { name: 'test', value: 42 };
+        await vfsWriteJSON(mem, 'config.json', data, false);
+        expect(mem['config.json']).toBe(JSON.stringify(data));
+      });
+
+      test('vfsReadJSON reads and parses valid JSON', async () => {
+        const mem: InMemoryDir = {};
+        const data = { name: 'test', value: 42 };
+        await vfsWriteJSON(mem, 'config.json', data);
+        const result = await vfsReadJSON(mem, 'config.json');
+        expect(result).toEqual({ ok: true, data });
+      });
+
+      test('vfsReadJSON returns ENOENT for missing file', async () => {
+        const mem: InMemoryDir = {};
+        const result = await vfsReadJSON(mem, 'missing.json');
+        expect(result).toEqual({ ok: false, code: 'ENOENT' });
+      });
+
+      test('vfsReadJSON returns PARSE_ERROR for invalid JSON', async () => {
+        const mem: InMemoryDir = {};
+        mem['invalid.json'] = 'not valid json {';
+        const result = await vfsReadJSON(mem, 'invalid.json');
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.code).toBe('PARSE_ERROR');
+          expect(result.message).toBeDefined();
+        }
+      });
+
+      test('vfsReadJSON with type parameter', async () => {
+        const mem: InMemoryDir = {};
+        interface TestData {
+          name: string;
+          value: number;
+        }
+        const data: TestData = { name: 'test', value: 42 };
+        await vfsWriteJSON(mem, 'typed.json', data);
+        const result = await vfsReadJSON<TestData>(mem, 'typed.json');
+        expect(result).toEqual({ ok: true, data });
+      });
+    });
+
+    describe('file system', () => {
+      let base: string;
+
+      beforeEach(async () => {
+        base = await createTmpDir();
+      });
+
+      afterEach(async () => {
         await cleanupTmpDir(base);
-      }
+      });
+
+      test('vfsWriteJSON writes human-readable JSON to disk by default', async () => {
+        const data = { name: 'test', value: 42 };
+        await vfsWriteJSON(base, 'config.json', data);
+        const content = await fsReadFile(join(base, 'config.json'), 'utf8');
+        expect(content).toBe(JSON.stringify(data, null, 2));
+      });
+
+      test('vfsWriteJSON writes compact JSON when useHumanFormat is false', async () => {
+        const data = { name: 'test', value: 42 };
+        await vfsWriteJSON(base, 'config.json', data, false);
+        const content = await fsReadFile(join(base, 'config.json'), 'utf8');
+        expect(content).toBe(JSON.stringify(data));
+      });
+
+      test('vfsReadJSON reads and parses valid JSON from disk', async () => {
+        const data = { name: 'test', value: 42 };
+        await vfsWriteJSON(base, 'config.json', data);
+        const result = await vfsReadJSON(base, 'config.json');
+        expect(result).toEqual({ ok: true, data });
+      });
+
+      test('vfsReadJSON returns ENOENT for missing file on disk', async () => {
+        const result = await vfsReadJSON(base, 'missing.json');
+        expect(result).toEqual({ ok: false, code: 'ENOENT' });
+      });
+
+      test('vfsReadJSON returns PARSE_ERROR for invalid JSON on disk', async () => {
+        await vfsWrite(base, 'invalid.json', 'not valid json {');
+        const result = await vfsReadJSON(base, 'invalid.json');
+        expect(result.ok).toBe(false);
+
+        if (!result.ok) {
+          expect(result.code).toBe('PARSE_ERROR');
+          expect(result.message).toBeDefined();
+        }
+      });
+
+      test('vfsReadJSON with type parameter on disk', async () => {
+        interface TestData {
+          name: string;
+          value: number;
+        }
+
+        const data: TestData = { name: 'test', value: 42 };
+        await vfsWriteJSON(base, 'typed.json', data);
+
+        const result = await vfsReadJSON<TestData>(base, 'typed.json');
+        expect(result).toEqual({ ok: true, data });
+      });
     });
   });
 });
