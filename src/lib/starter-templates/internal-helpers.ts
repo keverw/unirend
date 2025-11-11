@@ -3,6 +3,7 @@ import {
   type EnsurePackageJSONOptions,
 } from './base-files/package-json';
 import { ensureTsConfig } from './base-files/ensure-tsconfig';
+import { ensureEditorConfig } from './base-files/ensure-editor-config';
 import type { RepoConfig } from './types';
 import { type FileRoot } from './vfs';
 
@@ -46,7 +47,7 @@ export type EnsureBaseFilesOptions = EnsurePackageJSONOptions;
 
 /**
  * Ensure base repo files exist at the workspace root.
- * Creates or updates package.json, tsconfig.json, and other base files.
+ * Creates or updates package.json, tsconfig.json, .editorconfig, and other base files.
  *
  * @throws {Error} If any file creation/update fails
  */
@@ -62,6 +63,9 @@ export async function ensureBaseFiles(
 
   // Ensure tsconfig.json exists (only creates if missing)
   await ensureTsConfig(repoRoot, options?.log);
+
+  // Ensure .editorconfig exists (only creates if missing)
+  await ensureEditorConfig(repoRoot, options?.log);
 
   // Future: Add more base file creation functions here
 }

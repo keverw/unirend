@@ -211,76 +211,21 @@ async function main() {
       ? join(process.cwd(), parsed.repoPath)
       : process.cwd();
 
-    const configFullPath = join(targetDir, REPO_CONFIG_FILE);
-
     // Determine repo name (from flag or default)
     const repoName = parsed.repoName || DEFAULT_REPO_NAME;
 
-    // Initialize repo (validates and writes config)
-    const initResult = await initRepo(targetDir, repoName);
+    // Initialize repo (validates and writes config) with logger
+    const initResult = await initRepo(targetDir, repoName, colorPrint);
 
     if (initResult.success) {
-      colorPrint('success', `✅ Initialized repo: ${repoName}`);
-      colorPrint('info', `Created ${REPO_CONFIG_FILE}`);
       colorPrint('info', '');
       colorPrint('info', 'You can now create projects in this repo:');
       colorPrint('info', '  unirend create ssg my-blog');
-    } else if (initResult.error === 'invalid_name') {
-      colorPrint(
-        'error',
-        `❌ Invalid repo name: ${initResult.errorMessage ?? 'Invalid name'}`,
-      );
-      colorPrint('info', '');
-      colorPrint('info', 'Valid names must:');
-      colorPrint('info', '  - Contain at least one alphanumeric character');
-      colorPrint('info', '  - Not start or end with special characters');
-      colorPrint('info', '  - Not contain invalid filesystem characters');
-      colorPrint('info', '  - Not be reserved system names');
-
-      process.exit(1);
-    } else if (initResult.error === 'already_exists') {
-      colorPrint(
-        'error',
-        `❌ This directory is already initialized (${configFullPath} exists)`,
-      );
-
-      process.exit(1);
-    } else if (initResult.error === 'parse_error') {
-      colorPrint(
-        'error',
-        `❌ Found ${configFullPath} but it contains invalid JSON`,
-      );
-
-      if (initResult.errorMessage) {
-        colorPrint('error', `   ${initResult.errorMessage}`);
-      }
-
-      colorPrint('info', '');
-      colorPrint(
-        'info',
-        'Please fix the JSON syntax or delete the file to start fresh.',
-      );
-
-      process.exit(1);
-    } else if (initResult.error === 'read_error') {
-      colorPrint('error', `❌ Found ${configFullPath} but cannot read it`);
-
-      if (initResult.errorMessage) {
-        colorPrint('error', `   ${initResult.errorMessage}`);
-      }
-
-      process.exit(1);
+      process.exit(0);
     } else {
-      colorPrint('error', `❌ Failed to create repository configuration`);
-
-      if (initResult.errorMessage) {
-        colorPrint('error', `   ${initResult.errorMessage}`);
-      }
-
+      // initRepo already logged the error details, just exit with error code
       process.exit(1);
     }
-
-    process.exit(0);
   }
   // Handle create command
   else if (parsed.command === 'create') {

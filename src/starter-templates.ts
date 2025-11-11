@@ -152,10 +152,15 @@ export async function createProject(
     } else if (repoStatus.status === 'not_found') {
       // Auto-initialize repo if missing to keep flow simple
       const repoName = DEFAULT_REPO_NAME;
-      const initResult = await initRepo(options.repoRoot, repoName);
+      log(
+        'info',
+        `📦 No repository found, auto-initializing as "${repoName}"...`,
+      );
+      log('info', '');
+
+      const initResult = await initRepo(options.repoRoot, repoName, log);
 
       if (initResult.success) {
-        log('info', `🛠️  Created ${REPO_CONFIG_FILE} (repo: ${repoName})`);
         repoStatus = { status: 'found', config: initResult.config };
       } else {
         log('error', '❌ Failed to initialize repository configuration');
@@ -369,19 +374,40 @@ export async function readRepoConfig(
 export async function initRepo(
   dirPath: FileRoot,
   name?: string,
+  logger?: Logger,
 ): Promise<InitRepoResult> {
+  // Default logger that does nothing if none provided
+  const log: Logger = logger || (() => {});
+  const repoRootDisplay = vfsDisplayPath(dirPath);
+
+  log('info', '🏗️  Initializing repository...');
+  log('info', `Repo Path: ${repoRootDisplay}`);
+
   // Check for existing or problematic config first
   const existing = await readRepoConfig(dirPath);
 
   if (existing.status === 'found') {
+    log('error', `❌ Repository already initialized at ${repoRootDisplay}`);
     return { success: false, error: 'already_exists' };
   } else if (existing.status === 'parse_error') {
+    log('error', `❌ Found ${REPO_CONFIG_FILE} but it contains invalid JSON`);
+
+    if (existing.errorMessage) {
+      log('error', `   ${existing.errorMessage}`);
+    }
+
     return {
       success: false,
       error: 'parse_error',
       errorMessage: existing.errorMessage,
     };
   } else if (existing.status === 'read_error') {
+    log('error', `❌ Found ${REPO_CONFIG_FILE} but cannot read it`);
+
+    if (existing.errorMessage) {
+      log('error', `   ${existing.errorMessage}`);
+    }
+
     return {
       success: false,
       error: 'read_error',
@@ -395,6 +421,7 @@ export async function initRepo(
         ? String(statusValue)
         : 'unknown';
 
+    log('error', `❌ Unsupported repository status: ${statusString}`);
     return {
       success: false,
       error: 'unsupported_status',
@@ -403,9 +430,22 @@ export async function initRepo(
   }
 
   const repoName = name || DEFAULT_REPO_NAME;
+  log('info', `Repo Name: ${repoName}`);
+
   const validation = validateName(repoName);
 
   if (!validation.valid) {
+    log(
+      'error',
+      `❌ Invalid repository name: ${validation.error ?? 'Invalid name'}`,
+    );
+    log('info', '');
+    log('info', 'Valid names must:');
+    log('info', '  - Contain at least one alphanumeric character');
+    log('info', '  - Not start or end with special characters');
+    log('info', '  - Not contain invalid filesystem characters');
+    log('info', '  - Not be reserved system names');
+
     return {
       success: false,
       error: 'invalid_name',
@@ -421,23 +461,38 @@ export async function initRepo(
 
     // Write repo config file
     await vfsWriteJSON(dirPath, REPO_CONFIG_FILE, config);
+    log('info', `🛠️  Created ${REPO_CONFIG_FILE}`);
 
-    // Try to ensure base files exist, otherwise createProject will run this again once a project is created within the repo
+    // Ensure base files exist (package.json, tsconfig.json, .editorconfig, etc.)
     try {
-      await ensureBaseFiles(dirPath, repoName);
-    } catch {
-      // best-effort; ignore
+      await ensureBaseFiles(dirPath, repoName, { log });
+      log('info', '✅ Repository initialized successfully');
+    } catch (err) {
+      // Log warning but don't fail - createProject will retry
+      const errorMessage = err instanceof Error ? err.message : String(err);
+
+      log(
+        'warning',
+        '⚠️  Failed to create some base files (will retry when creating first project)',
+      );
+
+      if (errorMessage) {
+        log('warning', `   ${errorMessage}`);
+      }
     }
 
     // Return success result
     return { success: true, config };
   } catch (error) {
     // Return error result
+    const errorMessage =
+      error instanceof Error ? error.message : 'Failed to write file';
+    log('error', `❌ Failed to initialize repository: ${errorMessage}`);
+
     return {
       success: false,
       error: 'write_error',
-      errorMessage:
-        error instanceof Error ? error.message : 'Failed to write file',
+      errorMessage,
     };
   }
 }
