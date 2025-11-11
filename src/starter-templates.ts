@@ -124,6 +124,12 @@ export async function createProject(
         log('error', `   ${repoStatus.errorMessage}`);
       }
 
+      log('info', '');
+      log(
+        'info',
+        'Please fix the JSON syntax or delete the file to start fresh.',
+      );
+
       return {
         success: false,
         error: `${REPO_CONFIG_FILE} contains invalid JSON`,
@@ -395,6 +401,12 @@ export async function initRepo(
     if (existing.errorMessage) {
       log('error', `   ${existing.errorMessage}`);
     }
+
+    log('info', '');
+    log(
+      'info',
+      'Please fix the JSON syntax or delete the file to start fresh.',
+    );
 
     return {
       success: false,
