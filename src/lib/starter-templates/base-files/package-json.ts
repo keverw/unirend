@@ -36,7 +36,7 @@ const dependencies = {
 };
 
 /**
- * Helper function to merge dependencies, only updating if the template version is newer
+ * Helper function to merge dependencies, updating if the template version is newer
  * or if the dependency doesn't exist in the target.
  */
 function mergeDependencies(
@@ -132,14 +132,16 @@ export interface EnsurePackageJSONOptions {
 
 /**
  * Ensure package.json exists at the repo root with required fields.
- * Returns true if successful, false if an error occurred.
+ * Creates a new package.json if missing, or updates existing one with missing fields.
+ * Never overwrites existing user-defined fields.
+ * @throws {Error} If package.json has invalid JSON or cannot be read/written
  */
 
 export async function ensurePackageJSON(
   repoRoot: FileRoot,
   repoName: string,
   options?: EnsurePackageJSONOptions,
-): Promise<boolean> {
+): Promise<void> {
   // Attempt to read an existing package.json at the repo root
   const pkgResult = await vfsReadJSON<Record<string, unknown>>(
     repoRoot,
@@ -172,7 +174,8 @@ export async function ensurePackageJSON(
         options.log('info', 'Created repo root package.json');
       }
 
-      return true;
+      // Package.json created successfully, return early as we don't need to update it
+      return;
     } else if (pkgResult.code === 'PARSE_ERROR') {
       throw new Error(
         `Invalid JSON in repo root package.json: ${pkgResult.message}`,
@@ -259,6 +262,4 @@ export async function ensurePackageJSON(
       );
     }
   }
-
-  return true;
 }

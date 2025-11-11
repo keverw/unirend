@@ -3,6 +3,7 @@ import {
   writeFile as fsWriteFile,
   mkdir as fsMkdir,
   rm as fsRm,
+  stat as fsStat,
 } from 'fs/promises';
 import { join } from 'path';
 
@@ -200,6 +201,54 @@ export async function vfsDelete(
 
   const abs = join(root, norm);
   await fsRm(abs, { force: true });
+}
+
+/**
+ * Write a file only if it doesn't already exist.
+ * Returns true if the file was written, false if it already existed.
+ * @param root - File root (filesystem path or in-memory object)
+ * @param relPath - Relative path to the file
+ * @param content - Content to write (string or Uint8Array)
+ * @throws {Error} If filesystem operation fails (e.g., permission denied, read-only filesystem)
+ */
+export async function vfsWriteIfNotExists(
+  root: FileRoot,
+  relPath: string,
+  content: FileContent,
+): Promise<boolean> {
+  const norm = normalizeRelPath(relPath);
+
+  if (isInMemoryFileRoot(root)) {
+    if (root[norm] !== undefined) {
+      return false;
+    }
+
+    root[norm] = content;
+    return true;
+  }
+
+  // For filesystem, use stat to check if file exists (more efficient than reading)
+  const abs = join(root, norm);
+
+  try {
+    await fsStat(abs);
+    // File exists, don't overwrite
+    return false;
+  } catch (err) {
+    // Only proceed if file doesn't exist (ENOENT)
+    if (
+      err &&
+      typeof err === 'object' &&
+      'code' in err &&
+      (err as { code?: unknown }).code === 'ENOENT'
+    ) {
+      await vfsWrite(root, relPath, content);
+      return true;
+    }
+
+    // Other errors (permissions, read-only filesystem, etc.) should propagate
+    throw err;
+  }
 }
 
 /**

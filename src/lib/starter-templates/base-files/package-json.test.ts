@@ -6,9 +6,8 @@ describe('ensurePackageJSON', () => {
   describe('new package.json creation', () => {
     test('creates package.json with all required fields and dependencies', async () => {
       const memRoot: InMemoryDir = {};
-      const didSucceed = await ensurePackageJSON(memRoot, 'test-repo');
+      await ensurePackageJSON(memRoot, 'test-repo');
 
-      expect(didSucceed).toBe(true);
       expect('package.json' in memRoot).toBe(true);
 
       const pkg = JSON.parse(memRoot['package.json'] as string);
@@ -40,9 +39,8 @@ describe('ensurePackageJSON', () => {
         }),
       };
 
-      const didSucceed = await ensurePackageJSON(memRoot, 'test-repo');
+      await ensurePackageJSON(memRoot, 'test-repo');
 
-      expect(didSucceed).toBe(true);
       const pkg = JSON.parse(memRoot['package.json'] as string);
       expect(pkg.name).toBe('existing-name'); // Not overwritten
       expect(pkg.version).toBe('2.0.0'); // Not overwritten
@@ -59,9 +57,8 @@ describe('ensurePackageJSON', () => {
         }),
       };
 
-      const didSucceed = await ensurePackageJSON(memRoot, 'test-repo');
+      await ensurePackageJSON(memRoot, 'test-repo');
 
-      expect(didSucceed).toBe(true);
       const pkg = JSON.parse(memRoot['package.json'] as string);
       expect(pkg.dependencies).toBeDefined();
       expect(pkg.devDependencies).toBeDefined();
@@ -85,9 +82,8 @@ describe('ensurePackageJSON', () => {
         }),
       };
 
-      const didSucceed = await ensurePackageJSON(memRoot, 'test-repo');
+      await ensurePackageJSON(memRoot, 'test-repo');
 
-      expect(didSucceed).toBe(true);
       const pkg = JSON.parse(memRoot['package.json'] as string);
       expect(pkg.dependencies.react).toBe('^19.2.0'); // Updated
       expect(pkg.dependencies['react-dom']).toBe('^19.2.0'); // Unchanged
@@ -111,9 +107,8 @@ describe('ensurePackageJSON', () => {
         }),
       };
 
-      const didSucceed = await ensurePackageJSON(memRoot, 'test-repo');
+      await ensurePackageJSON(memRoot, 'test-repo');
 
-      expect(didSucceed).toBe(true);
       const pkg = JSON.parse(memRoot['package.json'] as string);
       expect(pkg.dependencies.react).toBe('^20.0.0'); // Not downgraded
       expect(pkg.dependencies['react-dom']).toBe('^20.0.0'); // Not downgraded
@@ -135,9 +130,8 @@ describe('ensurePackageJSON', () => {
         }),
       };
 
-      const didSucceed = await ensurePackageJSON(memRoot, 'test-repo');
+      await ensurePackageJSON(memRoot, 'test-repo');
 
-      expect(didSucceed).toBe(true);
       const pkg = JSON.parse(memRoot['package.json'] as string);
       expect(pkg.dependencies['custom-package']).toBe('^1.0.0'); // Preserved
       expect(pkg.devDependencies['custom-dev-package']).toBe('^2.0.0'); // Preserved
@@ -157,9 +151,8 @@ describe('ensurePackageJSON', () => {
         }),
       };
 
-      const didSucceed = await ensurePackageJSON(memRoot, 'test-repo');
+      await ensurePackageJSON(memRoot, 'test-repo');
 
-      expect(didSucceed).toBe(true);
       const pkg = JSON.parse(memRoot['package.json'] as string);
       expect(pkg.scripts.lint).toBe('custom-lint-command'); // Not overwritten
       expect(pkg.scripts.dev).toBe('vite'); // Preserved
@@ -170,7 +163,7 @@ describe('ensurePackageJSON', () => {
 
     test('merges template-specific scripts and dependencies', async () => {
       const memRoot: InMemoryDir = {};
-      const didSucceed = await ensurePackageJSON(memRoot, 'test-repo', {
+      await ensurePackageJSON(memRoot, 'test-repo', {
         templateScripts: {
           dev: 'vite',
           build: 'vite build',
@@ -183,7 +176,6 @@ describe('ensurePackageJSON', () => {
         },
       });
 
-      expect(didSucceed).toBe(true);
       const pkg = JSON.parse(memRoot['package.json'] as string);
 
       // Default scripts should be present
@@ -220,9 +212,8 @@ describe('ensurePackageJSON', () => {
         }),
       };
 
-      const didSucceed = await ensurePackageJSON(memRoot, 'test-repo');
+      await ensurePackageJSON(memRoot, 'test-repo');
 
-      expect(didSucceed).toBe(true);
       const pkg = JSON.parse(memRoot['package.json'] as string);
       const keys = Object.keys(pkg);
 

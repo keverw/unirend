@@ -4,6 +4,7 @@ import {
   isInMemoryFileRoot,
   vfsEnsureDir,
   vfsWrite,
+  vfsWriteIfNotExists,
   vfsReadText,
   vfsReadBinary,
   vfsDelete,
@@ -306,6 +307,125 @@ describe('VFS', () => {
 
     test('vfsDelete on missing filesystem path does not throw', () => {
       return vfsDelete(base, 'nope.txt');
+    });
+  });
+
+  describe('vfsWriteIfNotExists', () => {
+    describe('memory', () => {
+      test('writes file when it does not exist and returns true', async () => {
+        const mem: InMemoryDir = {};
+        const didWrite = await vfsWriteIfNotExists(mem, 'new.txt', 'hello');
+        expect(didWrite).toBe(true);
+        expect(mem['new.txt']).toBe('hello');
+      });
+
+      test('does not overwrite existing file and returns false', async () => {
+        const mem: InMemoryDir = {};
+        await vfsWrite(mem, 'existing.txt', 'original');
+        const didWrite = await vfsWriteIfNotExists(mem, 'existing.txt', 'new');
+        expect(didWrite).toBe(false);
+        expect(mem['existing.txt']).toBe('original');
+      });
+
+      test('works with binary content', async () => {
+        const mem: InMemoryDir = {};
+        const bytes = new Uint8Array([1, 2, 3]);
+        const didWrite = await vfsWriteIfNotExists(mem, 'data.bin', bytes);
+        expect(didWrite).toBe(true);
+        expect(mem['data.bin']).toEqual(bytes);
+      });
+
+      test('does not overwrite existing binary file', async () => {
+        const mem: InMemoryDir = {};
+        const original = new Uint8Array([1, 2, 3]);
+        const newBytes = new Uint8Array([4, 5, 6]);
+        await vfsWrite(mem, 'data.bin', original);
+        const didWrite = await vfsWriteIfNotExists(mem, 'data.bin', newBytes);
+        expect(didWrite).toBe(false);
+        expect(mem['data.bin']).toEqual(original);
+      });
+    });
+
+    describe('file system', () => {
+      let base: string;
+
+      beforeEach(async () => {
+        base = await createTmpDir();
+      });
+
+      afterEach(async () => {
+        await cleanupTmpDir(base);
+      });
+
+      test('writes file when it does not exist and returns true', async () => {
+        const didWrite = await vfsWriteIfNotExists(base, 'new.txt', 'hello');
+        expect(didWrite).toBe(true);
+        const content = await fsReadFile(join(base, 'new.txt'), 'utf8');
+        expect(content).toBe('hello');
+      });
+
+      test('does not overwrite existing file and returns false', async () => {
+        await vfsWrite(base, 'existing.txt', 'original');
+        const didWrite = await vfsWriteIfNotExists(base, 'existing.txt', 'new');
+        expect(didWrite).toBe(false);
+        const content = await fsReadFile(join(base, 'existing.txt'), 'utf8');
+        expect(content).toBe('original');
+      });
+
+      test('works with binary content', async () => {
+        const bytes = new Uint8Array([1, 2, 3]);
+        const didWrite = await vfsWriteIfNotExists(base, 'data.bin', bytes);
+        expect(didWrite).toBe(true);
+        const content = await fsReadFile(join(base, 'data.bin'));
+        expect(Array.from(content)).toEqual(Array.from(bytes));
+      });
+
+      test('does not overwrite existing binary file', async () => {
+        const original = new Uint8Array([1, 2, 3]);
+        const newBytes = new Uint8Array([4, 5, 6]);
+        await vfsWrite(base, 'data.bin', original);
+        const didWrite = await vfsWriteIfNotExists(base, 'data.bin', newBytes);
+        expect(didWrite).toBe(false);
+        const content = await fsReadFile(join(base, 'data.bin'));
+        expect(Array.from(content)).toEqual(Array.from(original));
+      });
+
+      test('creates parent directories when writing new file', async () => {
+        const didWrite = await vfsWriteIfNotExists(
+          base,
+          'deep/nested/file.txt',
+          'content',
+        );
+        expect(didWrite).toBe(true);
+        const content = await fsReadFile(
+          join(base, 'deep/nested/file.txt'),
+          'utf8',
+        );
+        expect(content).toBe('content');
+      });
+
+      test('throws non-ENOENT errors instead of returning false', async () => {
+        // Create a file, then try to use it as a directory path
+        // This will cause fsStat to throw ENOTDIR (not ENOENT)
+        await vfsWrite(base, 'file.txt', 'content');
+
+        // Attempting to check if 'file.txt/nested.txt' exists should throw
+        // because 'file.txt' is a file, not a directory
+        try {
+          await vfsWriteIfNotExists(base, 'file.txt/nested.txt', 'data');
+          // If we get here, the function didn't throw as expected
+          expect(true).toBe(false); // Force test to fail
+        } catch (err) {
+          // Verify it's the expected error (ENOTDIR, not ENOENT)
+          expect(err).toBeDefined();
+          expect(
+            err &&
+              typeof err === 'object' &&
+              'code' in err &&
+              (err as { code?: unknown }).code,
+          ).toBe('ENOTDIR');
+        }
+      });
     });
   });
 

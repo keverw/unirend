@@ -2,6 +2,7 @@ import {
   ensurePackageJSON,
   type EnsurePackageJSONOptions,
 } from './base-files/package-json';
+import { ensureTsConfig } from './base-files/ensure-tsconfig';
 import type { RepoConfig } from './types';
 import { type FileRoot } from './vfs';
 
@@ -34,18 +35,33 @@ export function addProjectToRepo(
 }
 
 /**
+ * Options for ensureBaseFiles function
+ * Currently inherits all options from EnsurePackageJSONOptions:
+ * - log: Logger function
+ * - templateScripts: Template-specific scripts
+ * - templateDependencies: Template-specific dependencies
+ * - templateDevDependencies: Template-specific devDependencies
+ */
+export type EnsureBaseFilesOptions = EnsurePackageJSONOptions;
+
+/**
  * Ensure base repo files exist at the workspace root.
- * Returns early if any file creation fails.
+ * Creates or updates package.json, tsconfig.json, and other base files.
+ *
+ * @throws {Error} If any file creation/update fails
  */
 export async function ensureBaseFiles(
   repoRoot: FileRoot,
   repoName: string,
-  options?: EnsurePackageJSONOptions,
+  options?: EnsureBaseFilesOptions,
 ): Promise<void> {
-  // Ensure package.json exists with required fields
-  const isPkgSuccess = await ensurePackageJSON(repoRoot, repoName, options);
+  // Each separate helper function will throw on error, allowing errors to propagate to the caller
 
-  if (!isPkgSuccess) {
-    return; // Early exit if package.json setup failed
-  }
+  // Ensure package.json exists with required fields
+  await ensurePackageJSON(repoRoot, repoName, options);
+
+  // Ensure tsconfig.json exists (only creates if missing)
+  await ensureTsConfig(repoRoot, options?.log);
+
+  // Future: Add more base file creation functions here
 }
