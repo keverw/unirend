@@ -1,7 +1,7 @@
 import { vfsWriteIfNotExists, type FileRoot } from '../vfs';
 import type { Logger } from '../types';
 
-// NOTE: Keep this in sync with ensure-prettier-ignore.ts
+// NOTE: Keep this in sync with ensure-gitignore.ts
 // Both .gitignore and .prettierignore should have the same patterns
 const fileSrc = `# Logs
 logs
@@ -31,22 +31,26 @@ dist/
 *.sw?`;
 
 /**
- * Ensure .gitignore exists at the repo root.
+ * Ensure .prettierignore exists at the repo root.
  * Only creates the file if it doesn't exist - never overwrites.
  * @throws {Error} If file creation fails
  */
-export async function ensureGitignore(
+export async function ensurePrettierIgnore(
   repoRoot: FileRoot,
   log?: Logger,
 ): Promise<void> {
   try {
-    const didWrite = await vfsWriteIfNotExists(repoRoot, '.gitignore', fileSrc);
+    const didWrite = await vfsWriteIfNotExists(
+      repoRoot,
+      '.prettierignore',
+      fileSrc,
+    );
 
     if (didWrite && log) {
-      log('info', 'Created repo root .gitignore');
+      log('info', 'Created repo root .prettierignore');
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to ensure .gitignore: ${errorMessage}`);
+    throw new Error(`Failed to ensure .prettierignore: ${errorMessage}`);
   }
 }

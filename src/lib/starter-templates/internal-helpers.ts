@@ -5,6 +5,8 @@ import {
 import { ensureGitignore } from './base-files/ensure-gitignore';
 import { ensureTsConfig } from './base-files/ensure-tsconfig';
 import { ensureEditorConfig } from './base-files/ensure-editor-config';
+import { ensurePrettierConfig } from './base-files/ensure-prettier-config';
+import { ensurePrettierIgnore } from './base-files/ensure-prettier-ignore';
 import type { RepoConfig } from './types';
 import { type FileRoot } from './vfs';
 
@@ -48,7 +50,8 @@ export type EnsureBaseFilesOptions = EnsurePackageJSONOptions;
 
 /**
  * Ensure base repo files exist at the workspace root.
- * Creates or updates .gitignore, package.json, tsconfig.json, .editorconfig, and other base files.
+ * Creates standard configuration files (.gitignore, package.json, tsconfig.json, .editorconfig, prettier.config.js, etc.)
+ * Most files are only created if missing, package.json is updated to ensure required fields exist.
  *
  * @throws {Error} If any file creation/update fails
  */
@@ -70,6 +73,12 @@ export async function ensureBaseFiles(
 
   // Ensure .editorconfig exists (only creates if missing)
   await ensureEditorConfig(repoRoot, options?.log);
+
+  // Ensure prettier.config.js exists (only creates if missing)
+  await ensurePrettierConfig(repoRoot, options?.log);
+
+  // Ensure .prettierignore exists (only creates if missing)
+  await ensurePrettierIgnore(repoRoot, options?.log);
 
   // Future: Add more base file creation functions here
 }
