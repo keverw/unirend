@@ -92,6 +92,7 @@
     "@types/node": "^20.10.0",
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
+    "@types/semver": "^7.7.1",
     "@types/tr46": "^5.0.1",
     "@typescript-eslint/eslint-plugin": "^8.46.3",
     "@typescript-eslint/parser": "^8.46.3",
@@ -123,6 +124,8 @@
     "fastify-plugin": "^5.0.1",
     "punycode": "^2.3.1",
     "range_check": "^4.1.0",
+    "semver": "^7.7.3",
+    "sort-package-json": "^3.4.0",
     "tldts": "^7.0.12",
     "tr46": "^5.1.1",
     "ulid": "^3.0.1"

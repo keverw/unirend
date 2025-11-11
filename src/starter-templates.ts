@@ -162,18 +162,18 @@ export async function createProject(
 
         if (initResult.errorMessage) {
           log('error', `   ${initResult.errorMessage}`);
-      }
+        }
 
-      return {
-        success: false,
+        return {
+          success: false,
           error: 'Failed to initialize repository configuration',
-        metadata: {
-          templateID: options.templateID,
-          projectName: options.projectName,
+          metadata: {
+            templateID: options.templateID,
+            projectName: options.projectName,
             repoPath: repoRootDisplay,
-        },
-      };
-    }
+          },
+        };
+      }
     } else if (repoStatus.status !== 'found') {
       log('error', '❌ Unsupported repository status returned');
 
@@ -241,7 +241,9 @@ export async function createProject(
         repoStatus.status === 'found'
           ? repoStatus.config.name
           : DEFAULT_REPO_NAME,
-        (message) => log('info', message),
+        {
+          log,
+        },
       );
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);

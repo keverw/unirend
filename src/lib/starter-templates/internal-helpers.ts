@@ -1,4 +1,7 @@
-import { ensurePackageJSON } from './base-files/package-json';
+import {
+  ensurePackageJSON,
+  type EnsurePackageJSONOptions,
+} from './base-files/package-json';
 import type { RepoConfig } from './types';
 import { type FileRoot } from './vfs';
 
@@ -37,10 +40,10 @@ export function addProjectToRepo(
 export async function ensureBaseFiles(
   repoRoot: FileRoot,
   repoName: string,
-  log?: (message: string) => void,
+  options?: EnsurePackageJSONOptions,
 ): Promise<void> {
   // Ensure package.json exists with required fields
-  const isPkgSuccess = await ensurePackageJSON(repoRoot, repoName, log);
+  const isPkgSuccess = await ensurePackageJSON(repoRoot, repoName, options);
 
   if (!isPkgSuccess) {
     return; // Early exit if package.json setup failed
