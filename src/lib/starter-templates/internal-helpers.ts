@@ -8,6 +8,8 @@ import { ensureEditorConfig } from './base-files/ensure-editor-config';
 import { ensurePrettierConfig } from './base-files/ensure-prettier-config';
 import { ensurePrettierIgnore } from './base-files/ensure-prettier-ignore';
 import { ensureEslintConfig } from './base-files/ensure-eslint-config';
+import { ensureVSCodeExtensions } from './base-files/ensure-vscode-extensions';
+import { ensureVSCodeSettings } from './base-files/ensure-vscode-settings';
 import type { RepoConfig } from './types';
 import { type FileRoot } from './vfs';
 
@@ -84,5 +86,9 @@ export async function ensureBaseFiles(
   // Ensure eslint.config.js exists (only creates if missing)
   await ensureEslintConfig(repoRoot, options?.log);
 
-  // Future: Add more base file creation functions here
+  // Ensure .vscode/extensions.json exists (creates or updates with missing extensions)
+  await ensureVSCodeExtensions(repoRoot, options?.log);
+
+  // Ensure .vscode/settings.json exists (creates or updates with missing settings)
+  await ensureVSCodeSettings(repoRoot, options?.log);
 }
