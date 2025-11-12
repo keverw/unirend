@@ -216,7 +216,10 @@ async function main() {
     const repoName = parsed.repoName || DEFAULT_REPO_NAME;
 
     // Initialize repo (validates and writes config) with logger
-    const initResult = await initRepo(targetDir, repoName, colorPrint);
+    const initResult = await initRepo(targetDir, {
+      name: repoName,
+      logger: colorPrint,
+    });
 
     if (initResult.success) {
       colorPrint('info', '');

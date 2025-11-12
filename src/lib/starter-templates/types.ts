@@ -55,6 +55,19 @@ export interface StarterTemplateOptions {
   /** Target runtime for server build/bundle (affects scripts/config emitted by templates) */
   serverBuildTarget?: ServerBuildTarget;
   /**
+   * Install dependencies after project creation (only for filesystem mode).
+   * Runs `bun install` in the project directory.
+   * @default true
+   */
+  installDependencies?: boolean;
+  /**
+   * Initialize git repository if not already initialized (only for filesystem mode).
+   * Runs `git init` in the repo root if git is available.
+   * Fails gracefully with a warning if git command is not found.
+   * @default true
+   */
+  initGit?: boolean;
+  /**
    * Custom starter files (UTF-8 strings or binary as Uint8Array).
    * File paths are relative to the project root. Strings are treated as UTF-8.
    * These files are written into the project for both root modes:
@@ -62,6 +75,26 @@ export interface StarterTemplateOptions {
    * - real filesystem directory (writes files to disk)
    */
   starterFiles?: Record<string, FileContent>;
+}
+
+export interface InitRepoOptions {
+  /** Repository name (defaults to 'unirend-projects') */
+  name?: string;
+  /** Optional logger function for output */
+  logger?: Logger;
+  /**
+   * Initialize git repository if not already initialized (only for filesystem mode).
+   * Runs `git init` in the repo root if git is available.
+   * Fails gracefully with a warning if git command is not found.
+   * @default true
+   */
+  initGit?: boolean;
+  /**
+   * Install dependencies after repo initialization (only for filesystem mode).
+   * Runs `bun install` in the repo root.
+   * @default true
+   */
+  installDependencies?: boolean;
 }
 
 export type CreateProjectResult =

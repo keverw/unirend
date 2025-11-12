@@ -15,6 +15,7 @@ import type {
   RepoConfig,
   Logger,
   StarterTemplateOptions,
+  InitRepoOptions,
   CreateProjectResult,
   RepoConfigResult,
   InitRepoResult,
@@ -36,6 +37,10 @@ import {
   vfsWriteJSON,
   type FileRoot,
 } from './lib/starter-templates/vfs';
+import {
+  initGitRepo,
+  installDependencies,
+} from './lib/starter-templates/repo-utils';
 
 /**
  * Create a new project from a starter template
@@ -205,7 +210,13 @@ export async function createProject(
       );
       log('info', '');
 
-      const initResult = await initRepo(options.repoRoot, repoName, log);
+      // Skip git init and dependency installation here, as createProject will do them in Steps 5 and 7
+      const initResult = await initRepo(options.repoRoot, {
+        name: repoName,
+        logger: log,
+        initGit: false,
+        installDependencies: false,
+      });
 
       if (initResult.success) {
         repoStatus = { status: 'found', config: initResult.config };
@@ -351,7 +362,12 @@ export async function createProject(
       }
     }
 
-    // Step 5: Create project-specific files from template
+    // Step 5: Initialize git repository (optional, default: true)
+    if (options.initGit !== false) {
+      await initGitRepo(options.repoRoot, log);
+    }
+
+    // Step 6: Create project-specific files from template
     try {
       await createProjectSpecificFiles(
         options.repoRoot,
@@ -383,6 +399,12 @@ export async function createProject(
         },
       };
     }
+
+    // Step 7: Install dependencies (optional, default: true)
+    if (options.installDependencies !== false) {
+      await installDependencies(options.repoRoot, log);
+    }
+
     return result;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -456,11 +478,10 @@ export async function readRepoConfig(
 
 export async function initRepo(
   dirPath: FileRoot,
-  name?: string,
-  logger?: Logger,
+  options: InitRepoOptions = {},
 ): Promise<InitRepoResult> {
   // Default logger that does nothing if none provided
-  const log: Logger = logger || (() => {});
+  const log: Logger = options.logger || (() => {});
   const repoRootDisplay = vfsDisplayPath(dirPath);
 
   log('info', '🏗️  Initializing repository...');
@@ -518,7 +539,7 @@ export async function initRepo(
     };
   }
 
-  const repoName = name || DEFAULT_REPO_NAME;
+  const repoName = options.name || DEFAULT_REPO_NAME;
   log('info', `Repo Name: ${repoName}`);
 
   const validation = validateName(repoName);
@@ -570,6 +591,16 @@ export async function initRepo(
       }
     }
 
+    // Initialize git repository (optional, default: true)
+    if (options.initGit !== false) {
+      await initGitRepo(dirPath, log);
+    }
+
+    // Install dependencies (optional, default: true)
+    if (options.installDependencies !== false) {
+      await installDependencies(dirPath, log);
+    }
+
     // Return success result
     return { success: true, config };
   } catch (error) {
@@ -602,6 +633,7 @@ export type {
   LogLevel,
   ServerBuildTarget,
   StarterTemplateOptions,
+  InitRepoOptions,
   NameValidationResult,
   CreateProjectResult,
   RepoConfigResult,
