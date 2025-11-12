@@ -23,11 +23,14 @@ import {
   createRepoConfigObject,
   addProjectToRepo,
   ensureBaseFiles,
+  getTemplateConfig,
+  createProjectSpecificFiles,
 } from './lib/starter-templates/internal-helpers';
 import { validateName } from './lib/starter-templates/validate-name';
 import {
   vfsDisplayPath,
   vfsEnsureDir,
+  vfsExists,
   vfsReadJSON,
   vfsWrite,
   vfsWriteJSON,
@@ -46,11 +49,24 @@ export async function createProject(
   // Default logger that does nothing if none provided
   const log: Logger = options.logger || (() => {});
 
+  // Compute project path: src/apps/{projectName}
+  const projectPath = `src/apps/${options.projectName}`;
+  const projectPathDisplay = vfsDisplayPath(options.repoRoot, projectPath);
+
+  // Get template-specific configuration (scripts, dependencies, devDependencies)
+  const templateConfig = getTemplateConfig(
+    options.projectName,
+    options.templateID,
+    projectPath,
+    options.serverBuildTarget,
+  );
+
   try {
     log('info', '🚀 Starting project creation...');
     log('info', `Template: ${options.templateID}`);
     log('info', `Project Name: ${options.projectName}`);
     log('info', `Repo Path: ${repoRootDisplay}`);
+    log('info', `Project Path: ${projectPathDisplay}`);
 
     if (options.starterFiles && Object.keys(options.starterFiles).length > 0) {
       log(
@@ -97,6 +113,31 @@ export async function createProject(
       return {
         success: false,
         error: `Template "${options.templateID}" not found`,
+        metadata: {
+          templateID: options.templateID,
+          projectName: options.projectName,
+          repoPath: repoRootDisplay,
+        },
+      };
+    }
+
+    // Check if project path already exists
+    const doesProjectExist = await vfsExists(options.repoRoot, projectPath);
+
+    if (doesProjectExist) {
+      log(
+        'error',
+        `❌ Project directory already exists: ${projectPathDisplay}`,
+      );
+      log('info', '');
+      log(
+        'info',
+        'Please choose a different project name or remove the existing directory.',
+      );
+
+      return {
+        success: false,
+        error: `Project directory already exists: ${projectPath}`,
         metadata: {
           templateID: options.templateID,
           projectName: options.projectName,
@@ -215,7 +256,7 @@ export async function createProject(
           repoStatus.config,
           options.projectName,
           options.templateID,
-          `./${options.projectName}`,
+          projectPath,
         );
 
         await vfsWriteJSON(options.repoRoot, REPO_CONFIG_FILE, updated);
@@ -254,6 +295,9 @@ export async function createProject(
           : DEFAULT_REPO_NAME,
         {
           log,
+          templateScripts: templateConfig.scripts,
+          templateDependencies: templateConfig.dependencies,
+          templateDevDependencies: templateConfig.devDependencies,
         },
       );
     } catch (err) {
@@ -305,6 +349,39 @@ export async function createProject(
           },
         };
       }
+    }
+
+    // Step 5: Create project-specific files from template
+    try {
+      await createProjectSpecificFiles(
+        options.repoRoot,
+        projectPath,
+        options.projectName,
+        options.templateID,
+        options.serverBuildTarget,
+        log,
+      );
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+
+      log(
+        'error',
+        '❌ Failed to create project-specific files, aborting project creation',
+      );
+
+      if (errorMessage) {
+        log('error', `   ${errorMessage}`);
+      }
+
+      return {
+        success: false,
+        error: 'Failed to create project-specific files',
+        metadata: {
+          templateID: options.templateID,
+          projectName: options.projectName,
+          repoPath: repoRootDisplay,
+        },
+      };
     }
     return result;
   } catch (error) {
@@ -521,11 +598,12 @@ export type {
   TemplateInfo,
   ProjectEntry,
   RepoConfig,
-  LogLevel,
   Logger,
+  LogLevel,
+  ServerBuildTarget,
   StarterTemplateOptions,
-  CreateProjectResult,
   NameValidationResult,
+  CreateProjectResult,
   RepoConfigResult,
   InitRepoResult,
 } from './lib/starter-templates/types';

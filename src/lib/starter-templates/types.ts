@@ -2,6 +2,12 @@ import type { FileRoot, FileContent } from './vfs';
 
 // Types for starter-templates APIs
 
+/**
+ * Target runtime for server build/bundle.
+ * Affects scripts and configuration emitted by templates.
+ */
+export type ServerBuildTarget = 'bun' | 'node';
+
 export interface TemplateInfo {
   /** Template identifier */
   templateID: string;
@@ -44,12 +50,10 @@ export interface StarterTemplateOptions {
   projectName: string;
   /** Repo root directory: real FS path or in-memory directory object */
   repoRoot: FileRoot;
-  /** Overwrite existing directory if it exists */
-  overwrite?: boolean;
   /** Optional logger function for output */
   logger?: Logger;
-  /** Target runtime for generated server (affects scripts/config emitted by templates) */
-  serverTarget?: 'bun' | 'node';
+  /** Target runtime for server build/bundle (affects scripts/config emitted by templates) */
+  serverBuildTarget?: ServerBuildTarget;
   /**
    * Custom starter files (UTF-8 strings or binary as Uint8Array).
    * File paths are relative to the project root. Strings are treated as UTF-8.

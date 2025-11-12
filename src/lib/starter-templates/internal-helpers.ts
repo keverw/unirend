@@ -10,7 +10,7 @@ import { ensurePrettierIgnore } from './base-files/ensure-prettier-ignore';
 import { ensureEslintConfig } from './base-files/ensure-eslint-config';
 import { ensureVSCodeExtensions } from './base-files/ensure-vscode-extensions';
 import { ensureVSCodeSettings } from './base-files/ensure-vscode-settings';
-import type { RepoConfig } from './types';
+import type { RepoConfig, ServerBuildTarget, Logger } from './types';
 import { type FileRoot } from './vfs';
 
 export function createRepoConfigObject(name: string): RepoConfig {
@@ -91,4 +91,58 @@ export async function ensureBaseFiles(
 
   // Ensure .vscode/settings.json exists (creates or updates with missing settings)
   await ensureVSCodeSettings(repoRoot, options?.log);
+}
+
+/**
+ * Template-specific configuration returned by getTemplateConfig
+ */
+export interface TemplateConfig {
+  /** Template-specific package.json scripts */
+  scripts?: Record<string, string>;
+  /** Template-specific dependencies */
+  dependencies?: Record<string, string>;
+  /** Template-specific devDependencies */
+  devDependencies?: Record<string, string>;
+}
+
+/**
+ * Get template-specific configuration (scripts, dependencies, devDependencies)
+ * based on the template type, project name, and project path.
+ *
+ * @param projectName - Name of the project being created
+ * @param templateID - Template identifier (e.g., "basic-ssr", "basic-ssg")
+ * @param projectPath - Relative path to the project (e.g., "src/apps/my-project")
+ * @param serverBuildTarget - Target runtime for server build/bundle
+ * @returns Template configuration object with optional scripts/deps
+ */
+export function getTemplateConfig(
+  projectName: string,
+  templateID: string,
+  projectPath: string,
+  serverBuildTarget?: ServerBuildTarget,
+): TemplateConfig {
+
+  return {};
+}
+
+/**
+ * Create project-specific files and directory structure based on template identifier.
+ * Writes all template-specific starter files to the project directory.
+ *
+ * @param root - File root (filesystem path or in-memory object)
+ * @param projectPath - Relative path to the project directory (e.g., "src/apps/my-project")
+ * @param projectName - Name of the project being created
+ * @param templateID - Template identifier (e.g., "ssg", "ssr", "api")
+ * @param serverBuildTarget - Target runtime for server build/bundle
+ * @param log - Optional logger function for output
+ */
+// eslint-disable-next-line @typescript-eslint/require-await
+export async function createProjectSpecificFiles(
+  root: FileRoot,
+  projectPath: string,
+  projectName: string,
+  templateID: string,
+  serverBuildTarget: ServerBuildTarget | undefined,
+  log?: Logger,
+): Promise<void> {
 }

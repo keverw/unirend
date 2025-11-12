@@ -204,6 +204,45 @@ export async function vfsDelete(
 }
 
 /**
+ * Check if a path exists in the file root (file or directory).
+ * This function checks for the existence of any path, whether it's a file or directory.
+ * @param root - File root (filesystem path or in-memory object)
+ * @param relPath - Relative path to check
+ * @returns true if the path exists (file or directory), false otherwise
+ */
+export async function vfsExists(
+  root: FileRoot,
+  relPath: string,
+): Promise<boolean> {
+  const norm = normalizeRelPath(relPath);
+
+  if (isInMemoryFileRoot(root)) {
+    return root[norm] !== undefined;
+  }
+
+  // For filesystem, use stat to check if path exists
+  const abs = join(root, norm);
+
+  try {
+    await fsStat(abs);
+    return true;
+  } catch (err) {
+    // Path doesn't exist
+    if (
+      err &&
+      typeof err === 'object' &&
+      'code' in err &&
+      (err as { code?: unknown }).code === 'ENOENT'
+    ) {
+      return false;
+    }
+
+    // Other errors (permissions, etc.) should propagate
+    throw err;
+  }
+}
+
+/**
  * Write a file only if it doesn't already exist.
  * Returns true if the file was written, false if it already existed.
  * @param root - File root (filesystem path or in-memory object)

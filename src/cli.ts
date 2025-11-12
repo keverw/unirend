@@ -33,6 +33,7 @@ import {
   REPO_CONFIG_FILE,
   DEFAULT_REPO_NAME,
   type LogLevel,
+  type ServerBuildTarget,
   listAvailableTemplatesWithInfo,
   initRepo,
 } from './starter-templates';
@@ -249,7 +250,7 @@ async function main() {
       projectName: parsed.projectName,
       repoRoot,
       logger: colorPrint,
-      serverTarget: (parsed.target as 'bun' | 'node') ?? 'bun',
+      serverBuildTarget: (parsed.target as ServerBuildTarget) ?? 'bun',
     });
 
     if (!result.success) {

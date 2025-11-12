@@ -3,6 +3,7 @@ import {
   normalizeRelPath,
   isInMemoryFileRoot,
   vfsEnsureDir,
+  vfsExists,
   vfsWrite,
   vfsWriteIfNotExists,
   vfsReadText,
@@ -542,6 +543,102 @@ describe('VFS', () => {
 
         const result = await vfsReadJSON<TestData>(base, 'typed.json');
         expect(result).toEqual({ ok: true, data });
+      });
+    });
+  });
+
+  describe('vfsExists', () => {
+    describe('memory', () => {
+      test('returns true for existing file', async () => {
+        const mem: InMemoryDir = {};
+        await vfsWrite(mem, 'test.txt', 'content');
+        const doesExist = await vfsExists(mem, 'test.txt');
+        expect(doesExist).toBe(true);
+      });
+
+      test('returns false for non-existent file', async () => {
+        const mem: InMemoryDir = {};
+        const doesExist = await vfsExists(mem, 'missing.txt');
+        expect(doesExist).toBe(false);
+      });
+
+      test('returns true for existing nested file', async () => {
+        const mem: InMemoryDir = {};
+        await vfsWrite(mem, 'dir/subdir/file.txt', 'content');
+        const doesExist = await vfsExists(mem, 'dir/subdir/file.txt');
+        expect(doesExist).toBe(true);
+      });
+
+      test('returns false for non-existent nested path', async () => {
+        const mem: InMemoryDir = {};
+        const doesExist = await vfsExists(mem, 'dir/subdir/missing.txt');
+        expect(doesExist).toBe(false);
+      });
+
+      test('works with binary files', async () => {
+        const mem: InMemoryDir = {};
+        await vfsWrite(mem, 'data.bin', new Uint8Array([1, 2, 3]));
+        const doesExist = await vfsExists(mem, 'data.bin');
+        expect(doesExist).toBe(true);
+      });
+    });
+
+    describe('file system', () => {
+      let base: string;
+
+      beforeEach(async () => {
+        base = await createTmpDir();
+      });
+
+      afterEach(async () => {
+        await cleanupTmpDir(base);
+      });
+
+      test('returns true for existing file on disk', async () => {
+        await vfsWrite(base, 'test.txt', 'content');
+        const doesExist = await vfsExists(base, 'test.txt');
+        expect(doesExist).toBe(true);
+      });
+
+      test('returns false for non-existent file on disk', async () => {
+        const doesExist = await vfsExists(base, 'missing.txt');
+        expect(doesExist).toBe(false);
+      });
+
+      test('returns true for existing directory on disk', async () => {
+        await vfsWrite(base, 'mydir/file.txt', 'content');
+        const doesExist = await vfsExists(base, 'mydir');
+        expect(doesExist).toBe(true);
+      });
+
+      test('returns false for non-existent directory on disk', async () => {
+        const doesExist = await vfsExists(base, 'nonexistent-dir');
+        expect(doesExist).toBe(false);
+      });
+
+      test('returns true for nested file on disk', async () => {
+        await vfsWrite(base, 'a/b/c/file.txt', 'content');
+        const doesExist = await vfsExists(base, 'a/b/c/file.txt');
+        expect(doesExist).toBe(true);
+      });
+
+      test('returns true for nested directory on disk', async () => {
+        await vfsWrite(base, 'a/b/c/file.txt', 'content');
+        const doesExist = await vfsExists(base, 'a/b');
+        expect(doesExist).toBe(true);
+      });
+
+      test('works with binary files on disk', async () => {
+        await vfsWrite(base, 'data.bin', new Uint8Array([1, 2, 3]));
+        const doesExist = await vfsExists(base, 'data.bin');
+        expect(doesExist).toBe(true);
+      });
+
+      test('returns false after file is deleted', async () => {
+        await vfsWrite(base, 'temp.txt', 'content');
+        await vfsDelete(base, 'temp.txt');
+        const doesExist = await vfsExists(base, 'temp.txt');
+        expect(doesExist).toBe(false);
       });
     });
   });
