@@ -26,7 +26,8 @@
  *   As Node tooling evolves, we may revisit a Node-focused CLI path.
  */
 
-import { join } from 'path';
+import { join, resolve, isAbsolute } from 'path';
+import { homedir } from 'os';
 import {
   createProject,
   listAvailableTemplates,
@@ -54,6 +55,29 @@ const colors = {
   cyan: '\x1b[36m',
   gray: '\x1b[90m',
 } as const;
+
+/**
+ * Resolves a path that may contain ~ or be relative/absolute
+ * - Expands ~ to home directory
+ * - Resolves absolute paths as-is
+ * - Resolves relative paths from current working directory
+ */
+function resolvePath(inputPath: string): string {
+  // Expand ~ to home directory
+  if (inputPath === '~') {
+    return homedir();
+  } else if (inputPath.startsWith('~/')) {
+    return join(homedir(), inputPath.slice(2));
+  }
+
+  // If already absolute, use as-is
+  if (isAbsolute(inputPath)) {
+    return resolve(inputPath);
+  }
+
+  // Otherwise treat as relative to cwd
+  return resolve(process.cwd(), inputPath);
+}
 
 // Print function wrapper for console.log (CLI tools need console output)
 // eslint-disable-next-line no-console
@@ -207,9 +231,9 @@ async function main() {
   }
   // Handle init-repo command
   else if (parsed.command === 'init-repo') {
-    // Determine target directory
+    // Determine target directory (with ~ expansion and absolute path support)
     const targetDir = parsed.repoPath
-      ? join(process.cwd(), parsed.repoPath)
+      ? resolvePath(parsed.repoPath)
       : process.cwd();
 
     // Determine repo name (from flag or default)
@@ -238,12 +262,11 @@ async function main() {
       process.exit(1);
     }
 
-    const cwd = process.cwd();
-
     // CLI handles default path logic - defaults to current working directory
+    // Properly resolves ~ expansion and absolute paths
     const repoRoot = parsed.repoPath
-      ? join(process.cwd(), parsed.repoPath)
-      : cwd;
+      ? resolvePath(parsed.repoPath)
+      : process.cwd();
 
     // Use starter-templates library to create project
     // Name and template validation are handled by the library

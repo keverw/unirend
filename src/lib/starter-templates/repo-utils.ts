@@ -142,10 +142,9 @@ export async function initGitRepo(root: FileRoot, log?: Logger): Promise<void> {
 }
 
 /**
- * Install dependencies in the specified directory.
- * Only works for filesystem mode - gracefully skips for in-memory.
- * Fails gracefully if bun command is not found.
- * Never throws - all errors are logged as warnings.
+ * Install dependencies in a directory using bun install.
+ * Gracefully handles errors (e.g., bun not found) by logging warnings.
+ * Never throws - always returns successfully even if installation fails.
  *
  * @param root - File root (filesystem path or in-memory object)
  * @param log - Optional logger function for output
@@ -169,7 +168,7 @@ export async function installDependencies(
 
     if (result.error) {
       const msg = result.error.message;
-      
+
       if (log) {
         if (msg.includes('ENOENT') || msg.includes('not found')) {
           log(
@@ -204,6 +203,84 @@ export async function installDependencies(
     if (log) {
       const msg = err instanceof Error ? err.message : String(err);
       log('warning', `⚠️  Failed to install dependencies: ${msg}`);
+    }
+  }
+}
+
+/**
+ * Auto-format code in a directory using bun run format.
+ *
+ * Checks if node_modules/prettier exists before attempting to format.
+ * Gracefully handles errors (e.g., prettier not installed) by logging warnings.
+ * Never throws - always returns successfully even if formatting fails.
+ *
+ * @param root - File root (filesystem path or in-memory object)
+ * @param log - Optional logger function for output
+ */
+export async function autoFormatCode(
+  root: FileRoot,
+  log?: Logger,
+): Promise<void> {
+  // Skip for in-memory mode
+  if (isInMemoryFileRoot(root)) {
+    return;
+  }
+
+  try {
+    // Check if node_modules/prettier exists before attempting to format
+    const hasPrettier = await vfsExists(root, 'node_modules/prettier');
+
+    if (!hasPrettier) {
+      if (log) {
+        log(
+          'info',
+          '⏭️  Skipping auto-format (dependencies - prettier not installed)',
+        );
+      }
+
+      return;
+    }
+
+    if (log) {
+      log('info', '✨ Auto-formatting code...');
+    }
+
+    // Run `bun run format` in the directory
+    const result = await runCommand('bun', ['run', 'format'], root);
+
+    if (result.error) {
+      const msg = result.error.message;
+
+      if (log) {
+        if (msg.includes('ENOENT') || msg.includes('not found')) {
+          log('warning', '⚠️  Bun not found - skipping auto-format');
+          log('warning', '   Run `bun run format` manually to format code');
+        } else {
+          log('warning', `⚠️  Failed to spawn bun: ${msg}`);
+        }
+      }
+
+      return;
+    }
+
+    if (result.exitCode === 0) {
+      if (log) {
+        log('info', '✅ Code formatted successfully');
+      }
+    } else {
+      if (log) {
+        log('warning', '⚠️  Failed to format code');
+
+        if (result.stderr?.trim()) {
+          log('warning', `   ${result.stderr.trim()}`);
+        }
+      }
+    }
+  } catch (err) {
+    // Handle all errors gracefully - never throw
+    if (log) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log('warning', `⚠️  Failed to format code: ${msg}`);
     }
   }
 }

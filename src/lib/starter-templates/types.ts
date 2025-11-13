@@ -61,6 +61,13 @@ export interface StarterTemplateOptions {
    */
   installDependencies?: boolean;
   /**
+   * Auto-format code after project creation (only for filesystem mode).
+   * Runs `bun run format` in the repo root if node_modules/prettier exists.
+   * Runs independently of installDependencies - checks for prettier before formatting.
+   * @default true
+   */
+  autoFormat?: boolean;
+  /**
    * Initialize git repository if not already initialized (only for filesystem mode).
    * Runs `git init` in the repo root if git is available.
    * Fails gracefully with a warning if git command is not found.
@@ -95,6 +102,13 @@ export interface InitRepoOptions {
    * @default true
    */
   installDependencies?: boolean;
+  /**
+   * Auto-format code after repo initialization (only for filesystem mode).
+   * Runs `bun run format` in the repo root if node_modules/prettier exists.
+   * Runs independently of installDependencies - checks for prettier before formatting.
+   * @default true
+   */
+  autoFormat?: boolean;
 }
 
 export type CreateProjectResult =

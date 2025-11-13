@@ -40,6 +40,7 @@ import {
 import {
   initGitRepo,
   installDependencies,
+  autoFormatCode,
 } from './lib/starter-templates/repo-utils';
 
 /**
@@ -210,12 +211,14 @@ export async function createProject(
       );
       log('info', '');
 
-      // Skip git init and dependency installation here, as createProject will do them in Steps 5 and 7
+      // Skip git init, dependency installation, and auto-format here.
+      // createProject will handle these in Steps 5, 7, and 8
       const initResult = await initRepo(options.repoRoot, {
         name: repoName,
         logger: log,
         initGit: false,
         installDependencies: false,
+        autoFormat: false,
       });
 
       if (initResult.success) {
@@ -403,6 +406,12 @@ export async function createProject(
     // Step 7: Install dependencies (optional, default: true)
     if (options.installDependencies !== false) {
       await installDependencies(options.repoRoot, log);
+    }
+
+    // Step 8: Auto-format code (optional, default: true)
+    // Runs independently - checks if prettier is installed before formatting
+    if (options.autoFormat !== false) {
+      await autoFormatCode(options.repoRoot, log);
     }
 
     return result;
@@ -599,6 +608,12 @@ export async function initRepo(
     // Install dependencies (optional, default: true)
     if (options.installDependencies !== false) {
       await installDependencies(dirPath, log);
+    }
+
+    // Auto-format code (optional, default: true)
+    // Runs independently - checks if prettier is installed before formatting
+    if (options.autoFormat !== false) {
+      await autoFormatCode(dirPath, log);
     }
 
     // Return success result
