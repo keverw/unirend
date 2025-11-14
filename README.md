@@ -1,4 +1,4 @@
-# Unirend v0.0.1
+# Unirend v0.0.2
 
 **Unirend** is a lightweight toolkit for working with both **SSG (Static Site Generation)** and **SSR (Server-Side Rendering)** in your **Vite + React projects**. The name is a blend of “unified” and “render,” reflecting its goal to unify your build-time and runtime rendering workflows in a single, clean API.
 
