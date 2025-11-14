@@ -2,6 +2,7 @@ import { vfsReadJSON, vfsWriteJSON, type FileRoot } from '../vfs';
 import type { Logger } from '../types';
 import semver from 'semver';
 import sortPackageJson from 'sort-package-json';
+import { PKG_VERSION } from '../../../version';
 
 const defaultScripts = {
   lint: 'eslint .',
@@ -33,6 +34,7 @@ const devDependencies = {
 const dependencies = {
   react: '^19.2.0',
   'react-dom': '^19.2.0',
+  unirend: `^${PKG_VERSION}`,
 };
 
 /**

@@ -1,6 +1,6 @@
 /**
  * Sync version from package.json to src/version.ts
- * This ensures the CLI always shows the correct version
+ * This ensures the package version is available throughout the codebase
  */
 
 import { readFileSync, writeFileSync } from 'fs';
@@ -30,7 +30,7 @@ try {
  * Run 'bun run sync-version' to update
  */
 
-export const CLI_VERSION = "${version}";
+export const PKG_VERSION = "${version}";
 `;
 
   // Write version.ts

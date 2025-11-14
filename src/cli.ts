@@ -38,7 +38,7 @@ import {
   listAvailableTemplatesWithInfo,
   initRepo,
 } from './starter-templates';
-import { CLI_VERSION } from './version';
+import { PKG_VERSION } from './version';
 import {
   parseCLIArgs,
   generateHelpText,
@@ -197,7 +197,7 @@ function showHelp(errorMessage?: string) {
 }
 
 function showVersion() {
-  print(`unirend v${CLI_VERSION}`);
+  print(`unirend v${PKG_VERSION}`);
 }
 
 // Main CLI function
