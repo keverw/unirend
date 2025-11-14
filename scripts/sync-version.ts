@@ -30,7 +30,7 @@ try {
  * Run 'bun run sync-version' to update
  */
 
-export const PKG_VERSION = "${version}";
+export const PKG_VERSION = '${version}';
 `;
 
   // Write version.ts
