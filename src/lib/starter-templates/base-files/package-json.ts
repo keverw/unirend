@@ -11,7 +11,7 @@ const defaultScripts = {
   'format:check': 'prettier --check "**/*.{js,jsx,ts,tsx,json,css,md}"',
 };
 
-const devDependencies = {
+export const devDependencies = {
   '@eslint/js': '^9.39.1',
   '@tailwindcss/vite': '^4.1.17',
   '@types/bun': '^1.3.2',
@@ -31,9 +31,11 @@ const devDependencies = {
   vite: '^7.2.2',
 };
 
-const dependencies = {
+export const dependencies = {
   react: '^19.2.0',
   'react-dom': '^19.2.0',
+  'react-helmet-async': '^2.0.0',
+  'react-router': '^7.0.0',
   unirend: `^${PKG_VERSION}`,
 };
 
