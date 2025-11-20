@@ -4,6 +4,7 @@ import {
   mkdir as fsMkdir,
   rm as fsRm,
   stat as fsStat,
+  readdir as fsReaddir,
 } from 'fs/promises';
 import { join } from 'path';
 
@@ -342,6 +343,52 @@ export async function vfsReadJSON<T = unknown>(
       message:
         parseError instanceof Error ? parseError.message : 'Invalid JSON',
     };
+  }
+}
+
+/**
+ * List directory contents (files and subdirectories) at the root level.
+ * Returns an array of entry names (not full paths).
+ * @param root - File root (filesystem path or in-memory object)
+ * @returns Array of entry names in the directory
+ */
+export async function vfsListDir(root: FileRoot): Promise<string[]> {
+  if (isInMemoryFileRoot(root)) {
+    // For in-memory, extract top-level entries (no slashes in path)
+    const entries = new Set<string>();
+
+    for (const path of Object.keys(root)) {
+      const firstSlash = path.indexOf('/');
+
+      if (firstSlash === -1) {
+        // Top-level file
+        entries.add(path);
+      } else {
+        // Nested file - add the top-level directory name
+        entries.add(path.substring(0, firstSlash));
+      }
+    }
+
+    return Array.from(entries).sort();
+  }
+
+  // For filesystem, use readdir
+  try {
+    const entries = await fsReaddir(root);
+    return entries.sort();
+  } catch (err) {
+    // If directory doesn't exist or can't be read, return empty array
+    if (
+      err &&
+      typeof err === 'object' &&
+      'code' in err &&
+      (err as { code?: unknown }).code === 'ENOENT'
+    ) {
+      return [];
+    }
+
+    // Other errors should propagate
+    throw err;
   }
 }
 

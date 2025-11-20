@@ -156,6 +156,7 @@ export type InitRepoResult =
         | 'already_exists'
         | 'parse_error'
         | 'read_error'
-        | 'unsupported_status';
+        | 'unsupported_status'
+        | 'unsafe_directory';
       errorMessage?: string;
     };

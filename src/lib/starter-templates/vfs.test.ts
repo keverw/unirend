@@ -12,6 +12,7 @@ import {
   vfsDisplayPath,
   vfsReadJSON,
   vfsWriteJSON,
+  vfsListDir,
   type InMemoryDir,
 } from './vfs';
 import { tmpdir } from 'os';
@@ -639,6 +640,140 @@ describe('VFS', () => {
         await vfsDelete(base, 'temp.txt');
         const doesExist = await vfsExists(base, 'temp.txt');
         expect(doesExist).toBe(false);
+      });
+    });
+  });
+
+  describe('vfsListDir', () => {
+    describe('memory', () => {
+      test('returns empty array for empty in-memory root', async () => {
+        const mem: InMemoryDir = {};
+        const entries = await vfsListDir(mem);
+        expect(entries).toEqual([]);
+      });
+
+      test('returns top-level files', async () => {
+        const mem: InMemoryDir = {};
+        await vfsWrite(mem, 'file1.txt', 'content1');
+        await vfsWrite(mem, 'file2.txt', 'content2');
+        await vfsWrite(mem, 'readme.md', 'readme');
+        const entries = await vfsListDir(mem);
+        expect(entries).toEqual(['file1.txt', 'file2.txt', 'readme.md']);
+      });
+
+      test('returns top-level directories from nested files', async () => {
+        const mem: InMemoryDir = {};
+        await vfsWrite(mem, 'src/index.ts', 'code');
+        await vfsWrite(mem, 'src/utils.ts', 'utils');
+        await vfsWrite(mem, 'docs/readme.md', 'docs');
+        const entries = await vfsListDir(mem);
+        expect(entries).toEqual(['docs', 'src']);
+      });
+
+      test('returns mixed files and directories', async () => {
+        const mem: InMemoryDir = {};
+        await vfsWrite(mem, 'package.json', '{}');
+        await vfsWrite(mem, 'readme.md', 'readme');
+        await vfsWrite(mem, 'src/index.ts', 'code');
+        await vfsWrite(mem, 'dist/bundle.js', 'bundle');
+        const entries = await vfsListDir(mem);
+        expect(entries).toEqual(['dist', 'package.json', 'readme.md', 'src']);
+      });
+
+      test('deduplicates directory names from multiple nested files', async () => {
+        const mem: InMemoryDir = {};
+        await vfsWrite(mem, 'src/a.ts', 'a');
+        await vfsWrite(mem, 'src/b.ts', 'b');
+        await vfsWrite(mem, 'src/sub/c.ts', 'c');
+        const entries = await vfsListDir(mem);
+        expect(entries).toEqual(['src']);
+      });
+
+      test('returns sorted entries', async () => {
+        const mem: InMemoryDir = {};
+        await vfsWrite(mem, 'zebra.txt', 'z');
+        await vfsWrite(mem, 'apple.txt', 'a');
+        await vfsWrite(mem, 'banana/file.txt', 'b');
+        const entries = await vfsListDir(mem);
+        expect(entries).toEqual(['apple.txt', 'banana', 'zebra.txt']);
+      });
+
+      test('handles deeply nested paths correctly', async () => {
+        const mem: InMemoryDir = {};
+        await vfsWrite(mem, 'a/b/c/d/e/file.txt', 'deep');
+        await vfsWrite(mem, 'x/y/z.txt', 'xyz');
+        const entries = await vfsListDir(mem);
+        expect(entries).toEqual(['a', 'x']);
+      });
+    });
+
+    describe('file system', () => {
+      let base: string;
+
+      beforeEach(async () => {
+        base = await createTmpDir();
+      });
+
+      afterEach(async () => {
+        await cleanupTmpDir(base);
+      });
+
+      test('returns empty array for empty directory', async () => {
+        const entries = await vfsListDir(base);
+        expect(entries).toEqual([]);
+      });
+
+      test('returns empty array for non-existent directory', async () => {
+        const nonExistent = join(base, 'does-not-exist');
+        const entries = await vfsListDir(nonExistent);
+        expect(entries).toEqual([]);
+      });
+
+      test('returns top-level files', async () => {
+        await vfsWrite(base, 'file1.txt', 'content1');
+        await vfsWrite(base, 'file2.txt', 'content2');
+        await vfsWrite(base, 'readme.md', 'readme');
+        const entries = await vfsListDir(base);
+        expect(entries).toEqual(['file1.txt', 'file2.txt', 'readme.md']);
+      });
+
+      test('returns top-level directories', async () => {
+        await vfsWrite(base, 'src/index.ts', 'code');
+        await vfsWrite(base, 'docs/readme.md', 'docs');
+        const entries = await vfsListDir(base);
+        expect(entries).toEqual(['docs', 'src']);
+      });
+
+      test('returns mixed files and directories', async () => {
+        await vfsWrite(base, 'package.json', '{}');
+        await vfsWrite(base, 'readme.md', 'readme');
+        await vfsWrite(base, 'src/index.ts', 'code');
+        await vfsWrite(base, 'dist/bundle.js', 'bundle');
+        const entries = await vfsListDir(base);
+        expect(entries).toEqual(['dist', 'package.json', 'readme.md', 'src']);
+      });
+
+      test('returns sorted entries', async () => {
+        await vfsWrite(base, 'zebra.txt', 'z');
+        await vfsWrite(base, 'apple.txt', 'a');
+        await vfsWrite(base, 'banana/file.txt', 'b');
+        const entries = await vfsListDir(base);
+        expect(entries).toEqual(['apple.txt', 'banana', 'zebra.txt']);
+      });
+
+      test('includes hidden files and directories', async () => {
+        await vfsWrite(base, '.gitignore', 'ignore');
+        await vfsWrite(base, '.git/config', 'config');
+        await vfsWrite(base, 'visible.txt', 'visible');
+        const entries = await vfsListDir(base);
+        expect(entries).toEqual(['.git', '.gitignore', 'visible.txt']);
+      });
+
+      test('handles deeply nested directory structures', async () => {
+        await vfsWrite(base, 'a/b/c/d/e/file.txt', 'deep');
+        await vfsWrite(base, 'x/y/z.txt', 'xyz');
+        const entries = await vfsListDir(base);
+        expect(entries).toEqual(['a', 'x']);
       });
     });
   });

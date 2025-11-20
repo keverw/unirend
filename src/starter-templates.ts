@@ -35,6 +35,7 @@ import {
   vfsReadJSON,
   vfsWrite,
   vfsWriteJSON,
+  vfsListDir,
   type FileRoot,
 } from './lib/starter-templates/vfs';
 import {
@@ -204,6 +205,7 @@ export async function createProject(
       };
     } else if (repoStatus.status === 'not_found') {
       // Auto-initialize repo if missing to keep flow simple
+      // (initRepo will perform safety checks on its own)
       const repoName = DEFAULT_REPO_NAME;
       log(
         'info',
@@ -460,6 +462,48 @@ export function listAvailableTemplatesWithInfo(): TemplateInfo[] {
 }
 
 /**
+ * Check if a directory is empty or "empty-ish" (safe to initialize as a new unirend repo).
+ *
+ * A directory is considered empty-ish if it:
+ * - Is completely empty
+ * - Has only .git and/or .gitignore (empty git repo, not yet in use)
+ *
+ * A directory is NOT empty-ish if it:
+ * - Contains other files/folders (suggests it's already in use)
+ *
+ * @param dirPath - Directory to check
+ * @returns Object with safe status and optional error message
+ */
+async function isRepoDirEmptyish(
+  dirPath: FileRoot,
+): Promise<{ safe: boolean; reason?: string }> {
+  // List directory contents
+  const entries = await vfsListDir(dirPath);
+
+  // Empty directory is safe
+  if (entries.length === 0) {
+    return { safe: true };
+  }
+
+  // Filter out .git and .gitignore (these are OK for an "empty" repo)
+  // as somebody might have ran `git init` but not added any files yet
+  const nonGitEntries = entries.filter(
+    (entry) => entry !== '.git' && entry !== '.gitignore',
+  );
+
+  // If only .git/.gitignore exist (or directory is empty), it's safe
+  if (nonGitEntries.length === 0) {
+    return { safe: true };
+  }
+
+  // If other files/folders exist, it's unsafe (directory in use)
+  return {
+    safe: false,
+    reason: `Directory is not empty and not a unirend repository. Found: ${nonGitEntries.slice(0, 5).join(', ')}${nonGitEntries.length > 5 ? '...' : ''}`,
+  };
+}
+
+/**
  * Read repository configuration from a directory
  * Returns an object with status and config
  * - found: true, config: RepoConfig - Successfully read and parsed
@@ -545,6 +589,25 @@ export async function initRepo(
       success: false,
       error: 'unsupported_status',
       errorMessage: `Unsupported repo status: ${statusString}`,
+    };
+  }
+
+  // Check if directory is empty or empty-ish (only .git/.gitignore)
+  const emptyCheck = await isRepoDirEmptyish(dirPath);
+
+  if (!emptyCheck.safe) {
+    log('error', '❌ Cannot initialize repository in this directory');
+    log('error', `   ${emptyCheck.reason}`);
+    log('info', '');
+    log(
+      'info',
+      'Please use an empty directory or a directory with only .git/.gitignore.',
+    );
+
+    return {
+      success: false,
+      error: 'unsafe_directory',
+      errorMessage: emptyCheck.reason,
     };
   }
 
