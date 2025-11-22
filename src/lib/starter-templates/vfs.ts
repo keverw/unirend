@@ -188,20 +188,44 @@ export async function vfsReadBinary(
   return { ok: true, data: res.data as Uint8Array };
 }
 
-/** Delete a file at the normalized relative path. No error if the file is missing. */
-export async function vfsDelete(
+/**
+ * Delete a file at the normalized relative path.
+ * Returns true if the file was deleted, false if it didn't exist.
+ * NOTE: This function is designed for files only. It does not support deleting directories (recursive or otherwise).
+ */
+export async function vfsDeleteFile(
   root: FileRoot,
   relPath: string,
-): Promise<void> {
+): Promise<boolean> {
   const norm = normalizeRelPath(relPath);
 
   if (isInMemoryFileRoot(root)) {
-    delete root[norm];
-    return;
+    if (root[norm] !== undefined) {
+      delete root[norm];
+      return true;
+    }
+
+    return false;
   }
 
   const abs = join(root, norm);
-  await fsRm(abs, { force: true });
+  try {
+    await fsRm(abs);
+    return true;
+  } catch (err) {
+    // If file doesn't exist, return false
+    if (
+      err &&
+      typeof err === 'object' &&
+      'code' in err &&
+      (err as { code?: unknown }).code === 'ENOENT'
+    ) {
+      return false;
+    }
+
+    // Other errors (permissions, etc.) should propagate
+    throw err;
+  }
 }
 
 /**
@@ -347,49 +371,74 @@ export async function vfsReadJSON<T = unknown>(
 }
 
 /**
- * List directory contents (files and subdirectories) at the root level.
+ * List directory contents (files and subdirectories) at the specified path.
  * Returns an array of entry names (not full paths).
  * @param root - File root (filesystem path or in-memory object)
+ * @param relPath - Relative path to list (default: root)
+ * @param excludes - Array of filenames to exclude from the result
  * @returns Array of entry names in the directory
  */
-export async function vfsListDir(root: FileRoot): Promise<string[]> {
+export async function vfsListDir(
+  root: FileRoot,
+  relPath = '',
+  excludes: string[] = [],
+): Promise<string[]> {
+  let entries: string[] = [];
+
   if (isInMemoryFileRoot(root)) {
-    // For in-memory, extract top-level entries (no slashes in path)
-    const entries = new Set<string>();
+    // For in-memory roots, we simulate directory listing by checking path prefixes
+    // keys are normalized relative paths like "a/b/c.txt"
+    const norm = normalizeRelPath(relPath);
+    const prefix = norm ? norm + '/' : '';
+    const entrySet = new Set<string>();
 
     for (const path of Object.keys(root)) {
-      const firstSlash = path.indexOf('/');
+      // Check if this file is within the requested directory
+      if (path.startsWith(prefix) && path !== norm) {
+        // We found a file inside the target directory (possibly deep inside)
+        // "sub" is the path relative to the target directory
+        const sub = path.slice(prefix.length);
+        const firstSlash = sub.indexOf('/');
 
-      if (firstSlash === -1) {
-        // Top-level file
-        entries.add(path);
-      } else {
-        // Nested file - add the top-level directory name
-        entries.add(path.substring(0, firstSlash));
+        if (firstSlash === -1) {
+          // No slashes means it's a direct child file
+          entrySet.add(sub);
+        } else {
+          // Slashes mean it's in a subdirectory, so we add the subdirectory name
+          entrySet.add(sub.substring(0, firstSlash));
+        }
       }
     }
 
-    return Array.from(entries).sort();
-  }
+    entries = Array.from(entrySet).sort();
+  } else {
+    // For filesystem, use standard readdir
+    try {
+      const norm = normalizeRelPath(relPath);
+      const abs = join(root, norm);
+      const fsEntries = await fsReaddir(abs);
+      entries = fsEntries.sort();
+    } catch (err) {
+      // If directory doesn't exist or can't be read, return empty array
+      if (
+        err &&
+        typeof err === 'object' &&
+        'code' in err &&
+        (err as { code?: unknown }).code === 'ENOENT'
+      ) {
+        return [];
+      }
 
-  // For filesystem, use readdir
-  try {
-    const entries = await fsReaddir(root);
-    return entries.sort();
-  } catch (err) {
-    // If directory doesn't exist or can't be read, return empty array
-    if (
-      err &&
-      typeof err === 'object' &&
-      'code' in err &&
-      (err as { code?: unknown }).code === 'ENOENT'
-    ) {
-      return [];
+      // Other errors should propagate
+      throw err;
     }
-
-    // Other errors should propagate
-    throw err;
   }
+
+  if (excludes.length > 0) {
+    return entries.filter((e) => !excludes.includes(e));
+  }
+
+  return entries;
 }
 
 /**

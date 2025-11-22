@@ -3,6 +3,7 @@ import {
   type EnsurePackageJSONOptions,
 } from './base-files/package-json';
 import { ensureGitignore } from './base-files/ensure-gitignore';
+import { ensureGitkeep } from './base-files/ensure-gitkeep';
 import { ensureTsConfig } from './base-files/ensure-tsconfig';
 import { ensureEditorConfig } from './base-files/ensure-editor-config';
 import { ensurePrettierConfig } from './base-files/ensure-prettier-config';
@@ -12,6 +13,11 @@ import { ensureVSCodeExtensions } from './base-files/ensure-vscode-extensions';
 import { ensureVSCodeSettings } from './base-files/ensure-vscode-settings';
 import type { RepoConfig, ServerBuildTarget, Logger } from './types';
 import { type FileRoot } from './vfs';
+import {
+  APPS_GIT_KEEP_FILE_SRC,
+  LIBS_GIT_KEEP_FILE_SRC,
+  SCRIPTS_GIT_KEEP_FILE_SRC,
+} from './base-files/gitkeep-files-src';
 
 export function createRepoConfigObject(name: string): RepoConfig {
   return {
@@ -67,6 +73,28 @@ export async function ensureBaseFiles(
 
   // Ensure .gitignore exists first (only creates if missing)
   await ensureGitignore(repoRoot, options?.log);
+
+  // Ensure standard directories have .gitkeep if empty (scripts, src/apps and src/libs)
+  await ensureGitkeep(
+    repoRoot,
+    'scripts',
+    SCRIPTS_GIT_KEEP_FILE_SRC,
+    options?.log,
+  );
+
+  await ensureGitkeep(
+    repoRoot,
+    'src/apps',
+    APPS_GIT_KEEP_FILE_SRC,
+    options?.log,
+  );
+
+  await ensureGitkeep(
+    repoRoot,
+    'src/libs',
+    LIBS_GIT_KEEP_FILE_SRC,
+    options?.log,
+  );
 
   // Ensure package.json exists with required fields
   await ensurePackageJSON(repoRoot, repoName, options);

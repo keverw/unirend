@@ -8,7 +8,7 @@ import {
   vfsWriteIfNotExists,
   vfsReadText,
   vfsReadBinary,
-  vfsDelete,
+  vfsDeleteFile,
   vfsDisplayPath,
   vfsReadJSON,
   vfsWriteJSON,
@@ -195,27 +195,30 @@ describe('VFS', () => {
       expect(res).toEqual({ ok: true, text });
     });
 
-    test('vfsDelete removes string content in memory and subsequent reads return ENOENT', async () => {
+    test('vfsDeleteFile removes string content in memory and returns true', async () => {
       const mem: InMemoryDir = {};
       await vfsWrite(mem, 'to/remove.txt', 'remove me');
-      await vfsDelete(mem, 'to/remove.txt');
+      const didDelete = await vfsDeleteFile(mem, 'to/remove.txt');
+      expect(didDelete).toBe(true);
       expect(mem['to/remove.txt']).toBeUndefined();
       const res = await vfsReadText(mem, 'to/remove.txt');
       expect(res).toEqual({ ok: false, code: 'ENOENT' });
     });
 
-    test('vfsDelete removes binary content in memory and subsequent reads return ENOENT', async () => {
+    test('vfsDeleteFile removes binary content in memory and returns true', async () => {
       const mem: InMemoryDir = {};
       await vfsWrite(mem, 'to/remove.bin', new Uint8Array([1, 2, 3]));
-      await vfsDelete(mem, 'to/remove.bin');
+      const didDelete = await vfsDeleteFile(mem, 'to/remove.bin');
+      expect(didDelete).toBe(true);
       expect(mem['to/remove.bin']).toBeUndefined();
       const res = await vfsReadBinary(mem, 'to/remove.bin');
       expect(res).toEqual({ ok: false, code: 'ENOENT' });
     });
 
-    test('vfsDelete on missing in-memory path does not throw', () => {
+    test('vfsDeleteFile on missing in-memory path returns false', async () => {
       const mem: InMemoryDir = {};
-      expect(vfsDelete(mem, 'missing.txt')).resolves.toBeUndefined();
+      const didDelete = await vfsDeleteFile(mem, 'missing.txt');
+      expect(didDelete).toBe(false);
     });
   });
 
@@ -293,22 +296,25 @@ describe('VFS', () => {
       expect(res).toEqual({ ok: false, code: 'ENOENT' });
     });
 
-    test('vfsDelete removes string file on disk and subsequent reads return ENOENT', async () => {
+    test('vfsDeleteFile removes string file on disk and returns true', async () => {
       await vfsWrite(base, 'del/notes.txt', 'bye');
-      await vfsDelete(base, 'del/notes.txt');
+      const didDelete = await vfsDeleteFile(base, 'del/notes.txt');
+      expect(didDelete).toBe(true);
       const res = await vfsReadText(base, 'del/notes.txt');
       expect(res).toEqual({ ok: false, code: 'ENOENT' });
     });
 
-    test('vfsDelete removes binary file on disk and subsequent reads return ENOENT', async () => {
+    test('vfsDeleteFile removes binary file on disk and returns true', async () => {
       await vfsWrite(base, 'del/blob.bin', new Uint8Array([9, 8, 7]));
-      await vfsDelete(base, 'del/blob.bin');
+      const didDelete = await vfsDeleteFile(base, 'del/blob.bin');
+      expect(didDelete).toBe(true);
       const res = await vfsReadBinary(base, 'del/blob.bin');
       expect(res).toEqual({ ok: false, code: 'ENOENT' });
     });
 
-    test('vfsDelete on missing filesystem path does not throw', () => {
-      return vfsDelete(base, 'nope.txt');
+    test('vfsDeleteFile on missing filesystem path returns false', async () => {
+      const didDelete = await vfsDeleteFile(base, 'nope.txt');
+      expect(didDelete).toBe(false);
     });
   });
 
@@ -637,7 +643,7 @@ describe('VFS', () => {
 
       test('returns false after file is deleted', async () => {
         await vfsWrite(base, 'temp.txt', 'content');
-        await vfsDelete(base, 'temp.txt');
+        await vfsDeleteFile(base, 'temp.txt');
         const doesExist = await vfsExists(base, 'temp.txt');
         expect(doesExist).toBe(false);
       });
@@ -704,6 +710,36 @@ describe('VFS', () => {
         await vfsWrite(mem, 'x/y/z.txt', 'xyz');
         const entries = await vfsListDir(mem);
         expect(entries).toEqual(['a', 'x']);
+      });
+
+      test('lists content of subdirectory', async () => {
+        const mem: InMemoryDir = {};
+        await vfsWrite(mem, 'src/index.ts', 'code');
+        await vfsWrite(mem, 'src/utils.ts', 'utils');
+        await vfsWrite(mem, 'readme.md', 'docs');
+
+        const entries = await vfsListDir(mem, 'src');
+        expect(entries).toEqual(['index.ts', 'utils.ts']);
+      });
+
+      test('excludes specified files', async () => {
+        const mem: InMemoryDir = {};
+        await vfsWrite(mem, 'file1.txt', '1');
+        await vfsWrite(mem, 'file2.txt', '2');
+        await vfsWrite(mem, '.gitkeep', '');
+
+        const entries = await vfsListDir(mem, '', ['.gitkeep']);
+        expect(entries).toEqual(['file1.txt', 'file2.txt']);
+      });
+
+      test('lists subdirectory and excludes files', async () => {
+        const mem: InMemoryDir = {};
+        await vfsWrite(mem, 'src/app/main.ts', 'main');
+        await vfsWrite(mem, 'src/app/types.ts', 'types');
+        await vfsWrite(mem, 'src/app/.gitkeep', '');
+
+        const entries = await vfsListDir(mem, 'src/app', ['.gitkeep']);
+        expect(entries).toEqual(['main.ts', 'types.ts']);
       });
     });
 
@@ -774,6 +810,33 @@ describe('VFS', () => {
         await vfsWrite(base, 'x/y/z.txt', 'xyz');
         const entries = await vfsListDir(base);
         expect(entries).toEqual(['a', 'x']);
+      });
+
+      test('lists content of subdirectory', async () => {
+        await vfsWrite(base, 'src/index.ts', 'code');
+        await vfsWrite(base, 'src/utils.ts', 'utils');
+        await vfsWrite(base, 'readme.md', 'docs');
+
+        const entries = await vfsListDir(base, 'src');
+        expect(entries).toEqual(['index.ts', 'utils.ts']);
+      });
+
+      test('excludes specified files', async () => {
+        await vfsWrite(base, 'file1.txt', '1');
+        await vfsWrite(base, 'file2.txt', '2');
+        await vfsWrite(base, '.gitkeep', '');
+
+        const entries = await vfsListDir(base, '', ['.gitkeep']);
+        expect(entries).toEqual(['file1.txt', 'file2.txt']);
+      });
+
+      test('lists subdirectory and excludes files', async () => {
+        await vfsWrite(base, 'src/app/main.ts', 'main');
+        await vfsWrite(base, 'src/app/types.ts', 'types');
+        await vfsWrite(base, 'src/app/.gitkeep', '');
+
+        const entries = await vfsListDir(base, 'src/app', ['.gitkeep']);
+        expect(entries).toEqual(['main.ts', 'types.ts']);
       });
     });
   });

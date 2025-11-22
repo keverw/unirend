@@ -43,15 +43,18 @@ export async function isRepoDirEmptyish(
 }
 
 /**
- * Check if a directory is completely empty.
+ * Check if a directory is completely empty, optionally excluding specific files.
  *
- * Unlike isRepoDirEmptyish, this function doesn't care about git files or any special cases.
- * It simply checks if the directory contains any files or folders at all.
- *
- * @param dirPath - Directory to check
- * @returns true if directory is completely empty, false otherwise
+ * @param root - Root directory
+ * @param relPath - Relative path to check (default: '')
+ * @param excludes - Array of filenames to ignore (e.g. ['.gitkeep'])
+ * @returns true if directory is empty (after filtering excludes), false otherwise
  */
-export async function isDirEmpty(dirPath: FileRoot): Promise<boolean> {
-  const entries = await vfsListDir(dirPath);
+export async function isDirEmpty(
+  root: FileRoot,
+  relPath = '',
+  excludes: string[] = [],
+): Promise<boolean> {
+  const entries = await vfsListDir(root, relPath, excludes);
   return entries.length === 0;
 }
