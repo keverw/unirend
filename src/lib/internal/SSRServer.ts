@@ -266,8 +266,8 @@ export class SSRServer extends BaseServer {
           // Log the error using Fastify's logger
           if (this.fastifyInstance) {
             this.fastifyInstance.log.error(
+              { err: error },
               'Global Error Handler Caught:',
-              error,
             );
           }
 
@@ -690,8 +690,8 @@ export class SSRServer extends BaseServer {
                 }
               } catch (bodyError) {
                 this.fastifyInstance?.log.error(
+                  { err: bodyError },
                   'Error reading response body:',
-                  bodyError,
                 );
                 reply.send(); // End response even if body reading fails
               }
@@ -954,7 +954,10 @@ export class SSRServer extends BaseServer {
         // Validate dependencies and track plugin
         validateAndRegisterPlugin(this.registeredPlugins, pluginResult);
       } catch (error) {
-        this.fastifyInstance?.log.error('Failed to register plugin:', error);
+        this.fastifyInstance?.log.error(
+          { err: error },
+          'Failed to register plugin:',
+        );
         throw new Error(
           `Plugin registration failed: ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -1168,8 +1171,8 @@ export class SSRServer extends BaseServer {
 
     // Log error details for server logs (always log, regardless of mode)
     this.fastifyInstance?.log.error(
+      { err: error },
       `[SSR Error] ${request.method} ${request.url}:`,
-      error,
     );
 
     try {
@@ -1187,8 +1190,8 @@ export class SSRServer extends BaseServer {
     } catch (errorHandlerError) {
       // If custom error handler itself throws, fall back to the default error page
       this.fastifyInstance?.log.error(
+        { err: errorHandlerError },
         '[SSR Error Handler Error]:',
-        errorHandlerError,
       );
       return generateDefault500ErrorPage(request, error, isDevelopment);
     }
@@ -1237,8 +1240,8 @@ export class SSRServer extends BaseServer {
       } catch (handlerError) {
         // If custom handler fails, fall back to default
         this.fastifyInstance?.log.error(
+          { err: handlerError },
           '[API Error Handler Error]:',
-          handlerError,
         );
       }
     }
@@ -1293,8 +1296,8 @@ export class SSRServer extends BaseServer {
       } catch (handlerError) {
         // If custom handler fails, fall back to default
         this.fastifyInstance?.log.error(
+          { err: handlerError },
           '[API Not Found Handler Error]:',
-          handlerError,
         );
       }
     }

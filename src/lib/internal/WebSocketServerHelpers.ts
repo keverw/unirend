@@ -109,7 +109,10 @@ export class WebSocketServerHelpers {
         userPreCloseHandler(clients)
           .then(() => done())
           .catch((error) => {
-            fastify.log.error('WebSocket preClose handler error:', error);
+            fastify.log.error(
+              { err: error },
+              'WebSocket preClose handler error:',
+            );
             done(); // Still call done to prevent hanging
           });
       };

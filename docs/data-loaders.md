@@ -145,7 +145,7 @@ export const localInfoLoader = createPageLoader(
 
 Important:
 
-- Error handling setup required: When using local data loaders (especially in SSG), set up `useDataloaderEnvelopeError` in your app layout to handle envelope errors (including 404s and other error responses). This is the same pattern used in SSR. See: [Error Handling (README)](../README.md#error-handling) and the dedicated doc: [docs/error-handling.md](./error-handling.md).
+- Error handling setup required: Set up `useDataloaderEnvelopeError` in your app layout to handle envelope errors (including 404s). This is required for local loaders in both SSG and SSR, matching the standard error handling pattern used for HTTP-based loaders. See: [Error Handling (README)](../README.md#error-handling) and the dedicated doc: [docs/error-handling.md](./error-handling.md).
 - SSR preserves `status_code` from local loaders for the HTTP response
 - SSR-only cookies are not available in the local path, use the Page Type Handler (HTTP/Short-Circuit) based one instead if you need cookie propagation
 - `timeoutMs` is respected; on timeout a 500 Page envelope is returned with the server connection error message

@@ -1,4 +1,4 @@
-import fastify, { type FastifyServerOptions } from 'fastify';
+import fastify, { type FastifyServerOptions, type FastifyError } from 'fastify';
 import {
   createControlledInstance,
   isPageDataRequest,
@@ -346,7 +346,7 @@ export class APIServer extends BaseServer {
         try {
           const errorResponse = await this.options.errorHandler(
             request,
-            error,
+            error as FastifyError,
             this.options.isDevelopment ?? false,
             isPage,
           );
@@ -363,14 +363,14 @@ export class APIServer extends BaseServer {
         } catch (handlerError) {
           // Fallback if custom error handler fails
           this.fastifyInstance?.log.error(
+            { err: handlerError },
             'Error handler failed:',
-            handlerError,
           );
         }
       }
 
       // Default case
-      const statusCode = error.statusCode || 500;
+      const statusCode = (error as FastifyError).statusCode || 500;
       reply.code(statusCode);
 
       if (statusCode >= 400) {
@@ -380,7 +380,7 @@ export class APIServer extends BaseServer {
       const response = createDefaultAPIErrorResponse(
         this.APIResponseHelpersClass,
         request,
-        error,
+        error as FastifyError,
         this.options.isDevelopment ?? false,
       );
 
@@ -463,7 +463,10 @@ export class APIServer extends BaseServer {
         // Validate dependencies and track plugin
         validateAndRegisterPlugin(this.registeredPlugins, pluginResult);
       } catch (error) {
-        this.fastifyInstance?.log.error('Failed to register plugin:', error);
+        this.fastifyInstance?.log.error(
+          { err: error },
+          'Failed to register plugin:',
+        );
         throw new Error(
           `Plugin registration failed: ${error instanceof Error ? error.message : String(error)}`,
         );
