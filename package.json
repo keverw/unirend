@@ -1,38 +1,38 @@
 {
   "name": "unirend",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "type": "module",
   "description": "A lightweight toolkit for working with both SSG (Static Site Generation) and SSR (Server-Side Rendering) in your Vite + React projects.",
   "exports": {
     "./client": {
       "types": "./dist/client/client.d.ts",
-      "import": "./dist/client/client.mjs",
-      "require": "./dist/client/client.js"
+      "import": "./dist/client/client.js",
+      "require": "./dist/client/client.cjs"
     },
     "./server": {
       "types": "./dist/server/server.d.ts",
-      "import": "./dist/server/server.mjs",
-      "require": "./dist/server/server.js"
+      "import": "./dist/server/server.js",
+      "require": "./dist/server/server.cjs"
     },
     "./router-utils": {
       "types": "./dist/router-utils/router-utils.d.ts",
-      "import": "./dist/router-utils/router-utils.mjs",
-      "require": "./dist/router-utils/router-utils.js"
+      "import": "./dist/router-utils/router-utils.js",
+      "require": "./dist/router-utils/router-utils.cjs"
     },
     "./plugins": {
       "types": "./dist/plugins/plugins.d.ts",
-      "import": "./dist/plugins/plugins.mjs",
-      "require": "./dist/plugins/plugins.js"
+      "import": "./dist/plugins/plugins.js",
+      "require": "./dist/plugins/plugins.cjs"
     },
     "./api-envelope": {
       "types": "./dist/api-envelope/api-envelope.d.ts",
-      "import": "./dist/api-envelope/api-envelope.mjs",
-      "require": "./dist/api-envelope/api-envelope.js"
+      "import": "./dist/api-envelope/api-envelope.js",
+      "require": "./dist/api-envelope/api-envelope.cjs"
     },
     "./starter-templates": {
       "types": "./dist/starter-templates/starter-templates.d.ts",
-      "import": "./dist/starter-templates/starter-templates.mjs",
-      "require": "./dist/starter-templates/starter-templates.js"
+      "import": "./dist/starter-templates/starter-templates.js",
+      "require": "./dist/starter-templates/starter-templates.cjs"
     }
   },
   "bin": {

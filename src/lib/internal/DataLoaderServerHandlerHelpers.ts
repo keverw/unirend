@@ -297,8 +297,8 @@ export class DataLoaderServerHandlerHelpers {
           } catch (error) {
             // Handle any errors thrown by the handler
             fastify.log.error(
-              `Error in handler for ${pageType} v${version}:`,
-              error,
+              { err: error },
+              `Error in handler for ${pageType} v${version}`,
             );
 
             // Re-throw the error to let downstream error handlers manage it
