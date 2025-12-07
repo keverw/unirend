@@ -6,6 +6,10 @@ import type {
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
 import type { ControlledReply } from '../types';
 import { createControlledReply } from './server-utils';
+import {
+  validateVersion,
+  validateSingleVersionWhenDisabled,
+} from './version-helpers';
 
 /**
  * Supported HTTP methods for API routes
@@ -167,10 +171,8 @@ export class APIRoutesServerHelpers<
 
     if (typeof versionOrHandler === 'function') {
       // 2-param overload: registerAPIHandler(method, endpoint, handler)
-
-      // Use null as sentinel for "use defaultVersion at registration time"
-      // null can't conflict with any valid version number
-      version = null as unknown as number;
+      // Default to version 1 when not specified
+      version = 1;
       handler = versionOrHandler;
     } else {
       // 3-param overload: registerAPIHandler(method, endpoint, version, handler)
@@ -180,6 +182,7 @@ export class APIRoutesServerHelpers<
         );
       }
 
+      validateVersion(versionOrHandler, 'API');
       version = versionOrHandler;
       handler = handlerMaybe;
     }
@@ -310,12 +313,10 @@ export class APIRoutesServerHelpers<
     apiPrefix: string,
     options?: {
       versioned?: boolean;
-      defaultVersion?: number;
       allowWildcardAtRoot?: boolean;
     },
   ): void {
     const useVersioning = options?.versioned ?? true;
-    const defaultVersion = options?.defaultVersion ?? 1;
 
     // Prefix is already normalized by the caller (APIServer/SSRServer)
     const prefix = apiPrefix;
@@ -335,27 +336,15 @@ export class APIRoutesServerHelpers<
           );
         }
 
-        // If versioning is disabled but multiple versions exist, throw
-        if (!useVersioning && versionMap.size > 1) {
-          const versions = Array.from(versionMap.keys()).sort((a, b) => a - b);
-          throw new Error(
-            'Endpoint "' +
-              endpoint +
-              '" (' +
-              method +
-              ') has multiple versions (' +
-              versions.join(', ') +
-              ') but versioning is disabled. ' +
-              'Either enable versioning or register only one version per endpoint.',
-          );
-        }
+        // Check if versioning is disabled but multiple versions exist
+        validateSingleVersionWhenDisabled(
+          useVersioning,
+          versionMap,
+          `Endpoint "${endpoint}" (${method})`,
+        );
 
-        for (const [storedVersion, handler] of versionMap) {
-          // Resolve null (sentinel for "no version specified") to defaultVersion
-          // null can't conflict with any valid version number
-          const version =
-            storedVersion === null ? defaultVersion : storedVersion;
-
+        // Register each version
+        for (const [version, handler] of versionMap) {
           const fullPath = this.buildPath(
             prefix,
             endpoint,

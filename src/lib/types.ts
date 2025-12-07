@@ -279,8 +279,6 @@ export interface APIEndpointConfig {
   apiEndpointPrefix?: string | false;
   /** Whether to enable versioning (default: true) */
   versioned?: boolean;
-  /** Default version when versioning is enabled (default: 1) */
-  defaultVersion?: number;
   /** Base endpoint name for page data handlers (default: "page_data"). Used by SSR/APIServer's page-data registration only. */
   pageDataEndpoint?: string;
 }

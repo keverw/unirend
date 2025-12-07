@@ -194,7 +194,6 @@ export class APIServer extends BaseServer {
           this.normalizedPageDataEndpoint,
           {
             versioned: this.options.apiEndpoints?.versioned,
-            defaultVersion: this.options.apiEndpoints?.defaultVersion,
           },
         );
 
@@ -203,7 +202,6 @@ export class APIServer extends BaseServer {
           this.normalizedApiPrefix,
           {
             versioned: this.options.apiEndpoints?.versioned,
-            defaultVersion: this.options.apiEndpoints?.defaultVersion,
             allowWildcardAtRoot: true,
           },
         );

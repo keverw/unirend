@@ -129,7 +129,7 @@ async function main() {
       // Optional: same options surface as production where applicable
       // e.g., frontendAppConfig, apiEndpoints, APIHandling, containerID, plugins, fastifyOptions
       // frontendAppConfig: { apiUrl: "http://localhost:3001", environment: "development" },
-      // apiEndpoints: { apiEndpointPrefix: "/api", versioned: true, defaultVersion: 1, pageDataEndpoint: "page_data" },
+      // apiEndpoints: { apiEndpointPrefix: "/api", versioned: true, pageDataEndpoint: "page_data" },
       // APIHandling: { errorHandler: ..., notFoundHandler: ... },
       // plugins: [myPlugin],
       // fastifyOptions: { logger: true },
@@ -180,7 +180,6 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
   - Shared versioned endpoint configuration used by page data and generic API routes.
   - `apiEndpointPrefix?: string | false` — API route prefix (default: `"/api"`). Set to `false` to disable API handling (SSR-only mode). Throws error on startup if routes are registered but API is disabled.
   - `versioned?: boolean` — Enable versioned endpoints like `/api/v1/...` (default: `true`)
-  - `defaultVersion?: number` — Version used when registering routes without explicit version (default: `1`)
   - `pageDataEndpoint?: string` — Endpoint name for page data handlers (default: `"page_data"`)
 - `APIHandling?: { errorHandler?; notFoundHandler? }`
   - Custom error/not-found handlers for API requests (paths matching `apiEndpoints.apiEndpointPrefix`)
@@ -317,7 +316,7 @@ Notes:
 The server can automatically expose versioned and non‑versioned page data endpoints based on your `apiEndpoints` configuration:
 
 - Endpoint base: `apiEndpoints.pageDataEndpoint` (default: `"page_data"`)
-- Versioning: when `apiEndpoints.versioned: true`, routes are exposed under `/v{n}/` using `defaultVersion` as the implicit fallback
+- Versioning: when `apiEndpoints.versioned: true`, routes are exposed under `/v{n}/`
 - Endpoint prefix: controlled by `apiEndpoints.apiEndpointPrefix` (default: `"/api"`)
 
 Example paths (assuming `apiEndpointPrefix = "/api"`, `pageDataEndpoint = "page_data"`, and page type `home`):
@@ -366,24 +365,16 @@ Examples:
 ```ts
 import { APIResponseHelpers } from 'unirend/api-envelope';
 
-// Unversioned handler (uses defaultVersion under the hood if versioned=true)
+// Unversioned handler (defaults to version 1)
 server.registerDataLoaderHandler('test', function (request, params) {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
-    data: { message: 'v-default', version: params.version },
-    pageMetadata: { title: 'Test', description: 'Default version' },
+    data: { message: 'version 1', version: params.version },
+    pageMetadata: { title: 'Test', description: 'Version 1' },
   });
 });
 
-// Versioned handlers
-server.registerDataLoaderHandler('test', 1, function (request, params) {
-  return APIResponseHelpers.createPageSuccessResponse({
-    request,
-    data: { message: 'v1', version: params.version },
-    pageMetadata: { title: 'Test v1', description: 'Version 1' },
-  });
-});
-
+// Explicit versioned handlers
 server.registerDataLoaderHandler('test', 2, function (request, params) {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
@@ -391,12 +382,21 @@ server.registerDataLoaderHandler('test', 2, function (request, params) {
     pageMetadata: { title: 'Test v2', description: 'Version 2' },
   });
 });
+
+server.registerDataLoaderHandler('test', 3, function (request, params) {
+  return APIResponseHelpers.createPageSuccessResponse({
+    request,
+    data: { message: 'v3', version: params.version },
+    pageMetadata: { title: 'Test v3', description: 'Version 3' },
+  });
+});
 ```
 
 With defaults (`apiEndpoints.apiEndpointPrefix = "/api"`, `apiEndpoints.pageDataEndpoint = "page_data"`, `versioned = true`), the following endpoints are available after the registration above:
 
-- `POST /api/v1/page_data/test` → invokes version 1 handler
+- `POST /api/v1/page_data/test` → invokes version 1 handler (from unversioned registration)
 - `POST /api/v2/page_data/test` → invokes version 2 handler
+- `POST /api/v3/page_data/test` → invokes version 3 handler
 
 If you disable versioning (`apiEndpoints.versioned = false`), a single non‑versioned endpoint is exposed instead:
 
@@ -533,7 +533,7 @@ import { serveAPI } from 'unirend/server';
 async function main() {
   const api = serveAPI({
     // Optional: versioned endpoints configuration
-    // apiEndpoints: { apiEndpointPrefix: "/api", versioned: true, defaultVersion: 1, pageDataEndpoint: "page_data" },
+    // apiEndpoints: { apiEndpointPrefix: "/api", versioned: true, pageDataEndpoint: "page_data" },
     // Optional: plugins for custom routes, hooks, decorators
     // plugins: [myApiPlugin],
     // Optional: isDevelopment flag (affects error output/logging)
@@ -557,7 +557,6 @@ main().catch(console.error);
 - `apiEndpoints?: APIEndpointConfig`
   - `apiEndpointPrefix?: string | false` — API route prefix (default: `"/api"`). Set to `false` to disable API handling (server becomes a plain web server). Throws error on startup if routes are registered but API is disabled.
   - `versioned?: boolean` — Enable versioned endpoints like `/api/v1/...` (default: `true`)
-  - `defaultVersion?: number` — Version used when registering routes without explicit version (default: `1`)
   - `pageDataEndpoint?: string` — Endpoint name for page data handlers (default: `"page_data"`)
 - `errorHandler?: Function | { api?, web? }`
   - Function form: Returns JSON envelope (see [JSON-Only](#json-only-ssr-compatible))

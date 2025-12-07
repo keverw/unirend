@@ -268,7 +268,6 @@ function createSharedConfig() {
     apiEndpoints: {
       apiEndpointPrefix: '/api',
       versioned: true,
-      defaultVersion: 1,
       pageDataEndpoint: 'page_data',
     },
     APIHandling,

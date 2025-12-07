@@ -7,6 +7,10 @@ import type {
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
 import type { ControlledReply } from '../types';
 import { createControlledReply } from './server-utils';
+import {
+  validateVersion,
+  validateSingleVersionWhenDisabled,
+} from './version-helpers';
 
 /**
  * Parameters passed to page data handlers with shortcuts to common fields
@@ -162,10 +166,8 @@ export class DataLoaderServerHandlerHelpers {
 
     if (typeof versionOrHandler === 'function') {
       // 2-param overload: registerDataLoaderHandler(pageType, handler)
-
-      // Use null as sentinel for "use defaultVersion at registration time"
-      // null can't conflict with any valid version number
-      version = null as unknown as number;
+      // Default to version 1 when not specified
+      version = 1;
       actualHandler = versionOrHandler;
     } else {
       // 3-param overload: registerDataLoaderHandler(pageType, version, handler)
@@ -175,6 +177,7 @@ export class DataLoaderServerHandlerHelpers {
         );
       }
 
+      validateVersion(versionOrHandler, 'Page data loader');
       version = versionOrHandler;
       actualHandler = handler;
     }
@@ -206,29 +209,21 @@ export class DataLoaderServerHandlerHelpers {
     pageDataEndpoint: string,
     options?: {
       versioned?: boolean;
-      defaultVersion?: number;
     },
   ): void {
     const useVersioning = options?.versioned ?? true;
-    const defaultVersion = options?.defaultVersion ?? 1;
 
     // Iterate over all page types and their versions
     for (const [pageType, versionMap] of this.handlersByPageType) {
-      // If versioning is disabled but multiple versions exist, throw error
-      if (!useVersioning && versionMap.size > 1) {
-        const versions = Array.from(versionMap.keys()).sort((a, b) => a - b);
+      // Check if versioning is disabled but multiple versions exist
+      validateSingleVersionWhenDisabled(
+        useVersioning,
+        versionMap,
+        `Page type "${pageType}"`,
+      );
 
-        throw new Error(
-          `Page type "${pageType}" has multiple versions (${versions.join(', ')}) but versioning is disabled. ` +
-            `Either enable versioning or register only one version per page type.`,
-        );
-      }
-
-      for (const [storedVersion, handler] of versionMap) {
-        // Resolve null (sentinel for "no version specified") to defaultVersion
-        // null can't conflict with any valid version number
-        const version = storedVersion === null ? defaultVersion : storedVersion;
-
+      // Register each version
+      for (const [version, handler] of versionMap) {
         // Build the endpoint path
         const endpointPath = useVersioning
           ? `${apiPrefix}/v${version}/${pageDataEndpoint}/${pageType}`
@@ -463,6 +458,7 @@ export class DataLoaderServerHandlerHelpers {
 
   /**
    * Check if a handler is registered for the given page type and version
+   * Used internally by pageDataLoader for short-circuit optimization
    */
   hasHandler(pageType: string, version?: number): boolean {
     const versionMap = this.handlersByPageType.get(pageType);
@@ -476,46 +472,5 @@ export class DataLoaderServerHandlerHelpers {
     }
 
     return versionMap.has(version);
-  }
-
-  /**
-   * Remove a specific handler
-   */
-  removeHandler(pageType: string, version?: number): boolean {
-    const versionMap = this.handlersByPageType.get(pageType);
-    if (!versionMap) {
-      return false;
-    }
-
-    const targetVersion = version ?? 1; // Default to version 1 if not specified
-    const didRemove = versionMap.delete(targetVersion);
-
-    // Clean up empty version map
-    if (versionMap.size === 0) {
-      this.handlersByPageType.delete(pageType);
-    }
-
-    return didRemove;
-  }
-
-  /**
-   * Get all registered handlers grouped by page type
-   * Returns an object with pageType as key and array of versions as value
-   */
-  getHandlers(): Record<string, number[]> {
-    const handlers: Record<string, number[]> = {};
-
-    for (const [pageType, versionMap] of this.handlersByPageType) {
-      handlers[pageType] = Array.from(versionMap.keys()).sort((a, b) => a - b);
-    }
-
-    return handlers;
-  }
-
-  /**
-   * Clear all stored handlers (useful for testing or server restart)
-   */
-  clearHandlers(): void {
-    this.handlersByPageType.clear();
   }
 }

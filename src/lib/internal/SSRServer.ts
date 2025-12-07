@@ -347,7 +347,6 @@ export class SSRServer extends BaseServer {
           this.normalizedPageDataEndpoint,
           {
             versioned: this.config.options.apiEndpoints?.versioned,
-            defaultVersion: this.config.options.apiEndpoints?.defaultVersion,
           },
         );
 
@@ -357,7 +356,6 @@ export class SSRServer extends BaseServer {
           this.normalizedApiPrefix,
           {
             versioned: this.config.options.apiEndpoints?.versioned,
-            defaultVersion: this.config.options.apiEndpoints?.defaultVersion,
             allowWildcardAtRoot: false,
           },
         );
