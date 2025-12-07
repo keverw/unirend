@@ -180,6 +180,8 @@ export function classifyRequest(
   // If not matched, check versioned pattern: /v{digits}/{pageDataEndpoint}...
   if (!isPageData && pathAfterPrefix.startsWith('/v')) {
     // Scan for digits after /v (e.g., /v1 → i=3, /v100 → i=5)
+    // Using manual charCodeAt parsing instead of regex for better performance
+    // since this runs on every request in hot path
     let i = 2; // start after '/v'
 
     while (
@@ -503,7 +505,8 @@ export function validateNoHandlersWhenAPIDisabled(
 
     throw new Error(
       `Cannot start server: ${registered} were registered but API handling is disabled ` +
-        `(apiEndpoints.apiEndpointPrefix is false). Either enable API handling or remove the registered handlers.`,
+        `(apiEndpoints.apiEndpointPrefix is false). Either enable API handling by setting ` +
+        `apiEndpointPrefix to a value like '/api', or remove the registered handlers.`,
     );
   }
 }
