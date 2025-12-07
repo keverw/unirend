@@ -26,6 +26,9 @@
 - [Standalone API (APIServer)](#standalone-api-apiserver)
   - [Basic usage](#basic-usage)
   - [Options](#options)
+  - [Error Handling](#error-handling)
+    - [JSON-Only (SSR Compatible)](#json-only-ssr-compatible)
+    - [Split Handlers (Web Server Mode)](#split-handlers-web-server-mode)
 - [WebSockets](#websockets)
 
 <!-- tocstop -->
@@ -127,7 +130,7 @@ async function main() {
       // e.g., frontendAppConfig, apiEndpoints, APIHandling, containerID, plugins, fastifyOptions
       // frontendAppConfig: { apiUrl: "http://localhost:3001", environment: "development" },
       // apiEndpoints: { apiEndpointPrefix: "/api", versioned: true, defaultVersion: 1, pageDataEndpoint: "page_data" },
-      // APIHandling: { prefix: "/api" },
+      // APIHandling: { errorHandler: ..., notFoundHandler: ... },
       // plugins: [myPlugin],
       // fastifyOptions: { logger: true },
     },
@@ -175,10 +178,16 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
 
 - `apiEndpoints?: APIEndpointConfig`
   - Shared versioned endpoint configuration used by page data and generic API routes.
-  - For page data handlers, set `pageDataEndpoint` (default: `"page_data"`).
-- `APIHandling?: { prefix?: string | false; errorHandler?; notFoundHandler? }`
-  - `prefix` (default `"/api"`) determines which paths are treated as API. Set `false` to disable API handling.
-  - `errorHandler` and `notFoundHandler` return standardized API/Page error envelopes instead of HTML based context.
+  - `apiEndpointPrefix?: string | false` — API route prefix (default: `"/api"`). Set to `false` to disable API handling (SSR-only mode). Throws error on startup if routes are registered but API is disabled.
+  - `versioned?: boolean` — Enable versioned endpoints like `/api/v1/...` (default: `true`)
+  - `defaultVersion?: number` — Version used when registering routes without explicit version (default: `1`)
+  - `pageDataEndpoint?: string` — Endpoint name for page data handlers (default: `"page_data"`)
+- `APIHandling?: { errorHandler?; notFoundHandler? }`
+  - Custom error/not-found handlers for API requests (paths matching `apiEndpoints.apiEndpointPrefix`)
+  - `errorHandler` and `notFoundHandler` return standardized API/Page error envelopes instead of HTML.
+  - Both handlers receive an `isPageData` parameter to distinguish between different types of API requests:
+    - **Page data requests** (`isPageData=true`): Requests to the page data endpoint (e.g., `/api/v1/page_data/home`) used by data loaders to fetch page data with metadata (title, description). These return Page Response Envelopes.
+    - **Regular API requests** (`isPageData=false`): Standard API endpoints (e.g., `/api/v1/users`, `/api/v1/account/create`) for operations like creating accounts, updating data, etc. These return API Response Envelopes.
 - `plugins?: ServerPlugin[]`
   - Register Fastify plugins via a controlled interface (see [plugins](./server-plugins.md)).
 - `APIResponseHelpersClass?: typeof APIResponseHelpers`
@@ -509,7 +518,12 @@ For production-ready patterns including CSRF token management and hydration-safe
 
 ## Standalone API (APIServer)
 
-The `APIServer` is a JSON API server with the same plugin surface. It’s intended for AJAX/fetch endpoints and can also host page data handlers for your page data endpoint if hosting the API endpoints as a standalone server.
+The `APIServer` is a flexible server with a similar plugin surface to SSRServer, but without the React SSR machinery. Use it when you don't need server-side React rendering. Common use cases:
+
+- **JSON API server**: AJAX/fetch endpoints with versioned routes and envelope responses, separately from your SSR server
+- **Page data server**: Host page data handlers separately from your SSR server
+- **Mixed API + web server**: Serve both JSON APIs and static HTML/assets without React (use split error handlers for HTML vs JSON responses)
+- **Plain web server**: Set `apiEndpointPrefix: false` to disable API envelope handling entirely and serve only static content via plugins
 
 ### Basic usage
 
@@ -541,10 +555,16 @@ main().catch(console.error);
 
 - `plugins?: ServerPlugin[]`
 - `apiEndpoints?: APIEndpointConfig`
-- `errorHandler?(request, error, isDevelopment, isPage?)`
-  - Return a standardized API/Page envelope (JSON), not HTML
-- `notFoundHandler?(request, isPage?)`
-  - Return a standardized API/Page envelope (JSON) with 404, not HTML
+  - `apiEndpointPrefix?: string | false` — API route prefix (default: `"/api"`). Set to `false` to disable API handling (server becomes a plain web server). Throws error on startup if routes are registered but API is disabled.
+  - `versioned?: boolean` — Enable versioned endpoints like `/api/v1/...` (default: `true`)
+  - `defaultVersion?: number` — Version used when registering routes without explicit version (default: `1`)
+  - `pageDataEndpoint?: string` — Endpoint name for page data handlers (default: `"page_data"`)
+- `errorHandler?: Function | { api?, web? }`
+  - Function form: Returns JSON envelope (see [JSON-Only](#json-only-ssr-compatible))
+  - Object form: Split handlers for mixed API + web servers (see [Split Handlers](#split-handlers-web-server-mode)). Either handler can be omitted — missing handlers fall through to default behavior.
+- `notFoundHandler?: Function | { api?, web? }`
+  - Function form: Returns JSON envelope (see [JSON-Only](#json-only-ssr-compatible))
+  - Object form: Split handlers for mixed API + web servers (see [Split Handlers](#split-handlers-web-server-mode)). Either handler can be omitted — missing handlers fall through to default behavior.
 - `isDevelopment?: boolean`
 - `fastifyOptions?: { logger?; trustProxy?; bodyLimit?; keepAliveTimeout? }`
 - `APIResponseHelpersClass?: typeof APIResponseHelpers`
@@ -553,6 +573,139 @@ main().catch(console.error);
   - Note: Validation helpers like `isValidEnvelope` use the base helpers and are not overridden by this option.
 
 Note: Unlike SSR servers, the API server allows full wildcard routes (including root wildcards) in plugins.
+
+### Error Handling
+
+Both `errorHandler` and `notFoundHandler` support two forms: a function (JSON-only) compatible with the SSR server config, or an object with split handlers (for mixed HTML/JSON servers).
+
+#### JSON-Only (SSR Compatible)
+
+The function form is compatible with the SSR server's `APIHandling.errorHandler` and `APIHandling.notFoundHandler`. Use this when your API server only returns JSON responses:
+
+```typescript
+import { serveAPI } from 'unirend/server';
+import { APIResponseHelpers } from 'unirend/api-envelope';
+
+const server = serveAPI({
+  // Custom error handler - returns JSON envelope
+  errorHandler: (request, error, isDevelopment, isPageData) => {
+    // isPageData distinguishes page data requests from regular API requests
+    return APIResponseHelpers.createAPIErrorResponse({
+      request,
+      statusCode: 500,
+      errorCode: 'internal_error',
+      errorMessage: isDevelopment ? error.message : 'Internal server error',
+      errorDetails: isDevelopment ? { stack: error.stack } : undefined,
+    });
+  },
+
+  // Custom 404 handler - returns JSON envelope
+  notFoundHandler: (request, isPageData) => {
+    return APIResponseHelpers.createAPIErrorResponse({
+      request,
+      statusCode: 404,
+      errorCode: 'not_found',
+      errorMessage: `Endpoint not found: ${request.url}`,
+    });
+  },
+});
+```
+
+This is the same signature used by SSR server's `APIHandling` options (see [Options (shared)](#options-shared) above), making it easy to share handler logic between SSR and standalone API servers. The `isPageData` parameter distinguishes page data loader requests from regular API requests.
+
+#### Split Handlers (Web Server Mode)
+
+When using the API server as a **standalone API/web server** (serving both HTML pages and JSON APIs without the built-in React SSR), use the split form to return different response types.
+
+Either `api` or `web` handler can be omitted — missing handlers fall through to the default JSON envelope behavior when not provided:
+
+```typescript
+import { serveAPI } from 'unirend/server';
+import { staticContent } from 'unirend/plugins';
+import { APIResponseHelpers } from 'unirend/api-envelope';
+
+const server = serveAPI({
+  apiEndpoints: { apiEndpointPrefix: '/api' },
+
+  plugins: [
+    // Serve static files (HTML, CSS, JS, images)
+    staticContent({
+      folderMap: { '/static': './public' },
+    }),
+  ],
+
+  // Split form - different responses for API vs web
+  notFoundHandler: {
+    // API requests (paths starting with /api/) get JSON envelope
+    api: (request, isPageData) =>
+      APIResponseHelpers.createAPIErrorResponse({
+        request,
+        statusCode: 404,
+        errorCode: 'not_found',
+        errorMessage: `Endpoint not found: ${request.url}`,
+      }),
+
+    // Web requests (everything else) get HTML
+    web: (request) => ({
+      contentType: 'html',
+      content: `<!DOCTYPE html>
+        <html>
+          <body>
+            <h1>404 - Page Not Found</h1>
+            <p>The page ${request.url} could not be found.</p>
+            <a href="/">Go home</a>
+          </body>
+        </html>`,
+      statusCode: 404,
+    }),
+  },
+
+  // Same pattern works for errorHandler
+  errorHandler: {
+    api: (request, error, isDev, isPageData) =>
+      APIResponseHelpers.createAPIErrorResponse({
+        request,
+        statusCode: 500,
+        errorCode: 'internal_error',
+        errorMessage: isDev ? error.message : 'Internal server error',
+      }),
+
+    web: (request, error, isDev) => ({
+      contentType: 'html',
+      content: `<!DOCTYPE html>
+        <html>
+          <body>
+            <h1>500 - Server Error</h1>
+            ${isDev ? `<pre>${error.stack}</pre>` : '<p>Something went wrong.</p>'}
+          </body>
+        </html>`,
+      statusCode: 500,
+    }),
+  },
+});
+```
+
+The `WebErrorResponse` type for web handlers:
+
+```typescript
+interface WebErrorResponse {
+  contentType: 'html' | 'text' | 'json';
+  content: string | object;
+  statusCode?: number; // defaults to 500 for errors, 404 for not found
+}
+```
+
+**API vs Web Detection:**
+
+The server uses `apiEndpoints.apiEndpointPrefix` (default `/api`) to detect API requests. This includes versioned paths:
+
+- `/api/health` → API (starts with `/api`)
+- `/api/v1/page_data/home` → API (starts with `/api`)
+- `/api/v2/users/123` → API (starts with `/api`)
+- `/static/index.html` → Web (doesn't start with `/api`)
+- `/about` → Web (doesn't start with `/api`)
+
+This means all your API endpoints (including versioned ones under `/api/v1/`, `/api/v2/`, etc.) are detected as API requests, while everything else is treated as web requests.
 
 ## WebSockets
 

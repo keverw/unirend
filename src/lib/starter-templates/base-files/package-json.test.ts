@@ -1,5 +1,9 @@
 import { describe, test, expect } from 'bun:test';
-import { ensurePackageJSON } from './package-json';
+import {
+  ensurePackageJSON,
+  dependencies,
+  devDependencies,
+} from './package-json';
 import type { InMemoryDir } from '../vfs';
 
 describe('ensurePackageJSON', () => {
@@ -18,10 +22,10 @@ describe('ensurePackageJSON', () => {
       expect(pkg.license).toBe('UNLICENSED');
       expect(pkg.dependencies).toBeDefined();
       expect(pkg.devDependencies).toBeDefined();
-      expect(pkg.dependencies.react).toBe('^19.2.0');
-      expect(pkg.dependencies['react-dom']).toBe('^19.2.0');
-      expect(pkg.devDependencies.typescript).toBe('^5.9.3');
-      expect(pkg.devDependencies.vite).toBe('^7.2.2');
+      expect(pkg.dependencies.react).toBe(dependencies.react);
+      expect(pkg.dependencies['react-dom']).toBe(dependencies['react-dom']);
+      expect(pkg.devDependencies.typescript).toBe(devDependencies.typescript);
+      expect(pkg.devDependencies.vite).toBe(devDependencies.vite);
       expect(pkg.scripts).toBeDefined();
       expect(pkg.scripts.lint).toBe('eslint .');
       expect(pkg.scripts['lint:fix']).toBe('eslint . --fix');
@@ -62,8 +66,8 @@ describe('ensurePackageJSON', () => {
       const pkg = JSON.parse(memRoot['package.json'] as string);
       expect(pkg.dependencies).toBeDefined();
       expect(pkg.devDependencies).toBeDefined();
-      expect(pkg.dependencies.react).toBe('^19.2.0');
-      expect(pkg.devDependencies.typescript).toBe('^5.9.3');
+      expect(pkg.dependencies.react).toBe(dependencies.react);
+      expect(pkg.devDependencies.typescript).toBe(devDependencies.typescript);
     });
 
     test('updates dependencies when template version is newer', async () => {
@@ -73,11 +77,11 @@ describe('ensurePackageJSON', () => {
           version: '1.0.0',
           dependencies: {
             react: '^18.0.0', // Older version
-            'react-dom': '^19.2.0', // Same version
+            'react-dom': dependencies['react-dom'], // Same version as template
           },
           devDependencies: {
             typescript: '^5.0.0', // Older version
-            vite: '^7.2.2', // Same version
+            vite: devDependencies.vite, // Same version as template
           },
         }),
       };
@@ -85,10 +89,10 @@ describe('ensurePackageJSON', () => {
       await ensurePackageJSON(memRoot, 'test-repo');
 
       const pkg = JSON.parse(memRoot['package.json'] as string);
-      expect(pkg.dependencies.react).toBe('^19.2.0'); // Updated
-      expect(pkg.dependencies['react-dom']).toBe('^19.2.0'); // Unchanged
-      expect(pkg.devDependencies.typescript).toBe('^5.9.3'); // Updated
-      expect(pkg.devDependencies.vite).toBe('^7.2.2'); // Unchanged
+      expect(pkg.dependencies.react).toBe(dependencies.react); // Updated
+      expect(pkg.dependencies['react-dom']).toBe(dependencies['react-dom']); // Unchanged
+      expect(pkg.devDependencies.typescript).toBe(devDependencies.typescript); // Updated
+      expect(pkg.devDependencies.vite).toBe(devDependencies.vite); // Unchanged
     });
 
     test('does not downgrade dependencies when existing version is newer', async () => {
@@ -135,8 +139,8 @@ describe('ensurePackageJSON', () => {
       const pkg = JSON.parse(memRoot['package.json'] as string);
       expect(pkg.dependencies['custom-package']).toBe('^1.0.0'); // Preserved
       expect(pkg.devDependencies['custom-dev-package']).toBe('^2.0.0'); // Preserved
-      expect(pkg.dependencies.react).toBe('^19.2.0'); // Added from template
-      expect(pkg.devDependencies.typescript).toBe('^5.9.3'); // Added from template
+      expect(pkg.dependencies.react).toBe(dependencies.react); // Added from template
+      expect(pkg.devDependencies.typescript).toBe(devDependencies.typescript); // Added from template
     });
 
     test('adds missing scripts without overwriting existing ones', async () => {
@@ -187,13 +191,13 @@ describe('ensurePackageJSON', () => {
       expect(pkg.scripts.build).toBe('vite build');
 
       // Default dependencies should be present
-      expect(pkg.dependencies.react).toBe('^19.2.0');
+      expect(pkg.dependencies.react).toBe(dependencies.react);
 
       // Template dependencies should be added
       expect(pkg.dependencies['custom-lib']).toBe('^1.0.0');
 
       // Default devDependencies should be present
-      expect(pkg.devDependencies.typescript).toBe('^5.9.3');
+      expect(pkg.devDependencies.typescript).toBe(devDependencies.typescript);
 
       // Template devDependencies should be added
       expect(pkg.devDependencies['custom-dev-tool']).toBe('^2.0.0');

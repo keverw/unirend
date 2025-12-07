@@ -173,17 +173,16 @@ class DemoResponseHelpers extends APIResponseHelpers {
 function createSharedConfig() {
   // Shared API handling configuration
   const APIHandling = {
-    prefix: '/api', // API routes prefix
     errorHandler: (
       request: FastifyRequest,
       error: Error,
       isDevelopment: boolean,
-      isPage?: boolean,
+      isPageData?: boolean,
     ) => {
       console.error('🚨 SSR API Error:', error.message);
 
       // Create proper envelope response based on request type
-      if (isPage) {
+      if (isPageData) {
         // Page data request - return PageErrorResponse
         return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
           request,
@@ -220,11 +219,11 @@ function createSharedConfig() {
         });
       }
     },
-    notFoundHandler: (request: FastifyRequest, isPage?: boolean) => {
-      console.log('🔍 SSR API 404:', request.url, 'isPage:', isPage);
+    notFoundHandler: (request: FastifyRequest, isPageData?: boolean) => {
+      console.log('🔍 SSR API 404:', request.url, 'isPageData:', isPageData);
 
       // Create proper envelope response based on request type
-      if (isPage) {
+      if (isPageData) {
         // Page data request - return PageErrorResponse
         return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
           request,

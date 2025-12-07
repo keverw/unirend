@@ -4,7 +4,7 @@ import type {
   BaseMeta,
 } from '../api-envelope/api-envelope-types';
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
-import type { APIEndpointConfig, ControlledReply } from '../types';
+import type { ControlledReply } from '../types';
 import { createControlledReply } from './server-utils';
 
 /**
@@ -130,17 +130,29 @@ export class APIRoutesServerHelpers<
   // ---------------------------------------------------------------------------
   // Registration API (explicit method)
   // ---------------------------------------------------------------------------
+
+  /**
+   * Register an API handler without explicit version (uses default version if versioned)
+   */
   registerAPIHandler(
     method: HTTPMethod,
     endpoint: string,
     handler: APIRouteHandler<T, M>,
   ): void;
+
+  /**
+   * Register an API handler with explicit version
+   */
   registerAPIHandler(
     method: HTTPMethod,
     endpoint: string,
     version: number,
     handler: APIRouteHandler<T, M>,
   ): void;
+
+  /**
+   * Implementation of the overloaded method
+   */
   registerAPIHandler(
     method: HTTPMethod,
     endpoint: string,
@@ -150,19 +162,26 @@ export class APIRoutesServerHelpers<
     const httpMethod = this.ensureMethod(method);
     const normalizedEndpoint = this.normalizeEndpoint(endpoint);
 
-    if (typeof versionOrHandler === 'number' && !handlerMaybe) {
-      throw new Error('Handler function is required when version is specified');
-    }
+    let version: number;
+    let handler: APIRouteHandler<T, M>;
 
-    const version: number =
-      typeof versionOrHandler === 'number' ? versionOrHandler : 1;
-    const handler: APIRouteHandler<T, M> =
-      typeof versionOrHandler === 'function' && !handlerMaybe
-        ? versionOrHandler
-        : (handlerMaybe as APIRouteHandler<T, M>);
+    if (typeof versionOrHandler === 'function') {
+      // 2-param overload: registerAPIHandler(method, endpoint, handler)
 
-    if (!handler) {
-      throw new Error('Handler function is required');
+      // Use null as sentinel for "use defaultVersion at registration time"
+      // null can't conflict with any valid version number
+      version = null as unknown as number;
+      handler = versionOrHandler;
+    } else {
+      // 3-param overload: registerAPIHandler(method, endpoint, version, handler)
+      if (!handlerMaybe) {
+        throw new Error(
+          'Handler function is required when version is specified',
+        );
+      }
+
+      version = versionOrHandler;
+      handler = handlerMaybe;
     }
 
     const endpointMap = this.getOrCreateEndpointMap(httpMethod);
@@ -268,22 +287,38 @@ export class APIRoutesServerHelpers<
     return this.api;
   }
 
+  /**
+   * Check if any API handlers have been registered
+   * Useful for validation when API handling is disabled
+   */
+  hasRegisteredHandlers(): boolean {
+    return this.handlersByMethod.size > 0;
+  }
+
   // ---------------------------------------------------------------------------
   // Route registration into Fastify
   // ---------------------------------------------------------------------------
+  /**
+   * Register all stored handlers with the Fastify instance.
+   *
+   * @param fastify - The Fastify instance to register routes on
+   * @param apiPrefix - Pre-normalized API prefix (e.g., "/api")
+   * @param options - Optional config for versioning and wildcard behavior
+   */
   registerRoutes(
     fastify: FastifyInstance,
-    config: APIEndpointConfig = {},
-    options?: { allowWildcardAtRoot?: boolean },
+    apiPrefix: string,
+    options?: {
+      versioned?: boolean;
+      defaultVersion?: number;
+      allowWildcardAtRoot?: boolean;
+    },
   ): void {
-    const resolvedConfig = {
-      apiEndpointPrefix: '/api',
-      versioned: true,
-      defaultVersion: 1,
-      ...config,
-    };
+    const useVersioning = options?.versioned ?? true;
+    const defaultVersion = options?.defaultVersion ?? 1;
 
-    const prefix = this.normalizePrefix(resolvedConfig.apiEndpointPrefix);
+    // Prefix is already normalized by the caller (APIServer/SSRServer)
+    const prefix = apiPrefix;
     const isRootPrefix = prefix === '/';
     const allowWildAtRoot = options?.allowWildcardAtRoot === true;
 
@@ -301,7 +336,7 @@ export class APIRoutesServerHelpers<
         }
 
         // If versioning is disabled but multiple versions exist, throw
-        if (!resolvedConfig.versioned && versionMap.size > 1) {
+        if (!useVersioning && versionMap.size > 1) {
           const versions = Array.from(versionMap.keys()).sort((a, b) => a - b);
           throw new Error(
             'Endpoint "' +
@@ -315,11 +350,16 @@ export class APIRoutesServerHelpers<
           );
         }
 
-        for (const [version, handler] of versionMap) {
+        for (const [storedVersion, handler] of versionMap) {
+          // Resolve null (sentinel for "no version specified") to defaultVersion
+          // null can't conflict with any valid version number
+          const version =
+            storedVersion === null ? defaultVersion : storedVersion;
+
           const fullPath = this.buildPath(
             prefix,
             endpoint,
-            resolvedConfig.versioned,
+            useVersioning,
             version,
           );
 
@@ -402,29 +442,6 @@ export class APIRoutesServerHelpers<
         }
       }
     }
-  }
-
-  private normalizePrefix(prefixRaw?: string): string {
-    let prefix = (prefixRaw ?? '/api').trim();
-
-    if (prefix.length === 0) {
-      return '/'; // root, though not recommended
-    }
-
-    // Ensure leading slash
-    if (!prefix.startsWith('/')) {
-      prefix = '/' + prefix;
-    }
-
-    // Collapse multiple consecutive slashes to a single slash
-    prefix = prefix.replace(/\/+/g, '/');
-
-    // Remove trailing slash when not root
-    if (prefix !== '/' && prefix.endsWith('/')) {
-      prefix = prefix.slice(0, -1);
-    }
-
-    return prefix;
   }
 
   private buildPath(

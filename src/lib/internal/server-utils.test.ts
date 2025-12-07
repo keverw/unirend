@@ -1,15 +1,125 @@
 import { describe, it, expect, mock } from 'bun:test';
 import {
   createControlledReply,
-  isPageDataRequest,
-  isAPIRequest,
+  classifyRequest,
+  normalizeAPIPrefix,
+  normalizePageDataEndpoint,
   createDefaultAPIErrorResponse,
   createDefaultAPINotFoundResponse,
   createControlledInstance,
   validateAndRegisterPlugin,
+  validateNoHandlersWhenAPIDisabled,
 } from './server-utils';
 
 // cspell:ignore regs apix datax falsey
+
+describe('normalizeApiPrefix', () => {
+  it('adds leading slash if missing', () => {
+    expect(normalizeAPIPrefix('api')).toBe('/api');
+    expect(normalizeAPIPrefix('v1/api')).toBe('/v1/api');
+  });
+
+  it('keeps leading slash if present', () => {
+    expect(normalizeAPIPrefix('/api')).toBe('/api');
+    expect(normalizeAPIPrefix('/v1/api')).toBe('/v1/api');
+  });
+
+  it('removes trailing slash', () => {
+    expect(normalizeAPIPrefix('/api/')).toBe('/api');
+    expect(normalizeAPIPrefix('api/')).toBe('/api');
+  });
+
+  it('handles both missing leading and trailing slash', () => {
+    expect(normalizeAPIPrefix('api/')).toBe('/api');
+  });
+
+  it('handles whitespace', () => {
+    expect(normalizeAPIPrefix('  /api  ')).toBe('/api');
+    expect(normalizeAPIPrefix('  api  ')).toBe('/api');
+  });
+
+  it('preserves single slash root', () => {
+    // Edge case: "/" should remain "/" (don't strip to empty)
+    expect(normalizeAPIPrefix('/')).toBe('/');
+  });
+
+  it('collapses multiple consecutive slashes', () => {
+    expect(normalizeAPIPrefix('//api')).toBe('/api');
+    expect(normalizeAPIPrefix('/api//v1')).toBe('/api/v1');
+    expect(normalizeAPIPrefix('///api///')).toBe('/api');
+    expect(normalizeAPIPrefix('api//routes')).toBe('/api/routes');
+  });
+
+  it('returns false when given false (API disabled)', () => {
+    expect(normalizeAPIPrefix(false)).toBe(false);
+  });
+
+  it('returns default when given null or undefined', () => {
+    expect(normalizeAPIPrefix(null)).toBe('/api');
+    expect(normalizeAPIPrefix(undefined)).toBe('/api');
+  });
+
+  it('returns default when given empty or whitespace-only string', () => {
+    expect(normalizeAPIPrefix('')).toBe('/api');
+    expect(normalizeAPIPrefix('   ')).toBe('/api');
+    expect(normalizeAPIPrefix('\t\n')).toBe('/api');
+  });
+
+  it('uses custom default when provided', () => {
+    expect(normalizeAPIPrefix(null, '/custom')).toBe('/custom');
+    expect(normalizeAPIPrefix('', '/custom')).toBe('/custom');
+    expect(normalizeAPIPrefix(undefined, '/v2/api')).toBe('/v2/api');
+  });
+});
+
+describe('normalizePageDataEndpoint', () => {
+  it('removes leading slash if present', () => {
+    expect(normalizePageDataEndpoint('/page_data')).toBe('page_data');
+    expect(normalizePageDataEndpoint('/loader_data')).toBe('loader_data');
+  });
+
+  it('removes trailing slash if present', () => {
+    expect(normalizePageDataEndpoint('page_data/')).toBe('page_data');
+  });
+
+  it('removes both leading and trailing slashes', () => {
+    expect(normalizePageDataEndpoint('/page_data/')).toBe('page_data');
+  });
+
+  it('keeps endpoint without slashes unchanged', () => {
+    expect(normalizePageDataEndpoint('page_data')).toBe('page_data');
+    expect(normalizePageDataEndpoint('loader_data')).toBe('loader_data');
+  });
+
+  it('handles whitespace', () => {
+    expect(normalizePageDataEndpoint('  page_data  ')).toBe('page_data');
+    expect(normalizePageDataEndpoint('  /page_data/  ')).toBe('page_data');
+  });
+
+  it('returns default when given null or undefined', () => {
+    expect(normalizePageDataEndpoint(null)).toBe('page_data');
+    expect(normalizePageDataEndpoint(undefined)).toBe('page_data');
+  });
+
+  it('returns default when given empty or whitespace-only string', () => {
+    expect(normalizePageDataEndpoint('')).toBe('page_data');
+    expect(normalizePageDataEndpoint('   ')).toBe('page_data');
+    expect(normalizePageDataEndpoint('\t\n')).toBe('page_data');
+  });
+
+  it('uses custom default when provided', () => {
+    expect(normalizePageDataEndpoint(null, 'loader_data')).toBe('loader_data');
+    expect(normalizePageDataEndpoint('', 'custom_endpoint')).toBe(
+      'custom_endpoint',
+    );
+  });
+
+  it('collapses multiple consecutive slashes', () => {
+    expect(normalizePageDataEndpoint('page////data')).toBe('page/data');
+    expect(normalizePageDataEndpoint('a//b//c')).toBe('a/b/c');
+    expect(normalizePageDataEndpoint('///page///data///')).toBe('page/data');
+  });
+});
 
 const createMockReply = () => {
   const headers: Record<string, string> = {};
@@ -117,32 +227,240 @@ describe('createControlledReply', () => {
   });
 });
 
-describe('isPageDataRequest', () => {
-  it('matches root and versioned page_data endpoints', () => {
-    expect(isPageDataRequest('/page_data')).toBe(true);
-    expect(isPageDataRequest('/page_data/home')).toBe(true);
-    expect(isPageDataRequest('/v1/page_data')).toBe(true);
-    expect(isPageDataRequest('/v2/page_data/profile')).toBe(true);
+describe('classifyRequest', () => {
+  it('classifies API requests correctly', () => {
+    expect(classifyRequest('/api', '/api', 'page_data')).toEqual({
+      isAPI: true,
+      isPageData: false,
+    });
+
+    expect(classifyRequest('/api/users', '/api', 'page_data')).toEqual({
+      isAPI: true,
+      isPageData: false,
+    });
+
+    expect(classifyRequest('/apix/users', '/api', 'page_data')).toEqual({
+      isAPI: false,
+      isPageData: false,
+    });
+
+    expect(classifyRequest('/', '/api', 'page_data')).toEqual({
+      isAPI: false,
+      isPageData: false,
+    });
   });
 
-  it('does not match non-page_data paths', () => {
-    expect(isPageDataRequest('/api/page_data')).toBe(false);
-    expect(isPageDataRequest('/page_datax')).toBe(false);
-    expect(isPageDataRequest('/v1/page_datum')).toBe(false);
-  });
-});
+  it('classifies page_data endpoints correctly', () => {
+    expect(classifyRequest('/api/page_data', '/api', 'page_data')).toEqual({
+      isAPI: true,
+      isPageData: true,
+    });
 
-describe('isAPIRequest', () => {
-  it('detects API prefix correctly', () => {
-    expect(isAPIRequest('/api', '/api')).toBe(true);
-    expect(isAPIRequest('/api/users', '/api')).toBe(true);
-    expect(isAPIRequest('/apix/users', '/api')).toBe(false);
-    expect(isAPIRequest('/', '/api')).toBe(false);
+    expect(classifyRequest('/api/page_data/home', '/api', 'page_data')).toEqual(
+      {
+        isAPI: true,
+        isPageData: true,
+      },
+    );
+
+    expect(classifyRequest('/api/v1/page_data', '/api', 'page_data')).toEqual({
+      isAPI: true,
+      isPageData: true,
+    });
+
+    expect(
+      classifyRequest('/api/v2/page_data/profile', '/api', 'page_data'),
+    ).toEqual({
+      isAPI: true,
+      isPageData: true,
+    });
   });
 
-  it('returns false when prefix disabled', () => {
-    // @ts-expect-error testing falsey branch
-    expect(isAPIRequest('/api/users', false)).toBe(false);
+  it('does not match non-page_data API paths as page data', () => {
+    expect(classifyRequest('/api/users', '/api', 'page_data')).toEqual({
+      isAPI: true,
+      isPageData: false,
+    });
+
+    // page_datax is not a page_data endpoint (note the extra 'x' in the endpoint name)
+    expect(classifyRequest('/api/page_datax', '/api', 'page_data')).toEqual({
+      isAPI: true,
+      isPageData: false,
+    });
+  });
+
+  it('returns false for both when path is outside API prefix', () => {
+    // Page data is always under API prefix, so non-API paths are never page data
+    expect(classifyRequest('/page_data', '/api', 'page_data')).toEqual({
+      isAPI: false,
+      isPageData: false,
+    });
+
+    expect(classifyRequest('/v1/page_data', '/api', 'page_data')).toEqual({
+      isAPI: false,
+      isPageData: false,
+    });
+
+    expect(classifyRequest('/other/page_data', '/api', 'page_data')).toEqual({
+      isAPI: false,
+      isPageData: false,
+    });
+  });
+
+  it('handles empty API prefix (returns default, so still matches)', () => {
+    // Empty string goes through normalizeApiPrefix which returns default '/api'
+    // But classifyRequest expects pre-normalized values, so '' is treated as falsey
+    expect(classifyRequest('/api/users', '', 'page_data')).toEqual({
+      isAPI: false,
+      isPageData: false,
+    });
+  });
+
+  it('returns false for both when API is disabled (prefix is false)', () => {
+    expect(classifyRequest('/api/users', false, 'page_data')).toEqual({
+      isAPI: false,
+      isPageData: false,
+    });
+
+    expect(classifyRequest('/api/page_data/home', false, 'page_data')).toEqual({
+      isAPI: false,
+      isPageData: false,
+    });
+
+    expect(classifyRequest('/anything', false, 'page_data')).toEqual({
+      isAPI: false,
+      isPageData: false,
+    });
+  });
+
+  it('supports custom pageDataEndpoint names', () => {
+    // Custom endpoint name
+    expect(classifyRequest('/api/loader_data', '/api', 'loader_data')).toEqual({
+      isAPI: true,
+      isPageData: true,
+    });
+
+    expect(
+      classifyRequest('/api/v1/loader_data/home', '/api', 'loader_data'),
+    ).toEqual({
+      isAPI: true,
+      isPageData: true,
+    });
+
+    // Default name doesn't match when custom is configured
+    expect(classifyRequest('/api/page_data', '/api', 'loader_data')).toEqual({
+      isAPI: true,
+      isPageData: false,
+    });
+  });
+
+  it('handles multi-digit version numbers in page_data paths', () => {
+    // Two digits
+    expect(classifyRequest('/api/v10/page_data', '/api', 'page_data')).toEqual({
+      isAPI: true,
+      isPageData: true,
+    });
+
+    // Three digits
+    expect(
+      classifyRequest('/api/v100/page_data/home', '/api', 'page_data'),
+    ).toEqual({
+      isAPI: true,
+      isPageData: true,
+    });
+
+    // Four digits
+    expect(
+      classifyRequest('/api/v9000/page_data/profile', '/api', 'page_data'),
+    ).toEqual({
+      isAPI: true,
+      isPageData: true,
+    });
+
+    // Edge case: /v without digits should NOT match as page_data
+    expect(classifyRequest('/api/v/page_data', '/api', 'page_data')).toEqual({
+      isAPI: true,
+      isPageData: false,
+    });
+
+    // Edge case: /v1blah - letters after digits should NOT match
+    expect(
+      classifyRequest('/api/v1blah/page_data', '/api', 'page_data'),
+    ).toEqual({
+      isAPI: true,
+      isPageData: false,
+    });
+
+    // Edge case: /v1.1 - decimal versions should NOT match
+    expect(classifyRequest('/api/v1.1/page_data', '/api', 'page_data')).toEqual(
+      {
+        isAPI: true,
+        isPageData: false,
+      },
+    );
+  });
+
+  it('treats all paths as API when prefix is "/" (root prefix)', () => {
+    // Root prefix "/" matches everything - useful for pure API servers
+    expect(classifyRequest('/', '/', 'page_data')).toEqual({
+      isAPI: true,
+      isPageData: false,
+    });
+
+    expect(classifyRequest('/users', '/', 'page_data')).toEqual({
+      isAPI: true,
+      isPageData: false,
+    });
+
+    expect(classifyRequest('/any/deep/path', '/', 'page_data')).toEqual({
+      isAPI: true,
+      isPageData: false,
+    });
+
+    // Page data still works with root prefix
+    expect(classifyRequest('/page_data/home', '/', 'page_data')).toEqual({
+      isAPI: true,
+      isPageData: true,
+    });
+
+    expect(classifyRequest('/v1/page_data/home', '/', 'page_data')).toEqual({
+      isAPI: true,
+      isPageData: true,
+    });
+  });
+
+  it('correctly strips query strings from URLs', () => {
+    // API requests with query strings
+    expect(classifyRequest('/api/users?id=123', '/api', 'page_data')).toEqual({
+      isAPI: true,
+      isPageData: false,
+    });
+
+    // Page data with query strings
+    expect(
+      classifyRequest('/api/page_data/home?version=1', '/api', 'page_data'),
+    ).toEqual({
+      isAPI: true,
+      isPageData: true,
+    });
+
+    // Non-API requests with query strings
+    expect(classifyRequest('/about?tab=info', '/api', 'page_data')).toEqual({
+      isAPI: false,
+      isPageData: false,
+    });
+
+    // Versioned page data with query strings
+    expect(
+      classifyRequest(
+        '/api/v2/page_data/profile?refresh=true',
+        '/api',
+        'page_data',
+      ),
+    ).toEqual({
+      isAPI: true,
+      isPageData: true,
+    });
   });
 });
 
@@ -163,7 +481,9 @@ describe('default envelope helpers', () => {
       Object.assign(new Error('boom'), { statusCode: 400 }),
       true,
       '/api',
+      'page_data',
     ) as any;
+
     expect(pageRes.kind).toBe('page');
     expect(pageRes.statusCode).toBe(400);
     expect(pageRes.errorCode).toBe('request_error');
@@ -176,7 +496,9 @@ describe('default envelope helpers', () => {
       new Error('kaboom'),
       false,
       '/api',
+      'page_data',
     ) as any;
+
     expect(apiRes.kind).toBe('api');
     expect(apiRes.statusCode).toBe(500);
     expect(apiRes.errorCode).toBe('internal_server_error');
@@ -191,7 +513,9 @@ describe('default envelope helpers', () => {
       HelpersStub as unknown as any,
       makeReq('/api/v2/page_data/profile'),
       '/api',
+      'page_data',
     ) as any;
+
     expect(page404.kind).toBe('page');
     expect(page404.statusCode).toBe(404);
     expect(page404.errorCode).toBe('not_found');
@@ -200,7 +524,9 @@ describe('default envelope helpers', () => {
       HelpersStub as unknown as any,
       makeReq('/api/unknown'),
       '/api',
+      'page_data',
     ) as any;
+
     expect(api404.kind).toBe('api');
     expect(api404.statusCode).toBe(404);
     expect(api404.errorCode).toBe('not_found');
@@ -309,5 +635,56 @@ describe('validateAndRegisterPlugin', () => {
     validateAndRegisterPlugin(regs as any, { name: 'base' });
     validateAndRegisterPlugin(regs as any, { name: 'c', dependsOn: 'base' });
     expect(regs.map((r) => r.name)).toEqual(['a', 'base', 'c']);
+  });
+});
+
+describe('validateNoHandlersWhenAPIDisabled', () => {
+  it('does not throw when no handlers are registered', () => {
+    const mockApiRoutes = { hasRegisteredHandlers: () => false };
+    const mockPageDataHandlers = { hasRegisteredHandlers: () => false };
+
+    expect(() =>
+      validateNoHandlersWhenAPIDisabled(mockApiRoutes, mockPageDataHandlers),
+    ).not.toThrow();
+  });
+
+  it('throws when API routes are registered', () => {
+    const mockApiRoutes = { hasRegisteredHandlers: () => true };
+    const mockPageDataHandlers = { hasRegisteredHandlers: () => false };
+
+    expect(() =>
+      validateNoHandlersWhenAPIDisabled(mockApiRoutes, mockPageDataHandlers),
+    ).toThrow(/API routes were registered but API handling is disabled/i);
+  });
+
+  it('throws when page data handlers are registered', () => {
+    const mockApiRoutes = { hasRegisteredHandlers: () => false };
+    const mockPageDataHandlers = { hasRegisteredHandlers: () => true };
+
+    expect(() =>
+      validateNoHandlersWhenAPIDisabled(mockApiRoutes, mockPageDataHandlers),
+    ).toThrow(
+      /page data handlers were registered but API handling is disabled/i,
+    );
+  });
+
+  it('throws when both API routes and page data handlers are registered', () => {
+    const mockApiRoutes = { hasRegisteredHandlers: () => true };
+    const mockPageDataHandlers = { hasRegisteredHandlers: () => true };
+
+    expect(() =>
+      validateNoHandlersWhenAPIDisabled(mockApiRoutes, mockPageDataHandlers),
+    ).toThrow(
+      /API routes and page data handlers were registered but API handling is disabled/i,
+    );
+  });
+
+  it('includes helpful error message with configuration advice', () => {
+    const mockApiRoutes = { hasRegisteredHandlers: () => true };
+    const mockPageDataHandlers = { hasRegisteredHandlers: () => false };
+
+    expect(() =>
+      validateNoHandlersWhenAPIDisabled(mockApiRoutes, mockPageDataHandlers),
+    ).toThrow(/Either enable API handling or remove the registered handlers/i);
   });
 });

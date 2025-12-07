@@ -88,16 +88,17 @@ async function runAPIServerDemo() {
         });
 
         // Page-data error route (to test envelope detection)
-        fastify.get('/page_data/error', async (_request, _reply) => {
+        // Note: page_data endpoints should always be under the API prefix
+        fastify.get('/api/v1/page_data/error', async (_request, _reply) => {
           throw new Error('Page data error!');
         });
       },
     ],
-    // errorHandler: (request, error, isDevelopment, isPage) => {
+    // errorHandler: (request, error, isDevelopment, isPageData) => {
     //   console.error("🚨 API Error:", error.message);
 
     //   // Return proper envelope response based on request type
-    //   if (isPage) {
+    //   if (isPageData) {
     //     // Page data request - return PageErrorResponse
     //     return APIResponseHelpers.createPageErrorResponse({
     //       request,
@@ -132,11 +133,11 @@ async function runAPIServerDemo() {
     //     });
     //   }
     // },
-    // notFoundHandler: (request, isPage) => {
-    //   console.log("🔍 Custom 404 Handler:", request.url, "isPage:", isPage);
+    // notFoundHandler: (request, isPageData) => {
+    //   console.log("🔍 Custom 404 Handler:", request.url, "isPageData:", isPageData);
 
     //   // Return proper envelope response based on request type
-    //   if (isPage) {
+    //   if (isPageData) {
     //     // Page data request - return PageErrorResponse
     //     return APIResponseHelpers.createPageErrorResponse({
     //       request,
@@ -196,12 +197,12 @@ async function runAPIServerDemo() {
     console.log('   GET  http://localhost:3001/api/error/500 (custom 500)');
     console.log('   GET  http://localhost:3001/api/error/400 (custom 400)');
     console.log(
-      '   GET  http://localhost:3001/page_data/error (page envelope)',
+      '   GET  http://localhost:3001/api/v1/page_data/error (page envelope)',
     );
     console.log('\n🔍 404 testing routes:');
     console.log('   GET  http://localhost:3001/not-found (API 404 envelope)');
     console.log(
-      '   GET  http://localhost:3001/page_data/not-found (Page 404 envelope)',
+      '   GET  http://localhost:3001/api/v1/page_data/not-found (Page 404 envelope)',
     );
     console.log(
       '\n💡 Notice: Wildcard route commented out to test 404 handling!',

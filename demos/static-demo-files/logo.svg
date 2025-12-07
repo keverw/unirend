@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Simple U in a circle - Unirend logo -->
+  
+  <!-- Circle outline -->
+  <circle 
+    cx="100" 
+    cy="100" 
+    r="88" 
+    fill="none" 
+    stroke="#00d9ff" 
+    stroke-width="6"
+  />
+  
+  <!-- U shape -->
+  <path 
+    d="M 65 55 L 65 115 Q 65 145 100 145 Q 135 145 135 115 L 135 55" 
+    fill="none" 
+    stroke="#00d9ff" 
+    stroke-width="14" 
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

@@ -1,16 +1,26 @@
-import fastify, { type FastifyServerOptions, type FastifyError } from 'fastify';
+import fastify, {
+  type FastifyServerOptions,
+  type FastifyError,
+  type FastifyReply,
+} from 'fastify';
 import {
   createControlledInstance,
-  isPageDataRequest,
+  classifyRequest,
+  normalizeAPIPrefix,
+  normalizePageDataEndpoint,
   createDefaultAPIErrorResponse,
   createDefaultAPINotFoundResponse,
   validateAndRegisterPlugin,
+  validateNoHandlersWhenAPIDisabled,
 } from './server-utils';
 import type {
   APIServerOptions,
   PluginMetadata,
   APIResponseHelpersClass,
   PluginOptions,
+  WebErrorResponse,
+  SplitErrorHandler,
+  SplitNotFoundHandler,
 } from '../types';
 import { BaseServer } from './BaseServer';
 import {
@@ -39,12 +49,27 @@ export class APIServer extends BaseServer {
   /** Pluggable helpers class reference for constructing API/Page envelopes */
   public readonly APIResponseHelpersClass: APIResponseHelpersClass;
 
+  // Normalized endpoint config (computed once at construction)
+  // Can be false if API handling is disabled (server becomes a plain web server)
+  private readonly normalizedApiPrefix: string | false;
+  private readonly normalizedPageDataEndpoint: string;
+
   constructor(options: APIServerOptions = {}) {
     super();
     this.options = {
       isDevelopment: false,
       ...options,
     };
+
+    // Normalize API endpoint config once at construction
+    this.normalizedApiPrefix = normalizeAPIPrefix(
+      this.options.apiEndpoints?.apiEndpointPrefix,
+    );
+
+    // Normalize page data endpoint once at construction
+    this.normalizedPageDataEndpoint = normalizePageDataEndpoint(
+      this.options.apiEndpoints?.pageDataEndpoint,
+    );
 
     // Set helpers class (custom or default)
     this.APIResponseHelpersClass =
@@ -154,24 +179,35 @@ export class APIServer extends BaseServer {
         this.webSocketHelpers.registerPreValidationHook(this.fastifyInstance);
       }
 
-      // Register page data handler routes with Fastify
-      this.pageDataHandlers.registerRoutes(this.fastifyInstance, {
-        apiEndpointPrefix: this.options.apiEndpoints?.apiEndpointPrefix,
-        versioned: this.options.apiEndpoints?.versioned,
-        defaultVersion: this.options.apiEndpoints?.defaultVersion,
-        pageDataEndpoint: this.options.apiEndpoints?.pageDataEndpoint,
-      });
+      // Register API routes if enabled, or validate no handlers were registered if disabled
+      if (this.normalizedApiPrefix === false) {
+        // API is disabled - validate that no handlers were registered
+        validateNoHandlersWhenAPIDisabled(
+          this.apiRoutes,
+          this.pageDataHandlers,
+        );
+      } else {
+        // API is enabled - register page data and API routes
+        this.pageDataHandlers.registerRoutes(
+          this.fastifyInstance,
+          this.normalizedApiPrefix,
+          this.normalizedPageDataEndpoint,
+          {
+            versioned: this.options.apiEndpoints?.versioned,
+            defaultVersion: this.options.apiEndpoints?.defaultVersion,
+          },
+        );
 
-      // Register generic API routes (if any were added programmatically)
-      this.apiRoutes.registerRoutes(
-        this.fastifyInstance,
-        {
-          apiEndpointPrefix: this.options.apiEndpoints?.apiEndpointPrefix,
-          versioned: this.options.apiEndpoints?.versioned,
-          defaultVersion: this.options.apiEndpoints?.defaultVersion,
-        },
-        { allowWildcardAtRoot: true },
-      );
+        this.apiRoutes.registerRoutes(
+          this.fastifyInstance,
+          this.normalizedApiPrefix,
+          {
+            versioned: this.options.apiEndpoints?.versioned,
+            defaultVersion: this.options.apiEndpoints?.defaultVersion,
+            allowWildcardAtRoot: true,
+          },
+        );
+      }
 
       // Register WebSocket routes if enabled
       if (this.webSocketHelpers) {
@@ -319,6 +355,48 @@ export class APIServer extends BaseServer {
   }
 
   /**
+   * Helper to check if handler is the split form (object with api and/or web)
+   * Either handler can be optional - missing handlers fall through to default
+   * @private
+   */
+  private isSplitHandler<T extends { api?: unknown; web?: unknown }>(
+    handler: unknown,
+  ): handler is T {
+    if (handler === null || typeof handler !== 'object') {
+      return false;
+    }
+
+    // It's split form if it has at least one of api/web as a function
+    const obj = handler as Record<string, unknown>;
+
+    const hasApi = 'api' in obj && typeof obj.api === 'function';
+    const hasWeb = 'web' in obj && typeof obj.web === 'function';
+
+    return hasApi || hasWeb;
+  }
+
+  /**
+   * Helper to send a WebErrorResponse
+   * @private
+   */
+  private sendWebErrorResponse(
+    reply: FastifyReply,
+    response: WebErrorResponse,
+    defaultStatusCode: number,
+  ): void {
+    const statusCode = response.statusCode ?? defaultStatusCode;
+    reply.code(statusCode).header('Cache-Control', 'no-store');
+
+    if (response.contentType === 'json') {
+      reply.type('application/json').send(response.content);
+    } else if (response.contentType === 'html') {
+      reply.type('text/html').send(response.content);
+    } else {
+      reply.type('text/plain').send(response.content);
+    }
+  }
+
+  /**
    * Setup global error handler for unhandled errors
    * @private
    */
@@ -333,33 +411,78 @@ export class APIServer extends BaseServer {
         return;
       }
 
-      // Determine if the incoming request is for page data (SSR loader)
-      const rawPath = request.url.split('?')[0];
+      const { isAPI, isPageData } = classifyRequest(
+        request.url,
+        this.normalizedApiPrefix,
+        this.normalizedPageDataEndpoint,
+      );
 
-      // Determine if the incoming request is for page data (SSR loader)
-      // Matches both exact endpoints and paths with parameters:
-      // /page_data, /page_data/foo, /v1/page_data, /v1/page_data/user/123, etc.
-      const isPage = isPageDataRequest(rawPath);
+      const isDev = this.options.isDevelopment ?? false;
 
       // Use custom error handler if provided
       if (this.options.errorHandler) {
         try {
-          const errorResponse = await this.options.errorHandler(
-            request,
-            error as FastifyError,
-            this.options.isDevelopment ?? false,
-            isPage,
-          );
+          // Check if it's the split form (object with api and/or web handlers)
+          if (
+            this.isSplitHandler<Partial<SplitErrorHandler>>(
+              this.options.errorHandler,
+            )
+          ) {
+            const splitHandler = this.options.errorHandler;
 
-          // Extract status code from envelope response
-          const statusCode = errorResponse.status_code || 500;
-          reply.code(statusCode);
+            if (isAPI && splitHandler.api) {
+              // Use API handler
+              const errorResponse = await Promise.resolve(
+                splitHandler.api(
+                  request,
+                  error as FastifyError,
+                  isDev,
+                  isPageData,
+                ),
+              );
 
-          if (statusCode >= 400) {
-            reply.header('Cache-Control', 'no-store');
+              // Extract status code from envelope response
+              const statusCode = errorResponse.status_code || 500;
+              reply.code(statusCode);
+
+              if (statusCode >= 400) {
+                reply.header('Cache-Control', 'no-store');
+              }
+
+              return reply.send(errorResponse);
+            } else if (!isAPI && splitHandler.web) {
+              // Use web handler
+              const webResponse = await Promise.resolve(
+                splitHandler.web(request, error as FastifyError, isDev),
+              );
+
+              this.sendWebErrorResponse(reply, webResponse, 500);
+
+              return;
+            }
+
+            // Missing handler for this case - fall through to default
+          } else if (typeof this.options.errorHandler === 'function') {
+            // Function form (SSR compatible)
+            const errorResponse = await Promise.resolve(
+              this.options.errorHandler(
+                request,
+                error as FastifyError,
+                isDev,
+                isPageData,
+              ),
+            );
+
+            // Extract status code from envelope response
+            const statusCode = errorResponse.status_code || 500;
+            reply.code(statusCode);
+
+            if (statusCode >= 400) {
+              reply.header('Cache-Control', 'no-store');
+            }
+
+            return reply.send(errorResponse);
           }
-
-          return errorResponse;
         } catch (handlerError) {
           // Fallback if custom error handler fails
           this.fastifyInstance?.log.error(
@@ -369,22 +492,24 @@ export class APIServer extends BaseServer {
         }
       }
 
-      // Default case
-      const statusCode = (error as FastifyError).statusCode || 500;
-      reply.code(statusCode);
-
-      if (statusCode >= 400) {
-        reply.header('Cache-Control', 'no-store');
-      }
-
+      // Default case (also used when split handler is missing api/web)
       const response = createDefaultAPIErrorResponse(
         this.APIResponseHelpersClass,
         request,
         error as FastifyError,
-        this.options.isDevelopment ?? false,
+        isDev,
+        this.normalizedApiPrefix,
+        this.normalizedPageDataEndpoint,
       );
 
-      return reply.send(response);
+      // Extract status code from envelope response
+      const statusCode =
+        (response as { status_code?: number }).status_code || 500;
+
+      return reply
+        .code(statusCode)
+        .header('Cache-Control', 'no-store')
+        .send(response);
     });
   }
 
@@ -398,32 +523,83 @@ export class APIServer extends BaseServer {
     }
 
     this.fastifyInstance.setNotFoundHandler(async (request, reply) => {
-      const rawPath = request.url.split('?')[0];
-      const isPage = isPageDataRequest(rawPath);
+      const { isAPI, isPageData } = classifyRequest(
+        request.url,
+        this.normalizedApiPrefix,
+        this.normalizedPageDataEndpoint,
+      );
 
       // If user provided custom not-found handler, use it
       if (this.options.notFoundHandler) {
-        const custom = await Promise.resolve(
-          this.options.notFoundHandler(request, isPage),
-        );
+        try {
+          // Check if it's the split form (object with api and/or web handlers)
+          if (
+            this.isSplitHandler<Partial<SplitNotFoundHandler>>(
+              this.options.notFoundHandler,
+            )
+          ) {
+            const splitHandler = this.options.notFoundHandler;
 
-        // Extract status code from envelope response
-        const statusCode = custom.status_code || 404;
-        reply.code(statusCode).header('Cache-Control', 'no-store');
+            if (isAPI && splitHandler.api) {
+              // Use API handler
+              const apiResponse = await Promise.resolve(
+                splitHandler.api(request, isPageData),
+              );
 
-        return reply.send(custom);
+              // Extract status code from envelope response
+              const statusCode = apiResponse.status_code || 404;
+              reply.code(statusCode).header('Cache-Control', 'no-store');
+
+              return reply.send(apiResponse);
+            } else if (!isAPI && splitHandler.web) {
+              // Use web handler
+              const webResponse = await Promise.resolve(
+                splitHandler.web(request),
+              );
+
+              this.sendWebErrorResponse(reply, webResponse, 404);
+
+              return;
+            }
+
+            // Missing handler for this case - fall through to default
+          } else if (typeof this.options.notFoundHandler === 'function') {
+            // Function form (SSR compatible)
+            const custom = await Promise.resolve(
+              this.options.notFoundHandler(request, isPageData),
+            );
+
+            // Extract status code from envelope response
+            const statusCode = custom.status_code || 404;
+            reply.code(statusCode).header('Cache-Control', 'no-store');
+
+            return reply.send(custom);
+          }
+        } catch (handlerError) {
+          // Fallback if custom not-found handler fails
+          this.fastifyInstance?.log.error(
+            { err: handlerError },
+            'Not found handler failed:',
+          );
+        }
       }
 
-      // Default case
-      const statusCode = 404;
-      reply.code(statusCode).header('Cache-Control', 'no-store');
-
+      // Default case (also used when split handler is missing api/web)
       const response = createDefaultAPINotFoundResponse(
         this.APIResponseHelpersClass,
         request,
+        this.normalizedApiPrefix,
+        this.normalizedPageDataEndpoint,
       );
 
-      return reply.send(response);
+      // Extract status code from envelope response
+      const statusCode =
+        (response as { status_code?: number }).status_code || 404;
+
+      return reply
+        .code(statusCode)
+        .header('Cache-Control', 'no-store')
+        .send(response);
     });
   }
 

@@ -1,10 +1,9 @@
-import fp from 'fastify-plugin';
-import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'node:crypto';
-import LRUCache from '../lru-cache';
-import type { StaticContentRouterOptions } from '../../types';
+import LRUCache from './lru-cache';
+import type { StaticContentRouterOptions } from '../types';
 
 // Helper to normalize URL prefixes: ensure leading and trailing slash
 function normalizePrefix(prefix: string): string {
@@ -22,12 +21,11 @@ function normalizePrefix(prefix: string): string {
 }
 
 /**
- * A Fastify plugin that serves only explicitly mapped static files or directories,
- * without globbing or scanning the entire public folder on every request.
+ * Creates a static content serving hook with its own caches and configuration.
  *
  * Rationale:
  * - Unlike generic static handlers which may check disk for every path or apply
- *   wildcard matching, this plugin only hits the filesystem when:
+ *   wildcard matching, this only hits the filesystem when:
  *     1) the request URL exactly matches an entry in `singleAssetMap`, or
  *     2) it falls under a configured prefix in `folderMap`.
  * - Adds strong ETag support with optional LRU caching of ETag values and small file content.
@@ -35,11 +33,19 @@ function normalizePrefix(prefix: string): string {
  * - This minimizes unnecessary disk I/O, improves performance, and locks down
  *   asset serving to known files and directories, preventing accidental exposure
  *   or directory traversal beyond the intended public paths.
+ *
+ * Each call creates an independent instance with its own caches, allowing multiple
+ * instances to be registered with different configurations.
+ *
+ * @param options Static content configuration (file mappings, cache settings, etc.)
+ * @param logger Optional logger (e.g., fastify.log) for error logging
+ * @returns Fastify onRequest hook handler function
+ * @internal Used by SSRServer (internal) and staticContent() plugin (public API)
  */
-
-const StaticContentRouterPlugin: FastifyPluginAsync<
-  StaticContentRouterOptions
-> = async (fastify, options) => {
+export function createStaticContentHook(
+  options: StaticContentRouterOptions,
+  logger?: { warn: (obj: object, msg: string) => void },
+) {
   const {
     singleAssetMap = {},
     folderMap = {},
@@ -112,71 +118,6 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
     defaultTtl,
   });
 
-  fastify.addHook(
-    'onRequest',
-    async (req: FastifyRequest, reply: FastifyReply) => {
-      // Exit early for non-GET requests
-      if (req.method !== 'GET') {
-        return;
-      }
-
-      // If there's no URL, we can't handle it
-      if (!req.raw.url) {
-        return;
-      }
-
-      const rawUrl = req.raw.url || '/';
-
-      // Strip off query string, hash, etc., and ensure a single leading slash for matching
-      const cleanedUrl = rawUrl.split('?')[0].split('#')[0];
-      const url = cleanedUrl.startsWith('/') ? cleanedUrl : '/' + cleanedUrl;
-
-      let resolved = '';
-      let shouldDetectImmutable = false;
-
-      // 1. Try singleAssetMap first (exact URL → file)
-      if (normalizedSingleAssetMap.has(url)) {
-        resolved = normalizedSingleAssetMap.get(url) as string;
-      }
-      // 2. If not matched, try folderMap (URL prefix → directory)
-      else {
-        const folder = Array.from(normalizedFolderMap.keys()).find((prefix) =>
-          url.startsWith(prefix),
-        );
-
-        if (folder) {
-          // Get resolved base folder and config
-          const folderConfig = normalizedFolderMap.get(folder);
-
-          if (folderConfig) {
-            // Calculate file path relative to the matched prefix
-            const relativePath = url.slice(folder.length);
-            // Guard against absolute path behavior if a leading slash sneaks in
-            const safeRelativePath = relativePath.startsWith('/')
-              ? relativePath.slice(1)
-              : relativePath;
-
-            // Only allow files that don't contain '..' to prevent directory traversal
-            if (
-              !safeRelativePath.includes('../') &&
-              !safeRelativePath.includes('..\\')
-            ) {
-              resolved = path.join(folderConfig.path, safeRelativePath);
-              shouldDetectImmutable = folderConfig.detectImmutableAssets;
-            }
-          }
-        }
-      }
-
-      // If we found a file to serve, do so
-      // otherwise: fall through to next route/not found
-
-      if (resolved) {
-        return serveFile(req, reply, resolved, shouldDetectImmutable);
-      }
-    },
-  );
-
   /**
    * Serves a static file with optimized caching and conditional responses
    *
@@ -191,7 +132,6 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
    * @param reply - The Fastify reply object
    * @param resolved - The absolute path to the file to be served
    */
-
   async function serveFile(
     req: FastifyRequest,
     reply: FastifyReply,
@@ -260,9 +200,10 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
         if (
           error instanceof Error &&
           'code' in error &&
-          (error as NodeJS.ErrnoException).code !== 'ENOENT'
+          (error as NodeJS.ErrnoException).code !== 'ENOENT' &&
+          logger
         ) {
-          fastify.log.warn(
+          logger.warn(
             {
               err: error,
               path: resolved,
@@ -295,14 +236,16 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
             // Log unexpected errors when reading file content
             // Cast to NodeJS.ErrnoException to access error codes if needed
             const fsError = error as NodeJS.ErrnoException;
-            fastify.log.warn(
-              {
-                err: fsError,
-                path: resolved,
-                code: fsError.code,
-              },
-              'Error reading static file content',
-            );
+            if (logger) {
+              logger.warn(
+                {
+                  err: fsError,
+                  path: resolved,
+                  code: fsError.code,
+                },
+                'Error reading static file content',
+              );
+            }
 
             throw error; // Re-throw to be handled by the outer error handling
           }
@@ -429,37 +372,102 @@ const StaticContentRouterPlugin: FastifyPluginAsync<
     }
   }
 
-  // Satisfy async function requirement (plugin registration is synchronous)
-  return Promise.resolve();
-};
+  // Simple extension-based MIME lookup (alphabetical order)
+  function getMime(file: string): string {
+    // Strip the leading dot from the extension
+    const ext = path.extname(file).toLowerCase().replace(/^\./, '');
 
-// Simple extension-based MIME lookup (alphabetical order)
-function getMime(file: string): string {
-  // Strip the leading dot from the extension
-  const ext = path.extname(file).toLowerCase().replace(/^\./, '');
+    // Map common extensions to MIME types (alphabetical order)
+    const mimeTypes: Record<string, string> = {
+      css: 'text/css',
+      gif: 'image/gif',
+      html: 'text/html',
+      ico: 'image/x-icon',
+      jpeg: 'image/jpeg',
+      jpg: 'image/jpeg',
+      js: 'application/javascript',
+      json: 'application/json',
+      mp4: 'video/mp4',
+      pdf: 'application/pdf',
+      png: 'image/png',
+      svg: 'image/svg+xml',
+      txt: 'text/plain',
+      webmanifest: 'application/manifest+json',
+      xml: 'application/xml',
+    };
 
-  // Map common extensions to MIME types (alphabetical order)
-  const mimeTypes: Record<string, string> = {
-    css: 'text/css',
-    gif: 'image/gif',
-    html: 'text/html',
-    ico: 'image/x-icon',
-    jpeg: 'image/jpeg',
-    jpg: 'image/jpeg',
-    js: 'application/javascript',
-    json: 'application/json',
-    mp4: 'video/mp4',
-    pdf: 'application/pdf',
-    png: 'image/png',
-    svg: 'image/svg+xml',
-    txt: 'text/plain',
-    webmanifest: 'application/manifest+json',
-    xml: 'application/xml',
+    return mimeTypes[ext] || 'application/octet-stream';
+  }
+
+  // Return the hook handler
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    // Exit early for non-GET requests
+    if (req.method !== 'GET') {
+      return;
+    }
+
+    // If there's no URL, we can't handle it
+    if (!req.raw.url) {
+      return;
+    }
+
+    const rawUrl = req.raw.url || '/';
+
+    // Strip off query string, hash, etc., and ensure a single leading slash for matching
+    const cleanedUrl = rawUrl.split('?')[0].split('#')[0];
+    const url = cleanedUrl.startsWith('/') ? cleanedUrl : '/' + cleanedUrl;
+
+    // DEMO: Plugin can access decorated request properties!
+    // console.log('[Static Router] Request:', {
+    //   url,
+    //   isDevelopment: (req as unknown as { isDevelopment?: boolean })
+    //     .isDevelopment,
+    //   hasRequestContext:
+    //     'requestContext' in (req as unknown as Record<string, unknown>),
+    // });
+
+    let resolved = '';
+    let shouldDetectImmutable = false;
+
+    // 1. Try singleAssetMap first (exact URL → file)
+    if (normalizedSingleAssetMap.has(url)) {
+      resolved = normalizedSingleAssetMap.get(url) as string;
+    }
+    // 2. If not matched, try folderMap (URL prefix → directory)
+    else {
+      const folder = Array.from(normalizedFolderMap.keys()).find((prefix) =>
+        url.startsWith(prefix),
+      );
+
+      if (folder) {
+        // Get resolved base folder and config
+        const folderConfig = normalizedFolderMap.get(folder);
+
+        if (folderConfig) {
+          // Calculate file path relative to the matched prefix
+          const relativePath = url.slice(folder.length);
+          // Guard against absolute path behavior if a leading slash sneaks in
+          const safeRelativePath = relativePath.startsWith('/')
+            ? relativePath.slice(1)
+            : relativePath;
+
+          // Only allow files that don't contain '..' to prevent directory traversal
+          if (
+            !safeRelativePath.includes('../') &&
+            !safeRelativePath.includes('..\\')
+          ) {
+            resolved = path.join(folderConfig.path, safeRelativePath);
+            shouldDetectImmutable = folderConfig.detectImmutableAssets;
+          }
+        }
+      }
+    }
+
+    // If we found a file to serve, do so
+    // otherwise: fall through to next route/not found
+
+    if (resolved) {
+      return serveFile(req, reply, resolved, shouldDetectImmutable);
+    }
   };
-
-  return mimeTypes[ext] || 'application/octet-stream';
 }
-
-export default fp(StaticContentRouterPlugin, {
-  name: 'static-router',
-});

@@ -66,6 +66,8 @@
     "ssr-serve-prod": "cd demos/ssr && bun run serve.ts prod",
     "ssr-build-and-serve-prod": "bun run ssr-build && bun run ssr-serve-prod",
     "api-demo": "bun run demos/api-server-demo.ts",
+    "api-static-demo": "bun run demos/api-static-content-demo.ts",
+    "ws-demo": "bun run demos/ws-server-demo.ts",
     "run-dist-cli": "bun ./dist/cli/cli.js",
     "run-dev-cli": "bun run src/cli.ts"
   },
@@ -120,7 +122,6 @@
     "@fastify/websocket": "^11.2.0",
     "cheerio": "^1.1.0",
     "fastify": "^5.0.0",
-    "fastify-plugin": "^5.0.1",
     "punycode": "^2.3.1",
     "range_check": "^4.1.0",
     "semver": "^7.7.3",

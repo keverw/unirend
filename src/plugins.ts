@@ -1,21 +1,32 @@
+// Re-export CORS plugin for cross-origin request handling
 export {
   type CORSConfig,
   type CORSOrigin,
   cors,
 } from './lib/built-in-plugins/cors';
 
+// Re-export domain validation plugin for enforcing canonical domains
 export {
   type InvalidDomainResponse,
   type DomainValidationConfig,
   domainValidation,
 } from './lib/built-in-plugins/domainValidation';
 
+// Re-export client info plugin for request metadata extraction
 export {
   type ClientInfoConfig,
   clientInfo,
 } from './lib/built-in-plugins/clientInfo';
 
+// Re-export cookies plugin for cookie parsing and signing
 export { type CookiesConfig, cookies } from './lib/built-in-plugins/cookies';
+
+// Re-export static content plugin for serving static files
+export {
+  type StaticContentRouterOptions,
+  type FolderConfig,
+  staticContent,
+} from './lib/built-in-plugins/staticContent';
 
 // Re-export manual cookie utilities from @fastify/cookie for convenience
 import {

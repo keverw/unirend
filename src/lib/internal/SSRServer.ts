@@ -22,20 +22,21 @@ import type {
   FastifyRequest,
   FastifyReply,
   FastifyServerOptions,
-  FastifyError,
 } from 'fastify';
 import type { ViteDevServer } from 'vite';
 import {
   createControlledInstance,
-  isAPIRequest,
-  isPageDataRequest,
+  classifyRequest,
+  normalizeAPIPrefix,
+  normalizePageDataEndpoint,
   createDefaultAPIErrorResponse,
   createDefaultAPINotFoundResponse,
   createControlledReply,
   validateAndRegisterPlugin,
+  validateNoHandlersWhenAPIDisabled,
 } from './server-utils';
 import { generateDefault500ErrorPage } from './errorPageUtils';
-import StaticContentRouterPlugin from './middleware/static-content-router';
+import { createStaticContentHook } from './static-content-hook';
 import { BaseServer } from './BaseServer';
 import {
   DataLoaderServerHandlerHelpers,
@@ -91,6 +92,11 @@ export class SSRServer extends BaseServer {
   private cookieAllowList?: Set<string>;
   private cookieBlockList?: Set<string> | true;
 
+  // Normalized endpoint config (computed once at construction)
+  // false means API handling is disabled (matches config type)
+  private readonly normalizedApiPrefix: string | false;
+  private readonly normalizedPageDataEndpoint: string;
+
   /**
    * Creates a new SSR server instance
    *
@@ -107,6 +113,16 @@ export class SSRServer extends BaseServer {
     // Set helpers class (custom or default)
     this.APIResponseHelpersClass =
       config.options.APIResponseHelpersClass || APIResponseHelpers;
+
+    // Normalize API endpoint config once at construction
+    this.normalizedApiPrefix = normalizeAPIPrefix(
+      config.options.apiEndpoints?.apiEndpointPrefix,
+    );
+
+    // Normalize page data endpoint once at construction
+    this.normalizedPageDataEndpoint = normalizePageDataEndpoint(
+      config.options.apiEndpoints?.pageDataEndpoint,
+    );
 
     // Initialize helpers (available immediately for handler registration)
     this.pageDataHandlers = new DataLoaderServerHandlerHelpers();
@@ -278,15 +294,17 @@ export class SSRServer extends BaseServer {
 
           // If the response hasn't been sent, determine response type
           if (!reply.sent) {
-            // Check if this is an API request (if APIHandling is enabled)
-            const rawPath = request.url.split('?')[0];
-            const apiPrefix = this.config.options.APIHandling?.prefix ?? '/api';
-            const isAPI =
-              apiPrefix !== false && isAPIRequest(rawPath, apiPrefix);
+            // Check if this is an API request
+            // classifyRequest handles false prefix internally (returns isAPI: false)
+            const { isAPI } = classifyRequest(
+              request.url,
+              this.normalizedApiPrefix,
+              this.normalizedPageDataEndpoint,
+            );
 
-            if (isAPI) {
+            if (isAPI && this.normalizedApiPrefix) {
               // Handle API error with JSON response
-              await this.handleAPIError(request, reply, error, apiPrefix);
+              await this.handleAPIError(request, reply, error);
             } else {
               // Handle SSR error with HTML response
               const errorPage = await this.generate500ErrorPage(request, error);
@@ -314,25 +332,36 @@ export class SSRServer extends BaseServer {
         this.webSocketHelpers.registerPreValidationHook(this.fastifyInstance);
       }
 
-      // Register page data handler routes with Fastify
-      this.pageDataHandlers.registerRoutes(this.fastifyInstance, {
-        apiEndpointPrefix: this.config.options.apiEndpoints?.apiEndpointPrefix,
-        versioned: this.config.options.apiEndpoints?.versioned,
-        defaultVersion: this.config.options.apiEndpoints?.defaultVersion,
-        pageDataEndpoint: this.config.options.apiEndpoints?.pageDataEndpoint,
-      });
+      // Register API routes if enabled, or validate no handlers were registered if disabled
+      if (this.normalizedApiPrefix === false) {
+        // API is disabled - validate that no handlers were registered
+        validateNoHandlersWhenAPIDisabled(
+          this.apiRoutes,
+          this.pageDataHandlers,
+        );
+      } else {
+        // API is enabled - register page data and API routes
+        this.pageDataHandlers.registerRoutes(
+          this.fastifyInstance,
+          this.normalizedApiPrefix,
+          this.normalizedPageDataEndpoint,
+          {
+            versioned: this.config.options.apiEndpoints?.versioned,
+            defaultVersion: this.config.options.apiEndpoints?.defaultVersion,
+          },
+        );
 
-      // Register generic API routes (if any were added programmatically)
-      this.apiRoutes.registerRoutes(
-        this.fastifyInstance,
-        {
-          apiEndpointPrefix:
-            this.config.options.apiEndpoints?.apiEndpointPrefix,
-          versioned: this.config.options.apiEndpoints?.versioned,
-          defaultVersion: this.config.options.apiEndpoints?.defaultVersion,
-        },
-        { allowWildcardAtRoot: false },
-      );
+        // Register API routes
+        this.apiRoutes.registerRoutes(
+          this.fastifyInstance,
+          this.normalizedApiPrefix,
+          {
+            versioned: this.config.options.apiEndpoints?.versioned,
+            defaultVersion: this.config.options.apiEndpoints?.defaultVersion,
+            allowWildcardAtRoot: false,
+          },
+        );
+      }
 
       // Register WebSocket routes if enabled
       if (this.webSocketHelpers) {
@@ -380,11 +409,13 @@ export class SSRServer extends BaseServer {
             },
           };
 
-          // Register the static router plugin
-          await this.fastifyInstance.register(
-            StaticContentRouterPlugin,
+          // Register the static content hook directly (no plugin encapsulation needed)
+          const staticContentHook = createStaticContentHook(
             staticContentRouterConfig,
+            this.fastifyInstance.log,
           );
+
+          this.fastifyInstance.addHook('onRequest', staticContentHook);
         }
       }
 
@@ -392,14 +423,17 @@ export class SSRServer extends BaseServer {
       this.fastifyInstance.get(
         '*',
         async (request: FastifyRequest, reply: FastifyReply) => {
-          // (if APIHandling is enabled), Check if this is an API request that should return 404 JSON instead of SSR
-          const rawPath = request.url.split('?')[0];
-          const apiPrefix = this.config.options.APIHandling?.prefix ?? '/api';
-          const isAPI = apiPrefix !== false && isAPIRequest(rawPath, apiPrefix);
+          // Check if this is an API request that should return 404 JSON instead of SSR
+          // classifyRequest handles false prefix internally (returns isAPI: false)
+          const { isAPI } = classifyRequest(
+            request.url,
+            this.normalizedApiPrefix,
+            this.normalizedPageDataEndpoint,
+          );
 
-          if (isAPI) {
+          if (isAPI && this.normalizedApiPrefix) {
             // This is an API request that didn't match any route - return 404 JSON
-            return this.handleAPINotFound(request, reply, apiPrefix);
+            return this.handleAPINotFound(request, reply);
           }
 
           // Continue with SSR handling for non-API requests
@@ -1202,23 +1236,20 @@ export class SSRServer extends BaseServer {
    * @param request The Fastify request object
    * @param reply The Fastify reply object
    * @param error The error that occurred
-   * @param apiPrefix The API prefix to remove from path
    * @private
    */
   private async handleAPIError(
     request: FastifyRequest,
     reply: FastifyReply,
     error: Error,
-    apiPrefix: string,
   ): Promise<void> {
     const isDevelopment = this.config.mode === 'development';
 
-    // Remove API prefix to check for page-data pattern
-    const rawPath = request.url.split('?')[0];
-    const pathWithoutAPI = rawPath.startsWith(apiPrefix)
-      ? rawPath.slice(apiPrefix.length)
-      : rawPath;
-    const isPage = isPageDataRequest(pathWithoutAPI);
+    const { isPageData } = classifyRequest(
+      request.url,
+      this.normalizedApiPrefix,
+      this.normalizedPageDataEndpoint,
+    );
 
     // Check for custom API error handler if provided
     if (this.config.options.APIHandling?.errorHandler) {
@@ -1228,7 +1259,7 @@ export class SSRServer extends BaseServer {
             request,
             error,
             isDevelopment,
-            isPage,
+            isPageData,
           ),
         );
 
@@ -1247,45 +1278,46 @@ export class SSRServer extends BaseServer {
     }
 
     // Default case
-    const statusCode = (error as FastifyError).statusCode || 500;
-    reply.code(statusCode).header('Cache-Control', 'no-store');
-
-    // Default API error response using shared utility
     const response = createDefaultAPIErrorResponse(
       this.APIResponseHelpersClass,
       request,
       error,
       isDevelopment,
-      apiPrefix,
+      this.normalizedApiPrefix,
+      this.normalizedPageDataEndpoint,
     );
 
-    return reply.send(response);
+    // Extract status code from envelope response
+    const statusCode =
+      (response as { status_code?: number }).status_code || 500;
+
+    return reply
+      .code(statusCode)
+      .header('Cache-Control', 'no-store')
+      .send(response);
   }
 
   /**
    * Handles API 404 not found responses with JSON envelopes
    * @param request The Fastify request object
    * @param reply The Fastify reply object
-   * @param apiPrefix The API prefix to remove from path
    * @private
    */
   private async handleAPINotFound(
     request: FastifyRequest,
     reply: FastifyReply,
-    apiPrefix: string,
   ): Promise<void> {
-    // Remove API prefix to check for page-data pattern
-    const rawPath = request.url.split('?')[0];
-    const pathWithoutAPI = rawPath.startsWith(apiPrefix)
-      ? rawPath.slice(apiPrefix.length)
-      : rawPath;
-    const isPage = isPageDataRequest(pathWithoutAPI);
+    const { isPageData } = classifyRequest(
+      request.url,
+      this.normalizedApiPrefix,
+      this.normalizedPageDataEndpoint,
+    );
 
     // Check for custom API not-found handler
     if (this.config.options.APIHandling?.notFoundHandler) {
       try {
         const customResponse = await Promise.resolve(
-          this.config.options.APIHandling.notFoundHandler(request, isPage),
+          this.config.options.APIHandling.notFoundHandler(request, isPageData),
         );
 
         // Extract status code from envelope response
@@ -1303,16 +1335,20 @@ export class SSRServer extends BaseServer {
     }
 
     // Default case
-    const statusCode = 404;
-    reply.code(statusCode).header('Cache-Control', 'no-store');
-
-    // Default API not-found response using shared utility
     const response = createDefaultAPINotFoundResponse(
       this.APIResponseHelpersClass,
       request,
-      apiPrefix,
+      this.normalizedApiPrefix,
+      this.normalizedPageDataEndpoint,
     );
 
-    return reply.send(response);
+    // Extract status code from envelope response
+    const statusCode =
+      (response as { status_code?: number }).status_code || 404;
+
+    return reply
+      .code(statusCode)
+      .header('Cache-Control', 'no-store')
+      .send(response);
   }
 }

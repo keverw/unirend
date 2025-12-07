@@ -1,0 +1,140 @@
+/* Static Content Demo Styles */
+
+:root {
+  --bg-dark: #0f0f23;
+  --bg-card: #1a1a2e;
+  --accent: #00d9ff;
+  --accent-glow: rgba(0, 217, 255, 0.3);
+  --text-primary: #e4e4e7;
+  --text-muted: #a1a1aa;
+  --border: #27273a;
+  --success: #22c55e;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  min-height: 100vh;
+  line-height: 1.6;
+}
+
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+header {
+  text-align: center;
+  margin-bottom: 3rem;
+  padding: 2rem;
+  background: linear-gradient(135deg, var(--bg-card) 0%, #16213e 100%);
+  border-radius: 16px;
+  border: 1px solid var(--border);
+}
+
+.logo {
+  width: 120px;
+  height: 120px;
+  margin-bottom: 1.5rem;
+  filter: drop-shadow(0 0 20px var(--accent-glow));
+}
+
+h1 {
+  font-size: 1.75rem;
+  font-weight: 600;
+  background: linear-gradient(135deg, var(--accent) 0%, #a855f7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  transition: border-color 0.2s ease;
+}
+
+.card:hover {
+  border-color: var(--accent);
+}
+
+h2 {
+  font-size: 1.25rem;
+  margin-bottom: 1rem;
+  color: var(--text-primary);
+}
+
+p {
+  color: var(--text-muted);
+}
+
+code {
+  background: rgba(0, 217, 255, 0.1);
+  color: var(--accent);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+ul {
+  list-style: none;
+  margin-top: 0.5rem;
+}
+
+li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+li:last-child {
+  border-bottom: none;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+
+a:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+footer {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+footer strong {
+  color: var(--accent);
+}
+
+/* Success animation for demo */
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+h2::before {
+  display: inline-block;
+  margin-right: 0.5rem;
+}

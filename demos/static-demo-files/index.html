@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Static Content Demo</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <a href="/static/index.html">
+          <img src="/static/logo.svg" alt="Unirend Logo" class="logo" />
+        </a>
+        <h1>Static Content Plugin Demo</h1>
+      </header>
+
+      <main>
+        <section class="card">
+          <h2>🎉 It Works!</h2>
+          <p>
+            This page is being served by the <code>staticContent</code> plugin
+            on a standalone API server.
+          </p>
+        </section>
+
+        <section class="card">
+          <h2>📁 Files Being Served</h2>
+          <ul>
+            <li>
+              <a href="/static/index.html">/static/index.html</a> - This page
+            </li>
+            <li>
+              <a href="/static/styles.css">/static/styles.css</a> - Stylesheet
+            </li>
+            <li><a href="/static/logo.svg">/static/logo.svg</a> - SVG image</li>
+          </ul>
+        </section>
+
+        <section class="card">
+          <h2>🔌 API Endpoints</h2>
+          <ul>
+            <li><a href="/api/health">/api/health</a> - Health check</li>
+            <li><a href="/api/info">/api/info</a> - Server info</li>
+          </ul>
+        </section>
+
+        <section class="card">
+          <h2>🧪 Test Error Handlers</h2>
+          <p>
+            Tests the split handlers:
+            <code>notFoundHandler: { api, web }</code> and
+            <code>errorHandler: { api, web }</code>. Web paths get HTML, API
+            paths get JSON.
+          </p>
+          <h3>404 Tests:</h3>
+          <ul>
+            <li>
+              <a href="/static/missing.html">/static/missing.html</a>
+              → HTML 404 (Web/HTML)
+            </li>
+            <li>
+              <a href="/api/missing">/api/missing</a>
+              → JSON 404 (API/JSON)
+            </li>
+          </ul>
+          <h3>500 Tests:</h3>
+          <ul>
+            <li>
+              <a href="/throw">/throw</a>
+              → HTML 500 (Web/HTML)
+            </li>
+            <li>
+              <a href="/api/throw">/api/throw</a>
+              → JSON 500 (API/JSON)
+            </li>
+          </ul>
+        </section>
+      </main>
+
+      <footer>
+        <p>Powered by <strong>Unirend</strong> staticContent plugin</p>
+      </footer>
+    </div>
+  </body>
+</html>

@@ -761,16 +761,24 @@ describe('domainValidation', () => {
   });
 
   describe('API endpoint detection', () => {
-    it('should treat all requests as API endpoints in API server mode', async () => {
+    it('should treat all requests as API when using root prefix "/"', async () => {
       const config: DomainValidationConfig = {
         validProductionDomains: ['example.com'],
       };
+
       const pluginHost = createMockPluginHost();
-      const options = createMockOptions({ serverType: 'api' });
+
+      // Using root prefix "/" means all paths are API endpoints
+      const options = createMockOptions({
+        serverType: 'api',
+        apiEndpoints: { apiEndpointPrefix: '/' },
+      });
+
       const request = createMockRequest({
         headers: { host: 'evil.com' },
         url: '/some/random/path',
       });
+
       const reply = createMockReply();
 
       const plugin = domainValidation(config);

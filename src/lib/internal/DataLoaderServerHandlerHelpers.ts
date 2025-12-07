@@ -5,7 +5,7 @@ import type {
   BaseMeta,
 } from '../api-envelope/api-envelope-types';
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
-import type { APIEndpointConfig, ControlledReply } from '../types';
+import type { ControlledReply } from '../types';
 import { createControlledReply } from './server-utils';
 
 /**
@@ -107,6 +107,14 @@ export class DataLoaderServerHandlerHelpers {
   }
 
   /**
+   * Check if any page data handlers have been registered
+   * Useful for validation when API handling is disabled
+   */
+  hasRegisteredHandlers(): boolean {
+    return this.handlersByPageType.size > 0;
+  }
+
+  /**
    * Returns the latest (highest) version registered for a given page type
    */
   private getLatestVersion(pageType: string): number | undefined {
@@ -154,7 +162,10 @@ export class DataLoaderServerHandlerHelpers {
 
     if (typeof versionOrHandler === 'function') {
       // 2-param overload: registerDataLoaderHandler(pageType, handler)
-      version = 1; // Default version
+
+      // Use null as sentinel for "use defaultVersion at registration time"
+      // null can't conflict with any valid version number
+      version = null as unknown as number;
       actualHandler = versionOrHandler;
     } else {
       // 3-param overload: registerDataLoaderHandler(pageType, version, handler)
@@ -181,42 +192,30 @@ export class DataLoaderServerHandlerHelpers {
   }
 
   /**
-   * Register all stored handlers with the Fastify instance
-   * This is called during server listen() to actually register the routes
+   * Register all stored handlers with the Fastify instance.
+   * This is called during server listen() to actually register the routes.
+   *
+   * @param fastify - The Fastify instance to register routes on
+   * @param apiPrefix - Pre-normalized API prefix (e.g., "/api")
+   * @param pageDataEndpoint - Pre-normalized page data endpoint (e.g., "page_data")
+   * @param options - Optional config for versioning
    */
   registerRoutes(
     fastify: FastifyInstance,
-    config: APIEndpointConfig = {},
+    apiPrefix: string,
+    pageDataEndpoint: string,
+    options?: {
+      versioned?: boolean;
+      defaultVersion?: number;
+    },
   ): void {
-    // Apply defaults to config
-    const resolvedConfig: Required<
-      Pick<
-        APIEndpointConfig,
-        | 'apiEndpointPrefix'
-        | 'versioned'
-        | 'defaultVersion'
-        | 'pageDataEndpoint'
-      >
-    > = {
-      apiEndpointPrefix: '/api',
-      versioned: true,
-      defaultVersion: 1,
-      pageDataEndpoint: 'page_data',
-      ...config,
-    } as unknown as Required<
-      Pick<
-        APIEndpointConfig,
-        | 'apiEndpointPrefix'
-        | 'versioned'
-        | 'defaultVersion'
-        | 'pageDataEndpoint'
-      >
-    >;
+    const useVersioning = options?.versioned ?? true;
+    const defaultVersion = options?.defaultVersion ?? 1;
 
     // Iterate over all page types and their versions
     for (const [pageType, versionMap] of this.handlersByPageType) {
       // If versioning is disabled but multiple versions exist, throw error
-      if (!resolvedConfig.versioned && versionMap.size > 1) {
+      if (!useVersioning && versionMap.size > 1) {
         const versions = Array.from(versionMap.keys()).sort((a, b) => a - b);
 
         throw new Error(
@@ -225,15 +224,15 @@ export class DataLoaderServerHandlerHelpers {
         );
       }
 
-      for (const [version, handler] of versionMap) {
-        // Build the endpoint path
-        let endpointPath: string;
+      for (const [storedVersion, handler] of versionMap) {
+        // Resolve null (sentinel for "no version specified") to defaultVersion
+        // null can't conflict with any valid version number
+        const version = storedVersion === null ? defaultVersion : storedVersion;
 
-        if (resolvedConfig.versioned) {
-          endpointPath = `${resolvedConfig.apiEndpointPrefix}/v${version}/${resolvedConfig.pageDataEndpoint}/${pageType}`;
-        } else {
-          endpointPath = `${resolvedConfig.apiEndpointPrefix}/${resolvedConfig.pageDataEndpoint}/${pageType}`;
-        }
+        // Build the endpoint path
+        const endpointPath = useVersioning
+          ? `${apiPrefix}/v${version}/${pageDataEndpoint}/${pageType}`
+          : `${apiPrefix}/${pageDataEndpoint}/${pageType}`;
 
         // Register the POST route with Fastify
         fastify.post(endpointPath, async (request, reply) => {

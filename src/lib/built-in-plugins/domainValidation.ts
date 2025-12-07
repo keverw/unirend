@@ -6,6 +6,11 @@ import {
   matchesDomainList,
   validateConfigEntry,
 } from '../internal/domain-utils/domain-utils';
+import {
+  classifyRequest,
+  normalizeAPIPrefix,
+  normalizePageDataEndpoint,
+} from '../internal/server-utils';
 
 /**
  * Response configuration for invalid domain handler
@@ -105,27 +110,27 @@ export interface DomainValidationConfig {
 }
 
 /**
- * Helper function to determine if a request URL is for an API endpoint
+ * Helper function to determine if a request URL is for an API endpoint.
+ * Uses the same classifyRequest logic as the servers for consistency.
  */
 function checkIfAPIEndpoint(url: string, options: PluginOptions): boolean {
-  // API server: all requests are API endpoints
-  if (options.serverType === 'api') {
-    return true;
+  // Normalize the API prefix (handles null/undefined/empty → default, false → false)
+  const apiPrefix = normalizeAPIPrefix(options.apiEndpoints?.apiEndpointPrefix);
+
+  // If API is disabled (prefix is false), nothing is an API endpoint
+  if (apiPrefix === false) {
+    return false;
   }
 
-  // SSR server: check if URL matches API prefix with proper boundary
-  let apiPrefix = options.apiEndpoints?.apiEndpointPrefix ?? '/api';
+  // Normalize the page data endpoint (for completeness, though we only need isAPI here)
+  const pageDataEndpoint = normalizePageDataEndpoint(
+    options.apiEndpoints?.pageDataEndpoint,
+  );
 
-  // Normalize apiPrefix to start with "/" to prevent false positives
-  if (!apiPrefix.startsWith('/')) {
-    apiPrefix = '/' + apiPrefix;
-  }
-
-  // Extract pathname (before query string) and normalize
-  const pathname = url.split('?')[0];
-
-  // Exact match or followed by "/"
-  return pathname === apiPrefix || pathname.startsWith(apiPrefix + '/');
+  // Use the shared classifier - it handles all cases including "/" prefix
+  // and strips query strings internally
+  const { isAPI } = classifyRequest(url, apiPrefix, pageDataEndpoint);
+  return isAPI;
 }
 
 /**
