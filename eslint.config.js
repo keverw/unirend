@@ -129,6 +129,31 @@ export default tseslint.config(
       curly: ['error', 'all'],
       'no-eval': 'error',
       'no-implied-eval': 'error',
+      // Class member accessibility - require explicit public/private/protected
+      '@typescript-eslint/explicit-member-accessibility': [
+        'error',
+        {
+          accessibility: 'explicit',
+          overrides: {
+            constructors: 'no-public', // Don't require public on constructors
+          },
+        },
+      ],
+      // Class member ordering - public first, then protected, then private
+      '@typescript-eslint/member-ordering': [
+        'error',
+        {
+          default: [
+            'public-field',
+            'protected-field',
+            'private-field',
+            'constructor',
+            'public-method',
+            'protected-method',
+            'private-method',
+          ],
+        },
+      ],
     },
   },
   {
