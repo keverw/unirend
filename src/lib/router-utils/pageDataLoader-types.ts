@@ -260,10 +260,7 @@ export interface PageLoaderOptions {
   config: PageLoaderConfig;
 }
 
-// ---------------------------------------------------------------------------
 // Local Page Loader (where no HTTP request is made) types
-// ---------------------------------------------------------------------------
-
 export interface LocalPageHandlerParams {
   /** Logical page type - set to 'local' by the framework */
   pageType: 'local';

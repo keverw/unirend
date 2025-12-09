@@ -77,9 +77,7 @@ export class APIRoutesServerHelpers<
 > {
   private handlersByMethod: MethodToEndpointMap<T, M> = new Map();
 
-  // ---------------------------------------------------------------------------
   // API Shortcuts (method-specific helpers)
-  // ---------------------------------------------------------------------------
   private readonly api = {
     get: (
       endpoint: string,
@@ -163,9 +161,6 @@ export class APIRoutesServerHelpers<
     },
   } as const;
 
-  // ---------------------------------------------------------------------------
-  // Route registration into Fastify
-  // ---------------------------------------------------------------------------
   /**
    * Register all stored handlers with the Fastify instance.
    *
@@ -366,10 +361,6 @@ export class APIRoutesServerHelpers<
 
     return versionMap;
   }
-
-  // ---------------------------------------------------------------------------
-  // Registration API (explicit method)
-  // ---------------------------------------------------------------------------
 
   /**
    * Register an API handler without explicit version (uses default version if versioned)

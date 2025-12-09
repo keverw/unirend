@@ -84,9 +84,7 @@ export class DataLoaderServerHandlerHelpers {
   // Map<pageType, Map<version, handler>> - version defaults to 1 if not specified
   private handlersByPageType = new Map<string, Map<number, PageDataHandler>>();
 
-  // ---------------------------------------------------------------------------
   // Shortcuts API for registration (mirrors APIRoutesServerHelpers style)
-  // ---------------------------------------------------------------------------
   private readonly pageLoader = {
     register: (
       pageType: string,
