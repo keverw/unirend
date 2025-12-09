@@ -1,6 +1,7 @@
 import { vfsReadJSON, vfsWriteJSON, type FileRoot } from '../vfs';
 import type { Logger } from '../types';
 
+// jestrunner.jestCommand assumes bun, as current scope is bun being used for dev/build tooling
 const defaultSettings = {
   'css.lint.unknownAtRules': 'ignore',
   'editor.defaultFormatter': 'esbenp.prettier-vscode',

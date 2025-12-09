@@ -289,7 +289,7 @@ Notes:
 Register page data handlers from a plugin using the pageLoader shortcut. Last registration wins for the same `pageType` + `version`.
 
 ```typescript
-// Unversioned handler (defaults to version 1 when versioning is enabled)
+// Handler without explicit version (defaults to version 1)
 pluginHost.pageLoader.register('home', (request, reply, params) => {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
@@ -298,7 +298,7 @@ pluginHost.pageLoader.register('home', (request, reply, params) => {
   });
 });
 
-// Explicit version
+// Handler with explicit version
 pluginHost.pageLoader.register('home', 2, (request, reply, params) => {
   return APIResponseHelpers.createPageSuccessResponse({
     request,

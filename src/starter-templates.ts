@@ -3,6 +3,15 @@
  *
  * Programmatic API for creating new projects from templates.
  * This is the same functionality used by the CLI, but available as a library.
+ *
+ * NOTE: These starter template utility functions and the files they generate
+ * are Bun-focused since they power the CLI (src/cli.ts), which targets Bun
+ * for a simple, out-of-the-box experience. The generated package.json scripts
+ * use Bun commands, and the SSR server build uses Bun.build() for bundling.
+ *
+ * The framework itself avoids Bun-specific APIs and supports both Bun and Node
+ * runtimes when bundled. See "Runtime requirements" in README.md for rationale
+ * and Node setup thoughts (out-of-the-box Node tooling is currently out of scope).
  */
 
 import {

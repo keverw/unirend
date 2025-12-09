@@ -31,7 +31,7 @@ Unirend includes Fastify as a regular dependency for server side rendering and A
 - Node >= 18.17.0 (uses Web Fetch APIs, `structuredClone`, and `AbortSignal.timeout`)
 - Or Bun with equivalent APIs
 
-Recommendation: We recommend Bun as the default toolchain. Bun can run TypeScript directly in development and can bundle your server to a single JavaScript file that runs under Bun or Node for production. Pure Node setups (e.g., `ts-node`, `tsc`, `esbuild`, `rollup`) or vanilla JavaScript are possible, but not the focus of this guide.
+Recommendation: We recommend Bun as the default toolchain. Bun can run TypeScript directly in development and can bundle your server to a single JavaScript file for production. The unirend library itself avoids Bun-specific APIs, so your bundled server can run under either Bun or Node. Pure Node tooling setups (e.g., `ts-node`, `tsc`, `esbuild`, `rollup`) or vanilla JavaScript are possible, but not the focus of this guide, the CLI, or the starter template utility functions.
 
 CLI note: The Unirend project generator (CLI) requires Bun for a simple, out‑of‑the‑box experience. Generated projects can still run under Node when bundled (e.g., `bun build --target node`), while using Bun only for the development and build tooling. As Node tooling continues to improve, we may add first-class Node CLI support in the future.
 
