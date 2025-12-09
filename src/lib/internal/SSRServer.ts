@@ -38,10 +38,7 @@ import {
 import { generateDefault500ErrorPage } from './errorPageUtils';
 import { createStaticContentHook } from './static-content-hook';
 import { BaseServer } from './BaseServer';
-import {
-  DataLoaderServerHandlerHelpers,
-  type PageDataHandler,
-} from './DataLoaderServerHandlerHelpers';
+import { DataLoaderServerHandlerHelpers } from './DataLoaderServerHandlerHelpers';
 import { APIRoutesServerHelpers } from './APIRoutesServerHelpers';
 import {
   WebSocketServerHelpers,
@@ -74,11 +71,15 @@ type SSRServerConfig = SSRServerConfigDev | SSRServerConfigProd;
  */
 
 export class SSRServer extends BaseServer {
+  /** Pluggable helpers class reference for constructing API/Page envelopes */
+  public readonly APIResponseHelpersClass: APIResponseHelpersClass;
+
+  // config state
   private config: SSRServerConfig;
   private clientFolderName: string;
   private serverFolderName: string;
-  /** Pluggable helpers class reference for constructing API/Page envelopes */
-  public readonly APIResponseHelpersClass: APIResponseHelpersClass;
+
+  // Internal state
   private cachedRenderFunction:
     | ((renderRequest: IRenderRequest) => Promise<IRenderResult>)
     | null = null;
@@ -158,7 +159,10 @@ export class SSRServer extends BaseServer {
    * @param host Host to bind to (defaults to localhost)
    * @returns Promise that resolves when server is listening
    */
-  async listen(port: number = 3000, host: string = 'localhost'): Promise<void> {
+  public async listen(
+    port: number = 3000,
+    host: string = 'localhost',
+  ): Promise<void> {
     if (this._isListening) {
       throw new Error(
         'SSRServer is already listening. Call stop() first before listening again.',
@@ -841,7 +845,7 @@ export class SSRServer extends BaseServer {
   /**
    * Stop the server if it's currently listening
    */
-  async stop(): Promise<void> {
+  public async stop(): Promise<void> {
     if (!this._isListening) {
       return;
     }
@@ -874,38 +878,11 @@ export class SSRServer extends BaseServer {
   }
 
   /**
-   * Register a page data handler for the specified page type
-   * Provides method overloading for versioned and non-versioned handlers
+   * Public API shortcuts for registering page data handlers
+   * Usage: server.pageLoader.register("home", handler) or server.pageLoader.register("home", 2, handler)
    */
-  registerDataLoaderHandler(pageType: string, handler: PageDataHandler): void;
-  registerDataLoaderHandler(
-    pageType: string,
-    version: number,
-    handler: PageDataHandler,
-  ): void;
-  registerDataLoaderHandler(
-    pageType: string,
-    versionOrHandler: number | PageDataHandler,
-    handler?: PageDataHandler,
-  ): void {
-    if (typeof versionOrHandler === 'number') {
-      // Called with version: registerDataLoaderHandler(pageType, version, handler)
-      if (!handler) {
-        throw new Error('Handler is required when version is specified');
-      }
-
-      this.pageDataHandlers.registerDataLoaderHandler(
-        pageType,
-        versionOrHandler,
-        handler,
-      );
-    } else {
-      // Called without version: registerDataLoaderHandler(pageType, handler)
-      this.pageDataHandlers.registerDataLoaderHandler(
-        pageType,
-        versionOrHandler,
-      );
-    }
+  public get pageLoader() {
+    return this.pageDataHandlers.pageLoaderShortcuts;
   }
 
   /**
@@ -914,7 +891,7 @@ export class SSRServer extends BaseServer {
    * @param config WebSocket handler configuration
    * @throws Error if WebSocket support is not enabled
    */
-  registerWebSocketHandler(config: WebSocketHandlerConfig): void {
+  public registerWebSocketHandler(config: WebSocketHandlerConfig): void {
     if (!this.webSocketHelpers) {
       throw new Error(
         "WebSocket support is not enabled. Set 'enableWebSockets: true' in ServeSSROptions to use WebSocket handlers.",
@@ -929,7 +906,7 @@ export class SSRServer extends BaseServer {
    *
    * @returns Set of WebSocket clients, or empty Set if WebSocket support is disabled or server not started
    */
-  getWebSocketClients(): Set<WebSocket> {
+  public getWebSocketClients(): Set<WebSocket> {
     if (!this.fastifyInstance || !this._isListening) {
       // Server not started or Fastify instance missing — return empty set as a safe fallback
       return new Set<WebSocket>();

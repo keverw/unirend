@@ -86,7 +86,9 @@ export class WebSocketServerHelpers {
    *
    * @param fastify The Fastify instance to register the WebSocket plugin with
    */
-  async registerWebSocketPlugin(fastify: FastifyInstance): Promise<void> {
+  public async registerWebSocketPlugin(
+    fastify: FastifyInstance,
+  ): Promise<void> {
     const pluginOptions: FastifyWebSocketPluginOptions = {
       options: {
         clientTracking: true,
@@ -126,7 +128,7 @@ export class WebSocketServerHelpers {
    *
    * @param config WebSocket handler configuration
    */
-  registerWebSocketHandler(config: WebSocketHandlerConfig): void {
+  public registerWebSocketHandler(config: WebSocketHandlerConfig): void {
     // Last registration wins for the same path (consistent with other helpers)
     this.handlersByPath.set(config.path, config);
   }
@@ -134,7 +136,7 @@ export class WebSocketServerHelpers {
   /**
    * Register WebSocket routes and handlers with the Fastify instance
    */
-  registerRoutes(fastify: FastifyInstance): void {
+  public registerRoutes(fastify: FastifyInstance): void {
     // Register all stored WebSocket handlers
     for (const [path, config] of this.handlersByPath) {
       fastify.register(function (fastify) {
@@ -181,7 +183,7 @@ export class WebSocketServerHelpers {
    *
    * @param fastify The Fastify instance to register the hook with
    */
-  registerPreValidationHook(fastify: FastifyInstance): void {
+  public registerPreValidationHook(fastify: FastifyInstance): void {
     fastify.addHook('preValidation', async (request, reply) => {
       // Only act on WebSocket upgrade attempts - check both headers and Fastify's ws flag
       const upgrade = request.headers['upgrade'];

@@ -49,7 +49,7 @@ export class LRUCache<K, V> {
    * Get the current number of entries in the cache
    */
 
-  get size(): number {
+  public get size(): number {
     return this.map.size;
   }
 
@@ -57,8 +57,66 @@ export class LRUCache<K, V> {
    * Get the current total size in bytes of all cached items
    */
 
-  get byteSize(): number {
+  public get byteSize(): number {
     return this.currentSize;
+  }
+
+  public get(key: K): V | undefined {
+    const entry = this.map.get(key);
+
+    if (entry) {
+      // Check if entry has expired
+      if (entry.expires && Date.now() > entry.expires) {
+        this.removeEntry(key);
+        return undefined;
+      }
+
+      // Move to end of LRU (most recently used)
+      this.map.delete(key);
+      this.map.set(key, entry);
+
+      // Run periodic cleanup if needed
+      this.maybeCleanup();
+
+      return entry.value;
+    }
+
+    return undefined;
+  }
+
+  public set(key: K, value: V, customTtl?: number): void {
+    // Calculate the size of the new value
+    const size = this.calculateSize(value);
+
+    // Remove existing entry if present
+    if (this.map.has(key)) {
+      this.removeEntry(key);
+    }
+
+    // Calculate expiration if TTL is set
+    const expires =
+      this.defaultTtl || customTtl
+        ? Date.now() + (customTtl ?? this.defaultTtl ?? 0)
+        : undefined;
+
+    // Add new entry
+    this.map.set(key, { value, expires, size });
+    this.currentSize += size;
+
+    // Evict entries if we exceed capacity (either by count or size)
+    this.evictIfNeeded();
+
+    // Run periodic cleanup if needed
+    this.maybeCleanup();
+  }
+
+  /**
+   * Clear all entries from the cache
+   */
+
+  public clear(): void {
+    this.map.clear();
+    this.currentSize = 0;
   }
 
   /**
@@ -110,29 +168,6 @@ export class LRUCache<K, V> {
     return 100; // Default fallback size
   }
 
-  get(key: K): V | undefined {
-    const entry = this.map.get(key);
-
-    if (entry) {
-      // Check if entry has expired
-      if (entry.expires && Date.now() > entry.expires) {
-        this.removeEntry(key);
-        return undefined;
-      }
-
-      // Move to end of LRU (most recently used)
-      this.map.delete(key);
-      this.map.set(key, entry);
-
-      // Run periodic cleanup if needed
-      this.maybeCleanup();
-
-      return entry.value;
-    }
-
-    return undefined;
-  }
-
   /**
    * Remove an entry and update the size tracking
    */
@@ -143,32 +178,6 @@ export class LRUCache<K, V> {
       this.currentSize -= entry.size;
       this.map.delete(key);
     }
-  }
-
-  set(key: K, value: V, customTtl?: number): void {
-    // Calculate the size of the new value
-    const size = this.calculateSize(value);
-
-    // Remove existing entry if present
-    if (this.map.has(key)) {
-      this.removeEntry(key);
-    }
-
-    // Calculate expiration if TTL is set
-    const expires =
-      this.defaultTtl || customTtl
-        ? Date.now() + (customTtl ?? this.defaultTtl ?? 0)
-        : undefined;
-
-    // Add new entry
-    this.map.set(key, { value, expires, size });
-    this.currentSize += size;
-
-    // Evict entries if we exceed capacity (either by count or size)
-    this.evictIfNeeded();
-
-    // Run periodic cleanup if needed
-    this.maybeCleanup();
   }
 
   /**
@@ -215,15 +224,6 @@ export class LRUCache<K, V> {
         }
       }
     }
-  }
-
-  /**
-   * Clear all entries from the cache
-   */
-
-  clear(): void {
-    this.map.clear();
-    this.currentSize = 0;
   }
 }
 

@@ -87,7 +87,7 @@ export class DataLoaderServerHandlerHelpers {
   // ---------------------------------------------------------------------------
   // Shortcuts API for registration (mirrors APIRoutesServerHelpers style)
   // ---------------------------------------------------------------------------
-  public readonly pageLoader = {
+  private readonly pageLoader = {
     register: (
       pageType: string,
       versionOrHandler: number | PageDataHandler,
@@ -114,84 +114,8 @@ export class DataLoaderServerHandlerHelpers {
    * Check if any page data handlers have been registered
    * Useful for validation when API handling is disabled
    */
-  hasRegisteredHandlers(): boolean {
+  public hasRegisteredHandlers(): boolean {
     return this.handlersByPageType.size > 0;
-  }
-
-  /**
-   * Returns the latest (highest) version registered for a given page type
-   */
-  private getLatestVersion(pageType: string): number | undefined {
-    const versionMap = this.handlersByPageType.get(pageType);
-
-    if (!versionMap || versionMap.size === 0) {
-      return undefined;
-    }
-
-    let latestVersion = -Infinity;
-
-    for (const version of versionMap.keys()) {
-      if (version > latestVersion) {
-        latestVersion = version;
-      }
-    }
-
-    return Number.isFinite(latestVersion) ? latestVersion : undefined;
-  }
-
-  /**
-   * Register a page data handler without explicit version (uses default version if versioned)
-   */
-  registerDataLoaderHandler(pageType: string, handler: PageDataHandler): void;
-
-  /**
-   * Register a page data handler with explicit version
-   */
-  registerDataLoaderHandler(
-    pageType: string,
-    version: number,
-    handler: PageDataHandler,
-  ): void;
-
-  /**
-   * Implementation of the overloaded method
-   */
-  registerDataLoaderHandler(
-    pageType: string,
-    versionOrHandler: number | PageDataHandler,
-    handler?: PageDataHandler,
-  ): void {
-    let version: number;
-    let actualHandler: PageDataHandler;
-
-    if (typeof versionOrHandler === 'function') {
-      // 2-param overload: registerDataLoaderHandler(pageType, handler)
-      // Default to version 1 when not specified
-      version = 1;
-      actualHandler = versionOrHandler;
-    } else {
-      // 3-param overload: registerDataLoaderHandler(pageType, version, handler)
-      if (!handler) {
-        throw new Error(
-          'Handler function is required when version is specified',
-        );
-      }
-
-      validateVersion(versionOrHandler, 'Page data loader');
-      version = versionOrHandler;
-      actualHandler = handler;
-    }
-
-    // Get or create the version map for this page type
-    let versionMap = this.handlersByPageType.get(pageType);
-
-    if (!versionMap) {
-      versionMap = new Map<number, PageDataHandler>();
-      this.handlersByPageType.set(pageType, versionMap);
-    }
-
-    // Last registration wins for the same pageType + version
-    versionMap.set(version, actualHandler);
   }
 
   /**
@@ -203,7 +127,7 @@ export class DataLoaderServerHandlerHelpers {
    * @param pageDataEndpoint - Pre-normalized page data endpoint (e.g., "page_data")
    * @param options - Optional config for versioning
    */
-  registerRoutes(
+  public registerRoutes(
     fastify: FastifyInstance,
     apiPrefix: string,
     pageDataEndpoint: string,
@@ -460,7 +384,7 @@ export class DataLoaderServerHandlerHelpers {
    * Check if a handler is registered for the given page type and version
    * Used internally by pageDataLoader for short-circuit optimization
    */
-  hasHandler(pageType: string, version?: number): boolean {
+  public hasHandler(pageType: string, version?: number): boolean {
     const versionMap = this.handlersByPageType.get(pageType);
     if (!versionMap) {
       return false;
@@ -472,5 +396,84 @@ export class DataLoaderServerHandlerHelpers {
     }
 
     return versionMap.has(version);
+  }
+
+  /**
+   * Returns the latest (highest) version registered for a given page type
+   */
+  private getLatestVersion(pageType: string): number | undefined {
+    const versionMap = this.handlersByPageType.get(pageType);
+
+    if (!versionMap || versionMap.size === 0) {
+      return undefined;
+    }
+
+    let latestVersion = -Infinity;
+
+    for (const version of versionMap.keys()) {
+      if (version > latestVersion) {
+        latestVersion = version;
+      }
+    }
+
+    return Number.isFinite(latestVersion) ? latestVersion : undefined;
+  }
+
+  /**
+   * Register a page data handler without explicit version (uses default version if versioned)
+   */
+  private registerDataLoaderHandler(
+    pageType: string,
+    handler: PageDataHandler,
+  ): void;
+
+  /**
+   * Register a page data handler with explicit version
+   */
+  private registerDataLoaderHandler(
+    pageType: string,
+    version: number,
+    handler: PageDataHandler,
+  ): void;
+
+  /**
+   * Implementation of the overloaded method
+   */
+  private registerDataLoaderHandler(
+    pageType: string,
+    versionOrHandler: number | PageDataHandler,
+    handler?: PageDataHandler,
+  ): void {
+    let version: number;
+    let actualHandler: PageDataHandler;
+
+    if (typeof versionOrHandler === 'function') {
+      // 2-param overload: registerDataLoaderHandler(pageType, handler)
+      // Default to version 1 when not specified
+      version = 1;
+      actualHandler = versionOrHandler;
+    } else {
+      // 3-param overload: registerDataLoaderHandler(pageType, version, handler)
+      if (!handler) {
+        throw new Error(
+          'Handler function is required when version is specified',
+        );
+      }
+
+      validateVersion(versionOrHandler, 'Page data loader');
+      version = versionOrHandler;
+      actualHandler = handler;
+    }
+
+    // Get or create the version map for this page type
+    let versionMap = this.handlersByPageType.get(pageType);
+
+    if (!versionMap) {
+      versionMap = new Map<number, PageDataHandler>();
+      this.handlersByPageType.set(pageType, versionMap);
+    }
+
+    // Last registration wins for the same pageType + version
+    versionMap.set(version, actualHandler);
   }
 }

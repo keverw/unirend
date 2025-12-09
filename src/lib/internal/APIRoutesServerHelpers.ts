@@ -77,130 +77,10 @@ export class APIRoutesServerHelpers<
 > {
   private handlersByMethod: MethodToEndpointMap<T, M> = new Map();
 
-  /** Normalize and validate endpoint string (no prefix, no version) */
-  private normalizeEndpoint(endpoint: string): string {
-    const trimmed = (endpoint || '').trim();
-
-    if (trimmed.length === 0) {
-      throw new Error('Endpoint path segment cannot be empty');
-    }
-
-    // Remove leading slash to keep it as a path segment
-    return trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
-  }
-
-  private ensureMethod(method: string): HTTPMethod {
-    const upper = (method || '').toUpperCase();
-    if (
-      upper === 'GET' ||
-      upper === 'POST' ||
-      upper === 'PUT' ||
-      upper === 'DELETE' ||
-      upper === 'PATCH'
-    ) {
-      return upper as HTTPMethod;
-    }
-
-    throw new Error('Unsupported HTTP method: ' + method);
-  }
-
-  private getOrCreateEndpointMap(
-    method: HTTPMethod,
-  ): EndpointToVersionMap<T, M> {
-    let map = this.handlersByMethod.get(method);
-
-    if (!map) {
-      map = new Map();
-      this.handlersByMethod.set(method, map);
-    }
-
-    return map;
-  }
-
-  private getOrCreateVersionMap(
-    endpointMap: EndpointToVersionMap<T, M>,
-    endpoint: string,
-  ): VersionToHandlerMap<T, M> {
-    let versionMap = endpointMap.get(endpoint);
-
-    if (!versionMap) {
-      versionMap = new Map();
-      endpointMap.set(endpoint, versionMap);
-    }
-
-    return versionMap;
-  }
-
   // ---------------------------------------------------------------------------
-  // Registration API (explicit method)
+  // API Shortcuts (method-specific helpers)
   // ---------------------------------------------------------------------------
-
-  /**
-   * Register an API handler without explicit version (uses default version if versioned)
-   */
-  registerAPIHandler(
-    method: HTTPMethod,
-    endpoint: string,
-    handler: APIRouteHandler<T, M>,
-  ): void;
-
-  /**
-   * Register an API handler with explicit version
-   */
-  registerAPIHandler(
-    method: HTTPMethod,
-    endpoint: string,
-    version: number,
-    handler: APIRouteHandler<T, M>,
-  ): void;
-
-  /**
-   * Implementation of the overloaded method
-   */
-  registerAPIHandler(
-    method: HTTPMethod,
-    endpoint: string,
-    versionOrHandler: number | APIRouteHandler<T, M>,
-    handlerMaybe?: APIRouteHandler<T, M>,
-  ): void {
-    const httpMethod = this.ensureMethod(method);
-    const normalizedEndpoint = this.normalizeEndpoint(endpoint);
-
-    let version: number;
-    let handler: APIRouteHandler<T, M>;
-
-    if (typeof versionOrHandler === 'function') {
-      // 2-param overload: registerAPIHandler(method, endpoint, handler)
-      // Default to version 1 when not specified
-      version = 1;
-      handler = versionOrHandler;
-    } else {
-      // 3-param overload: registerAPIHandler(method, endpoint, version, handler)
-      if (!handlerMaybe) {
-        throw new Error(
-          'Handler function is required when version is specified',
-        );
-      }
-
-      validateVersion(versionOrHandler, 'API');
-      version = versionOrHandler;
-      handler = handlerMaybe;
-    }
-
-    const endpointMap = this.getOrCreateEndpointMap(httpMethod);
-    const versionMap = this.getOrCreateVersionMap(
-      endpointMap,
-      normalizedEndpoint,
-    );
-
-    // Last registration wins for the same method + endpoint + version
-    versionMap.set(version, handler);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Shortcuts API (method-specific helpers)
-  // ---------------------------------------------------------------------------
-  public readonly api = {
+  private readonly api = {
     get: (
       endpoint: string,
       handlerOrVersion: number | APIRouteHandler<T, M>,
@@ -283,21 +163,6 @@ export class APIRoutesServerHelpers<
     },
   } as const;
 
-  /**
-   * Expose only the lightweight shortcuts surface for external consumers
-   */
-  public get apiShortcuts() {
-    return this.api;
-  }
-
-  /**
-   * Check if any API handlers have been registered
-   * Useful for validation when API handling is disabled
-   */
-  hasRegisteredHandlers(): boolean {
-    return this.handlersByMethod.size > 0;
-  }
-
   // ---------------------------------------------------------------------------
   // Route registration into Fastify
   // ---------------------------------------------------------------------------
@@ -308,7 +173,7 @@ export class APIRoutesServerHelpers<
    * @param apiPrefix - Pre-normalized API prefix (e.g., "/api")
    * @param options - Optional config for versioning and wildcard behavior
    */
-  registerRoutes(
+  public registerRoutes(
     fastify: FastifyInstance,
     apiPrefix: string,
     options?: {
@@ -431,6 +296,155 @@ export class APIRoutesServerHelpers<
         }
       }
     }
+  }
+
+  /**
+   * Expose only the lightweight shortcuts surface for external consumers
+   */
+  public get apiShortcuts() {
+    return this.api;
+  }
+
+  /**
+   * Check if any API handlers have been registered
+   * Useful for validation when API handling is disabled
+   */
+  public hasRegisteredHandlers(): boolean {
+    return this.handlersByMethod.size > 0;
+  }
+
+  /** Normalize and validate endpoint string (no prefix, no version) */
+  private normalizeEndpoint(endpoint: string): string {
+    const trimmed = (endpoint || '').trim();
+
+    if (trimmed.length === 0) {
+      throw new Error('Endpoint path segment cannot be empty');
+    }
+
+    // Remove leading slash to keep it as a path segment
+    return trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
+  }
+
+  private ensureMethod(method: string): HTTPMethod {
+    const upper = (method || '').toUpperCase();
+    if (
+      upper === 'GET' ||
+      upper === 'POST' ||
+      upper === 'PUT' ||
+      upper === 'DELETE' ||
+      upper === 'PATCH'
+    ) {
+      return upper as HTTPMethod;
+    }
+
+    throw new Error('Unsupported HTTP method: ' + method);
+  }
+
+  private getOrCreateEndpointMap(
+    method: HTTPMethod,
+  ): EndpointToVersionMap<T, M> {
+    let map = this.handlersByMethod.get(method);
+
+    if (!map) {
+      map = new Map();
+      this.handlersByMethod.set(method, map);
+    }
+
+    return map;
+  }
+
+  private getOrCreateVersionMap(
+    endpointMap: EndpointToVersionMap<T, M>,
+    endpoint: string,
+  ): VersionToHandlerMap<T, M> {
+    let versionMap = endpointMap.get(endpoint);
+
+    if (!versionMap) {
+      versionMap = new Map();
+      endpointMap.set(endpoint, versionMap);
+    }
+
+    return versionMap;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Registration API (explicit method)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Register an API handler without explicit version (uses default version if versioned)
+   *
+   * This method is used internally by the `.api` shortcuts (`.api.get`, `.api.post`, etc.).
+   * External users should use those shortcuts instead, which are exposed on SSRServer and
+   * APIServer via the `.api` getter property.
+   *
+   * @example
+   * // Preferred public API:
+   * server.api.get('users/:id', handler)
+   * server.api.post('items', 2, handler)
+   */
+  private registerAPIHandler(
+    method: HTTPMethod,
+    endpoint: string,
+    handler: APIRouteHandler<T, M>,
+  ): void;
+
+  /**
+   * Register an API handler with explicit version
+   *
+   * This method is used internally by the `.api` shortcuts.
+   * External users should use the public shortcuts instead: `server.api.get()`, etc.
+   */
+  private registerAPIHandler(
+    method: HTTPMethod,
+    endpoint: string,
+    version: number,
+    handler: APIRouteHandler<T, M>,
+  ): void;
+
+  /**
+   * Implementation of the overloaded method
+   *
+   * This is the internal implementation used by the `.api` shortcuts.
+   */
+  private registerAPIHandler(
+    method: HTTPMethod,
+    endpoint: string,
+    versionOrHandler: number | APIRouteHandler<T, M>,
+    handlerMaybe?: APIRouteHandler<T, M>,
+  ): void {
+    const httpMethod = this.ensureMethod(method);
+    const normalizedEndpoint = this.normalizeEndpoint(endpoint);
+
+    let version: number;
+    let handler: APIRouteHandler<T, M>;
+
+    if (typeof versionOrHandler === 'function') {
+      // 2-param overload: registerAPIHandler(method, endpoint, handler)
+      // Default to version 1 when not specified
+      version = 1;
+      handler = versionOrHandler;
+    } else {
+      // 3-param overload: registerAPIHandler(method, endpoint, version, handler)
+      if (!handlerMaybe) {
+        throw new Error(
+          'Handler function is required when version is specified',
+        );
+      }
+
+      validateVersion(versionOrHandler, 'API');
+      version = versionOrHandler;
+      handler = handlerMaybe;
+    }
+
+    const endpointMap = this.getOrCreateEndpointMap(httpMethod);
+    const versionMap = this.getOrCreateVersionMap(
+      endpointMap,
+      normalizedEndpoint,
+    );
+
+    // Last registration wins for the same method + endpoint + version
+    versionMap.set(version, handler);
   }
 
   private buildPath(

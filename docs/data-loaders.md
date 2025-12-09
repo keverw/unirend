@@ -42,7 +42,7 @@ On the server, register a page data handler for the same `pageType`. See: [SSR �
 // On your SSR server instance
 import { APIResponseHelpers } from 'unirend/api-envelope';
 
-server.registerDataLoaderHandler('home', (request, params) => {
+server.pageLoader.register('home', (request, params) => {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { message: 'Hello from server', route: params.route_params },
@@ -105,7 +105,7 @@ Notes:
   - Request and correlation IDs and client details are handled by the built‑in `clientInfo` plugin. It reads trusted `X‑SSR-*` headers when allowed and otherwise uses the real request IP and user agent. Works for both short‑circuit handlers and HTTP‑forwarded API requests — whether hosted on the same server or a separate API server. For cookies — including reading and setting — see the dedicated cookies plugin doc. Cookie handling works the same for both loader types. See: [clientInfo](./built-in-plugins/clientInfo.md) and [cookies](./built-in-plugins/cookies.md)
 
 - Prefer `APIResponseHelpers` on the server to build envelopes and auto-populate `request_id` from the request object when set
-- The `pageType` you pass here must match what you register on the server via `registerDataLoaderHandler(pageType, ...)`. See `docs/ssr.md` “Page Data Handlers and Versioning”.
+- The `pageType` you pass here must match what you register on the server via `server.pageLoader.register(pageType, ...)`. See `docs/ssr.md` "Page Data Handlers and Versioning".
 
 Tip:
 

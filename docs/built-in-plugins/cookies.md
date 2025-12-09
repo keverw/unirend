@@ -51,7 +51,7 @@ const server = serveSSRDev(
 );
 
 // In handlers, use reply:ControlledReply to set cookies when @fastify/cookie is registered
-server.registerDataLoaderHandler('example', (request, reply) => {
+server.pageLoader.register('example', (request, reply) => {
   reply.setCookie?.('session', 'abc', { httpOnly: true, sameSite: 'lax' });
   return /* envelope */;
 });
@@ -190,7 +190,7 @@ Considerations and rollout tips:
 Values in `request.cookies` are not auto‑verified, if a cookie was set with `signed: true`, the stored value will be the signed payload. Use `reply.unsignCookie(raw)` to verify and recover the original value (and optionally reissue when `renew` is true, indicating the cookie was signed with an older key).
 
 ```ts
-server.registerDataLoaderHandler('profile', (request) => {
+server.pageLoader.register('profile', (request) => {
   const cookies = (request as any).cookies; // added by @fastify/cookie
   const theme = cookies?.theme; // e.g., "dark"
   // ...
@@ -200,7 +200,7 @@ server.registerDataLoaderHandler('profile', (request) => {
 #### Setting Cookies
 
 ```ts
-server.registerDataLoaderHandler('login', (request, reply) => {
+server.pageLoader.register('login', (request, reply) => {
   // Unsigned, JS-readable cookie (avoid for sensitive data)
   reply.setCookie?.('prefs', 'lang=en', { path: '/', sameSite: 'lax' });
 
@@ -225,7 +225,7 @@ Notes:
 #### Verifying an incoming signed cookie
 
 ```ts
-server.registerDataLoaderHandler('profile', (request, reply) => {
+server.pageLoader.register('profile', (request, reply) => {
   const raw = (request as any).cookies?.sid;
 
   if (raw && reply.unsignCookie) {

@@ -282,7 +282,7 @@ function createSharedConfig() {
  */
 function registerPageDataHandlers(server: SSRServer) {
   // Register test page data handler for debugging (success cases)
-  server.registerDataLoaderHandler(
+  server.pageLoader.register(
     'test',
     async (
       request: FastifyRequest,
@@ -343,7 +343,7 @@ function registerPageDataHandlers(server: SSRServer) {
   );
 
   // Register 500 error handler
-  server.registerDataLoaderHandler(
+  server.pageLoader.register(
     'test-500',
     async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
       return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
@@ -366,7 +366,7 @@ function registerPageDataHandlers(server: SSRServer) {
   );
 
   // Register stacktrace error handler demo for testing
-  server.registerDataLoaderHandler(
+  server.pageLoader.register(
     'test-stacktrace',
     async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
       // Create a sample stacktrace
@@ -402,7 +402,7 @@ function registerPageDataHandlers(server: SSRServer) {
   );
 
   // Register generic error handler
-  server.registerDataLoaderHandler(
+  server.pageLoader.register(
     'test-generic-error',
     async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
       return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
@@ -427,7 +427,7 @@ function registerPageDataHandlers(server: SSRServer) {
   // Register 404 not found handler
   // This might come in handy if you explicitly want to handle 404s in a data loader set within react-router
   // Such as still returning back custom account meta data, etc for a page.
-  server.registerDataLoaderHandler(
+  server.pageLoader.register(
     'not-found',
     async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
       const request_path = params.request_path;

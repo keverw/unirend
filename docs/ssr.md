@@ -56,7 +56,7 @@ Both server classes expose the same operational methods:
 
 - `listen(port?: number, host?: string): Promise<void>` — Start the server
 - `stop(): Promise<void>` — Stop the server
-- `registerDataLoaderHandler(pageType, handler)` and `registerDataLoaderHandler(pageType, version, handler)` — Register page data handlers used by the page data endpoint
+- `pageLoader.register(pageType, handler)` and `pageLoader.register(pageType, version, handler)` — Register page data handlers used by the page data endpoint
 - `registerWebSocketHandler(config)` — Register a WebSocket handler (when `enableWebSockets` is true)
 - `getWebSocketClients(): Set<unknown>` — Get the connected WebSocket clients (empty set when not supported/not started)
 - `hasDecoration(property: string): boolean` — Check if a server-level decoration exists
@@ -295,7 +295,7 @@ const info = server.getDecoration<{
 Within your request handlers (including page data handlers), you can check a boolean environment flag on the request to tailor behavior:
 
 ```ts
-server.registerDataLoaderHandler('example', (request, params) => {
+server.pageLoader.register('example', (request, params) => {
   const isDev = (request as FastifyRequest & { isDevelopment?: boolean })
     .isDevelopment;
   return APIResponseHelpers.createPageSuccessResponse({
@@ -329,7 +329,7 @@ Example paths (assuming `apiEndpointPrefix = "/api"`, `pageDataEndpoint = "page_
 
 Handler signature and return type:
 
-- `registerDataLoaderHandler(pageType, handler)` or `registerDataLoaderHandler(pageType, version, handler)`
+- `server.pageLoader.register(pageType, handler)` or `server.pageLoader.register(pageType, version, handler)`
 - Handler signature: `(originalRequest, reply, params) => PageResponseEnvelope | APIResponseEnvelope`
 - Handler parameters:
   - `originalRequest`: the Fastify request that initiated the render. Use only for transport/ambient data (cookies, headers, IP, auth tokens).
@@ -366,7 +366,7 @@ Examples:
 import { APIResponseHelpers } from 'unirend/api-envelope';
 
 // Unversioned handler (defaults to version 1)
-server.registerDataLoaderHandler('test', function (request, params) {
+server.pageLoader.register('test', function (request, params) {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { message: 'version 1', version: params.version },
@@ -375,7 +375,7 @@ server.registerDataLoaderHandler('test', function (request, params) {
 });
 
 // Explicit versioned handlers
-server.registerDataLoaderHandler('test', 2, function (request, params) {
+server.pageLoader.register('test', 2, function (request, params) {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { message: 'v2', version: params.version },
@@ -383,7 +383,7 @@ server.registerDataLoaderHandler('test', 2, function (request, params) {
   });
 });
 
-server.registerDataLoaderHandler('test', 3, function (request, params) {
+server.pageLoader.register('test', 3, function (request, params) {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { message: 'v3', version: params.version },

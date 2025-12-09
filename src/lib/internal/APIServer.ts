@@ -23,10 +23,7 @@ import type {
   SplitNotFoundHandler,
 } from '../types';
 import { BaseServer } from './BaseServer';
-import {
-  DataLoaderServerHandlerHelpers,
-  type PageDataHandler,
-} from './DataLoaderServerHandlerHelpers';
+import { DataLoaderServerHandlerHelpers } from './DataLoaderServerHandlerHelpers';
 import { APIRoutesServerHelpers } from './APIRoutesServerHelpers';
 import {
   WebSocketServerHelpers,
@@ -41,13 +38,14 @@ import type { WebSocket, WebSocketServer } from 'ws';
  */
 
 export class APIServer extends BaseServer {
+  /** Pluggable helpers class reference for constructing API/Page envelopes */
+  public readonly APIResponseHelpersClass: APIResponseHelpersClass;
+
   private options: APIServerOptions;
   private pageDataHandlers!: DataLoaderServerHandlerHelpers;
   private apiRoutes!: APIRoutesServerHelpers;
   private webSocketHelpers: WebSocketServerHelpers | null = null;
   private registeredPlugins: PluginMetadata[] = [];
-  /** Pluggable helpers class reference for constructing API/Page envelopes */
-  public readonly APIResponseHelpersClass: APIResponseHelpersClass;
 
   // Normalized endpoint config (computed once at construction)
   // Can be false if API handling is disabled (server becomes a plain web server)
@@ -94,7 +92,10 @@ export class APIServer extends BaseServer {
    * @param host Host to bind to (default: "localhost")
    * @returns Promise that resolves when server is ready
    */
-  async listen(port: number = 3000, host: string = 'localhost'): Promise<void> {
+  public async listen(
+    port: number = 3000,
+    host: string = 'localhost',
+  ): Promise<void> {
     if (this._isListening) {
       throw new Error(
         'APIServer is already listening. Call stop() first before listening again.',
@@ -257,7 +258,7 @@ export class APIServer extends BaseServer {
    * Stop the API server if it's currently listening
    * @returns Promise that resolves when server is stopped
    */
-  async stop(): Promise<void> {
+  public async stop(): Promise<void> {
     if (this.fastifyInstance && this._isListening) {
       await this.fastifyInstance.close();
       this._isListening = false;
@@ -277,38 +278,11 @@ export class APIServer extends BaseServer {
   }
 
   /**
-   * Register a page data handler for the specified page type
-   * Provides method overloading for versioned and non-versioned handlers
+   * Public API shortcuts for registering page data handlers
+   * Usage: server.pageLoader.register("home", handler) or server.pageLoader.register("home", 2, handler)
    */
-  registerDataLoaderHandler(pageType: string, handler: PageDataHandler): void;
-  registerDataLoaderHandler(
-    pageType: string,
-    version: number,
-    handler: PageDataHandler,
-  ): void;
-  registerDataLoaderHandler(
-    pageType: string,
-    versionOrHandler: number | PageDataHandler,
-    handler?: PageDataHandler,
-  ): void {
-    if (typeof versionOrHandler === 'number') {
-      // Called with version: registerDataLoaderHandler(pageType, version, handler)
-      if (!handler) {
-        throw new Error('Handler is required when version is specified');
-      }
-
-      this.pageDataHandlers.registerDataLoaderHandler(
-        pageType,
-        versionOrHandler,
-        handler,
-      );
-    } else {
-      // Called without version: registerDataLoaderHandler(pageType, handler)
-      this.pageDataHandlers.registerDataLoaderHandler(
-        pageType,
-        versionOrHandler,
-      );
-    }
+  public get pageLoader() {
+    return this.pageDataHandlers.pageLoaderShortcuts;
   }
 
   /**
@@ -317,7 +291,7 @@ export class APIServer extends BaseServer {
    * @param config WebSocket handler configuration
    * @throws Error if WebSocket support is not enabled
    */
-  registerWebSocketHandler(config: WebSocketHandlerConfig): void {
+  public registerWebSocketHandler(config: WebSocketHandlerConfig): void {
     if (!this.webSocketHelpers) {
       throw new Error(
         "WebSocket support is not enabled. Set 'enableWebSockets: true' in APIServerOptions to use WebSocket handlers.",
@@ -332,7 +306,7 @@ export class APIServer extends BaseServer {
    *
    * @returns Set of WebSocket clients, or empty Set if WebSocket support is disabled or server not started
    */
-  getWebSocketClients(): Set<WebSocket> {
+  public getWebSocketClients(): Set<WebSocket> {
     if (!this.fastifyInstance || !this._isListening) {
       // Server not started or Fastify instance missing — return empty set as a safe fallback
       return new Set<WebSocket>();
