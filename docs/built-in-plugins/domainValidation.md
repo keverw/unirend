@@ -55,8 +55,8 @@ const server = serveSSRProd(buildDir, {
   - `"*.example.com"`: Direct subdomains only (`api.example.com` ✅, `app.api.example.com` ❌)
   - `"**.example.com"`: All subdomains including nested (`api.example.com` ✅, `app.api.example.com` ✅)
   - Note: Domain validation is protocol-agnostic (ignores http/https)
-  - Apex domains never match wildcard entries; include the apex explicitly alongside subdomain patterns.
-  - If not provided, domain validation is skipped. Use this to protect against unexpected domains pointing at your server (e.g., DNS misconfiguration or hostile `Host` headers). Requests from non-allowed hosts are always blocked; `invalidDomainHandler` only customizes the error response.
+  - Apex domains never match wildcard entries, include the apex explicitly alongside subdomain patterns.
+  - If not provided, domain validation is skipped. Use this to protect against unexpected domains pointing at your server (e.g., DNS misconfiguration or hostile `Host` headers). Requests from non-allowed hosts are always blocked, `invalidDomainHandler` only customizes the error response.
 - `canonicalDomain` (optional): Preferred domain/host to redirect to when multiple domains are allowed
   - Provide a hostname or IP (IPv4 or IPv6), with no protocol
   - Use `wwwHandling` to add/remove the `www` prefix for apex domains

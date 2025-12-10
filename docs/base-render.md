@@ -71,7 +71,7 @@ The `__ssOnly` field is reserved for Unirend internals. It is set and consumed b
 
 - `status_code?: number` - HTTP status code (defaults to 200)
 - `error?: { message?: string, details?: { stacktrace?: string } }` - Error information
-- `__ssOnly?: Record<string, unknown>` - Server-side-only data (internal, reserved; set by framework helpers and stripped before client hydration)
+- `__ssOnly?: Record<string, unknown>` - Server-side-only data (internal, reserved, set by framework helpers and stripped before client hydration)
 - `...otherData` - Regular data that will be available on both server and client
 
 #### How it works

@@ -83,7 +83,7 @@ async function main() {
     // Optional configuration object to be injected into the frontend app.
     // Serialized and injected as window.__FRONTEND_APP_CONFIG__ during SSR.
     // Available via useFrontendAppConfig() hook on both server and client.
-    // Tip: Keep this minimal and non-sensitive; it will be passed to the client.
+    // Tip: Keep this minimal and non-sensitive, it will be passed to the client.
     frontendAppConfig: {
       apiUrl: process.env.API_URL || 'https://api.example.com',
       environment: 'production',
@@ -255,7 +255,7 @@ Unirend forwards a curated set of headers and supports configurable cookie forwa
       cookieForwarding: {
         // If both are empty/undefined: allow all cookies
         allowCookieNames: ["sid", "theme"],
-        // Always takes precedence over allow list; can also be true to block ALL cookies
+        // Always takes precedence over allow list, can also be true to block ALL cookies
         blockCookieNames: ["csrf_token"] // or: true
       }
     }
@@ -275,7 +275,7 @@ Unirend forwards a curated set of headers and supports configurable cookie forwa
 
   - Notes about values:
     - Empty cookie values (e.g., `name=`) are allowed and forwarded if the name passes policy
-    - Name-based filtering only; attributes on `Set-Cookie` are preserved as-is
+    - Name-based filtering only, attributes on `Set-Cookie` are preserved as-is
 
 ### Reading server decorations
 
@@ -357,7 +357,7 @@ Guidance:
 Recommendation:
 
 - Prefer using `APIResponseHelpers` (see [API Envelope Structure](./api-envelope-structure.md)) to construct envelopes. These helpers also auto-populate `request_id` from `request.requestID` that your request registered middleware/plugins may populate.
-- For custom meta defaults (account/workspace/locale/build), prefer extending `APIResponseHelpers` in a small subclass and reading decorated values from the request within that subclass. This applies to both page data loader/handlers and custom API route handlers. See: [Extending helpers and custom meta](./api-envelope-structure.md#extending-helpers-and-custom-meta).
+- For custom meta defaults (account/workspace/locale/build), prefer extending `APIResponseHelpers` in a small subclass and reading decorated values from the request within that subclass. This applies to both page data loaders/handlers and custom API route handlers. See: [Extending helpers and custom meta](./api-envelope-structure.md#extending-helpers-and-custom-meta).
   - Rationale: centralizes conventions and avoids repeating per-handler generics/typing. Just ensure your meta type extends `BaseMeta`.
 
 Examples:

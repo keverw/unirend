@@ -104,7 +104,7 @@ server.registerWebSocketHandler({
 
 `preValidate(request)` can return one of:
 
-- `{ action: "upgrade", data?: Record<string, unknown> }` — allow the upgrade; `data` is passed to your handler
+- `{ action: "upgrade", data?: Record<string, unknown> }` — allow the upgrade, `data` is passed to your handler
 - `{ action: "reject", envelope: APIResponseEnvelope }` — send the JSON envelope (with your status code) and do not upgrade the connection
 
 If `preValidate` throws, a standardized 500 envelope is sent.
@@ -180,7 +180,7 @@ bun run demos/ws-server-demo.ts
 - Paths must match exactly (no wildcards). If you register the same path multiple times, the last registration wins.
 - If no handler is registered for the requested path, the upgrade is blocked and a 404 JSON envelope is returned.
 - If the `Connection`/`Upgrade` headers are invalid for a WebSocket upgrade, a 400 JSON error response is sent and the connection is not upgraded.
-- When a `preValidate` is present but does not return `{ action: "upgrade" }`, the server prevents the upgrade; any attempt to connect to the handler will be closed with code `1008`.
+- When a `preValidate` is present but does not return `{ action: "upgrade" }`, the server prevents the upgrade, any attempt to connect to the handler will be closed with code `1008`.
 
 ## Known Issues (Bun)
 

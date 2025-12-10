@@ -633,7 +633,7 @@ Unirend’s `pageDataLoader` implements a consistent, envelope-first pattern acr
   - Application redirects: If the response is a Page redirect envelope, it is converted to a React Router redirect (preserving query if requested).
   - HTTP redirects: HTTP 3xx from API responses are not followed and are converted to `redirectNotFollowed` errors, preserving `Location` in details.
   - Page vs API envelopes: Page envelopes are passed through (decorated with SSR‑only data such as cookies on the server). API error envelopes are transformed into Page error envelopes, preserving metadata and optionally extending it via `transformErrorMeta`.
-  - Auth flows: 401 with `error.code === "authentication_required"` triggers a redirect to `loginUrl` with an optional return parameter (`returnToParam`). 403 maps to access denied, 404 to not found; other codes fall back to generic handling.
+  - Auth flows: 401 with `error.code === "authentication_required"` triggers a redirect to `loginUrl` with an optional return parameter (`returnToParam`). 403 maps to access denied, 404 to not found, other codes fall back to generic handling.
 
 - Timeouts and resiliency
   - HTTP requests use `fetchWithTimeout(timeoutMs)`. On timeout or network failures, the loader returns a standardized 500 Page error using configured friendly messages.
@@ -658,7 +658,7 @@ For convenience, Unirend provides helper functions to construct and validate env
 - Validate input: `APIResponseHelpers.ensureJsonBody(request, reply)`
 - Type guards: `isSuccessResponse`, `isErrorResponse`, `isRedirectResponse`, `isPageResponse`, `isValidEnvelope`
 
-These helpers assume you set `request.requestID` via a plugin as described above; otherwise `request_id` defaults to `"unknown"`.
+These helpers assume you set `request.requestID` via a plugin as described above, otherwise `request_id` defaults to `"unknown"`.
 
 ### Extending helpers and custom meta
 

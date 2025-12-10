@@ -26,11 +26,11 @@ Use it to:
 ## Features
 
 - **Per‑request IDs**: ULID by default (custom generator supported)
-- **Correlation ID**: Uses `X-Correlation-ID` when trusted/valid; falls back to the request ID
+- **Correlation ID**: Uses `X-Correlation-ID` when trusted/valid, falls back to the request ID
 - **SSR‑aware**: Optionally trusts forwarded client details from private/allowed sources
 - **Request decoration**: Adds `request.requestID` and a frozen `request.clientInfo`
 - **Response headers**: Sends `X-Request-ID` and `X-Correlation-ID` by default
-- **Configurable logging hooks**: Opt-in request and forwarding logs; or pass `logging: true` to enable all
+- **Configurable logging hooks**: Opt-in request and forwarding logs, or pass `logging: true` to enable all
 
 ## Usage
 
@@ -110,11 +110,11 @@ This lets your SSR server forward the user's client details to your API so both 
 
 ### Deployment note
 
-In production behind reverse proxies or load balancers, configure Fastify's `trustProxy` so `request.ip` reflects the real client IP. The plugin's default `trustForwardedHeaders` check uses a private‑IP predicate on `request.ip`; without `trustProxy`, that IP may not represent your proxy chain correctly.
+In production behind reverse proxies or load balancers, configure Fastify's `trustProxy` so `request.ip` reflects the real client IP. The plugin's default `trustForwardedHeaders` check uses a private‑IP predicate on `request.ip`, without `trustProxy`, that IP may not represent your proxy chain correctly.
 
 - SSR/API servers: set `fastifyOptions.trustProxy` in their options.
   - Example: `serveSSRProd(buildDir, { fastifyOptions: { trustProxy: true }, plugins: [clientInfo()] })`
-- Additionally, you can restrict when clientInfo honors forwarded headers by providing `trustForwardedHeaders`. This does not change `request.ip` (which is controlled by Fastify's `trustProxy`); it only controls whether the plugin accepts `X-SSR-Request`, `X-SSR-Original-IP`, `X-SSR-Forwarded-User-Agent`, and `X-Correlation-ID` from the request.
+- Additionally, you can restrict when clientInfo honors forwarded headers by providing `trustForwardedHeaders`. This does not change `request.ip` (which is controlled by Fastify's `trustProxy`), it only controls whether the plugin accepts `X-SSR-Request`, `X-SSR-Original-IP`, `X-SSR-Forwarded-User-Agent`, and `X-Correlation-ID` from the request.
 
 ```ts
 clientInfo({

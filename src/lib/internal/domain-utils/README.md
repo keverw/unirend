@@ -45,10 +45,10 @@ const ok = matchesOriginList(
 ## Wildcard semantics
 
 - `*` matches exactly one label
-- `**` matches zero-or-more labels; when leftmost, at least one label is required before the fixed tail
+- `**` matches zero-or-more labels, when leftmost, at least one label is required before the fixed tail
 - Multi-label patterns like `*.*.example.com` are supported and must match the exact number of wildcarded labels
-- Partial-label wildcards are not allowed. A label may be `*` or `**` only; patterns like `ex*.demo.com`, `*ample.demo.com`, `a*b.demo.com`, `foo*bar.demo.com` are rejected.
-- Apex domains never match wildcard patterns; list apex explicitly
+- Partial-label wildcards are not allowed. A label may be `*` or `**` only, patterns like `ex*.demo.com`, `*ample.demo.com`, `a*b.demo.com`, `foo*bar.demo.com` are rejected.
+- Apex domains never match wildcard patterns, list apex explicitly
 - Origins:
   - `*` matches any valid HTTP(S) origin
   - `https://*` or `http://*` matches any origin with that scheme
@@ -78,7 +78,7 @@ const ok = matchesOriginList(
 ## Configuration & validation
 
 - Validate configuration at startup with `validateConfigEntry` and reject misconfigurations early.
-- Prefer exact matches for credentials; enable wildcard credentials only when subdomains are strictly required and after validation.
+- Prefer exact matches for credentials, enable wildcard credentials only when subdomains are strictly required and after validation.
 - For hot paths, pre-normalize/validate allowlists once and reuse them.
 
 ### Validate at startup
@@ -135,20 +135,20 @@ const ok = matchesOriginList(
 
 ### Quick rules
 
-- Domain vs Origin contexts differ: origins may include protocol wildcards; domains may not.
+- Domain vs Origin contexts differ: origins may include protocol wildcards, domains may not.
 - `matchesDomainList` allows `"*"` as match-all. If undesired, reject it at config time with `validateConfigEntry`.
-- `normalizeOrigin` returns `""` on invalid URLs or failed hostname normalization; the literal `"null"` is preserved.
+- `normalizeOrigin` returns `""` on invalid URLs or failed hostname normalization, the literal `"null"` is preserved.
 - In origin lists, `"null"` never matches wildcards. Include `"null"` explicitly if you want to allow it.
 - `normalizeDomain` returns `""` on invalid input and strips IPv6 brackets (e.g., `[::1]` → `::1`). Use `validateConfigEntry` at config time if you need hard failures.
 - Protocol-only wildcards (e.g., `https://*`) are allowed by default in validation and respected by origin matching.
-- In domain context, entries with `://` are invalid; the validator returns info `"protocols are not allowed in domain context"`.
+- In domain context, entries with `://` are invalid, the validator returns info `"protocols are not allowed in domain context"`.
 
 ### Behavior notes
 
 - Domain-only checks (`matchesDomainList`) reject origin-style entries (anything with `://`) by throwing. Use `matchesOriginList` for origin-style matching.
-- Origin matching: domain wildcard patterns (e.g., `*.example.com`, `**.example.com`) are protocol-agnostic; protocol wildcards (e.g., `https://*`) match only that scheme.
+- Origin matching: domain wildcard patterns (e.g., `*.example.com`, `**.example.com`) are protocol-agnostic, protocol wildcards (e.g., `https://*`) match only that scheme.
 - Credentials: prefer exact-only matching. Enable wildcard subdomains for credentials only when necessary and after pre-validation.
-- IPv6 zone IDs: For link-local IPv6 addresses with a zone identifier, the zone must be percent-encoded as `%25`. Major browsers do not support zone IDs in URLs; this is primarily for non-browser clients.
+- IPv6 zone IDs: For link-local IPv6 addresses with a zone identifier, the zone must be percent-encoded as `%25`. Major browsers do not support zone IDs in URLs, this is primarily for non-browser clients.
   - Domain/IP example: `"fe80::1%25eth0"` (exact IPs only; wildcards never apply to IPs)
 
 ### Defaults by function
@@ -158,7 +158,7 @@ const ok = matchesOriginList(
 
 - `validateConfigEntry(entry, "origin", { allowGlobalWildcard, allowProtocolWildcard })`
   - Recommended: `{ allowGlobalWildcard: false, allowProtocolWildcard: true }`. Disable protocol wildcards for stricter setups.
-  - Exact origins and bare domains are validated; origins must not include path/query/fragment/userinfo; bracketed IPv6 is supported.
+  - Exact origins and bare domains are validated, origins must not include path/query/fragment/userinfo, bracketed IPv6 is supported.
 
 - `matchesDomainList(domain, allowedDomains)`
   - Domains only (no schemes). Throws if any entry contains `://`.
@@ -179,7 +179,7 @@ const ok = matchesOriginList(
 ### Operational guidance
 
 - No-Origin requests: keep `treatNoOriginAsAllowed: false` unless explicitly required.
-- Pre-validation: run `validateConfigEntry` on every entry at startup; fail fast on PSL/IP tails, partial-label wildcards, and URL-ish characters.
+- Pre-validation: run `validateConfigEntry` on every entry at startup, fail fast on PSL/IP tails, partial-label wildcards, and URL-ish characters.
 
 ## Choose the right helper
 
@@ -187,17 +187,17 @@ const ok = matchesOriginList(
   - Supports exact and wildcard origins (including protocol wildcards)
   - Validate at startup with `validateConfigEntry(..., "origin")`
 - **CORS with credentials (strict)**: `matchesCORSCredentialsList(origin, allowedOrigins)`
-  - Exact matches only; safest for cookies/authorization
+  - Exact matches only, safest for cookies/authorization
 - **CORS with credentials (needs subdomains)**: `matchesCORSCredentialsList(origin, allowedOrigins, { allowWildcardSubdomains: true })`
-  - Allows wildcards like `https://*.example.com` and multi-label patterns as specified; pre-validate with `validateConfigEntry`
+  - Allows wildcards like `https://*.example.com` and multi-label patterns as specified, pre-validate with `validateConfigEntry`
 - **Domain-only checks (no scheme)**: `matchesDomainList(domain, allowedDomains)`
-  - Rejects origin-style entries; pre-validate with `validateConfigEntry(..., "domain")`
+  - Rejects origin-style entries, pre-validate with `validateConfigEntry(..., "domain")`
 - **Low-level checks**: `matchesWildcardDomain`, `matchesWildcardOrigin`
-  - For custom logic; prefer list helpers for most cases
+  - For custom logic, prefer list helpers for most cases
 
 ## Common recipes
 
-Allow HTTPS subdomains, include the apex, and one exact partner origin; disallow global wildcard:
+Allow HTTPS subdomains, include the apex, and one exact partner origin, disallow global wildcard:
 
 ```ts
 const allowed = [

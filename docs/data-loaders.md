@@ -126,7 +126,7 @@ Runs a page data loader locally without framework data loader handler HTTP reque
 ```ts
 import { createPageDataLoader } from 'unirend/router-utils';
 
-// Local handler receives routing context; no Fastify request object
+// Local handler receives routing context, no Fastify request object
 export const localInfoLoader = createPageDataLoader(
   { timeoutMs: 8000 },
   function ({ route_params, query_params }) {
@@ -148,7 +148,7 @@ Important:
 - Error handling setup required: Set up `useDataloaderEnvelopeError` in your app layout to handle envelope errors (including 404s). This is required for local loaders in both SSG and SSR, matching the standard error handling pattern used for HTTP-based loaders. See: [Error Handling (README)](../README.md#error-handling) and the dedicated doc: [docs/error-handling.md](./error-handling.md).
 - SSR preserves `status_code` from local loaders for the HTTP response
 - SSR-only cookies are not available in the local path, use the Page Type Handler (HTTP/Short-Circuit) based one instead if you need cookie propagation
-- `timeoutMs` is respected; on timeout a 500 Page envelope is returned with the server connection error message
+- `timeoutMs` is respected, on timeout a 500 Page envelope is returned with the server connection error message
 
 Configuration (Local Loader):
 
@@ -247,7 +247,7 @@ When API responses don’t follow the Page Envelope, the loader converts them us
 
 - `allowedRedirectOrigins`: redirect safety validation
   - undefined: validation disabled (any redirect target allowed)
-  - []: only relative paths allowed; all external URLs blocked
+  - []: only relative paths allowed, all external URLs blocked
   - ["https://myapp.com", "https://auth.myapp.com"]: allow relative paths plus listed origins
 - `loginUrl` and `returnToParam`
   - `loginUrl`: default "/login"

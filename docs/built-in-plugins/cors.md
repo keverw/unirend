@@ -64,12 +64,12 @@ const server = serveSSRProd(buildDir, {
     - If a wildcard token is present, the only other allowed entry in the array is the string literal `"null"`
       - Allowed: `["*", "null"]`, `["https://*", "null"]`, `["http://*", "null"]`
       - Disallowed: `["*", "apple.com"]`, `["https://*", "*.example.com"]`, or multiple wildcard tokens
-    - The string literal `"null"` does not match wildcards; include it explicitly if you wish to allow sandboxed/file contexts
+    - The string literal `"null"` does not match wildcards, include it explicitly if you wish to allow sandboxed/file contexts
 
 - `credentials` (default: `false`): Which origins may send credentials (cookies, auth headers)
   - `boolean`:
     - `true`: allow credentials for the same origins that pass the `origin` policy.
-      - Safeguards: `origin: "*"` is rejected with `credentials: true`; protocol wildcards (e.g., `"https://*"`) require `allowCredentialsWithProtocolWildcard: true`.
+      - Safeguards: `origin: "*"` is rejected with `credentials: true`, protocol wildcards (e.g., `"https://*"`) require `allowCredentialsWithProtocolWildcard: true`.
     - `false`: never allow credentials.
   - `string[]`: explicit allowlist (exact origins only by default). Subdomain wildcards (e.g., `"*.example.com"`) are permitted only when `credentialsAllowWildcardSubdomains: true`. Use a separate credentials list when your API should be broadly accessible (e.g., third‑party apps using bearer tokens) but only your first‑party apps (your domains) should receive cookies/auth headers.
   - `function`: per-request decision `(origin, request) => boolean | Promise<boolean)`
@@ -84,7 +84,7 @@ const server = serveSSRProd(buildDir, {
 - `preflightContinue` (default: `false`): Whether to handle preflight OPTIONS requests automatically
 - `optionsSuccessStatus` (default: `204`): Status code for successful preflight responses
 - `allowPrivateNetwork` (default: `false`): Whether to allow private network requests (Chrome feature)
-- `credentialsAllowWildcardSubdomains` (default: `false`): Allow wildcard subdomain patterns (e.g., `"*.example.com"`, `"**.example.com"`) in `credentials` arrays. Apex domains never match wildcards; include the apex explicitly (e.g., `"https://example.com"`).
+- `credentialsAllowWildcardSubdomains` (default: `false`): Allow wildcard subdomain patterns (e.g., `"*.example.com"`, `"**.example.com"`) in `credentials` arrays. Apex domains never match wildcards, include the apex explicitly (e.g., `"https://example.com"`).
 - `allowCredentialsWithProtocolWildcard` (default: `false`): Opt-in to allow `credentials: true` when `origin` includes a protocol wildcard (e.g., `"https://*"`, `"http://*"`). Disabled by default for safety.
 
 - `xFrameOptions` (default: `false`): Controls the `X-Frame-Options` header
@@ -95,7 +95,7 @@ const server = serveSSRProd(buildDir, {
   - `false`: do not send the header
   - `{ maxAge: number; includeSubDomains?: boolean; preload?: boolean }`
     - `maxAge` is in seconds
-    - Only enable HSTS over HTTPS (typically production); this plugin does not auto-detect TLS
+    - Only enable HSTS over HTTPS (typically production), this plugin does not auto-detect TLS
     - If `preload: true`, then `maxAge` must be at least `31536000` (1 year) and `includeSubDomains` must be `true` (Chrome preload list requirement)
 
 ## Advanced features
@@ -105,7 +105,7 @@ const server = serveSSRProd(buildDir, {
   - `**.example.com` matches all subdomains including nested (`staging.api.example.com` ✅, `app.api.example.com` ✅)
   - `**` patterns require something before the remainder (e.g., `**.example.com` does NOT match `example.com`)
   - Protocol-specific wildcards: `https://*`, `http://*`, `https://*.example.com`
-  - Apex domains do not match wildcard patterns; include the apex explicitly alongside subdomain patterns.
+  - Apex domains do not match wildcard patterns, include the apex explicitly alongside subdomain patterns.
 - **Punycode Normalization**: Handles international domains (IDN) safely with punycode conversion
 - **Origin Normalization**: Case-robust matching; scheme and port are considered for origin comparisons (`https://app.com/` vs `https://app.com`)
 - **Secure Credentials**: Raw wildcard tokens (`*`, `https://*`, `http://*`) are NOT allowed in credentials arrays. Subdomain wildcards (like `*.example.com`) are supported only when `credentialsAllowWildcardSubdomains: true`
@@ -205,7 +205,7 @@ cors({
 - **Auto-Merging**: Credentials origins are automatically merged into the origin list to prevent configuration mistakes
 - **Credentials Behavior**: The `credentials` option controls the `Access-Control-Allow-Credentials` header, which tells browsers whether to include cookies/auth headers in requests. When credentials are enabled, the browser automatically handles the `Cookie` header - you don't need to add "Cookie" to `allowedHeaders`. The client must still opt-in with `credentials: 'include'` in their fetch request.
 - **Response Headers**: CORS-safelisted response headers (`Cache-Control`, `Content-Language`, `Content-Length`, `Content-Type`, `Expires`, `Last-Modified`, `Pragma`) are always accessible to clients. Use `exposedHeaders` to expose additional response headers like `X-Total-Count` or `Authorization`.
-- **Protocol Wildcards + Credentials**: Using `credentials: true` with protocol wildcard origins (e.g., `"https://*"`) is blocked by default; set `allowCredentialsWithProtocolWildcard: true` to opt-in deliberately.
+- **Protocol Wildcards + Credentials**: Using `credentials: true` with protocol wildcard origins (e.g., `"https://*"`) is blocked by default, set `allowCredentialsWithProtocolWildcard: true` to opt-in deliberately.
 - Partial-label wildcards are invalid: Patterns like `"*foo.com"`, `"ex*.example.com"`, or `"foo*bar.com"` are rejected. Use full-label wildcards only: `"*.example.com"` (direct subdomains) or `"**.example.com"` (any depth).
 - Origin array wildcard policy: In `origin: string[]`, allow at most one wildcard token overall (`"*"`, `"https://*"`, or `"http://*"`). If present, the only other allowed entry is the literal `"null"`.
 - Credentials arrays restrictions: Raw wildcard tokens (`"*"`, `"https://*"`, `"http://*"`) are not allowed in `credentials` arrays and will throw. Use exact origins, or enable `credentialsAllowWildcardSubdomains: true` for domain wildcards like `"*.example.com"`.
@@ -220,7 +220,7 @@ cors({
 - The literal `"null"` origin can be allowed for non-credential requests (if included explicitly) but never receives credentials, even when using a credentials function.
 - All origin/pattern entries are validated up-front (rejects PSL/IP tails, partial-label wildcards, URL-ish characters, and protocol/global wildcards where disallowed).
 - Protocol wildcards (`https://*`, `http://*`) are permitted only in origin lists, not in credentials.
-- Header reflection (`allowedHeaders: ["*"]`) reflects only what the browser requested, with caps: at most 100 header names; names longer than 256 characters are ignored.
+- Header reflection (`allowedHeaders: ["*"]`) reflects only what the browser requested, with caps: at most 100 header names, names longer than 256 characters are ignored.
 
 ## Advanced configuration
 

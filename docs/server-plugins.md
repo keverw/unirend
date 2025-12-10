@@ -249,7 +249,7 @@ if (cookieInfo?.signingSecretProvided) {
 import { APIResponseHelpers } from 'unirend/api-envelope';
 
 pluginHost.api.get('demo/echo/:id', async (request, reply, params) => {
-  // Build and return an API envelope; status taken from status_code
+  // Build and return an API envelope, status taken from status_code
   return APIResponseHelpers.createAPISuccessResponse({
     request,
     data: {
@@ -277,7 +277,7 @@ Notes:
 
 - Prefer `pluginHost.api.*` for JSON endpoints to keep responses standardized with the envelope pattern. HTTP status is taken from `status_code` in the returned envelope.
 - Use raw `pluginHost.get/post/...` when you deliberately need non-envelope responses (e.g., file downloads, HTML), but avoid mixing patterns for JSON APIs.
-- Wildcard endpoints are allowed via `pluginHost.api.*` only when the API prefix is non-root (default `"/api"`); raw wildcard routes are blocked to avoid SSR conflicts.
+- Wildcard endpoints are allowed via `pluginHost.api.*` only when the API prefix is non-root (default `"/api"`), raw wildcard routes are blocked to avoid SSR conflicts.
 - For the full `params` shape passed to `pluginHost.api.*` handlers, see Custom API Routes in `docs/ssr.md`.
 - Duplicate registrations for the API same method + endpoint + version: last registration wins. Prefer centralizing your API shortcut registrations to avoid surprises, use distinct versions when you need multiple version handlers.
 - Handlers use the signature `(request, reply, params)`, `reply` is a controlled surface that allows setting headers and cookies.

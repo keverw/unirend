@@ -105,9 +105,9 @@ const { info } = await loadBuildInfo(
 
 **Load Statuses:**
 
-- `DEFAULT_NOT_PRODUCTION`: dev mode; returns a default build info object
+- `DEFAULT_NOT_PRODUCTION`: dev mode, returns a default build info object
 - `LOADED_SUCCESSFULLY`: production load from module succeeded
-- `MODULE_MISSING_DATA` | `MODULE_INVALID_DATA` | `IMPORT_ERROR`: load failed; default is returned
+- `MODULE_MISSING_DATA` | `MODULE_INVALID_DATA` | `IMPORT_ERROR`: load failed, default is returned
 
 **Defaults:** In development (or when loading fails in production), the loader returns `DEFAULT_BUILD_INFO`:
 
