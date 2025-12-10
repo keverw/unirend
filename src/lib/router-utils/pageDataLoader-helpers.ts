@@ -4,8 +4,8 @@ import type {
   RedirectInfo,
 } from '../api-envelope/api-envelope-types';
 import {
-  LocalPageLoaderConfig,
-  PageLoaderConfig,
+  LocalPageDataLoaderConfig,
+  PageDataLoaderConfig,
 } from './pageDataLoader-types';
 import {
   applyCustomHttpStatusHandler,
@@ -21,7 +21,7 @@ import {
 import { redirect } from 'react-router';
 
 export function processRedirectResponse(
-  config: PageLoaderConfig | LocalPageLoaderConfig,
+  config: PageDataLoaderConfig | LocalPageDataLoaderConfig,
   responseData: Record<string, unknown>,
   ssrOnlyData: Record<string, unknown>,
 ): PageResponseEnvelope {
@@ -93,7 +93,7 @@ export function processRedirectResponse(
 
 export async function processApiResponse(
   response: Response,
-  config: PageLoaderConfig,
+  config: PageDataLoaderConfig,
 ): Promise<PageResponseEnvelope> {
   const isServer = typeof window === 'undefined'; // detecting here again instead of passing to promote tree-shaking
   const statusCode = response.status;

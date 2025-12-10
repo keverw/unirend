@@ -870,19 +870,19 @@ export class SSRServer extends BaseServer {
   }
 
   /**
-   * Public API shortcuts for registering versioned generic API routes
+   * Public API method for registering versioned generic API routes
    * Usage: server.api.get("users/:id", handler) or server.api.get("users/:id", 2, handler)
    */
   public get api() {
-    return this.apiRoutes.apiShortcuts;
+    return this.apiRoutes.apiMethod;
   }
 
   /**
-   * Public API shortcuts for registering page data handlers
+   * Public API method for registering page data handlers
    * Usage: server.pageLoader.register("home", handler) or server.pageLoader.register("home", 2, handler)
    */
   public get pageLoader() {
-    return this.pageDataHandlers.pageLoaderShortcuts;
+    return this.pageDataHandlers.pageLoaderMethod;
   }
 
   /**
@@ -940,8 +940,8 @@ export class SSRServer extends BaseServer {
     const controlledInstance = createControlledInstance(
       this.fastifyInstance,
       true,
-      this.apiRoutes.apiShortcuts,
-      this.pageDataHandlers.pageLoaderShortcuts,
+      this.apiRoutes.apiMethod,
+      this.pageDataHandlers.pageLoaderMethod,
     );
 
     // Plugin options to pass to each plugin

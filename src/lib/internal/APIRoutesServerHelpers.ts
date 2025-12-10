@@ -77,7 +77,7 @@ export class APIRoutesServerHelpers<
 > {
   private handlersByMethod: MethodToEndpointMap<T, M> = new Map();
 
-  // API Shortcuts (method-specific helpers)
+  // API Shortcut method-specific helpers
   private readonly api = {
     get: (
       endpoint: string,
@@ -294,9 +294,9 @@ export class APIRoutesServerHelpers<
   }
 
   /**
-   * Expose only the lightweight shortcuts surface for external consumers
+   * Expose only the lightweight shortcuts method surface for external consumers
    */
-  public get apiShortcuts() {
+  public get apiMethod() {
     return this.api;
   }
 
@@ -365,8 +365,8 @@ export class APIRoutesServerHelpers<
   /**
    * Register an API handler without explicit version (uses default version if versioned)
    *
-   * This method is used internally by the `.api` shortcuts (`.api.get`, `.api.post`, etc.).
-   * External users should use those shortcuts instead, which are exposed on SSRServer and
+   * This method is used internally by the `.api` shortcuts method (`.api.get`, `.api.post`, etc.).
+   * External users should use those shortcuts method instead, which are exposed on SSRServer and
    * APIServer via the `.api` getter property.
    *
    * @example
@@ -383,8 +383,8 @@ export class APIRoutesServerHelpers<
   /**
    * Register an API handler with explicit version
    *
-   * This method is used internally by the `.api` shortcuts.
-   * External users should use the public shortcuts instead: `server.api.get()`, etc.
+   * This method is used internally by the `.api` method.
+   * External users should use the public method instead: `server.api.get()`, etc.
    */
   private registerAPIHandler(
     method: HTTPMethod,
@@ -396,7 +396,7 @@ export class APIRoutesServerHelpers<
   /**
    * Implementation of the overloaded method
    *
-   * This is the internal implementation used by the `.api` shortcuts.
+   * This is the internal implementation used by the `.api` method.
    */
   private registerAPIHandler(
     method: HTTPMethod,

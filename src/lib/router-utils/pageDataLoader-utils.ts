@@ -10,8 +10,8 @@ import {
   DEFAULT_TIMEOUT_MS,
 } from './pageDataLoader-consts';
 import {
-  LocalPageLoaderConfig,
-  PageLoaderConfig,
+  LocalPageDataLoaderConfig,
+  PageDataLoaderConfig,
 } from './pageDataLoader-types';
 
 /**
@@ -123,7 +123,7 @@ export async function fetchWithTimeout(
  * contains fields from the original API response that should be preserved (like account info).
  */
 export function createErrorResponse(
-  config: PageLoaderConfig | LocalPageLoaderConfig,
+  config: PageDataLoaderConfig | LocalPageDataLoaderConfig,
   statusCode: number,
   errorCode: string,
   message: string,
@@ -204,7 +204,7 @@ export function createErrorResponse(
 export function applyCustomHttpStatusHandler(
   statusCode: number,
   responseData: unknown,
-  config: PageLoaderConfig,
+  config: PageDataLoaderConfig,
   ssrOnlyData: Record<string, unknown>,
 ): PageResponseEnvelope | null {
   // Check for specific status code handlers first (number or string)

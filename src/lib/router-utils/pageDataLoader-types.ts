@@ -21,7 +21,7 @@ export interface FullErrorDefinition extends BaseErrorDefinition {
 }
 
 /**
- * Shared interface for all error defaults used in both DEFAULT_ERROR_DEFAULTS const and PageLoaderConfig interface
+ * Shared interface for all error defaults used in both DEFAULT_ERROR_DEFAULTS const and PageDataLoaderConfig interface
  */
 export interface ErrorDefaults {
   notFound: FullErrorDefinition;
@@ -50,13 +50,13 @@ export interface ErrorDefaults {
 export type CustomStatusCodeHandler = (
   statusCode: number,
   responseData: unknown,
-  config: PageLoaderConfig,
+  config: PageDataLoaderConfig,
 ) => PageResponseEnvelope | null | undefined;
 
 /**
  * Configuration object interface for the page loader system
  */
-export interface PageLoaderConfig {
+export interface PageDataLoaderConfig {
   /** Base URL for the API server (e.g., "http://localhost:3001" or "https://api.example.com") */
   apiBaseUrl: string;
   /**
@@ -117,7 +117,7 @@ export interface PageLoaderConfig {
    *
    * This is called when:
    * 1. An API endpoint returns an error response (type: "api")
-   * 2. The pageLoader needs to convert it to a page response (type: "page") for React Router
+   * 2. The pageDataLoader needs to convert it to a page response (type: "page") for React Router
    * 3. Metadata from the original API response needs to be preserved/transformed
    *
    * Common use case: API returns user account info, site settings, etc. in meta,
@@ -241,8 +241,8 @@ export interface PageLoaderConfig {
  * Narrower configuration for local-only page loaders (no framework HTTP fetch).
  * Includes only the fields actually used by the local loader path.
  */
-export type LocalPageLoaderConfig = Pick<
-  PageLoaderConfig,
+export type LocalPageDataLoaderConfig = Pick<
+  PageDataLoaderConfig,
   | 'errorDefaults'
   | 'isDevelopment'
   | 'connectionErrorMessages'
@@ -253,11 +253,11 @@ export type LocalPageLoaderConfig = Pick<
 >;
 
 // Options interface for the page loader
-export interface PageLoaderOptions {
+export interface PageDataLoaderOptions {
   request: Request;
   params: Record<string, string | undefined>;
   pageType: string;
-  config: PageLoaderConfig;
+  config: PageDataLoaderConfig;
 }
 
 // Local Page Loader (where no HTTP request is made) types

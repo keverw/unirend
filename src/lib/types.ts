@@ -174,9 +174,9 @@ export interface PluginHostInstance {
   put: (path: string, handler: RouteHandler) => void;
   delete: (path: string, handler: RouteHandler) => void;
   patch: (path: string, handler: RouteHandler) => void;
-  /** API route registration shortcuts for versioned endpoints */
+  /** API route registration shortcuts method for versioned endpoints */
   api?: unknown;
-  /** Page loader registration shortcuts for data loader endpoints */
+  /** Page data loader registration method for data loader endpoints */
   pageLoader?: unknown;
 }
 

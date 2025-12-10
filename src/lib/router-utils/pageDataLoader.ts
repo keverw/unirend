@@ -7,8 +7,8 @@
  * into this single data loader that communicates with our API server.
  *
  * How it works:
- * 1. Each route uses createPageLoader(config, pageType) to create a loader for that route
- * 2. The pageLoader makes a POST request to {apiBaseUrl}{pageDataEndpoint}/{pageType} with route params and query params
+ * 1. Each route uses createPageDataLoader(config, pageType) to create a loader for that route
+ * 2. The pageDataLoader makes a POST request to {apiBaseUrl}{pageDataEndpoint}/{pageType} with route params and query params
  *    (default endpoint: /api/v1/page_data/{pageType}, configurable via pageDataEndpoint option)
  * 3. The API server handles the request and returns data in a standardized response format
  * 4. The loader processes the response, handling errors, redirects, and authentication
@@ -24,10 +24,10 @@
  *
  * Usage Example:
  * ```typescript
- * import { createPageLoader, createDefaultPageLoaderConfig } from './pageDataLoader';
+ * import { createPageDataLoader, createDefaultPageDataLoaderConfig } from './pageDataLoader';
  *
  * // Create a configuration (typically done once in your app setup)
- * const config = createDefaultPageLoaderConfig('http://localhost:3001');
+ * const config = createDefaultPageDataLoaderConfig('http://localhost:3001');
  *
  * // Or create a custom configuration with your own titles/branding
  * const customConfig = {
@@ -166,9 +166,9 @@
  * };
  *
  * // Create loaders for each page type
- * const homeLoader = createPageLoader(config, 'home');
- * const dashboardLoader = createPageLoader(config, 'dashboard');
- * const profileLoader = createPageLoader(config, 'profile');
+ * const homeLoader = createPageDataLoader(config, 'home');
+ * const dashboardLoader = createPageDataLoader(config, 'dashboard');
+ * const profileLoader = createPageDataLoader(config, 'profile');
  *
  * // Use in React Router
  * export const routes: RouteObject[] = [
@@ -193,11 +193,11 @@ import {
   fetchWithTimeout,
 } from './pageDataLoader-utils';
 import {
-  PageLoaderConfig,
-  PageLoaderOptions,
+  PageDataLoaderConfig,
+  PageDataLoaderOptions,
   LocalPageHandler,
   LocalPageHandlerParams,
-  LocalPageLoaderConfig,
+  LocalPageDataLoaderConfig,
   ErrorDefaults,
 } from './pageDataLoader-types';
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
@@ -224,9 +224,9 @@ import {
  * compatibility, consider explicitly setting isDevelopment when creating
  * your config.
  */
-export function createDefaultPageLoaderConfig(
+export function createDefaultPageDataLoaderConfig(
   apiBaseUrl: string,
-): PageLoaderConfig {
+): PageDataLoaderConfig {
   // Deep-clone nested defaults to avoid shared references
   const errorDefaultsClone: ErrorDefaults = JSON.parse(
     JSON.stringify(DEFAULT_ERROR_DEFAULTS),
@@ -248,17 +248,17 @@ export function createDefaultPageLoaderConfig(
   };
 }
 
-// Define a factory function to create page loaders with specific page types
-export function createPageLoader(
-  config: PageLoaderConfig,
+// Define a factory function to create page data loaders with specific page types
+export function createPageDataLoader(
+  config: PageDataLoaderConfig,
   pageType: string,
 ): (args: LoaderFunctionArgs) => Promise<unknown>;
-export function createPageLoader(
-  config: LocalPageLoaderConfig,
+export function createPageDataLoader(
+  config: LocalPageDataLoaderConfig,
   handler: LocalPageHandler,
 ): (args: LoaderFunctionArgs) => Promise<unknown>;
-export function createPageLoader(
-  config: PageLoaderConfig | LocalPageLoaderConfig,
+export function createPageDataLoader(
+  config: PageDataLoaderConfig | LocalPageDataLoaderConfig,
   pageTypeOrHandler: string | LocalPageHandler,
 ) {
   // If the pageTypeOrHandler is a string, create a page loader that uses the page type
@@ -266,29 +266,29 @@ export function createPageLoader(
     const pageType = pageTypeOrHandler;
 
     return ({ request, params }: LoaderFunctionArgs) =>
-      pageLoader({
+      pageDataLoader({
         request,
         params,
         pageType,
-        config: config as PageLoaderConfig,
+        config: config as PageDataLoaderConfig,
       });
   }
 
   // If the pageTypeOrHandler is a LocalPageHandler, create a page loader that uses the handler
   const handler = pageTypeOrHandler;
   return (args: LoaderFunctionArgs) =>
-    localPageLoader(config as LocalPageLoaderConfig, handler, args);
+    localPageDataLoader(config as LocalPageDataLoaderConfig, handler, args);
 }
 
 /**
  * Main page loader function that handles data fetching for a specific page type
  */
-async function pageLoader({
+async function pageDataLoader({
   request,
   params,
   pageType,
   config,
-}: PageLoaderOptions): Promise<PageResponseEnvelope> {
+}: PageDataLoaderOptions): Promise<PageResponseEnvelope> {
   const isServer = typeof window === 'undefined';
   // Unified development mode flag derived in order of precedence:
   // 1) SSRHelpers (authoritative on server), 2) config.isDevelopment, 3) NODE_ENV
@@ -340,7 +340,7 @@ async function pageLoader({
         const hasInternalHandler = !!SSRHelpers?.handlers?.hasHandler(pageType);
 
         // eslint-disable-next-line no-console
-        console.log('[pageLoader] server-side data fetching decision', {
+        console.log('[pageDataLoader] server-side data fetching decision', {
           pageType,
           SSRHelpersAttached: !!SSRHelpers,
           hasInternalHandler,
@@ -389,13 +389,15 @@ async function pageLoader({
           } else if (DEBUG_PAGE_LOADER) {
             // No internal handler; fall back to HTTP fetch
             // eslint-disable-next-line no-console
-            console.warn(`[pageLoader] fallback to http_fetch for ${pageType}`);
+            console.warn(
+              `[pageDataLoader] fallback to http_fetch for ${pageType}`,
+            );
           }
         } catch (internalError) {
           if (DEBUG_PAGE_LOADER) {
             // eslint-disable-next-line no-console
             console.error(
-              `[pageLoader] Internal handler error for ${pageType}; converting to 500 error`,
+              `[pageDataLoader] Internal handler error for ${pageType}; converting to 500 error`,
               internalError,
             );
           }
@@ -590,8 +592,8 @@ async function pageLoader({
  * - Timeout uses `config.timeoutMs` (0 disables); timeout message mirrors the
  *   HTTP path by using `connectionErrorMessages.server` when available
  */
-async function localPageLoader<T = unknown, M extends BaseMeta = BaseMeta>(
-  config: LocalPageLoaderConfig,
+async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
+  config: LocalPageDataLoaderConfig,
   handler: LocalPageHandler<T, M>,
   { request, params }: LoaderFunctionArgs,
 ): Promise<unknown> {
@@ -694,7 +696,7 @@ async function localPageLoader<T = unknown, M extends BaseMeta = BaseMeta>(
     //   the HTTP-backed loader path (API fetch) so cookies can be forwarded via __ssOnly.
     return decorateWithSsrOnlyData(result as PageResponseEnvelope, {});
   } catch (internalError) {
-    // Determine dev mode (mirrors pageLoader)
+    // Determine dev mode (mirrors pageDataLoader)
     const isDevelopment =
       typeof process !== 'undefined'
         ? process.env.NODE_ENV === 'development'

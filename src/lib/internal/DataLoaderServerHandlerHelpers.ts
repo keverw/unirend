@@ -84,7 +84,7 @@ export class DataLoaderServerHandlerHelpers {
   // Map<pageType, Map<version, handler>> - version defaults to 1 if not specified
   private handlersByPageType = new Map<string, Map<number, PageDataHandler>>();
 
-  // Shortcuts API for registration (mirrors APIRoutesServerHelpers style)
+  // pageLoader method-specific helpers
   private readonly pageLoader = {
     register: (
       pageType: string,
@@ -104,7 +104,7 @@ export class DataLoaderServerHandlerHelpers {
   } as const;
 
   /** Expose only the lightweight shortcuts surface for external consumers */
-  public get pageLoaderShortcuts() {
+  public get pageLoaderMethod() {
     return this.pageLoader;
   }
 

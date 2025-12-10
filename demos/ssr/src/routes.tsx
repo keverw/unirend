@@ -2,8 +2,8 @@ import { RouteObject, Outlet, useLoaderData, useParams } from 'react-router';
 import { Helmet } from 'react-helmet-async';
 import RouteErrorBoundary from '../../../src/lib/router-utils/RouteErrorBoundary';
 import {
-  createPageLoader,
-  createDefaultPageLoaderConfig,
+  createPageDataLoader,
+  createDefaultPageDataLoaderConfig,
 } from '../../../src/router-utils';
 import Home from './pages/Home';
 import About from './pages/About';
@@ -101,8 +101,8 @@ const PageDataDisplay = () => {
 };
 
 // Shared page loader config
-const pageLoaderConfig = {
-  ...createDefaultPageLoaderConfig('http://localhost:3000'),
+const pageDataLoaderConfig = {
+  ...createDefaultPageDataLoaderConfig('http://localhost:3000'),
   pageDataEndpoint: '/api/v1/page_data',
 };
 
@@ -137,7 +137,7 @@ export const routes: RouteObject[] = [
       {
         path: 'test-local-loader',
         element: <PageDataDisplay />,
-        loader: createPageLoader(pageLoaderConfig, async (params) => {
+        loader: createPageDataLoader(pageDataLoaderConfig, async (params) => {
           // Simple local-only loader example
           return {
             status: 'success' as const,
@@ -169,7 +169,7 @@ export const routes: RouteObject[] = [
       {
         path: 'test-local-loader-throws',
         element: <PageDataDisplay />,
-        loader: createPageLoader(pageLoaderConfig, async (_params) => {
+        loader: createPageDataLoader(pageDataLoaderConfig, async (_params) => {
           // Simulated error thrown from a local-only loader
           throw new Error(
             'Simulated error thrown from local page loader (no HTTP)',
@@ -179,7 +179,7 @@ export const routes: RouteObject[] = [
       {
         path: 'test-local-nonstd',
         element: <PageDataDisplay />,
-        loader: createPageLoader(pageLoaderConfig, async () => {
+        loader: createPageDataLoader(pageDataLoaderConfig, async () => {
           // Local-only loader returning a non-standard HTTP status code.
           // Note: Cookies cannot be set from local loaders since there is no HTTP response;
           // use the HTTP-backed loader (API fetch) if you need to set cookies via Set-Cookie.
@@ -205,12 +205,12 @@ export const routes: RouteObject[] = [
       {
         path: 'test-page-loader',
         element: <PageDataDisplay />,
-        loader: createPageLoader(pageLoaderConfig, 'test'),
+        loader: createPageDataLoader(pageDataLoaderConfig, 'test'),
       },
       {
         path: 'test-page-loader/:id',
         element: <PageDataDisplay />,
-        loader: createPageLoader(pageLoaderConfig, 'test'),
+        loader: createPageDataLoader(pageDataLoaderConfig, 'test'),
       },
       {
         path: 'test-error-thrown',
@@ -224,24 +224,27 @@ export const routes: RouteObject[] = [
       {
         path: 'test-500',
         element: null, // Should show an error handled by the App.tsx file
-        loader: createPageLoader(pageLoaderConfig, 'test-500'),
+        loader: createPageDataLoader(pageDataLoaderConfig, 'test-500'),
       },
       {
         path: 'test-stacktrace',
         element: null, // Should show an error handled by the App.tsx file
-        loader: createPageLoader(pageLoaderConfig, 'test-stacktrace'),
+        loader: createPageDataLoader(pageDataLoaderConfig, 'test-stacktrace'),
       },
       {
         path: 'test-generic-error',
         element: null, // Should show an error handled by the App.tsx file
-        loader: createPageLoader(pageLoaderConfig, 'test-generic-error'),
+        loader: createPageDataLoader(
+          pageDataLoaderConfig,
+          'test-generic-error',
+        ),
       },
       // 404 handler route
       {
         // have the code before the outlet detect not found or generic errors instead
         path: '*',
         element: null,
-        loader: createPageLoader(pageLoaderConfig, 'not-found'),
+        loader: createPageDataLoader(pageDataLoaderConfig, 'not-found'),
       },
     ],
   },

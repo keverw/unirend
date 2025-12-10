@@ -253,8 +253,8 @@ const apiBaseUrl =
       'http://localhost:3001'
     : process.env.INTERNAL_API_URL || 'http://api-internal:3001'; // Internal endpoint or service URL
 
-const config = createDefaultPageLoaderConfig(apiBaseUrl);
-export const homeLoader = createPageLoader(config, 'home');
+const config = createDefaultPageDataLoaderConfig(apiBaseUrl);
+export const homeLoader = createPageDataLoader(config, 'home');
 ```
 
 **Note:** If you run Vite in SPA-only dev mode directly (not through the SSR dev/prod servers), the injection won't happen. Both the hook and `window.__FRONTEND_APP_CONFIG__` will be `undefined`, so use fallback values as shown above.

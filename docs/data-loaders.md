@@ -2,8 +2,8 @@
 
 Unirend centralizes route data fetching through a single loader system. Define loaders per route using helpers, and return standardized envelopes. See `docs/api-envelope-structure.md` for the canonical envelope specs.
 
-- Create config: `createDefaultPageLoaderConfig(apiBaseUrl)` or provide a custom config
-- Define loaders: `createPageLoader(config, pageType)` or `createPageLoader(localConfig, localHandler)`
+- Create config: `createDefaultPageDataLoaderConfig(apiBaseUrl)` or provide a custom config
+- Define loaders: `createPageDataLoader(config, pageType)` or `createPageDataLoader(localConfig, localHandler)`
 - Errors/redirects: handled uniformly via envelopes. Integrate with `RouteErrorBoundary` and `useDataloaderEnvelopeError`
 
 <!-- toc -->
@@ -28,12 +28,12 @@ HTTP‑based Loader
 
 ```ts
 import {
-  createPageLoader,
-  createDefaultPageLoaderConfig,
+  createPageDataLoader,
+  createDefaultPageDataLoaderConfig,
 } from 'unirend/router-utils';
 
-const config = createDefaultPageLoaderConfig('http://localhost:3001');
-export const homeLoader = createPageLoader(config, 'home');
+const config = createDefaultPageDataLoaderConfig('http://localhost:3001');
+export const homeLoader = createPageDataLoader(config, 'home');
 ```
 
 On the server, register a page data handler for the same `pageType`. See: [SSR — Page Data Handlers and Versioning](./ssr.md#page-data-handlers-and-versioning)
@@ -54,9 +54,9 @@ server.pageLoader.register('home', (request, params) => {
 Local Loader
 
 ```ts
-import { createPageLoader } from 'unirend/router-utils';
+import { createPageDataLoader } from 'unirend/router-utils';
 
-export const localInfoLoader = createPageLoader(
+export const localInfoLoader = createPageDataLoader(
   { timeoutMs: 8000 },
   ({ route_params, query_params }) => ({
     status: 'success',
@@ -81,14 +81,14 @@ Uses HTTP to call your API server page data handlers when they are not co‑loca
 
 ```ts
 import {
-  createPageLoader,
-  createDefaultPageLoaderConfig,
+  createPageDataLoader,
+  createDefaultPageDataLoaderConfig,
 } from 'unirend/router-utils';
 
-const config = createDefaultPageLoaderConfig('http://localhost:3001');
+const config = createDefaultPageDataLoaderConfig('http://localhost:3001');
 
 // Per-route loader (pageType mapped to handlers on the server)
-export const homeLoader = createPageLoader(config, 'home');
+export const homeLoader = createPageDataLoader(config, 'home');
 ```
 
 Notes:
@@ -124,10 +124,10 @@ Configuration (HTTP‑based Loader):
 Runs a page data handler locally without framework dataLoader HTTP request. Primarily intended for SSG, but can be used in SSR if you don't need cookie propagation.
 
 ```ts
-import { createPageLoader } from 'unirend/router-utils';
+import { createPageDataLoader } from 'unirend/router-utils';
 
 // Local handler receives routing context; no Fastify request object
-export const localInfoLoader = createPageLoader(
+export const localInfoLoader = createPageDataLoader(
   { timeoutMs: 8000 },
   function ({ route_params, query_params }) {
     return {
@@ -160,13 +160,13 @@ Configuration (Local Loader):
 import type { RouteObject } from "react-router";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
-import { createPageLoader, createDefaultPageLoaderConfig } from "unirend/router-utils";
+import { createPageDataLoader, createDefaultPageDataLoaderConfig } from "unirend/router-utils";
 
-const config = createDefaultPageLoaderConfig("http://localhost:3001");
+const config = createDefaultPageDataLoaderConfig("http://localhost:3001");
 
 export const routes: RouteObject[] = [
-  { path: "/", loader: createPageLoader(config, "home"), element: <Home /> },
-  { path: "/dashboard", loader: createPageLoader(config, "dashboard"), element: <Dashboard /> },
+  { path: "/", loader: createPageDataLoader(config, "home"), element: <Home /> },
+  { path: "/dashboard", loader: createPageDataLoader(config, "dashboard"), element: <Dashboard /> },
 ];
 ```
 

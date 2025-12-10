@@ -72,7 +72,7 @@ import { serveSSRDev, type ServerPlugin } from 'unirend/server';
 
 // Define a plugin
 const myPlugin: ServerPlugin = async (pluginHost, options) => {
-  // Add custom routes (use envelope pattern via API shortcuts when possible)
+  // Add custom routes (use envelope pattern via API shortcuts method when possible)
   pluginHost.api.get('status', async (request) => {
     return APIResponseHelpers.createAPISuccessResponse({
       request,
@@ -286,7 +286,7 @@ Notes:
 
 #### Page Data Loader Registration
 
-Register page data handlers from a plugin using the pageLoader shortcut. Last registration wins for the same `pageType` + `version`.
+Register page data handlers from a plugin. Last registration wins for the same `pageType` + `version`.
 
 ```typescript
 // Handler without explicit version (defaults to version 1)
@@ -864,7 +864,7 @@ This plugin system gives you the flexibility to extend your SSR server while mai
 
 ## Lifecycle and Persistence
 
-- The plugin host’s shortcuts are framework-managed and persist on the server instance:
+- The plugin host’s shortcuts method are framework-managed and persist on the server instance:
   - `pluginHost.api.*` and `pluginHost.pageLoader.register(...)` write into Unirend’s internal registries. They persist across `stop()`/`listen()` cycles on the same server object (last registration wins for duplicates).
   - These are applied to the Fastify instance during `listen()` when routes are mounted, after plugins are registered.
 - The direct Fastify-style methods are per Fastify instance:

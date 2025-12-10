@@ -4,7 +4,7 @@ import { ErrorDefaults } from './pageDataLoader-types';
 export const DEBUG_PAGE_LOADER = false; // Set to false in a production release
 
 /**
- * Internal default values - not exported publicly, used for fallbacks and createDefaultPageLoaderConfig
+ * Internal default values - not exported publicly, used for fallbacks and createDefaultPageDataLoaderConfig
  */
 
 export const DEFAULT_ERROR_DEFAULTS: ErrorDefaults = {

@@ -75,7 +75,7 @@ Behavior also depends on when the error occurs:
         // {
         //   path: 'profile',
         //   element: <Profile />,
-        //   loader: createPageLoader(pageLoaderConfig, 'profile'),
+        //   loader: createPageDataLoader(pageDataLoaderConfig, 'profile'),
         // },
         // Catch‑all 404 route at the end
         // Useful when you want a data loader to produce a 404 page envelope
@@ -84,7 +84,7 @@ Behavior also depends on when the error occurs:
         // {
         //   path: '*',
         //   element: null,
-        //   loader: createPageLoader(pageLoaderConfig, 'not-found'),
+        //   loader: createPageDataLoader(pageDataLoaderConfig, 'not-found'),
         // },
       ],
     },

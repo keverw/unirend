@@ -425,7 +425,7 @@ When page data handlers are registered on the same `SSRServer` instance instead 
 
 ### Custom API Routes
 
-You can register versioned custom API routes using the server's `.api` shortcuts surface (available on both `SSRServer` and `APIServer`, and inside plugins as `pluginHost.api`). These return standardized API envelopes and automatically set the HTTP response status to `status_code`.
+You can register versioned custom API routes using the server's `.api` shortcuts method surface (available on both `SSRServer` and `APIServer`, and inside plugins as `pluginHost.api`). These return standardized API envelopes and automatically set the HTTP response status to `status_code`.
 
 ```ts
 import { APIResponseHelpers } from 'unirend/api-envelope';

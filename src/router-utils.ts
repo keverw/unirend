@@ -13,11 +13,11 @@ export { default as RouteErrorBoundary } from './lib/router-utils/RouteErrorBoun
 export type { RouteErrorBoundaryProps } from './lib/router-utils/RouteErrorBoundary';
 export { useDataloaderEnvelopeError } from './lib/router-utils/useDataLoaderEnvelopeError';
 export {
-  createPageLoader,
-  createDefaultPageLoaderConfig,
+  createPageDataLoader,
+  createDefaultPageDataLoaderConfig,
 } from './lib/router-utils/pageDataLoader';
 export {
-  type PageLoaderConfig,
+  type PageDataLoaderConfig,
   type ErrorDefaults,
   type BaseErrorDefinition,
   type FullErrorDefinition,

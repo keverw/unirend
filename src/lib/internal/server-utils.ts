@@ -311,7 +311,7 @@ export function createControlledInstance(
   fastifyInstance: FastifyInstance,
   shouldDisableRootWildcard: boolean,
   apiShortcuts: unknown,
-  pageLoaderShortcuts: unknown,
+  pageDataLoaderShortcuts: unknown,
 ): PluginHostInstance {
   return {
     register: <Options extends Record<string, unknown> = Record<string, never>>(
@@ -394,7 +394,7 @@ export function createControlledInstance(
     patch: (path: string, handler: RouteHandler) =>
       fastifyInstance.patch(path, handler),
     api: apiShortcuts,
-    pageLoader: pageLoaderShortcuts,
+    pageLoader: pageDataLoaderShortcuts,
   };
 }
 
