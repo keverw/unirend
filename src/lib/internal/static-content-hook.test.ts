@@ -799,6 +799,52 @@ describe('createStaticContentHook', () => {
     });
   });
 
+  describe('non-existent configured paths', () => {
+    it('treats singleAssetMap pointing to non-existent file as 404', async () => {
+      const error = new Error('ENOENT');
+      (error as NodeJS.ErrnoException).code = 'ENOENT';
+      mockFs.stat.mockRejectedValue(error);
+
+      const hook = createStaticContentHook({
+        // Config points to a file that doesn't exist on disk
+        singleAssetMap: { '/favicon.ico': '/non/existent/path/favicon.ico' },
+      });
+
+      const req = createMockRequest('/favicon.ico');
+      const { reply } = createMockReply();
+
+      await hook(req as FastifyRequest, reply as FastifyReply);
+
+      // Should fall through (no response sent) - Fastify will handle as 404
+      expect(reply.send).not.toHaveBeenCalled();
+      expect(mockFs.stat).toHaveBeenCalledWith(
+        '/non/existent/path/favicon.ico',
+      );
+    });
+
+    it('treats folderMap pointing to non-existent directory as 404', async () => {
+      const error = new Error('ENOENT');
+      (error as NodeJS.ErrnoException).code = 'ENOENT';
+      mockFs.stat.mockRejectedValue(error);
+
+      const hook = createStaticContentHook({
+        // Config points to a directory that doesn't exist on disk
+        folderMap: { '/assets': '/non/existent/assets/directory' },
+      });
+
+      const req = createMockRequest('/assets/main.js');
+      const { reply } = createMockReply();
+
+      await hook(req as FastifyRequest, reply as FastifyReply);
+
+      // Should fall through (no response sent) - Fastify will handle as 404
+      expect(reply.send).not.toHaveBeenCalled();
+      expect(mockFs.stat).toHaveBeenCalledWith(
+        path.join('/non/existent/assets/directory', 'main.js'),
+      );
+    });
+  });
+
   describe('logger integration', () => {
     it('logs unexpected file access errors', async () => {
       const error = new Error('Permission denied');
