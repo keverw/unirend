@@ -100,7 +100,7 @@ const PageDataDisplay = () => {
   );
 };
 
-// Shared page loader config
+// Shared page data loader config
 const pageDataLoaderConfig = {
   ...createDefaultPageDataLoaderConfig('http://localhost:3000'),
   pageDataEndpoint: '/api/v1/page_data',
@@ -145,7 +145,7 @@ export const routes: RouteObject[] = [
             request_id: `local_${Date.now()}`,
             type: 'page' as const,
             data: {
-              message: 'Local page loader response (no HTTP)',
+              message: 'Local page data loader response (no HTTP)',
               pageType: params.pageType,
               invocation_origin: params.invocation_origin,
               request: {
@@ -159,7 +159,7 @@ export const routes: RouteObject[] = [
               page: {
                 title: 'Local Loader Demo',
                 description:
-                  'This page demonstrates a local-only page loader without HTTP',
+                  'This page demonstrates a local-only page data loader without HTTP',
               },
             },
             error: null,
@@ -172,7 +172,7 @@ export const routes: RouteObject[] = [
         loader: createPageDataLoader(pageDataLoaderConfig, async (_params) => {
           // Simulated error thrown from a local-only loader
           throw new Error(
-            'Simulated error thrown from local page loader (no HTTP)',
+            'Simulated error thrown from local page data loader (no HTTP)',
           );
         }),
       },

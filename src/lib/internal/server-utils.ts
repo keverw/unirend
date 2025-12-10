@@ -311,7 +311,7 @@ export function createControlledInstance(
   fastifyInstance: FastifyInstance,
   shouldDisableRootWildcard: boolean,
   apiShortcuts: unknown,
-  pageDataLoaderShortcuts: unknown,
+  pageDataHandlerShortcuts: unknown,
 ): PluginHostInstance {
   return {
     register: <Options extends Record<string, unknown> = Record<string, never>>(
@@ -394,7 +394,7 @@ export function createControlledInstance(
     patch: (path: string, handler: RouteHandler) =>
       fastifyInstance.patch(path, handler),
     api: apiShortcuts,
-    pageLoader: pageDataLoaderShortcuts,
+    pageDataHandler: pageDataHandlerShortcuts,
   };
 }
 
@@ -481,11 +481,11 @@ export function createControlledReply(reply: FastifyReply): ControlledReply {
 }
 
 /**
- * Validates that no API or page data handlers were registered when API handling is disabled.
+ * Validates that no API or page data loader handlers were registered when API handling is disabled.
  * This prevents configuration errors where handlers are registered but won't be used.
  *
  * @param apiRoutes API routes helper instance
- * @param pageDataHandlers Page data handlers helper instance
+ * @param pageDataHandlers Page data loader handlers helper instance
  * @throws Error if handlers were registered when API is disabled
  */
 export function validateNoHandlersWhenAPIDisabled(
@@ -498,7 +498,7 @@ export function validateNoHandlersWhenAPIDisabled(
   if (hasApiRoutes || hasPageDataHandlers) {
     const registered = [
       hasApiRoutes ? 'API routes' : null,
-      hasPageDataHandlers ? 'page data handlers' : null,
+      hasPageDataHandlers ? 'page data loader handlers' : null,
     ]
       .filter(Boolean)
       .join(' and ');

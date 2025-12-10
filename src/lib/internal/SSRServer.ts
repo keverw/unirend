@@ -878,11 +878,11 @@ export class SSRServer extends BaseServer {
   }
 
   /**
-   * Public API method for registering page data handlers
-   * Usage: server.pageLoader.register("home", handler) or server.pageLoader.register("home", 2, handler)
+   * Public API method for registering page data loader handlers
+   * Usage: server.pageDataHandler.register("home", handler) or server.pageDataHandler.register("home", 2, handler)
    */
-  public get pageLoader() {
-    return this.pageDataHandlers.pageLoaderMethod;
+  public get pageDataHandler() {
+    return this.pageDataHandlers.pageDataHandlerMethod;
   }
 
   /**
@@ -941,7 +941,7 @@ export class SSRServer extends BaseServer {
       this.fastifyInstance,
       true,
       this.apiRoutes.apiMethod,
-      this.pageDataHandlers.pageLoaderMethod,
+      this.pageDataHandlers.pageDataHandlerMethod,
     );
 
     // Plugin options to pass to each plugin

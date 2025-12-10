@@ -231,7 +231,7 @@ These endpoints are specifically designed for retrieving complete page data for 
 To fetch data for SSR pages, the frontend makes an HTTP POST request to a dedicated endpoint:
 
 - **Method:** `POST`
-- **Endpoint:** e.g.`/v1/page_data/{page_type}` (e.g., `/v1/page_data/home`, `/v1/page_data/rooms_list`). The `{page_type}` in the URL path identifies the type of page being requested and corresponds to the `pageType` argument used by the frontend page loader.
+- **Endpoint:** e.g.`/v1/page_data/{page_type}` (e.g., `/v1/page_data/home`, `/v1/page_data/rooms_list`). The `{page_type}` in the URL path identifies the type of page being requested and corresponds to the `pageType` argument used by the frontend page data loader.
 - **Content-Type:** `application/json`
 
 #### Request Body:
@@ -621,7 +621,7 @@ Since the page response type is an extension of the API response pattern, datalo
 Unirend’s `pageDataLoader` implements a consistent, envelope-first pattern across SSR and client:
 
 - Request strategy
-  - SSR: If a page data handler is registered on the same server instance, the loader short‑circuits and invokes it internally; otherwise it performs an HTTP POST to `{apiBaseUrl}{pageDataEndpoint}/{pageType}` with `route_params`, `query_params`, `request_path`, and `original_url`.
+  - SSR: If a page data loader handler is registered on the same server instance, the loader short‑circuits and invokes it internally, otherwise it performs an HTTP POST to `{apiBaseUrl}{pageDataEndpoint}/{pageType}` with `route_params`, `query_params`, `request_path`, and `original_url`.
   - Client: Performs an HTTP POST with `credentials: "include"` and forwards `Accept-Language`.
 
 - Headers and cookies (SSR HTTP path)

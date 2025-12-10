@@ -14,7 +14,7 @@
     - [Decorators](#decorators)
     - [Reading server decorations](#reading-server-decorations)
     - [API Shortcuts (Envelope Helpers)](#api-shortcuts-envelope-helpers)
-    - [Page Data Loader Registration](#page-data-loader-registration)
+    - [Page Data Loader Handler Registration](#page-data-loader-handler-registration)
 - [Example Plugins](#example-plugins)
   - [API Routes Plugin](#api-routes-plugin)
   - [Plugin Configuration via Factory Functions](#plugin-configuration-via-factory-functions)
@@ -279,18 +279,18 @@ Notes:
 - Use raw `pluginHost.get/post/...` when you deliberately need non-envelope responses (e.g., file downloads, HTML), but avoid mixing patterns for JSON APIs.
 - Wildcard endpoints are allowed via `pluginHost.api.*` only when the API prefix is non-root (default `"/api"`); raw wildcard routes are blocked to avoid SSR conflicts.
 - For the full `params` shape passed to `pluginHost.api.*` handlers, see Custom API Routes in `docs/ssr.md`.
-- Duplicate registrations for the API same method + endpoint + version: last registration wins. Prefer centralizing your API shortcut registrations to avoid surprises; use distinct versions when you need multiple version handlers.
-- Handlers use the signature `(request, reply, params)`; `reply` is a controlled surface that allows setting headers and cookies.
+- Duplicate registrations for the API same method + endpoint + version: last registration wins. Prefer centralizing your API shortcut registrations to avoid surprises, use distinct versions when you need multiple version handlers.
+- Handlers use the signature `(request, reply, params)`, `reply` is a controlled surface that allows setting headers and cookies.
 - Endpoints are mounted under `apiEndpoints.apiEndpointPrefix` and, when `versioned` is true, under `/v{n}`.
 - Status is taken from `status_code` in the returned API envelope.
 
-#### Page Data Loader Registration
+#### Page Data Loader Handler Registration
 
-Register page data handlers from a plugin. Last registration wins for the same `pageType` + `version`.
+Register backend page data loader handlers from a plugin. Last registration wins for the same `pageType` + `version`.
 
 ```typescript
 // Handler without explicit version (defaults to version 1)
-pluginHost.pageLoader.register('home', (request, reply, params) => {
+pluginHost.pageDataHandler.register('home', (request, reply, params) => {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { message: 'home', version: params.version },
@@ -299,7 +299,7 @@ pluginHost.pageLoader.register('home', (request, reply, params) => {
 });
 
 // Handler with explicit version
-pluginHost.pageLoader.register('home', 2, (request, reply, params) => {
+pluginHost.pageDataHandler.register('home', 2, (request, reply, params) => {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { message: 'home v2', version: params.version },
@@ -865,7 +865,7 @@ This plugin system gives you the flexibility to extend your SSR server while mai
 ## Lifecycle and Persistence
 
 - The plugin host’s shortcuts method are framework-managed and persist on the server instance:
-  - `pluginHost.api.*` and `pluginHost.pageLoader.register(...)` write into Unirend’s internal registries. They persist across `stop()`/`listen()` cycles on the same server object (last registration wins for duplicates).
+  - `pluginHost.api.*` and `pluginHost.pageDataHandler.register(...)` write into Unirend’s internal registries. They persist across `stop()`/`listen()` cycles on the same server object (last registration wins for duplicates).
   - These are applied to the Fastify instance during `listen()` when routes are mounted, after plugins are registered.
 - The direct Fastify-style methods are per Fastify instance:
   - `pluginHost.get/post/put/delete/patch/route/addHook/register` are invoked against the underlying Fastify instance, which is created fresh on each `listen()` call. Your plugin function is run on each `listen()`, so these routes/hooks are re-registered each time.

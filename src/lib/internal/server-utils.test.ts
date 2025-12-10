@@ -657,25 +657,25 @@ describe('validateNoHandlersWhenAPIDisabled', () => {
     ).toThrow(/API routes were registered but API handling is disabled/i);
   });
 
-  it('throws when page data handlers are registered', () => {
+  it('throws when page data loader handlers are registered', () => {
     const mockApiRoutes = { hasRegisteredHandlers: () => false };
     const mockPageDataHandlers = { hasRegisteredHandlers: () => true };
 
     expect(() =>
       validateNoHandlersWhenAPIDisabled(mockApiRoutes, mockPageDataHandlers),
     ).toThrow(
-      /page data handlers were registered but API handling is disabled/i,
+      /page data loader handlers were registered but API handling is disabled/i,
     );
   });
 
-  it('throws when both API routes and page data handlers are registered', () => {
+  it('throws when both API routes and page data loader handlers are registered', () => {
     const mockApiRoutes = { hasRegisteredHandlers: () => true };
     const mockPageDataHandlers = { hasRegisteredHandlers: () => true };
 
     expect(() =>
       validateNoHandlersWhenAPIDisabled(mockApiRoutes, mockPageDataHandlers),
     ).toThrow(
-      /API routes and page data handlers were registered but API handling is disabled/i,
+      /API routes and page data loader handlers were registered but API handling is disabled/i,
     );
   });
 
@@ -685,6 +685,6 @@ describe('validateNoHandlersWhenAPIDisabled', () => {
 
     expect(() =>
       validateNoHandlersWhenAPIDisabled(mockApiRoutes, mockPageDataHandlers),
-    ).toThrow(/Either enable API handling or remove the registered handlers/i);
+    ).toThrow(/Either enable API handling.*or remove the registered handlers/i);
   });
 });

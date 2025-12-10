@@ -13,7 +13,7 @@ import {
 } from './version-helpers';
 
 /**
- * Parameters passed to page data handlers with shortcuts to common fields
+ * Parameters passed to page data loader handlers with shortcuts to common fields
  *
  * Handlers should treat these params as the authoritative routing context
  * (route_params, query_params, request_path, original_url) produced by the
@@ -71,7 +71,7 @@ export interface CallHandlerResult<T = unknown, M extends BaseMeta = BaseMeta> {
 }
 
 /**
- * Helper class for registering page data handlers on server instances
+ * Helper class for registering page data loader handlers on server instances
  *
  * This class provides a convenient API for registering page data endpoints that match
  * the frontend pageDataLoader expectations. It supports both versioned and non-versioned
@@ -84,8 +84,8 @@ export class DataLoaderServerHandlerHelpers {
   // Map<pageType, Map<version, handler>> - version defaults to 1 if not specified
   private handlersByPageType = new Map<string, Map<number, PageDataHandler>>();
 
-  // pageLoader method-specific helpers
-  private readonly pageLoader = {
+  // pageDataHandler method-specific helpers
+  private readonly pageDataHandler = {
     register: (
       pageType: string,
       versionOrHandler: number | PageDataHandler,
@@ -104,12 +104,12 @@ export class DataLoaderServerHandlerHelpers {
   } as const;
 
   /** Expose only the lightweight shortcuts surface for external consumers */
-  public get pageLoaderMethod() {
-    return this.pageLoader;
+  public get pageDataHandlerMethod() {
+    return this.pageDataHandler;
   }
 
   /**
-   * Check if any page data handlers have been registered
+   * Check if any page data loader handlers have been registered
    * Useful for validation when API handling is disabled
    */
   public hasRegisteredHandlers(): boolean {
@@ -418,7 +418,7 @@ export class DataLoaderServerHandlerHelpers {
   }
 
   /**
-   * Register a page data handler without explicit version (uses default version if versioned)
+   * Register a page data loader handler without explicit version (uses default version if versioned)
    */
   private registerDataLoaderHandler(
     pageType: string,
@@ -426,7 +426,7 @@ export class DataLoaderServerHandlerHelpers {
   ): void;
 
   /**
-   * Register a page data handler with explicit version
+   * Register a page data loader handler with explicit version
    */
   private registerDataLoaderHandler(
     pageType: string,

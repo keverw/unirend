@@ -118,7 +118,7 @@ const Home: React.FC = () => {
             }}
           >
             <Link to="/test-page-loader" className="demo-button btn-teal">
-              Basic Page Loader
+              Basic Page Data Loader
             </Link>
             <Link to="/test-page-loader/123" className="demo-button btn-blue">
               With ID Parameter
@@ -130,7 +130,7 @@ const Home: React.FC = () => {
               With ID + Query Params
             </Link>
             <Link to="/test-local-loader" className="demo-button btn-purple">
-              Local Page Loader (no HTTP)
+              Local Page Data Loader (no HTTP)
             </Link>
             <Link
               to="/test-local-loader-throws"

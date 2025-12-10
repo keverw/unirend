@@ -176,8 +176,8 @@ export interface PluginHostInstance {
   patch: (path: string, handler: RouteHandler) => void;
   /** API route registration shortcuts method for versioned endpoints */
   api?: unknown;
-  /** Page data loader registration method for data loader endpoints */
-  pageLoader?: unknown;
+  /** Page data loader handler registration method for page data endpoints */
+  pageDataHandler?: unknown;
 }
 
 /**
@@ -279,7 +279,7 @@ export interface APIEndpointConfig {
   apiEndpointPrefix?: string | false;
   /** Whether to enable versioning (default: true) */
   versioned?: boolean;
-  /** Base endpoint name for page data handlers (default: "page_data"). Used by SSR/APIServer's page-data registration only. */
+  /** Base endpoint name for page data loader handlers (default: "page_data"). Used by SSR/APIServer's page-data registration only. */
   pageDataEndpoint?: string;
 }
 
@@ -369,7 +369,7 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
   APIResponseHelpersClass?: APIResponseHelpersClass;
   /**
    * Configuration for versioned API endpoints (shared by page data and generic API routes)
-   * For page data handler endpoints, set pageDataEndpoint (default: "page_data")
+   * For page data loader handler endpoints, set pageDataEndpoint (default: "page_data")
    */
   apiEndpoints?: APIEndpointConfig;
   /**
@@ -609,7 +609,7 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
   APIResponseHelpersClass?: APIResponseHelpersClass;
   /**
    * Configuration for versioned API endpoints (shared by page data and generic API routes)
-   * For page data handler endpoints, set pageDataEndpoint (default: "page_data")
+   * For page data loader handler endpoints, set pageDataEndpoint (default: "page_data")
    */
   apiEndpoints?: APIEndpointConfig;
   /**

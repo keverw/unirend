@@ -94,7 +94,7 @@ Behavior also depends on when the error occurs:
 - **Inline envelope errors in layout**: In your `AppLayout`, use `useDataloaderEnvelopeError` to render inline errors (including 404s) returned by data loaders.
   - Import: `import { useDataloaderEnvelopeError } from 'unirend/router-utils'`
   - Typical mapping: render a `NotFound` component for 404s and a generic error component for other cases. See the SSR demo’s `demos/ssr/src/routes.tsx` layout pattern.
-  - A dedicated not-found page loader is recommended, but inline handling in your layout works too.
+  - A dedicated not-found page data loader is recommended, but inline handling in your layout works too.
 
 ## Error Types
 
@@ -104,7 +104,7 @@ Unhandled exceptions from loaders/components during SSR or client navigation.
 
 ### Envelope Response Errors
 
-Errors returned as envelopes with `status: "error"` from page loaders or API endpoints.
+Errors returned as envelopes with `status: "error"` from page data loaders/handlers or API endpoints.
 
 ## Error Handling Flow
 
@@ -146,7 +146,7 @@ When a loader produces a page render with `statusCode === 500`:
 
 ## Integration with API Envelope Structure
 
-- Use the standardized envelopes for both page loaders and API endpoints.
+- Use the standardized envelopes for both page data loaders/handlers and API endpoints.
 - Construct envelopes via helpers: `APIResponseHelpers.createPageErrorResponse` / `createAPIErrorResponse`, etc.
 - The SSR server also emits standardized JSON envelopes for API 404 and errors when API handling is enabled.
 

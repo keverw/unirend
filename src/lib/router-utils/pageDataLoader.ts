@@ -1,8 +1,8 @@
 /**
- * Page Loader System
+ * Page Data Loader System
  * -----------------
  *
- * This is a centralized page loader system that handles all route data fetching for the application.
+ * This is a centralized page data loader system that handles all route data fetching for the application.
  * Instead of having multiple specialized loaders for separate pages, we've consolidated all page data fetching
  * into this single data loader that communicates with our API server.
  *
@@ -261,7 +261,7 @@ export function createPageDataLoader(
   config: PageDataLoaderConfig | LocalPageDataLoaderConfig,
   pageTypeOrHandler: string | LocalPageHandler,
 ) {
-  // If the pageTypeOrHandler is a string, create a page loader that uses the page type
+  // If the pageTypeOrHandler is a string, create a page data loader that uses the page type
   if (typeof pageTypeOrHandler === 'string') {
     const pageType = pageTypeOrHandler;
 
@@ -274,14 +274,14 @@ export function createPageDataLoader(
       });
   }
 
-  // If the pageTypeOrHandler is a LocalPageHandler, create a page loader that uses the handler
+  // If the pageTypeOrHandler is a LocalPageHandler, create a page data loader that uses the handler
   const handler = pageTypeOrHandler;
   return (args: LoaderFunctionArgs) =>
     localPageDataLoader(config as LocalPageDataLoaderConfig, handler, args);
 }
 
 /**
- * Main page loader function that handles data fetching for a specific page type
+ * Main page data loader function that handles data fetching for a specific page type
  */
 async function pageDataLoader({
   request,
@@ -577,10 +577,10 @@ async function pageDataLoader({
 }
 
 /**
- * Local page loader (framework does not perform HTTP)
+ * Local page data loader (framework does not perform HTTP or short-circuit calls)
  *
  * Purpose:
- * - Run a page data handler locally without the framework doing an HTTP fetch
+ * - Run a page data loader locally without the framework doing an HTTP fetch or short-circuit calls
  * - Preserve the same ergonomics as the normal loader: timeout handling,
  *   redirect support, envelope validation, and consistent error envelopes
  *

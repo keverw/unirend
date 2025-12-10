@@ -40,11 +40,12 @@ export interface ErrorDefaults {
  *
  * @param statusCode - The HTTP status code from the API response
  * @param responseData - The parsed JSON response data from the API (if valid JSON)
- * @param config - The page loader configuration
+ * @param config - The page data loader configuration
  * @returns A PageResponseEnvelope or null/undefined to fall back to default handling
  *
  * For redirects, use the API envelope redirect pattern with status: "redirect".
- * SSR-only data (like cookies) will be automatically decorated by the page loader.
+ * Note: You don't need to include __ssOnly data - the loader framework automatically
+ * decorates your envelope with SSR-only data (cookies, etc.) when needed.
  */
 
 export type CustomStatusCodeHandler = (
@@ -54,7 +55,7 @@ export type CustomStatusCodeHandler = (
 ) => PageResponseEnvelope | null | undefined;
 
 /**
- * Configuration object interface for the page loader system
+ * Configuration object interface for the page data loader system
  */
 export interface PageDataLoaderConfig {
   /** Base URL for the API server (e.g., "http://localhost:3001" or "https://api.example.com") */
@@ -238,8 +239,8 @@ export interface PageDataLoaderConfig {
 }
 
 /**
- * Narrower configuration for local-only page loaders (no framework HTTP fetch).
- * Includes only the fields actually used by the local loader path.
+ * Narrower configuration for local-only page data loaders (no framework HTTP fetch).
+ * Includes only the fields actually used by the local data loader path.
  */
 export type LocalPageDataLoaderConfig = Pick<
   PageDataLoaderConfig,
@@ -252,7 +253,7 @@ export type LocalPageDataLoaderConfig = Pick<
   | 'transformErrorMeta'
 >;
 
-// Options interface for the page loader
+// Options interface for the page data loader
 export interface PageDataLoaderOptions {
   request: Request;
   params: Record<string, string | undefined>;
@@ -260,7 +261,7 @@ export interface PageDataLoaderOptions {
   config: PageDataLoaderConfig;
 }
 
-// Local Page Loader (where no HTTP request is made) types
+// Local Page Data Loader (where no HTTP request is made) types
 export interface LocalPageHandlerParams {
   /** Logical page type - set to 'local' by the framework */
   pageType: 'local';

@@ -36,13 +36,13 @@ const config = createDefaultPageDataLoaderConfig('http://localhost:3001');
 export const homeLoader = createPageDataLoader(config, 'home');
 ```
 
-On the server, register a page data handler for the same `pageType`. See: [SSR — Page Data Handlers and Versioning](./ssr.md#page-data-handlers-and-versioning)
+On the server, register a backend page data loader handler for the same `pageType`. See: [Page Data Loader Handlers and Versioning](./ssr.md#page-data-loader-handlers-and-versioning)
 
 ```ts
 // On your SSR server instance
 import { APIResponseHelpers } from 'unirend/api-envelope';
 
-server.pageLoader.register('home', (request, params) => {
+server.pageDataHandler.register('home', (request, params) => {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { message: 'Hello from server', route: params.route_params },
@@ -77,7 +77,7 @@ export const localInfoLoader = createPageDataLoader(
 
 ## Page Type Handler (Fetch/Short-Circuit) Data Loader
 
-Uses HTTP to call your API server page data handlers when they are not co‑located on the same SSR server, and short‑circuits to an internal call on SSR when the handler is registered on the same `SSRServer` instance.
+Uses HTTP to call your API server page data loader handlers when they are not co‑located on the same SSR server, and short‑circuits to an internal call on SSR when the handler is registered on the same `SSRServer` instance.
 
 ```ts
 import {
@@ -105,7 +105,7 @@ Notes:
   - Request and correlation IDs and client details are handled by the built‑in `clientInfo` plugin. It reads trusted `X‑SSR-*` headers when allowed and otherwise uses the real request IP and user agent. Works for both short‑circuit handlers and HTTP‑forwarded API requests — whether hosted on the same server or a separate API server. For cookies — including reading and setting — see the dedicated cookies plugin doc. Cookie handling works the same for both loader types. See: [clientInfo](./built-in-plugins/clientInfo.md) and [cookies](./built-in-plugins/cookies.md)
 
 - Prefer `APIResponseHelpers` on the server to build envelopes and auto-populate `request_id` from the request object when set
-- The `pageType` you pass here must match what you register on the server via `server.pageLoader.register(pageType, ...)`. See `docs/ssr.md` "Page Data Handlers and Versioning".
+- The `pageType` you pass here must match what you register on the server via `server.pageDataHandler.register(pageType, ...)`. See `docs/ssr.md` "Page Data Loader Handlers and Versioning".
 
 Tip:
 
@@ -121,7 +121,7 @@ Configuration (HTTP‑based Loader):
 
 ## Local Data Loader
 
-Runs a page data handler locally without framework dataLoader HTTP request. Primarily intended for SSG, but can be used in SSR if you don't need cookie propagation.
+Runs a page data loader locally without framework data loader handler HTTP request. Primarily intended for SSG, but can be used in SSR if you don't need cookie propagation.
 
 ```ts
 import { createPageDataLoader } from 'unirend/router-utils';

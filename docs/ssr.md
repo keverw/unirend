@@ -17,7 +17,7 @@
   - [Header and Cookies Forwarding](#header-and-cookies-forwarding)
   - [Reading server decorations](#reading-server-decorations)
   - [Environment flag in handlers](#environment-flag-in-handlers)
-  - [Page Data Handlers and Versioning](#page-data-handlers-and-versioning)
+  - [Page Data Loader Handlers and Versioning](#page-data-loader-handlers-and-versioning)
   - [Short-Circuit Data Handlers](#short-circuit-data-handlers)
   - [Custom API Routes](#custom-api-routes)
     - [API route handler signature and parameters:](#api-route-handler-signature-and-parameters)
@@ -35,7 +35,7 @@
 
 ## Overview
 
-**Server-Side Rendering (SSR)** renders your routes on each request and returns HTML with proper status codes and SEO metadata. Unirend provides dev and prod server helpers that return an `SSRServer` instance you can extend with plugins and page data handlers.
+**Server-Side Rendering (SSR)** renders your routes on each request and returns HTML with proper status codes and SEO metadata. Unirend provides dev and prod server helpers that return an `SSRServer` instance you can extend with plugins, page data loader handlers and API endpoints.
 
 ## Server Classes
 
@@ -56,7 +56,7 @@ Both server classes expose the same operational methods:
 
 - `listen(port?: number, host?: string): Promise<void>` — Start the server
 - `stop(): Promise<void>` — Stop the server
-- `pageLoader.register(pageType, handler)` and `pageLoader.register(pageType, version, handler)` — Register page data handlers used by the page data endpoint
+- `pageDataHandler.register(pageType, handler)` and `pageDataHandler.register(pageType, version, handler)` — Register backend page data loader handlers used by the frontend page data loaders
 - `registerWebSocketHandler(config)` — Register a WebSocket handler (when `enableWebSockets` is true)
 - `getWebSocketClients(): Set<unknown>` — Get the connected WebSocket clients (empty set when not supported/not started)
 - `hasDecoration(property: string): boolean` — Check if a server-level decoration exists
@@ -180,7 +180,7 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
   - Shared versioned endpoint configuration used by page data and generic API routes.
   - `apiEndpointPrefix?: string | false` — API route prefix (default: `"/api"`). Set to `false` to disable API handling (SSR-only mode). Throws error on startup if routes are registered but API is disabled.
   - `versioned?: boolean` — Enable versioned endpoints like `/api/v1/...` (default: `true`)
-  - `pageDataEndpoint?: string` — Endpoint name for page data handlers (default: `"page_data"`)
+  - `pageDataEndpoint?: string` — Endpoint name for page data loader handlers (default: `"page_data"`)
 - `APIHandling?: { errorHandler?; notFoundHandler? }`
   - Custom error/not-found handlers for API requests (paths matching `apiEndpoints.apiEndpointPrefix`)
   - `errorHandler` and `notFoundHandler` return standardized API/Page error envelopes instead of HTML.
@@ -292,10 +292,10 @@ const info = server.getDecoration<{
 
 ### Environment flag in handlers
 
-Within your request handlers (including page data handlers), you can check a boolean environment flag on the request to tailor behavior:
+Within your request handlers (including page data loader handlers), you can check a boolean environment flag on the request to tailor behavior:
 
 ```ts
-server.pageLoader.register('example', (request, params) => {
+server.pageDataHandler.register('example', (request, params) => {
   const isDev = (request as FastifyRequest & { isDevelopment?: boolean })
     .isDevelopment;
   return APIResponseHelpers.createPageSuccessResponse({
@@ -311,7 +311,7 @@ Notes:
 - On the SSR server this reflects whether the server is running in development or production mode.
 - On the API server this reflects `options.isDevelopment` (defaults to false).
 
-### Page Data Handlers and Versioning
+### Page Data Loader Handlers and Versioning
 
 The server can automatically expose versioned and non‑versioned page data endpoints based on your `apiEndpoints` configuration:
 
@@ -329,7 +329,7 @@ Example paths (assuming `apiEndpointPrefix = "/api"`, `pageDataEndpoint = "page_
 
 Handler signature and return type:
 
-- `server.pageLoader.register(pageType, handler)` or `server.pageLoader.register(pageType, version, handler)`
+- `server.pageDataHandler.register(pageType, handler)` or `server.pageDataHandler.register(pageType, version, handler)`
 - Handler signature: `(originalRequest, reply, params) => PageResponseEnvelope | APIResponseEnvelope`
 - Handler parameters:
   - `originalRequest`: the Fastify request that initiated the render. Use only for transport/ambient data (cookies, headers, IP, auth tokens).
@@ -357,7 +357,7 @@ Guidance:
 Recommendation:
 
 - Prefer using `APIResponseHelpers` (see [API Envelope Structure](./api-envelope-structure.md)) to construct envelopes. These helpers also auto-populate `request_id` from `request.requestID` that your request registered middleware/plugins may populate.
-- For custom meta defaults (account/workspace/locale/build), prefer extending `APIResponseHelpers` in a small subclass and reading decorated values from the request within that subclass. This applies to both page data handlers and custom API route handlers. See: [Extending helpers and custom meta](./api-envelope-structure.md#extending-helpers-and-custom-meta).
+- For custom meta defaults (account/workspace/locale/build), prefer extending `APIResponseHelpers` in a small subclass and reading decorated values from the request within that subclass. This applies to both page data loader/handlers and custom API route handlers. See: [Extending helpers and custom meta](./api-envelope-structure.md#extending-helpers-and-custom-meta).
   - Rationale: centralizes conventions and avoids repeating per-handler generics/typing. Just ensure your meta type extends `BaseMeta`.
 
 Examples:
@@ -366,7 +366,7 @@ Examples:
 import { APIResponseHelpers } from 'unirend/api-envelope';
 
 // Unversioned handler (defaults to version 1)
-server.pageLoader.register('test', function (request, params) {
+server.pageDataHandler.register('test', function (request, params) {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { message: 'version 1', version: params.version },
@@ -375,7 +375,7 @@ server.pageLoader.register('test', function (request, params) {
 });
 
 // Explicit versioned handlers
-server.pageLoader.register('test', 2, function (request, params) {
+server.pageDataHandler.register('test', 2, function (request, params) {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { message: 'v2', version: params.version },
@@ -383,7 +383,7 @@ server.pageLoader.register('test', 2, function (request, params) {
   });
 });
 
-server.pageLoader.register('test', 3, function (request, params) {
+server.pageDataHandler.register('test', 3, function (request, params) {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { message: 'v3', version: params.version },
@@ -421,7 +421,7 @@ Return a standardized Page Response Envelope. Status codes in the envelope are p
 
 ### Short-Circuit Data Handlers
 
-When page data handlers are registered on the same `SSRServer` instance instead of a standalone API server, SSR can directly invoke the handler (short-circuit) instead of performing an HTTP fetch. The data loader passes the same routing context (`route_params`, `query_params`, `request_path`, `original_url`) to ensure consistent behavior. Use the HTTP path when you need cookie propagation to/from a backend API.
+When page data loader handlers are registered on the same `SSRServer` instance instead of a standalone API server, SSR can directly invoke the handler (short-circuit) instead of performing an HTTP fetch. The data loader passes the same routing context (`route_params`, `query_params`, `request_path`, `original_url`) to ensure consistent behavior. Use the HTTP path when you need cookie propagation to/from a backend API.
 
 ### Custom API Routes
 
@@ -483,9 +483,9 @@ Notes:
 ### Param Source Parity (Data Loader vs API Routes):
 
 - Both handlers receive a `params` object with a similar routing context, but the source differs:
-  - Data loader handlers: `params` are produced by the frontend page loader and sent in the POST body (SSR short-circuit passes the same shape internally for consistency). Treat this as the authoritative routing context for page data.
+  - Data loader handlers: `params` are produced by the frontend page data loader and sent in the POST body (SSR short-circuit passes the same shape internally for consistency). Treat this as the authoritative routing context for page data.
   - API route handlers: `params` are assembled on the server from Fastify’s request (route/query/path/URL). Use these directly for API endpoints.
-- In both cases, the best practices is to use `originalRequest` (the Fastify request) only for transport/ambient data (cookies/headers/IP/auth), and use `reply` for headers/cookies you want on the HTTP response. This also makes it easy to port code between the page data loader and API handlers.
+- In both cases, the best practices is to use `originalRequest` (the Fastify request) only for transport/ambient data (cookies/headers/IP/auth), and use `reply` for headers/cookies you want on the HTTP response. This also makes it easy to port code between page data loader handlers and custom API handlers.
 
 ### Request Context Injection
 
@@ -521,7 +521,7 @@ For production-ready patterns including CSRF token management and hydration-safe
 The `APIServer` is a flexible server with a similar plugin surface to SSRServer, but without the React SSR machinery. Use it when you don't need server-side React rendering. Common use cases:
 
 - **JSON API server**: AJAX/fetch endpoints with versioned routes and envelope responses, separately from your SSR server
-- **Page data server**: Host page data handlers separately from your SSR server
+- **Page data server**: Host page data loader handlers separately from your SSR server
 - **Mixed API + web server**: Serve both JSON APIs and static HTML/assets without React (use split error handlers for HTML vs JSON responses)
 - **Plain web server**: Set `apiEndpointPrefix: false` to disable API envelope handling entirely and serve only static content via plugins
 
@@ -557,7 +557,7 @@ main().catch(console.error);
 - `apiEndpoints?: APIEndpointConfig`
   - `apiEndpointPrefix?: string | false` — API route prefix (default: `"/api"`). Set to `false` to disable API handling (server becomes a plain web server). Throws error on startup if routes are registered but API is disabled.
   - `versioned?: boolean` — Enable versioned endpoints like `/api/v1/...` (default: `true`)
-  - `pageDataEndpoint?: string` — Endpoint name for page data handlers (default: `"page_data"`)
+  - `pageDataEndpoint?: string` — Endpoint name for page data loader handlers (default: `"page_data"`)
 - `errorHandler?: Function | { api?, web? }`
   - Function form: Returns JSON envelope (see [JSON-Only](#json-only-ssr-compatible))
   - Object form: Split handlers for mixed API + web servers (see [Split Handlers](#split-handlers-web-server-mode)). Either handler can be omitted — missing handlers fall through to default behavior.
@@ -610,7 +610,7 @@ const server = serveAPI({
 });
 ```
 
-This is the same signature used by SSR server's `APIHandling` options (see [Options (shared)](#options-shared) above), making it easy to share handler logic between SSR and standalone API servers. The `isPageData` parameter distinguishes page data loader requests from regular API requests.
+This is the same signature used by SSR server's `APIHandling` options (see [Options (shared)](#options-shared) above), making it easy to share handler logic between SSR and standalone API servers. The `isPageData` parameter distinguishes page data loader handler requests from regular API requests.
 
 #### Split Handlers (Web Server Mode)
 

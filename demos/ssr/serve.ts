@@ -277,12 +277,12 @@ function createSharedConfig() {
 }
 
 /**
- * Register page data handlers for debugging and testing
+ * Register page data loader handlers for debugging and testing
  * This function is shared between dev and prod modes to avoid duplication
  */
 function registerPageDataHandlers(server: SSRServer) {
-  // Register test page data handler for debugging (success cases)
-  server.pageLoader.register(
+  // Register test page data loader handler for debugging (success cases)
+  server.pageDataHandler.register(
     'test',
     async (
       request: FastifyRequest,
@@ -294,7 +294,7 @@ function registerPageDataHandlers(server: SSRServer) {
 
       const environment = devFlag ? 'development' : 'production';
 
-      // Example of setting a cookie from within a page data handler
+      // Example of setting a cookie from within a page data loader handler
       if (reply.setCookie) {
         reply.setCookie('ssr_demo', environment, {
           path: '/',
@@ -313,7 +313,7 @@ function registerPageDataHandlers(server: SSRServer) {
       return DemoResponseHelpers.createPageSuccessResponse({
         request,
         data: {
-          message: 'Test page data handler response',
+          message: 'Test page data loader handler response',
           pageType: params.pageType,
           version: params.version,
           invocation_origin: params.invocation_origin,
@@ -343,7 +343,7 @@ function registerPageDataHandlers(server: SSRServer) {
   );
 
   // Register 500 error handler
-  server.pageLoader.register(
+  server.pageDataHandler.register(
     'test-500',
     async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
       return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
@@ -366,7 +366,7 @@ function registerPageDataHandlers(server: SSRServer) {
   );
 
   // Register stacktrace error handler demo for testing
-  server.pageLoader.register(
+  server.pageDataHandler.register(
     'test-stacktrace',
     async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
       // Create a sample stacktrace
@@ -402,7 +402,7 @@ function registerPageDataHandlers(server: SSRServer) {
   );
 
   // Register generic error handler
-  server.pageLoader.register(
+  server.pageDataHandler.register(
     'test-generic-error',
     async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
       return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
@@ -427,7 +427,7 @@ function registerPageDataHandlers(server: SSRServer) {
   // Register 404 not found handler
   // This might come in handy if you explicitly want to handle 404s in a data loader set within react-router
   // Such as still returning back custom account meta data, etc for a page.
-  server.pageLoader.register(
+  server.pageDataHandler.register(
     'not-found',
     async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
       const request_path = params.request_path;
@@ -954,7 +954,7 @@ async function startServer() {
         },
       );
 
-      // Register page data handlers for debugging
+      // Register page data loader handlers for debugging
       registerPageDataHandlers(server);
 
       // Register a generic API route using versioned API shortcuts
@@ -1005,7 +1005,7 @@ async function startServer() {
         // serverFolderName: "server", // Default: "server"
       });
 
-      // Register page data handlers for debugging
+      // Register page data loader handlers for debugging
       registerPageDataHandlers(server);
 
       currentServer = server;
