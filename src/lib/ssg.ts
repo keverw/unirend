@@ -40,7 +40,7 @@ function normalizeUrlPath(p: string): string {
   if (!normalized.startsWith('/')) {
     normalized = '/' + normalized;
   }
-  
+
   return normalized;
 }
 

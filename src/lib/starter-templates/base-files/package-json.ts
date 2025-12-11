@@ -22,6 +22,8 @@ export const devDependencies = {
   '@typescript-eslint/parser': '^8.46.3',
   '@vitejs/plugin-react': '^5.1.0',
   eslint: '^9.39.1',
+  'eslint-import-resolver-typescript': '^4.4.4',
+  'eslint-plugin-import': '^2.32.0',
   'eslint-plugin-react': '^7.37.5',
   prettier: '^3.6.2',
   'prettier-plugin-tailwindcss': '^0.7.1',

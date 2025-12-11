@@ -1,6 +1,7 @@
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import react from 'eslint-plugin-react';
+import importPlugin from 'eslint-plugin-import';
 
 export default tseslint.config(
   eslint.configs.recommended,
@@ -27,6 +28,7 @@ export default tseslint.config(
     files: ['**/*.ts', '**/*.tsx'],
     plugins: {
       react,
+      import: importPlugin,
     },
     languageOptions: {
       parserOptions: {
@@ -42,6 +44,11 @@ export default tseslint.config(
     settings: {
       react: {
         version: 'detect',
+      },
+      'import/resolver': {
+        typescript: {
+          alwaysTryTypes: true,
+        },
       },
     },
     rules: {
@@ -124,6 +131,34 @@ export default tseslint.config(
       'no-var': 'error',
       // Import/export rules
       'no-duplicate-imports': 'error',
+      // Enforce case-sensitive import paths (prevents macOS/Windows vs Linux issues)
+      'import/no-unresolved': [
+        'error',
+        {
+          caseSensitive: true,
+          // Ignore runtime-provided built-in modules
+          ignore: ['^bun:', '^electron$'],
+        },
+      ],
+      // Forbid importing deprecated modules/exports
+      'import/no-deprecated': 'warn',
+      // Forbid importing packages not listed in dependencies
+      'import/no-extraneous-dependencies': [
+        'error',
+        {
+          devDependencies: [
+            '**/*.test.ts',
+            '**/*.test.tsx',
+            '**/*.spec.ts',
+            '**/*.spec.tsx',
+            '**/vite.config.ts',
+            '**/vitest.config.ts',
+            'scripts/**/*.ts',
+          ],
+        },
+      ],
+      // Forbid mutable exports (helps with predictable module behavior)
+      'import/no-mutable-exports': 'error',
       // Best practices
       eqeqeq: ['error', 'always'],
       curly: ['error', 'all'],
