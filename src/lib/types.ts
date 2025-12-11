@@ -812,6 +812,27 @@ export interface SSGOptions {
    * Defaults to "server" if not provided
    */
   serverFolderName?: string;
+  /**
+   * Filename for a JSON file mapping URL paths to generated filenames.
+   * Written to buildDir (e.g., `buildDir/page-map.json`).
+   *
+   * Useful for server code that needs to dynamically serve clean URLs
+   * (e.g., `/about` → `about.html`) without hardcoding or configuring rewrites.
+   *
+   * Serving the correct file matters for React hydration — even a subtle mismatch
+   * like `/about` vs `/about.html` can cause hydration errors if the wrong file is served.
+   *
+   * The generated file contains a simple object mapping paths to filenames:
+   * ```json
+   * {
+   *   "/": "index.html",
+   *   "/about": "about.html"
+   * }
+   * ```
+   *
+   * If not provided, no page map file is written.
+   */
+  pageMapOutput?: string;
 }
 
 /**

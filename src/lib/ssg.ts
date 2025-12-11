@@ -21,6 +21,30 @@ import { processTemplate } from './internal/html-utils/format';
 import { injectContent } from './internal/html-utils/inject';
 
 /**
+ * Normalize a URL path: collapse multiple slashes, remove trailing slash (except root),
+ * ensure leading slash.
+ *
+ * Examples: "///about//", "/about/", "about" → "/about"
+ *           "/", "//", "///" → "/"
+ */
+function normalizeUrlPath(p: string): string {
+  // Collapse multiple slashes into one
+  let normalized = p.replace(/\/+/g, '/');
+
+  // Remove trailing slash (but keep "/" for root)
+  if (normalized.length > 1 && normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1);
+  }
+
+  // Ensure it starts with /
+  if (!normalized.startsWith('/')) {
+    normalized = '/' + normalized;
+  }
+  
+  return normalized;
+}
+
+/**
  * Creates a complete SSGReport with proper typing and defaults
  */
 function createSSGReport({
@@ -516,6 +540,88 @@ export async function generateSSG(
         `✗ Unknown page type for ${(page as unknown as { filename?: string }).filename || 'unknown'}: ${(page as unknown as { type?: string }).type || 'undefined'} (${timeMs}ms)`,
       );
     }
+  }
+
+  // Generate page map file if pageMapOutput is specified
+  if (options.pageMapOutput) {
+    const pageMap: Record<string, string> = {};
+    const pathConflicts: Array<{ path: string; files: string[] }> = [];
+
+    // Build the path-to-filename mapping from successful pages
+    for (const report of pageReports) {
+      if (report.status === 'success' || report.status === 'not_found') {
+        let urlPath: string;
+
+        // For SSG pages, use the path; for SPA pages, derive path from filename
+        if (report.page.type === 'ssg') {
+          urlPath = normalizeUrlPath(report.page.path);
+        } else {
+          // SPA pages don't have a path, derive from filename
+          // e.g., "dashboard.html" -> "/dashboard", "index.html" -> "/"
+          const basename = report.page.filename.replace(/\.html$/, '');
+          urlPath = basename === 'index' ? '/' : `/${basename}`;
+        }
+
+        // Check for path conflicts
+        if (pageMap[urlPath]) {
+          // Find existing conflict or create new one
+          const existingConflict = pathConflicts.find(
+            (c) => c.path === urlPath,
+          );
+
+          if (existingConflict) {
+            existingConflict.files.push(report.page.filename);
+          } else {
+            pathConflicts.push({
+              path: urlPath,
+              files: [pageMap[urlPath], report.page.filename],
+            });
+          }
+        }
+
+        pageMap[urlPath] = report.page.filename;
+      }
+    }
+
+    // If there are path conflicts, return fatal error
+    if (pathConflicts.length > 0) {
+      const conflictDetails = pathConflicts
+        .map((c) => `  "${c.path}" -> [${c.files.join(', ')}]`)
+        .join('\n');
+
+      return createSSGReport({
+        buildDir,
+        startTime,
+        pages: pageReports,
+        successCount,
+        errorCount,
+        notFoundCount,
+        fatalError: new Error(
+          `Page map has conflicting paths (multiple files map to the same URL):\n${conflictDetails}`,
+        ),
+      });
+    }
+
+    // Write the page map file to the build directory
+    const pageMapPath = path.join(buildDir, options.pageMapOutput);
+
+    const pageMapWriteResult = await writeJSONFile(pageMapPath, pageMap);
+
+    if (!pageMapWriteResult.success) {
+      return createSSGReport({
+        buildDir,
+        startTime,
+        pages: pageReports,
+        successCount,
+        errorCount,
+        notFoundCount,
+        fatalError: new Error(
+          `Failed to write page map file: ${pageMapWriteResult.error}`,
+        ),
+      });
+    }
+
+    logger.info(`✓ Generated page map: ${pageMapPath}`);
   }
 
   return createSSGReport({

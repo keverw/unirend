@@ -72,6 +72,7 @@ export function createStaticContentHook(
     string,
     { path: string; detectImmutableAssets: boolean }
   >();
+
   for (const [prefix, config] of Object.entries(folderMap)) {
     const normalizedPrefix = normalizePrefix(prefix);
 

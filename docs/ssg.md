@@ -5,6 +5,7 @@
 - [Creating Generation Script](#creating-generation-script)
   - [Request Context Injection](#request-context-injection)
   - [Template Caching Info](#template-caching-info)
+  - [Page Map Output](#page-map-output)
 - [Serving Static Files](#serving-static-files)
   - [URL Mismatch Considerations](#url-mismatch-considerations)
   - [404 Pages Suggestion](#404-pages-suggestion)
@@ -133,6 +134,56 @@ Unirend automatically caches the processed HTML template in `.unirend-ssg.json` 
 - This ensures the cache stays in sync with your latest build
 
 If you've disabled `emptyOutDir` in your Vite config, the cache will persist between builds. While this improves performance, make sure to rebuild when you change your HTML template or app configuration.
+
+### Page Map Output
+
+The `pageMapOutput` option generates a JSON file mapping URL paths to their corresponding HTML filenames. This is primarily useful to avoid **React hydration mismatches** — if your server serves `/about` but the pre-rendered file is `about.html`, React will see a different document than expected and warn about hydration errors. The page map lets static servers know exactly which file to serve for each clean URL.
+
+```typescript
+const options = {
+  // ... other options
+  pageMapOutput: 'page-map.json', // Written to buildDir/page-map.json
+};
+
+const result = await generateSSG(buildDir, pages, options);
+```
+
+**Generated file example (`page-map.json`):**
+
+```json
+{
+  "/": "index.html",
+  "/about": "about.html",
+  "/contact": "contact.html",
+  "/dashboard": "dashboard.html"
+}
+```
+
+**How paths are determined:**
+
+- **SSG pages**: Uses the `path` property directly (e.g., `{ type: "ssg", path: "/about", filename: "about.html" }`)
+- **SPA pages**: Derives path from filename (e.g., `dashboard.html` → `/dashboard`, `index.html` → `/`)
+
+**Usage with static content servers:**
+
+The page map can be loaded by static servers to configure URL-to-file mappings. For example, with unirend's `staticContent` plugin:
+
+```typescript
+import pageMap from './build/client/page-map.json';
+
+// Convert to singleAssetMap format (URL → absolute file path)
+const singleAssetMap: Record<string, string> = {};
+
+for (const [urlPath, filename] of Object.entries(pageMap)) {
+  singleAssetMap[urlPath] = path.join(clientBuildDir, filename);
+}
+
+// Use with staticContent plugin
+staticContent({
+  singleAssetMap,
+  // ... other options
+});
+```
 
 ## Serving Static Files
 
