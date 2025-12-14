@@ -67,7 +67,7 @@ export class LRUCache<K, V> {
     if (entry) {
       // Check if entry has expired
       if (entry.expires && Date.now() > entry.expires) {
-        this.removeEntry(key);
+        this.delete(key);
         return undefined;
       }
 
@@ -90,14 +90,12 @@ export class LRUCache<K, V> {
 
     // Remove existing entry if present
     if (this.map.has(key)) {
-      this.removeEntry(key);
+      this.delete(key);
     }
 
     // Calculate expiration if TTL is set
-    const expires =
-      this.defaultTtl || customTtl
-        ? Date.now() + (customTtl ?? this.defaultTtl ?? 0)
-        : undefined;
+    const ttl = customTtl ?? this.defaultTtl;
+    const expires = ttl && ttl > 0 ? Date.now() + ttl : undefined;
 
     // Add new entry
     this.map.set(key, { value, expires, size });
@@ -117,6 +115,25 @@ export class LRUCache<K, V> {
   public clear(): void {
     this.map.clear();
     this.currentSize = 0;
+  }
+
+  /**
+   * Delete a specific entry from the cache
+   * @param key The key to delete
+   * @returns True if the entry was deleted, false if it didn't exist
+   */
+
+  public delete(key: K): boolean {
+    const entry = this.map.get(key);
+
+    if (entry) {
+      this.currentSize -= entry.size;
+      this.map.delete(key);
+
+      return true;
+    }
+
+    return false;
   }
 
   /**
@@ -169,18 +186,6 @@ export class LRUCache<K, V> {
   }
 
   /**
-   * Remove an entry and update the size tracking
-   */
-
-  private removeEntry(key: K): void {
-    const entry = this.map.get(key);
-    if (entry) {
-      this.currentSize -= entry.size;
-      this.map.delete(key);
-    }
-  }
-
-  /**
    * Evict entries if we exceed either max entries or max size
    */
 
@@ -206,7 +211,7 @@ export class LRUCache<K, V> {
   private evictOldest(): void {
     if (this.map.size > 0) {
       const oldest = this.map.keys().next().value as K; // Safe: map.size > 0 guarantees a key exists
-      this.removeEntry(oldest);
+      this.delete(oldest);
     }
   }
 
@@ -220,7 +225,7 @@ export class LRUCache<K, V> {
       // Remove all expired entries
       for (const [key, entry] of this.map.entries()) {
         if (entry.expires && now > entry.expires) {
-          this.removeEntry(key);
+          this.delete(key);
         }
       }
     }

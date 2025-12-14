@@ -114,6 +114,13 @@ Adds or updates a value in the cache.
 - `value`: The value to store
 - `customTtl`: (Optional) Custom TTL for this specific entry, overriding the default
 
+#### `delete(key: K): boolean`
+
+Removes a specific entry from the cache.
+
+- `key`: The key to delete
+- Returns: `true` if the entry was deleted, `false` if it didn't exist
+
 #### `clear(): void`
 
 Removes all entries from the cache.

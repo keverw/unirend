@@ -39,6 +39,48 @@ describe('LRUCache', () => {
       expect(cache.size).toBe(0);
       expect(cache.get('key1')).toBeUndefined();
     });
+
+    test('should delete specific entries', () => {
+      cache.set('key1', 'value1');
+      cache.set('key2', 'value2');
+      cache.set('key3', 'value3');
+
+      expect(cache.size).toBe(3);
+
+      // Delete an existing key
+      const wasDeleted = cache.delete('key2');
+      expect(wasDeleted).toBe(true);
+      expect(cache.size).toBe(2);
+      expect(cache.get('key2')).toBeUndefined();
+      expect(cache.get('key1')).toBe('value1');
+      expect(cache.get('key3')).toBe('value3');
+
+      // Try to delete a non-existent key
+      const wasFound = cache.delete('nonexistent');
+      expect(wasFound).toBe(false);
+      expect(cache.size).toBe(2);
+    });
+
+    test('should update byte size when deleting entries', () => {
+      const cache = new LRUCache<string, string>(10, { maxSize: 1000 });
+
+      cache.set('key1', 'a'.repeat(10));
+      cache.set('key2', 'b'.repeat(20));
+
+      const initialSize = cache.byteSize;
+      expect(initialSize).toBeGreaterThan(0);
+
+      // Delete one entry
+      cache.delete('key1');
+
+      // Byte size should decrease
+      expect(cache.byteSize).toBeLessThan(initialSize);
+      expect(cache.byteSize).toBeGreaterThan(0);
+
+      // Delete the last entry
+      cache.delete('key2');
+      expect(cache.byteSize).toBe(0);
+    });
   });
 
   describe('LRU eviction', () => {
@@ -118,6 +160,38 @@ describe('LRUCache', () => {
         currentTime += 50;
 
         expect(cache.get('key1')).toBeUndefined(); // Now expired
+      } finally {
+        // Restore original Date.now
+        Date.now = originalNow;
+      }
+    });
+
+    test('should not expire when customTtl is 0 even with defaultTtl set', () => {
+      // Mock Date.now to control time
+      const originalNow = Date.now;
+      let currentTime = 1000;
+
+      try {
+        Date.now = mock(() => currentTime);
+
+        const cache = new LRUCache<string, string>(10, { defaultTtl: 100 });
+
+        cache.set('key1', 'default ttl');
+        cache.set('key2', 'no expiration', 0); // Explicitly set TTL to 0 (no expiration)
+
+        expect(cache.get('key1')).toBe('default ttl');
+        expect(cache.get('key2')).toBe('no expiration');
+
+        // Advance time past default TTL
+        currentTime += 150;
+
+        expect(cache.get('key1')).toBeUndefined(); // Expired (default TTL)
+        expect(cache.get('key2')).toBe('no expiration'); // Should NOT expire
+
+        // Advance time significantly further
+        currentTime += 10000;
+
+        expect(cache.get('key2')).toBe('no expiration'); // Still should not expire
       } finally {
         // Restore original Date.now
         Date.now = originalNow;
