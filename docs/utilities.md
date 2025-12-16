@@ -19,11 +19,18 @@ import { ... } from 'unirend/utils';
   - [`validateConfigEntry(entry: string, context: 'domain' | 'origin', options?): ValidationResult`](#validateconfigentryentry-string-context-domain--origin-options-validationresult)
   - [`isIPAddress(str: string): boolean`](#isipaddressstr-string-boolean)
   - [`checkDNSLength(host: string): boolean`](#checkdnslengthhost-string-boolean)
+- [LRUCache](#lrucache)
+  - [Features](#features)
+  - [Basic Usage](#basic-usage)
+  - [With TTL](#with-ttl)
+  - [With Size Limits](#with-size-limits)
+  - [Constructor](#constructor)
+  - [Methods](#methods)
 - [StaticContentCache](#staticcontentcache)
   - [Overview](#overview)
-  - [Basic Usage](#basic-usage)
+  - [Basic Usage](#basic-usage-1)
   - [Constructor Options](#constructor-options)
-  - [Methods](#methods)
+  - [Methods](#methods-1)
     - [`getFile(resolvedPath: string, options?): Promise<FileResult>`](#getfileresolvedpath-string-options-promisefileresult)
     - [`serveFile(req, reply, resolvedPath, options?): Promise<ServeFileResult>`](#servefilereq-reply-resolvedpath-options-promiseservefileresult)
     - [`handleRequest(rawUrl, req, reply): Promise<ServeFileResult>`](#handlerequestrawurl-req-reply-promiseservefileresult)
@@ -199,6 +206,82 @@ checkDNSLength('example.com'); // true
 checkDNSLength('a'.repeat(64) + '.com'); // false (label > 63)
 checkDNSLength('sub.'.repeat(50) + 'example.com'); // false (too many labels)
 ```
+
+## LRUCache
+
+A TTL-aware LRU (Least Recently Used) cache with configurable size limits and automatic expiration.
+
+### Features
+
+- **Max entries**: Limit the number of cached items
+- **Max size**: Limit total memory usage in bytes
+- **TTL support**: Optional time-to-live for cache entries
+- **Automatic cleanup**: Periodic removal of expired entries
+- **Size-aware eviction**: Evicts oldest entries when limits are exceeded
+
+### Basic Usage
+
+```typescript
+import { LRUCache } from 'unirend/utils';
+
+// Simple cache with max 100 entries
+const cache = new LRUCache<string, string>(100);
+
+cache.set('key', 'value');
+cache.get('key'); // 'value'
+cache.delete('key');
+cache.clear();
+```
+
+### With TTL
+
+```typescript
+// Cache with 5-minute default TTL
+const cache = new LRUCache<string, object>(100, {
+  defaultTtl: 5 * 60 * 1000, // 5 minutes in ms
+});
+
+cache.set('user:123', { name: 'Alice' });
+
+// Override TTL for specific entry (1 hour)
+cache.set('session:abc', { token: '...' }, 60 * 60 * 1000);
+```
+
+### With Size Limits
+
+```typescript
+// Cache with 50MB max size
+const cache = new LRUCache<string, Buffer>(1000, {
+  maxSize: 50 * 1024 * 1024, // 50MB
+});
+
+// Custom size calculator for complex objects
+const jsonCache = new LRUCache<string, object>(500, {
+  maxSize: 10 * 1024 * 1024, // 10MB
+  sizeCalculator: (value) => JSON.stringify(value).length * 2,
+});
+```
+
+### Constructor
+
+```typescript
+new LRUCache<K, V>(maxEntries: number, options?: {
+  defaultTtl?: number;      // Default TTL in milliseconds
+  maxSize?: number;         // Maximum total size in bytes
+  sizeCalculator?: (value: V) => number; // Custom size function
+})
+```
+
+### Methods
+
+| Method                                            | Description                                           |
+| ------------------------------------------------- | ----------------------------------------------------- |
+| `get(key: K): V \| undefined`                     | Get a value (returns undefined if expired or missing) |
+| `set(key: K, value: V, customTtl?: number): void` | Set a value with optional custom TTL                  |
+| `delete(key: K): boolean`                         | Delete an entry, returns true if it existed           |
+| `clear(): void`                                   | Clear all entries                                     |
+| `size: number`                                    | Current number of entries                             |
+| `byteSize: number`                                | Current total size in bytes                           |
 
 ## StaticContentCache
 

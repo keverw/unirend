@@ -40,6 +40,13 @@ export {
 export { checkDNSLength } from './lib/internal/domain-utils/helpers';
 
 // =============================================================================
+// LRU Cache
+// =============================================================================
+// A TTL-aware LRU (Least Recently Used) cache with size-based eviction.
+
+export { LRUCache } from './lib/internal/lru-cache';
+
+// =============================================================================
 // Static Content Cache
 // =============================================================================
 // A caching layer for static file serving with ETag support, LRU caching,

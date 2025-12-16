@@ -421,6 +421,7 @@ See [docs/build-info.md](docs/build-info.md) for generating and loading build me
 Unirend exposes utilities for domain/origin validation, static file caching, and related functionality. While used internally by unirend, they can also be used standalone in any project:
 
 - **Domain utilities**: Functions for domain/origin validation, normalization, and wildcard matching (useful for CORS, security checks, URL handling)
+- **LRUCache**: A TTL-aware LRU cache with configurable size limits and automatic expiration
 - **StaticContentCache**: A caching layer for static file serving with ETag support and LRU caching
 
 ```typescript
