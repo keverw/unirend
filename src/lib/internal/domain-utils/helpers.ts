@@ -32,7 +32,7 @@ export function hasPartialLabelWildcard(s: string): boolean {
  * - max 127 labels (theoretical DNS limit)
  * Assumes ASCII input (post-TR46 processing).
  */
-export function checkDnsLengths(host: string): boolean {
+export function checkDNSLength(host: string): boolean {
   const labels = host.split('.');
 
   // Label count cap for domains (127 is theoretical DNS limit)
@@ -378,7 +378,7 @@ export function normalizeDomain(domain: string): string {
       throw new Error('TR46 processing failed');
     }
     // Enforce DNS length constraints post-TR46
-    return checkDnsLengths(ascii) ? ascii : ''; // return sentinel on invalid DNS lengths
+    return checkDNSLength(ascii) ? ascii : ''; // return sentinel on invalid DNS lengths
   } catch {
     // On TR46 failure, return sentinel empty-string to signal invalid hostname
     return '';
@@ -449,7 +449,7 @@ export function normalizeWildcardPattern(pattern: string): string {
   if (concreteLabels.length > 0) {
     const concretePattern = concreteLabels.join('.');
     // Validate the ASCII length of the concrete parts to prevent pathological long IDNs
-    if (!checkDnsLengths(concretePattern)) {
+    if (!checkDNSLength(concretePattern)) {
       return ''; // sentinel for invalid pattern
     }
   }

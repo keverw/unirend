@@ -2,7 +2,7 @@ import { getDomain, getSubdomain, getPublicSuffix } from 'tldts';
 import {
   isAllWildcards,
   hasPartialLabelWildcard,
-  checkDnsLengths,
+  checkDNSLength,
   normalizeDomain,
   isIPv6,
   toAsciiDots,
@@ -499,7 +499,7 @@ export function validateConfigEntry(
     }
 
     if (concrete.length > 0) {
-      if (!checkDnsLengths(concrete.join('.'))) {
+      if (!checkDNSLength(concrete.join('.'))) {
         return false;
       }
     }

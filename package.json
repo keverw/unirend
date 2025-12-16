@@ -33,6 +33,11 @@
       "types": "./dist/starter-templates/starter-templates.d.ts",
       "import": "./dist/starter-templates/starter-templates.js",
       "require": "./dist/starter-templates/starter-templates.cjs"
+    },
+    "./utils": {
+      "types": "./dist/utils/utils.d.ts",
+      "import": "./dist/utils/utils.js",
+      "require": "./dist/utils/utils.cjs"
     }
   },
   "bin": {

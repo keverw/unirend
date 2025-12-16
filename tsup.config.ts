@@ -138,4 +138,16 @@ export default defineConfig([
     clean: true,
     external: allExternals,
   },
+
+  // Public utilities (domain-utils, StaticContentCache, etc.)
+  {
+    entry: ['src/utils.ts'],
+    outDir: 'dist/utils',
+    format: ['cjs', 'esm'],
+    dts: true,
+    splitting: false,
+    sourcemap: true,
+    clean: true,
+    external: allExternals,
+  },
 ]);

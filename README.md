@@ -61,6 +61,7 @@ Repo auto‑init: The CLI sets up a repository structure that supports multiple 
 - [UX Suggestions](#ux-suggestions)
 - [Development](#development)
 - [Build Info Utilities](#build-info-utilities)
+- [Utilities](#utilities)
 
 <!-- tocstop -->
 
@@ -414,3 +415,20 @@ Make sure to commit the new version back to GIT
 ## Build Info Utilities
 
 See [docs/build-info.md](docs/build-info.md) for generating and loading build metadata (version, git hash/branch, timestamp).
+
+## Utilities
+
+Unirend exposes utilities for domain/origin validation, static file caching, and related functionality. While used internally by unirend, they can also be used standalone in any project:
+
+- **Domain utilities**: Functions for domain/origin validation, normalization, and wildcard matching (useful for CORS, security checks, URL handling)
+- **StaticContentCache**: A caching layer for static file serving with ETag support and LRU caching
+
+```typescript
+import {
+  normalizeOrigin,
+  matchesWildcardDomain,
+  StaticContentCache,
+} from 'unirend/utils';
+```
+
+See [docs/utilities.md](docs/utilities.md) for full API documentation.
