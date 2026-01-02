@@ -146,7 +146,7 @@ export const routes: RouteObject[] = [
             type: 'page' as const,
             data: {
               message: 'Local page data loader response (no HTTP)',
-              pageType: params.pageType,
+              page_type: params.pageType,
               invocation_origin: params.invocation_origin,
               request: {
                 route_params: params.route_params,

@@ -314,7 +314,7 @@ function registerPageDataHandlers(server: SSRServer) {
         request,
         data: {
           message: 'Test page data loader handler response',
-          pageType: params.pageType,
+          page_type: params.pageType,
           version: params.version,
           invocation_origin: params.invocation_origin,
           timestamp: new Date().toISOString(),
