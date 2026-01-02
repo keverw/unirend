@@ -5,8 +5,11 @@
  * using the serveAPI function from unirend.
  */
 
-import { serveAPI, type APIServerOptions } from '../src/server';
+import { serveAPI, type APIServerOptions, type APIServer } from '../src/server';
 // import { APIResponseHelpers } from "../src/api-envelope"; // Uncomment when using custom handlers
+
+// Track server instance for graceful shutdown
+let server: APIServer | null = null;
 
 async function runAPIServerDemo() {
   console.log('🚀 Starting API Server Demo...\n');
@@ -182,7 +185,7 @@ async function runAPIServerDemo() {
   };
 
   try {
-    const server = serveAPI(options);
+    server = serveAPI(options);
     await server.listen(3001, 'localhost');
 
     console.log('✅ API Server started successfully!');
@@ -221,6 +224,26 @@ async function runAPIServerDemo() {
     process.exit(1);
   }
 }
+
+// Handle graceful shutdown
+const shutdown = async (signal: string) => {
+  console.log(`\n🛑 Received ${signal}. Shutting down API server...`);
+
+  try {
+    if (server && server.isListening()) {
+      await server.stop();
+      server = null;
+      console.log('✅ Server stopped gracefully');
+    }
+  } catch (err) {
+    console.error('Error during shutdown:', err);
+  } finally {
+    process.exit(0);
+  }
+};
+
+process.on('SIGINT', () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
 // Run the demo
 runAPIServerDemo().catch(console.error);

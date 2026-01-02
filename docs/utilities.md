@@ -34,6 +34,7 @@ import { ... } from 'unirend/utils';
     - [`getFile(resolvedPath: string, options?): Promise<FileResult>`](#getfileresolvedpath-string-options-promisefileresult)
     - [`serveFile(req, reply, resolvedPath, options?): Promise<ServeFileResult>`](#servefilereq-reply-resolvedpath-options-promiseservefileresult)
     - [`handleRequest(rawUrl, req, reply): Promise<ServeFileResult>`](#handlerequestrawurl-req-reply-promiseservefileresult)
+    - [`updateConfig(newConfig): void`](#updateconfignewconfig-void)
     - [`clearCaches(): void`](#clearcaches-void)
     - [`getCacheStats(): object`](#getcachestats-object)
   - [Types](#types)
@@ -276,6 +277,7 @@ new LRUCache<K, V>(maxEntries: number, options?: {
 
 | Method                                            | Description                                           |
 | ------------------------------------------------- | ----------------------------------------------------- |
+| `has(key: K): boolean`                            | Check if key exists (doesn't affect LRU order)        |
 | `get(key: K): V \| undefined`                     | Get a value (returns undefined if expired or missing) |
 | `set(key: K, value: V, customTtl?: number): void` | Set a value with optional custom TTL                  |
 | `delete(key: K): boolean`                         | Delete an entry, returns true if it existed           |
@@ -398,6 +400,74 @@ Convenience method that resolves URL to file path and serves it.
 ```typescript
 const result = await cache.handleRequest('/assets/main.js', request, reply);
 ```
+
+#### `updateConfig(newConfig): void`
+
+Updates file mappings at runtime with intelligent cache invalidation.
+
+**Important:** When providing a section, you must provide the **complete** mapping for that section.
+
+- If you provide `singleAssetMap`, it replaces the entire single asset map
+- If you provide `folderMap`, it replaces the entire folder map
+- You can update one section, the other, or both
+- Omitted sections remain unchanged
+- **Empty objects clear that section**: Passing `singleAssetMap: {}` removes all single asset mappings
+
+**Parameters:**
+
+- `newConfig`: Configuration object with one or both sections
+  - `singleAssetMap?`: Complete record of URL-to-file mappings (pass `{}` to clear all)
+  - `folderMap?`: Complete record of URL-prefix-to-directory mappings (pass `{}` to clear all)
+
+**Example - Update only file mappings:**
+
+```typescript
+cache.updateConfig({
+  singleAssetMap: {
+    '/': './dist/index.html',
+    '/about': './dist/about.html',
+    '/blog/new-post': './dist/blog/new-post.html',
+  },
+});
+```
+
+**Example - Update only folder mappings:**
+
+```typescript
+cache.updateConfig({
+  folderMap: {
+    '/assets': { path: './dist/assets', detectImmutableAssets: true },
+  },
+});
+```
+
+**Example - Update both sections:**
+
+```typescript
+cache.updateConfig({
+  singleAssetMap: {
+    '/': './dist/index.html',
+    '/about': './dist/about.html',
+  },
+  folderMap: {
+    '/assets': './dist/assets',
+  },
+});
+```
+
+**Example - Clear all single asset mappings:**
+
+```typescript
+cache.updateConfig({
+  singleAssetMap: {}, // Clears all single asset mappings
+  // folderMap is omitted, so it remains unchanged
+});
+```
+
+**Cache invalidation strategy:**
+
+- **`singleAssetMap` changes**: Only invalidates specific filesystem paths that were added, updated, or removed (efficient for incremental updates)
+- **`folderMap` changes**: Clears all caches (folder changes are rare and structural)
 
 #### `clearCaches(): void`
 

@@ -66,3 +66,5 @@ export type {
   FileFoundResult,
   FileResult,
 } from './lib/internal/StaticContentCache';
+
+export type { FolderConfig } from './lib/types';

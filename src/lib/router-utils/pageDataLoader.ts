@@ -321,7 +321,7 @@ async function pageDataLoader({
   }
 
   // Assemble the request body
-  const requestBody = {
+  const requestBody: Record<string, unknown> = {
     route_params: route_params, // react router params
     query_params: Object.fromEntries(
       // url query params
@@ -332,11 +332,25 @@ async function pageDataLoader({
     original_url: request.url,
   };
 
+  // Forward SSR request context to API server (SSR-only, not sent from browser)
+  if (isServer && SSRHelpers?.fastifyRequest) {
+    const fastifyReq = SSRHelpers.fastifyRequest as {
+      requestContext?: Record<string, unknown>;
+    };
+
+    // Only include if there's actual data (skip empty objects and arrays)
+    if (
+      fastifyReq.requestContext &&
+      !Array.isArray(fastifyReq.requestContext) &&
+      Object.keys(fastifyReq.requestContext).length > 0
+    ) {
+      requestBody.ssr_request_context = fastifyReq.requestContext;
+    }
+  }
+
   try {
     if (isServer) {
       if (DEBUG_PAGE_LOADER) {
-        const SSRHelpers = (request as unknown as { SSRHelper?: SSRHelpers })
-          .SSRHelper;
         const hasInternalHandler = !!SSRHelpers?.handlers?.hasHandler(pageType);
 
         // eslint-disable-next-line no-console
@@ -361,10 +375,10 @@ async function pageDataLoader({
             pageType,
             timeoutMs: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
             // Pass the exact same data that would be in the POST body
-            route_params: requestBody.route_params,
-            query_params: requestBody.query_params,
-            request_path: requestBody.request_path,
-            original_url: requestBody.original_url,
+            route_params: requestBody.route_params as Record<string, string>,
+            query_params: requestBody.query_params as Record<string, string>,
+            request_path: requestBody.request_path as string,
+            original_url: requestBody.original_url as string,
           });
 
           if (outcome.exists && outcome.result) {
@@ -497,7 +511,28 @@ async function pageDataLoader({
         config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       );
 
-      return processApiResponse(response, config);
+      const result = await processApiResponse(response, config);
+
+      // Merge ssr_request_context from API response back into SSR request (SSR-only)
+      if (
+        result.ssr_request_context &&
+        typeof result.ssr_request_context === 'object' &&
+        !Array.isArray(result.ssr_request_context) &&
+        Object.keys(result.ssr_request_context).length > 0 &&
+        SSRHelpers?.fastifyRequest
+      ) {
+        const fastifyReq = SSRHelpers.fastifyRequest as {
+          requestContext?: Record<string, unknown>;
+        };
+
+        if (!fastifyReq.requestContext) {
+          fastifyReq.requestContext = {};
+        }
+
+        Object.assign(fastifyReq.requestContext, result.ssr_request_context);
+      }
+
+      return result;
     } else {
       if (DEBUG_PAGE_LOADER) {
         // eslint-disable-next-line no-console

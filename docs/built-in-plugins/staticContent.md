@@ -7,6 +7,8 @@
   - [Basic Example](#basic-example)
   - [Multiple Instances](#multiple-instances)
   - [With API Server](#with-api-server)
+  - [External Cache Management](#external-cache-management)
+    - [Runtime Configuration Updates](#runtime-configuration-updates)
 - [Options](#options)
   - [Plugin Name](#plugin-name)
   - [File Mappings](#file-mappings)
@@ -23,6 +25,7 @@
   - [2. Separate User Uploads from Build Assets](#2-separate-user-uploads-from-build-assets)
   - [3. Tune Server Memory Caching for Your Workload](#3-tune-server-memory-caching-for-your-workload)
   - [4. Use Single Asset Map for Specific Files](#4-use-single-asset-map-for-specific-files)
+  - [5. Use External Cache for Runtime Updates](#5-use-external-cache-for-runtime-updates)
 - [Plugin Dependencies](#plugin-dependencies)
 
 <!-- tocstop -->
@@ -139,6 +142,112 @@ const server = createAPIServer({
 
 await server.listen(3000);
 ```
+
+### External Cache Management
+
+You can create a `StaticContentCache` instance externally and pass it to the plugin. This gives you direct access to the cache for runtime updates.
+
+```typescript
+import { createAPIServer } from 'unirend/server';
+import { staticContent, StaticContentCache } from 'unirend/plugins';
+
+// Create cache instance externally
+const pagesCache = new StaticContentCache({
+  singleAssetMap: {
+    '/': './dist/index.html',
+    '/about': './dist/about.html',
+  },
+  folderMap: {
+    '/assets': './dist/assets',
+  },
+});
+
+const server = createAPIServer({
+  plugins: [
+    // Pass cache instance instead of config
+    staticContent(pagesCache, 'pages-handler'),
+  ],
+});
+
+await server.listen(3000);
+
+// Now you can update the cache at runtime
+// Provide the complete mapping for the section(s) you want to update
+pagesCache.updateConfig({
+  singleAssetMap: {
+    '/': './dist/index.html',
+    '/about': './dist/about.html',
+    '/blog/new-post': './dist/blog/new-post.html', // New page added
+  },
+  // folderMap is omitted - it remains unchanged
+});
+```
+
+#### Runtime Configuration Updates
+
+When using an external cache, you can update file mappings dynamically without restarting the server. This is especially useful for:
+
+- **Incremental SSG**: Add new pages as they're built
+- **Dynamic content**: Update URL-to-file mappings when files change on disk or public endpoints need remapping
+- **Hot updates**: Modify mappings based on external events (webhooks, file watchers, etc.)
+
+**Important:** When providing a section, you must provide the **complete** mapping for that section.
+
+- If you provide `singleAssetMap`, it replaces the entire single asset map
+- If you provide `folderMap`, it replaces the entire folder map
+- You can update one section, the other, or both
+- Omitted sections remain unchanged
+- **Empty objects clear that section**: Passing `singleAssetMap: {}` or `folderMap: {}` removes all mappings from that respective section
+
+```typescript
+import { StaticContentCache } from 'unirend/plugins';
+
+const cache = new StaticContentCache({
+  singleAssetMap: {
+    '/': './dist/index.html',
+  },
+  folderMap: {
+    '/assets': './dist/assets',
+  },
+});
+
+// Later: Update only file mappings (folderMap remains unchanged)
+cache.updateConfig({
+  singleAssetMap: {
+    '/': './dist/index.html',
+    '/blog/new-post': './dist/blog/new-post.html', // Added
+    '/products/new-item': './dist/products/new-item.html', // Added
+  },
+});
+
+// Update only folder mapping (singleAssetMap remains unchanged)
+cache.updateConfig({
+  folderMap: {
+    '/assets': { path: './dist/v2/assets', detectImmutableAssets: true },
+  },
+});
+
+// Update both sections
+cache.updateConfig({
+  singleAssetMap: {
+    '/': './dist/index.html',
+    '/blog/new-post': './dist/blog/new-post.html',
+  },
+  folderMap: {
+    '/assets': { path: './dist/v2/assets', detectImmutableAssets: true },
+  },
+});
+
+// Clear all single asset mappings (folderMap remains unchanged)
+cache.updateConfig({
+  singleAssetMap: {}, // Removes all single asset mappings
+});
+```
+
+**How cache invalidation works:**
+
+- **`singleAssetMap` changes**: Only invalidates specific filesystem paths that were added, updated, or removed (ETag values calculation, content, and stat caches for those paths)
+- **`folderMap` changes**: Clears all caches (folder changes are structural and affect URL resolution)
 
 ## Options
 
@@ -418,6 +527,88 @@ staticContent({
   },
 });
 ```
+
+### 5. Use External Cache for Runtime Updates
+
+For incremental SSG or dynamic content scenarios where you need to update file mappings without restarting the server:
+
+```typescript
+import { createAPIServer } from 'unirend/server';
+import { staticContent, StaticContentCache } from 'unirend/plugins';
+import fs from 'fs/promises';
+import path from 'path';
+
+const clientBuildDir = path.resolve('./build/client');
+
+// Load initial page mappings (see SSG docs for pageMapOutput)
+async function loadPageMap(): Promise<Record<string, string>> {
+  const pageMapPath = path.join(clientBuildDir, 'page-map.json');
+  const pageMap = JSON.parse(await fs.readFile(pageMapPath, 'utf-8'));
+
+  // Convert page-map.json (URL → filename) to singleAssetMap (URL → absolute path)
+  const singleAssetMap: Record<string, string> = {};
+
+  for (const [urlPath, filename] of Object.entries(pageMap)) {
+    singleAssetMap[urlPath] = path.join(clientBuildDir, filename as string);
+  }
+
+  return singleAssetMap;
+}
+
+// Create cache externally for runtime control
+const pagesCache = new StaticContentCache({
+  singleAssetMap: await loadPageMap(),
+  folderMap: {
+    '/assets': path.join(clientBuildDir, 'assets'),
+  },
+  positiveCacheTtl: 5 * 60 * 1000, // 5 minutes - pages might be rebuilt
+});
+
+const server = createAPIServer({
+  plugins: [staticContent(pagesCache, 'pages')],
+});
+
+await server.listen(3000);
+
+// Reload function - updates mappings without restarting the server
+async function reloadPages() {
+  try {
+    const singleAssetMap = await loadPageMap();
+
+    // Update cache with complete mapping (folderMap remains unchanged)
+    pagesCache.updateConfig({ singleAssetMap });
+
+    console.log(`Reloaded ${Object.keys(singleAssetMap).length} pages`);
+  } catch (error) {
+    console.error('Failed to reload pages:', error);
+    // Server continues running with existing mappings
+  }
+}
+
+// SIGHUP signal handler (standard Unix approach - like Apache/Nginx)
+// Trigger reload after rebuilding all pages
+process.on('SIGHUP', async () => {
+  console.log('Received SIGHUP, reloading pages...');
+  await reloadPages();
+});
+```
+
+**Usage:**
+
+After rebuilding all pages with your SSG script, send SIGHUP to reload the server mappings:
+
+```bash
+# Send SIGHUP to reload
+kill -HUP $(cat server.pid)
+
+# Or use pkill with process name
+pkill -HUP -f "node.*serve"
+
+# Example: In your build script
+npm run ssg:build && kill -HUP $(cat server.pid)
+```
+
+See [SSG documentation](./ssg.md#page-map-output) for details on generating `page-map.json`.
 
 ## Plugin Dependencies
 

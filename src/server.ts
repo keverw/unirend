@@ -68,3 +68,6 @@ export type {
   FastifyRequest as ServerRequest,
   FastifyReply as ServerReply,
 } from 'fastify';
+
+// Export our out of the box static web server
+export type { StaticWebServer } from './lib/internal/StaticWebServer';

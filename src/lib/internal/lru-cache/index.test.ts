@@ -40,6 +40,15 @@ describe('LRUCache', () => {
       expect(cache.get('key1')).toBeUndefined();
     });
 
+    test('should check if keys exist with has()', () => {
+      cache.set('key1', 'value1');
+      cache.set('key2', 'value2');
+
+      expect(cache.has('key1')).toBe(true);
+      expect(cache.has('key2')).toBe(true);
+      expect(cache.has('nonexistent')).toBe(false);
+    });
+
     test('should delete specific entries', () => {
       cache.set('key1', 'value1');
       cache.set('key2', 'value2');
@@ -51,7 +60,7 @@ describe('LRUCache', () => {
       const wasDeleted = cache.delete('key2');
       expect(wasDeleted).toBe(true);
       expect(cache.size).toBe(2);
-      expect(cache.get('key2')).toBeUndefined();
+      expect(cache.has('key2')).toBe(false);
       expect(cache.get('key1')).toBe('value1');
       expect(cache.get('key3')).toBe('value3');
 
@@ -110,6 +119,31 @@ describe('LRUCache', () => {
   });
 
   describe('TTL expiration', () => {
+    test('should return false from has() for expired items', () => {
+      // Mock Date.now to control time
+      const originalNow = Date.now;
+      let currentTime = 1000;
+
+      try {
+        Date.now = mock(() => currentTime);
+
+        const cache = new LRUCache<string, string>(10, { defaultTtl: 100 });
+
+        cache.set('key1', 'value1');
+        expect(cache.has('key1')).toBe(true);
+
+        // Advance time past TTL
+        currentTime += 150;
+
+        // Item should be expired
+        expect(cache.has('key1')).toBe(false);
+        expect(cache.get('key1')).toBeUndefined();
+      } finally {
+        // Restore original Date.now
+        Date.now = originalNow;
+      }
+    });
+
     test('should expire items after TTL', () => {
       // Mock Date.now to control time
       const originalNow = Date.now;

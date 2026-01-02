@@ -491,11 +491,13 @@ Pass security tokens from server to client safely:
 function csrfPlugin(): ServerPlugin {
   return async (pluginHost) => {
     pluginHost.addHook('onRequest', async (request, reply) => {
-      // Generate CSRF token for this request (requires session)
-      // Example: const csrfToken = crypto.randomBytes(32).toString('hex');
-      const csrfToken = generateCSRFToken(request.session);
+      // Generate or retrieve CSRF token from session
+      // The token is stored usually stored in the request.session on the server and must be validated
+      // against the session when processing form submissions/mutations
+      // Example: if (!request.session.csrfToken) { request.session.csrfToken = crypto.randomBytes(32).toString('hex'); }
+      const csrfToken = generateCSRFToken(request.session); // Returns existing or generates new token
 
-      // Store in request context
+      // Store in request context to pass to frontend (read-only transport)
       request.requestContext.csrfToken = csrfToken;
 
       // Also set in response header for API calls
@@ -514,6 +516,20 @@ const server = serveSSRProd({
   // ... other options
   plugins: [session(), csrfPlugin()],
 });
+
+// Server-side: Validate CSRF token when processing form submissions/mutations
+// In your API route handlers, validate the submitted token against request.session.csrfToken
+// Example using envelope structure:
+// const submittedToken = request.headers['x-csrf-token'] || request.body?.csrf_token;
+
+// if (!submittedToken || submittedToken !== request.session.csrfToken) {
+//   return APIResponseHelpers.createAPIErrorResponse({
+//     request,
+//     statusCode: 403,
+//     errorCode: 'invalid_csrf_token',
+//     errorMessage: 'Invalid or missing CSRF token',
+//   });
+// }
 
 // Component usage
 // For login/logout without full page reload, you can update the token using the setter:

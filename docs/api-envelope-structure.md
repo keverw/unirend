@@ -26,9 +26,9 @@
   - [Authentication Required Errors](#authentication-required-errors)
   - [Application-Specific Error Codes](#application-specific-error-codes)
 - [Authentication](#authentication)
-- [Redirects in API Responses](#redirects-in-api-responses)
-  - [1. HTTP-Level Redirects](#1-http-level-redirects)
-  - [2. Application-Level Redirects](#2-application-level-redirects)
+- [Redirects in API/Page Responses](#redirects-in-apipage-responses)
+  - [1. HTTP-Level Redirects (Blocked)](#1-http-level-redirects-blocked)
+  - [2. Application-Level Redirects (Recommended)](#2-application-level-redirects-recommended)
     - [Redirect Response Format](#redirect-response-format)
     - [Authentication Required Redirects](#authentication-required-redirects)
     - [Benefits of Application-Level Redirects](#benefits-of-application-level-redirects)
@@ -137,7 +137,14 @@ Used for SSR routes and data loaders. Includes required page metadata for SEO.
       "description": "Page description for SEO"
     }
   },
-  "error": null
+  "error": null,
+  "ssr_request_context": {
+    // OPTIONAL: SSR-only infrastructure field (page-type responses only)
+    // Automatically populated from request.requestContext when using page response helpers
+    // with the server request object
+    // Used to forward request context between separated SSR and API servers
+    // Not sent from browser, only used in SSR-to-API communication
+  }
 }
 ```
 
@@ -491,25 +498,29 @@ Authentication in this API envelope pattern assumes a shared authentication syst
 
 If your application uses authentication, consider including the authentication status in the `meta` section of your responses. For example, you might include `meta.account.is_authenticated` to indicate authentication status, and `meta.account.info` for user details when authenticated. The specific structure and field names are entirely up to your application's needs.
 
-## Redirects in API Responses
+## Redirects in API/Page Responses
+
+**Philosophy:** Redirects are rare in traditional APIs but common in SSR/page data loaders. When a page handler needs to redirect (e.g., after form submission, role-based routing, or access control checks), it returns a special redirect envelope instead of using HTTP redirects. This gives you control over the redirect behavior and keeps it within the application layer.
+
+**Note:** For authentication-required scenarios (login required), use the 401 error pattern with `error.code === "authentication_required"` instead - the page data loader automatically handles these by redirecting to the login page. See [Authentication Required Redirects](#authentication-required-redirects) below.
 
 The API application handles redirects in two distinct ways:
 
-### 1. HTTP-Level Redirects
+### 1. HTTP-Level Redirects (Blocked)
 
-HTTP-level redirects (status codes 301, 302, 303, 307, 308) are generally discouraged for API endpoints. The frontend data loaders are configured to not automatically follow HTTP redirects from API endpoints, as they can lead to unexpected behavior and security concerns.
+HTTP-level redirects (status codes 301, 302, 303, 307, 308) are generally discouraged for API endpoints. The frontend data loaders are configured to **not automatically follow** HTTP redirects from API endpoints, as they can lead to unexpected behavior and security concerns:
 
-When an API endpoint returns an HTTP redirect:
+- Point to untrusted external servers that could return malicious page envelopes or `ssr_request_context` data
+- Bypass security validation and origin checks
+- Lose request context and metadata during the redirect chain
 
-1. The data loader intercepts the redirect
-2. Returns an error response with code `api_redirect_not_followed`
-3. Includes the original redirect information in the error details
+The page data loader uses `redirect: 'manual'` in fetch options to prevent automatic redirect following. If an API endpoint serving page data returns an HTTP redirect, the data loader will intercept it and return an error response with code `redirect_not_followed`.
 
-This approach prevents potential security issues and ensures consistent behavior.
+**Note:** If your API uses HTTP redirects, they should only be in pure API endpoints (not routes serving page data loaders) and should not be added by middleware before page data handler routes.
 
-### 2. Application-Level Redirects
+### 2. Application-Level Redirects (Recommended)
 
-For scenarios where redirects are a legitimate part of the application flow, we use a dedicated `redirect` status in the page response envelope. This is specifically for page-type responses and is not available for API-type responses, as redirects are primarily a UI/page concern.
+When redirects are part of the application flow, use the dedicated `redirect` status in the **page response envelope**. This is only for page-type responses (not API-type), since redirects are a page/UI concern, not a data API concern.
 
 #### Redirect Response Format
 

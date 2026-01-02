@@ -1021,9 +1021,12 @@ async function startServer() {
 // Handle graceful shutdown by stopping the running server instance
 const shutdown = async (signal: string) => {
   console.log(`\n🛑 Received ${signal}. Shutting down server...`);
+
   try {
     if (currentServer && currentServer.isListening()) {
       await currentServer.stop();
+      currentServer = null;
+      console.log('✅ Server stopped gracefully');
     }
   } catch (err) {
     console.error('Error during shutdown:', err);

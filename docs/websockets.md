@@ -7,9 +7,11 @@
 - [Register Handlers](#register-handlers)
   - [preValidate: upgrade vs reject](#prevalidate-upgrade-vs-reject)
   - [Handler signature](#handler-signature)
+  - [Socket events](#socket-events)
 - [Options](#options)
 - [Accessing Connected Clients](#accessing-connected-clients)
   - [Broadcasting example](#broadcasting-example)
+- [Client Example](#client-example)
 - [Demo](#demo)
 - [Behavior notes](#behavior-notes)
 - [Known Issues (Bun)](#known-issues-bun)
@@ -93,8 +95,13 @@ server.registerWebSocketHandler({
     socket.send(JSON.stringify({ type: 'welcome', upgradeData }));
     socket.on('message', (msg) => socket.send(msg.toString()));
 
-    socket.on('close', () => {
-      console.log('WebSocket disconnected');
+    socket.on('error', (err) => {
+      console.error('WebSocket error:', err.message);
+      // Socket will close automatically after error
+    });
+
+    socket.on('close', (code, reason) => {
+      console.log(`WebSocket disconnected: ${code} - ${reason}`);
     });
   },
 });
@@ -120,6 +127,16 @@ type WebSocketHandler = (
 ```
 
 The `upgradeData` is whatever you returned from `preValidate` when `action === "upgrade"`.
+
+### Socket events
+
+The `socket` is a `ws.WebSocket` instance. Common events:
+
+- **`'message'`** — incoming data from the client
+- **`'close'`** — connection closed (receives `code` and `reason`)
+- **`'error'`** — socket error (network issues, protocol violations, etc.)
+
+When an error occurs, the socket closes automatically — you'll receive `'error'` first, then `'close'`. Always handle both: use `'error'` for logging/debugging and `'close'` for cleanup (see the handler example above).
 
 ## Options
 
@@ -164,6 +181,34 @@ for (const client of server.getWebSocketClients()) {
   );
 }
 ```
+
+## Client Example
+
+A simple browser client connecting to a WebSocket endpoint:
+
+```ts
+const ws = new WebSocket('ws://localhost:3000/ws/echo?token=yes');
+
+ws.onopen = () => {
+  console.log('Connected');
+  ws.send('Hello server!');
+};
+
+ws.onmessage = (event) => {
+  console.log('Received:', event.data);
+};
+
+ws.onerror = (event) => {
+  console.error('WebSocket error:', event);
+  // The connection will close after an error
+};
+
+ws.onclose = (event) => {
+  console.log(`Disconnected: ${event.code} - ${event.reason}`);
+};
+```
+
+**Note:** The browser `WebSocket` API uses `onerror`/`onclose` properties (or `addEventListener`), while the server-side `ws` library uses Node.js-style `socket.on('error', ...)` events.
 
 ## Demo
 

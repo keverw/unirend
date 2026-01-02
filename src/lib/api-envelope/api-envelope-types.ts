@@ -110,6 +110,7 @@ export interface PageSuccessResponse<T, M extends BaseMeta = BaseMeta> {
   data: T;
   meta: M;
   error: null;
+  ssr_request_context?: Record<string, unknown>;
 }
 
 /**
@@ -125,6 +126,7 @@ export interface PageErrorResponse<M extends BaseMeta = BaseMeta> {
   data: null;
   meta: M;
   error: ErrorObject;
+  ssr_request_context?: Record<string, unknown>;
 }
 
 /**
@@ -141,6 +143,7 @@ export interface PageRedirectResponse<M extends BaseMeta = BaseMeta> {
   meta: M;
   error: null;
   redirect: RedirectInfo;
+  ssr_request_context?: Record<string, unknown>;
 }
 
 /**

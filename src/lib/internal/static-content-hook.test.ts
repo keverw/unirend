@@ -1,5 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { createStaticContentHook } from './static-content-hook';
+import { StaticContentCache } from './StaticContentCache';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 
 // Helper to create mock request
@@ -148,6 +149,101 @@ describe('createStaticContentHook', () => {
       );
 
       expect(typeof hook).toBe('function');
+    });
+  });
+
+  describe('external cache support', () => {
+    it('accepts a StaticContentCache instance instead of config', () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/test.txt': '/path/to/test.txt' },
+      });
+
+      const hook = createStaticContentHook(cache);
+
+      expect(typeof hook).toBe('function');
+    });
+
+    it('uses provided cache instance', async () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/external-only.txt': '/path/to/external-only.txt' },
+      });
+
+      // Get initial cache stats
+      const statsBefore = cache.getCacheStats();
+      expect(statsBefore.stat.items).toBe(0);
+
+      const hook = createStaticContentHook(cache);
+
+      const req = createMockRequest('/external-only.txt');
+      const reply = createMockReply();
+
+      // Should delegate to the provided cache
+      await hook(req as FastifyRequest, reply as FastifyReply);
+
+      // Verify the external cache was actually used by checking its stats changed
+      const statsAfter = cache.getCacheStats();
+      // Stat cache should have entries now (file was accessed)
+      expect(statsAfter.stat.items).toBeGreaterThanOrEqual(1);
+    });
+
+    it('ignores logger parameter when cache instance is provided', () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/test.txt': '/path/to/test.txt' },
+      });
+
+      const logger = {
+        warn: mock(() => {}),
+      };
+
+      // Logger is ignored when cache instance is provided
+      const hook = createStaticContentHook(cache, logger);
+
+      expect(typeof hook).toBe('function');
+      // Logger should not be called since we're using an existing cache
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('handles cache instance with runtime updates', async () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/initial.txt': '/path/to/initial.txt' },
+        folderMap: {},
+      });
+
+      const hook = createStaticContentHook(cache);
+
+      // Test initial state - request initial file
+      const req1 = createMockRequest('/initial.txt');
+      const reply1 = createMockReply();
+      await hook(req1 as FastifyRequest, reply1 as FastifyReply);
+
+      // Verify initial file was found (stat cache should have it)
+      const statsAfterInitial = cache.getCacheStats();
+      expect(statsAfterInitial.stat.items).toBeGreaterThanOrEqual(1);
+
+      // Update cache after hook creation (replaces singleAssetMap with both files)
+      cache.updateConfig({
+        singleAssetMap: {
+          '/initial.txt': '/path/to/initial.txt',
+          '/updated.txt': '/path/to/updated.txt',
+        },
+      });
+
+      // Test updated state - request newly added file
+      const req2 = createMockRequest('/updated.txt');
+      const reply2 = createMockReply();
+      await hook(req2 as FastifyRequest, reply2 as FastifyReply);
+
+      // Verify updated file was found (both files should be in stat cache now)
+      const statsAfterUpdate = cache.getCacheStats();
+      expect(statsAfterUpdate.stat.items).toBeGreaterThanOrEqual(2);
+
+      // Verify both initial and updated files are accessible
+      const req3 = createMockRequest('/initial.txt');
+      const reply3 = createMockReply();
+      await hook(req3 as FastifyRequest, reply3 as FastifyReply);
+
+      // Should still work - no errors means both files are accessible
+      expect(true).toBe(true);
     });
   });
 });

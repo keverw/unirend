@@ -157,6 +157,39 @@ export class DataLoaderServerHandlerHelpers {
             // Extract page data loader fields from request body
             const requestBody = (request.body as Record<string, unknown>) || {};
 
+            // Merge ssr_request_context into request.requestContext (SSR forwarding)
+            // SECURITY: Only trust ssr_request_context when request comes from a trusted SSR server
+            // This requires the clientInfo plugin to be registered and validates the source IP
+            const clientInfo = (
+              request as { clientInfo?: { isFromSSRServerAPICall?: boolean } }
+            ).clientInfo;
+
+            if (
+              clientInfo?.isFromSSRServerAPICall &&
+              requestBody.ssr_request_context !== null &&
+              typeof requestBody.ssr_request_context === 'object' &&
+              !Array.isArray(requestBody.ssr_request_context)
+            ) {
+              const contextToMerge = requestBody.ssr_request_context as Record<
+                string,
+                unknown
+              >;
+
+              // Only merge if there's actual data to merge (optimization: skip empty objects)
+              if (Object.keys(contextToMerge).length > 0) {
+                const reqWithContext = request as {
+                  requestContext?: Record<string, unknown>;
+                };
+
+                // Merge into existing requestContext (APIServer/SSRServer initialize it as empty object)
+                if (!reqWithContext.requestContext) {
+                  reqWithContext.requestContext = {};
+                }
+
+                Object.assign(reqWithContext.requestContext, contextToMerge);
+              }
+            }
+
             const result = await handler(
               request,
               createControlledReply(reply),

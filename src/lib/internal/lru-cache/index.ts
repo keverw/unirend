@@ -61,6 +61,27 @@ export class LRUCache<K, V> {
     return this.currentSize;
   }
 
+  /**
+   * Check if a key exists in the cache (without affecting LRU order)
+   * @param key The key to check
+   * @returns True if the key exists and hasn't expired
+   */
+  public has(key: K): boolean {
+    const entry = this.map.get(key);
+
+    if (entry) {
+      // Check if entry has expired
+      if (entry.expires && Date.now() > entry.expires) {
+        this.delete(key);
+        return false;
+      }
+
+      return true;
+    }
+
+    return false;
+  }
+
   public get(key: K): V | undefined {
     const entry = this.map.get(key);
 

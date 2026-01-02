@@ -29,6 +29,7 @@
   - [Error Handling](#error-handling)
     - [JSON-Only (SSR Compatible)](#json-only-ssr-compatible)
     - [Split Handlers (Web Server Mode)](#split-handlers-web-server-mode)
+- [Graceful Shutdown](#graceful-shutdown)
 - [WebSockets](#websockets)
 
 <!-- tocstop -->
@@ -419,6 +420,30 @@ Request body shape (from data loader):
 
 Return a standardized Page Response Envelope. Status codes in the envelope are preserved and used for SSR HTTP status.
 
+**Handling Redirects:**
+
+Page data loader handlers can return redirect responses using `APIResponseHelpers.createPageRedirectResponse()`. The page data loader automatically converts these to React Router redirects for proper client-side navigation:
+
+```ts
+// Example: Redirect after checking permissions
+server.pageDataHandler.register('protected-page', async (request) => {
+  const { isAuthorized } = await checkUserPermissions(request);
+
+  if (!isAuthorized) {
+    return APIResponseHelpers.createPageRedirectResponse({
+      request,
+      target: '/login',
+      permanent: false,
+      preserve_query: true, // Keeps ?returnTo=/protected-page
+    });
+  }
+
+  // ... return page data
+});
+```
+
+**Important:** HTTP-level redirects (301/302 status codes) are **blocked** by the page data loader using `redirect: 'manual'`. This prevents security issues from following untrusted redirects. Always use the envelope redirect format shown above. See [API Envelope Structure docs](./api-envelope-structure.md#redirects-in-api-responses) for details.
+
 ### Short-Circuit Data Handlers
 
 When page data loader handlers are registered on the same `SSRServer` instance instead of a standalone API server, SSR can directly invoke the handler (short-circuit) instead of performing an HTTP fetch. The data loader passes the same routing context (`route_params`, `query_params`, `request_path`, `original_url`) to ensure consistent behavior. Use the HTTP path when you need cookie propagation to/from a backend API.
@@ -496,6 +521,14 @@ SSR supports injecting per-request context data that will be available on the cl
 - **Request Context**: Per-page data that can vary between requests and be mutated on the client (e.g., page-specific state, user preferences, theme)
 - **Frontend App Config**: Global, immutable configuration shared across all pages (e.g., API URLs, feature flags, build info)
 
+**Design Philosophy:**
+
+Both `SSRServer` and `APIServer` automatically initialize `request.requestContext` as an empty object on every request. This ensures:
+
+- Handlers never need to check if `requestContext` exists - it's always at least `{}`
+- Code written for SSR can run on a standalone API server with consistent behavior
+- Plugins and middleware can safely write to `requestContext` without initialization checks
+
 **How It Works:**
 
 The request context is shared across the entire request lifecycle and injected into the client HTML:
@@ -509,8 +542,71 @@ The request context is shared across the entire request lifecycle and injected i
 **React Components (Server & Client):**
 
 - Components can read or update the context using Unirend Context hooks during server-side rendering and on the client
-- The context acts as a key-value store initially populated by the server that components can take over on the frontend
+- The context acts as a key-value store initially sent by the server that components can take over on the frontend
 - See [Unirend Context documentation](./unirend-context.md) for details on the available hooks and usage patterns
+
+**Important - Client-Side Updates:**
+
+Request context is only automatically sent to the client during SSR (initial page load). After client-side mutations like login/logout, the client context is **not** automatically updated from the server.
+
+**Recommended approach:** Manually update the client context using `useRequestContext()` hook after mutations:
+
+```tsx
+const { setRequestContextValue } = useRequestContext();
+
+async function handleLogin(credentials) {
+  const response = await loginAPI(credentials);
+  // Manually update client context after successful login
+  setRequestContextValue('userID', response.data.userID);
+  // Add other context values as needed (isAuthenticated, etc.)
+}
+```
+
+**Alternative:** Trigger a full page reload (outside React Router) using `window.location.href = '/dashboard'` to get fresh SSR with updated context. This is simpler but slower and loses client-side state.
+
+**Syncing Auth State from Page Data:**
+
+When a session expires and the page data loader redirects to login (via 401 `authentication_required`), the client context still has stale auth state. To fix this, sync auth state from page data `meta` to context:
+
+```tsx
+// In your app layout component
+import { useLoaderData } from 'react-router';
+import { useRequestContext } from 'unirend/context';
+import { useEffect } from 'react';
+
+function AppLayout() {
+  const data = useLoaderData();
+  const { setRequestContextValue } = useRequestContext();
+
+  // Sync auth state from page data meta to context on every navigation
+  useEffect(() => {
+    if (data?.meta?.account) {
+      setRequestContextValue('userID', data.meta.account.userID ?? null);
+      // Add other context values as needed (isAuthenticated, etc.)
+    }
+  }, [data?.meta?.account, setRequestContextValue]);
+
+  // ... rest of layout
+}
+```
+
+This ensures context stays in sync with server auth state, even after session expiry or logout from another tab.
+
+**Separated SSR/API Architecture:**
+
+When your SSR server and API server are separate instances, request context is automatically forwarded:
+
+1. **SSR Server** populates `request.requestContext` in plugins/hooks
+2. **Page Data Loader** sends `ssr_request_context` in POST body to external API server
+3. **API Server** receives and populates `request.requestContext` from incoming `ssr_request_context`
+4. **API Handler** can read/modify `request.requestContext` normally
+5. **API Envelope Response Helpers** automatically include `request.requestContext` in the `ssr_request_context` field of page response envelopes
+6. **Page Data Loader** merges `ssr_request_context` from response back into SSR request (API values overwrite SSR values for conflicting keys, if set by prior middleware)
+7. **SSR Render** injects final merged context into HTML for client hydration
+
+This forwarding is automatic and transparent - handlers work the same whether co-located or separated. The merge in step 6 uses `Object.assign()`, so if both SSR middleware and the API handler set the same key, the API handler's value wins since it runs later in the request flow.
+
+**Security Note:** For separated architecture, the API server **must** use the `clientInfo` plugin to validate that `ssr_request_context` comes from a trusted SSR server (private IP by default). Without this plugin, `ssr_request_context` in the request body will be ignored to prevent spoofing from untrusted clients.
 
 **Common Use Cases:**
 
@@ -705,6 +801,59 @@ The server uses `apiEndpoints.apiEndpointPrefix` (default `/api`) to detect API 
 - `/about` → Web (doesn't start with `/api`)
 
 This means all your API endpoints (including versioned ones under `/api/v1/`, `/api/v2/`, etc.) are detected as API requests, while everything else is treated as web requests.
+
+## Graceful Shutdown
+
+Both `SSRServer` and `APIServer` support graceful shutdown via the `stop()` method. In production, you should handle process signals to cleanly shut down the server:
+
+```typescript
+import { serveSSRProd, type SSRServer } from 'unirend/server';
+
+let server: SSRServer | null = null;
+
+async function main() {
+  server = serveSSRProd('./build', {
+    /* options */
+  });
+
+  await server.listen(3000, 'localhost');
+  console.log('Server running on http://localhost:3000');
+}
+
+// Handle graceful shutdown
+const shutdown = async (signal: string) => {
+  console.log(`\nReceived ${signal}. Shutting down...`);
+
+  try {
+    if (server && server.isListening()) {
+      await server.stop();
+      server = null; // Clear reference after successful shutdown
+      console.log('Server stopped gracefully');
+    }
+  } catch (err) {
+    console.error('Error during shutdown:', err);
+  } finally {
+    process.exit(0);
+  }
+};
+
+process.on('SIGINT', () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+
+main().catch(console.error);
+```
+
+Notes:
+
+- `SIGINT` is sent when you press Ctrl+C in the terminal
+- `SIGTERM` is the standard signal sent by process managers and orchestrators for graceful termination
+- The `stop()` method closes all active connections and stops accepting new requests
+- Calling `stop()` multiple times is safe - it checks if the server is listening and returns early if already stopped
+- In your process signal handlers, check `server && server.isListening()` before calling `stop()` to ensure the server exists and is running
+- When WebSockets are enabled, the `preClose` hook is called before closing connections (see [WebSockets](./websockets.md))
+- Set the server reference to `null` after shutdown to release resources and prevent accidental reuse
+- Declare the server variable (`let server: SSRServer | null = null`) before defining the shutdown handler so it's in scope. Before creating a new server instance, check for an existing one, and handle it appropriately (eg. stop it first, and then create new one)
+- If you dynamically create or reassign server instances, consider using a factory function that returns a fresh server, see [Lifecycle and Persistence](./server-plugins.md#lifecycle-and-persistence) for details on how routes and handlers persist across `stop()`/`listen()` cycles
 
 ## WebSockets
 

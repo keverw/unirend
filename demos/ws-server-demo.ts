@@ -430,11 +430,13 @@ const shutdown = async (signal: string) => {
     if (ssrServer && ssrServer.isListening()) {
       console.log('🛑 Stopping SSR server...');
       await ssrServer.stop();
+      ssrServer = null;
     }
 
     if (apiServer && apiServer.isListening()) {
       console.log('🛑 Stopping API server...');
       await apiServer.stop();
+      apiServer = null;
     }
 
     console.log('✅ All servers stopped gracefully');

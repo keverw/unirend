@@ -37,6 +37,9 @@
 - [Error Handling](#error-handling)
 - [Testing Your Plugins](#testing-your-plugins)
 - [Lifecycle and Persistence](#lifecycle-and-persistence)
+  - [Framework-Managed Registries](#framework-managed-registries)
+  - [Per-Fastify Instance Methods](#per-fastify-instance-methods)
+  - [Best Practices](#best-practices-1)
 
 <!-- tocstop -->
 
@@ -864,11 +867,50 @@ This plugin system gives you the flexibility to extend your SSR server while mai
 
 ## Lifecycle and Persistence
 
-- The plugin host’s shortcuts method are framework-managed and persist on the server instance:
-  - `pluginHost.api.*` and `pluginHost.pageDataHandler.register(...)` write into Unirend’s internal registries. They persist across `stop()`/`listen()` cycles on the same server object (last registration wins for duplicates).
-  - These are applied to the Fastify instance during `listen()` when routes are mounted, after plugins are registered.
-- The direct Fastify-style methods are per Fastify instance:
-  - `pluginHost.get/post/put/delete/patch/route/addHook/register` are invoked against the underlying Fastify instance, which is created fresh on each `listen()` call. Your plugin function is run on each `listen()`, so these routes/hooks are re-registered each time.
-- Prefer deterministic plugin setup:
-  - Declare routes and handlers during server startup (inside your plugin function). Adding/removing routes dynamically at runtime can make behavior unpredictable across stop()/listen() cycles and may not persist after a restart as intended.
-  - If you need feature flags, keep the registrations stable and branch inside handlers instead of changing route registration.
+Understanding how routes and handlers persist helps you avoid surprises when restarting or reconfiguring your server.
+
+### Framework-Managed Registries
+
+The plugin host's shortcut methods write into Unirend's internal registries and persist on the server instance:
+
+- `pluginHost.api.*` and `pluginHost.pageDataHandler.register(...)` persist across `stop()`/`listen()` cycles on the same server object (last registration wins for duplicates).
+- These are applied to the Fastify instance during `listen()` when routes are mounted, after plugins are registered.
+
+### Per-Fastify Instance Methods
+
+The direct Fastify-style methods are tied to the underlying Fastify instance:
+
+- `pluginHost.get/post/put/delete/patch/route/addHook/register` are invoked against the Fastify instance, which is created fresh on each `listen()` call.
+- Your plugin function runs on each `listen()`, so these routes/hooks are re-registered each time.
+
+### Best Practices
+
+- **Prefer deterministic plugin setup**: Declare routes and handlers during server startup (inside your plugin function). Adding/removing routes dynamically at runtime can make behavior unpredictable across `stop()`/`listen()` cycles.
+- **Branch inside handlers, not registrations**: If you need feature flags, keep the route registrations stable and branch inside the handler logic instead.
+- **Use a factory function for dynamic scenarios**: If you need to dynamically create or reassign server instances with different route configurations, use a factory function that returns a fresh server:
+
+```typescript
+import { serveSSRProd, type SSRServer } from 'unirend/server';
+
+interface CreateServerOptions {
+  isDevelopment: boolean;
+}
+
+function createServer(options: CreateServerOptions): SSRServer {
+  return serveSSRProd('./build', {
+    isDevelopment: options.isDevelopment,
+    // Compute other SSRServerOptions based on your params
+  });
+}
+
+// Create initial server
+let server = createServer({ isDevelopment: false });
+await server.listen(3000, 'localhost');
+
+// Later, if you need a fresh server with different config:
+await server.stop();
+server = createServer({ isDevelopment: true });
+await server.listen(3000, 'localhost');
+```
+
+This pattern ensures you get a clean server instance with fresh registries, avoiding stale route handlers from previous configurations.

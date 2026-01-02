@@ -127,6 +127,11 @@ export class APIResponseHelpers {
       page: pageMetadata,
     };
 
+    // Auto-populate ssr_request_context from request.requestContext if available and non-empty
+    const requestContext = (
+      request as { requestContext?: Record<string, unknown> }
+    ).requestContext;
+
     return {
       status: 'success',
       status_code: statusCode,
@@ -135,6 +140,12 @@ export class APIResponseHelpers {
       data,
       meta: { ...(baseMeta as M), ...(meta as Partial<M>) } as M,
       error: null,
+      ...(requestContext &&
+      typeof requestContext === 'object' &&
+      !Array.isArray(requestContext) &&
+      Object.keys(requestContext).length > 0
+        ? { ssr_request_context: requestContext }
+        : {}),
     };
   }
 
@@ -161,6 +172,11 @@ export class APIResponseHelpers {
       page: pageMetadata,
     };
 
+    // Auto-populate ssr_request_context from request.requestContext if available and non-empty
+    const requestContext = (
+      request as { requestContext?: Record<string, unknown> }
+    ).requestContext;
+
     return {
       status: 'redirect',
       status_code: 200,
@@ -170,6 +186,12 @@ export class APIResponseHelpers {
       meta: { ...(baseMeta as M), ...(meta as Partial<M>) } as M,
       error: null,
       redirect: redirectInfo,
+      ...(requestContext &&
+      typeof requestContext === 'object' &&
+      !Array.isArray(requestContext) &&
+      Object.keys(requestContext).length > 0
+        ? { ssr_request_context: requestContext }
+        : {}),
     };
   }
 
@@ -207,6 +229,11 @@ export class APIResponseHelpers {
       page: pageMetadata,
     };
 
+    // Auto-populate ssr_request_context from request.requestContext if available and non-empty
+    const requestContext = (
+      request as { requestContext?: Record<string, unknown> }
+    ).requestContext;
+
     return {
       status: 'error',
       status_code: statusCode,
@@ -219,6 +246,12 @@ export class APIResponseHelpers {
         message: errorMessage,
         ...(errorDetails && { details: errorDetails }),
       },
+      ...(requestContext &&
+      typeof requestContext === 'object' &&
+      !Array.isArray(requestContext) &&
+      Object.keys(requestContext).length > 0
+        ? { ssr_request_context: requestContext }
+        : {}),
     };
   }
 

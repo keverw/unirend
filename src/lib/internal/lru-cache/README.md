@@ -102,9 +102,15 @@ constructor(
 
 ### Methods
 
+#### `has(key: K): boolean`
+
+Checks if a key exists in the cache without affecting LRU order. Returns `false` if the key doesn't exist or the entry has expired.
+
+**Note:** Unlike `get()`, this method does not update the LRU order (doesn't mark the entry as recently used).
+
 #### `get(key: K): V | undefined`
 
-Retrieves a value from the cache. Returns `undefined` if the key doesn't exist or the entry has expired.
+Retrieves a value from the cache. Returns `undefined` if the key doesn't exist or the entry has expired. Updates the LRU order (marks entry as recently used).
 
 #### `set(key: K, value: V, customTtl?: number): void`
 

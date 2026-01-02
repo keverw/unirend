@@ -19,17 +19,26 @@ import type { StaticContentRouterOptions } from '../types';
  * Each call creates an independent instance with its own caches, allowing multiple
  * instances to be registered with different configurations.
  *
- * @param options Static content configuration (file mappings, cache settings, etc.)
- * @param logger Optional logger (e.g., fastify.log) for error logging
+ * @param optionsOrCache Static content configuration OR an existing StaticContentCache instance
+ * @param logger Optional logger (e.g., fastify.log) for error logging (ignored if cache instance provided)
  * @returns Fastify onRequest hook handler function
  * @internal Used by SSRServer (internal) and staticContent() plugin (public API)
  */
 export function createStaticContentHook(
-  options: StaticContentRouterOptions,
+  optionsOrCache: StaticContentRouterOptions | StaticContentCache,
   logger?: { warn: (obj: object, msg: string) => void },
 ) {
-  // Create the static content cache instance with all caching and routing logic
-  const cache = new StaticContentCache(options, logger);
+  // Determine cache source: use provided instance or create new one from options
+  let cache: StaticContentCache;
+
+  if (optionsOrCache instanceof StaticContentCache) {
+    // Using externally-created cache instance (for runtime updates)
+    cache = optionsOrCache;
+    // Note: logger parameter is ignored when cache instance is provided
+  } else {
+    // Creating new cache from configuration options
+    cache = new StaticContentCache(optionsOrCache, logger);
+  }
 
   // Return the hook handler
   return async (req: FastifyRequest, reply: FastifyReply) => {

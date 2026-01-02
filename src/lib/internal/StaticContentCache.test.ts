@@ -1054,4 +1054,369 @@ describe('StaticContentCache', () => {
       expect(logger.warn).not.toHaveBeenCalled();
     });
   });
+
+  describe('updateConfig()', () => {
+    describe('singleAssetMap updates', () => {
+      it('replaces singleAssetMap configuration', () => {
+        const cache = new StaticContentCache({
+          singleAssetMap: {
+            '/existing.txt': '/path/to/existing.txt',
+          },
+          folderMap: {},
+        });
+
+        // Access private property to verify initial state
+        const singleAssetMapBefore = (cache as any).singleAssetMap as Map<
+          string,
+          string
+        >;
+        expect(singleAssetMapBefore.has('/existing.txt')).toBe(true);
+        expect(singleAssetMapBefore.has('/new.txt')).toBe(false);
+
+        cache.updateConfig({
+          singleAssetMap: {
+            '/new.txt': '/path/to/new.txt',
+          },
+        });
+
+        // Verify mapping was replaced - old gone, new added
+        const singleAssetMapAfter = (cache as any).singleAssetMap as Map<
+          string,
+          string
+        >;
+        expect(singleAssetMapAfter.has('/existing.txt')).toBe(false);
+        expect(singleAssetMapAfter.has('/new.txt')).toBe(true);
+        expect(singleAssetMapAfter.get('/new.txt')).toBe('/path/to/new.txt');
+      });
+
+      it('invalidates only affected filesystem paths', async () => {
+        const cache = new StaticContentCache({
+          singleAssetMap: {
+            '/file1.txt': '/path/to/file1.txt',
+            '/file2.txt': '/path/to/file2.txt',
+          },
+          folderMap: {},
+        });
+
+        const fileContent = Buffer.from('test');
+        mockFs.stat.mockResolvedValue({
+          isFile: () => true,
+          size: fileContent.length,
+          mtime: new Date(),
+          mtimeMs: Date.now(),
+        } as fs.Stats);
+        mockFs.readFile.mockResolvedValue(fileContent);
+
+        // Access both files to cache them
+        const req1 = createMockRequest('/file1.txt');
+        const { reply: reply1 } = createMockReply();
+        await cache.handleRequest(
+          '/file1.txt',
+          req1 as FastifyRequest,
+          reply1 as FastifyReply,
+        );
+
+        const req2 = createMockRequest('/file2.txt');
+        const { reply: reply2 } = createMockReply();
+        await cache.handleRequest(
+          '/file2.txt',
+          req2 as FastifyRequest,
+          reply2 as FastifyReply,
+        );
+
+        // Both should be cached
+        const statsBefore = cache.getCacheStats();
+        expect(statsBefore.stat.items).toBeGreaterThanOrEqual(2);
+
+        // Update config - replace with new mapping that keeps file1 but changes file2
+        cache.updateConfig({
+          singleAssetMap: {
+            '/file1.txt': '/path/to/file1.txt', // Same path - cache kept
+            '/file2.txt': '/path/to/file2-NEW.txt', // Different path - cache cleared
+          },
+        });
+
+        // Access private caches to verify exact invalidation behavior
+        const statCache = (cache as any).statCache;
+        const etagCache = (cache as any).etagCache;
+        const contentCache = (cache as any).contentCache;
+
+        // file1.txt path should still be cached (path didn't change)
+        expect(statCache.has('/path/to/file1.txt')).toBe(true);
+        expect(etagCache.has('/path/to/file1.txt')).toBe(true);
+        expect(contentCache.has('/path/to/file1.txt')).toBe(true);
+
+        // file2.txt's OLD path should be invalidated
+        expect(statCache.has('/path/to/file2.txt')).toBe(false);
+        expect(etagCache.has('/path/to/file2.txt')).toBe(false);
+        expect(contentCache.has('/path/to/file2.txt')).toBe(false);
+
+        // file2.txt's NEW path should not be cached yet (hasn't been accessed)
+        expect(statCache.has('/path/to/file2-NEW.txt')).toBe(false);
+      });
+
+      it('invalidates cache for changed filesystem paths', async () => {
+        const cache = new StaticContentCache({
+          singleAssetMap: {
+            '/test.txt': '/path/to/test-v1.txt',
+          },
+          folderMap: {},
+        });
+
+        const fileContent1 = Buffer.from('v1');
+        mockFs.stat.mockResolvedValue({
+          isFile: () => true,
+          size: fileContent1.length,
+          mtime: new Date(),
+          mtimeMs: Date.now(),
+        } as fs.Stats);
+        mockFs.readFile.mockResolvedValue(fileContent1);
+
+        // Access file to cache it
+        const req = createMockRequest('/test.txt');
+        const { reply } = createMockReply();
+        await cache.handleRequest(
+          '/test.txt',
+          req as FastifyRequest,
+          reply as FastifyReply,
+        );
+
+        // Cache should have the v1 file
+        const statsBefore = cache.getCacheStats();
+        expect(statsBefore.stat.items).toBeGreaterThanOrEqual(1);
+
+        // Update mapping to point to different file
+        cache.updateConfig({
+          singleAssetMap: {
+            '/test.txt': '/path/to/test-v2.txt',
+          },
+        });
+
+        // Access private caches to verify exact behavior
+        const statCache = (cache as any).statCache;
+        const etagCache = (cache as any).etagCache;
+        const contentCache = (cache as any).contentCache;
+
+        // v1 path should be invalidated (OLD filesystem path for /test.txt)
+        expect(statCache.has('/path/to/test-v1.txt')).toBe(false);
+        expect(etagCache.has('/path/to/test-v1.txt')).toBe(false);
+        expect(contentCache.has('/path/to/test-v1.txt')).toBe(false);
+
+        // v2 path should also be invalidated (NEW filesystem path for /test.txt)
+        // This prevents serving stale cached data if v2 was previously cached
+        expect(statCache.has('/path/to/test-v2.txt')).toBe(false);
+        expect(etagCache.has('/path/to/test-v2.txt')).toBe(false);
+        expect(contentCache.has('/path/to/test-v2.txt')).toBe(false);
+      });
+    });
+
+    describe('folderMap updates', () => {
+      it('replaces folderMap and clears all caches', async () => {
+        const cache = new StaticContentCache({
+          singleAssetMap: {},
+          folderMap: {
+            '/assets': '/path/to/assets',
+          },
+        });
+
+        const fileContent = Buffer.from('test');
+        mockFs.stat.mockResolvedValue({
+          isFile: () => true,
+          size: fileContent.length,
+          mtime: new Date(),
+          mtimeMs: Date.now(),
+        } as fs.Stats);
+        mockFs.readFile.mockResolvedValue(fileContent);
+
+        // Access file to cache it
+        const req = createMockRequest('/assets/test.js');
+        const { reply } = createMockReply();
+        await cache.handleRequest(
+          '/assets/test.js',
+          req as FastifyRequest,
+          reply as FastifyReply,
+        );
+
+        const statsBefore = cache.getCacheStats();
+        expect(statsBefore.stat.items).toBeGreaterThanOrEqual(1);
+
+        // Update folder mapping - this clears ALL caches
+        cache.updateConfig({
+          folderMap: {
+            '/static': '/path/to/static',
+          },
+        });
+
+        // All caches should be cleared
+        const statsAfter = cache.getCacheStats();
+        expect(statsAfter.etag.items).toBe(0);
+        expect(statsAfter.content.items).toBe(0);
+        expect(statsAfter.stat.items).toBe(0);
+      });
+
+      it('supports folder config objects with detectImmutableAssets', () => {
+        const cache = new StaticContentCache({
+          singleAssetMap: {},
+          folderMap: {
+            '/assets': {
+              path: '/path/to/assets',
+              detectImmutableAssets: false,
+            },
+          },
+        });
+
+        cache.updateConfig({
+          folderMap: {
+            '/assets': { path: '/path/to/assets', detectImmutableAssets: true },
+          },
+        });
+
+        const stats = cache.getCacheStats();
+        expect(stats.etag.items).toBe(0); // All cleared
+      });
+    });
+
+    describe('cache invalidation strategy', () => {
+      it('clears all caches when using clearCaches()', () => {
+        const cache = new StaticContentCache({
+          singleAssetMap: {
+            '/test1.txt': '/path/to/test1.txt',
+            '/test2.txt': '/path/to/test2.txt',
+          },
+          folderMap: {},
+        });
+
+        cache.clearCaches();
+
+        const stats = cache.getCacheStats();
+        expect(stats.etag.items).toBe(0);
+        expect(stats.content.items).toBe(0);
+        expect(stats.stat.items).toBe(0);
+      });
+
+      it('clears all caches when folderMap changes', () => {
+        const cache = new StaticContentCache({
+          singleAssetMap: {
+            '/file.txt': '/path/to/file.txt',
+          },
+          folderMap: {
+            '/assets': '/path/to/assets',
+          },
+        });
+
+        // Update config - folderMap change clears all caches
+        cache.updateConfig({
+          singleAssetMap: {
+            '/file.txt': '/path/to/file.txt',
+          },
+          folderMap: {
+            '/static': '/path/to/static',
+          },
+        });
+
+        // All caches cleared due to folderMap change
+        const stats = cache.getCacheStats();
+        expect(stats.etag.items).toBe(0);
+        expect(stats.content.items).toBe(0);
+        expect(stats.stat.items).toBe(0);
+      });
+    });
+
+    describe('edge cases', () => {
+      it('handles empty maps gracefully', () => {
+        const cache = new StaticContentCache({
+          singleAssetMap: {
+            '/test.txt': '/path/to/test.txt',
+          },
+          folderMap: {
+            '/assets': '/path/to/assets',
+          },
+        });
+
+        // Passing empty singleAssetMap clears all single asset mappings
+        cache.updateConfig({
+          singleAssetMap: {},
+        });
+
+        // Access private properties to verify behavior
+        const singleAssetMap = (cache as any).singleAssetMap as Map<
+          string,
+          string
+        >;
+        const folderMap = (cache as any).folderMap as Map<string, unknown>;
+
+        // singleAssetMap should be cleared
+        expect(singleAssetMap.size).toBe(0);
+        expect(singleAssetMap.has('/test.txt')).toBe(false);
+
+        // folderMap should remain unchanged (wasn't included in updateConfig)
+        expect(folderMap.size).toBe(1);
+        expect(folderMap.has('/assets/')).toBe(true);
+      });
+
+      it('allows updating one section at a time', () => {
+        const cache = new StaticContentCache({
+          singleAssetMap: {
+            '/file.txt': '/path/to/file.txt',
+          },
+          folderMap: {
+            '/assets': '/path/to/assets',
+          },
+        });
+
+        // Update only singleAssetMap - folderMap remains unchanged
+        cache.updateConfig({
+          singleAssetMap: {
+            '/file.txt': '/path/to/file.txt',
+            '/new.txt': '/path/to/new.txt',
+          },
+        });
+
+        // Access private properties to verify selective update
+        const singleAssetMap = (cache as any).singleAssetMap as Map<
+          string,
+          string
+        >;
+        const folderMap = (cache as any).folderMap as Map<string, any>;
+
+        // singleAssetMap should be updated with new mapping
+        expect(singleAssetMap.size).toBe(2);
+        expect(singleAssetMap.has('/file.txt')).toBe(true);
+        expect(singleAssetMap.has('/new.txt')).toBe(true);
+        expect(singleAssetMap.get('/new.txt')).toBe('/path/to/new.txt');
+
+        // folderMap should remain completely unchanged
+        expect(folderMap.size).toBe(1);
+        expect(folderMap.has('/assets/')).toBe(true);
+        expect(folderMap.get('/assets/').path).toBe('/path/to/assets');
+      });
+
+      it('handles complete config replacement', () => {
+        const cache = new StaticContentCache({
+          singleAssetMap: {
+            '/old.txt': '/path/to/old.txt',
+          },
+          folderMap: {
+            '/old-assets': '/path/to/old-assets',
+          },
+        });
+
+        // Replace both sections
+        cache.updateConfig({
+          singleAssetMap: {
+            '/new.txt': '/path/to/new.txt',
+          },
+          folderMap: {
+            '/new-assets': '/path/to/new-assets',
+          },
+        });
+
+        // All caches cleared due to folderMap change
+        const stats = cache.getCacheStats();
+        expect(stats.etag.items).toBe(0);
+        expect(stats.content.items).toBe(0);
+        expect(stats.stat.items).toBe(0);
+      });
+    });
+  });
 });

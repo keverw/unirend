@@ -1,9 +1,13 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import {
   staticContent,
+  StaticContentCache,
   type StaticContentRouterOptions,
 } from './staticContent';
 import type { PluginHostInstance, PluginOptions } from '../types';
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import fs from 'fs';
+import { Readable } from 'stream';
 
 interface MockPluginHost extends PluginHostInstance {
   _hooks?: Array<{ name: string; handler: unknown }>;
@@ -60,7 +64,137 @@ const createMockOptions = (
   ...overrides,
 });
 
+// Helper to create mock request
+const createMockRequest = (
+  url: string,
+  method: string = 'GET',
+  headers: Record<string, string> = {},
+): Partial<FastifyRequest> => ({
+  method,
+  raw: { url } as FastifyRequest['raw'],
+  url,
+  headers,
+});
+
+// Helper to create mock reply
+const createMockReply = (): {
+  reply: Partial<FastifyReply>;
+  sentData: { code?: number; headers: Record<string, string>; body?: unknown };
+} => {
+  const sentData: {
+    code?: number;
+    headers: Record<string, string>;
+    body?: unknown;
+  } = { headers: {} };
+
+  const reply: Partial<FastifyReply> = {
+    sent: false,
+    code: mock((code: number) => {
+      sentData.code = code;
+      return reply as FastifyReply;
+    }),
+    header: mock((name: string, value: string) => {
+      sentData.headers[name] = value;
+      return reply as FastifyReply;
+    }),
+    type: mock((contentType: string) => {
+      sentData.headers['Content-Type'] = contentType;
+      return reply as FastifyReply;
+    }),
+    send: mock((body?: unknown) => {
+      sentData.body = body;
+      // Default to 200 if no code was explicitly set
+      if (sentData.code === undefined) {
+        sentData.code = 200;
+      }
+      (reply as FastifyReply).sent = true;
+      return reply as unknown as FastifyReply;
+    }),
+  };
+
+  return { reply, sentData };
+};
+
+/**
+ * Helper to invoke the registered onRequest hook(s) with a mock request
+ * If multiple hooks are registered, invokes them in order until one serves the file
+ * Returns the reply data so we can assert on what was sent
+ */
+const invokeRegisteredHook = async (
+  host: MockPluginHost,
+  url: string,
+  method: string = 'GET',
+  headers: Record<string, string> = {},
+): Promise<{
+  code?: number;
+  headers: Record<string, string>;
+  body?: unknown;
+  sent: boolean;
+}> => {
+  const hooks = host._hooks || [];
+  const onRequestHooks = hooks.filter((h) => h.name === 'onRequest');
+
+  if (onRequestHooks.length === 0) {
+    throw new Error('No onRequest hook registered');
+  }
+
+  const req = createMockRequest(url, method, headers);
+  const { reply, sentData } = createMockReply();
+
+  // Invoke all onRequest hooks in order (mimics Fastify behavior)
+  for (const hook of onRequestHooks) {
+    if (typeof hook.handler === 'function') {
+      await (hook.handler as (req: unknown, reply: unknown) => Promise<void>)(
+        req,
+        reply,
+      );
+
+      // If reply was sent, stop processing (first hook that served wins)
+      if (reply.sent) {
+        break;
+      }
+    }
+  }
+
+  return {
+    ...sentData,
+    sent: reply.sent || false,
+  };
+};
+
+// Mock fs operations for file serving
+const mockFs = {
+  stat: mock((_path: string) => Promise.resolve({} as fs.Stats)),
+  readFile: mock((_path: string) => Promise.resolve(Buffer.from(''))),
+  createReadStream: mock((_path: string, _options?: unknown) => new Readable()),
+};
+
 describe('staticContent plugin', () => {
+  // Save original fs methods
+  const originalStat = fs.promises.stat;
+  const originalReadFile = fs.promises.readFile;
+  const originalCreateReadStream = fs.createReadStream;
+
+  beforeEach(() => {
+    // Reset mocks before each test
+    mockFs.stat.mockReset();
+    mockFs.readFile.mockReset();
+    mockFs.createReadStream.mockReset();
+
+    // Mock fs operations
+    (fs.promises as { stat: unknown }).stat = mockFs.stat;
+    (fs.promises as { readFile: unknown }).readFile = mockFs.readFile;
+    (fs as { createReadStream: unknown }).createReadStream =
+      mockFs.createReadStream;
+  });
+
+  afterEach(() => {
+    // Restore original fs methods
+    (fs.promises as { stat: unknown }).stat = originalStat;
+    (fs.promises as { readFile: unknown }).readFile = originalReadFile;
+    (fs as { createReadStream: unknown }).createReadStream =
+      originalCreateReadStream;
+  });
   it('registers onRequest hook and returns unique metadata', async () => {
     const host = createMockPluginHost();
     const options = createMockOptions();
@@ -163,5 +297,254 @@ describe('staticContent plugin', () => {
     ).toThrow(
       'staticContent plugin name must be a non-empty string if provided',
     );
+  });
+
+  describe('external cache support', () => {
+    it('accepts a StaticContentCache instance and serves files through it', async () => {
+      const host = createMockPluginHost();
+      const options = createMockOptions();
+
+      // Create external cache
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/test.txt': '/path/to/test.txt' },
+      });
+
+      // Mock file system for the file in the cache
+      const fileContent = Buffer.from('test file content');
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      // Pass cache instance to plugin
+      const plugin = staticContent(cache, 'custom-cache');
+      const meta = await plugin(host, options);
+
+      // Should return metadata with name
+      expect(meta).toBeDefined();
+      expect(meta?.name).toBe('custom-cache');
+
+      // Should register onRequest hook
+      expect(host.addHook).toHaveBeenCalledTimes(1);
+
+      // Verify the hook actually serves the file from the cache
+      const result = await invokeRegisteredHook(host, '/test.txt');
+      expect(result.sent).toBe(true);
+      expect(result.code).toBe(200);
+      expect(result.headers['Content-Type']).toBe('text/plain');
+      expect(result.body).toBe(fileContent);
+    });
+
+    it('returns metadata for config-based creation', async () => {
+      const host = createMockPluginHost();
+      const options = createMockOptions();
+
+      const plugin = staticContent({
+        folderMap: { '/static': './static' },
+      });
+
+      const meta = await plugin(host, options);
+
+      // Should return metadata with generated name
+      expect(meta).toBeDefined();
+      expect(meta?.name).toMatch(/^static-content-\d+-[a-z0-9]+$/);
+    });
+
+    it('allows cache updates when external cache is used', async () => {
+      const host = createMockPluginHost();
+      const options = createMockOptions();
+
+      // Mock file system
+      const fileContent1 = Buffer.from('file 1 content');
+      const fileContent2 = Buffer.from('file 2 content');
+
+      mockFs.stat.mockImplementation((path: string) => {
+        if (path === '/path/to/file1.txt' || path === '/path/to/file2.txt') {
+          return Promise.resolve({
+            isFile: () => true,
+            size: path.includes('file1')
+              ? fileContent1.length
+              : fileContent2.length,
+            mtime: new Date(),
+            mtimeMs: Date.now(),
+          } as fs.Stats);
+        } else {
+          const error = new Error('ENOENT');
+          (error as NodeJS.ErrnoException).code = 'ENOENT';
+          return Promise.reject(error);
+        }
+      });
+
+      mockFs.readFile.mockImplementation((path: string) => {
+        if (path === '/path/to/file1.txt') {
+          return Promise.resolve(fileContent1);
+        } else if (path === '/path/to/file2.txt') {
+          return Promise.resolve(fileContent2);
+        } else {
+          const error = new Error('ENOENT');
+          (error as NodeJS.ErrnoException).code = 'ENOENT';
+          return Promise.reject(error);
+        }
+      });
+
+      // Create external cache with file1
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/file1.txt': '/path/to/file1.txt' },
+        folderMap: {},
+      });
+
+      // Register plugin with external cache
+      const plugin = staticContent(cache);
+      await plugin(host, options);
+
+      // Verify file1 is served
+      const result1 = await invokeRegisteredHook(host, '/file1.txt');
+      expect(result1.sent).toBe(true);
+      expect(result1.code).toBe(200);
+      expect(result1.body).toBe(fileContent1);
+
+      // Verify file2 is not found yet
+      const result2Before = await invokeRegisteredHook(host, '/file2.txt');
+      expect(result2Before.sent).toBe(false);
+
+      // Update the cache to replace file1 with file2
+      cache.updateConfig({
+        singleAssetMap: {
+          '/file2.txt': '/path/to/file2.txt',
+        },
+      });
+
+      // Now file1 should not be found
+      const result1After = await invokeRegisteredHook(host, '/file1.txt');
+      expect(result1After.sent).toBe(false);
+
+      // And file2 should be served
+      const result2After = await invokeRegisteredHook(host, '/file2.txt');
+      expect(result2After.sent).toBe(true);
+      expect(result2After.code).toBe(200);
+      expect(result2After.body).toBe(fileContent2);
+    });
+
+    it('creates hooks for both config and cache-based plugins', async () => {
+      const host = createMockPluginHost();
+      const options = createMockOptions();
+
+      // Mock file system for both files
+      const fileContent1 = Buffer.from('file 1 content');
+      const fileContent2 = Buffer.from('file 2 content');
+
+      mockFs.stat.mockImplementation((path: string) => {
+        if (path === '/path/to/file1.txt' || path === '/path/to/file2.txt') {
+          return Promise.resolve({
+            isFile: () => true,
+            size: path.includes('file1')
+              ? fileContent1.length
+              : fileContent2.length,
+            mtime: new Date(),
+            mtimeMs: Date.now(),
+          } as fs.Stats);
+        } else {
+          const error = new Error('ENOENT');
+          (error as NodeJS.ErrnoException).code = 'ENOENT';
+          return Promise.reject(error);
+        }
+      });
+
+      mockFs.readFile.mockImplementation((path: string) => {
+        if (path === '/path/to/file1.txt') {
+          return Promise.resolve(fileContent1);
+        } else if (path === '/path/to/file2.txt') {
+          return Promise.resolve(fileContent2);
+        } else {
+          const error = new Error('ENOENT');
+          (error as NodeJS.ErrnoException).code = 'ENOENT';
+          return Promise.reject(error);
+        }
+      });
+
+      // Config-based plugin
+      const plugin1 = staticContent({
+        singleAssetMap: { '/file1.txt': '/path/to/file1.txt' },
+      });
+
+      // Cache-based plugin
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/file2.txt': '/path/to/file2.txt' },
+      });
+      const plugin2 = staticContent(cache);
+
+      await plugin1(host, options);
+      await plugin2(host, options);
+
+      // Both should register hooks
+      expect(host.addHook).toHaveBeenCalledTimes(2);
+
+      // Verify both hooks work (they're called in order)
+      // Note: Both hooks will be invoked, but only the matching one will serve the file
+      const result1 = await invokeRegisteredHook(host, '/file1.txt');
+      expect(result1.sent).toBe(true);
+      expect(result1.body).toBe(fileContent1);
+
+      const result2 = await invokeRegisteredHook(host, '/file2.txt');
+      expect(result2.sent).toBe(true);
+      expect(result2.body).toBe(fileContent2);
+    });
+
+    it('works with external cache and uses cache logger not host logger', async () => {
+      const host = createMockPluginHost();
+      const mockHostLogger = { warn: mock(() => {}) };
+
+      host.getDecoration = mock((property: string) => {
+        if (property === 'log') {
+          return mockHostLogger;
+        }
+
+        return undefined;
+      }) as typeof host.getDecoration;
+
+      const options = createMockOptions();
+
+      // Mock file system
+      const fileContent = Buffer.from('test content');
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      // Create cache with its own logger (provided at cache creation time)
+      const cacheLogger = { warn: mock(() => {}) };
+      const cache = new StaticContentCache(
+        {
+          singleAssetMap: { '/test.txt': '/path/to/test.txt' },
+        },
+        cacheLogger,
+      );
+
+      // Plugin should use the provided cache as-is (doesn't use host logger)
+      const plugin = staticContent(cache);
+      const meta = await plugin(host, options);
+
+      expect(meta).toBeDefined();
+      expect(meta?.name).toBeDefined();
+
+      // Hook should be registered
+      expect(host.addHook).toHaveBeenCalledTimes(1);
+
+      // Verify the hook works with the external cache
+      const result = await invokeRegisteredHook(host, '/test.txt');
+      expect(result.sent).toBe(true);
+      expect(result.code).toBe(200);
+      expect(result.body).toBe(fileContent);
+
+      // Host logger should not be called when using external cache
+      // (the cache was created with its own logger)
+      expect(mockHostLogger.warn).not.toHaveBeenCalled();
+    });
   });
 });

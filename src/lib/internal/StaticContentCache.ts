@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'node:crypto';
 import LRUCache from './lru-cache';
-import type { StaticContentRouterOptions } from '../types';
+import type { StaticContentRouterOptions, FolderConfig } from '../types';
 
 /**
  * Minimal stat info interface with only the properties we actually use
@@ -127,14 +127,6 @@ export type FileResult =
   | FileFoundResult;
 
 /**
- * Configuration for a folder mapping
- */
-interface FolderConfig {
-  path: string;
-  detectImmutableAssets: boolean;
-}
-
-/**
  * Encapsulates caching and serving of static content files.
  *
  * This class manages:
@@ -148,9 +140,9 @@ interface FolderConfig {
  * multiple instances with different configurations.
  */
 export class StaticContentCache {
-  // Normalized mappings
-  private readonly singleAssetMap: Map<string, string>;
-  private readonly folderMap: Map<string, FolderConfig>;
+  // Normalized mappings (mutable to allow runtime updates)
+  private singleAssetMap: Map<string, string>; // URL path → filesystem path
+  private folderMap: Map<string, FolderConfig>; // URL prefix → folder config
 
   // Cache configuration
   private readonly smallFileMaxSize: number;
@@ -159,10 +151,10 @@ export class StaticContentCache {
   private readonly negativeCacheTtl: number;
   private readonly positiveCacheTtl: number;
 
-  // LRU caches
-  private readonly etagCache: LRUCache<string, string>;
-  private readonly contentCache: LRUCache<string, Buffer>;
-  private readonly statCache: LRUCache<string, StatCacheEntry>;
+  // LRU caches (all keyed by filesystem path)
+  private readonly etagCache: LRUCache<string, string>; // fs path → ETag
+  private readonly contentCache: LRUCache<string, Buffer>; // fs path → file content
+  private readonly statCache: LRUCache<string, StatCacheEntry>; // fs path → file stats
 
   // Optional logger
   private readonly logger?: { warn: (obj: object, msg: string) => void };
@@ -629,6 +621,132 @@ export class StaticContentCache {
   }
 
   /**
+   * Updates the static content configuration at runtime
+   *
+   * This method allows you to dynamically update file mappings without restarting
+   * the server. Useful for SSG scenarios where the full mapping is regenerated.
+   *
+   * **Important:** When providing a section, you must provide the COMPLETE mapping for that section.
+   * - If you provide `singleAssetMap`, it replaces the entire single asset map
+   * - If you provide `folderMap`, it replaces the entire folder map
+   * - You can update one section, the other, or both
+   * - Omitted sections remain unchanged
+   *
+   * **Cache invalidation strategy:**
+   * - `singleAssetMap` changes: Only invalidates specific filesystem paths that changed
+   * - `folderMap` changes: Clears all caches (folder changes are structural)
+   *
+   * @param newConfig Complete mapping(s) for the section(s) you want to update
+   *
+   * @example Update only single asset mappings
+   * ```typescript
+   * cache.updateConfig({
+   *   singleAssetMap: {
+   *     '/': './dist/index.html',
+   *     '/blog/new-post': './dist/blog/new-post.html'
+   *   }
+   * });
+   * ```
+   *
+   * @example Update only folder mappings
+   * ```typescript
+   * cache.updateConfig({
+   *   folderMap: {
+   *     '/assets': { path: './dist/assets', detectImmutableAssets: true }
+   *   }
+   * });
+   * ```
+   *
+   * @example Update both sections
+   * ```typescript
+   * cache.updateConfig({
+   *   singleAssetMap: { '/': './dist/index.html' },
+   *   folderMap: { '/assets': './dist/assets' }
+   * });
+   * ```
+   */
+  public updateConfig(newConfig: {
+    singleAssetMap?: Record<string, string>;
+    folderMap?: Record<string, string | FolderConfig>;
+  }): void {
+    // Handle singleAssetMap - smart invalidation of specific filesystem paths
+    if (newConfig.singleAssetMap !== undefined) {
+      const newMap = this.normalizeSingleAssetMap(newConfig.singleAssetMap);
+
+      // Track filesystem paths that need cache invalidation
+      const pathsToInvalidate = new Set<string>();
+
+      // Loop 1: Iterate over OLD map to find filesystem paths that are no longer in use
+      // Example: '/page' used to point to '/dist/old.html', now points to '/dist/new.html'
+      // Result: Invalidate '/dist/old.html' (the old file's cache is stale)
+      for (const [url, oldFsPath] of this.singleAssetMap.entries()) {
+        const newFsPath = newMap.get(url);
+
+        // If URL was removed OR now points to a different file, invalidate OLD filesystem path
+        if (newFsPath === undefined || newFsPath !== oldFsPath) {
+          pathsToInvalidate.add(oldFsPath);
+        }
+      }
+
+      // Loop 2: Iterate over NEW map to find filesystem paths that changed
+      // Example: '/page' used to point to '/dist/old.html', now points to '/dist/new.html'
+      // Result: Invalidate '/dist/new.html' (ensure fresh read from disk)
+      // IMPORTANT: This prevents serving stale cached data if the new file was already cached
+      // from a previous mapping (e.g., same file was previously mapped to a different URL)
+      for (const [url, newFsPath] of newMap.entries()) {
+        const oldFsPath = this.singleAssetMap.get(url);
+
+        // Only invalidate NEW filesystem path if URL existed before AND now points to different file
+        if (oldFsPath !== undefined && oldFsPath !== newFsPath) {
+          pathsToInvalidate.add(newFsPath);
+        }
+      }
+
+      // Replace the map
+      this.singleAssetMap = newMap;
+
+      // Invalidate caches for affected filesystem paths only
+      for (const fsPath of pathsToInvalidate) {
+        this.etagCache.delete(fsPath);
+        this.contentCache.delete(fsPath);
+        this.statCache.delete(fsPath);
+      }
+    }
+
+    // Handle folderMap - clear all caches only if it changed
+    if (newConfig.folderMap !== undefined) {
+      const newFolderMap = this.normalizeFolderMap(newConfig.folderMap);
+
+      // Check if folderMap actually changed
+      // Note: Can't just compare size - could have same number of folders but different prefixes/configs
+      let hasFolderMapChanged = false;
+
+      // Quick check: if sizes differ, it definitely changed
+      if (this.folderMap.size !== newFolderMap.size) {
+        hasFolderMapChanged = true;
+      } else {
+        // Sizes match - need to check if any prefix or config changed
+        for (const [prefix, config] of newFolderMap.entries()) {
+          const oldConfig = this.folderMap.get(prefix);
+
+          if (!oldConfig || !this.isSameFolderConfig(oldConfig, config)) {
+            hasFolderMapChanged = true;
+            break;
+          }
+        }
+      }
+
+      this.folderMap = newFolderMap;
+
+      // Only clear all caches if folderMap actually changed
+      // Folder mapping changes are rare and structural - clearing everything is safe
+      if (hasFolderMapChanged) {
+        this.clearCaches();
+      }
+    }
+  }
+
+  /**
    * Handles an HTTP request by resolving the URL to a file path and serving it
    *
    * This is a convenience method that combines URL resolution with file serving.
@@ -680,7 +798,7 @@ export class StaticContentCache {
             !safeRelativePath.includes('..\\')
           ) {
             resolved = path.join(folderConfig.path, safeRelativePath);
-            shouldDetectImmutable = folderConfig.detectImmutableAssets;
+            shouldDetectImmutable = folderConfig.detectImmutableAssets ?? false;
           }
         }
       }
@@ -719,10 +837,7 @@ export class StaticContentCache {
    * 2. Full config object: { "/assets/": { path: "/path/to/assets", detectImmutableAssets: true } }
    */
   private normalizeFolderMap(
-    folderMap: Record<
-      string,
-      string | { path: string; detectImmutableAssets?: boolean }
-    >,
+    folderMap: Record<string, string | FolderConfig>,
   ): Map<string, FolderConfig> {
     const normalized = new Map<string, FolderConfig>();
 
@@ -794,6 +909,23 @@ export class StaticContentCache {
     };
 
     return mimeTypes[ext] || 'application/octet-stream';
+  }
+
+  /**
+   * Compares two FolderConfig objects for equality
+   * Dynamically checks all properties so we don't need to update this if FolderConfig changes
+   */
+  private isSameFolderConfig(a: FolderConfig, b: FolderConfig): boolean {
+    const keysA = Object.keys(a) as (keyof FolderConfig)[];
+    const keysB = Object.keys(b) as (keyof FolderConfig)[];
+
+    // Different number of keys means they're not equal
+    if (keysA.length !== keysB.length) {
+      return false;
+    }
+
+    // Check all keys from a (sufficient now since lengths match)
+    return keysA.every((key) => a[key] === b[key]);
   }
 
   /**

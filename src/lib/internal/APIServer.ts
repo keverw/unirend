@@ -165,6 +165,14 @@ export class APIServer extends BaseServer {
       const isDevelopment = mode === 'development';
       this.fastifyInstance.decorateRequest('isDevelopment', isDevelopment);
 
+      // Initialize request context for all requests (consistent with SSRServer)
+      // This runs early before plugins, so requestContext is always at least an empty object
+      this.fastifyInstance.addHook('onRequest', async (request, _reply) => {
+        (
+          request as { requestContext?: Record<string, unknown> }
+        ).requestContext = {};
+      });
+
       // Register global error handler
       this.setupErrorHandler();
       // Register not-found handler

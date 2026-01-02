@@ -14,7 +14,7 @@
  */
 
 import path from 'path';
-import { serveAPI, type APIServerOptions } from '../src/server';
+import { serveAPI, type APIServerOptions, type APIServer } from '../src/server';
 import { staticContent } from '../src/plugins';
 import { APIResponseHelpers } from '../src/api-envelope';
 
@@ -116,6 +116,9 @@ function generate404Html(url: string): string {
 </body>
 </html>`;
 }
+
+// Track server instance for graceful shutdown
+let server: APIServer | null = null;
 
 async function runStaticContentDemo() {
   console.log('🚀 Starting API Server with Static Content Demo...\n');
@@ -259,7 +262,7 @@ async function runStaticContentDemo() {
   };
 
   try {
-    const server = serveAPI(options);
+    server = serveAPI(options);
     await server.listen(3002, 'localhost');
 
     console.log('✅ API Server with Static Content started successfully!\n');
@@ -270,6 +273,26 @@ async function runStaticContentDemo() {
     process.exit(1);
   }
 }
+
+// Handle graceful shutdown
+const shutdown = async (signal: string) => {
+  console.log(`\n🛑 Received ${signal}. Shutting down server...`);
+
+  try {
+    if (server && server.isListening()) {
+      await server.stop();
+      server = null;
+      console.log('✅ Server stopped gracefully');
+    }
+  } catch (err) {
+    console.error('Error during shutdown:', err);
+  } finally {
+    process.exit(0);
+  }
+};
+
+process.on('SIGINT', () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
 // Run the demo
 runStaticContentDemo().catch(console.error);
