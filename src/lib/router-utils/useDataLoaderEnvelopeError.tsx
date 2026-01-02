@@ -10,6 +10,13 @@ export interface RouteErrorState {
   errorResponse: PageErrorResponse | null;
 }
 
+/**
+ * Detects envelope-based errors from any route in the current hierarchy.
+ *
+ * Typically used by a parent layout component to detect errors from child routes.
+ * Uses useMatches() instead of useLoaderData() because useLoaderData() only returns
+ * the current route's data, but we need to inspect data from child routes.
+ */
 export function useDataloaderEnvelopeError() {
   const matches = useMatches();
 

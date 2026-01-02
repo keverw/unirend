@@ -56,7 +56,7 @@ Repo auto‑init: The CLI sets up a repository structure that supports multiple 
   - [SSR demo: Dev and Prod](#ssr-demo-dev-and-prod)
 - [Data Loaders](#data-loaders)
 - [API Envelope Structure](#api-envelope-structure)
-  - [Helpers and Integration](#helpers-and-integration)
+    - [Helpers and Integration](#helpers-and-integration)
 - [Error Handling](#error-handling)
 - [UX Suggestions](#ux-suggestions)
 - [Development](#development)
