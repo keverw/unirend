@@ -32,7 +32,7 @@
     - [Redirect Response Format](#redirect-response-format)
     - [Authentication Required Redirects](#authentication-required-redirects)
     - [Benefits of Application-Level Redirects](#benefits-of-application-level-redirects)
-- [Mixing Response Types: API Calls within Dataloaders](#mixing-response-types-api-calls-within-dataloaders)
+- [Mixing Response Types: API Calls within Data Loaders](#mixing-response-types-api-calls-within-data-loaders)
   - [Key Principles for Response Transformation](#key-principles-for-response-transformation)
   - [Implementation Pattern](#implementation-pattern)
 - [Helper utilities](#helper-utilities)
@@ -613,9 +613,9 @@ This approach:
 
 Data loaders handle redirect status responses by converting them to appropriate React Router redirects.
 
-## Mixing Response Types: API Calls within Dataloaders
+## Mixing Response Types: API Calls within Data Loaders
 
-Since the page response type is an extension of the API response pattern, dataloaders will sometimes encounter API-style responses when interacting with backend services. This includes data fetching and error scenarios like authentication failures, access denial, or server errors.
+Since the page response type is an extension of the API response pattern, data loaders will sometimes encounter API-style responses when interacting with backend services. This includes data fetching and error scenarios like authentication failures, access denial, or server errors.
 
 ### Key Principles for Response Transformation
 

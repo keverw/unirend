@@ -11,7 +11,7 @@
 // Error boundary components
 export { default as RouteErrorBoundary } from './lib/router-utils/RouteErrorBoundary';
 export type { RouteErrorBoundaryProps } from './lib/router-utils/RouteErrorBoundary';
-export { useDataloaderEnvelopeError } from './lib/router-utils/useDataLoaderEnvelopeError';
+export { useDataLoaderEnvelopeError } from './lib/router-utils/useDataLoaderEnvelopeErrorHook';
 export {
   createPageDataLoader,
   createDefaultPageDataLoaderConfig,

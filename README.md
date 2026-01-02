@@ -274,7 +274,7 @@ After completing the Common Setup, see the dedicated guide for Server-Side Rende
 
 - [docs/ssr.md](docs/ssr.md)
 
-SSR servers support a plugin system for extending functionality, data loader endpoints for page data handling, and can host your API endpoints for actions outside of SSR dataloader handlers. You can create a standalone API server (useful when you want to separate API hosting from SSR rendering while sharing the same plugin and handler code conventions as if you were hosting within the same SSR server).
+SSR servers support a plugin system for extending functionality, data loader endpoints for page data handling, and can host your API endpoints for actions outside of SSR data loader handlers. You can create a standalone API server (useful when you want to separate API hosting from SSR rendering while sharing the same plugin and handler code conventions as if you were hosting within the same SSR server).
 
 ## Demos
 

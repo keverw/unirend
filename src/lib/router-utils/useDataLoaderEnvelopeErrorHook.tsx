@@ -17,7 +17,7 @@ export interface RouteErrorState {
  * Uses useMatches() instead of useLoaderData() because useLoaderData() only returns
  * the current route's data, but we need to inspect data from child routes.
  */
-export function useDataloaderEnvelopeError() {
+export function useDataLoaderEnvelopeError() {
   const matches = useMatches();
 
   // Find error response from any active route

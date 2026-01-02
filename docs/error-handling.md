@@ -91,8 +91,8 @@ Behavior also depends on when the error occurs:
   ]
   ```
 
-- **Inline envelope errors in layout**: In your `AppLayout`, use `useDataloaderEnvelopeError` to render inline errors (including 404s) returned by data loaders.
-  - Import: `import { useDataloaderEnvelopeError } from 'unirend/router-utils'`
+- **Inline envelope errors in layout**: In your `AppLayout`, use `useDataLoaderEnvelopeError` to render inline errors (including 404s) returned by data loaders.
+  - Import: `import { useDataLoaderEnvelopeError } from 'unirend/router-utils'`
   - Typical mapping: render a `NotFound` component for 404s and a generic error component for other cases. See the SSR demo’s `demos/ssr/src/routes.tsx` layout pattern.
   - A dedicated not-found page data loader is recommended, but inline handling in your layout works too.
 
@@ -135,8 +135,8 @@ When a loader produces a page render with `statusCode === 500`:
 
 #### 4) Loader Response Errors After Hydration
 
-- For envelope-based errors (e.g., 4xx/5xx), use the helper hook `useDataloaderEnvelopeError` inside your app layout to detect and render inline error UIs while keeping header/footer.
-- **SSG with Local Data Loaders**: This same pattern applies to SSG when using local data loaders. Set up `useDataloaderEnvelopeError` in your app layout to handle envelope errors returned by local handlers.
+- For envelope-based errors (e.g., 4xx/5xx), use the helper hook `useDataLoaderEnvelopeError` inside your app layout to detect and render inline error UIs while keeping header/footer.
+- **SSG with Local Data Loaders**: This same pattern applies to SSG when using local data loaders. Set up `useDataLoaderEnvelopeError` in your app layout to handle envelope errors returned by local handlers.
 - Common pattern: render `CustomNotFound` for 404s, and `GenericError` for other errors. See the SSR demo’s `routes.tsx` for an example layout pattern.
 
 #### 5) Error Responses with Stacktrace (Development Only)
@@ -155,7 +155,7 @@ When a loader produces a page render with `statusCode === 500`:
 - See the SSR demo `routes.tsx` for a layout that:
   - Uses `RouteErrorBoundary` for thrown errors
   - Wraps outlet content with an App layout
-  - Detects envelope errors via `useDataloaderEnvelopeError` and renders inline errors
+  - Detects envelope errors via `useDataLoaderEnvelopeError` and renders inline errors
 
 ## Extending the Strategy
 

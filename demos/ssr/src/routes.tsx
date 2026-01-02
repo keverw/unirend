@@ -13,11 +13,11 @@ import AppLayout from './components/AppLayout';
 import CustomNotFound from './components/CustomNotFound';
 import CustomApplicationError from './components/CustomApplicationError';
 import GenericError from './components/GenericError';
-import { useDataloaderEnvelopeError } from '../../../src/lib/router-utils/useDataloaderEnvelopeError';
+import { useDataLoaderEnvelopeError } from '../../../src/lib/router-utils/useDataLoaderEnvelopeErrorHook';
 
 // App layout component that passes Outlet to AppLayout as children
 function App() {
-  const { hasError, is404, errorResponse } = useDataloaderEnvelopeError();
+  const { hasError, is404, errorResponse } = useDataLoaderEnvelopeError();
 
   return (
     <AppLayout>

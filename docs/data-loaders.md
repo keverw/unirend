@@ -4,7 +4,7 @@ Unirend centralizes route data fetching through a single loader system. Define l
 
 - Create config: `createDefaultPageDataLoaderConfig(apiBaseUrl)` or provide a custom config
 - Define loaders: `createPageDataLoader(config, pageType)` or `createPageDataLoader(localConfig, localHandler)`
-- Errors/redirects: handled uniformly via envelopes. Integrate with `RouteErrorBoundary` and `useDataloaderEnvelopeError`
+- Errors/redirects: handled uniformly via envelopes. Integrate with `RouteErrorBoundary` and `useDataLoaderEnvelopeError`
 
 <!-- toc -->
 
@@ -145,7 +145,7 @@ export const localInfoLoader = createPageDataLoader(
 
 Important:
 
-- Error handling setup required: Set up `useDataloaderEnvelopeError` in your app layout to handle envelope errors (including 404s). This is required for local loaders in both SSG and SSR, matching the standard error handling pattern used for HTTP-based loaders. See: [Error Handling (README)](../README.md#error-handling) and the dedicated doc: [docs/error-handling.md](./error-handling.md).
+- Error handling setup required: Set up `useDataLoaderEnvelopeError` in your app layout to handle envelope errors (including 404s). This is required for local loaders in both SSG and SSR, matching the standard error handling pattern used for HTTP-based loaders. See: [Error Handling (README)](../README.md#error-handling) and the dedicated doc: [docs/error-handling.md](./error-handling.md).
 - SSR preserves `status_code` from local loaders for the HTTP response
 - SSR-only cookies are not available in the local path, use the Page Type Handler (HTTP/Short-Circuit) based one instead if you need cookie propagation
 - `timeoutMs` is respected, on timeout a 500 Page envelope is returned with the server connection error message
