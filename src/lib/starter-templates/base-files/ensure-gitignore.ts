@@ -15,6 +15,12 @@ lerna-debug.log*
 node_modules
 *.local
 
+# Environment variables
+# Keep secrets out of source control! Document required variables in README or create .env.example
+.env
+.env.local
+.env.*.local
+
 # Build outputs
 dist/
 

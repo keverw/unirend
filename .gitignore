@@ -18,11 +18,10 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # Environment variables
+# Keep secrets out of source control! Document required variables in README or create .env.example
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*.local
 
 # Editor directories and files
 .idea/
