@@ -16,6 +16,7 @@ export default tseslint.config(
       // Config files
       '*.config.js',
       '*.config.mjs',
+      '*.config.ts',
       // Logs
       '**/*.log',
       '**/npm-debug.log*',
