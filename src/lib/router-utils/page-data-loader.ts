@@ -191,7 +191,7 @@ import {
   createErrorResponse,
   decorateWithSsrOnlyData,
   fetchWithTimeout,
-} from './pageDataLoader-utils';
+} from './page-data-loader-utils';
 import {
   PageDataLoaderConfig,
   PageDataLoaderOptions,
@@ -199,12 +199,12 @@ import {
   LocalPageHandlerParams,
   LocalPageDataLoaderConfig,
   ErrorDefaults,
-} from './pageDataLoader-types';
+} from './page-data-loader-types';
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
 import {
   processRedirectResponse,
   processApiResponse,
-} from './pageDataLoader-helpers';
+} from './page-data-loader-helpers';
 import {
   DEBUG_PAGE_LOADER,
   DEFAULT_CONNECTION_ERROR_MESSAGES,
@@ -214,7 +214,7 @@ import {
   DEFAULT_PAGE_DATA_ENDPOINT,
   DEFAULT_FALLBACK_REQUEST_ID_GENERATOR,
   DEFAULT_TIMEOUT_MS,
-} from './pageDataLoader-consts';
+} from './page-data-loader-consts';
 
 /**
  * Creates a default configuration object with sensible defaults

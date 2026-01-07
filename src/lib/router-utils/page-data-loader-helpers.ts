@@ -6,18 +6,18 @@ import type {
 import {
   LocalPageDataLoaderConfig,
   PageDataLoaderConfig,
-} from './pageDataLoader-types';
+} from './page-data-loader-types';
 import {
   applyCustomHttpStatusHandler,
   createErrorResponse,
   decorateWithSsrOnlyData,
   isSafeRedirect,
-} from './pageDataLoader-utils';
+} from './page-data-loader-utils';
 import {
   DEBUG_PAGE_LOADER,
   DEFAULT_FALLBACK_REQUEST_ID_GENERATOR,
   DEFAULT_RETURN_TO_PARAM,
-} from './pageDataLoader-consts';
+} from './page-data-loader-consts';
 import { redirect } from 'react-router';
 
 export function processRedirectResponse(

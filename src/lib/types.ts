@@ -10,7 +10,7 @@ import type {
   FastifyInstance,
 } from 'fastify';
 import type { CookieSerializeOptions } from '@fastify/cookie';
-import type { DataLoaderServerHandlerHelpers } from './internal/DataLoaderServerHandlerHelpers';
+import type { DataLoaderServerHandlerHelpers } from './internal/data-loader-server-handler-helpers';
 import type {
   APIErrorResponse,
   PageErrorResponse,

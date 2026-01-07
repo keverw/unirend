@@ -1,6 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { createStaticContentHook } from './static-content-hook';
-import { StaticContentCache } from './StaticContentCache';
+import { StaticContentCache } from './static-content-cache';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 
 // Helper to create mock request

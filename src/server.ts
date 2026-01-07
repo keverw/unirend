@@ -49,17 +49,17 @@ export type {
   PluginOptions,
   PluginMetadata,
 } from './lib/types';
-export type { SSRServer } from './lib/internal/SSRServer';
-export type { APIServer } from './lib/internal/APIServer';
+export type { SSRServer } from './lib/internal/ssr-server';
+export type { APIServer } from './lib/internal/api-server';
 // only export the config type as class not used internally
-export type { PageDataHandler } from './lib/internal/DataLoaderServerHandlerHelpers';
-export type { APIRouteHandler } from './lib/internal/APIRoutesServerHelpers';
+export type { PageDataHandler } from './lib/internal/data-loader-server-handler-helpers';
+export type { APIRouteHandler } from './lib/internal/api-routes-server-helpers';
 export type { APIEndpointConfig } from './lib/types';
 
 // Server-safe functions
 export { serveSSRDev, serveSSRProd } from './lib/ssr';
 export { generateSSG } from './lib/ssg';
-export { unirendBaseRender } from './lib/baseRender';
+export { unirendBaseRender } from './lib/base-render';
 export { serveAPI } from './lib/api';
 
 // Re-export Fastify request/reply types to avoid forcing consumers to import 'fastify'
@@ -70,4 +70,4 @@ export type {
 } from 'fastify';
 
 // Export our out of the box static web server
-export type { StaticWebServer } from './lib/internal/StaticWebServer';
+export type { StaticWebServer } from './lib/internal/static-web-server';

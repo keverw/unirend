@@ -8,11 +8,11 @@ import {
   DEBUG_PAGE_LOADER,
   DEFAULT_FALLBACK_REQUEST_ID_GENERATOR,
   DEFAULT_TIMEOUT_MS,
-} from './pageDataLoader-consts';
+} from './page-data-loader-consts';
 import {
   LocalPageDataLoaderConfig,
   PageDataLoaderConfig,
-} from './pageDataLoader-types';
+} from './page-data-loader-types';
 
 /**
  * Helper function to create base headers with Content-Type: application/json

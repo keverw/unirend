@@ -16,7 +16,7 @@
  */
 
 // Client-safe types
-export type { MountAppOptions, MountAppResult } from './lib/mountApp';
+export type { MountAppOptions, MountAppResult } from './lib/mount-app';
 export type {
   UnirendContextValue,
   UnirendRenderMode,
@@ -24,7 +24,7 @@ export type {
 } from './lib/internal/UnirendContext';
 
 // Client-safe functions
-export { mountApp } from './lib/mountApp';
+export { mountApp } from './lib/mount-app';
 
 // Unirend context hooks
 export {

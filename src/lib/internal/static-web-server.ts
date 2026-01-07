@@ -4,7 +4,7 @@
 // * I guess similar configure could build something to do the same with PHP???? But out of scope? Hmm
 // hmm wonder if should have a have a demo around this using 'SIGHUP', etc.
 
-import { APIServer } from './APIServer';
+import { APIServer } from './api-server';
 
 // todo: temped to make isDevelopment not a option, and always false but idk yet
 interface StaticWebServerOptions {

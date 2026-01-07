@@ -35,15 +35,15 @@ import {
   validateAndRegisterPlugin,
   validateNoHandlersWhenAPIDisabled,
 } from './server-utils';
-import { generateDefault500ErrorPage } from './errorPageUtils';
+import { generateDefault500ErrorPage } from './error-page-utils';
 import { createStaticContentHook } from './static-content-hook';
-import { BaseServer } from './BaseServer';
-import { DataLoaderServerHandlerHelpers } from './DataLoaderServerHandlerHelpers';
-import { APIRoutesServerHelpers } from './APIRoutesServerHelpers';
+import { BaseServer } from './base-server';
+import { DataLoaderServerHandlerHelpers } from './data-loader-server-handler-helpers';
+import { APIRoutesServerHelpers } from './api-routes-server-helpers';
 import {
   WebSocketServerHelpers,
   type WebSocketHandlerConfig,
-} from './WebSocketServerHelpers';
+} from './web-socket-server-helpers';
 import {
   filterIncomingCookieHeader as applyCookiePolicyToCookieHeader,
   filterSetCookieHeaderValues as applyCookiePolicyToSetCookie,

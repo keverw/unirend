@@ -245,7 +245,7 @@ Unirend forwards a curated set of headers and supports configurable cookie forwa
 
   Notes:
   - Incoming spoofed values for these headers are removed, then trusted server values are set before making the request to the SSR API backend.
-  - See `src/lib/internal/SSRServer.ts` and `src/lib/router-utils/pageDataLoader.ts` for where they are set and forwarded.
+  - See `src/lib/internal/ssr-server.ts` and `src/lib/router-utils/page-data-loader.ts` for where they are set and forwarded.
 
 - Cookie forwarding policy (SSR):
   - Configure via `cookieForwarding` in the SSR options (dev and prod):

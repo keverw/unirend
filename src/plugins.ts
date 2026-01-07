@@ -10,13 +10,13 @@ export {
   type InvalidDomainResponse,
   type DomainValidationConfig,
   domainValidation,
-} from './lib/built-in-plugins/domainValidation';
+} from './lib/built-in-plugins/domain-validation';
 
 // Re-export client info plugin for request metadata extraction
 export {
   type ClientInfoConfig,
   clientInfo,
-} from './lib/built-in-plugins/clientInfo';
+} from './lib/built-in-plugins/client-info';
 
 // Re-export cookies plugin for cookie parsing and signing
 export { type CookiesConfig, cookies } from './lib/built-in-plugins/cookies';
@@ -26,7 +26,7 @@ export {
   type StaticContentRouterOptions,
   type FolderConfig,
   staticContent,
-} from './lib/built-in-plugins/staticContent';
+} from './lib/built-in-plugins/static-content';
 
 // Re-export manual cookie utilities from @fastify/cookie for convenience
 import {

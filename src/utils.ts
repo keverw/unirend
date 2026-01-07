@@ -52,7 +52,7 @@ export { LRUCache } from './lib/internal/lru-cache';
 // A caching layer for static file serving with ETag support, LRU caching,
 // and optimized file serving for Fastify applications.
 
-export { StaticContentCache } from './lib/internal/StaticContentCache';
+export { StaticContentCache } from './lib/internal/static-content-cache';
 
 // Re-export types for StaticContentCache
 export type {
@@ -65,6 +65,6 @@ export type {
   FileNotModifiedResult,
   FileFoundResult,
   FileResult,
-} from './lib/internal/StaticContentCache';
+} from './lib/internal/static-content-cache';
 
 export type { FolderConfig } from './lib/types';

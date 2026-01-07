@@ -1,7 +1,7 @@
 import React from 'react';
 import { createRoot, hydrateRoot } from 'react-dom/client';
 import { createBrowserRouter, type RouteObject } from 'react-router';
-import { wrapRouter } from './internal/wrapAppElement';
+import { wrapRouter } from './internal/WrapAppElement';
 import type { UnirendContextValue } from './internal/UnirendContext';
 
 /**

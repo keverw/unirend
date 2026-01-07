@@ -1,6 +1,6 @@
 import type { ServerPlugin, StaticContentRouterOptions } from '../types';
 import { createStaticContentHook } from '../internal/static-content-hook';
-import { StaticContentCache } from '../internal/StaticContentCache';
+import { StaticContentCache } from '../internal/static-content-cache';
 
 // Re-export the options type for convenience
 export type { StaticContentRouterOptions };

@@ -22,13 +22,13 @@ import type {
   SplitErrorHandler,
   SplitNotFoundHandler,
 } from '../types';
-import { BaseServer } from './BaseServer';
-import { DataLoaderServerHandlerHelpers } from './DataLoaderServerHandlerHelpers';
-import { APIRoutesServerHelpers } from './APIRoutesServerHelpers';
+import { BaseServer } from './base-server';
+import { DataLoaderServerHandlerHelpers } from './data-loader-server-handler-helpers';
+import { APIRoutesServerHelpers } from './api-routes-server-helpers';
 import {
   WebSocketServerHelpers,
   type WebSocketHandlerConfig,
-} from './WebSocketServerHelpers';
+} from './web-socket-server-helpers';
 import { APIResponseHelpers } from '../../api-envelope';
 import type { WebSocket, WebSocketServer } from 'ws';
 

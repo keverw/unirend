@@ -6,7 +6,7 @@ import {
   type RouteObject,
   StaticHandlerContext,
 } from 'react-router';
-import { wrapStaticRouter } from './internal/wrapAppElement';
+import { wrapStaticRouter } from './internal/WrapAppElement';
 import { renderToString } from 'react-dom/server';
 import { type HelmetServerState } from 'react-helmet-async';
 

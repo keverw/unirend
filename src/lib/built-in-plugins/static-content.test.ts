@@ -3,7 +3,7 @@ import {
   staticContent,
   StaticContentCache,
   type StaticContentRouterOptions,
-} from './staticContent';
+} from './static-content';
 import type { PluginHostInstance, PluginOptions } from '../types';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import fs from 'fs';

@@ -2,7 +2,7 @@ import { describe, it, expect, mock } from 'bun:test';
 import {
   domainValidation,
   type DomainValidationConfig,
-} from './domainValidation';
+} from './domain-validation';
 import type { PluginOptions, PluginHostInstance } from '../types';
 
 // Mock Fastify request/reply objects

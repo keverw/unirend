@@ -1,4 +1,4 @@
-import { SSRServer } from './internal/SSRServer';
+import { SSRServer } from './internal/ssr-server';
 import { ServeSSRDevOptions, ServeSSRProdOptions, SSRDevPaths } from './types';
 
 /**

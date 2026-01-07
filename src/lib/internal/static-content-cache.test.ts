@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
-import { StaticContentCache } from './StaticContentCache';
+import { StaticContentCache } from './static-content-cache';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import fs from 'fs';
 import { Readable } from 'stream';

@@ -5,6 +5,7 @@ const fileSrc = `import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import react from 'eslint-plugin-react';
 import importPlugin from 'eslint-plugin-import';
+import unicorn from 'eslint-plugin-unicorn';
 
 export default tseslint.config(
   eslint.configs.recommended,
@@ -33,6 +34,7 @@ export default tseslint.config(
     plugins: {
       react,
       import: importPlugin,
+      unicorn,
     },
     languageOptions: {
       parserOptions: {
@@ -193,6 +195,25 @@ export default tseslint.config(
             'protected-method',
             'private-method',
           ],
+        },
+      ],
+      // Enforce filename conventions - kebab-case for regular TS files
+      'unicorn/filename-case': [
+        'error',
+        {
+          case: 'kebabCase',
+        },
+      ],
+    },
+  },
+  {
+    // React components: enforce PascalCase for TSX files
+    files: ['**/*.tsx'],
+    rules: {
+      'unicorn/filename-case': [
+        'error',
+        {
+          case: 'pascalCase',
         },
       ],
     },

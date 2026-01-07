@@ -11,15 +11,15 @@
 // Error boundary components
 export { default as RouteErrorBoundary } from './lib/router-utils/RouteErrorBoundary';
 export type { RouteErrorBoundaryProps } from './lib/router-utils/RouteErrorBoundary';
-export { useDataLoaderEnvelopeError } from './lib/router-utils/useDataLoaderEnvelopeErrorHook';
+export { useDataLoaderEnvelopeError } from './lib/router-utils/use-data-loader-envelope-error-hook';
 export {
   createPageDataLoader,
   createDefaultPageDataLoaderConfig,
-} from './lib/router-utils/pageDataLoader';
+} from './lib/router-utils/page-data-loader';
 export {
   type PageDataLoaderConfig,
   type ErrorDefaults,
   type BaseErrorDefinition,
   type FullErrorDefinition,
   type CustomStatusCodeHandler,
-} from './lib/router-utils/pageDataLoader-types';
+} from './lib/router-utils/page-data-loader-types';
