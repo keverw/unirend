@@ -136,12 +136,12 @@ async function vfsReadRaw(
     }
 
     return { ok: true, data: buf.toString('utf8') };
-  } catch (err) {
+  } catch (error) {
     if (
-      err &&
-      typeof err === 'object' &&
-      'code' in err &&
-      (err as { code?: unknown }).code === 'ENOENT'
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 'ENOENT'
     ) {
       return { ok: false, code: 'ENOENT' };
     }
@@ -149,7 +149,7 @@ async function vfsReadRaw(
     return {
       ok: false,
       code: 'READ_ERROR',
-      message: err instanceof Error ? err.message : String(err),
+      message: error instanceof Error ? error.message : String(error),
     };
   }
 }
@@ -212,19 +212,19 @@ export async function vfsDeleteFile(
   try {
     await fsRm(abs);
     return true;
-  } catch (err) {
+  } catch (error) {
     // If file doesn't exist, return false
     if (
-      err &&
-      typeof err === 'object' &&
-      'code' in err &&
-      (err as { code?: unknown }).code === 'ENOENT'
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 'ENOENT'
     ) {
       return false;
     }
 
     // Other errors (permissions, etc.) should propagate
-    throw err;
+    throw error;
   }
 }
 
@@ -251,19 +251,19 @@ export async function vfsExists(
   try {
     await fsStat(abs);
     return true;
-  } catch (err) {
+  } catch (error) {
     // Path doesn't exist
     if (
-      err &&
-      typeof err === 'object' &&
-      'code' in err &&
-      (err as { code?: unknown }).code === 'ENOENT'
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 'ENOENT'
     ) {
       return false;
     }
 
     // Other errors (permissions, etc.) should propagate
-    throw err;
+    throw error;
   }
 }
 
@@ -298,20 +298,20 @@ export async function vfsWriteIfNotExists(
     await fsStat(abs);
     // File exists, don't overwrite
     return false;
-  } catch (err) {
+  } catch (error) {
     // Only proceed if file doesn't exist (ENOENT)
     if (
-      err &&
-      typeof err === 'object' &&
-      'code' in err &&
-      (err as { code?: unknown }).code === 'ENOENT'
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 'ENOENT'
     ) {
       await vfsWrite(root, relPath, content);
       return true;
     }
 
     // Other errors (permissions, read-only filesystem, etc.) should propagate
-    throw err;
+    throw error;
   }
 }
 
@@ -418,19 +418,19 @@ export async function vfsListDir(
       const abs = join(root, norm);
       const fsEntries = await fsReaddir(abs);
       entries = fsEntries.sort();
-    } catch (err) {
+    } catch (error) {
       // If directory doesn't exist or can't be read, return empty array
       if (
-        err &&
-        typeof err === 'object' &&
-        'code' in err &&
-        (err as { code?: unknown }).code === 'ENOENT'
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        (error as { code?: unknown }).code === 'ENOENT'
       ) {
         return [];
       }
 
       // Other errors should propagate
-      throw err;
+      throw error;
     }
   }
 

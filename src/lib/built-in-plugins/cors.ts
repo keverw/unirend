@@ -397,7 +397,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
   if (resolvedConfig.origin === '*') {
     // Dynamic function with '*' would enable reflecting arbitrary origins with credentials
     if (typeof resolvedConfig.credentials === 'function') {
-      throw new Error(
+      throw new TypeError(
         "Unsafe CORS: cannot combine origin '*' with dynamic credentials. Use a concrete origin list when enabling credentials.",
       );
     }
@@ -524,7 +524,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
           );
         }
         if (typeof resolvedConfig.credentials === 'function') {
-          throw new Error(
+          throw new TypeError(
             "Unsafe CORS: cannot combine an origin array containing '*' with dynamic credentials. Use a concrete origin list when enabling credentials.",
           );
         }

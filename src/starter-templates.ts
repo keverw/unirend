@@ -288,13 +288,14 @@ export async function createProject(
 
         log('info', `📝 Updated ${REPO_CONFIG_FILE}`);
       }
-    } catch (err) {
+    } catch (error) {
       log(
         'error',
         `❌ Failed to update ${REPO_CONFIG_FILE}, Aborting project creation`,
       );
 
-      const errorMessage = err instanceof Error ? err.message : String(err);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
 
       if (errorMessage) {
         log('error', `   ${errorMessage}`);
@@ -325,8 +326,9 @@ export async function createProject(
           templateDevDependencies: templateConfig.devDependencies,
         },
       );
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       log('error', '❌ Failed to ensure base files, aborting project creation');
 
       if (errorMessage) {
@@ -356,8 +358,9 @@ export async function createProject(
           await vfsWrite(options.repoRoot, relPath, content);
           log('info', `   ${vfsDisplayPath(options.repoRoot, relPath)}`);
         }
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
         log('error', '❌ Failed to write starter files');
 
         if (errorMessage) {
@@ -391,8 +394,9 @@ export async function createProject(
         options.serverBuildTarget,
         log,
       );
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
 
       log(
         'error',
@@ -616,9 +620,10 @@ export async function initRepo(
     try {
       await ensureBaseFiles(dirPath, repoName, { log });
       log('info', '✅ Repository initialized successfully');
-    } catch (err) {
+    } catch (error) {
       // Log warning but don't fail - createProject will retry
-      const errorMessage = err instanceof Error ? err.message : String(err);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
 
       log(
         'warning',

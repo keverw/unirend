@@ -1741,13 +1741,13 @@ describe('domain-utils', () => {
         );
 
         // IPv6 addresses should normalize correctly
-        ipv6Origins.forEach((origin) => {
+        for (const origin of ipv6Origins) {
           const normalized = normalizeOrigin(origin);
           expect(normalized).toBe(origin);
           expect(typeof normalized).toBe('string');
           expect(normalized.includes('[')).toBe(true);
           expect(normalized.includes(']')).toBe(true);
-        });
+        }
 
         // IPv6 addresses should not match domain wildcards
         expect(

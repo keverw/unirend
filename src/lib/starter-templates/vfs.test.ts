@@ -423,14 +423,14 @@ describe('VFS', () => {
           await vfsWriteIfNotExists(base, 'file.txt/nested.txt', 'data');
           // If we get here, the function didn't throw as expected
           expect(true).toBe(false); // Force test to fail
-        } catch (err) {
+        } catch (error) {
           // Verify it's the expected error (ENOTDIR, not ENOENT)
-          expect(err).toBeDefined();
+          expect(error).toBeDefined();
           expect(
-            err &&
-              typeof err === 'object' &&
-              'code' in err &&
-              (err as { code?: unknown }).code,
+            error &&
+              typeof error === 'object' &&
+              'code' in error &&
+              (error as { code?: unknown }).code,
           ).toBe('ENOTDIR');
         }
       });

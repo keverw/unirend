@@ -3,13 +3,11 @@ import { createStaticContentHook } from '../internal/static-content-hook';
 import { StaticContentCache } from '../internal/static-content-cache';
 
 // Re-export the options type for convenience
-export type { StaticContentRouterOptions };
 
 // Also re-export FolderConfig since users will need it for folderMap
-export type { FolderConfig } from '../types';
+export type { FolderConfig, StaticContentRouterOptions } from '../types';
 
 // Re-export StaticContentCache for external cache management
-export { StaticContentCache };
 
 /**
  * Creates a static content serving plugin that can be used with any Unirend server.
@@ -182,3 +180,5 @@ export function staticContent(
 
   return staticContentPlugin;
 }
+
+export { StaticContentCache } from '../internal/static-content-cache';

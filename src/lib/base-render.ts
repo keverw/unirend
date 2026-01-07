@@ -80,16 +80,16 @@ export async function unirendBaseRender(
 
   try {
     context = await handler.query(renderRequest.fetchRequest);
-  } catch (e) {
+  } catch (error) {
     if (DEBUG_BASE_RENDER) {
       // eslint-disable-next-line no-console
-      console.error('Error querying static handler:', e);
+      console.error('Error querying static handler:', error);
     }
 
     // Return error result instead of generic 500 response
     return {
       resultType: 'render-error',
-      error: e instanceof Error ? e : new Error(String(e)),
+      error: error instanceof Error ? error : new Error(String(error)),
     };
   }
 

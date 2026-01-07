@@ -118,10 +118,10 @@ export async function initGitRepo(root: FileRoot, log?: Logger): Promise<void> {
         }
       }
     }
-  } catch (err) {
+  } catch (error) {
     // Handle all errors gracefully - never throw
     if (log) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = error instanceof Error ? error.message : String(error);
 
       // Check if git command not found
       if (
@@ -198,10 +198,10 @@ export async function installDependencies(
         }
       }
     }
-  } catch (err) {
+  } catch (error) {
     // Handle all errors gracefully - never throw
     if (log) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = error instanceof Error ? error.message : String(error);
       log('warning', `⚠️  Failed to install dependencies: ${msg}`);
     }
   }
@@ -276,10 +276,10 @@ export async function autoFormatCode(
         }
       }
     }
-  } catch (err) {
+  } catch (error) {
     // Handle all errors gracefully - never throw
     if (log) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = error instanceof Error ? error.message : String(error);
       log('warning', `⚠️  Failed to format code: ${msg}`);
     }
   }

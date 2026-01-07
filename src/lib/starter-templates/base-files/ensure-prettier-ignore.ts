@@ -49,8 +49,8 @@ export async function ensurePrettierIgnore(
     if (didWrite && log) {
       log('info', 'Created repo root .prettierignore');
     }
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     throw new Error(`Failed to ensure .prettierignore: ${errorMessage}`);
   }
 }

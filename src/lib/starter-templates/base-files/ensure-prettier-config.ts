@@ -28,8 +28,8 @@ export async function ensurePrettierConfig(
     if (didWrite && log) {
       log('info', 'Created repo root prettier.config.js');
     }
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     throw new Error(`Failed to ensure prettier.config.js: ${errorMessage}`);
   }
 }

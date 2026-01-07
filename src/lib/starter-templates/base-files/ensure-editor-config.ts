@@ -56,8 +56,8 @@ export async function ensureEditorConfig(
     if (didWrite && log) {
       log('info', 'Created repo root .editorconfig');
     }
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     throw new Error(`Failed to ensure .editorconfig: ${errorMessage}`);
   }
 }

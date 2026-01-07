@@ -68,8 +68,8 @@ export async function ensureVSCodeSettings(
         log('info', 'Created .vscode/settings.json');
       }
     }
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     throw new Error(`Failed to ensure .vscode/settings.json: ${errorMessage}`);
   }
 }

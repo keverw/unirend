@@ -944,4 +944,4 @@ export function matchesCORSCredentialsList(
   return false;
 }
 
-export { normalizeDomain, isIPAddress };
+export { normalizeDomain, isIPAddress } from './helpers';

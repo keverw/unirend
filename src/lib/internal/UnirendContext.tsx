@@ -157,7 +157,7 @@ function setRequestContextValue(
       incrementContextRevision(context);
     } else {
       // Server-side with no context - this shouldn't happen in normal usage
-      throw new Error(
+      throw new TypeError(
         'Cannot set request context: no context available (server-side without SSR/SSG helpers)',
       );
     }
@@ -498,6 +498,7 @@ export function useRequestContextObjectRaw():
     if (contextObj) {
       // Create a cloned, immutable copy
       const cloned = structuredClone(contextObj);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Synchronizing with external state (request context) tracked by revision counter
       setRawContext(Object.freeze(cloned));
     } else {
       setRawContext(undefined);
@@ -640,6 +641,7 @@ export function useRequestContext(): RequestContextManager {
         didExist =
           key in context.fetchRequest.SSRHelpers.fastifyRequest.requestContext;
 
+        // eslint-disable-next-line react-hooks/immutability -- requestContext is intentionally mutable (context itself is not modified)
         delete context.fetchRequest.SSRHelpers.fastifyRequest.requestContext[
           key
         ];
@@ -683,6 +685,7 @@ export function useRequestContext(): RequestContextManager {
 
         // Delete each key individually to preserve object reference
         for (const key of keys) {
+          // eslint-disable-next-line react-hooks/immutability -- requestContext is intentionally mutable (context itself is not modified)
           delete ctx[key];
         }
       } else if (
@@ -820,6 +823,7 @@ export function useRequestContextValue<T = unknown>(
   // Effect to sync value when requestContextRevision changes (from other components)
   // We intentionally only depend on requestContextRevision, not key
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Synchronizing with external state (request context) tracked by revision counter
     setValue(getRequestContextValue(context, key) as T | undefined);
   }, [context.requestContextRevision, context, key]);
 
