@@ -487,14 +487,16 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface ServeSSRDevOptions<M extends BaseMeta = BaseMeta>
-  extends ServeSSROptions<M> {
+export interface ServeSSRDevOptions<
+  M extends BaseMeta = BaseMeta,
+> extends ServeSSROptions<M> {
   // Currently no development-specific options
   // This is a placeholder for any future development-specific options
 }
 
-export interface ServeSSRProdOptions<M extends BaseMeta = BaseMeta>
-  extends ServeSSROptions<M> {
+export interface ServeSSRProdOptions<
+  M extends BaseMeta = BaseMeta,
+> extends ServeSSROptions<M> {
   /**
    * Name of the server entry file to look for in the Vite manifest
    * Defaults to "entry-server" if not provided

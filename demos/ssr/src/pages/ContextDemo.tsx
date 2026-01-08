@@ -44,6 +44,7 @@ const ContextDemo: React.FC = () => {
   }
 
   // Populate context snapshot after hydration
+  // This is an intentional pattern for hydration detection in SSR/SSG apps
   useEffect(() => {
     setIsHydrated(true);
     setContextSnapshot({
@@ -53,6 +54,15 @@ const ContextDemo: React.FC = () => {
       hasFrontendConfig: !!frontendAppConfig,
     });
   }, [renderMode, isDevelopment, isServer, frontendAppConfig]);
+
+  // Cleanup: Clear debug values when navigating away
+  useEffect(() => {
+    return () => {
+      requestContext.delete('__debug_initialRenderMode');
+      requestContext.delete('__debug_initialIsDevelopment');
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentional: cleanup should only run on unmount, and requestContext methods are stable
+  }, []);
 
   return (
     <>

@@ -33,7 +33,7 @@ export const devDependencies = {
   tailwindcss: '^4.1.17',
   typescript: '^5.9.3',
   'typescript-eslint': '^8.46.3',
-  vite: '^7.2.2',
+  vite: '^7.3.1',
 };
 
 export const dependencies = {

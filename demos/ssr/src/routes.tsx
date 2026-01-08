@@ -13,7 +13,7 @@ import AppLayout from './components/AppLayout';
 import CustomNotFound from './components/CustomNotFound';
 import CustomApplicationError from './components/CustomApplicationError';
 import GenericError from './components/GenericError';
-import { useDataLoaderEnvelopeError } from '../../../src/lib/router-utils/useDataLoaderEnvelopeErrorHook';
+import { useDataLoaderEnvelopeError } from '../../../src/lib/router-utils/use-data-loader-envelope-error-hook';
 
 // App layout component that passes Outlet to AppLayout as children
 function App() {
