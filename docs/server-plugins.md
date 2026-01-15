@@ -71,8 +71,8 @@ Use plugins to register routes, hooks, decorators, and third-party integrations.
 ## Basic Usage
 
 ```typescript
-import { serveSSRDev, type ServerPlugin } from 'unirend/server';
-
+import { serveSSRDev } from 'unirend/server';
+import type { ServerPlugin } from 'unirend/server';
 // Define a plugin
 const myPlugin: ServerPlugin = async (pluginHost, options) => {
   // Add custom routes (use envelope pattern via API shortcuts method when possible)
@@ -116,8 +116,7 @@ type ServerPlugin = (
 Plugins can optionally return metadata for dependency tracking, using the `PluginMetadata` type from `unirend/server`:
 
 ```typescript
-import { type PluginMetadata } from 'unirend/server';
-
+import type { PluginMetadata } from 'unirend/server';
 // PluginMetadata interface:
 // {
 //   name: string;                    // Unique name for this plugin
@@ -362,8 +361,8 @@ const apiRoutesPlugin: ServerPlugin = async (pluginHost, options) => {
 For plugin-specific configuration, use factory functions that return the plugin. This provides type-safe configuration through closures:
 
 ```typescript
-import { serveSSRDev, type ServerPlugin } from 'unirend/server';
-
+import { serveSSRDev } from 'unirend/server';
+import type { ServerPlugin } from 'unirend/server';
 // Plugin factory function for rate limiting
 const RateLimitPlugin = (config: { maxRequests: number; windowMs: number }) => {
   const rateLimitPlugin: ServerPlugin = async (pluginHost, options) => {
@@ -890,8 +889,8 @@ The direct Fastify-style methods are tied to the underlying Fastify instance:
 - **Use a factory function for dynamic scenarios**: If you need to dynamically create or reassign server instances with different route configurations, use a factory function that returns a fresh server:
 
 ```typescript
-import { serveSSRProd, type SSRServer } from 'unirend/server';
-
+import { serveSSRProd } from 'unirend/server';
+import type { SSRServer } from 'unirend/server';
 interface CreateServerOptions {
   isDevelopment: boolean;
 }

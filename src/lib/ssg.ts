@@ -1,7 +1,7 @@
-import {
-  IPageWanted,
-  IRenderResult,
-  IRenderRequest,
+import type {
+  PageTypeWanted,
+  RenderResult,
+  RenderRequest,
   SSGOptions,
   SSGPageReport,
   SSGReport,
@@ -92,7 +92,7 @@ function createSSGReport({
 
 export async function generateSSG(
   buildDir: string,
-  pages: IPageWanted[],
+  pages: PageTypeWanted[],
   options: SSGOptions = {},
 ): Promise<SSGReport> {
   const startTime = Date.now();
@@ -307,9 +307,9 @@ export async function generateSSG(
     });
   }
 
-  const render: (renderRequest: IRenderRequest) => Promise<IRenderResult> = (
+  const render: (renderRequest: RenderRequest) => Promise<RenderResult> = (
     entryServer as {
-      render: (renderRequest: IRenderRequest) => Promise<IRenderResult>;
+      render: (renderRequest: RenderRequest) => Promise<RenderResult>;
     }
   ).render;
 
@@ -335,7 +335,7 @@ export async function generateSSG(
       (fetchRequest as Request & { SSGHelpers?: SSGHelpers }).SSGHelpers =
         SSGHelpers;
 
-      const renderRequest: IRenderRequest = {
+      const renderRequest: RenderRequest = {
         type: 'ssg',
         fetchRequest: fetchRequest,
         unirendContext: {
@@ -437,7 +437,7 @@ export async function generateSSG(
         } else if (renderResult.resultType === 'render-error') {
           errorDetails = `Render error: ${renderResult.error.message}`;
         } else {
-          // This should never happen with proper IRenderResult types, but handle gracefully
+          // This should never happen with proper RenderResult types, but handle gracefully
           const resultType =
             (renderResult as unknown as { resultType?: string }).resultType ||
             'unknown';

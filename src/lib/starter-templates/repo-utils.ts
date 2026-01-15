@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
-import { FileRoot, isInMemoryFileRoot, vfsExists } from './vfs';
-import { Logger } from './types';
+import { isInMemoryFileRoot, vfsExists } from './vfs';
+import type { FileRoot } from './vfs';
+import type { Logger } from './types';
 
 /**
  * Run a command asynchronously, capturing stdout/stderr and surfacing spawn errors.

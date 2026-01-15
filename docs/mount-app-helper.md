@@ -26,7 +26,7 @@ Opinionated & type-safe: pass your routes directly — unirend handles creating 
 
 ```typescript
 import { mountApp } from 'unirend/client';
-import { type RouteObject } from 'react-router';
+import type { RouteObject } from 'react-router';
 import { routes } from './routes';
 
 // Pass your routes directly - mountApp creates the router internally

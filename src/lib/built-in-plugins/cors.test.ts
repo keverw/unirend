@@ -1,5 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { cors, type CORSConfig } from './cors';
+import { cors } from './cors';
+import type { CORSConfig } from './cors';
 import type { PluginOptions, PluginHostInstance } from '../types';
 
 interface MockRequest {

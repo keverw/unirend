@@ -1,13 +1,13 @@
-import {
-  IRenderRequest,
-  IRenderResult,
+import type {
+  RenderRequest,
+  RenderResult,
   ServeSSRDevOptions,
   ServeSSRProdOptions,
   SSRDevPaths,
   StaticContentRouterOptions,
-  type SSRHelpers,
-  type PluginMetadata,
-  type APIResponseHelpersClass,
+  SSRHelpers,
+  PluginMetadata,
+  APIResponseHelpersClass,
 } from '../types';
 import {
   readHTMLFile,
@@ -40,10 +40,8 @@ import { createStaticContentHook } from './static-content-hook';
 import { BaseServer } from './base-server';
 import { DataLoaderServerHandlerHelpers } from './data-loader-server-handler-helpers';
 import { APIRoutesServerHelpers } from './api-routes-server-helpers';
-import {
-  WebSocketServerHelpers,
-  type WebSocketHandlerConfig,
-} from './web-socket-server-helpers';
+import { WebSocketServerHelpers } from './web-socket-server-helpers';
+import type { WebSocketHandlerConfig } from './web-socket-server-helpers';
 import {
   filterIncomingCookieHeader as applyCookiePolicyToCookieHeader,
   filterSetCookieHeaderValues as applyCookiePolicyToSetCookie,
@@ -81,7 +79,7 @@ export class SSRServer extends BaseServer {
 
   // Internal state
   private cachedRenderFunction:
-    | ((renderRequest: IRenderRequest) => Promise<IRenderResult>)
+    | ((renderRequest: RenderRequest) => Promise<RenderResult>)
     | null = null;
   private pageDataHandlers!: DataLoaderServerHandlerHelpers;
   private apiRoutes!: APIRoutesServerHelpers;
@@ -440,8 +438,8 @@ export class SSRServer extends BaseServer {
 
           // Continue with SSR handling for non-API requests
           // Load and call the actual render function from the server entry
-          // Signature should be: (renderRequest: IRenderRequest) => Promise<IRenderResult>
-          let render: (renderRequest: IRenderRequest) => Promise<IRenderResult>;
+          // Signature should be: (renderRequest: RenderRequest) => Promise<RenderResult>
+          let render: (renderRequest: RenderRequest) => Promise<RenderResult>;
 
           let template: string;
 
@@ -473,8 +471,8 @@ export class SSRServer extends BaseServer {
 
             // Type assertion: We've validated render exists and is a function
             render = entryServer.render as (
-              renderRequest: IRenderRequest,
-            ) => Promise<IRenderResult>;
+              renderRequest: RenderRequest,
+            ) => Promise<RenderResult>;
           } else {
             // --- Production SSR ---
             // Use the template loaded at startup and cached render function
@@ -981,7 +979,7 @@ export class SSRServer extends BaseServer {
    * @private
    */
   private async loadProductionRenderFunction(): Promise<
-    (renderRequest: IRenderRequest) => Promise<IRenderResult>
+    (renderRequest: RenderRequest) => Promise<RenderResult>
   > {
     if (this.cachedRenderFunction) {
       return this.cachedRenderFunction;
@@ -1026,6 +1024,7 @@ export class SSRServer extends BaseServer {
     let entryServer: unknown;
 
     try {
+      /* @vite-ignore */
       entryServer = await import(entryResult.entryPath);
     } catch (error) {
       // Type assertion for error message - error could be anything
@@ -1049,8 +1048,8 @@ export class SSRServer extends BaseServer {
 
     // Type assertion: We've validated render exists and is a function
     const renderFunction = entryServer.render as (
-      renderRequest: IRenderRequest,
-    ) => Promise<IRenderResult>;
+      renderRequest: RenderRequest,
+    ) => Promise<RenderResult>;
 
     // Cache the render function for subsequent requests
     this.cachedRenderFunction = renderFunction;

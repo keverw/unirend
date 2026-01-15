@@ -1,4 +1,5 @@
-import { vfsReadJSON, vfsWriteJSON, type FileRoot } from '../vfs';
+import { vfsReadJSON, vfsWriteJSON } from '../vfs';
+import type { FileRoot } from '../vfs';
 import type { Logger } from '../types';
 
 const defaultExtensions = [

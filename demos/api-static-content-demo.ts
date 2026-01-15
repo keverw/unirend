@@ -14,7 +14,8 @@
  */
 
 import path from 'path';
-import { serveAPI, type APIServerOptions, type APIServer } from '../src/server';
+import { serveAPI } from '../src/server';
+import type { APIServerOptions, APIServer } from '../src/server';
 import { staticContent } from '../src/plugins';
 import { APIResponseHelpers } from '../src/api-envelope';
 

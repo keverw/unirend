@@ -1,7 +1,5 @@
-import {
-  ensurePackageJSON,
-  type EnsurePackageJSONOptions,
-} from './base-files/package-json';
+import { ensurePackageJSON } from './base-files/package-json';
+import type { EnsurePackageJSONOptions } from './base-files/package-json';
 import { ensureGitignore } from './base-files/ensure-gitignore';
 import { ensureGitkeep } from './base-files/ensure-gitkeep';
 import { ensureTsConfig } from './base-files/ensure-tsconfig';
@@ -12,7 +10,7 @@ import { ensureEslintConfig } from './base-files/ensure-eslint-config';
 import { ensureVSCodeExtensions } from './base-files/ensure-vscode-extensions';
 import { ensureVSCodeSettings } from './base-files/ensure-vscode-settings';
 import type { RepoConfig, ServerBuildTarget, Logger } from './types';
-import { type FileRoot } from './vfs';
+import type { FileRoot } from './vfs';
 import {
   APPS_GIT_KEEP_FILE_SRC,
   LIBS_GIT_KEEP_FILE_SRC,

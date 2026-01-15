@@ -179,8 +179,8 @@
  * ```
  */
 
-import { LoaderFunctionArgs } from 'react-router';
-import {
+import type { LoaderFunctionArgs } from 'react-router';
+import type {
   PageResponseEnvelope,
   BaseMeta,
   APIResponseEnvelope,
@@ -192,7 +192,7 @@ import {
   decorateWithSsrOnlyData,
   fetchWithTimeout,
 } from './page-data-loader-utils';
-import {
+import type {
   PageDataLoaderConfig,
   PageDataLoaderOptions,
   LocalPageHandler,

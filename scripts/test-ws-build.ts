@@ -8,7 +8,8 @@
  * 4. Verifying proper responses and error handling
  */
 
-import { spawn, type ChildProcess } from 'child_process';
+import { spawn } from 'child_process';
+import type { ChildProcess } from 'child_process';
 import { mkdir, rm } from 'fs/promises';
 import { join } from 'path';
 import { WebSocket } from 'ws';

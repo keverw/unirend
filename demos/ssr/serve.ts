@@ -13,13 +13,16 @@
 import {
   serveSSRDev,
   serveSSRProd,
-  type ServerPlugin,
-  type SSRServer,
-  type PluginOptions,
   PluginHostInstance,
-  type ControlledReply,
 } from '../../src/server';
-import { APIResponseHelpers, type BaseMeta } from '../../src/api-envelope';
+import type {
+  ServerPlugin,
+  SSRServer,
+  PluginOptions,
+  ControlledReply,
+} from '../../src/server';
+import { APIResponseHelpers } from '../../src/api-envelope';
+import type { BaseMeta } from '../../src/api-envelope';
 import { pipeline } from 'stream/promises';
 import { createWriteStream } from 'fs';
 import { mkdir } from 'fs/promises';

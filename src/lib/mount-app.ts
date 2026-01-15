@@ -1,6 +1,7 @@
-import React from 'react';
+import type React from 'react';
 import { createRoot, hydrateRoot } from 'react-dom/client';
-import { createBrowserRouter, type RouteObject } from 'react-router';
+import { createBrowserRouter } from 'react-router';
+import type { RouteObject } from 'react-router';
 import { wrapRouter } from './internal/WrapAppElement';
 import type { UnirendContextValue } from './internal/UnirendContext';
 

@@ -1,8 +1,5 @@
-import fastify, {
-  type FastifyServerOptions,
-  type FastifyError,
-  type FastifyReply,
-} from 'fastify';
+import fastify from 'fastify';
+import type { FastifyServerOptions, FastifyError, FastifyReply } from 'fastify';
 import {
   createControlledInstance,
   classifyRequest,
@@ -25,10 +22,8 @@ import type {
 import { BaseServer } from './base-server';
 import { DataLoaderServerHandlerHelpers } from './data-loader-server-handler-helpers';
 import { APIRoutesServerHelpers } from './api-routes-server-helpers';
-import {
-  WebSocketServerHelpers,
-  type WebSocketHandlerConfig,
-} from './web-socket-server-helpers';
+import { WebSocketServerHelpers } from './web-socket-server-helpers';
+import type { WebSocketHandlerConfig } from './web-socket-server-helpers';
 import { APIResponseHelpers } from '../../api-envelope';
 import type { WebSocket, WebSocketServer } from 'ws';
 

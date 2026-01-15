@@ -3,7 +3,7 @@ import type {
   PageResponseEnvelope,
   RedirectInfo,
 } from '../api-envelope/api-envelope-types';
-import {
+import type {
   LocalPageDataLoaderConfig,
   PageDataLoaderConfig,
 } from './page-data-loader-types';

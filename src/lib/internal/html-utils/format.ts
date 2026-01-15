@@ -1,4 +1,4 @@
-import type { renderType } from '../../types';
+import type { RenderType } from '../../types';
 
 /*
  * NOTE: This file uses @ts-expect-error on certain node type checks.
@@ -155,7 +155,7 @@ export type ProcessTemplateResult =
 
 export async function processTemplate(
   html: string,
-  mode: renderType,
+  mode: RenderType,
   isDevelopment: boolean,
   containerID = 'root',
 ): Promise<ProcessTemplateResult> {

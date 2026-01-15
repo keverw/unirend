@@ -1,4 +1,5 @@
-import { vfsWriteIfNotExists, vfsDeleteFile, type FileRoot } from '../vfs';
+import { vfsWriteIfNotExists, vfsDeleteFile } from '../vfs';
+import type { FileRoot } from '../vfs';
 import { isDirEmpty } from '../internal-utils';
 import type { Logger } from '../types';
 

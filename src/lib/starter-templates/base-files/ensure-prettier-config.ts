@@ -1,4 +1,5 @@
-import { vfsWriteIfNotExists, type FileRoot } from '../vfs';
+import { vfsWriteIfNotExists } from '../vfs';
+import type { FileRoot } from '../vfs';
 import type { Logger } from '../types';
 
 const fileSrc = `/** @type {import("prettier").Config} */

@@ -1,5 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { cookies, type CookiesConfig } from './cookies';
+import { cookies } from './cookies';
+import type { CookiesConfig } from './cookies';
 import type { PluginHostInstance, PluginOptions } from '../types';
 
 interface MockPluginHost extends PluginHostInstance {

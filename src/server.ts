@@ -27,14 +27,14 @@
 
 // Server-safe types
 export type {
-  IRenderRequest,
-  IRenderResult,
+  RenderRequest,
+  RenderResult,
   ServeSSRDevOptions,
   ServeSSRProdOptions,
   SSGOptions,
   SSGReport,
   SSGPageReport,
-  IPageWanted,
+  PageTypeWanted,
   APIServerOptions,
   ControlledReply,
 } from './lib/types';

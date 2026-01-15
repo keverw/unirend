@@ -37,6 +37,7 @@ import {
   createProjectSpecificFiles,
 } from './lib/starter-templates/internal-helpers';
 import { validateName } from './lib/starter-templates/validate-name';
+import type { FileRoot } from './lib/starter-templates/vfs';
 import {
   vfsDisplayPath,
   vfsEnsureDir,
@@ -44,7 +45,6 @@ import {
   vfsReadJSON,
   vfsWrite,
   vfsWriteJSON,
-  type FileRoot,
 } from './lib/starter-templates/vfs';
 import {
   initGitRepo,

@@ -1,14 +1,10 @@
-import { IRenderRequest, IRenderResult } from './types';
-import { type ReactNode } from 'react';
-import {
-  createStaticRouter,
-  createStaticHandler,
-  type RouteObject,
-  StaticHandlerContext,
-} from 'react-router';
+import type { RenderRequest, RenderResult } from './types';
+import type { ReactNode } from 'react';
+import { createStaticRouter, createStaticHandler } from 'react-router';
+import type { RouteObject, StaticHandlerContext } from 'react-router';
 import { wrapStaticRouter } from './internal/WrapAppElement';
 import { renderToString } from 'react-dom/server';
-import { type HelmetServerState } from 'react-helmet-async';
+import type { HelmetServerState } from 'react-helmet-async';
 
 // Debug flag to enable/disable logging in the base renderer
 const DEBUG_BASE_RENDER = false; // Set to false in a production release
@@ -39,7 +35,7 @@ export type BaseRenderOptions = {
  * @param renderRequest - The render request containing type, URL, and other options
  * @param routes - The React Router routes configuration
  * @param options - Optional configuration for rendering behavior
- * @returns IRenderResult with the rendered HTML and metadata
+ * @returns RenderResult with the rendered HTML and metadata
  *
  * @example
  * ```typescript
@@ -63,10 +59,10 @@ export type BaseRenderOptions = {
  * ```
  */
 export async function unirendBaseRender(
-  renderRequest: IRenderRequest,
+  renderRequest: RenderRequest,
   routes: RouteObject[],
   options: BaseRenderOptions = {},
-): Promise<IRenderResult> {
+): Promise<RenderResult> {
   // Create new instances per request for isolation
   const helmetContext: { helmet?: HelmetServerState } = {}; // Object to hold Helmet data
 

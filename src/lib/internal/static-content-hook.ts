@@ -1,4 +1,4 @@
-import { FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyRequest, FastifyReply } from 'fastify';
 import { StaticContentCache } from './static-content-cache';
 import type { StaticContentRouterOptions } from '../types';
 

@@ -807,8 +807,8 @@ This means all your API endpoints (including versioned ones under `/api/v1/`, `/
 Both `SSRServer` and `APIServer` support graceful shutdown via the `stop()` method. In production, you should handle process signals to cleanly shut down the server:
 
 ```typescript
-import { serveSSRProd, type SSRServer } from 'unirend/server';
-
+import { serveSSRProd } from 'unirend/server';
+import type { SSRServer } from 'unirend/server';
 let server: SSRServer | null = null;
 
 async function main() {

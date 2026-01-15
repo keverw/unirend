@@ -1,4 +1,5 @@
-import { unirendBaseRender, type IRenderRequest } from '../../../src/server';
+import { unirendBaseRender } from '../../../src/server';
+import type { RenderRequest } from '../../../src/server';
 import { routes } from './routes';
 
 /**
@@ -9,9 +10,9 @@ import { routes } from './routes';
  * to the base render function to handle all router creation and wrapping.
  *
  * @param renderRequest - The render request containing type and other options
- * @returns IRenderResult with the rendered HTML and metadata
+ * @returns RenderResult with the rendered HTML and metadata
  */
-export async function render(renderRequest: IRenderRequest) {
+export async function render(renderRequest: RenderRequest) {
   // Use the base render function - it handles router creation internally
   // including static handler/router creation, helmet context, StrictMode, and RouterProvider
   return await unirendBaseRender(renderRequest, routes, {

@@ -1,4 +1,5 @@
-import { FileRoot, vfsListDir } from './vfs';
+import { vfsListDir } from './vfs';
+import type { FileRoot } from './vfs';
 
 /**
  * Check if a directory is empty or "empty-ish" (safe to initialize as a new unirend repo).

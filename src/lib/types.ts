@@ -1,4 +1,3 @@
-export type renderType = 'ssg' | 'ssr';
 import type {
   FastifyRequest,
   FastifyLoggerOptions,
@@ -19,10 +18,12 @@ import type {
 import type { UnirendContextValue } from './internal/UnirendContext';
 // Reference type for pluggable API response helpers class
 import type { APIResponseHelpers } from '../api-envelope';
+
+export type RenderType = 'ssg' | 'ssr';
 export type APIResponseHelpersClass = typeof APIResponseHelpers;
 
-export interface IRenderRequest {
-  type: renderType;
+export interface RenderRequest {
+  type: RenderType;
   fetchRequest: Request;
   /**
    * Unirend context value to provide to the app
@@ -56,14 +57,14 @@ export interface SSGHelpers {
 /**
  * Base interface for render results with a discriminated union type
  */
-interface IRenderResultBase {
+interface RenderResultBase {
   resultType: 'page' | 'response' | 'render-error';
 }
 
 /**
  * Page result containing HTML content
  */
-export interface IRenderPageResult extends IRenderResultBase {
+export interface RenderPageResult extends RenderResultBase {
   resultType: 'page';
   html: string;
   preloadLinks: string;
@@ -81,7 +82,7 @@ export interface IRenderPageResult extends IRenderResultBase {
  * Response result wrapping a standard Response object
  * Used for redirects, errors, or any other non-HTML responses
  */
-export interface IRenderResponseResult extends IRenderResultBase {
+export interface RenderResponseResult extends RenderResultBase {
   resultType: 'response';
   response: Response;
 }
@@ -90,7 +91,7 @@ export interface IRenderResponseResult extends IRenderResultBase {
  * Error result containing error information
  * Used when rendering fails with an exception
  */
-export interface IRenderErrorResult extends IRenderResultBase {
+export interface RenderErrorResult extends RenderResultBase {
   resultType: 'render-error';
   error: Error;
 }
@@ -98,10 +99,10 @@ export interface IRenderErrorResult extends IRenderResultBase {
 /**
  * Union type for all possible render results
  */
-export type IRenderResult =
-  | IRenderPageResult
-  | IRenderResponseResult
-  | IRenderErrorResult;
+export type RenderResult =
+  | RenderPageResult
+  | RenderResponseResult
+  | RenderErrorResult;
 
 /**
  * Required paths for SSR development server
@@ -840,7 +841,7 @@ export interface SSGOptions {
 /**
  * Base interface for pages to be generated
  */
-export interface IGeneratorPageBase {
+export interface GeneratorPageBase {
   /** The output filename for the generated HTML */
   filename: string;
 }
@@ -848,7 +849,7 @@ export interface IGeneratorPageBase {
 /**
  * SSG page - server-side rendered at build time
  */
-export interface ISSGPage extends IGeneratorPageBase {
+export interface SSGPageType extends GeneratorPageBase {
   /** Type of page generation */
   type: 'ssg';
   /** The URL path for the page (required for SSG) */
@@ -858,7 +859,7 @@ export interface ISSGPage extends IGeneratorPageBase {
 /**
  * SPA page - client-side rendered with custom metadata
  */
-export interface ISPAPage extends IGeneratorPageBase {
+export interface SPAPageType extends GeneratorPageBase {
   /** Type of page generation */
   type: 'spa';
   /** Custom title for the SPA page */
@@ -874,7 +875,7 @@ export interface ISPAPage extends IGeneratorPageBase {
 /**
  * Union type for all page types
  */
-export type IPageWanted = ISSGPage | ISPAPage;
+export type PageTypeWanted = SSGPageType | SPAPageType;
 
 /**
  * Status code for a generated page
@@ -886,7 +887,7 @@ export type SSGPageStatus = 'success' | 'not_found' | 'error';
  */
 export interface SSGPageReport {
   /** The page that was processed */
-  page: IPageWanted;
+  page: PageTypeWanted;
   /** Status of the generation */
   status: SSGPageStatus;
   /** Full path to the generated file (if successful) */

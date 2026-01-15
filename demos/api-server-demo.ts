@@ -5,7 +5,8 @@
  * using the serveAPI function from unirend.
  */
 
-import { serveAPI, type APIServerOptions, type APIServer } from '../src/server';
+import { serveAPI } from '../src/server';
+import type { APIServerOptions, APIServer } from '../src/server';
 // import { APIResponseHelpers } from "../src/api-envelope"; // Uncomment when using custom handlers
 
 // Track server instance for graceful shutdown

@@ -13,8 +13,8 @@ import {
   vfsReadJSON,
   vfsWriteJSON,
   vfsListDir,
-  type InMemoryDir,
 } from './vfs';
+import type { InMemoryDir } from './vfs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { stat, mkdtemp, rm, readFile as fsReadFile } from 'fs/promises';

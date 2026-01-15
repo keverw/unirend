@@ -1,4 +1,4 @@
-import { FastifyRequest } from 'fastify';
+import type { FastifyRequest } from 'fastify';
 
 /**
  * Generates a default 500 error page.

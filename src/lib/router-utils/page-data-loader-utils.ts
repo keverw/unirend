@@ -1,4 +1,4 @@
-import {
+import type {
   BaseMeta,
   ErrorDetails,
   PageErrorResponse,
@@ -9,7 +9,7 @@ import {
   DEFAULT_FALLBACK_REQUEST_ID_GENERATOR,
   DEFAULT_TIMEOUT_MS,
 } from './page-data-loader-consts';
-import {
+import type {
   LocalPageDataLoaderConfig,
   PageDataLoaderConfig,
 } from './page-data-loader-types';

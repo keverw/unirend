@@ -1,4 +1,5 @@
-import { vfsWriteIfNotExists, type FileRoot } from '../vfs';
+import { vfsWriteIfNotExists } from '../vfs';
+import type { FileRoot } from '../vfs';
 import type { Logger } from '../types';
 
 // NOTE: Keep this in sync with ensure-prettier-ignore.ts

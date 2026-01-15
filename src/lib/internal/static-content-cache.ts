@@ -1,4 +1,4 @@
-import { FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyRequest, FastifyReply } from 'fastify';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'node:crypto';

@@ -1,4 +1,4 @@
-import { ErrorDefaults } from './page-data-loader-types';
+import type { ErrorDefaults } from './page-data-loader-types';
 
 // Debug flag to enable/disable logging in the page data loader
 export const DEBUG_PAGE_LOADER = false; // Set to false in a production release

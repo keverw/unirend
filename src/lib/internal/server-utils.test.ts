@@ -1,4 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
+import type { FastifyReply, FastifyRequest, FastifyInstance } from 'fastify';
 import {
   createControlledReply,
   classifyRequest,
@@ -160,7 +161,7 @@ const createMockReply = () => {
       return { valid: false as const, renew: false, value: null };
     }),
   };
-  return reply as unknown as import('fastify').FastifyReply;
+  return reply as unknown as FastifyReply;
 };
 
 describe('createControlledReply', () => {
@@ -471,8 +472,7 @@ describe('default envelope helpers', () => {
   } as const;
 
   it('createDefaultAPIErrorResponse: uses page vs api based on path and maps error fields', () => {
-    const makeReq = (url: string) =>
-      ({ url }) as unknown as import('fastify').FastifyRequest;
+    const makeReq = (url: string) => ({ url }) as unknown as FastifyRequest;
 
     // Page-data path
     const pageRes = createDefaultAPIErrorResponse(
@@ -506,8 +506,7 @@ describe('default envelope helpers', () => {
   });
 
   it('createDefaultAPINotFoundResponse: returns 404 and picks page vs api by path', () => {
-    const makeReq = (url: string) =>
-      ({ url }) as unknown as import('fastify').FastifyRequest;
+    const makeReq = (url: string) => ({ url }) as unknown as FastifyRequest;
 
     const page404 = createDefaultAPINotFoundResponse(
       HelpersStub as unknown as any,
@@ -552,7 +551,7 @@ describe('createControlledInstance', () => {
       delete: mock((_path: string, _handler: any) => {}),
       patch: mock((_path: string, _handler: any) => {}),
     };
-    return instance as unknown as import('fastify').FastifyInstance;
+    return instance as unknown as FastifyInstance;
   };
 
   it('forwards safe methods and blocks dangerous hooks/routes', async () => {

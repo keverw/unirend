@@ -1,5 +1,6 @@
 import type { ServerPlugin, PluginHostInstance } from '../types';
-import fastifyCookie, { type FastifyCookieOptions } from '@fastify/cookie';
+import fastifyCookie from '@fastify/cookie';
+import type { FastifyCookieOptions } from '@fastify/cookie';
 
 // Public type alias to align our plugin options with @fastify/cookie options
 export type CookiesConfig = FastifyCookieOptions;

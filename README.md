@@ -155,10 +155,11 @@ Create a server entry file that exports a render function:
 - **For SSR**: Create `entry-server.tsx`
 
 ```typescript
-import { unirendBaseRender, type IRenderRequest } from 'unirend/server';
+import { unirendBaseRender } from 'unirend/server';
+import type { RenderRequest } from 'unirend/server';
 import { routes } from './routes';
 
-export async function render(renderRequest: IRenderRequest) {
+export async function render(renderRequest: RenderRequest) {
   // Pass routes directly - unirendBaseRender handles the rest
   return await unirendBaseRender(renderRequest, routes, {
     strictMode: true,

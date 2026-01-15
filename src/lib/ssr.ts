@@ -1,5 +1,9 @@
 import { SSRServer } from './internal/ssr-server';
-import { ServeSSRDevOptions, ServeSSRProdOptions, SSRDevPaths } from './types';
+import type {
+  ServeSSRDevOptions,
+  ServeSSRProdOptions,
+  SSRDevPaths,
+} from './types';
 
 /**
  * Development server handler for SSR applications using Vite's HMR and middleware.

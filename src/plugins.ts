@@ -1,3 +1,12 @@
+// Import cookie utilities from @fastify/cookie for re-export
+import {
+  fastifyCookie as fastifyCookieModule,
+  sign as signCookieValue,
+  unsign as unsignCookieValue,
+  Signer as CookieSigner,
+  signerFactory as createCookieSigner,
+} from '@fastify/cookie';
+
 // Re-export CORS plugin for cross-origin request handling
 export {
   type CORSConfig,
@@ -29,14 +38,6 @@ export {
 } from './lib/built-in-plugins/static-content';
 
 // Re-export manual cookie utilities from @fastify/cookie for convenience
-import {
-  fastifyCookie as fastifyCookieModule,
-  sign as signCookieValue,
-  unsign as unsignCookieValue,
-  Signer as CookieSigner,
-  signerFactory as createCookieSigner,
-} from '@fastify/cookie';
-
 export const cookieUtils = {
   parse: fastifyCookieModule.parse,
   serialize: fastifyCookieModule.serialize,

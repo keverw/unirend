@@ -1,5 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { clientInfo, type ClientInfoConfig } from './client-info';
+import { clientInfo } from './client-info';
+import type { ClientInfoConfig } from './client-info';
 import { ulid, isValid as isValidULID } from 'ulid';
 import type { PluginOptions, PluginHostInstance } from '../types';
 

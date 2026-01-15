@@ -33,18 +33,13 @@ import {
   listAvailableTemplates,
   REPO_CONFIG_FILE,
   DEFAULT_REPO_NAME,
-  type LogLevel,
-  type ServerBuildTarget,
   listAvailableTemplatesWithInfo,
   initRepo,
 } from './starter-templates';
+import type { LogLevel, ServerBuildTarget } from './starter-templates';
 import { PKG_VERSION } from './version';
-import {
-  parseCLIArgs,
-  generateHelpText,
-  type CommandInfo,
-} from './lib/cli-helpers';
-
+import { parseCLIArgs, generateHelpText } from './lib/cli-helpers';
+import type { CommandInfo } from './lib/cli-helpers';
 // ANSI color codes
 const colors = {
   reset: '\u001b[0m',

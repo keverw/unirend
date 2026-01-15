@@ -18,14 +18,15 @@
 
 The `unirendBaseRender` function is a helper function that handles React Router/Data Loaders, Helmet, renderToString, and error parsing for both SSR and SSG scenarios.
 
-When setting up your `entry-ssg.tsx` or `entry-server.tsx`, you export a `render` function that accepts an `IRenderRequest` and uses `unirendBaseRender` to handle the rendering of your app. This will return structured data that will be used to generate the HTML for your page or serve as the response for SSR.
+When setting up your `entry-ssg.tsx` or `entry-server.tsx`, you export a `render` function that accepts an `RenderRequest` and uses `unirendBaseRender` to handle the rendering of your app. This will return structured data that will be used to generate the HTML for your page or serve as the response for SSR.
 
 ```typescript
-import { unirendBaseRender, type IRenderRequest } from 'unirend/server';
-import { type RouteObject } from 'react-router';
+import { unirendBaseRender } from 'unirend/server';
+import type { RenderRequest } from 'unirend/server';
+import type { RouteObject } from 'react-router';
 import { routes } from './routes';
 
-export async function render(renderRequest: IRenderRequest) {
+export async function render(renderRequest: RenderRequest) {
   // Pass your routes directly - unirendBaseRender creates the static handler and router internally
   return await unirendBaseRender(renderRequest, routes, {
     strictMode: true, // Optional: configure StrictMode
@@ -38,7 +39,7 @@ This supports React Router Data Loaders following the standardized envelope patt
 
 ### API
 
-- `unirendBaseRender(renderRequest: IRenderRequest, routes: RouteObject[], options?: BaseRenderOptions): Promise<RenderResult>`
+- `unirendBaseRender(renderRequest: RenderRequest, routes: RouteObject[], options?: BaseRenderOptions): Promise<RenderResult>`
 
 ### Options
 

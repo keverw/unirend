@@ -1,5 +1,5 @@
 import { useMatches } from 'react-router';
-import {
+import type {
   PageErrorResponse,
   PageResponseEnvelope,
 } from '../api-envelope/api-envelope-types';

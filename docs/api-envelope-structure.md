@@ -84,7 +84,7 @@ Note:
 To set proper request IDs, add a plugin to your server that assigns a `requestID` property to the Fastify request object:
 
 ```typescript
-import { type ServerPlugin } from 'unirend/server';
+import type { ServerPlugin } from 'unirend/server';
 import { randomUUID } from 'crypto';
 
 // Example plugin for request ID generation
@@ -725,9 +725,8 @@ const api = serveAPI({
 #### Per-call generics
 
 ```ts
-import type { BaseMeta } from 'unirend/api-envelope';
 import { APIResponseHelpers } from 'unirend/api-envelope';
-
+import type { BaseMeta } from 'unirend/api-envelope';
 interface AppMeta extends BaseMeta {
   account?: { isAuthenticated: boolean; userID?: string; workspaceID?: string };
 }

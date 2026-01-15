@@ -6,12 +6,8 @@
  * scenarios including always-allow, always-reject, and token-based validation.
  */
 
-import {
-  serveSSRDev,
-  serveAPI,
-  type SSRServer,
-  type APIServer,
-} from '../src/server';
+import { serveSSRDev, serveAPI } from '../src/server';
+import type { SSRServer, APIServer } from '../src/server';
 import { APIResponseHelpers } from '../src/api-envelope';
 
 /**
