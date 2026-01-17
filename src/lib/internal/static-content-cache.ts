@@ -766,6 +766,11 @@ export class StaticContentCache {
     const cleanedUrl = rawUrl.split('?')[0].split('#')[0];
     const url = cleanedUrl.startsWith('/') ? cleanedUrl : '/' + cleanedUrl;
 
+    // Security: Reject URLs containing null bytes to prevent path truncation attacks
+    if (url.includes('\0')) {
+      return { served: false, reason: 'not-found' };
+    }
+
     let resolved = '';
     let shouldDetectImmutable = false;
 
@@ -815,6 +820,7 @@ export class StaticContentCache {
 
   /**
    * Normalizes single asset map keys to ensure leading slash
+   * Also validates against null bytes to prevent path injection
    */
   private normalizeSingleAssetMap(
     singleAssetMap: Record<string, string>,
@@ -822,6 +828,18 @@ export class StaticContentCache {
     const normalized = new Map<string, string>();
 
     for (const [key, value] of Object.entries(singleAssetMap)) {
+      // Security: Skip entries with null bytes to prevent path truncation attacks
+      if (key.includes('\0') || value.includes('\0')) {
+        if (this.logger) {
+          this.logger.warn(
+            { key, value },
+            'Skipping singleAssetMap entry with null byte',
+          );
+        }
+
+        continue;
+      }
+
       const normalizedKey = key.startsWith('/') ? key : '/' + key;
       normalized.set(normalizedKey, value);
     }
@@ -831,6 +849,7 @@ export class StaticContentCache {
 
   /**
    * Normalizes folder map with proper prefix formatting
+   * Also validates against null bytes to prevent path injection
    *
    * Handles two config formats:
    * 1. String shorthand: { "/assets/": "/path/to/assets" }
@@ -843,6 +862,19 @@ export class StaticContentCache {
 
     for (const [prefix, config] of Object.entries(folderMap)) {
       const normalizedPrefix = this.normalizePrefix(prefix);
+
+      // Security: Skip entries with null bytes to prevent path truncation attacks
+      const configPath = typeof config === 'string' ? config : config.path;
+      if (prefix.includes('\0') || configPath.includes('\0')) {
+        if (this.logger) {
+          this.logger.warn(
+            { prefix, configPath },
+            'Skipping folderMap entry with null byte',
+          );
+        }
+
+        continue;
+      }
 
       // Handle string shorthand: just a directory path
       if (typeof config === 'string') {

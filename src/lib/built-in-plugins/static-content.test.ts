@@ -544,4 +544,209 @@ describe('staticContent plugin', () => {
       expect(mockHostLogger.warn).not.toHaveBeenCalled();
     });
   });
+
+  describe('Security: Null byte validation', () => {
+    it('rejects URLs containing null bytes at runtime', async () => {
+      const host = createMockPluginHost();
+      const options = createMockOptions();
+
+      const plugin = staticContent({
+        singleAssetMap: { '/test.txt': '/path/to/test.txt' },
+        folderMap: { '/assets': '/path/to/assets' },
+      });
+
+      await plugin(host, options);
+
+      // Test null byte in exact match URL
+      const result1 = await invokeRegisteredHook(host, '/test.txt\0.js');
+      expect(result1.sent).toBe(false);
+
+      // Test null byte in folder-based URL
+      const result2 = await invokeRegisteredHook(host, '/assets/file.txt\0.js');
+      expect(result2.sent).toBe(false);
+
+      // Test URL-encoded null byte (already decoded by the time it reaches our code)
+      const result3 = await invokeRegisteredHook(host, '/assets/file.txt\0.js');
+      expect(result3.sent).toBe(false);
+
+      // Verify filesystem was never accessed for null byte requests
+      expect(mockFs.stat).not.toHaveBeenCalled();
+      expect(mockFs.readFile).not.toHaveBeenCalled();
+    });
+
+    it('skips singleAssetMap entries with null bytes in configuration', async () => {
+      const host = createMockPluginHost();
+      const options = createMockOptions();
+      const mockLogger = {
+        warn: mock(() => {}),
+      };
+
+      // Add logger to host decorations so it gets picked up by the plugin
+      host.getDecoration = mock((property: string) => {
+        if (property === 'log') {
+          return mockLogger;
+        }
+        return undefined;
+      }) as typeof host.getDecoration;
+
+      const fileContent = Buffer.from('valid content');
+
+      // Mock fs operations for valid file
+      mockFs.stat.mockImplementation((path: string) => {
+        if (path === '/path/to/valid.txt') {
+          return Promise.resolve({
+            isFile: () => true,
+            size: fileContent.length,
+            mtime: new Date('2024-01-01'),
+            mtimeMs: new Date('2024-01-01').getTime(),
+          } as fs.Stats);
+        }
+        const error = new Error('ENOENT');
+        (error as NodeJS.ErrnoException).code = 'ENOENT';
+        return Promise.reject(error);
+      });
+
+      mockFs.readFile.mockImplementation((path: string) => {
+        if (path === '/path/to/valid.txt') {
+          return Promise.resolve(fileContent);
+        }
+        const error = new Error('ENOENT');
+        (error as NodeJS.ErrnoException).code = 'ENOENT';
+        return Promise.reject(error);
+      });
+
+      const plugin = staticContent({
+        singleAssetMap: {
+          '/valid.txt': '/path/to/valid.txt',
+          '/bad\0key.txt': '/path/to/file.txt', // null byte in key
+          '/badvalue.txt': '/path/to/file\0.txt', // null byte in value
+        },
+      });
+
+      await plugin(host, options);
+
+      // Valid file should work
+      const validResult = await invokeRegisteredHook(host, '/valid.txt');
+      expect(validResult.sent).toBe(true);
+      expect(validResult.code).toBe(200);
+
+      // Files with null bytes should be skipped (not found)
+      const badKeyResult = await invokeRegisteredHook(host, '/bad\0key.txt');
+      expect(badKeyResult.sent).toBe(false);
+
+      const badValueResult = await invokeRegisteredHook(host, '/badvalue.txt');
+      expect(badValueResult.sent).toBe(false);
+
+      // Logger should have warned about skipped entries (2 times)
+      expect(mockLogger.warn.mock.calls.length).toBe(2);
+    });
+
+    it('skips folderMap entries with null bytes in configuration', async () => {
+      const host = createMockPluginHost();
+      const options = createMockOptions();
+      const mockLogger = {
+        warn: mock(() => {}),
+      };
+
+      // Add logger to host decorations so it gets picked up by the plugin
+      host.getDecoration = mock((property: string) => {
+        if (property === 'log') {
+          return mockLogger;
+        }
+        return undefined;
+      }) as typeof host.getDecoration;
+
+      const fileContent = Buffer.from('valid content');
+
+      // Mock fs operations for valid file
+      mockFs.stat.mockImplementation((path: string) => {
+        if (path.includes('/path/to/valid/')) {
+          return Promise.resolve({
+            isFile: () => true,
+            size: fileContent.length,
+            mtime: new Date('2024-01-01'),
+            mtimeMs: new Date('2024-01-01').getTime(),
+          } as fs.Stats);
+        }
+        const error = new Error('ENOENT');
+        (error as NodeJS.ErrnoException).code = 'ENOENT';
+        return Promise.reject(error);
+      });
+
+      mockFs.readFile.mockImplementation((path: string) => {
+        if (path.includes('/path/to/valid/')) {
+          return Promise.resolve(fileContent);
+        }
+        const error = new Error('ENOENT');
+        (error as NodeJS.ErrnoException).code = 'ENOENT';
+        return Promise.reject(error);
+      });
+
+      const plugin = staticContent({
+        folderMap: {
+          '/valid': '/path/to/valid',
+          '/bad\0prefix': '/path/to/assets', // null byte in prefix
+          '/badpath': '/path/to/bad\0assets', // null byte in path (string)
+          '/badconfig': {
+            // null byte in path (config object)
+            path: '/path/to/bad\0config',
+            detectImmutableAssets: true,
+          },
+        },
+      });
+
+      await plugin(host, options);
+
+      // Valid folder should work
+      const validResult = await invokeRegisteredHook(host, '/valid/file.txt');
+      expect(validResult.sent).toBe(true);
+      expect(validResult.code).toBe(200);
+
+      // Folders with null bytes should be skipped (not found)
+      const badPrefixResult = await invokeRegisteredHook(
+        host,
+        '/bad\0prefix/file.txt',
+      );
+      expect(badPrefixResult.sent).toBe(false);
+
+      const badPathResult = await invokeRegisteredHook(
+        host,
+        '/badpath/file.txt',
+      );
+      expect(badPathResult.sent).toBe(false);
+
+      const badConfigResult = await invokeRegisteredHook(
+        host,
+        '/badconfig/file.txt',
+      );
+      expect(badConfigResult.sent).toBe(false);
+
+      // Logger should have warned about skipped entries (3 times)
+      expect(mockLogger.warn.mock.calls.length).toBe(3);
+    });
+
+    it('handles null byte validation without logger', async () => {
+      const host = createMockPluginHost();
+      const options = createMockOptions();
+
+      // No logger provided - should not crash
+      const plugin = staticContent({
+        singleAssetMap: {
+          '/bad\0key.txt': '/path/to/file.txt',
+        },
+        folderMap: {
+          '/bad\0prefix': '/path/to/assets',
+        },
+      });
+
+      await plugin(host, options);
+
+      // Should silently skip invalid entries
+      const result1 = await invokeRegisteredHook(host, '/bad\0key.txt');
+      expect(result1.sent).toBe(false);
+
+      const result2 = await invokeRegisteredHook(host, '/bad\0prefix/file.txt');
+      expect(result2.sent).toBe(false);
+    });
+  });
 });
