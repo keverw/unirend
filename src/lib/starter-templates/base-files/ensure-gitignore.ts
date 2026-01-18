@@ -22,6 +22,10 @@ node_modules
 .env.local
 .env.*.local
 
+# AI Development Tools
+# Claude Code local settings (personal preferences not shared with team)
+.claude/**/*.local*
+
 # Build outputs
 dist/
 

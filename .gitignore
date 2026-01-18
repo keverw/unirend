@@ -23,6 +23,10 @@ yarn-error.log*
 .env.local
 .env.*.local
 
+# AI Development Tools
+# Claude Code local settings (personal preferences not shared with team)
+.claude/**/*.local*
+
 # Editor directories and files
 .idea/
 .vscode/*
