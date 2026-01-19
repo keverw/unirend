@@ -7,16 +7,16 @@ import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
 const projectRoot = join(import.meta.dir, '..');
-const packageJsonPath = join(projectRoot, 'package.json');
+const packageJSONPath = join(projectRoot, 'package.json');
 const versionFilePath = join(projectRoot, 'src', 'version.ts');
 
 try {
   // Read package.json
-  const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as {
+  const packageJSON = JSON.parse(readFileSync(packageJSONPath, 'utf-8')) as {
     version?: string;
   };
 
-  const version = packageJson.version;
+  const version = packageJSON.version;
 
   if (!version) {
     console.error('❌ No version found in package.json');

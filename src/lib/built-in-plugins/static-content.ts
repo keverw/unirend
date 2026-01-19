@@ -148,7 +148,7 @@ export function staticContent(
 
   // Use custom name or generate a unique instance ID for this plugin registration
   // This allows multiple instances to be registered and tracked independently
-  const instanceId =
+  const instanceID =
     name ||
     `static-content-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -174,7 +174,7 @@ export function staticContent(
     pluginHost.addHook('onRequest', hook);
 
     return {
-      name: instanceId,
+      name: instanceID,
     };
   };
 

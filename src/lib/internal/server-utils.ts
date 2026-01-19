@@ -492,12 +492,12 @@ export function validateNoHandlersWhenAPIDisabled(
   apiRoutes: { hasRegisteredHandlers: () => boolean },
   pageDataHandlers: { hasRegisteredHandlers: () => boolean },
 ): void {
-  const hasApiRoutes = apiRoutes.hasRegisteredHandlers();
+  const hasAPIRoutes = apiRoutes.hasRegisteredHandlers();
   const hasPageDataHandlers = pageDataHandlers.hasRegisteredHandlers();
 
-  if (hasApiRoutes || hasPageDataHandlers) {
+  if (hasAPIRoutes || hasPageDataHandlers) {
     const registered = [
-      hasApiRoutes ? 'API routes' : null,
+      hasAPIRoutes ? 'API routes' : null,
       hasPageDataHandlers ? 'page data loader handlers' : null,
     ]
       .filter(Boolean)

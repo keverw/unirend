@@ -59,12 +59,12 @@ export type CustomStatusCodeHandler = (
  */
 export interface PageDataLoaderConfig {
   /** Base URL for the API server (e.g., "http://localhost:3001" or "https://api.example.com") */
-  apiBaseUrl: string;
+  APIBaseURL: string;
   /**
    * Page data endpoint path (e.g., "/api/v1/page_data" or "/api/page_data")
    *
-   * This path will be appended to the apiBaseUrl to form the complete endpoint URL.
-   * The pageType will be appended to this path: `{apiBaseUrl}{pageDataEndpoint}/{pageType}`
+   * This path will be appended to the APIBaseURL to form the complete endpoint URL.
+   * The pageType will be appended to this path: `{APIBaseURL}{pageDataEndpoint}/{pageType}`
    *
    * @default "/api/v1/page_data"
    */
@@ -94,7 +94,7 @@ export interface PageDataLoaderConfig {
     client?: string;
   };
   /** Login URL for authentication redirects (e.g., "/login") */
-  loginUrl: string;
+  loginURL: string;
   /** Query parameter name for return URL in login redirects (default: "return_to") */
   returnToParam?: string;
   /**
@@ -266,15 +266,15 @@ export interface LocalPageHandlerParams {
   /** Logical page type - set to 'local' by the framework */
   pageType: 'local';
   /** Origin indicator for debugging */
-  invocation_origin: 'local';
-  /** Router params */
-  route_params: Record<string, string>;
-  /** URL query params */
-  query_params: Record<string, string>;
-  /** Pathname portion of the request URL */
-  request_path: string;
-  /** Full request URL string */
-  original_url: string;
+  invocationOrigin: 'local';
+  /** Route params (from React Router) */
+  routeParams: Record<string, string>;
+  /** Query params (from React Router) */
+  queryParams: Record<string, string>;
+  /** Request path (from React Router) */
+  requestPath: string;
+  /** Original URL (from React Router) */
+  originalURL: string;
 }
 
 export type LocalPageHandler<T = unknown, M extends BaseMeta = BaseMeta> = (

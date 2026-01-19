@@ -93,7 +93,7 @@ export class SSRServer extends BaseServer {
 
   // Normalized endpoint config (computed once at construction)
   // false means API handling is disabled (matches config type)
-  private readonly normalizedApiPrefix: string | false;
+  private readonly normalizedAPIPrefix: string | false;
   private readonly normalizedPageDataEndpoint: string;
 
   /**
@@ -114,7 +114,7 @@ export class SSRServer extends BaseServer {
       config.options.APIResponseHelpersClass || APIResponseHelpers;
 
     // Normalize API endpoint config once at construction
-    this.normalizedApiPrefix = normalizeAPIPrefix(
+    this.normalizedAPIPrefix = normalizeAPIPrefix(
       config.options.apiEndpoints?.apiEndpointPrefix,
     );
 
@@ -300,11 +300,11 @@ export class SSRServer extends BaseServer {
             // classifyRequest handles false prefix internally (returns isAPI: false)
             const { isAPI } = classifyRequest(
               request.url,
-              this.normalizedApiPrefix,
+              this.normalizedAPIPrefix,
               this.normalizedPageDataEndpoint,
             );
 
-            if (isAPI && this.normalizedApiPrefix) {
+            if (isAPI && this.normalizedAPIPrefix) {
               // Handle API error with JSON response
               await this.handleAPIError(request, reply, error);
             } else {
@@ -335,7 +335,7 @@ export class SSRServer extends BaseServer {
       }
 
       // Register API routes if enabled, or validate no handlers were registered if disabled
-      if (this.normalizedApiPrefix === false) {
+      if (this.normalizedAPIPrefix === false) {
         // API is disabled - validate that no handlers were registered
         validateNoHandlersWhenAPIDisabled(
           this.apiRoutes,
@@ -345,7 +345,7 @@ export class SSRServer extends BaseServer {
         // API is enabled - register page data and API routes
         this.pageDataHandlers.registerRoutes(
           this.fastifyInstance,
-          this.normalizedApiPrefix,
+          this.normalizedAPIPrefix,
           this.normalizedPageDataEndpoint,
           {
             versioned: this.config.options.apiEndpoints?.versioned,
@@ -355,7 +355,7 @@ export class SSRServer extends BaseServer {
         // Register API routes
         this.apiRoutes.registerRoutes(
           this.fastifyInstance,
-          this.normalizedApiPrefix,
+          this.normalizedAPIPrefix,
           {
             versioned: this.config.options.apiEndpoints?.versioned,
             allowWildcardAtRoot: false,
@@ -427,11 +427,11 @@ export class SSRServer extends BaseServer {
           // classifyRequest handles false prefix internally (returns isAPI: false)
           const { isAPI } = classifyRequest(
             request.url,
-            this.normalizedApiPrefix,
+            this.normalizedAPIPrefix,
             this.normalizedPageDataEndpoint,
           );
 
-          if (isAPI && this.normalizedApiPrefix) {
+          if (isAPI && this.normalizedAPIPrefix) {
             // This is an API request that didn't match any route - return 404 JSON
             return this.handleAPINotFound(request, reply);
           }
@@ -659,7 +659,7 @@ export class SSRServer extends BaseServer {
                 ).requestContext || {};
 
               // Use our utility to inject content with proper formatting
-              const finalHtml = injectContent(
+              const finalHTML = injectContent(
                 template,
                 headInject,
                 renderResult.html,
@@ -677,7 +677,7 @@ export class SSRServer extends BaseServer {
               reply
                 .code(statusCode)
                 .header('Content-Type', 'text/html')
-                .send(finalHtml);
+                .send(finalHTML);
 
               return; // Stop further processing
             } else if (renderResult.resultType === 'response') {
@@ -1096,9 +1096,9 @@ export class SSRServer extends BaseServer {
     }
 
     // At this point, templateResult.content should exist
-    const rawHtmlTemplate = templateResult.content as string;
+    const rawHTMLTemplate = templateResult.content as string;
 
-    if (!rawHtmlTemplate || rawHtmlTemplate.length === 0) {
+    if (!rawHTMLTemplate || rawHTMLTemplate.length === 0) {
       throw new Error(`HTML template at ${htmlTemplatePath} is empty`);
     }
 
@@ -1107,7 +1107,7 @@ export class SSRServer extends BaseServer {
     const containerID = this.config.options.containerID || 'root';
 
     const processResult = await processTemplate(
-      rawHtmlTemplate,
+      rawHTMLTemplate,
       'ssr', // mode
       isDevelopment,
       containerID,
@@ -1221,7 +1221,7 @@ export class SSRServer extends BaseServer {
 
     const { isPageData } = classifyRequest(
       request.url,
-      this.normalizedApiPrefix,
+      this.normalizedAPIPrefix,
       this.normalizedPageDataEndpoint,
     );
 
@@ -1257,7 +1257,7 @@ export class SSRServer extends BaseServer {
       request,
       error,
       isDevelopment,
-      this.normalizedApiPrefix,
+      this.normalizedAPIPrefix,
       this.normalizedPageDataEndpoint,
     );
 
@@ -1283,7 +1283,7 @@ export class SSRServer extends BaseServer {
   ): Promise<void> {
     const { isPageData } = classifyRequest(
       request.url,
-      this.normalizedApiPrefix,
+      this.normalizedAPIPrefix,
       this.normalizedPageDataEndpoint,
     );
 
@@ -1312,7 +1312,7 @@ export class SSRServer extends BaseServer {
     const response = createDefaultAPINotFoundResponse(
       this.APIResponseHelpersClass,
       request,
-      this.normalizedApiPrefix,
+      this.normalizedAPIPrefix,
       this.normalizedPageDataEndpoint,
     );
 

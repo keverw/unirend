@@ -68,3 +68,10 @@ export type {
 } from './lib/internal/static-content-cache';
 
 export type { FolderConfig } from './lib/types';
+
+// =============================================================================
+// HTML Utilities
+// =============================================================================
+// Utility functions for safely handling HTML content
+
+export { escapeHTML } from './lib/internal/html-utils/escape';

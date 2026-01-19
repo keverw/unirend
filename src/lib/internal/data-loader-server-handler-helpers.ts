@@ -16,7 +16,7 @@ import {
  * Parameters passed to page data loader handlers with shortcuts to common fields
  *
  * Handlers should treat these params as the authoritative routing context
- * (route_params, query_params, request_path, original_url) produced by the
+ * (routeParams, queryParams, requestPath, originalURL) produced by the
  * page data loader. Do not reconstruct routing info from the Fastify request.
  *
  * The Fastify request represents the original HTTP request and should be used
@@ -29,12 +29,16 @@ export interface PageDataHandlerParams {
   pageType: string;
   version?: number;
   /** Indicates how the handler was invoked: via HTTP route or internal short-circuit */
-  invocation_origin: 'http' | 'internal';
+  invocationOrigin: 'http' | 'internal';
   // Shortcuts to common page data loader fields (extracted from request.body)
-  route_params: Record<string, string>;
-  query_params: Record<string, string>;
-  request_path: string;
-  original_url: string;
+  /** Route params (from React Router via POST body) */
+  routeParams: Record<string, string>;
+  /** Query params (from React Router via POST body) */
+  queryParams: Record<string, string>;
+  /** Request path (from React Router via POST body) */
+  requestPath: string;
+  /** Original URL (from React Router via POST body) */
+  originalURL: string;
 }
 
 /**
@@ -190,22 +194,80 @@ export class DataLoaderServerHandlerHelpers {
               }
             }
 
+            // Validate required POST body fields from frontend page data loader
+            // These represent the React Router URL/params (NOT the Fastify API endpoint)
+            // If missing, fail fast with 400 Bad Request rather than continuing with empty values
+            const routeParams = requestBody.route_params;
+            const queryParams = requestBody.query_params;
+            const requestPath = requestBody.request_path;
+            const originalURL = requestBody.original_url;
+
+            // Validate that routing fields have correct types
+            const invalidFields = [];
+
+            // Required string fields
+            if (typeof requestPath !== 'string') {
+              invalidFields.push('request_path (must be string)');
+            }
+
+            if (typeof originalURL !== 'string') {
+              invalidFields.push('original_url (must be string)');
+            }
+
+            // Optional object fields - if present and not null/undefined, must be objects
+            if (
+              routeParams !== null &&
+              routeParams !== undefined &&
+              (typeof routeParams !== 'object' || Array.isArray(routeParams))
+            ) {
+              invalidFields.push(
+                'route_params (must be object or null/undefined)',
+              );
+            }
+
+            if (
+              queryParams !== null &&
+              queryParams !== undefined &&
+              (typeof queryParams !== 'object' || Array.isArray(queryParams))
+            ) {
+              invalidFields.push(
+                'query_params (must be object or null/undefined)',
+              );
+            }
+
+            if (invalidFields.length > 0) {
+              // Client error: malformed request body - return proper API error envelope
+              reply.code(400).send(
+                APIResponseHelpers.createAPIErrorResponse({
+                  request,
+                  statusCode: 400,
+                  errorCode: 'invalid_page_data_body_fields',
+                  errorMessage:
+                    'Request body has invalid field types for page data loader',
+                  errorDetails: {
+                    invalid_fields: invalidFields,
+                    received_body: requestBody,
+                  },
+                }),
+              );
+              return;
+            }
+
             const result = await handler(
               request,
               createControlledReply(reply),
               {
                 pageType,
                 version,
-                invocation_origin: 'http',
-                // Shortcuts to common page data loader fields
-                route_params:
-                  (requestBody.route_params as Record<string, string>) || {},
-                query_params:
-                  (requestBody.query_params as Record<string, string>) || {},
-                request_path:
-                  (requestBody.request_path as string) || request.url,
-                original_url:
-                  (requestBody.original_url as string) || request.url,
+                invocationOrigin: 'http',
+                // Extract from POST body (sent by frontend page data loader with React Router context)
+                // Note: These represent the React Router URL/params, NOT the Fastify request URL
+                routeParams:
+                  (routeParams as Record<string, string> | undefined) || {},
+                queryParams:
+                  (queryParams as Record<string, string> | undefined) || {},
+                requestPath: requestPath as string,
+                originalURL: originalURL as string,
               },
             );
 
@@ -285,23 +347,23 @@ export class DataLoaderServerHandlerHelpers {
     pageType: string;
     /** Timeout in milliseconds; if omitted or <= 0, no timeout is applied */
     timeoutMs?: number;
-    /** Route params from the router (must match pageDataLoader's route_params) */
-    route_params: Record<string, string>;
-    /** Query params from the URL (must match pageDataLoader's query_params) */
-    query_params: Record<string, string>;
-    /** Request path (must match pageDataLoader's request_path) */
-    request_path: string;
-    /** Original URL (must match pageDataLoader's original_url) */
-    original_url: string;
+    /** Route params (from React Router via POST body) */
+    routeParams: Record<string, string>;
+    /** Query params (from React Router via POST body) */
+    queryParams: Record<string, string>;
+    /** Request path (from React Router via POST body) */
+    requestPath: string;
+    /** Original URL (from React Router via POST body) */
+    originalURL: string;
   }): Promise<CallHandlerResult<T, M>> {
     const {
       originalRequest,
       pageType,
       timeoutMs,
-      route_params,
-      query_params,
-      request_path,
-      original_url,
+      routeParams,
+      queryParams,
+      requestPath,
+      originalURL,
     } = options;
 
     const versionMap = this.handlersByPageType.get(pageType);
@@ -326,11 +388,11 @@ export class DataLoaderServerHandlerHelpers {
     const finalParams: PageDataHandlerParams = {
       pageType,
       version: latestVersion,
-      invocation_origin: 'internal',
-      route_params,
-      query_params,
-      request_path,
-      original_url,
+      invocationOrigin: 'internal',
+      routeParams,
+      queryParams,
+      requestPath,
+      originalURL,
     };
 
     // Defer invocation to the microtask queue and normalize to a Promise.
@@ -348,7 +410,7 @@ export class DataLoaderServerHandlerHelpers {
     }
 
     // Track the timeout ID to ensure it is cleared regardless of timeout path
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let timeoutID: ReturnType<typeof setTimeout> | undefined;
 
     // Build a single promise that either resolves to the handler result or rejects on timeout
     const resultPromise: Promise<
@@ -367,7 +429,7 @@ export class DataLoaderServerHandlerHelpers {
             invocation,
             // Timer promise
             new Promise<never>((_, reject) => {
-              timeoutId = setTimeout(() => {
+              timeoutID = setTimeout(() => {
                 const error = new Error(`Request timeout after ${timeoutMs}ms`);
                 (error as unknown as { pageType: string }).pageType = pageType;
                 (error as unknown as { version: number }).version =
@@ -385,8 +447,8 @@ export class DataLoaderServerHandlerHelpers {
 
     // Ensure the timeout is cleared regardless of timeout path
     const result = await resultPromise.finally(() => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
+      if (timeoutID) {
+        clearTimeout(timeoutID);
       }
     });
 

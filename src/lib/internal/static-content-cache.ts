@@ -752,19 +752,19 @@ export class StaticContentCache {
    * This is a convenience method that combines URL resolution with file serving.
    * If no file matches the URL, it returns without sending a response (lets the hook fall through).
    *
-   * @param rawUrl The raw request URL (may include query string or hash)
+   * @param rawURL The raw request URL (may include query string or hash)
    * @param req The Fastify request object
    * @param reply The Fastify reply object
    * @returns Information about whether a file was served
    */
   public async handleRequest(
-    rawUrl: string,
+    rawURL: string,
     req: FastifyRequest,
     reply: FastifyReply,
   ): Promise<ServeFileResult> {
     // Strip off query string, hash, etc., and ensure a single leading slash for matching
-    const cleanedUrl = rawUrl.split('?')[0].split('#')[0];
-    const url = cleanedUrl.startsWith('/') ? cleanedUrl : '/' + cleanedUrl;
+    const cleanedURL = rawURL.split('?')[0].split('#')[0];
+    const url = cleanedURL.startsWith('/') ? cleanedURL : '/' + cleanedURL;
 
     // Security: Reject URLs containing null bytes to prevent path truncation attacks
     if (url.includes('\0')) {

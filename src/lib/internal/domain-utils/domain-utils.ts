@@ -293,16 +293,17 @@ export function matchesWildcardOrigin(
   const normalizedPattern = toAsciiDots(pattern);
 
   // Parse once and reuse
-  let originUrl: URL | null = null;
+  let originURL: URL | null = null;
+
   try {
-    originUrl = new URL(normalizedOrigin);
+    originURL = new URL(normalizedOrigin);
   } catch {
-    originUrl = null;
+    originURL = null;
   }
 
   // For CORS, only http/https are relevant; reject other schemes early when parsed.
-  if (originUrl) {
-    const scheme = originUrl.protocol.toLowerCase();
+  if (originURL) {
+    const scheme = originURL.protocol.toLowerCase();
     if (scheme !== 'http:' && scheme !== 'https:') {
       return false;
     }
@@ -310,34 +311,34 @@ export function matchesWildcardOrigin(
 
   // Global wildcard: single "*" matches any valid HTTP(S) origin
   if (normalizedPattern === '*') {
-    return originUrl !== null; // Must be a valid URL with HTTP(S) scheme
+    return originURL !== null; // Must be a valid URL with HTTP(S) scheme
   }
 
   // Protocol-only wildcards: require valid URL parsing for security
   const patternLower = normalizedPattern.toLowerCase();
 
   if (patternLower === 'https://*' || patternLower === 'http://*') {
-    if (!originUrl) {
+    if (!originURL) {
       return false; // must be a valid URL
     }
 
     const want = patternLower === 'https://*' ? 'https:' : 'http:';
-    return originUrl.protocol.toLowerCase() === want;
+    return originURL.protocol.toLowerCase() === want;
   }
 
   // Remaining logic requires a parsed URL
-  if (!originUrl) {
+  if (!originURL) {
     return false;
   }
 
   try {
-    const normalizedHostname = normalizeDomain(originUrl.hostname);
+    const normalizedHostname = normalizeDomain(originURL.hostname);
 
     if (normalizedHostname === '') {
       return false;
     }
 
-    const originProtocol = originUrl.protocol.slice(0, -1).toLowerCase(); // Remove trailing ":" and lowercase
+    const originProtocol = originURL.protocol.slice(0, -1).toLowerCase(); // Remove trailing ":" and lowercase
 
     // Handle protocol-specific domain wildcards: https://*.example.com
     if (normalizedPattern.includes('://')) {

@@ -56,7 +56,7 @@ export interface DomainValidationConfig {
    * Whether to enforce HTTPS by redirecting HTTP requests
    * @default true
    */
-  enforceHttps?: boolean;
+  enforceHTTPS?: boolean;
 
   /**
    * How to handle www prefix normalization for apex domains only
@@ -267,7 +267,7 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
     pluginHost.addHook('onRequest', async (request, reply) => {
       // Normalize config defaults
       const shouldSkipInDev = config.skipInDevelopment ?? true;
-      const shouldEnforceHttps = config.enforceHttps ?? true;
+      const shouldEnforceHTTPS = config.enforceHTTPS ?? true;
 
       if (options.isDevelopment && shouldSkipInDev) {
         return; // Skip in development mode, continue to next handler
@@ -375,7 +375,7 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
       }
 
       // 2. Apply HTTPS enforcement
-      if (shouldEnforceHttps && protocol === 'http') {
+      if (shouldEnforceHTTPS && protocol === 'http') {
         finalProtocol = 'https';
         hasProtocolChanged = true;
         shouldRedirect = true;
@@ -409,16 +409,16 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
       // Perform single redirect if needed
       if (shouldRedirect) {
         // Bracket IPv6 literals in the host component; append preserved port if any
-        let hostForUrl = finalHost;
+        let hostForURL = finalHost;
 
-        if (hostForUrl.includes(':') && !hostForUrl.startsWith('[')) {
-          hostForUrl = `[${hostForUrl}]`;
+        if (hostForURL.includes(':') && !hostForURL.startsWith('[')) {
+          hostForURL = `[${hostForURL}]`;
         }
 
-        const redirectUrl = `${finalProtocol}://${hostForUrl}${finalPortPart}${request.url}`;
+        const redirectURL = `${finalProtocol}://${hostForURL}${finalPortPart}${request.url}`;
         const statusCode = config.redirectStatusCode || 301;
 
-        reply.code(statusCode).redirect(redirectUrl);
+        reply.code(statusCode).redirect(redirectURL);
         return;
       }
 

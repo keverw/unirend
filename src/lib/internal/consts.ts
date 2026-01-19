@@ -1,4 +1,4 @@
-export const tab_spaces = ' '.repeat(4);
+export const TAB_SPACES = ' '.repeat(4);
 
 /**
  * Default API endpoint prefix (e.g., "/api")

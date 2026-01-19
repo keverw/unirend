@@ -86,14 +86,28 @@ export default [
           modifiers: ['requiresQuotes'],
           format: null,
         },
-        // Variables/properties: camelCase, UPPER_CASE, or PascalCase starting with acronym
+        // Properties: Allow snake_case for API compatibility (interfaces/types)
         {
-          selector: ['variable', 'property'],
+          selector: 'property',
+          format: ['camelCase', 'UPPER_CASE', 'PascalCase', 'snake_case'],
+          custom: {
+            // Reject: lowercase acronyms in camelCase/PascalCase (but allow snake_case like user_id)
+            // Matches: userId, getUserId but NOT user_id, USER_ID, or PascalCase like ComponentType
+            regex:
+              '[a-z](?!_)(Id|Ip|Io|Ui|Api|Url|Html|Css|Json|Xml|Svg|Pdf|Uri|Uuid|Jwt|Sql|Http|Https|Ws|Wss|Sse|Db|Os|Cpu|Gpu|Ram|Usb)([A-Z_]|$)',
+            match: false,
+          },
+          leadingUnderscore: 'allow',
+        },
+        // Variables: camelCase, UPPER_CASE, or PascalCase
+        // Note: PascalCase is allowed for React patterns like const ThemeContext = createContext(...)
+        {
+          selector: 'variable',
           format: ['camelCase', 'UPPER_CASE', 'PascalCase'],
           custom: {
-            // Reject: lowercase acronyms OR PascalCase not starting with acronym
-            regex:
-              '[a-z](Id|Ip|Io|Ui|Api|Url|Html|Css|Json|Xml|Svg|Pdf|Uri|Uuid|Jwt|Sql|Http|Https|Ws|Wss|Sse|Db|Os|Cpu|Gpu|Ram|Usb)([A-Z]|$)|^[A-Z][a-z]',
+            // Reject: lowercase acronyms in camelCase/PascalCase (but allow PascalCase variables)
+            // Matches: userId, getUserId but NOT userID, UserID, UPPER_CASE
+            regex: '[a-z](Id|Ip|Io|Ui|Api|Url|Html|Css|Json|Xml|Svg|Pdf|Uri|Uuid|Jwt|Sql|Http|Https|Ws|Wss|Sse|Db|Os|Cpu|Gpu|Ram|Usb)([A-Z]|$)',
             match: false,
           },
           leadingUnderscore: 'allow',

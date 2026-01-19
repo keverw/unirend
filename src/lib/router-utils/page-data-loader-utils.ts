@@ -26,6 +26,7 @@ export function createBaseHeaders() {
 
 export function decorateWithSsrOnlyData(
   response: PageResponseEnvelope,
+  // eslint-disable-next-line @typescript-eslint/naming-convention
   SSR_ONLY_DATA: Record<string, unknown>,
 ) {
   const isServer = typeof window === 'undefined'; // detecting here again instead of passing to promote tree-shaking
@@ -33,6 +34,7 @@ export function decorateWithSsrOnlyData(
   if (isServer) {
     return {
       ...response,
+      // eslint-disable-next-line @typescript-eslint/naming-convention
       __ssOnly: SSR_ONLY_DATA,
     };
   }
@@ -201,7 +203,7 @@ export function createErrorResponse(
 /**
  * Helper function to check for and execute custom status code handlers
  */
-export function applyCustomHttpStatusHandler(
+export function applyCustomHTTPStatusHandler(
   statusCode: number,
   responseData: unknown,
   config: PageDataLoaderConfig,

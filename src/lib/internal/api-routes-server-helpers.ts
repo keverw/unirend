@@ -35,13 +35,13 @@ export type APIRouteHandler<T = unknown, M extends BaseMeta = BaseMeta> = (
     /** Full path used to register the route */
     fullPath: string;
     /** Route params extracted from Fastify (raw values) */
-    route_params: Record<string, unknown>;
+    routeParams: Record<string, unknown>;
     /** Query params extracted from Fastify (raw values) */
-    query_params: Record<string, unknown>;
+    queryParams: Record<string, unknown>;
     /** Path portion of the URL without query string */
-    request_path: string;
+    requestPath: string;
     /** Original URL including query string */
-    original_url: string;
+    originalURL: string;
   },
   // Allow either sync or async returns
 ) => APIResponseEnvelope<T, M> | Promise<APIResponseEnvelope<T, M>>;
@@ -217,17 +217,18 @@ export class APIRoutesServerHelpers<
             request: FastifyRequest,
             reply: FastifyReply,
           ) => {
-            const route_params = (request.params || {}) as Record<
-              string,
-              unknown
-            >;
-            const query_params = (request.query || {}) as Record<
+            const routeParams = (request.params || {}) as Record<
               string,
               unknown
             >;
 
-            const original_url = request.url;
-            const request_path = original_url.split('?')[0] || original_url;
+            const queryParams = (request.query || {}) as Record<
+              string,
+              unknown
+            >;
+
+            const originalURL = request.url;
+            const requestPath = originalURL.split('?')[0] || originalURL;
 
             const envelope = await handler(
               request,
@@ -237,10 +238,10 @@ export class APIRoutesServerHelpers<
                 endpoint,
                 version,
                 fullPath,
-                route_params,
-                query_params,
-                request_path,
-                original_url,
+                routeParams,
+                queryParams,
+                requestPath,
+                originalURL,
               },
             );
 

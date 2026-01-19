@@ -8,6 +8,8 @@ import { ... } from 'unirend/utils';
 
 <!-- toc -->
 
+- [HTML Utilities](#html-utilities)
+  - [`escapeHTML(str: string): string`](#escapehtmlstr-string-string)
 - [Domain Utilities](#domain-utilities)
   - [`normalizeOrigin(origin: string): string`](#normalizeoriginorigin-string-string)
   - [`normalizeDomain(domain: string): string`](#normalizedomaindomain-string-string)
@@ -40,6 +42,47 @@ import { ... } from 'unirend/utils';
   - [Types](#types)
 
 <!-- tocstop -->
+
+## HTML Utilities
+
+### `escapeHTML(str: string): string`
+
+Escapes HTML special characters to prevent XSS attacks when generating raw HTML.
+
+**When to use:**
+
+- Error page handlers that return raw HTML (`get500ErrorPage`, `invalidDomainHandler`, etc.)
+- Custom API error responses with HTML content
+- Any server-side HTML generation outside of React
+- React's `dangerouslySetInnerHTML` when inserting user content
+
+**Note:** React components automatically escape content in JSX, so you only need this utility when bypassing React's escaping (e.g., `dangerouslySetInnerHTML`) or generating raw HTML strings outside of React.
+
+Converts the following to HTML entities:
+
+- `&` → `&amp;`
+- `<` → `&lt;`
+- `>` → `&gt;`
+- `"` → `&quot;`
+- `'` → `&#39;`
+
+```typescript
+import { escapeHTML } from 'unirend/utils';
+
+escapeHTML('<script>alert("xss")</script>');
+// Returns: '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;'
+
+// Example: Safe error page HTML generation
+const get500ErrorPage = (error?: Error) => `
+<!DOCTYPE html>
+<html>
+  <body>
+    <h1>Server Error</h1>
+    <p>${escapeHTML(error?.message ?? 'An unexpected error occurred')}</p>
+  </body>
+</html>
+`;
+```
 
 ## Domain Utilities
 

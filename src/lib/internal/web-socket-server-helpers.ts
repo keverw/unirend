@@ -19,6 +19,43 @@ interface FastifyWebSocketPluginOptions {
 }
 
 /**
+ * Parameters passed to WebSocket handlers with extracted routing context
+ *
+ * Similar to page data and API handlers, this provides pre-extracted routing
+ * information while keeping the raw request available for cookies/headers/IP.
+ */
+export interface WebSocketHandlerParams {
+  /** Request path (from Fastify, without query string) */
+  path: string;
+  /** Original URL (from Fastify, with query string) */
+  originalURL: string;
+  /** Query params (from Fastify) */
+  queryParams: Record<string, unknown>;
+  /** Route params (from Fastify, for parameterized paths) */
+  routeParams: Record<string, unknown>;
+}
+
+/**
+ * Extract WebSocket handler params from Fastify request
+ * Pure helper function with defensive fallbacks
+ */
+function extractWebSocketParams(
+  request: FastifyRequest,
+): WebSocketHandlerParams {
+  const routeParams = (request.params || {}) as Record<string, unknown>;
+  const queryParams = (request.query || {}) as Record<string, unknown>;
+  const originalURL = request.url;
+  const path = originalURL.split('?')[0] || originalURL;
+
+  return {
+    path,
+    originalURL,
+    queryParams,
+    routeParams,
+  };
+}
+
+/**
  * WebSocket preValidation result - discriminated union
  */
 export type WebSocketPreValidationResult =
@@ -58,11 +95,13 @@ export interface WebSocketHandlerConfig {
   /** Optional preValidation function that returns upgrade/reject decision with optional envelope */
   preValidate?: (
     request: FastifyRequest,
+    params: WebSocketHandlerParams,
   ) => Promise<WebSocketPreValidationResult> | WebSocketPreValidationResult;
   /** WebSocket connection handler */
   handler: (
     socket: WebSocket,
     request: FastifyRequest,
+    params: WebSocketHandlerParams,
     upgradeData?: Record<string, unknown>,
   ) => Promise<void> | void;
 }
@@ -168,8 +207,11 @@ export class WebSocketServerHelpers {
             request as unknown as { wsUpgradeData?: Record<string, unknown> }
           ).wsUpgradeData;
 
-          // Call the handler with socket, request, and upgrade data
-          return config.handler(socket, request, upgradeData);
+          // Extract params from request
+          const params = extractWebSocketParams(request);
+
+          // Call the handler with socket, request, params, and upgrade data
+          return config.handler(socket, request, params, upgradeData);
         });
       });
     }
@@ -256,8 +298,11 @@ export class WebSocketServerHelpers {
       upgradeInfo.hasPreValidator = true;
 
       try {
+        // Extract params from request
+        const params = extractWebSocketParams(request);
+
         // Run the preValidation function
-        const result = await matchingHandler.preValidate(request);
+        const result = await matchingHandler.preValidate(request, params);
         upgradeInfo.upgradeResult = result;
 
         if (result.action === 'reject') {

@@ -1,7 +1,7 @@
-import { tab_spaces } from '../consts';
+import { TAB_SPACES } from '../consts';
 
 // Prettify all head tags: each tag (<title>, <meta>, <link>, etc.) on its own line, indented
-export function prettifyHeadTags(head: string, indent = tab_spaces): string {
+export function prettifyHeadTags(head: string, indent = TAB_SPACES): string {
   // Use a non-capturing group so tag names are not included in the split output
   return head
     .split(/(?=<(?:title|meta|link|script|style|base|noscript|preload)\b)/g)
@@ -36,20 +36,22 @@ export function injectContent(
 
   // Add __FRONTEND_REQUEST_CONTEXT__ if provided (even if empty object)
   if (context?.request !== undefined) {
-    const safeContextJson = JSON.stringify(context.request).replace(
+    const safeContextJSON = JSON.stringify(context.request).replace(
       /</g,
       '\\u003c',
     );
+
     contextScripts.push(
-      `<script>window.__FRONTEND_REQUEST_CONTEXT__=${safeContextJson};</script>`,
+      `<script>window.__FRONTEND_REQUEST_CONTEXT__=${safeContextJSON};</script>`,
     );
   }
 
   // Add __FRONTEND_APP_CONFIG__ if provided (even if empty object)
   if (context?.app !== undefined) {
-    const safeConfigJson = JSON.stringify(context.app).replace(/</g, '\\u003c');
+    const safeConfigJSON = JSON.stringify(context.app).replace(/</g, '\\u003c');
+
     contextScripts.push(
-      `<script>window.__FRONTEND_APP_CONFIG__=${safeConfigJson};</script>`,
+      `<script>window.__FRONTEND_APP_CONFIG__=${safeConfigJSON};</script>`,
     );
   }
 

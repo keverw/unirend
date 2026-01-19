@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { prettifyHeadTags, injectContent } from './inject';
-import { tab_spaces } from '../consts';
+import { TAB_SPACES } from '../consts';
 
 describe('prettifyHeadTags', () => {
   it('should prettify head tags with default indentation', () => {
@@ -8,8 +8,8 @@ describe('prettifyHeadTags', () => {
       '<title>Test Title</title><meta name="description" content="Test Description"><link rel="stylesheet" href="styles.css">';
     const expected =
       `<title>Test Title</title>\n` +
-      `${tab_spaces}<meta name="description" content="Test Description">\n` +
-      `${tab_spaces}<link rel="stylesheet" href="styles.css">`;
+      `${TAB_SPACES}<meta name="description" content="Test Description">\n` +
+      `${TAB_SPACES}<link rel="stylesheet" href="styles.css">`;
 
     expect(prettifyHeadTags(input)).toBe(expected);
   });
@@ -34,8 +34,8 @@ describe('prettifyHeadTags', () => {
       '<title>Test</title><script src="script.js"></script><style>body { color: red; }</style>';
     const expected =
       `<title>Test</title>\n` +
-      `${tab_spaces}<script src="script.js"></script>\n` +
-      `${tab_spaces}<style>body { color: red; }</style>`;
+      `${TAB_SPACES}<script src="script.js"></script>\n` +
+      `${TAB_SPACES}<style>body { color: red; }</style>`;
 
     expect(prettifyHeadTags(input)).toBe(expected);
   });
@@ -44,7 +44,7 @@ describe('prettifyHeadTags', () => {
     const input = '<title>Test</title><meta name="description" content="Test">';
     const expected =
       `<title>Test</title>\n` +
-      `${tab_spaces}<meta name="description" content="Test">`;
+      `${TAB_SPACES}<meta name="description" content="Test">`;
 
     expect(prettifyHeadTags(input)).toBe(expected);
   });
@@ -61,7 +61,7 @@ describe('injectContent', () => {
     const expected =
       '<!DOCTYPE html><html><head>' +
       `<title>Test Title</title>\n` +
-      `${tab_spaces}<meta name="description" content="Test">` +
+      `${TAB_SPACES}<meta name="description" content="Test">` +
       '</head><body><div>Hello World</div></body></html>';
 
     expect(injectContent(template, headContent, bodyContent)).toBe(expected);
@@ -96,14 +96,14 @@ describe('injectContent', () => {
       '<!DOCTYPE html><html><head><!--ss-head--></head><body><!--ss-outlet--><!--context-scripts-injection-point--></body></html>';
     const headContent = '<title>Test</title>';
     const bodyContent = '<div>Content</div>';
-    const appConfig = { apiUrl: 'https://api.example.com', debug: true };
+    const appConfig = { APIUrl: 'https://api.example.com', debug: true };
 
     const result = injectContent(template, headContent, bodyContent, {
       app: appConfig,
     });
 
     expect(result).toContain('window.__FRONTEND_APP_CONFIG__=');
-    expect(result).toContain('"apiUrl":"https://api.example.com"');
+    expect(result).toContain('"APIUrl":"https://api.example.com"');
     expect(result).toContain('"debug":true');
   });
 
@@ -148,7 +148,7 @@ describe('injectContent', () => {
   it('should inject both app config and request context', () => {
     const template =
       '<!DOCTYPE html><html><body><!--ss-outlet--><!--context-scripts-injection-point--></body></html>';
-    const appConfig = { apiUrl: 'https://api.example.com' };
+    const appConfig = { APIUrl: 'https://api.example.com' };
     const requestContext = { user: { id: '123' } };
 
     const result = injectContent(template, '', '', {
@@ -157,7 +157,7 @@ describe('injectContent', () => {
     });
 
     expect(result).toContain('window.__FRONTEND_APP_CONFIG__=');
-    expect(result).toContain('"apiUrl":"https://api.example.com"');
+    expect(result).toContain('"APIUrl":"https://api.example.com"');
     expect(result).toContain('window.__FRONTEND_REQUEST_CONTEXT__=');
     expect(result).toContain('"user"');
   });
@@ -165,7 +165,7 @@ describe('injectContent', () => {
   it('should inject both scripts on separate lines when both provided', () => {
     const template =
       '<!DOCTYPE html><html><body><!--ss-outlet--><!--context-scripts-injection-point--></body></html>';
-    const appConfig = { apiUrl: 'https://api.example.com' };
+    const appConfig = { APIUrl: 'https://api.example.com' };
     const requestContext = { user: { id: '123' } };
 
     const result = injectContent(template, '', '', {

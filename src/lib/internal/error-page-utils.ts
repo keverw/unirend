@@ -1,4 +1,5 @@
 import type { FastifyRequest } from 'fastify';
+import { escapeHTML } from './html-utils/escape';
 
 /**
  * Generates a default 500 error page.
@@ -16,16 +17,16 @@ export function generateDefault500ErrorPage(
   const devPanels = isDevelopment
     ? `<div class="ep-section">
       <div class="ep-label">Message:</div>
-      <div class="ep-panel">${escapeHtml(error.message)}</div>
+      <div class="ep-panel">${escapeHTML(error.message)}</div>
     </div>
     <div class="ep-section">
       <div class="ep-label">Stack Trace:</div>
-      <div class="ep-panel ep-stack">${escapeHtml(error.stack || 'No stack trace available')}</div>
+      <div class="ep-panel ep-stack">${escapeHTML(error.stack || 'No stack trace available')}</div>
     </div>
     <div class="ep-section">
       <div class="ep-label">Request Info:</div>
       <div class="ep-panel">
-        URL: ${escapeHtml(request.url)}<br>
+        URL: ${escapeHTML(request.url)}<br>
         Method: ${request.method}
       </div>
     </div>`
@@ -141,14 +142,4 @@ export function generateDefault500ErrorPage(
   </main>
 </body>
 </html>`;
-}
-
-// Escape HTML for safe display in error panels
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }

@@ -3,7 +3,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 // Read package.json to get all dependencies
-const packageJson = JSON.parse(
+const packageJSON = JSON.parse(
   readFileSync(join(process.cwd(), 'package.json'), 'utf-8'),
 );
 
@@ -12,22 +12,22 @@ const getAllDependencies = () => {
   const deps = new Set<string>();
 
   // Add regular dependencies
-  if (packageJson.dependencies) {
-    for (const dep of Object.keys(packageJson.dependencies)) {
+  if (packageJSON.dependencies) {
+    for (const dep of Object.keys(packageJSON.dependencies)) {
       deps.add(dep);
     }
   }
 
   // Add peer dependencies
-  if (packageJson.peerDependencies) {
-    for (const dep of Object.keys(packageJson.peerDependencies)) {
+  if (packageJSON.peerDependencies) {
+    for (const dep of Object.keys(packageJSON.peerDependencies)) {
       deps.add(dep);
     }
   }
 
   // Add dev dependencies (in case they're used in build)
-  if (packageJson.devDependencies) {
-    for (const dep of Object.keys(packageJson.devDependencies)) {
+  if (packageJSON.devDependencies) {
+    for (const dep of Object.keys(packageJSON.devDependencies)) {
       deps.add(dep);
     }
   }

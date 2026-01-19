@@ -319,24 +319,24 @@ function registerPageDataHandlers(server: SSRServer) {
           message: 'Test page data loader handler response',
           page_type: params.pageType,
           version: params.version,
-          invocation_origin: params.invocation_origin,
+          invocation_origin: params.invocationOrigin,
           timestamp: new Date().toISOString(),
           server_isDevelopment: !!devFlag,
           request: {
             method: request.method,
             url: request.url,
             // Using the new shortcuts instead of manual extraction
-            route_params: params.route_params,
-            query_params: params.query_params,
-            request_path: params.request_path,
-            original_url: params.original_url,
+            route_params: params.routeParams,
+            query_params: params.queryParams,
+            request_path: params.requestPath,
+            original_url: params.originalURL,
             headers: Object.fromEntries(Object.entries(request.headers)),
             client_info: reqWithClient.clientInfo ?? null,
           },
         },
         pageMetadata: {
-          title: params.route_params.id
-            ? `Test Page Data (ID: ${params.route_params.id})`
+          title: params.routeParams.id
+            ? `Test Page Data (ID: ${params.routeParams.id})`
             : 'Test Page Data',
           description:
             'Debug page showing page data loader request and response details',
@@ -361,7 +361,7 @@ function registerPageDataHandlers(server: SSRServer) {
         },
         errorDetails: {
           context: 'This is a simulated 500 error response for testing',
-          invocation_origin: params.invocation_origin,
+          invocation_origin: params.invocationOrigin,
           timestamp: new Date().toISOString(),
         },
       });
@@ -396,7 +396,7 @@ function registerPageDataHandlers(server: SSRServer) {
         errorDetails: {
           context:
             'This is a simulated error response that includes a stacktrace',
-          invocation_origin: params.invocation_origin,
+          invocation_origin: params.invocationOrigin,
           timestamp: new Date().toISOString(),
           stacktrace,
         },
@@ -420,7 +420,7 @@ function registerPageDataHandlers(server: SSRServer) {
         errorDetails: {
           context:
             'This is a demo of a generic error page that is not a 404 or a 500',
-          invocation_origin: params.invocation_origin,
+          invocation_origin: params.invocationOrigin,
           timestamp: new Date().toISOString(),
         },
       });
@@ -433,7 +433,7 @@ function registerPageDataHandlers(server: SSRServer) {
   server.pageDataHandler.register(
     'not-found',
     async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
-      const request_path = params.request_path;
+      const requestPath = params.requestPath;
 
       return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
         request,
@@ -445,8 +445,8 @@ function registerPageDataHandlers(server: SSRServer) {
           description: 'The page you are looking for does not exist',
         },
         errorDetails: {
-          context: `The requested path '${request_path}' could not be found`,
-          invocation_origin: params.invocation_origin,
+          context: `The requested path '${requestPath}' could not be found`,
+          invocation_origin: params.invocationOrigin,
           timestamp: new Date().toISOString(),
         },
       });

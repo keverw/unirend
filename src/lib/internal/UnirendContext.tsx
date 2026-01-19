@@ -76,6 +76,7 @@ function hasWindowRequestContext(): boolean {
     return false;
   }
 
+  // eslint-disable-next-line @typescript-eslint/naming-convention
   const ctx = (window as Window & { __FRONTEND_REQUEST_CONTEXT__?: unknown })
     .__FRONTEND_REQUEST_CONTEXT__;
 
@@ -103,6 +104,7 @@ function getRequestContextValue(
     // Client: Read from window global
     return (
       window as unknown as {
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         __FRONTEND_REQUEST_CONTEXT__: Record<string, unknown>;
       }
     ).__FRONTEND_REQUEST_CONTEXT__[key];
@@ -137,6 +139,7 @@ function setRequestContextValue(
     // Client: Write to window global
     (
       window as unknown as {
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         __FRONTEND_REQUEST_CONTEXT__: Record<string, unknown>;
       }
     ).__FRONTEND_REQUEST_CONTEXT__[key] = value;
@@ -146,6 +149,7 @@ function setRequestContextValue(
     if (typeof window !== 'undefined') {
       (
         window as unknown as {
+          // eslint-disable-next-line @typescript-eslint/naming-convention
           __FRONTEND_REQUEST_CONTEXT__?: Record<string, unknown>;
         }
       ).__FRONTEND_REQUEST_CONTEXT__ = { [key]: value };
@@ -441,6 +445,7 @@ function getRequestContextObject(
     // Client: Read from window global
     return (
       window as unknown as {
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         __FRONTEND_REQUEST_CONTEXT__: Record<string, unknown>;
       }
     ).__FRONTEND_REQUEST_CONTEXT__;
@@ -618,6 +623,7 @@ export function useRequestContext(): RequestContextManager {
           key in
           (
             window as unknown as {
+              // eslint-disable-next-line @typescript-eslint/naming-convention
               __FRONTEND_REQUEST_CONTEXT__: Record<string, unknown>;
             }
           ).__FRONTEND_REQUEST_CONTEXT__
@@ -652,6 +658,7 @@ export function useRequestContext(): RequestContextManager {
         // Client: Delete from window global
         const ctx = (
           window as unknown as {
+            // eslint-disable-next-line @typescript-eslint/naming-convention
             __FRONTEND_REQUEST_CONTEXT__: Record<string, unknown>;
           }
         ).__FRONTEND_REQUEST_CONTEXT__;
@@ -701,6 +708,7 @@ export function useRequestContext(): RequestContextManager {
         // Client: Clear all keys from window global
         const ctx = (
           window as unknown as {
+            // eslint-disable-next-line @typescript-eslint/naming-convention
             __FRONTEND_REQUEST_CONTEXT__: Record<string, unknown>;
           }
         ).__FRONTEND_REQUEST_CONTEXT__;
@@ -740,6 +748,7 @@ export function useRequestContext(): RequestContextManager {
         return Object.keys(
           (
             window as unknown as {
+              // eslint-disable-next-line @typescript-eslint/naming-convention
               __FRONTEND_REQUEST_CONTEXT__: Record<string, unknown>;
             }
           ).__FRONTEND_REQUEST_CONTEXT__,
@@ -769,6 +778,7 @@ export function useRequestContext(): RequestContextManager {
         return Object.keys(
           (
             window as unknown as {
+              // eslint-disable-next-line @typescript-eslint/naming-convention
               __FRONTEND_REQUEST_CONTEXT__: Record<string, unknown>;
             }
           ).__FRONTEND_REQUEST_CONTEXT__,

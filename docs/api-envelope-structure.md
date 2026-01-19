@@ -24,7 +24,9 @@
   - [Success Response](#success-response-1)
   - [Error Response](#error-response-1)
   - [Authentication Required Errors](#authentication-required-errors)
-  - [Application-Specific Error Codes](#application-specific-error-codes)
+  - [Error Codes](#error-codes)
+    - [Standard Error Codes](#standard-error-codes)
+    - [Application-Specific Error Codes](#application-specific-error-codes)
 - [Authentication](#authentication)
 - [Redirects in API/Page Responses](#redirects-in-apipage-responses)
   - [1. HTTP-Level Redirects (Blocked)](#1-http-level-redirects-blocked)
@@ -477,9 +479,35 @@ When a user attempts to access a protected resource without being authenticated 
 }
 ```
 
-### Application-Specific Error Codes
+### Error Codes
 
-You are encouraged to define and document your own error codes for application-specific error scenarios. For example, you might use codes like `form_submission_error`, or `resource_conflict` to represent different types of errors in your API responses. The structure and meaning of these codes are entirely up to your application's needs.
+#### Standard Error Codes
+
+Unirend recognizes these standard error codes for special handling by the framework:
+
+| Code                            | Status | Description                                     | Special Behavior                                                          |
+| ------------------------------- | ------ | ----------------------------------------------- | ------------------------------------------------------------------------- |
+| `authentication_required`       | 401    | User must log in to access this resource        | Page data loader automatically redirects to login with return URL         |
+| `invalid_request_body_format`   | 400    | Request body format is invalid (not valid JSON) | Used by `ensureJSONBody` helper for malformed JSON bodies                 |
+| `invalid_page_data_body_fields` | 400    | Page data request body has invalid fields       | Framework returns this when page data loader POST body fields are invalid |
+
+**Recommended conventional codes** (no special framework handling, but follow HTTP semantics):
+
+- `not_found` (404) - Requested resource does not exist
+- `permission_denied` (403) - User lacks permission to access resource
+- `invalid_input` (400) - Validation errors on user input
+- `internal_error` (500) - Server encountered an unexpected error
+
+#### Application-Specific Error Codes
+
+You are encouraged to define and document your own error codes for application-specific scenarios. For example:
+
+- `form_submission_error` - Form validation failed
+- `resource_conflict` - Resource already exists or conflicts with another
+- `payment_required` - Payment or subscription needed
+- `rate_limit_exceeded` - Too many requests
+
+The structure and meaning of custom error codes are entirely up to your application's needs. Use descriptive `snake_case` names that clearly indicate the error condition.
 
 ## Authentication
 
@@ -632,7 +660,7 @@ Since the page response type is an extension of the API response pattern, data l
 Unirend’s `pageDataLoader` implements a consistent, envelope-first pattern across SSR and client:
 
 - Request strategy
-  - SSR: If a page data loader handler is registered on the same server instance, the loader short‑circuits and invokes it internally, otherwise it performs an HTTP POST to `{apiBaseUrl}{pageDataEndpoint}/{pageType}` with `route_params`, `query_params`, `request_path`, and `original_url`.
+  - SSR: If a page data loader handler is registered on the same server instance, the loader short‑circuits and invokes it internally, otherwise it performs an HTTP POST to `{APIBaseURL}{pageDataEndpoint}/{pageType}` with `route_params`, `query_params`, `request_path`, and `original_url`.
   - Client: Performs an HTTP POST with `credentials: "include"` and forwards `Accept-Language`.
 
 - Headers and cookies (SSR HTTP path)
@@ -644,7 +672,7 @@ Unirend’s `pageDataLoader` implements a consistent, envelope-first pattern acr
   - Application redirects: If the response is a Page redirect envelope, it is converted to a React Router redirect (preserving query if requested).
   - HTTP redirects: HTTP 3xx from API responses are not followed and are converted to `redirectNotFollowed` errors, preserving `Location` in details.
   - Page vs API envelopes: Page envelopes are passed through (decorated with SSR‑only data such as cookies on the server). API error envelopes are transformed into Page error envelopes, preserving metadata and optionally extending it via `transformErrorMeta`.
-  - Auth flows: 401 with `error.code === "authentication_required"` triggers a redirect to `loginUrl` with an optional return parameter (`returnToParam`). 403 maps to access denied, 404 to not found, other codes fall back to generic handling.
+  - Auth flows: 401 with `error.code === "authentication_required"` triggers a redirect to `loginURL` with an optional return parameter (`returnToParam`). 403 maps to access denied, 404 to not found, other codes fall back to generic handling.
 
 - Timeouts and resiliency
   - HTTP requests use `fetchWithTimeout(timeoutMs)`. On timeout or network failures, the loader returns a standardized 500 Page error using configured friendly messages.
@@ -666,7 +694,7 @@ For convenience, Unirend provides helper functions to construct and validate env
   - `APIResponseHelpers.createPageSuccessResponse({ request, data, pageMetadata, statusCode?, meta? })`
   - `APIResponseHelpers.createPageErrorResponse({ request, statusCode, errorCode, errorMessage, pageMetadata, errorDetails?, meta? })`
   - `APIResponseHelpers.createPageRedirectResponse({ request, redirectInfo, pageMetadata, meta? })`
-- Validate input: `APIResponseHelpers.ensureJsonBody(request, reply)`
+- Validate input: `APIResponseHelpers.ensureJSONBody(request, reply)`
 - Type guards: `isSuccessResponse`, `isErrorResponse`, `isRedirectResponse`, `isPageResponse`, `isValidEnvelope`
 
 These helpers assume you set `request.requestID` via a plugin as described above, otherwise `request_id` defaults to `"unknown"`.

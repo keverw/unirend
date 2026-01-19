@@ -541,7 +541,7 @@ describe('domainValidation', () => {
   describe('HTTPS enforcement', () => {
     it('should redirect HTTP to HTTPS', async () => {
       const config: DomainValidationConfig = {
-        enforceHttps: true,
+        enforceHTTPS: true,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
@@ -563,7 +563,7 @@ describe('domainValidation', () => {
 
     it('should always strip port on protocol change', async () => {
       const config: DomainValidationConfig = {
-        enforceHttps: true,
+        enforceHTTPS: true,
         preservePort: true, // Should be ignored for protocol changes
       };
       const pluginHost = createMockPluginHost();
@@ -586,7 +586,7 @@ describe('domainValidation', () => {
 
     it('should respect x-forwarded-proto header when trusted', async () => {
       const config: DomainValidationConfig = {
-        enforceHttps: true,
+        enforceHTTPS: true,
         trustProxyHeaders: true,
       };
       const pluginHost = createMockPluginHost();
@@ -611,7 +611,7 @@ describe('domainValidation', () => {
 
     it('builds correct redirect URL for IPv6 host with protocol change', async () => {
       const config: DomainValidationConfig = {
-        enforceHttps: true,
+        enforceHTTPS: true,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
@@ -732,7 +732,7 @@ describe('domainValidation', () => {
       const config: DomainValidationConfig = {
         validProductionDomains: ['staging.com', 'example.com'],
         canonicalDomain: 'example.com',
-        enforceHttps: true,
+        enforceHTTPS: true,
         wwwHandling: 'add',
       };
       const pluginHost = createMockPluginHost();
@@ -1259,7 +1259,7 @@ describe('domainValidation', () => {
     it('should strip port when protocol changes even with preservePort false', async () => {
       const config: DomainValidationConfig = {
         validProductionDomains: ['example.com'],
-        enforceHttps: true,
+        enforceHTTPS: true,
         preservePort: false,
       };
       const pluginHost = createMockPluginHost();
@@ -1286,7 +1286,7 @@ describe('domainValidation', () => {
     it('should honor first value in comma-separated x-forwarded-proto', async () => {
       const config: DomainValidationConfig = {
         validProductionDomains: ['example.com'],
-        enforceHttps: true,
+        enforceHTTPS: true,
         trustProxyHeaders: true,
       };
       const pluginHost = createMockPluginHost();

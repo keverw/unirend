@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'bun:test';
 import * as cheerio from 'cheerio';
-import { prettifyHtml, processTemplate } from './format';
+import { prettifyHTML, processTemplate } from './format';
 
-// Helper: split output by new lines (trim the trailing \n added by prettifyHtml)
+// Helper: split output by new lines (trim the trailing \n added by prettifyHTML)
 // and assert that each expected line appears in the output **in the given order**.
 // This lets us verify ordering (and indentation) without listing every boilerplate line (html, head, body wrappers, etc.).
 function expectLinesInOrder(result: string, expected: string[]) {
@@ -20,10 +20,10 @@ function expectLinesInOrder(result: string, expected: string[]) {
   }
 }
 
-describe('prettifyHtml', () => {
+describe('prettifyHTML', () => {
   it('should format simple HTML correctly', () => {
     const $ = cheerio.load('<div>Hello World</div>');
-    const result = prettifyHtml($);
+    const result = prettifyHTML($);
 
     expectLinesInOrder(result, [
       '    <div>',
@@ -34,7 +34,7 @@ describe('prettifyHtml', () => {
 
   it('should format nested HTML with proper indentation', () => {
     const $ = cheerio.load('<div><p>Hello</p><span>World</span></div>');
-    const result = prettifyHtml($);
+    const result = prettifyHTML($);
 
     expectLinesInOrder(result, [
       '    <div>',
@@ -50,7 +50,7 @@ describe('prettifyHtml', () => {
 
   it('should handle self-closing tags', () => {
     const $ = cheerio.load("<div><img src='test.jpg' alt='test'/><br/></div>");
-    const result = prettifyHtml($);
+    const result = prettifyHTML($);
 
     expectLinesInOrder(result, [
       '    <div>',
@@ -64,7 +64,7 @@ describe('prettifyHtml', () => {
     const $ = cheerio.load(
       '<div class="container" id="main"><p data-test>Content</p></div>',
     );
-    const result = prettifyHtml($);
+    const result = prettifyHTML($);
 
     expectLinesInOrder(result, [
       '    <div class="container" id="main">',
@@ -77,7 +77,7 @@ describe('prettifyHtml', () => {
 
   it('should handle empty tags', () => {
     const $ = cheerio.load('<div><p></p><span></span></div>');
-    const result = prettifyHtml($);
+    const result = prettifyHTML($);
 
     expectLinesInOrder(result, [
       '    <div>',
@@ -91,7 +91,7 @@ describe('prettifyHtml', () => {
     const $ = cheerio.load(
       '<div><!-- This is a comment --><p>Content</p></div>',
     );
-    const result = prettifyHtml($);
+    const result = prettifyHTML($);
 
     expectLinesInOrder(result, [
       '    <div>',
@@ -105,7 +105,7 @@ describe('prettifyHtml', () => {
 
   it('should handle root element specially (single line content)', () => {
     const $ = cheerio.load('<div id="root"><span>App Content</span></div>');
-    const result = prettifyHtml($);
+    const result = prettifyHTML($);
 
     expectLinesInOrder(result, [
       '    <div id="root"><span>App Content</span></div>',
@@ -116,7 +116,7 @@ describe('prettifyHtml', () => {
     const $ = cheerio.load(
       '<div id="app-container"><header><h1>Title</h1></header><main><p>Content</p></main></div>',
     );
-    const result = prettifyHtml($, 'app-container');
+    const result = prettifyHTML($, 'app-container');
 
     expectLinesInOrder(result, [
       '    <div id="app-container"><header><h1>Title</h1></header><main><p>Content</p></main></div>',
@@ -125,7 +125,7 @@ describe('prettifyHtml', () => {
 
   it('should handle mixed content types', () => {
     const $ = cheerio.load('<div>Text <strong>bold</strong> more text</div>');
-    const result = prettifyHtml($);
+    const result = prettifyHTML($);
 
     expect(result).toContain('Text');
     expect(result).toContain('<strong>');
@@ -137,7 +137,7 @@ describe('prettifyHtml', () => {
     const $ = cheerio.load(
       '<html><head><title>Test</title></head><body><div>Content</div></body></html>',
     );
-    const result = prettifyHtml($);
+    const result = prettifyHTML($);
 
     expect(result).toContain('<html>');
     expect(result).toContain('<head>');
@@ -152,7 +152,7 @@ describe('prettifyHtml', () => {
     // Create HTML with DOCTYPE directive
     const html = '<!DOCTYPE html><html><body><div>Content</div></body></html>';
     const $ = cheerio.load(html);
-    const result = prettifyHtml($);
+    const result = prettifyHTML($);
 
     // Should contain the DOCTYPE directive
     expect(result).toContain('<!DOCTYPE html>');
@@ -164,7 +164,7 @@ describe('prettifyHtml', () => {
     // Test XML processing instruction (another type of directive)
     const html = "<?xml version='1.0'?><root><item>test</item></root>";
     const $ = cheerio.load(html, { xmlMode: true });
-    const result = prettifyHtml($);
+    const result = prettifyHTML($);
 
     // Should contain the XML processing instruction
     expect(result).toContain("<?xml version='1.0'?>");

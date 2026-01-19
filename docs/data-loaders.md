@@ -2,7 +2,7 @@
 
 Unirend centralizes route data fetching through a single loader system. Define loaders per route using helpers, and return standardized envelopes. See `docs/api-envelope-structure.md` for the canonical envelope specs.
 
-- Create config: `createDefaultPageDataLoaderConfig(apiBaseUrl)` or provide a custom config
+- Create config: `createDefaultPageDataLoaderConfig(APIBaseURL)` or provide a custom config
 - Define loaders: `createPageDataLoader(config, pageType)` or `createPageDataLoader(localConfig, localHandler)`
 - Errors/redirects: handled uniformly via envelopes. Integrate with `RouteErrorBoundary` and `useDataLoaderEnvelopeError`
 
@@ -45,7 +45,7 @@ import { APIResponseHelpers } from 'unirend/api-envelope';
 server.pageDataHandler.register('home', (request, params) => {
   return APIResponseHelpers.createPageSuccessResponse({
     request,
-    data: { message: 'Hello from server', route: params.route_params },
+    data: { message: 'Hello from server', route: params.routeParams },
     pageMetadata: { title: 'Home', description: 'Home page' },
   });
 });
@@ -58,12 +58,12 @@ import { createPageDataLoader } from 'unirend/router-utils';
 
 export const localInfoLoader = createPageDataLoader(
   { timeoutMs: 8000 },
-  ({ route_params, query_params }) => ({
+  ({ routeParams, queryParams }) => ({
     status: 'success',
     status_code: 200,
     request_id: `local_${Date.now()}`,
     type: 'page',
-    data: { route_params, query_params },
+    data: { routeParams, queryParams },
     meta: { page: { title: 'Local', description: 'Local loader' } },
     error: null,
   }),
@@ -109,14 +109,14 @@ Notes:
 
 Tip:
 
-- If your API base URL differs between server and client (e.g., internal vs public URLs), configure `apiBaseUrl` dynamically. Since data loaders run outside the React component tree and don't have access to hooks, access `window.__FRONTEND_APP_CONFIG__` directly at module level on the client, with a server-side fallback (e.g., environment variable) for SSR. See the [Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern) for the complete pattern with examples.
+- If your API base URL differs between server and client (e.g., internal vs public URLs), configure `APIBaseURL` dynamically. Since data loaders run outside the React component tree and don't have access to hooks, access `window.__FRONTEND_APP_CONFIG__` directly at module level on the client, with a server-side fallback (e.g., environment variable) for SSR. See the [Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern) for the complete pattern with examples.
 
 Configuration (HTTP‑based Loader):
 
-- `apiBaseUrl` (required)
+- `APIBaseURL` (required)
 - `pageDataEndpoint` (default: `/api/v1/page_data`)
 - `timeoutMs` (default: 10000)
-- `errorDefaults`, `connectionErrorMessages`, `loginUrl`, `returnToParam`
+- `errorDefaults`, `connectionErrorMessages`, `loginURL`, `returnToParam`
 - `allowedRedirectOrigins`, `transformErrorMeta`, `statusCodeHandlers`
 
 ## Local Data Loader
@@ -129,13 +129,13 @@ import { createPageDataLoader } from 'unirend/router-utils';
 // Local handler receives routing context, no Fastify request object
 export const localInfoLoader = createPageDataLoader(
   { timeoutMs: 8000 },
-  function ({ route_params, query_params }) {
+  function ({ routeParams, queryParams }) {
     return {
       status: 'success',
       status_code: 200,
       request_id: `local_${Date.now()}`,
       type: 'page',
-      data: { route_params, query_params },
+      data: { routeParams, queryParams },
       meta: { page: { title: 'Local', description: 'Local loader' } },
       error: null,
     };
@@ -249,7 +249,7 @@ When API responses don’t follow the Page Envelope, the loader converts them us
   - undefined: validation disabled (any redirect target allowed)
   - []: only relative paths allowed, all external URLs blocked
   - ["https://myapp.com", "https://auth.myapp.com"]: allow relative paths plus listed origins
-- `loginUrl` and `returnToParam`
-  - `loginUrl`: default "/login"
+- `loginURL` and `returnToParam`
+  - `loginURL`: default "/login"
   - `returnToParam`: default "return_to"
   - On 401 with `error.code === "authentication_required"`, redirects to login and includes the return URL when provided

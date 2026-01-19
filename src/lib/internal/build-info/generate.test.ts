@@ -111,9 +111,9 @@ describe('GenerateBuildInfo', () => {
 
     it('should read version from package.json when not provided', async () => {
       // Create a mock package.json
-      const packageJson = { version: '2.5.1', name: 'test-package' };
-      const packageJsonPath = path.join(tempDir, 'package.json');
-      await fs.writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2));
+      const packageJSON = { version: '2.5.1', name: 'test-package' };
+      const packageJSONPath = path.join(tempDir, 'package.json');
+      await fs.writeFile(packageJSONPath, JSON.stringify(packageJSON, null, 2));
 
       const generator = new GenerateBuildInfo({ workingDir: tempDir });
       const result = await generator.generateInfo();
@@ -135,8 +135,8 @@ describe('GenerateBuildInfo', () => {
 
     it('should handle invalid package.json', async () => {
       // Create invalid JSON
-      const packageJsonPath = path.join(tempDir, 'package.json');
-      await fs.writeFile(packageJsonPath, '{ invalid json }');
+      const packageJSONPath = path.join(tempDir, 'package.json');
+      await fs.writeFile(packageJSONPath, '{ invalid json }');
 
       const generator = new GenerateBuildInfo({ workingDir: tempDir });
       const result = await generator.generateInfo();
@@ -223,9 +223,9 @@ describe('GenerateBuildInfo', () => {
 
     it('should use provided version over package.json', async () => {
       // Create a mock package.json with different version
-      const packageJson = { version: '5.0.0', name: 'test-package' };
-      const packageJsonPath = path.join(tempDir, 'package.json');
-      await fs.writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2));
+      const packageJSON = { version: '5.0.0', name: 'test-package' };
+      const packageJSONPath = path.join(tempDir, 'package.json');
+      await fs.writeFile(packageJSONPath, JSON.stringify(packageJSON, null, 2));
 
       const generator = new GenerateBuildInfo({
         workingDir: tempDir,
@@ -458,9 +458,9 @@ describe('GenerateBuildInfo', () => {
 
   describe('integration tests', () => {
     it('should work end-to-end with all methods', async () => {
-      const packageJson = { version: '1.0.0', name: 'test-app' };
-      const packageJsonPath = path.join(tempDir, 'package.json');
-      await fs.writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2));
+      const packageJSON = { version: '1.0.0', name: 'test-app' };
+      const packageJSONPath = path.join(tempDir, 'package.json');
+      await fs.writeFile(packageJSONPath, JSON.stringify(packageJSON, null, 2));
 
       const generator = new GenerateBuildInfo({ workingDir: tempDir });
 
@@ -483,17 +483,18 @@ describe('GenerateBuildInfo', () => {
       const tsPath = path.join(tempDir, 'current-build-info.ts');
       const jsonPath = path.join(tempDir, 'current-build-info.json');
 
-      const doesTsExist = await fs
+      const doesTSExist = await fs
         .access(tsPath)
         .then(() => true)
         .catch(() => false);
-      const doesJsonExist = await fs
+
+      const doesJSONExist = await fs
         .access(jsonPath)
         .then(() => true)
         .catch(() => false);
 
-      expect(doesTsExist).toBe(true);
-      expect(doesJsonExist).toBe(true);
+      expect(doesTSExist).toBe(true);
+      expect(doesJSONExist).toBe(true);
     });
 
     it('should handle complex custom properties correctly', async () => {
@@ -502,7 +503,7 @@ describe('GenerateBuildInfo', () => {
         buildNumber: 123,
         features: ['auth', 'payments', 'notifications'],
         config: {
-          apiUrl: 'https://api.example.com',
+          apiURL: 'https://api.example.com',
           timeout: 5000,
         },
         buildMetadata: {
@@ -530,7 +531,7 @@ describe('GenerateBuildInfo', () => {
         'notifications',
       ]);
       expect(info.buildInfo.config).toEqual({
-        apiUrl: 'https://api.example.com',
+        apiURL: 'https://api.example.com',
         timeout: 5000,
       });
 
@@ -540,7 +541,7 @@ describe('GenerateBuildInfo', () => {
       expect(sourceCode).toContain(
         'features: ["auth","payments","notifications"]',
       );
-      expect(sourceCode).toContain('"apiUrl":"https://api.example.com"');
+      expect(sourceCode).toContain('"apiURL":"https://api.example.com"');
 
       // Check JSON generation
       const parsed = JSON.parse(jsonString) as Record<string, unknown>;
@@ -550,7 +551,7 @@ describe('GenerateBuildInfo', () => {
         'payments',
         'notifications',
       ]);
-      expect((parsed.config as Record<string, unknown>).apiUrl as string).toBe(
+      expect((parsed.config as Record<string, unknown>).apiURL as string).toBe(
         'https://api.example.com',
       );
     });

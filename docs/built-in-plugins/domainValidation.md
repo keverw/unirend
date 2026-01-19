@@ -39,7 +39,7 @@ const server = serveSSRProd(buildDir, {
     domainValidation({
       validProductionDomains: ['example.com', '*.example.com'],
       canonicalDomain: 'example.com',
-      enforceHttps: true,
+      enforceHTTPS: true,
       wwwHandling: 'remove',
       redirectStatusCode: 301,
       skipInDevelopment: true,
@@ -61,7 +61,7 @@ const server = serveSSRProd(buildDir, {
   - Provide a hostname or IP (IPv4 or IPv6), with no protocol
   - Use `wwwHandling` to add/remove the `www` prefix for apex domains
   - IPv6 hosts are bracketed automatically in redirects (you can pass either `2001:db8::1` or `[2001:db8::1]`)
-- `enforceHttps` (default: `true`): Whether to redirect HTTP requests to HTTPS
+- `enforceHTTPS` (default: `true`): Whether to redirect HTTP requests to HTTPS
 - `wwwHandling` (default: `"preserve"`): How to handle www prefix:
   - `"add"`: Add www prefix to apex domains
   - `"remove"`: Remove www prefix from apex domains
@@ -71,6 +71,7 @@ const server = serveSSRProd(buildDir, {
 - `trustProxyHeaders` (default: `false`): Only when `true`, the plugin will read `x-forwarded-host` and `x-forwarded-proto` from requests to determine original host and protocol. Enable this only when behind a trusted proxy/load balancer.
 - `preservePort` (default: `false`): Whether to preserve port numbers in redirects
 - `invalidDomainHandler` (optional): Custom function to format the error response for blocked requests (e.g., JSON/text/HTML). Does not bypass validation or allow the request to proceed.
+  - **Security Note**: When returning HTML with dynamic values, always escape them using `escapeHTML` from `unirend/utils` to prevent XSS attacks.
 
 ## Examples
 
@@ -105,11 +106,14 @@ domainValidation({
 });
 
 // Custom error handling
+// ⚠️ Security: Always escape dynamic values when returning HTML to prevent XSS
+import { escapeHTML } from 'unirend/utils';
+
 domainValidation({
   validProductionDomains: ['example.com'],
   invalidDomainHandler: (request, domain, isDev, isAPI) => ({
     contentType: 'html',
-    content: `<h1>Access denied for ${domain}</h1>`,
+    content: `<h1>Access denied for ${escapeHTML(domain)}</h1>`,
   }),
 });
 

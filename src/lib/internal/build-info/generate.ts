@@ -117,15 +117,15 @@ export class GenerateBuildInfo {
     if (!version) {
       // no version provided, try to read from package.json
       try {
-        const packageJsonPath = path.join(this.workingDir, 'package.json');
-        const packageJsonContent = await fs.readFile(packageJsonPath, 'utf8');
-        const packageJson = JSON.parse(packageJsonContent) as {
+        const packageJSONPath = path.join(this.workingDir, 'package.json');
+        const packageJSONContent = await fs.readFile(packageJSONPath, 'utf8');
+        const packageJSON = JSON.parse(packageJSONContent) as {
           version?: string;
         };
 
         // version found in package.json
-        if (packageJson.version && typeof packageJson.version === 'string') {
-          version = packageJson.version;
+        if (packageJSON.version && typeof packageJSON.version === 'string') {
+          version = packageJSON.version;
         }
       } catch (error) {
         warnings.push(

@@ -96,6 +96,7 @@ export function mountApp(
     typeof window !== 'undefined'
       ? (
           window as unknown as {
+            // eslint-disable-next-line @typescript-eslint/naming-convention
             __FRONTEND_APP_CONFIG__?: Record<string, unknown>;
           }
         ).__FRONTEND_APP_CONFIG__

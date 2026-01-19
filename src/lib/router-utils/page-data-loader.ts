@@ -8,7 +8,7 @@
  *
  * How it works:
  * 1. Each route uses createPageDataLoader(config, pageType) to create a loader for that route
- * 2. The pageDataLoader makes a POST request to {apiBaseUrl}{pageDataEndpoint}/{pageType} with route params and query params
+ * 2. The pageDataLoader makes a POST request to {APIBaseURL}{pageDataEndpoint}/{pageType} with route params and query params
  *    (default endpoint: /api/v1/page_data/{pageType}, configurable via pageDataEndpoint option)
  * 3. The API server handles the request and returns data in a standardized response format
  * 4. The loader processes the response, handling errors, redirects, and authentication
@@ -31,9 +31,9 @@
  *
  * // Or create a custom configuration with your own titles/branding
  * const customConfig = {
- *   apiBaseUrl: 'https://api.myapp.com',
+ *   APIBaseURL: 'https://api.myapp.com',
  *   pageDataEndpoint: '/api/v1/page_data', // Custom page data endpoint (default: '/api/v1/page_data')
- *   loginUrl: '/auth/login',
+ *   loginURL: '/auth/login',
  *   returnToParam: 'redirect_to', // Custom query param name for login redirects
  *   isDevelopment: true, // Explicitly set for Bun/Deno compatibility
  *   timeoutMs: 15000, // Custom timeout in milliseconds (default: 10000)
@@ -203,7 +203,7 @@ import type {
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
 import {
   processRedirectResponse,
-  processApiResponse,
+  processAPIResponse,
 } from './page-data-loader-helpers';
 import {
   DEBUG_PAGE_LOADER,
@@ -225,7 +225,7 @@ import {
  * your config.
  */
 export function createDefaultPageDataLoaderConfig(
-  apiBaseUrl: string,
+  APIBaseURL: string,
 ): PageDataLoaderConfig {
   // Deep-clone nested defaults to avoid shared references
   const errorDefaultsClone: ErrorDefaults = JSON.parse(
@@ -237,11 +237,11 @@ export function createDefaultPageDataLoaderConfig(
   } as const;
 
   return {
-    apiBaseUrl,
+    APIBaseURL,
     pageDataEndpoint: DEFAULT_PAGE_DATA_ENDPOINT,
     errorDefaults: errorDefaultsClone,
     connectionErrorMessages: connectionErrorMessagesClone,
-    loginUrl: DEFAULT_LOGIN_URL,
+    loginURL: DEFAULT_LOGIN_URL,
     returnToParam: DEFAULT_RETURN_TO_PARAM,
     generateFallbackRequestID: DEFAULT_FALLBACK_REQUEST_ID_GENERATOR,
     timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -301,7 +301,7 @@ async function pageDataLoader({
     process.env.NODE_ENV === 'development';
 
   // Get the API server URL (already normalized)
-  const apiBaseUrl = config.apiBaseUrl;
+  const APIBaseURL = config.APIBaseURL;
   const pageDataEndpoint =
     config.pageDataEndpoint || DEFAULT_PAGE_DATA_ENDPOINT;
 
@@ -309,20 +309,21 @@ async function pageDataLoader({
   // Note: Internal short-circuit calls do NOT rely on this URL; they reuse the
   // same routing context we place in requestBody (route_params, query_params,
   // request_path, original_url) to ensure consistency.
-  const apiEndpoint = `${apiBaseUrl}${pageDataEndpoint}/${pageType}`;
+  const apiEndpoint = `${APIBaseURL}${pageDataEndpoint}/${pageType}`;
 
   // build the request body
   const url = new URL(request.url);
 
   // Convert params to ensure all values are strings
-  const route_params: Record<string, string> = {};
+  const routeParams: Record<string, string> = {};
+
   for (const [key, value] of Object.entries(params)) {
-    route_params[key] = value || '';
+    routeParams[key] = value || '';
   }
 
   // Assemble the request body
   const requestBody: Record<string, unknown> = {
-    route_params: route_params, // react router params
+    route_params: routeParams, // react router params
     query_params: Object.fromEntries(
       // url query params
       url.searchParams.entries(),
@@ -374,11 +375,16 @@ async function pageDataLoader({
             controlledReply: SSRHelpers.controlledReply,
             pageType,
             timeoutMs: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-            // Pass the exact same data that would be in the POST body
-            route_params: requestBody.route_params as Record<string, string>,
-            query_params: requestBody.query_params as Record<string, string>,
-            request_path: requestBody.request_path as string,
-            original_url: requestBody.original_url as string,
+            // Pass the exact same data that would be in the POST body (converted from snake_case)
+            // Extract from requestBody (React Router context from frontend loader)
+            // Fallback to empty values if requestBody is malformed (defensive programming)
+            // Note: These represent the React Router URL/params, NOT the Fastify request URL
+            routeParams:
+              (requestBody.route_params as Record<string, string>) || {},
+            queryParams:
+              (requestBody.query_params as Record<string, string>) || {},
+            requestPath: (requestBody.request_path as string) || '',
+            originalURL: (requestBody.original_url as string) || '',
           });
 
           if (outcome.exists && outcome.result) {
@@ -468,9 +474,9 @@ async function pageDataLoader({
 
       // Properly access headers from the Request object
       const xssrRequest = request.headers.get('x-ssr-request');
-      const originalIp = request.headers.get('x-ssr-original-ip');
+      const originalIP = request.headers.get('x-ssr-original-ip');
       const userAgent = request.headers.get('user-agent');
-      const correlationId = request.headers.get('x-correlation-id');
+      const correlationID = request.headers.get('x-correlation-id');
       const cookie = request.headers.get('cookie');
       const acceptLanguage = request.headers.get('accept-language');
 
@@ -479,16 +485,16 @@ async function pageDataLoader({
         headers.set('X-SSR-Request', xssrRequest);
       }
 
-      if (originalIp) {
-        headers.set('X-SSR-Original-IP', originalIp);
+      if (originalIP) {
+        headers.set('X-SSR-Original-IP', originalIP);
       }
 
       if (userAgent) {
         headers.set('X-SSR-Forwarded-User-Agent', userAgent);
       }
 
-      if (correlationId) {
-        headers.set('X-Correlation-ID', correlationId);
+      if (correlationID) {
+        headers.set('X-Correlation-ID', correlationID);
       }
 
       if (cookie) {
@@ -511,7 +517,7 @@ async function pageDataLoader({
         config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       );
 
-      const result = await processApiResponse(response, config);
+      const result = await processAPIResponse(response, config);
 
       // Merge ssr_request_context from API response back into SSR request (SSR-only)
       if (
@@ -565,7 +571,7 @@ async function pageDataLoader({
         config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       );
 
-      return processApiResponse(response, config);
+      return processAPIResponse(response, config);
     }
   } catch (error) {
     if (DEBUG_PAGE_LOADER) {
@@ -623,7 +629,7 @@ async function pageDataLoader({
  * - Your handler may still perform its own fetch/database calls; the timeout
  *   here applies to the entire handler execution
  * - The handler receives `LocalPageHandlerParams` (no Fastify request object)
- * - `invocation_origin` is set to "local" for debugging
+ * - `invocationOrigin` is set to "local" for debugging
  * - Timeout uses `config.timeoutMs` (0 disables); timeout message mirrors the
  *   HTTP path by using `connectionErrorMessages.server` when available
  */
@@ -635,19 +641,19 @@ async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
   const url = new URL(request.url);
 
   // Convert params to ensure all values are strings
-  const route_params: Record<string, string> = {};
+  const routeParams: Record<string, string> = {};
   for (const [key, value] of Object.entries(params)) {
-    route_params[key] = value || '';
+    routeParams[key] = value || '';
   }
 
   // Assemble the local handler params with origin and routing context
   const localParams: LocalPageHandlerParams = {
     pageType: 'local',
-    invocation_origin: 'local',
-    route_params: route_params,
-    query_params: Object.fromEntries(url.searchParams.entries()),
-    request_path: url.pathname,
-    original_url: request.url,
+    invocationOrigin: 'local',
+    routeParams: routeParams,
+    queryParams: Object.fromEntries(url.searchParams.entries()),
+    requestPath: url.pathname,
+    originalURL: request.url,
   };
 
   // Configure timeout (0 disables)
@@ -666,7 +672,7 @@ async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
   }
 
   // Track the timeout ID to ensure it is cleared regardless of timeout path
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let timeoutID: ReturnType<typeof setTimeout> | undefined;
 
   // Build a single promise that either resolves to the handler result or rejects on timeout
   const resultPromise: Promise<PageResponseEnvelope | APIResponseEnvelope> =
@@ -681,7 +687,7 @@ async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
           invocation,
           // Timer promise
           new Promise<never>((_, reject) => {
-            timeoutId = setTimeout(() => {
+            timeoutID = setTimeout(() => {
               const error = new Error(`Request timeout after ${timeoutMs}ms`);
               (error as unknown as { errorCode: string }).errorCode =
                 'handler_timeout';
@@ -694,8 +700,8 @@ async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
   try {
     // Ensure timer cleared regardless of outcome
     const result = await resultPromise.finally(() => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
+      if (timeoutID) {
+        clearTimeout(timeoutID);
       }
     });
 

@@ -249,13 +249,13 @@ function MyComponent() {
 // Non-component code runs outside React component tree, so use direct window access. For example in a data loader.
 // On client: Use public API URL from injected config
 // On server (SSR): Use internal endpoints (same network/datacenter) when not using the Fetch/Short-Circuit functionality
-const apiBaseUrl =
+const APIBaseURL =
   typeof window !== 'undefined'
     ? (window.__FRONTEND_APP_CONFIG__?.apiUrl as string) ||
       'http://localhost:3001'
     : process.env.INTERNAL_API_URL || 'http://api-internal:3001'; // Internal endpoint or service URL
 
-const config = createDefaultPageDataLoaderConfig(apiBaseUrl);
+const config = createDefaultPageDataLoaderConfig(APIBaseURL);
 export const homeLoader = createPageDataLoader(config, 'home');
 ```
 
@@ -357,7 +357,7 @@ See the canonical spec in [docs/api-envelope-structure.md](docs/api-envelope-str
 - **Server middleware/plugins**: The `SSRServer` and `serveAPI` plugin systems are designed to work with these envelopes (including default error/not-found handling). Use the middleware/plugin APIs exposed by `unirend/server` to register your routes.
 - **Helper utilities**: Import helpers to construct envelopes and validate requests at your API handlers:
   - Import path: `import { APIResponseHelpers } from 'unirend/api-envelope'`
-  - Key helpers: `createAPISuccessResponse`, `createAPIErrorResponse`, `createPageSuccessResponse`, `createPageErrorResponse`, `createPageRedirectResponse`, `ensureJsonBody`, and type guards like `isSuccessResponse`, `isErrorResponse`, `isRedirectResponse`, `isPageResponse`, `isValidEnvelope`.
+  - Key helpers: `createAPISuccessResponse`, `createAPIErrorResponse`, `createPageSuccessResponse`, `createPageErrorResponse`, `createPageRedirectResponse`, `ensureJSONBody`, and type guards like `isSuccessResponse`, `isErrorResponse`, `isRedirectResponse`, `isPageResponse`, `isValidEnvelope`.
 
 ## Error Handling
 

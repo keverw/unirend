@@ -77,8 +77,9 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
   // Path 1: Always allow upgrade
   server.registerWebSocketHandler({
     path: '/ws/always-allow',
-    handler: (socket, request, upgradeData) => {
+    handler: (socket, request, params, upgradeData) => {
       console.log('✅ WebSocket connected to /ws/always-allow');
+      console.log('Params:', params);
       console.log('Upgrade data:', upgradeData);
 
       socket.send(
@@ -109,7 +110,8 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
   // Path 2: Always reject upgrade
   server.registerWebSocketHandler({
     path: '/ws/always-reject',
-    preValidate: async (request) => {
+    preValidate: async (request, params) => {
+      console.log('🚫 Rejecting WebSocket at path:', params.path);
       return {
         action: 'reject',
         envelope: APIResponseHelpers.createAPIErrorResponse({
@@ -127,9 +129,12 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
         }),
       };
     },
-    handler: (socket) => {
+    handler: (socket, _request, params) => {
       // This handler should never be called due to preValidation rejection
-      console.log('🚨 ERROR: Handler called for always-reject endpoint!');
+      console.log(
+        '🚨 ERROR: Handler called for always-reject endpoint!',
+        params,
+      );
       socket.close(1008, 'Should not reach this handler');
     },
   });
@@ -137,10 +142,9 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
   // Path 3: Token-based validation
   server.registerWebSocketHandler({
     path: '/ws/token-validation',
-    preValidate: async (request) => {
-      const shouldUpgrade = (request.query as Record<string, string>)[
-        'should-upgrade'
-      ];
+    preValidate: async (request, params) => {
+      const shouldUpgrade = (params.queryParams['should-upgrade'] ||
+        '') as string;
 
       if (shouldUpgrade === 'yes') {
         return {
@@ -173,8 +177,9 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
         };
       }
     },
-    handler: (socket, request, upgradeData) => {
+    handler: (socket, _request, params, upgradeData) => {
       console.log('🔐 WebSocket connected to /ws/token-validation');
+      console.log('Params:', params);
       console.log('Validated upgrade data:', upgradeData);
 
       socket.send(
@@ -207,19 +212,20 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
   // Path 4: Echo with query parameter message
   server.registerWebSocketHandler({
     path: '/ws/echo',
-    preValidate: async (request) => {
-      const message = (request.query as Record<string, string>)['msg'];
+    preValidate: async (request, params) => {
+      const message = (params.queryParams['msg'] || '') as string;
 
       return {
         action: 'upgrade',
         data: {
-          initialMessage: message || '',
+          initialMessage: message,
           connectedAt: new Date().toISOString(),
         },
       };
     },
-    handler: (socket, request, upgradeData) => {
+    handler: (socket, _request, params, upgradeData) => {
       console.log('📢 WebSocket connected to /ws/echo');
+      console.log('Params:', params);
       console.log('Echo upgrade data:', upgradeData);
 
       // Send the initial message from query parameter if provided

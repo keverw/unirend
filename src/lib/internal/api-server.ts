@@ -44,7 +44,7 @@ export class APIServer extends BaseServer {
 
   // Normalized endpoint config (computed once at construction)
   // Can be false if API handling is disabled (server becomes a plain web server)
-  private readonly normalizedApiPrefix: string | false;
+  private readonly normalizedAPIPrefix: string | false;
   private readonly normalizedPageDataEndpoint: string;
 
   constructor(options: APIServerOptions = {}) {
@@ -55,7 +55,7 @@ export class APIServer extends BaseServer {
     };
 
     // Normalize API endpoint config once at construction
-    this.normalizedApiPrefix = normalizeAPIPrefix(
+    this.normalizedAPIPrefix = normalizeAPIPrefix(
       this.options.apiEndpoints?.apiEndpointPrefix,
     );
 
@@ -184,7 +184,7 @@ export class APIServer extends BaseServer {
       }
 
       // Register API routes if enabled, or validate no handlers were registered if disabled
-      if (this.normalizedApiPrefix === false) {
+      if (this.normalizedAPIPrefix === false) {
         // API is disabled - validate that no handlers were registered
         validateNoHandlersWhenAPIDisabled(
           this.apiRoutes,
@@ -194,7 +194,7 @@ export class APIServer extends BaseServer {
         // API is enabled - register page data and API routes
         this.pageDataHandlers.registerRoutes(
           this.fastifyInstance,
-          this.normalizedApiPrefix,
+          this.normalizedAPIPrefix,
           this.normalizedPageDataEndpoint,
           {
             versioned: this.options.apiEndpoints?.versioned,
@@ -203,7 +203,7 @@ export class APIServer extends BaseServer {
 
         this.apiRoutes.registerRoutes(
           this.fastifyInstance,
-          this.normalizedApiPrefix,
+          this.normalizedAPIPrefix,
           {
             versioned: this.options.apiEndpoints?.versioned,
             allowWildcardAtRoot: true,
@@ -344,10 +344,10 @@ export class APIServer extends BaseServer {
     // It's split form if it has at least one of api/web as a function
     const obj = handler as Record<string, unknown>;
 
-    const hasApi = 'api' in obj && typeof obj.api === 'function';
-    const hasWeb = 'web' in obj && typeof obj.web === 'function';
+    const hasAPIHandler = 'api' in obj && typeof obj.api === 'function';
+    const hasWebHandler = 'web' in obj && typeof obj.web === 'function';
 
-    return hasApi || hasWeb;
+    return hasAPIHandler || hasWebHandler;
   }
 
   /**
@@ -388,7 +388,7 @@ export class APIServer extends BaseServer {
 
       const { isAPI, isPageData } = classifyRequest(
         request.url,
-        this.normalizedApiPrefix,
+        this.normalizedAPIPrefix,
         this.normalizedPageDataEndpoint,
       );
 
@@ -473,7 +473,7 @@ export class APIServer extends BaseServer {
         request,
         error as FastifyError,
         isDev,
-        this.normalizedApiPrefix,
+        this.normalizedAPIPrefix,
         this.normalizedPageDataEndpoint,
       );
 
@@ -500,7 +500,7 @@ export class APIServer extends BaseServer {
     this.fastifyInstance.setNotFoundHandler(async (request, reply) => {
       const { isAPI, isPageData } = classifyRequest(
         request.url,
-        this.normalizedApiPrefix,
+        this.normalizedAPIPrefix,
         this.normalizedPageDataEndpoint,
       );
 
@@ -563,7 +563,7 @@ export class APIServer extends BaseServer {
       const response = createDefaultAPINotFoundResponse(
         this.APIResponseHelpersClass,
         request,
-        this.normalizedApiPrefix,
+        this.normalizedAPIPrefix,
         this.normalizedPageDataEndpoint,
       );
 

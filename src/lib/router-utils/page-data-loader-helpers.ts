@@ -8,7 +8,7 @@ import type {
   PageDataLoaderConfig,
 } from './page-data-loader-types';
 import {
-  applyCustomHttpStatusHandler,
+  applyCustomHTTPStatusHandler,
   createErrorResponse,
   decorateWithSsrOnlyData,
   isSafeRedirect,
@@ -60,12 +60,13 @@ export function processRedirectResponse(
 
   // If preserve_query is true and we have a URL object, preserve query params
   let redirectTarget = target;
-  const currentUrl =
+  const currentURL =
     typeof window !== 'undefined' ? window.location.href : null;
 
-  if (redirectInfo.preserve_query && currentUrl) {
+  if (redirectInfo.preserve_query && currentURL) {
     try {
-      const url = new URL(currentUrl);
+      const url = new URL(currentURL);
+
       // Only append query if the target doesn't already have query params
       if (!target.includes('?') && url.search) {
         redirectTarget = `${target}${url.search}`;
@@ -91,7 +92,7 @@ export function processRedirectResponse(
   }) as unknown as PageResponseEnvelope;
 }
 
-export async function processApiResponse(
+export async function processAPIResponse(
   response: Response,
   config: PageDataLoaderConfig,
 ): Promise<PageResponseEnvelope> {
@@ -137,11 +138,11 @@ export async function processApiResponse(
 
   // extract the response data and check if it is valid json
   let responseData: unknown;
-  let isValidJson = false;
+  let isValidJSON = false;
 
   try {
     responseData = (await response.json()) as unknown;
-    isValidJson = true;
+    isValidJSON = true;
   } catch {
     responseData = null;
   }
@@ -149,15 +150,15 @@ export async function processApiResponse(
   if (DEBUG_PAGE_LOADER) {
     // eslint-disable-next-line no-console
     console.log('response Info', {
-      isValidJson,
+      isValidJSON,
       statusCode,
       responseData,
     });
   }
 
-  if (isValidJson) {
+  if (isValidJSON) {
     // Check for custom status code handlers first
-    const customHandlerResult = applyCustomHttpStatusHandler(
+    const customHandlerResult = applyCustomHTTPStatusHandler(
       statusCode,
       responseData,
       config,
@@ -252,11 +253,11 @@ export async function processApiResponse(
         if (returnTo) {
           const encodedReturnTo = encodeURIComponent(returnTo);
           return redirect(
-            `${config.loginUrl}?${returnToParam}=${encodedReturnTo}`,
+            `${config.loginURL}?${returnToParam}=${encodedReturnTo}`,
           ) as unknown as PageResponseEnvelope;
         }
 
-        return redirect(config.loginUrl) as unknown as PageResponseEnvelope;
+        return redirect(config.loginURL) as unknown as PageResponseEnvelope;
       } else {
         // Convert API responses to page responses
         // This happens when the API returns an "api" type response but we need a "page" type
@@ -401,7 +402,7 @@ export async function processApiResponse(
     }
   } else {
     // Check for custom status code handlers for non-JSON responses
-    const customHandlerResult = applyCustomHttpStatusHandler(
+    const customHandlerResult = applyCustomHTTPStatusHandler(
       statusCode,
       null,
       config,

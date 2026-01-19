@@ -238,7 +238,7 @@ export async function unirendBaseRender(
     helmetContext,
   );
 
-  const appHtml = renderToString(wrappedElement);
+  const appHTML = renderToString(wrappedElement);
 
   // Extract helmet data AFTER rendering
   const { helmet } = helmetContext;
@@ -251,7 +251,7 @@ export async function unirendBaseRender(
 
   return {
     resultType: 'page',
-    html: appHtml,
+    html: appHTML,
     preloadLinks: preloadLinks,
     helmet,
     statusCode: statusCode,

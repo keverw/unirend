@@ -10,12 +10,12 @@ import * as path from 'path';
 const rootDir = path.resolve(__dirname, '..');
 
 // Read the package.json file
-const packageJsonPath = path.join(rootDir, 'package.json');
-const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as {
+const packageJSONPath = path.join(rootDir, 'package.json');
+const packageJSON = JSON.parse(fs.readFileSync(packageJSONPath, 'utf8')) as {
   version: string;
 };
 
-const version = packageJson.version;
+const version = packageJSON.version;
 
 // Read the README.md file
 const readmePath = path.join(rootDir, 'README.md');

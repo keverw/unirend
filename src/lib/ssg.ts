@@ -27,7 +27,7 @@ import { injectContent } from './internal/html-utils/inject';
  * Examples: "///about//", "/about/", "about" → "/about"
  *           "/", "//", "///" → "/"
  */
-function normalizeUrlPath(p: string): string {
+function normalizeURLPath(p: string): string {
   // Collapse multiple slashes into one
   let normalized = p.replace(/\/+/g, '/');
 
@@ -554,7 +554,7 @@ export async function generateSSG(
 
         // For SSG pages, use the path; for SPA pages, derive path from filename
         if (report.page.type === 'ssg') {
-          urlPath = normalizeUrlPath(report.page.path);
+          urlPath = normalizeURLPath(report.page.path);
         } else {
           // SPA pages don't have a path, derive from filename
           // e.g., "dashboard.html" -> "/dashboard", "index.html" -> "/"

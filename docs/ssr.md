@@ -196,6 +196,7 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
   - Note: Validation helpers like `isValidEnvelope` use the base helpers and are not overridden by this option.
 - `get500ErrorPage?: (request, error, isDevelopment) => string | Promise<string>`
   - Provide custom HTML for SSR 500 responses.
+  - **Security Note**: When including dynamic values (error messages, URLs, etc.) in your HTML, always escape them using `escapeHTML` from `unirend/utils` to prevent XSS attacks. React automatically escapes content, but raw HTML generation requires manual escaping.
 - `cookieForwarding?: { allowCookieNames?: string[]; blockCookieNames?: string[] | true }`
   - Controls which cookies are forwarded on SSR fetches and which `Set-Cookie` headers are returned to the browser.
 - `frontendAppConfig?: Record<string, unknown>`
@@ -341,11 +342,11 @@ Handler signature and return type:
   - `params`:
     - `pageType`: the page type string you registered
     - `version`: version number used for this invocation
-    - `invocation_origin`: `"http" | "internal"`
-    - `route_params`: dynamic route params
-    - `query_params`: URL query params
-    - `request_path`: resolved request path used by the loader
-    - `original_url`: full original URL
+    - `invocationOrigin`: `"http" | "internal"`
+    - `routeParams`: dynamic route params
+    - `queryParams`: URL query params
+    - `requestPath`: resolved request path used by the loader
+    - `originalURL`: full original URL
 
 Guidance:
 
@@ -446,7 +447,66 @@ server.pageDataHandler.register('protected-page', async (request) => {
 
 ### Short-Circuit Data Handlers
 
-When page data loader handlers are registered on the same `SSRServer` instance instead of a standalone API server, SSR can directly invoke the handler (short-circuit) instead of performing an HTTP fetch. The data loader passes the same routing context (`route_params`, `query_params`, `request_path`, `original_url`) to ensure consistent behavior. Use the HTTP path when you need cookie propagation to/from a backend API.
+When page data loader handlers are registered on the same `SSRServer` instance instead of a standalone API server, SSR **automatically** invokes the handler directly (short-circuit) instead of performing an HTTP fetch **during the initial server-side render**. The data loader passes the same routing context (converted from POST body `route_params`, `query_params`, `request_path`, `original_url` to handler params `routeParams`, `queryParams`, `requestPath`, `originalURL`) to ensure consistent behavior.
+
+**When Short-Circuit Happens:**
+
+- ✅ **Initial SSR page load**: When the server renders the page, short-circuit is used if a handler is registered on the SSR server
+- ❌ **Client-side navigation**: After hydration, browser navigations always use HTTP fetch (even if handler is on SSR server)
+- ❌ **No opt-out**: Short-circuit is automatic during SSR - you cannot force HTTP fetch if a handler is registered on the SSR server
+
+**Architecture Options:**
+
+1. **Single Server (Short-circuit during SSR):**
+   - Register handlers on your `SSRServer` using `server.pageDataHandler.register()`
+   - **Initial page load (SSR)**: Framework automatically short-circuits (no HTTP fetch)
+   - **Client-side navigation**: Browser makes HTTP POST to the same server
+   - Handler receives the original Fastify request with full cookie access
+   - Faster initial renders (no network overhead), simpler deployment (single process)
+   - Use when you don't need architectural separation
+
+2. **Separate API Server (Always HTTP fetch):**
+   - Run a standalone `APIServer` on a different port/host
+   - Register handlers on the API server using `apiServer.pageDataHandler.register()`
+   - Configure your SSR page data loader config with `APIBaseURL` pointing to the API server
+   - **Initial page load (SSR)**: SSR server makes HTTP POST to API server
+   - **Client-side navigation**: Browser makes HTTP POST to API server
+   - Cookies are automatically forwarded in both directions via HTTP headers
+   - Use when you need to scale or deploy SSR and API separately
+
+**Cookie Access:**
+
+Both architectures have full cookie access - there's no capability difference:
+
+- **Short-circuit (SSR initial load)**: Handler accesses `request.cookies` directly (same Fastify request from browser)
+- **HTTP fetch (client navigation OR separate API server)**: Cookies automatically forwarded via `Cookie` header; responses forwarded back via `Set-Cookie`
+
+To use cookies, register the `cookies` plugin (see [cookies plugin docs](./built-in-plugins/cookies.md)):
+
+```typescript
+import { cookies } from 'unirend/plugins';
+
+const server = serveSSRDev(paths, {
+  plugins: [cookies({ secret: process.env.COOKIE_SECRET })],
+});
+
+// In your handler (works identically for both architectures)
+server.pageDataHandler.register('profile', (request, reply) => {
+  // Read cookies
+  const sessionId = (request as any).cookies?.sid;
+
+  // Set cookies
+  reply.setCookie?.('theme', 'dark', {
+    path: '/',
+    httpOnly: false,
+    sameSite: 'lax',
+  });
+
+  return /* envelope */;
+});
+```
+
+**Note:** The framework handles the architecture choice automatically - you don't need to change your handler code when switching between single-server and separate-server deployments.
 
 ### Custom API Routes
 
@@ -500,10 +560,10 @@ Notes:
     - `endpoint`: endpoint segment (after version/prefix)
     - `version`: numeric version used
     - `fullPath`: full registered path
-    - `route_params`: dynamic route params
-    - `query_params`: URL query params
-    - `request_path`: path without query
-    - `original_url`: full original URL
+    - `routeParams`: dynamic route params
+    - `queryParams`: URL query params
+    - `requestPath`: path without query
+    - `originalURL`: full original URL
 
 ### Param Source Parity (Data Loader vs API Routes):
 
@@ -718,6 +778,7 @@ Either `api` or `web` handler can be omitted — missing handlers fall through t
 import { serveAPI } from 'unirend/server';
 import { staticContent } from 'unirend/plugins';
 import { APIResponseHelpers } from 'unirend/api-envelope';
+import { escapeHTML } from 'unirend/utils';
 
 const server = serveAPI({
   apiEndpoints: { apiEndpointPrefix: '/api' },
@@ -741,13 +802,14 @@ const server = serveAPI({
       }),
 
     // Web requests (everything else) get HTML
+    // ⚠️ Security: Always escape dynamic values when returning HTML to prevent XSS
     web: (request) => ({
       contentType: 'html',
       content: `<!DOCTYPE html>
         <html>
           <body>
             <h1>404 - Page Not Found</h1>
-            <p>The page ${request.url} could not be found.</p>
+            <p>The page ${escapeHTML(request.url)} could not be found.</p>
             <a href="/">Go home</a>
           </body>
         </html>`,
@@ -765,13 +827,14 @@ const server = serveAPI({
         errorMessage: isDev ? error.message : 'Internal server error',
       }),
 
+    // ⚠️ Security: Always escape dynamic values when returning HTML to prevent XSS
     web: (request, error, isDev) => ({
       contentType: 'html',
       content: `<!DOCTYPE html>
         <html>
           <body>
             <h1>500 - Server Error</h1>
-            ${isDev ? `<pre>${error.stack}</pre>` : '<p>Something went wrong.</p>'}
+            ${isDev ? `<pre>${escapeHTML(error.stack || '')}</pre>` : '<p>Something went wrong.</p>'}
           </body>
         </html>`,
       statusCode: 500,
@@ -789,6 +852,8 @@ interface WebErrorResponse {
   statusCode?: number; // defaults to 500 for errors, 404 for not found
 }
 ```
+
+**Security Note**: When returning HTML with dynamic values (URLs, error messages, etc.), always escape them using `escapeHTML` from `unirend/utils` to prevent XSS attacks. React components automatically escape content, but raw HTML generation in error handlers requires manual escaping.
 
 **API vs Web Detection:**
 

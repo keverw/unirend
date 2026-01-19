@@ -136,7 +136,7 @@ function formatNode(
   return `${indent}${openTag}</${tagName}>`;
 }
 
-export function prettifyHtml(
+export function prettifyHTML(
   $: cheerio.Root | cheerio.CheerioAPI,
   containerID = 'root',
 ): string {
@@ -263,7 +263,7 @@ export async function processTemplate(
 
     return {
       success: true,
-      html: prettifyHtml($, containerID),
+      html: prettifyHTML($, containerID),
     };
   } catch (error) {
     return {

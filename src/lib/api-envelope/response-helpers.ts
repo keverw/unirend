@@ -265,7 +265,7 @@ export class APIResponseHelpers {
    * @param reply - Fastify reply object
    * @returns true if body is valid, otherwise false (error already sent)
    */
-  public static ensureJsonBody(
+  public static ensureJSONBody(
     request: FastifyRequest,
     reply: FastifyReply,
   ): boolean {
@@ -273,7 +273,7 @@ export class APIResponseHelpers {
       const errorResponse = this.createAPIErrorResponse({
         request,
         statusCode: 400,
-        errorCode: 'invalid_request',
+        errorCode: 'invalid_request_body_format',
         errorMessage:
           'Request body is required and must be a valid JSON object',
       });

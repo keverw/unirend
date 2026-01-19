@@ -74,10 +74,16 @@ Use `server.registerWebSocketHandler({ path, preValidate?, handler })` on either
 ```ts
 server.registerWebSocketHandler({
   path: '/ws/echo',
-  preValidate: async (request) => {
-    const ok = (request.query as Record<string, string>)['token'] === 'yes';
+  preValidate: async (request, params) => {
+    // params provides pre-extracted routing context:
+    // - params.queryParams: query parameters as Record<string, unknown>
+    // - params.routeParams: route parameters as Record<string, unknown>
+    // - params.path: path without query string
+    // - params.originalURL: full URL including query string
 
-    if (!ok) {
+    const token = (params.queryParams['token'] || '') as string;
+
+    if (token !== 'yes') {
       return {
         action: 'reject',
         envelope: APIResponseHelpers.createAPIErrorResponse({
@@ -91,7 +97,10 @@ server.registerWebSocketHandler({
 
     return { action: 'upgrade', data: { authenticated: true } };
   },
-  handler: (socket, request, upgradeData) => {
+  handler: (socket, request, params, upgradeData) => {
+    console.log('WebSocket connected at path:', params.path);
+    console.log('Query params:', params.queryParams);
+
     socket.send(JSON.stringify({ type: 'welcome', upgradeData }));
     socket.on('message', (msg) => socket.send(msg.toString()));
 
@@ -109,12 +118,19 @@ server.registerWebSocketHandler({
 
 ### preValidate: upgrade vs reject
 
-`preValidate(request)` can return one of:
+`preValidate(request, params)` receives:
+
+- `request`: The Fastify request (for cookies, headers, IP, etc.)
+- `params`: Pre-extracted routing context (queryParams, routeParams, path, originalURL)
+
+It can return one of:
 
 - `{ action: "upgrade", data?: Record<string, unknown> }` — allow the upgrade, `data` is passed to your handler
 - `{ action: "reject", envelope: APIResponseEnvelope }` — send the JSON envelope (with your status code) and do not upgrade the connection
 
 If `preValidate` throws, a standardized 500 envelope is sent.
+
+**Note:** Like API route handlers (and unlike page data handlers where params come from the frontend loader POST body), WebSocket `params` are extracted from the Fastify request. This provides pre-extracted routing information while keeping `request` available for transport-level data (cookies, headers, IP). Using `params` instead of extracting directly from `request` maintains consistency across handler types, making it easier to move logic between them. See [Param Source Parity](./ssr.md#param-source-parity-data-loader-vs-api-routes) for details on the differences between handler types.
 
 ### Handler signature
 
@@ -122,11 +138,17 @@ If `preValidate` throws, a standardized 500 envelope is sent.
 type WebSocketHandler = (
   socket: WebSocket,
   request: FastifyRequest,
+  params: WebSocketHandlerParams,
   upgradeData?: Record<string, unknown>,
 ) => void | Promise<void>;
 ```
 
-The `upgradeData` is whatever you returned from `preValidate` when `action === "upgrade"`.
+Parameters:
+
+- `socket`: The WebSocket connection
+- `request`: The Fastify request (for cookies, headers, IP, etc.)
+- `params`: Pre-extracted routing context (queryParams, routeParams, path, originalURL)
+- `upgradeData`: Whatever you returned from `preValidate` when `action === "upgrade"`
 
 ### Socket events
 
