@@ -36,7 +36,7 @@
  *   loginURL: '/auth/login',
  *   returnToParam: 'redirect_to', // Custom query param name for login redirects
  *   isDevelopment: true, // Explicitly set for Bun/Deno compatibility
- *   timeoutMs: 15000, // Custom timeout in milliseconds (default: 10000)
+ *   timeoutMS: 15000, // Custom timeout in milliseconds (default: 10000)
  *   generateFallbackRequestID: (context) => `myapp_${context}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
  *   connectionErrorMessages: {
  *     server: 'API service unavailable. Please try again later.',
@@ -244,7 +244,7 @@ export function createDefaultPageDataLoaderConfig(
     loginURL: DEFAULT_LOGIN_URL,
     returnToParam: DEFAULT_RETURN_TO_PARAM,
     generateFallbackRequestID: DEFAULT_FALLBACK_REQUEST_ID_GENERATOR,
-    timeoutMs: DEFAULT_TIMEOUT_MS,
+    timeoutMS: DEFAULT_TIMEOUT_MS,
   };
 }
 
@@ -374,7 +374,7 @@ async function pageDataLoader({
             originalRequest: SSRHelpers.fastifyRequest,
             controlledReply: SSRHelpers.controlledReply,
             pageType,
-            timeoutMs: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+            timeoutMS: config.timeoutMS ?? DEFAULT_TIMEOUT_MS,
             // Pass the exact same data that would be in the POST body (converted from snake_case)
             // Extract from requestBody (React Router context from frontend loader)
             // Fallback to empty values if requestBody is malformed (defensive programming)
@@ -453,9 +453,9 @@ async function pageDataLoader({
                       ...(isHandlerTimeout
                         ? {
                             errorCode: 'handler_timeout',
-                            timeoutMs: (
-                              internalError as unknown as { timeoutMs?: number }
-                            ).timeoutMs,
+                            timeoutMS: (
+                              internalError as unknown as { timeoutMS?: number }
+                            ).timeoutMS,
                           }
                         : {}),
                     }
@@ -514,7 +514,7 @@ async function pageDataLoader({
           body: JSON.stringify(requestBody),
           redirect: 'manual', // Don't automatically follow redirects
         },
-        config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        config.timeoutMS ?? DEFAULT_TIMEOUT_MS,
       );
 
       const result = await processAPIResponse(response, config);
@@ -568,7 +568,7 @@ async function pageDataLoader({
           credentials: 'include', // This allows cookies to be sent with the request
           redirect: 'manual', // Don't automatically follow redirects
         },
-        config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        config.timeoutMS ?? DEFAULT_TIMEOUT_MS,
       );
 
       return processAPIResponse(response, config);
@@ -630,7 +630,7 @@ async function pageDataLoader({
  *   here applies to the entire handler execution
  * - The handler receives `LocalPageHandlerParams` (no Fastify request object)
  * - `invocationOrigin` is set to "local" for debugging
- * - Timeout uses `config.timeoutMs` (0 disables); timeout message mirrors the
+ * - Timeout uses `config.timeoutMS` (0 disables); timeout message mirrors the
  *   HTTP path by using `connectionErrorMessages.server` when available
  */
 async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
@@ -657,7 +657,7 @@ async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
   };
 
   // Configure timeout (0 disables)
-  const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutMS = config.timeoutMS ?? DEFAULT_TIMEOUT_MS;
 
   // Defer invocation to the microtask queue and normalize to a Promise.
   // Using Promise.resolve().then(() => ...) ensures synchronous throws from
@@ -667,7 +667,7 @@ async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
 
   // Attach a no-op catch when using a timeout to prevent a possible
   // unhandledRejection if the timeout "wins" and the handler later rejects.
-  if (timeoutMs && timeoutMs > 0) {
+  if (timeoutMS && timeoutMS > 0) {
     void invocation.catch(() => {});
   }
 
@@ -677,7 +677,7 @@ async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
   // Build a single promise that either resolves to the handler result or rejects on timeout
   const resultPromise: Promise<PageResponseEnvelope | APIResponseEnvelope> =
     // Check if a timeout is specified
-    !timeoutMs || timeoutMs <= 0
+    !timeoutMS || timeoutMS <= 0
       ? // No timeout specified, return the handler result immediately
         // Handler promise when no timer is specified
         (invocation as Promise<PageResponseEnvelope | APIResponseEnvelope>)
@@ -688,12 +688,12 @@ async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
           // Timer promise
           new Promise<never>((_, reject) => {
             timeoutID = setTimeout(() => {
-              const error = new Error(`Request timeout after ${timeoutMs}ms`);
+              const error = new Error(`Request timeout after ${timeoutMS}ms`);
               (error as unknown as { errorCode: string }).errorCode =
                 'handler_timeout';
-              (error as unknown as { timeoutMs: number }).timeoutMs = timeoutMs;
+              (error as unknown as { timeoutMS: number }).timeoutMS = timeoutMS;
               reject(error);
-            }, timeoutMs);
+            }, timeoutMS);
           }),
         ]) as Promise<PageResponseEnvelope | APIResponseEnvelope>);
 
@@ -773,9 +773,9 @@ async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
                 ...(isHandlerTimeout
                   ? {
                       errorCode: 'handler_timeout',
-                      timeoutMs: (
-                        internalError as unknown as { timeoutMs?: number }
-                      ).timeoutMs,
+                      timeoutMS: (
+                        internalError as unknown as { timeoutMS?: number }
+                      ).timeoutMS,
                     }
                   : {}),
               }

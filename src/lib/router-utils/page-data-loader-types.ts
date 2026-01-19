@@ -105,7 +105,7 @@ export interface PageDataLoaderConfig {
    *
    * @default 10000
    */
-  timeoutMs?: number;
+  timeoutMS?: number;
   /**
    * Function to generate fallback request IDs when none is provided in error responses
    * Called when creating error responses that don't have a request_id from the API
@@ -247,7 +247,7 @@ export type LocalPageDataLoaderConfig = Pick<
   | 'errorDefaults'
   | 'isDevelopment'
   | 'connectionErrorMessages'
-  | 'timeoutMs'
+  | 'timeoutMS'
   | 'generateFallbackRequestID'
   | 'allowedRedirectOrigins'
   | 'transformErrorMeta'

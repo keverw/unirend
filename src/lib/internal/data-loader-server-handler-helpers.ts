@@ -346,7 +346,7 @@ export class DataLoaderServerHandlerHelpers {
     controlledReply: ControlledReply;
     pageType: string;
     /** Timeout in milliseconds; if omitted or <= 0, no timeout is applied */
-    timeoutMs?: number;
+    timeoutMS?: number;
     /** Route params (from React Router via POST body) */
     routeParams: Record<string, string>;
     /** Query params (from React Router via POST body) */
@@ -359,7 +359,7 @@ export class DataLoaderServerHandlerHelpers {
     const {
       originalRequest,
       pageType,
-      timeoutMs,
+      timeoutMS,
       routeParams,
       queryParams,
       requestPath,
@@ -405,7 +405,7 @@ export class DataLoaderServerHandlerHelpers {
 
     // Attach a no-op catch when using a timeout to prevent a possible
     // unhandledRejection if the timeout "wins" and the handler later rejects.
-    if (timeoutMs && timeoutMs > 0) {
+    if (timeoutMS && timeoutMS > 0) {
       void invocation.catch(() => {});
     }
 
@@ -417,7 +417,7 @@ export class DataLoaderServerHandlerHelpers {
       PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M>
     > =
       // Check if a timeout is specified
-      !timeoutMs || timeoutMs <= 0
+      !timeoutMS || timeoutMS <= 0
         ? // No timeout specified, return the handler result immediately
           // Handler promise when no timer is specified
           (invocation as Promise<
@@ -430,16 +430,16 @@ export class DataLoaderServerHandlerHelpers {
             // Timer promise
             new Promise<never>((_, reject) => {
               timeoutID = setTimeout(() => {
-                const error = new Error(`Request timeout after ${timeoutMs}ms`);
+                const error = new Error(`Request timeout after ${timeoutMS}ms`);
                 (error as unknown as { pageType: string }).pageType = pageType;
                 (error as unknown as { version: number }).version =
                   latestVersion;
-                (error as unknown as { timeoutMs: number }).timeoutMs =
-                  timeoutMs;
+                (error as unknown as { timeoutMS: number }).timeoutMS =
+                  timeoutMS;
                 (error as unknown as { errorCode: string }).errorCode =
                   'handler_timeout';
                 reject(error);
-              }, timeoutMs);
+              }, timeoutMS);
             }),
           ]) as Promise<
             PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M>

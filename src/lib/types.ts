@@ -895,7 +895,7 @@ export interface SSGPageReport {
   /** Error details (if status is 'error') */
   errorDetails?: string;
   /** Time taken to generate the page in milliseconds */
-  timeMs: number;
+  timeMS: number;
 }
 
 /**
@@ -913,7 +913,7 @@ export interface SSGPagesReport {
   /** Number of pages not found (404) */
   notFoundCount: number;
   /** Total time taken for the entire generation process in milliseconds */
-  totalTimeMs: number;
+  totalTimeMS: number;
   /** Directory where files were generated */
   buildDir: string;
 }

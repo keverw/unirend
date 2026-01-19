@@ -72,7 +72,7 @@ function createSSGReport({
       successCount,
       errorCount,
       notFoundCount,
-      totalTimeMs: Date.now() - startTime,
+      totalTimeMS: Date.now() - startTime,
       buildDir,
     },
   };
@@ -379,7 +379,7 @@ export async function generateSSG(
         const writeResult = await writeHTMLFile(outputPath, htmlToWrite);
 
         const pageEndedAt = Date.now();
-        const timeMs = pageEndedAt - pageStartedAt;
+        const timeMS = pageEndedAt - pageStartedAt;
 
         if (writeResult.success) {
           // Check if the page rendered with a 404 status
@@ -391,10 +391,10 @@ export async function generateSSG(
               page,
               status: 'not_found',
               outputPath,
-              timeMs,
+              timeMS,
             });
 
-            logger.warn(`⚠ Generated 404 page ${page.filename} (${timeMs}ms)`);
+            logger.warn(`⚠ Generated 404 page ${page.filename} (${timeMS}ms)`);
           } else {
             // Normal success
             successCount++;
@@ -403,10 +403,10 @@ export async function generateSSG(
               page,
               status: 'success',
               outputPath,
-              timeMs,
+              timeMS,
             });
 
-            logger.info(`✓ Generated ${page.filename} (${timeMs}ms)`);
+            logger.info(`✓ Generated ${page.filename} (${timeMS}ms)`);
           }
         } else {
           // Write failed - treat as error
@@ -416,7 +416,7 @@ export async function generateSSG(
             page,
             status: 'error',
             errorDetails: writeResult.error,
-            timeMs,
+            timeMS,
           });
 
           logger.error(
@@ -426,7 +426,7 @@ export async function generateSSG(
       } else {
         // Handle all non-page results (redirects, errors, unexpected types)
         const pageEndedAt = Date.now();
-        const timeMs = pageEndedAt - pageStartedAt;
+        const timeMS = pageEndedAt - pageStartedAt;
         let errorDetails: string;
 
         if (renderResult.resultType === 'response') {
@@ -450,17 +450,17 @@ export async function generateSSG(
           page,
           status: 'error',
           errorDetails,
-          timeMs,
+          timeMS,
         });
 
         logger.error(
-          `✗ Error on page ${page.path}: ${errorDetails} (${timeMs}ms)`,
+          `✗ Error on page ${page.path}: ${errorDetails} (${timeMS}ms)`,
         );
       }
     } else if (page.type === 'spa') {
       // Generate SPA page with custom metadata but no server-side content
       const pageEndedAt = Date.now();
-      const timeMs = pageEndedAt - pageStartedAt;
+      const timeMS = pageEndedAt - pageStartedAt;
 
       // Build head content from SPA page metadata
       let headInject = '';
@@ -503,10 +503,10 @@ export async function generateSSG(
           page,
           status: 'success',
           outputPath,
-          timeMs,
+          timeMS,
         });
 
-        logger.info(`✓ Generated SPA ${page.filename} (${timeMs}ms)`);
+        logger.info(`✓ Generated SPA ${page.filename} (${timeMS}ms)`);
       } else {
         // Write failed - treat as error
         errorCount++;
@@ -515,7 +515,7 @@ export async function generateSSG(
           page,
           status: 'error',
           errorDetails: writeResult.error,
-          timeMs,
+          timeMS,
         });
 
         logger.error(
@@ -525,7 +525,7 @@ export async function generateSSG(
     } else {
       // Handle unknown page type
       const pageEndedAt = Date.now();
-      const timeMs = pageEndedAt - pageStartedAt;
+      const timeMS = pageEndedAt - pageStartedAt;
 
       errorCount++;
 
@@ -533,11 +533,11 @@ export async function generateSSG(
         page,
         status: 'error',
         errorDetails: `Unknown page type: ${(page as unknown as { type?: string }).type || 'undefined'}`,
-        timeMs,
+        timeMS,
       });
 
       logger.error(
-        `✗ Unknown page type for ${(page as unknown as { filename?: string }).filename || 'unknown'}: ${(page as unknown as { type?: string }).type || 'undefined'} (${timeMs}ms)`,
+        `✗ Unknown page type for ${(page as unknown as { filename?: string }).filename || 'unknown'}: ${(page as unknown as { type?: string }).type || 'undefined'} (${timeMS}ms)`,
       );
     }
   }

@@ -312,6 +312,7 @@ describe('staticContent plugin', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
       mockFs.readFile.mockResolvedValue(fileContent);
@@ -366,6 +367,7 @@ describe('staticContent plugin', () => {
               ? fileContent1.length
               : fileContent2.length,
             mtime: new Date(),
+            // eslint-disable-next-line @typescript-eslint/naming-convention
             mtimeMs: Date.now(),
           } as fs.Stats);
         } else {
@@ -441,6 +443,7 @@ describe('staticContent plugin', () => {
               ? fileContent1.length
               : fileContent2.length,
             mtime: new Date(),
+            // eslint-disable-next-line @typescript-eslint/naming-convention
             mtimeMs: Date.now(),
           } as fs.Stats);
         } else {
@@ -510,6 +513,7 @@ describe('staticContent plugin', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
       mockFs.readFile.mockResolvedValue(fileContent);
@@ -598,6 +602,7 @@ describe('staticContent plugin', () => {
             isFile: () => true,
             size: fileContent.length,
             mtime: new Date('2024-01-01'),
+            // eslint-disable-next-line @typescript-eslint/naming-convention
             mtimeMs: new Date('2024-01-01').getTime(),
           } as fs.Stats);
         }
@@ -665,6 +670,7 @@ describe('staticContent plugin', () => {
             isFile: () => true,
             size: fileContent.length,
             mtime: new Date('2024-01-01'),
+            // eslint-disable-next-line @typescript-eslint/naming-convention
             mtimeMs: new Date('2024-01-01').getTime(),
           } as fs.Stats);
         }

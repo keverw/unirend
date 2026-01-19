@@ -126,6 +126,7 @@ describe('StaticContentCache', () => {
         isFile: () => false,
         size: 0,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -142,6 +143,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -164,6 +166,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -217,6 +220,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -243,6 +247,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -315,6 +320,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -345,6 +351,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -375,6 +382,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -402,6 +410,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -429,6 +438,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -498,6 +508,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -528,6 +539,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -599,6 +611,7 @@ describe('StaticContentCache', () => {
           isFile: () => true,
           size: fileContent.length,
           mtime: new Date(),
+          // eslint-disable-next-line @typescript-eslint/naming-convention
           mtimeMs: Date.now(),
         } as fs.Stats);
 
@@ -627,6 +640,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -653,6 +667,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -680,6 +695,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -710,6 +726,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -740,6 +757,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -771,6 +789,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -804,6 +823,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -835,6 +855,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -862,6 +883,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -888,6 +910,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -910,6 +933,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -934,6 +958,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -979,6 +1004,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -1006,6 +1032,7 @@ describe('StaticContentCache', () => {
         isFile: () => true,
         size: fileContent.length,
         mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         mtimeMs: Date.now(),
       } as fs.Stats);
 
@@ -1103,6 +1130,7 @@ describe('StaticContentCache', () => {
           isFile: () => true,
           size: fileContent.length,
           mtime: new Date(),
+          // eslint-disable-next-line @typescript-eslint/naming-convention
           mtimeMs: Date.now(),
         } as fs.Stats);
         mockFs.readFile.mockResolvedValue(fileContent);
@@ -1168,6 +1196,7 @@ describe('StaticContentCache', () => {
           isFile: () => true,
           size: fileContent1.length,
           mtime: new Date(),
+          // eslint-disable-next-line @typescript-eslint/naming-convention
           mtimeMs: Date.now(),
         } as fs.Stats);
         mockFs.readFile.mockResolvedValue(fileContent1);
@@ -1224,6 +1253,7 @@ describe('StaticContentCache', () => {
           isFile: () => true,
           size: fileContent.length,
           mtime: new Date(),
+          // eslint-disable-next-line @typescript-eslint/naming-convention
           mtimeMs: Date.now(),
         } as fs.Stats);
         mockFs.readFile.mockResolvedValue(fileContent);

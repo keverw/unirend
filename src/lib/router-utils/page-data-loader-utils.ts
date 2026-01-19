@@ -79,21 +79,21 @@ export function isSafeRedirect(
  *
  * @param url - The URL to fetch
  * @param options - Fetch options (headers, method, body, etc.)
- * @param timeoutMs - Timeout in milliseconds (0 to disable timeout)
+ * @param timeoutMS - Timeout in milliseconds (0 to disable timeout)
  * @returns Promise that resolves to Response or rejects with timeout/network error
  */
 export async function fetchWithTimeout(
   url: string,
   options: RequestInit = {},
-  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  timeoutMS: number = DEFAULT_TIMEOUT_MS,
 ): Promise<Response> {
   // If timeout is 0 or negative, use regular fetch without timeout
-  if (timeoutMs <= 0) {
+  if (timeoutMS <= 0) {
     return fetch(url, options);
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => controller.abort(), timeoutMS);
 
   try {
     const response = await fetch(url, {
@@ -107,7 +107,7 @@ export async function fetchWithTimeout(
 
     // Check if the error is due to abortion (timeout)
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`Request timeout after ${timeoutMs}ms`);
+      throw new Error(`Request timeout after ${timeoutMS}ms`);
     }
 
     // Re-throw other errors (network issues, etc.)

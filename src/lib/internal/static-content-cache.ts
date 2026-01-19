@@ -12,6 +12,7 @@ interface MinimalStatInfo {
   isFile: boolean;
   size: number;
   mtime: Date;
+  // eslint-disable-next-line @typescript-eslint/naming-convention
   mtimeMs: number;
 }
 
@@ -272,6 +273,7 @@ export class StaticContentCache {
             isFile: true, // We know it's a file at this point
             size: fullStat.size,
             mtime: fullStat.mtime,
+            // eslint-disable-next-line @typescript-eslint/naming-convention
             mtimeMs: fullStat.mtimeMs,
           };
 
