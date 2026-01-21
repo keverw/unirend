@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { FileUploadsConfig } from '../types';
 import multipart from '@fastify/multipart';
-import { APIResponseHelpers } from '../api-envelope/response-helpers';
+import { getAPIResponseHelpersClass } from './api-response-helpers-utils';
 
 /**
  * Normalize a URL path for route matching
@@ -28,8 +28,15 @@ function normalizePath(path: string): string {
 
 /**
  * Check if a URL matches a route pattern (supports wildcards)
+ *
+ * Wildcard patterns:
+ * - Single asterisk (*) matches exactly one path segment
+ *   Example: "/api/star/upload" matches "/api/foo/upload" but NOT "/api/foo/bar/upload"
+ * - Double asterisk (**) matches zero or more path segments
+ *   Example: "/api/**" matches "/api", "/api/foo", "/api/foo/bar", etc.
+ *
  * @param url - The URL to check (will be normalized before matching)
- * @param pattern - The pattern to match against (will be normalized, supports * wildcard)
+ * @param pattern - The pattern to match against (will be normalized, supports * and ** wildcards)
  * @returns true if the URL matches the pattern
  */
 export function matchesRoutePattern(url: string, pattern: string): boolean {
@@ -45,61 +52,52 @@ export function matchesRoutePattern(url: string, pattern: string): boolean {
     return false;
   } else {
     // Wildcard pattern - convert to regex
-    // Example: /api/workspace/*/upload -> /api/workspace/[^/]+/upload
-    const regexPattern = normalizedPattern
-      .split('/')
-      .map((segment) =>
-        segment === '*'
-          ? '[^/]+'
-          : segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
-      )
-      .join('/');
+    // Process segments to handle * and ** wildcards
+    const segments = normalizedPattern.split('/');
+    const regexParts: string[] = [];
+
+    for (let i = 0; i < segments.length; i++) {
+      const segment = segments[i];
+      const isLast = i === segments.length - 1;
+
+      if (segment === '**') {
+        if (isLast) {
+          // ** at end: match "/" followed by anything, or nothing at all
+          regexParts.push('(?:/.*)?');
+        } else {
+          // ** in middle: match anything (including slashes) non-greedy
+          regexParts.push('(?:.*?)');
+        }
+      } else if (segment === '*') {
+        // * matches exactly one path segment (no slashes)
+        regexParts.push('[^/]+');
+      } else {
+        // Escape regex special characters for literal matching
+        regexParts.push(segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      }
+    }
+
+    // Join with slashes, but handle ** specially (it already includes slash handling)
+    let regexPattern = '';
+    for (const [i, part] of regexParts.entries()) {
+      const originalSegment = segments[i];
+
+      if (i > 0 && originalSegment !== '**' && segments[i - 1] !== '**') {
+        regexPattern += '/';
+      } else if (
+        i > 0 &&
+        originalSegment !== '**' &&
+        segments[i - 1] === '**'
+      ) {
+        // After ** in middle, need a slash before the next segment
+        regexPattern += '/';
+      }
+      regexPattern += part;
+    }
 
     const regex = new RegExp(`^${regexPattern}$`);
     return regex.test(normalizedPath);
   }
-}
-
-/**
- * Get the APIResponseHelpersClass to use for creating error responses.
- *
- * Priority:
- * 1. Custom class decorated on the request (if available)
- * 2. Default APIResponseHelpers class
- *
- * @param request - Fastify request object
- * @returns The helpers class to use
- */
-function getAPIResponseHelpersClass(request: FastifyRequest): {
-  createAPIErrorResponse: (params: {
-    request: FastifyRequest;
-    statusCode: number;
-    errorCode: string;
-    errorMessage: string;
-    errorDetails?: Record<string, unknown>;
-  }) => unknown;
-} {
-  // Try to get custom class from request decoration
-  const decoratedClass = (
-    request as FastifyRequest & {
-      APIResponseHelpersClass?: {
-        createAPIErrorResponse: (params: {
-          request: FastifyRequest;
-          statusCode: number;
-          errorCode: string;
-          errorMessage: string;
-          errorDetails?: Record<string, unknown>;
-        }) => unknown;
-      };
-    }
-  ).APIResponseHelpersClass;
-
-  if (decoratedClass?.createAPIErrorResponse) {
-    return decoratedClass;
-  }
-
-  // Fall back to default helpers
-  return APIResponseHelpers;
 }
 
 /**

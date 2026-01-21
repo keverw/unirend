@@ -17,15 +17,8 @@ Unirend provides a unified API for handling multipart uploads with streaming lim
     - [Background processing (video, thumbnails, OCR, etc.)](#background-processing-video-thumbnails-ocr-etc)
 - [Errors and abort reasons](#errors-and-abort-reasons)
   - [Abort reasons](#abort-reasons)
-  - [Timeout and Abort Handling](#timeout-and-abort-handling)
-    - [How Timeouts Work](#how-timeouts-work)
-    - [Stream Destruction and Processor Interruption](#stream-destruction-and-processor-interruption)
-    - [Connection Break Detection](#connection-break-detection)
-    - [Manual Abort Checks](#manual-abort-checks)
+  - [Timeout and connection handling](#timeout-and-connection-handling)
   - [Common HTTP statuses / error codes](#common-http-statuses--error-codes)
-- [Implementation details](#implementation-details)
-  - [Cleanup handler execution guarantees](#cleanup-handler-execution-guarantees)
-  - [Iterator drain timeout protection](#iterator-drain-timeout-protection)
 - [API reference](#api-reference)
   - [`FileUploadHelpers.processUpload(config)`](#fileuploadhelpersprocessuploadconfig)
 - [Server configuration](#server-configuration)
@@ -159,52 +152,25 @@ server.api.post('upload/gallery', async (request, reply) => {
 
 ### Cleanup on abort
 
-Use `context.onCleanup(fn)` inside the processor to register per-file cleanup. Cleanup handlers run automatically when uploads fail, including **when your processor throws an error** (pipe breaks, storage failures, etc.).
+Use `context.onCleanup(fn)` inside the processor to register cleanup. Cleanup runs automatically when uploads fail for ANY reason:
 
-**When cleanup handlers execute:**
-
-- Registered via `context.onCleanup()` inside your processor function
-- Execute automatically when upload fails for ANY reason:
-  - **Processor throws an error** (storage failure, pipe break, stream errors)
-  - File exceeds size limit during streaming
-  - MIME type validation fails
-  - Connection broken or timeout
-  - Batch upload: any file fails (fail-fast)
-- Always run **after** the processor that registered them completes (or is interrupted)
-- This prevents race conditions (cleanup won't delete resources the processor is still creating/uploading)
-- **Called for side effects only** — any return value is ignored by the framework
-
-**Cleanup timing guarantees (race condition prevention):**
-
-In batch uploads, cleanup handlers run **immediately** when a file's processing phase ends with a failure or abort detection. This prevents cleanup delays that could occur in the following scenario:
-
-1. File N's processor is running
-2. Timeout/connection break occurs during processor execution
-3. File N's processor completes successfully (it already read all needed data)
-4. **Abort check runs immediately after processor completes**
-5. File N's cleanup runs **immediately** (before file N+1 starts)
-6. All previously-successful files (0 through N-1) have their cleanup run when the batch error is returned
-
-This guarantees that:
-
-- Cleanup for a failed file runs immediately (not delayed until the batch completes)
-- Cleanup for all previously-successful files runs when the batch fails
-- No cleanup handler runs twice
-- Resources are released as early as possible
+- Processor throws an error (storage failure, pipe break, etc.)
+- File exceeds size limit
+- MIME type validation fails
+- Connection broken or timeout
+- Batch upload: any file fails (fail-fast)
 
 ```ts
 processor: async (fileStream, metadata, context) => {
-  const tempPath = `./uploads/tmp/${context.fileIndex}-${metadata.filename}`;
+  const tempPath = `./uploads/tmp/${metadata.filename}`;
 
-  // Cleanup runs when upload fails for ANY reason (including if this processor throws!)
+  // Cleanup runs automatically on ANY failure (including processor errors)
   context.onCleanup(async (reason, details) => {
-    // reason: 'processor_error' | 'size_exceeded' | 'mime_type_rejected' | 'timeout' | 'connection_broken' | 'batch_file_failed' | 'files_limit_exceeded' | 'no_files_provided'
-    // details: contextual metadata (fileIndex, filename, error message, etc.)
+    // reason: 'processor_error' | 'size_exceeded' | 'mime_type_rejected' | 'timeout' | etc.
     await safeDelete(tempPath);
   });
 
-  // If writeSomewhere throws (storage failure, network error, etc.),
-  // the cleanup handler above WILL run after this processor completes
+  // If this throws, cleanup WILL run
   await writeSomewhere(fileStream, tempPath);
   return { tempPath };
 };
@@ -212,20 +178,13 @@ processor: async (fileStream, metadata, context) => {
 
 ### Post-processing with `onComplete`
 
-Use `onComplete` when you need to do a **single** step after all files finish (success or failure), e.g. move temp files into a final location, commit a transaction, or remove a temp directory.
+Use `onComplete` for a single step after all files finish (success or failure), like moving temp files to final location or committing a transaction.
 
-**Timing guarantees:**
+**Key points:**
 
-1. **Success case**: `onComplete` runs after all files are processed successfully (no cleanup handlers have run)
-2. **Failure case**: `onComplete` runs **AFTER** all cleanup handlers have completed
-   - Cleanup handlers registered via `context.onCleanup()` run first
-   - Then `onComplete` runs with the error result
-   - This ensures `onComplete` has a consistent view of the system state
-
-**Error handling:**
-
-- If `onComplete` throws **after success**, the client gets a `file_upload_completion_failed` error
-- If `onComplete` throws **after failure**, the original upload error is returned (onComplete failure is logged only)
+- On **success**: runs after all files processed
+- On **failure**: runs after all cleanup handlers complete
+- If `onComplete` throws after success, client gets a `file_upload_completion_failed` error
 
 ```ts
 const result = await FileUploadHelpers.processUpload({
@@ -387,138 +346,52 @@ On failure, `processUpload()` returns `{ success: false, errorEnvelope }`. In `s
 
 ### Abort reasons
 
-`AbortReason` is a string union (e.g. `'size_exceeded'`, `'mime_type_rejected'`, `'connection_broken'`, `'timeout'`, `'batch_file_failed'`, `'processor_error'`, `'files_limit_exceeded'`).
+When uploads fail, cleanup handlers receive an `AbortReason` explaining why:
 
-### Timeout and Abort Handling
+- `'size_exceeded'` - File exceeded size limit
+- `'mime_type_rejected'` - MIME type not allowed
+- `'connection_broken'` - Client disconnected
+- `'timeout'` - Upload timed out
+- `'processor_error'` - Processor threw an error
+- `'batch_file_failed'` - Another file in batch failed
+- `'files_limit_exceeded'` - Too many files uploaded
+- `'no_files_provided'` - No files in request
 
-When `timeoutMS` is specified, the upload will abort if the total time exceeds the limit. The framework automatically handles interruption via stream destruction.
+### Timeout and connection handling
 
-#### How Timeouts Work
+If you set `timeoutMS`, uploads automatically abort when time expires. The framework destroys the stream, your processor receives an error, and cleanup runs automatically. Same behavior for client disconnections.
 
-1. **Timeout fires** → timers cleared, `state.aborted = true`
-2. **Current file stream destroyed** → processor receives stream error (interrupts processor!)
-3. **Abort detected** and cleanup handlers called
-4. **Returns timeout error** (HTTP 408)
-
-**File processing model:**
-
-- Files are **NOT** collected into an array or buffered in memory
-- Each file is processed **during iteration** (one at a time)
-- MIME validation happens **before** stream consumption (prevents bandwidth waste)
-- Stream flows: network → multipart parser → **byte counter** → processor
-  - The byte counter is a lightweight Transform stream that tracks bytes read
-  - It uses minimal chunk-by-chunk buffering (not full-file buffering)
-  - This enables accurate byte counting for truncation detection
-- If timeout fires, stream is destroyed and processor is interrupted
-
-#### Stream Destruction and Processor Interruption
-
-When timeout or connection break occurs, the current file's stream is **destroyed immediately**. This interrupts your processor by causing a stream error (e.g., `pipeline` throws), which triggers cleanup automatically.
-
-**Automatic interruption example:**
+**Most common case - automatic handling:**
 
 ```typescript
 processor: async (fileStream, metadata, context) => {
   const uploadID = generateId();
 
-  // Register cleanup - runs automatically when upload fails
+  // Cleanup runs automatically if processor throws (including stream errors)
   context.onCleanup(async () => {
     await deleteFromStorage(uploadID);
   });
 
-  // Stream is automatically destroyed on timeout/connection break
-  // Your pipeline/pipe will receive an error and throw
-  await uploadToStorage(fileStream, uploadID);
-
+  // If timeout/disconnect occurs, pipeline throws and cleanup runs
+  await pipeline(fileStream, createUploadStream(uploadID));
   return { uploadID };
 };
 ```
 
-**How it works:**
+**Manual abort checks (for chunk-by-chunk processing):**
 
-- ✅ Timeout fires → stream destroyed → processor throws error → cleanup runs
-- ✅ No manual `isAborted()` checks needed (unless you want early bailout before stream processing)
-
-**Handling stream errors explicitly:**
+If you're processing chunks manually (e.g., computing hashes, custom validation), use `context.isAborted()`:
 
 ```typescript
 processor: async (fileStream, metadata, context) => {
-  const uploadID = generateId();
-  context.onCleanup(async () => await deleteFromStorage(uploadID));
-
-  try {
-    // If timeout fires mid-upload, stream.destroy() is called
-    // → pipeline/pipe throws error (e.g., ERR_STREAM_PREMATURE_CLOSE)
-    await pipeline(fileStream, createUploadStream(uploadID));
-    return { uploadID };
-  } catch (streamError) {
-    // Stream destroyed by timeout/connection break
-    // Error propagates → cleanup runs automatically
-    throw streamError;
-  }
-};
-```
-
-#### Connection Break Detection
-
-The framework monitors for client disconnections to prevent wasted processing:
-
-- Polled every 100ms via `reply.raw.destroyed`
-- Destroys current file stream (same as timeout)
-- Timers cleared immediately
-- Triggers same interruption flow as timeouts
-
-#### Manual Abort Checks
-
-For most cases, automatic stream destruction is sufficient. However, if you need finer-grained control (e.g., early bailout before stream processing, or custom chunk-by-chunk processing), use `context.isAborted()`.
-
-**Early bailout before stream processing:**
-
-```typescript
-processor: async (fileStream, metadata, context) => {
-  if (context.isAborted()) throw new Error('Aborted'); // Stop before starting
-  await uploadToStorage(fileStream, uploadID);
-  return { uploadID };
-};
-```
-
-**Custom stream processing with abort checks:**
-
-For checksums, transformation, or validation that processes chunks manually:
-
-```typescript
-processor: async (fileStream, metadata, context) => {
-  const uploadID = generateId();
-  const chunks: Buffer[] = [];
-  let totalBytes = 0;
-
-  context.onCleanup(async () => {
-    await deleteFromStorage(uploadID);
-  });
-
-  // Process stream chunk by chunk
   for await (const chunk of fileStream) {
-    // Check if aborted before processing this chunk
     if (context.isAborted()) {
-      throw new Error('Upload aborted');
+      throw new Error('Upload aborted'); // Early exit
     }
-
-    totalBytes += chunk.length;
-    chunks.push(chunk);
-
-    // Example: compute hash, validate content, etc.
-    // Each iteration checks for abort, allowing early bailout
+    // Process chunk...
   }
-
-  // Save processed data
-  const buffer = Buffer.concat(chunks);
-  await saveToStorage(uploadID, buffer);
-
-  return { uploadID, size: totalBytes };
 };
 ```
-
-This allows interrupting **between chunks** rather than waiting for stream destruction error.
 
 ### Common HTTP statuses / error codes
 
@@ -540,47 +413,6 @@ This is the “at a glance” mapping clients usually care about:
 
 **Note:** Errors are returned as full API envelopes (`status`, `status_code`, `request_id`, `error`, etc.). See [API envelope structure](./api-envelope-structure.md) for the full shape.
 
-## Implementation details
-
-### Cleanup handler execution guarantees
-
-Cleanup handlers registered via `context.onCleanup()` are guaranteed to execute in all error scenarios, including:
-
-1. **Processor throws error**: Cleanup runs immediately for that file, then for all previously-successful files
-   - Abort reason: `'processor_error'` or `'batch_file_failed'`
-2. **File size exceeded**: Cleanup runs immediately for that file, then for all previously-successful files
-   - Abort reason: `'size_exceeded'` or `'batch_file_failed'`
-3. **MIME type rejected**: Stream destroyed, cleanup runs for all previously-processed files
-   - Abort reason: `'mime_type_rejected'` or `'batch_file_failed'`
-4. **Timeout during upload**: Current stream destroyed, cleanup runs for all processed files
-   - Abort reason: `'timeout'`
-5. **Connection broken**: Current stream destroyed, cleanup runs for all processed files
-   - Abort reason: `'connection_broken'`
-6. **Too many files (FilesLimitError)**: Cleanup runs for all processed files
-   - Abort reason: `'files_limit_exceeded'`
-7. **No files provided**: Defensive cleanup check (should be empty, but ensures consistency)
-   - Abort reason: `'no_files_provided'`
-
-**Early return paths** (where no files are processed):
-
-- Invalid Content-Type: No processors run → no cleanup handlers can exist
-- No files provided: Defensive cleanup check runs with `'no_files_provided'` reason (cleanup handlers array should be empty since no processors ran, but checked for defensive programming)
-
-This defensive programming ensures that future code changes won't accidentally skip cleanup.
-
-### Iterator drain timeout protection
-
-When aborting mid-upload (timeout, MIME rejection, etc.), the implementation attempts to drain remaining files from the multipart iterator to prevent resource leaks. However, this drain operation itself could hang if the iterator is blocked waiting for network data.
-
-**Protection mechanism:**
-
-- Iterator drain uses `Promise.race` with a 1-second timeout
-- If drain completes within 1 second, all remaining streams are destroyed cleanly
-- If drain times out, the drain is aborted and execution continues
-- Timeout failures are logged as warnings but don't affect error response
-
-This prevents the server from hanging indefinitely on slow/stalled connections while still attempting best-effort cleanup of remaining streams.
-
 ## API reference
 
 ### `FileUploadHelpers.processUpload(config)`
@@ -591,6 +423,8 @@ Key config fields:
 - **`reply`**: Fastify reply (or controlled reply)
 - **`maxFiles`**: defaults to `1`
 - **`maxSizePerFile`**: bytes
+- **`maxFields`**: optional max form fields (overrides server `limits.fields`)
+- **`maxFieldSize`**: optional max field value size in bytes (overrides server `limits.fieldSize`)
 - **`allowedMimeTypes`**: `string[]` supporting wildcards (e.g. `image/*`) or a validator function
 - **`timeoutMS`**: optional upload timeout
 - **`processor(fileStream, metadata, context)`**: per-file handler (must consume stream)
@@ -617,10 +451,10 @@ const server = serveSSRDev(paths, {
   fileUploads: {
     enabled: true,
     limits: {
-      fileSize: 10 * 1024 * 1024, // global default per file
-      files: 10, // global default max files
-      fields: 10,
-      fieldSize: 1024,
+      fileSize: 10 * 1024 * 1024, // 10MB default - max bytes per file
+      files: 10, // default - max files per request
+      fields: 10, // default - max non-file form fields
+      fieldSize: 1024, // 1KB default - max bytes per non-file field value
     },
     // recommended: restrict which routes accept multipart
     allowedRoutes: ['/api/upload/*'],
@@ -643,6 +477,9 @@ Notes:
   - `maxFieldSize` (overrides `limits.fieldSize`)
   - `timeoutMS` (per-route upload timeout)
 - Prefer `allowedRoutes` to reduce accidental multipart parsing on non-upload endpoints.
+- `allowedRoutes` supports wildcard patterns:
+  - `*` matches a single path segment: `/api/*/upload` matches `/api/foo/upload` but NOT `/api/foo/bar/upload`
+  - `**` matches zero or more segments: `/api/upload/**` matches `/api/upload`, `/api/upload/foo`, `/api/upload/foo/bar`, etc.
 - `earlyValidation` runs after user plugins/hooks but before multipart parsing, allowing you to reject requests early based on headers, auth state, rate limits, etc.
 
 ## Testing

@@ -14,10 +14,10 @@
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { Transform, type Readable } from 'stream';
-import { APIResponseHelpers } from '../api-envelope/response-helpers';
 import type { ControlledReply } from '../types';
 import type { APIErrorResponse } from '../api-envelope/api-envelope-types';
 import { matchesMimeTypePattern } from '../internal/mime-type-utils';
+import { getAPIResponseHelpersClass } from '../internal/api-response-helpers-utils';
 
 /**
  * Default rejection reason when MIME type validation fails
@@ -252,9 +252,8 @@ export interface FileUploadConfig<T = unknown> {
    * @param context - Upload context (abort handlers, file index, etc.)
    * @returns Custom data to include in response (e.g., { url: string, id: string })
    *
-   * Note: You must consume the stream (via pipeline or similar). This helper monitors
-   * the stream for size violations and aborts if exceeded.
-   * The framework monitors the stream for size violations and will abort if exceeded.
+   * Note: You must consume the stream (via pipeline or similar). The framework monitors
+   * the stream for size violations and will abort if exceeded.
    */
   processor: (
     fileStream: NodeJS.ReadableStream,
@@ -473,26 +472,12 @@ export class FileUploadHelpers {
       };
 
       // Call onComplete callback if provided
-      if (onComplete) {
-        try {
-          // Wrap in Promise.resolve().then() to normalize sync/async and catch sync throws
-          await Promise.resolve()
-            .then(() => onComplete(errorResult))
-            .catch((onCompleteError) => {
-              // Log but don't change the error response
-              request.log.error(
-                { err: onCompleteError },
-                'onComplete callback failed during error handling',
-              );
-            });
-        } catch (onCompleteError) {
-          // Defensive: shouldn't reach here since .catch() handles rejections
-          request.log.error(
-            { err: onCompleteError },
-            'onComplete callback failed during error handling (outer catch)',
-          );
-        }
-      }
+      await this.executeOnCompleteCallback(
+        onComplete,
+        errorResult,
+        request,
+        'during error handling',
+      );
 
       return errorResult;
     }
@@ -589,35 +574,7 @@ export class FileUploadHelpers {
           }
 
           // Drain remaining parts from iterator to prevent hanging
-          // IMPORTANT: Use a timeout to prevent indefinite blocking if iterator is waiting for network data
-          const drainTimeout = 1000; // 1 second max to drain remaining parts
-          try {
-            await Promise.race([
-              // Drain iterator
-              (async () => {
-                for await (const remainingPart of filesIterator) {
-                  if (remainingPart.file && !remainingPart.file.destroyed) {
-                    remainingPart.file.destroy();
-                  }
-                }
-              })(),
-              // Timeout
-              new Promise((_, reject) =>
-                setTimeout(
-                  () => reject(new Error('Iterator drain timeout')),
-                  drainTimeout,
-                ),
-              ),
-            ]);
-          } catch (drainError) {
-            // Ignore errors during cleanup drain (including timeout)
-            // The important thing is we destroyed the current file stream
-            // and attempted to clean up remaining streams
-            request.log.warn(
-              { err: drainError },
-              'Failed to drain multipart iterator (timeout or error)',
-            );
-          }
+          await this.drainMultipartIterator(filesIterator, request);
 
           const abortReason = state.abortReason || 'processor_error';
           throw new UploadAbortError(
@@ -657,19 +614,15 @@ export class FileUploadHelpers {
             failureDetails.allowedMimeTypes = mimeTypeValidation.allowedTypes;
           }
 
-          // In batch mode, wrap with BATCH_FILE_FAILED
-          if (maxFiles > 1) {
-            state.abortReason = 'batch_file_failed';
-            state.abortDetails = {
-              ...failureDetails,
-              triggerReason: 'MIME_TYPE_REJECTED',
-              totalFiles: fileIndex + 1,
-              processedFiles: state.processedFiles,
-            };
-          } else {
-            state.abortReason = 'mime_type_rejected';
-            state.abortDetails = failureDetails;
-          }
+          // Build abort details with batch mode wrapping if needed
+          const abortReason = this.buildAbortDetails(
+            state,
+            maxFiles,
+            fileIndex,
+            'mime_type_rejected',
+            'MIME_TYPE_REJECTED',
+            failureDetails,
+          );
 
           // Destroy this file's stream without consuming bandwidth
           if (file.file && !file.file.destroyed) {
@@ -677,37 +630,9 @@ export class FileUploadHelpers {
           }
 
           // Drain remaining parts from iterator to prevent hanging
-          // IMPORTANT: Use a timeout to prevent indefinite blocking if iterator is waiting for network data
-          const drainTimeout = 1000; // 1 second max to drain remaining parts
-          try {
-            await Promise.race([
-              // Drain iterator
-              (async () => {
-                for await (const remainingPart of filesIterator) {
-                  if (remainingPart.file && !remainingPart.file.destroyed) {
-                    remainingPart.file.destroy();
-                  }
-                }
-              })(),
-              // Timeout
-              new Promise((_, reject) =>
-                setTimeout(
-                  () => reject(new Error('Iterator drain timeout')),
-                  drainTimeout,
-                ),
-              ),
-            ]);
-          } catch (drainError) {
-            // Ignore errors during cleanup drain (including timeout)
-            // The important thing is we destroyed the current file stream
-            // and attempted to clean up remaining streams
-            request.log.warn(
-              { err: drainError },
-              'Failed to drain multipart iterator after MIME rejection (timeout or error)',
-            );
-          }
+          await this.drainMultipartIterator(filesIterator, request);
 
-          throw new UploadAbortError(state.abortReason, state.abortDetails);
+          throw new UploadAbortError(abortReason, state.abortDetails);
         }
 
         // MIME type valid - create processor context and process file
@@ -765,19 +690,13 @@ export class FileUploadHelpers {
             // (prevents cleanup delay in batch uploads)
             // Note: We do NOT set hasCleanupStarted=true here because the outer catch block
             // needs to run cleanup for ALL files (including previously-successful ones)
-            if (fileCleanupHandlers.length > 0) {
-              await this.runCleanupHandlers(
-                fileCleanupHandlers,
-                state.abortReason || 'timeout',
-                state.abortDetails || { fileIndex },
-                request,
-              );
-
-              // Remove these handlers from global list to prevent double-cleanup
-              state.cleanupHandlers = state.cleanupHandlers.filter(
-                (handler) => !fileCleanupHandlers.includes(handler),
-              );
-            }
+            await this.runFileCleanupAndRemoveFromBatch(
+              fileCleanupHandlers,
+              state,
+              state.abortReason || 'timeout',
+              state.abortDetails || { fileIndex },
+              request,
+            );
 
             // Processor completed but we timed out - treat as abort
             state.abortReason = state.abortReason || 'timeout';
@@ -800,38 +719,28 @@ export class FileUploadHelpers {
               bytesReceived,
             };
 
-            // In batch mode, wrap with BATCH_FILE_FAILED
-            if (maxFiles > 1) {
-              state.abortReason = 'batch_file_failed';
-              state.abortDetails = {
-                ...failureDetails,
-                triggerReason: 'SIZE_EXCEEDED',
-                totalFiles: fileIndex + 1,
-                processedFiles: state.processedFiles,
-              };
-            } else {
-              state.abortReason = 'size_exceeded';
-              state.abortDetails = failureDetails;
-            }
+            // Build abort details with batch mode wrapping if needed
+            const abortReason = this.buildAbortDetails(
+              state,
+              maxFiles,
+              fileIndex,
+              'size_exceeded',
+              'SIZE_EXCEEDED',
+              failureDetails,
+            );
 
             // Run THIS FILE's cleanup immediately (before throwing to prevent delay in batch uploads)
             // Note: We do NOT set hasCleanupStarted=true here because the outer catch block
             // needs to run cleanup for ALL files (including previously-successful ones)
-            if (fileCleanupHandlers.length > 0) {
-              await this.runCleanupHandlers(
-                fileCleanupHandlers,
-                state.abortReason,
-                state.abortDetails,
-                request,
-              );
+            await this.runFileCleanupAndRemoveFromBatch(
+              fileCleanupHandlers,
+              state,
+              abortReason,
+              state.abortDetails,
+              request,
+            );
 
-              // Remove these handlers from global list to prevent double-cleanup
-              state.cleanupHandlers = state.cleanupHandlers.filter(
-                (handler) => !fileCleanupHandlers.includes(handler),
-              );
-            }
-
-            throw new UploadAbortError(state.abortReason, state.abortDetails);
+            throw new UploadAbortError(abortReason, state.abortDetails);
           }
 
           // File processed successfully
@@ -851,12 +760,11 @@ export class FileUploadHelpers {
           state.aborted = true;
 
           // Sanitize error message for production (don't expose internal details)
-          const isDevelopment = (
-            request as FastifyRequest & { isDevelopment?: boolean }
-          ).isDevelopment;
-          const errorMessage = isDevelopment
-            ? getErrorMessage(processorError, 'Storage error')
-            : 'Storage error';
+          const errorMessage = this.getSanitizedErrorMessage(
+            request,
+            processorError,
+            'Storage error',
+          );
 
           const failureDetails = {
             fileIndex,
@@ -864,38 +772,28 @@ export class FileUploadHelpers {
             error: errorMessage,
           };
 
-          // In batch mode, wrap with BATCH_FILE_FAILED
-          if (maxFiles > 1) {
-            state.abortReason = 'batch_file_failed';
-            state.abortDetails = {
-              ...failureDetails,
-              triggerReason: 'PROCESSOR_ERROR',
-              totalFiles: fileIndex + 1,
-              processedFiles: state.processedFiles,
-            };
-          } else {
-            state.abortReason = 'processor_error';
-            state.abortDetails = failureDetails;
-          }
+          // Build abort details with batch mode wrapping if needed
+          const abortReason = this.buildAbortDetails(
+            state,
+            maxFiles,
+            fileIndex,
+            'processor_error',
+            'PROCESSOR_ERROR',
+            failureDetails,
+          );
 
           // Run THIS FILE's cleanup immediately (before throwing to prevent delay in batch uploads)
           // Note: We do NOT set hasCleanupStarted=true here because the outer catch block
           // needs to run cleanup for ALL files (including previously-successful ones)
-          if (fileCleanupHandlers.length > 0) {
-            await this.runCleanupHandlers(
-              fileCleanupHandlers,
-              state.abortReason,
-              state.abortDetails,
-              request,
-            );
+          await this.runFileCleanupAndRemoveFromBatch(
+            fileCleanupHandlers,
+            state,
+            abortReason,
+            state.abortDetails,
+            request,
+          );
 
-            // Remove these handlers from global list to prevent double-cleanup
-            state.cleanupHandlers = state.cleanupHandlers.filter(
-              (handler) => !fileCleanupHandlers.includes(handler),
-            );
-          }
-
-          throw new UploadAbortError(state.abortReason, state.abortDetails);
+          throw new UploadAbortError(abortReason, state.abortDetails);
         }
       }
 
@@ -933,25 +831,12 @@ export class FileUploadHelpers {
         };
 
         // Call onComplete callback if provided (runs AFTER cleanup, per timing guarantees)
-        if (onComplete) {
-          try {
-            // Wrap in Promise.resolve().then() to normalize sync/async and catch sync throws
-            await Promise.resolve()
-              .then(() => onComplete(errorResult))
-              .catch((onCompleteError) => {
-                request.log.error(
-                  { err: onCompleteError },
-                  'onComplete callback failed (no files provided)',
-                );
-              });
-          } catch (onCompleteError) {
-            // Defensive: shouldn't reach here since .catch() handles rejections
-            request.log.error(
-              { err: onCompleteError },
-              'onComplete callback failed (no files provided, outer catch)',
-            );
-          }
-        }
+        await this.executeOnCompleteCallback(
+          onComplete,
+          errorResult,
+          request,
+          '(no files provided)',
+        );
 
         return errorResult;
       }
@@ -982,12 +867,11 @@ export class FileUploadHelpers {
           );
 
           // Sanitize error message for production (don't expose internal details)
-          const isDevelopment = (
-            request as FastifyRequest & { isDevelopment?: boolean }
-          ).isDevelopment;
-          const errorMessage = isDevelopment
-            ? getErrorMessage(onCompleteError, 'Post-processing failed')
-            : 'Post-processing failed';
+          const errorMessage = this.getSanitizedErrorMessage(
+            request,
+            onCompleteError,
+            'Post-processing failed',
+          );
 
           const errorEnvelope = this.buildValidationErrorResponse(
             request,
@@ -1045,26 +929,12 @@ export class FileUploadHelpers {
         };
 
         // STEP 3: Call onComplete callback AFTER cleanup (if provided)
-        if (onComplete) {
-          try {
-            // Wrap in Promise.resolve().then() to normalize sync/async and catch sync throws
-            await Promise.resolve()
-              .then(() => onComplete(errorResult))
-              .catch((onCompleteError) => {
-                // Log but don't change the error response
-                request.log.error(
-                  { err: onCompleteError },
-                  'onComplete callback failed (too many files)',
-                );
-              });
-          } catch (onCompleteError) {
-            // Defensive: shouldn't reach here since .catch() handles rejections
-            request.log.error(
-              { err: onCompleteError },
-              'onComplete callback failed (too many files, outer catch)',
-            );
-          }
-        }
+        await this.executeOnCompleteCallback(
+          onComplete,
+          errorResult,
+          request,
+          '(too many files)',
+        );
 
         return errorResult;
       }
@@ -1083,12 +953,11 @@ export class FileUploadHelpers {
         } else {
           // Unknown error - run cleanup without reason
           // Sanitize error message for production
-          const isDevelopment = (
-            request as FastifyRequest & { isDevelopment?: boolean }
-          ).isDevelopment;
-          const errorMessage = isDevelopment
-            ? getErrorMessage(error, 'Unknown error')
-            : 'Unknown error';
+          const errorMessage = this.getSanitizedErrorMessage(
+            request,
+            error,
+            'Unknown error',
+          );
 
           await this.runCleanupHandlers(
             state.cleanupHandlers,
@@ -1100,7 +969,7 @@ export class FileUploadHelpers {
       }
 
       // STEP 2 (for all other errors): Determine error response based on abort reason
-      // Note: Cleanup has already run in the block above (lines 965-993)
+      // Note: Cleanup has already run in STEP 1 above
       if (error instanceof UploadAbortError) {
         const errorEnvelope = this.buildAbortErrorResponse(
           request,
@@ -1114,41 +983,26 @@ export class FileUploadHelpers {
         };
 
         // STEP 3: Call onComplete callback AFTER cleanup (if provided)
-        if (onComplete) {
-          try {
-            // Wrap in Promise.resolve().then() to normalize sync/async and catch sync throws
-            await Promise.resolve()
-              .then(() => onComplete(errorResult))
-              .catch((onCompleteError) => {
-                // Log but don't change the error response
-                request.log.error(
-                  { err: onCompleteError },
-                  'onComplete callback failed after upload abort',
-                );
-              });
-          } catch (onCompleteError) {
-            // Defensive: shouldn't reach here since .catch() handles rejections
-            request.log.error(
-              { err: onCompleteError },
-              'onComplete callback failed after upload abort (outer catch)',
-            );
-          }
-        }
+        await this.executeOnCompleteCallback(
+          onComplete,
+          errorResult,
+          request,
+          'after upload abort',
+        );
 
         return errorResult;
       }
 
       // STEP 2 (unknown error): Build error response
-      // Note: Cleanup has already run in the block above (lines 965-993)
+      // Note: Cleanup has already run in STEP 1 above
       request.log.error({ err: error }, 'Unexpected file upload error');
 
       // Sanitize error message for production (don't expose internal details)
-      const isDevelopment = (
-        request as FastifyRequest & { isDevelopment?: boolean }
-      ).isDevelopment;
-      const errorMessage = isDevelopment
-        ? getErrorMessage(error, 'Unknown error')
-        : 'Unknown error';
+      const errorMessage = this.getSanitizedErrorMessage(
+        request,
+        error,
+        'Unknown error',
+      );
 
       const errorEnvelope = this.buildValidationErrorResponse(
         request,
@@ -1166,74 +1020,18 @@ export class FileUploadHelpers {
       };
 
       // STEP 3: Call onComplete callback AFTER cleanup (if provided)
-      if (onComplete) {
-        try {
-          // Wrap in Promise.resolve().then() to normalize sync/async and catch sync throws
-          await Promise.resolve()
-            .then(() => onComplete(errorResult))
-            .catch((onCompleteError) => {
-              // Log but don't change the error response
-              request.log.error(
-                { err: onCompleteError },
-                'onComplete callback failed after unexpected error',
-              );
-            });
-        } catch (onCompleteError) {
-          // Defensive: shouldn't reach here since .catch() handles rejections
-          request.log.error(
-            { err: onCompleteError },
-            'onComplete callback failed after unexpected error (outer catch)',
-          );
-        }
-      }
+      await this.executeOnCompleteCallback(
+        onComplete,
+        errorResult,
+        request,
+        'after unexpected error',
+      );
 
       return errorResult;
     } finally {
       // Safety net: ensure timers are always cleared (including early returns)
       cleanupTimers();
     }
-  }
-
-  /**
-   * Get the APIResponseHelpersClass to use for creating error responses.
-   *
-   * Priority:
-   * 1. Decorated class from request (if user provided custom class)
-   * 2. Default APIResponseHelpers class via dynamic import
-   * 3. null (caller will use plain error object fallback)
-   *
-   * @returns The helpers class or null if unavailable
-   */
-  private static getAPIResponseHelpersClass(request: FastifyRequest): {
-    createAPIErrorResponse: (params: {
-      request: FastifyRequest;
-      statusCode: number;
-      errorCode: string;
-      errorMessage: string;
-      errorDetails?: Record<string, unknown>;
-    }) => APIErrorResponse;
-  } {
-    // Try to get the decorated class from request (allows server customization)
-    const decoratedClass = (
-      request as FastifyRequest & {
-        APIResponseHelpersClass?: {
-          createAPIErrorResponse: (params: {
-            request: FastifyRequest;
-            statusCode: number;
-            errorCode: string;
-            errorMessage: string;
-            errorDetails?: Record<string, unknown>;
-          }) => APIErrorResponse;
-        };
-      }
-    ).APIResponseHelpersClass;
-
-    if (decoratedClass?.createAPIErrorResponse) {
-      return decoratedClass;
-    }
-
-    // Fallback to built-in APIResponseHelpers class
-    return APIResponseHelpers;
   }
 
   /**
@@ -1251,7 +1049,7 @@ export class FileUploadHelpers {
     errorMessage: string,
     details?: Record<string, unknown>,
   ): APIErrorResponse {
-    const helpersClass = this.getAPIResponseHelpersClass(request);
+    const helpersClass = getAPIResponseHelpersClass(request);
 
     return helpersClass.createAPIErrorResponse({
       request,
@@ -1340,7 +1138,7 @@ export class FileUploadHelpers {
     }
 
     // Get the helpers class and create error response
-    const helpersClass = this.getAPIResponseHelpersClass(request);
+    const helpersClass = getAPIResponseHelpersClass(request);
 
     return helpersClass.createAPIErrorResponse({
       request,
@@ -1415,5 +1213,189 @@ export class FileUploadHelpers {
     });
 
     await Promise.allSettled(cleanupPromises);
+  }
+
+  /**
+   * Execute onComplete callback with error handling.
+   * Logs errors but doesn't change the result (errors during error handling are logged only).
+   *
+   * @param onComplete - The callback function to execute
+   * @param result - The upload result to pass to the callback
+   * @param request - Request object for logging
+   * @param context - Description of when this is being called (for logging)
+   */
+  private static async executeOnCompleteCallback<T>(
+    onComplete: ((result: UploadResult<T>) => Promise<void> | void) | undefined,
+    result: UploadResult<T>,
+    request: FastifyRequest,
+    context: string,
+  ): Promise<void> {
+    if (!onComplete) {
+      return;
+    }
+
+    try {
+      // Wrap in Promise.resolve().then() to normalize sync/async and catch sync throws
+      await Promise.resolve()
+        .then(() => onComplete(result))
+        .catch((onCompleteError) => {
+          request.log.error(
+            { err: onCompleteError },
+            `onComplete callback failed ${context}`,
+          );
+        });
+    } catch (onCompleteError) {
+      // Defensive: shouldn't reach here since .catch() handles rejections
+      request.log.error(
+        { err: onCompleteError },
+        `onComplete callback failed ${context} (outer catch)`,
+      );
+    }
+  }
+
+  /**
+   * Drain remaining parts from multipart iterator to prevent hanging.
+   * Uses a timeout to prevent indefinite blocking.
+   *
+   * @param filesIterator - The multipart files iterator
+   * @param request - Request object for logging
+   * @param drainTimeout - Maximum time to wait for draining (default: 1000ms)
+   */
+  private static async drainMultipartIterator(
+    filesIterator: AsyncIterableIterator<{
+      file: Readable;
+      fieldname: string;
+      filename: string;
+      encoding: string;
+      mimetype: string;
+    }>,
+    request: FastifyRequest,
+    drainTimeout: number = 1000,
+  ): Promise<void> {
+    try {
+      await Promise.race([
+        // Drain iterator
+        (async () => {
+          for await (const remainingPart of filesIterator) {
+            if (remainingPart.file && !remainingPart.file.destroyed) {
+              remainingPart.file.destroy();
+            }
+          }
+        })(),
+        // Timeout
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Iterator drain timeout')),
+            drainTimeout,
+          ),
+        ),
+      ]);
+    } catch (drainError) {
+      // Ignore errors during cleanup drain (including timeout)
+      // The important thing is we destroyed the current file stream
+      // and attempted to clean up remaining streams
+      request.log.warn(
+        { err: drainError },
+        'Failed to drain multipart iterator (timeout or error)',
+      );
+    }
+  }
+
+  /**
+   * Build abort details with batch mode wrapping if needed.
+   * In batch mode (maxFiles > 1), wraps failure details with batch metadata.
+   * Also updates the state object with the abort reason and details.
+   *
+   * @param state - Upload state to modify
+   * @param maxFiles - Maximum files allowed
+   * @param fileIndex - Current file index
+   * @param singleAbortReason - Abort reason for single file mode
+   * @param triggerReason - Trigger reason for batch mode
+   * @param failureDetails - Base failure details
+   * @returns The abort reason that was set
+   */
+  private static buildAbortDetails(
+    state: UploadState,
+    maxFiles: number,
+    fileIndex: number,
+    singleAbortReason: AbortReason,
+    triggerReason: string,
+    failureDetails: Record<string, unknown>,
+  ): AbortReason {
+    if (maxFiles > 1) {
+      state.abortReason = 'batch_file_failed';
+      state.abortDetails = {
+        ...failureDetails,
+        triggerReason,
+        totalFiles: fileIndex + 1,
+        processedFiles: state.processedFiles,
+      };
+      return 'batch_file_failed';
+    } else {
+      state.abortReason = singleAbortReason;
+      state.abortDetails = failureDetails;
+      return singleAbortReason;
+    }
+  }
+
+  /**
+   * Run file-specific cleanup handlers and remove them from the batch-level list.
+   * Prevents double-cleanup in batch uploads.
+   *
+   * @param fileCleanupHandlers - Handlers for this specific file
+   * @param state - Upload state containing batch-level handlers
+   * @param reason - Abort reason
+   * @param details - Abort details
+   * @param request - Request object for logging
+   */
+  private static async runFileCleanupAndRemoveFromBatch(
+    fileCleanupHandlers: Array<
+      (
+        reason: AbortReason,
+        details?: Record<string, unknown>,
+      ) => Promise<void> | void
+    >,
+    state: UploadState,
+    reason: AbortReason,
+    details: Record<string, unknown> | undefined,
+    request: FastifyRequest,
+  ): Promise<void> {
+    if (fileCleanupHandlers.length === 0) {
+      return;
+    }
+
+    await this.runCleanupHandlers(
+      fileCleanupHandlers,
+      reason,
+      details,
+      request,
+    );
+
+    // Remove these handlers from batch-level list to prevent double-cleanup
+    // Use Set for O(1) lookup instead of O(n) includes() in filter
+    const fileHandlersSet = new Set(fileCleanupHandlers);
+    state.cleanupHandlers = state.cleanupHandlers.filter(
+      (handler) => !fileHandlersSet.has(handler),
+    );
+  }
+
+  /**
+   * Get sanitized error message based on environment.
+   * In production, returns fallback message. In development, extracts actual error message.
+   *
+   * @param request - Request object to check environment
+   * @param error - Error to extract message from
+   * @param fallback - Fallback message for production
+   * @returns Sanitized error message
+   */
+  private static getSanitizedErrorMessage(
+    request: FastifyRequest,
+    error: unknown,
+    fallback: string,
+  ): string {
+    const isDevelopment = (
+      request as FastifyRequest & { isDevelopment?: boolean }
+    ).isDevelopment;
+    return isDevelopment ? getErrorMessage(error, fallback) : fallback;
   }
 }

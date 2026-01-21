@@ -7,6 +7,7 @@ import type {
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
 import type { ControlledReply } from '../types';
 import { createControlledReply } from './server-utils';
+import { getAPIResponseHelpersClass } from './api-response-helpers-utils';
 import {
   validateVersion,
   validateSingleVersionWhenDisabled,
@@ -266,8 +267,9 @@ export class DataLoaderServerHandlerHelpers {
 
             if (invalidFields.length > 0) {
               // Client error: malformed request body - return proper API error envelope
+              const helpersClass = getAPIResponseHelpersClass(request);
               reply.code(400).send(
-                APIResponseHelpers.createAPIErrorResponse({
+                helpersClass.createAPIErrorResponse({
                   request,
                   statusCode: 400,
                   errorCode: 'invalid_page_data_body_fields',

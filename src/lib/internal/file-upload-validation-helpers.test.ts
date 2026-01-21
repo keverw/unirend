@@ -55,13 +55,47 @@ describe('matchesRoutePattern', () => {
       ).toBe(true);
     });
 
-    it('should not match wildcard with multiple segments', () => {
-      // Wildcard only matches a single segment
+    it('should not match single wildcard with multiple segments', () => {
+      // Single * wildcard only matches a single segment
       expect(
         matchesRoutePattern(
           '/api/workspace/123/456/upload',
           '/api/workspace/*/upload',
         ),
+      ).toBe(false);
+    });
+
+    it('should match double wildcard with multiple segments', () => {
+      // ** wildcard matches zero or more segments
+      expect(
+        matchesRoutePattern('/api/upload/foo/bar/baz', '/api/upload/**'),
+      ).toBe(true);
+      expect(matchesRoutePattern('/api/upload/foo/bar', '/api/upload/**')).toBe(
+        true,
+      );
+      expect(matchesRoutePattern('/api/upload/foo', '/api/upload/**')).toBe(
+        true,
+      );
+      // Zero segments after **
+      expect(matchesRoutePattern('/api/upload', '/api/upload/**')).toBe(true);
+    });
+
+    it('should match double wildcard in middle of pattern', () => {
+      expect(
+        matchesRoutePattern(
+          '/api/v1/nested/deep/path/upload',
+          '/api/**/upload',
+        ),
+      ).toBe(true);
+      expect(matchesRoutePattern('/api/single/upload', '/api/**/upload')).toBe(
+        true,
+      );
+      expect(matchesRoutePattern('/api/upload', '/api/**/upload')).toBe(true);
+    });
+
+    it('should not match double wildcard when suffix does not match', () => {
+      expect(
+        matchesRoutePattern('/api/upload/foo/bar', '/api/upload/**/download'),
       ).toBe(false);
     });
 
