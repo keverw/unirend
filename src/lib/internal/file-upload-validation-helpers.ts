@@ -153,7 +153,11 @@ export function registerFileUploadValidationHooks(
 
         // Then run early validation if provided (useful for header-based auth, rate limiting, etc.)
         if (earlyValidation) {
-          const result = await earlyValidation(request);
+          // Support both sync and async validation functions (matches onComplete pattern)
+          // Wrap in Promise.resolve().then() to normalize sync/async and catch sync throws
+          const result = await Promise.resolve().then(() =>
+            earlyValidation(request),
+          );
 
           if (result !== true) {
             const helpersClass = getAPIResponseHelpersClass(request);

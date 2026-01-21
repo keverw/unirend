@@ -127,6 +127,9 @@ export interface ProcessorContext {
    *
    * Important: Handlers run AFTER the processor completes (or is interrupted),
    * not during processor execution.
+   *
+   * Note: Cleanup handlers are called for their side effects only. Any return
+   * value is ignored.
    */
   onCleanup: (
     cleanupFn: (
@@ -472,12 +475,21 @@ export class FileUploadHelpers {
       // Call onComplete callback if provided
       if (onComplete) {
         try {
-          await onComplete(errorResult);
+          // Wrap in Promise.resolve().then() to normalize sync/async and catch sync throws
+          await Promise.resolve()
+            .then(() => onComplete(errorResult))
+            .catch((onCompleteError) => {
+              // Log but don't change the error response
+              request.log.error(
+                { err: onCompleteError },
+                'onComplete callback failed during error handling',
+              );
+            });
         } catch (onCompleteError) {
-          // Log but don't change the error response
+          // Defensive: shouldn't reach here since .catch() handles rejections
           request.log.error(
             { err: onCompleteError },
-            'onComplete callback failed during error handling',
+            'onComplete callback failed during error handling (outer catch)',
           );
         }
       }
@@ -923,11 +935,20 @@ export class FileUploadHelpers {
         // Call onComplete callback if provided (runs AFTER cleanup, per timing guarantees)
         if (onComplete) {
           try {
-            await onComplete(errorResult);
+            // Wrap in Promise.resolve().then() to normalize sync/async and catch sync throws
+            await Promise.resolve()
+              .then(() => onComplete(errorResult))
+              .catch((onCompleteError) => {
+                request.log.error(
+                  { err: onCompleteError },
+                  'onComplete callback failed (no files provided)',
+                );
+              });
           } catch (onCompleteError) {
+            // Defensive: shouldn't reach here since .catch() handles rejections
             request.log.error(
               { err: onCompleteError },
-              'onComplete callback failed (no files provided)',
+              'onComplete callback failed (no files provided, outer catch)',
             );
           }
         }
@@ -943,9 +964,16 @@ export class FileUploadHelpers {
 
       // Call onComplete callback if provided
       if (onComplete) {
-        try {
-          await onComplete(successResult);
-        } catch (onCompleteError) {
+        let onCompleteError: unknown = null;
+
+        // Wrap in Promise.resolve().then() to normalize sync/async and catch sync throws
+        await Promise.resolve()
+          .then(() => onComplete(successResult))
+          .catch((error) => {
+            onCompleteError = error;
+          });
+
+        if (onCompleteError) {
           // onComplete failure after successful upload is a real error
           // (e.g., files uploaded but can't be moved to final location)
           request.log.error(
@@ -1019,12 +1047,21 @@ export class FileUploadHelpers {
         // STEP 3: Call onComplete callback AFTER cleanup (if provided)
         if (onComplete) {
           try {
-            await onComplete(errorResult);
+            // Wrap in Promise.resolve().then() to normalize sync/async and catch sync throws
+            await Promise.resolve()
+              .then(() => onComplete(errorResult))
+              .catch((onCompleteError) => {
+                // Log but don't change the error response
+                request.log.error(
+                  { err: onCompleteError },
+                  'onComplete callback failed (too many files)',
+                );
+              });
           } catch (onCompleteError) {
-            // Log but don't change the error response
+            // Defensive: shouldn't reach here since .catch() handles rejections
             request.log.error(
               { err: onCompleteError },
-              'onComplete callback failed (too many files)',
+              'onComplete callback failed (too many files, outer catch)',
             );
           }
         }
@@ -1079,12 +1116,21 @@ export class FileUploadHelpers {
         // STEP 3: Call onComplete callback AFTER cleanup (if provided)
         if (onComplete) {
           try {
-            await onComplete(errorResult);
+            // Wrap in Promise.resolve().then() to normalize sync/async and catch sync throws
+            await Promise.resolve()
+              .then(() => onComplete(errorResult))
+              .catch((onCompleteError) => {
+                // Log but don't change the error response
+                request.log.error(
+                  { err: onCompleteError },
+                  'onComplete callback failed after upload abort',
+                );
+              });
           } catch (onCompleteError) {
-            // Log but don't change the error response
+            // Defensive: shouldn't reach here since .catch() handles rejections
             request.log.error(
               { err: onCompleteError },
-              'onComplete callback failed after upload abort',
+              'onComplete callback failed after upload abort (outer catch)',
             );
           }
         }
@@ -1122,12 +1168,21 @@ export class FileUploadHelpers {
       // STEP 3: Call onComplete callback AFTER cleanup (if provided)
       if (onComplete) {
         try {
-          await onComplete(errorResult);
+          // Wrap in Promise.resolve().then() to normalize sync/async and catch sync throws
+          await Promise.resolve()
+            .then(() => onComplete(errorResult))
+            .catch((onCompleteError) => {
+              // Log but don't change the error response
+              request.log.error(
+                { err: onCompleteError },
+                'onComplete callback failed after unexpected error',
+              );
+            });
         } catch (onCompleteError) {
-          // Log but don't change the error response
+          // Defensive: shouldn't reach here since .catch() handles rejections
           request.log.error(
             { err: onCompleteError },
-            'onComplete callback failed after unexpected error',
+            'onComplete callback failed after unexpected error (outer catch)',
           );
         }
       }

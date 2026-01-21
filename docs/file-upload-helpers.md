@@ -17,7 +17,15 @@ Unirend provides a unified API for handling multipart uploads with streaming lim
     - [Background processing (video, thumbnails, OCR, etc.)](#background-processing-video-thumbnails-ocr-etc)
 - [Errors and abort reasons](#errors-and-abort-reasons)
   - [Abort reasons](#abort-reasons)
+  - [Timeout and Abort Handling](#timeout-and-abort-handling)
+    - [How Timeouts Work](#how-timeouts-work)
+    - [Stream Destruction and Processor Interruption](#stream-destruction-and-processor-interruption)
+    - [Connection Break Detection](#connection-break-detection)
+    - [Manual Abort Checks](#manual-abort-checks)
   - [Common HTTP statuses / error codes](#common-http-statuses--error-codes)
+- [Implementation details](#implementation-details)
+  - [Cleanup handler execution guarantees](#cleanup-handler-execution-guarantees)
+  - [Iterator drain timeout protection](#iterator-drain-timeout-protection)
 - [API reference](#api-reference)
   - [`FileUploadHelpers.processUpload(config)`](#fileuploadhelpersprocessuploadconfig)
 - [Server configuration](#server-configuration)
@@ -164,6 +172,7 @@ Use `context.onCleanup(fn)` inside the processor to register per-file cleanup. C
   - Batch upload: any file fails (fail-fast)
 - Always run **after** the processor that registered them completes (or is interrupted)
 - This prevents race conditions (cleanup won't delete resources the processor is still creating/uploading)
+- **Called for side effects only** — any return value is ignored by the framework
 
 **Cleanup timing guarantees (race condition prevention):**
 
@@ -257,11 +266,14 @@ const result = await FileUploadHelpers.processUpload({
 
 You can reject requests _before_ multipart parsing to save bandwidth and work. Use `fileUploads.allowedRoutes` + `fileUploads.earlyValidation` in server config.
 
+`earlyValidation` supports both **synchronous** and **asynchronous** validation functions:
+
 ```ts
 const server = serveSSRDev(paths, {
   fileUploads: {
     enabled: true,
     allowedRoutes: ['/api/upload/*'],
+    // Async validation (use when you need to check databases, external services, etc.)
     earlyValidation: async (request) => {
       // lightweight checks only (headers, auth context, quotas, rate limits, etc)
       // this runs after your plugins/hooks, so you can read things like request.user
@@ -278,6 +290,13 @@ const server = serveSSRDev(paths, {
         message: 'Authentication required for file uploads',
       };
     },
+    // Or use sync validation for simple header checks:
+    // earlyValidation: (request) => {
+    //   if (!request.headers['x-api-key']) {
+    //     return { statusCode: 403, error: 'forbidden', message: 'API key required' };
+    //   }
+    //   return true;
+    // },
   },
 });
 ```
@@ -500,24 +519,6 @@ processor: async (fileStream, metadata, context) => {
 ```
 
 This allows interrupting **between chunks** rather than waiting for stream destruction error.
-
-**API summary:**
-
-- `context.onCleanup(fn)` = Register cleanup handler that runs automatically when upload fails for ANY reason:
-  - **Processor throws an error** (storage failure, pipe break, stream errors, etc.)
-  - File exceeds size limit during streaming
-  - MIME type validation fails
-  - Connection broken or timeout
-  - Batch upload: any file fails (fail-fast)
-  - Cleanup runs **after** processor completes (or is interrupted), preventing race conditions
-- `context.isAborted()` = Check if aborted (optional - useful for early bailout or manual chunk processing)
-
-**How interruption works:**
-
-- Timeout/connection break → stream destroyed → processor receives error → cleanup runs
-- Processor error → cleanup runs after processor completes
-- Stream destruction interrupts `pipeline`, `pipe`, and most stream operations automatically
-- Cleanup runs after processor's catch/finally (prevents race conditions)
 
 ### Common HTTP statuses / error codes
 

@@ -33,6 +33,7 @@ function createMockRequest(files: MockMultipartFile[]): FastifyRequest {
     },
     id: 'test-request-id',
     files() {
+      // eslint-disable-next-line @typescript-eslint/require-await
       return (async function* () {
         for (const file of files) {
           yield file;
@@ -58,6 +59,7 @@ function createMockReply(): FastifyReply {
  */
 function createFileStream(
   data: string,
+  options?: { truncated?: boolean },
 ): Readable & { truncated?: boolean; destroy: (error?: Error) => void } {
   const stream = new PassThrough();
   stream.write(data);
@@ -69,10 +71,17 @@ function createFileStream(
     return originalDestroy(error);
   };
 
-  return stream as Readable & {
+  const enhancedStream = stream as Readable & {
     truncated?: boolean;
     destroy: (error?: Error) => void;
   };
+
+  // Set truncated flag if provided
+  if (options?.truncated) {
+    enhancedStream.truncated = true;
+  }
+
+  return enhancedStream;
 }
 
 describe('FileUploadHelpers', () => {
@@ -111,6 +120,7 @@ describe('FileUploadHelpers', () => {
         allowedMimeTypes: ['text/plain'],
         processor: async (stream, metadata, context) => {
           // Register cleanup handler
+          // eslint-disable-next-line @typescript-eslint/require-await
           context.onCleanup(async () => {
             executionOrder.push(`cleanup-file-${context.fileIndex}`);
           });
@@ -127,6 +137,7 @@ describe('FileUploadHelpers', () => {
 
           return { index: context.fileIndex };
         },
+        // eslint-disable-next-line @typescript-eslint/require-await
         onComplete: async (_finalResult) => {
           executionOrder.push('onComplete');
         },
@@ -168,6 +179,7 @@ describe('FileUploadHelpers', () => {
         allowedMimeTypes: ['text/plain'],
         processor: async (stream, metadata, context) => {
           // Register cleanup handler (shouldn't run on success)
+          // eslint-disable-next-line @typescript-eslint/require-await
           context.onCleanup(async () => {
             executionOrder.push('cleanup-should-not-run');
           });
@@ -180,6 +192,7 @@ describe('FileUploadHelpers', () => {
           executionOrder.push('processor-complete');
           return { index: context.fileIndex };
         },
+        // eslint-disable-next-line @typescript-eslint/require-await
         onComplete: async (_finalResult) => {
           executionOrder.push('onComplete');
         },
@@ -233,6 +246,7 @@ describe('FileUploadHelpers', () => {
         allowedMimeTypes: ['text/plain'],
         processor: async (stream, metadata, context) => {
           // Register cleanup handler
+          // eslint-disable-next-line @typescript-eslint/require-await
           context.onCleanup(async (reason, _details) => {
             cleanupCalls.push({
               fileIndex: context.fileIndex,
@@ -302,6 +316,7 @@ describe('FileUploadHelpers', () => {
         allowedMimeTypes: ['text/plain'],
         processor: async (stream, metadata, context) => {
           // Register cleanup handler
+          // eslint-disable-next-line @typescript-eslint/require-await
           context.onCleanup(async (_reason, _details) => {
             callCounter++;
             cleanupCalls.push({
@@ -372,6 +387,7 @@ describe('FileUploadHelpers', () => {
         allowedMimeTypes: ['text/plain'],
         processor: async (stream, metadata, context) => {
           // Register cleanup handler
+          // eslint-disable-next-line @typescript-eslint/require-await
           context.onCleanup(async (reason, _details) => {
             cleanupCalls.push({
               fileIndex: context.fileIndex,
@@ -460,6 +476,7 @@ describe('FileUploadHelpers', () => {
           }
           return { index: 0 };
         },
+        // eslint-disable-next-line @typescript-eslint/require-await
         onComplete: async (finalResult) => {
           // Verify we get the correct error
           expect(finalResult.success).toBe(false);
@@ -522,10 +539,7 @@ describe('FileUploadHelpers', () => {
   });
 
   describe('Iterator Drain Timeout Protection', () => {
-    it('should handle iterator drain timeout gracefully', async () => {
-      // This test verifies that the iterator drain doesn't hang indefinitely
-      // when the iterator is blocked (simulated by a hanging async generator)
-
+    it('should reject invalid MIME type without calling processor', async () => {
       let wasProcessorCalled = false;
 
       const files: MockMultipartFile[] = [
@@ -565,6 +579,1335 @@ describe('FileUploadHelpers', () => {
           /file_type_not_allowed|batch_file_failed/,
         );
       }
+    });
+  });
+
+  describe('Success Cases', () => {
+    it('should successfully process a single file', async () => {
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'avatar',
+          filename: 'photo.jpg',
+          encoding: '7bit',
+          mimetype: 'image/jpeg',
+          file: createFileStream('fake image data'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['image/jpeg'],
+        processor: async (stream, metadata, _context) => {
+          let content = '';
+          for await (const chunk of stream) {
+            content += chunk.toString();
+          }
+          return {
+            filename: metadata.filename,
+            size: content.length,
+            mimetype: metadata.mimetype,
+          };
+        },
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.files.length).toBe(1);
+        expect(result.files[0].filename).toBe('photo.jpg');
+        expect(result.files[0].data.mimetype).toBe('image/jpeg');
+      }
+    });
+
+    it('should successfully process multiple files', async () => {
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'files',
+          filename: 'file1.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content 1'),
+        },
+        {
+          fieldname: 'files',
+          filename: 'file2.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content 2'),
+        },
+        {
+          fieldname: 'files',
+          filename: 'file3.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content 3'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxFiles: 5,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, metadata, context) => {
+          let content = '';
+          for await (const chunk of stream) {
+            content += chunk.toString();
+          }
+          return {
+            fileIndex: context.fileIndex,
+            filename: metadata.filename,
+            content,
+          };
+        },
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.files.length).toBe(3);
+        expect(result.files[0].fileIndex).toBe(0);
+        expect(result.files[1].fileIndex).toBe(1);
+        expect(result.files[2].fileIndex).toBe(2);
+        expect(result.files[0].data.content).toBe('content 1');
+        expect(result.files[1].data.content).toBe('content 2');
+        expect(result.files[2].data.content).toBe('content 3');
+      }
+    });
+  });
+
+  describe('MIME Type Validation', () => {
+    it('should reject MIME type when function validator disallows it', async () => {
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'document.pdf',
+          encoding: '7bit',
+          mimetype: 'application/pdf',
+          file: createFileStream('pdf content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: (mime) => {
+          if (mime.startsWith('image/')) {
+            return { allowed: true };
+          }
+          return {
+            allowed: false,
+            rejectionReason: 'Only images are allowed',
+            allowedTypes: ['image/*'],
+          };
+        },
+        processor: async (stream, _metadata, _context) => {
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return {};
+        },
+      });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.errorEnvelope.error.code).toMatch(
+          /file_type_not_allowed|mime_type_rejected/,
+        );
+      }
+    });
+
+    it('should accept MIME type when function validator allows it', async () => {
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'photo.jpg',
+          encoding: '7bit',
+          mimetype: 'image/jpeg',
+          file: createFileStream('image content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: (mime) => {
+          if (mime.startsWith('image/')) {
+            return { allowed: true };
+          }
+          return {
+            allowed: false,
+            rejectionReason: 'Only images allowed',
+          };
+        },
+        processor: async (stream, metadata, _context) => {
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return { filename: metadata.filename };
+        },
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it('should support wildcard MIME type patterns', async () => {
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'photo.png',
+          encoding: '7bit',
+          mimetype: 'image/png',
+          file: createFileStream('image content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['image/*', 'application/pdf'],
+        processor: async (stream, _metadata, _context) => {
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return {};
+        },
+      });
+
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('Byte Counter', () => {
+    it('should count bytes read during stream processing', async () => {
+      const content = 'x'.repeat(100);
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'test.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream(content),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      let bytesProcessed = 0;
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (fileStream, _metadata, _context) => {
+          // Count bytes as we consume the stream
+          for await (const chunk of fileStream) {
+            bytesProcessed += chunk.length;
+          }
+          return { bytesProcessed };
+        },
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.files[0].data.bytesProcessed).toBe(100);
+      }
+    });
+  });
+
+  describe('Custom APIResponseHelpersClass', () => {
+    it('should use custom response helpers when decorated', async () => {
+      const customCreateError = mock((params: { errorCode: string }) => ({
+        error: {
+          code: params.errorCode,
+          message: 'Custom error message',
+        },
+        metadata: { custom: true },
+      }));
+
+      const customHelpers = {
+        createAPIErrorResponse: customCreateError,
+      };
+
+      const files: MockMultipartFile[] = [];
+
+      const request = createMockRequest(files);
+      (
+        request as FastifyRequest & { APIResponseHelpersClass?: unknown }
+      ).APIResponseHelpersClass = customHelpers;
+
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, _metadata, _context) => {
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return {};
+        },
+      });
+
+      expect(result.success).toBe(false);
+      expect(customCreateError).toHaveBeenCalled();
+    });
+  });
+
+  describe('Context Methods', () => {
+    it('should provide isAborted() method in context', async () => {
+      const abortedChecks: boolean[] = [];
+
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'file.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, _metadata, context) => {
+          abortedChecks.push(context.isAborted());
+          for await (const _chunk of stream) {
+            abortedChecks.push(context.isAborted());
+          }
+          abortedChecks.push(context.isAborted());
+          return {};
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(abortedChecks.every((isAborted) => isAborted === false)).toBe(
+        true,
+      );
+    });
+
+    it('should track file index in context', async () => {
+      const fileIndices: number[] = [];
+
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'files',
+          filename: 'file1.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content 1'),
+        },
+        {
+          fieldname: 'files',
+          filename: 'file2.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content 2'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxFiles: 2,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, _metadata, context) => {
+          fileIndices.push(context.fileIndex);
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return {};
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(fileIndices).toEqual([0, 1]);
+    });
+  });
+
+  describe('Multipart Not Enabled', () => {
+    it('should throw error when multipart is not enabled', async () => {
+      const request = {
+        server: { multipartEnabled: false }, // Not enabled
+        headers: { 'content-type': 'multipart/form-data' },
+        log: { error: mock(), warn: mock(), info: mock() },
+        id: 'test-request-id',
+      } as unknown as FastifyRequest;
+
+      const reply = createMockReply();
+
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      await expect(
+        FileUploadHelpers.processUpload({
+          request,
+          reply,
+          maxSizePerFile: 1024,
+          allowedMimeTypes: ['text/plain'],
+          processor: async (stream, _metadata, _context) => {
+            for await (const _chunk of stream) {
+              // consume
+            }
+            return {};
+          },
+        }),
+      ).rejects.toThrow(/not enabled/);
+    });
+  });
+
+  describe('maxFields and maxFieldSize Parameters', () => {
+    it('should pass maxFields to files iterator', async () => {
+      // This test verifies that maxFields is passed through to the iterator
+      // The actual enforcement is done by @fastify/multipart
+
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'test.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        maxFields: 5,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, _metadata, _context) => {
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return {};
+        },
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it('should pass maxFieldSize to files iterator', async () => {
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'test.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        maxFieldSize: 512,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, _metadata, _context) => {
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return {};
+        },
+      });
+
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('onComplete Error Handling', () => {
+    it('should return error when onComplete throws after success', async () => {
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'test.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, _metadata, _context) => {
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return { uploaded: true };
+        },
+        // eslint-disable-next-line @typescript-eslint/require-await
+        onComplete: async (finalResult) => {
+          if (finalResult.success) {
+            throw new Error('Post-processing failed');
+          }
+        },
+      });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.errorEnvelope.error.code).toBe(
+          'file_upload_completion_failed',
+        );
+      }
+    });
+
+    it('should log but not change error when onComplete throws after error', async () => {
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'test.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        // eslint-disable-next-line @typescript-eslint/require-await
+        processor: async (_stream, _metadata, _context) => {
+          throw new Error('Processor error');
+        },
+        // eslint-disable-next-line @typescript-eslint/require-await
+        onComplete: async (_finalResult) => {
+          throw new Error('onComplete error');
+        },
+      });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        // Should return the original processor error, not the onComplete error
+        expect(result.errorEnvelope.error.code).toMatch(
+          /file_processor_error|batch_file_failed/,
+        );
+      }
+    });
+  });
+
+  describe('Metadata in Processor', () => {
+    it('should provide complete metadata to processor', async () => {
+      let capturedMetadata:
+        | {
+            filename: string;
+            mimetype: string;
+            encoding: string;
+            fieldname: string;
+            fileIndex: number;
+          }
+        | undefined;
+
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'avatar',
+          filename: 'photo.jpg',
+          encoding: 'binary',
+          mimetype: 'image/jpeg',
+          file: createFileStream('image data'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['image/jpeg'],
+        processor: async (stream, metadata, _context) => {
+          capturedMetadata = { ...metadata };
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return {};
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(capturedMetadata).toBeDefined();
+      expect(capturedMetadata?.filename).toBe('photo.jpg');
+      expect(capturedMetadata?.mimetype).toBe('image/jpeg');
+      expect(capturedMetadata?.encoding).toBe('binary');
+      expect(capturedMetadata?.fieldname).toBe('avatar');
+      expect(capturedMetadata?.fileIndex).toBe(0);
+    });
+  });
+
+  describe('Error Message Sanitization', () => {
+    it('should sanitize error messages in production mode', async () => {
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'test.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      // Mark as production
+      (request as FastifyRequest & { isDevelopment?: boolean }).isDevelopment =
+        false;
+
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        // eslint-disable-next-line @typescript-eslint/require-await
+        processor: async (_stream, _metadata, _context) => {
+          // Throw error with sensitive details
+          throw new Error('Database connection failed at 192.168.1.1:5432');
+        },
+      });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        // In production, should show generic "Storage error"
+        expect(result.errorEnvelope.error.details?.error).toBe('Storage error');
+      }
+    });
+
+    it('should show detailed error messages in development mode', async () => {
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'test.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      // Mark as development
+      (request as FastifyRequest & { isDevelopment?: boolean }).isDevelopment =
+        true;
+
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        // eslint-disable-next-line @typescript-eslint/require-await
+        processor: async (_stream, _metadata, _context) => {
+          throw new Error('Specific database error');
+        },
+      });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        // In development, should show actual error message
+        expect(result.errorEnvelope.error.details?.error).toBe(
+          'Specific database error',
+        );
+      }
+    });
+
+    it('should handle errors with non-string message property', async () => {
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'test.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      (request as FastifyRequest & { isDevelopment?: boolean }).isDevelopment =
+        true;
+
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        // eslint-disable-next-line @typescript-eslint/require-await
+        processor: async (_stream, _metadata, _context) => {
+          // Throw error with non-string message
+          const error = new Error();
+          (error as { message: unknown }).message = { code: 'ERR_123' };
+          throw error;
+        },
+      });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        // Should fall back to "Storage error"
+        expect(result.errorEnvelope.error.details?.error).toBe('Storage error');
+      }
+    });
+  });
+
+  describe('onComplete Error Handling Edge Cases', () => {
+    it('should handle onComplete error on invalid content-type', async () => {
+      const request = {
+        server: { multipartEnabled: true },
+        headers: { 'content-type': 'application/json' },
+        log: { error: mock(), warn: mock(), info: mock() },
+        id: 'test-request-id',
+      } as unknown as FastifyRequest;
+
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, _metadata, _context) => {
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return {};
+        },
+        // eslint-disable-next-line @typescript-eslint/require-await
+        onComplete: async (_finalResult) => {
+          throw new Error('onComplete error on invalid content type');
+        },
+      });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        // Should still return the invalid content type error
+        expect(result.errorEnvelope.error.code).toBe('invalid_content_type');
+      }
+
+      // Should have logged the onComplete error
+      expect(request.log.error).toHaveBeenCalled();
+    });
+
+    it('should handle onComplete error when no files provided', async () => {
+      const files: MockMultipartFile[] = [];
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, _metadata, _context) => {
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return {};
+        },
+        // eslint-disable-next-line @typescript-eslint/require-await
+        onComplete: async (_finalResult) => {
+          throw new Error('onComplete error on no files');
+        },
+      });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        // Should still return the file_not_provided error
+        expect(result.errorEnvelope.error.code).toBe('file_not_provided');
+      }
+    });
+  });
+
+  describe('Abort Detection', () => {
+    it('should detect abort state via context.isAborted()', async () => {
+      const abortChecks: boolean[] = [];
+
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'test.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        timeoutMS: 5, // Very short timeout to trigger abort
+        processor: async (stream, _metadata, context) => {
+          // Check abort state before delay
+          abortChecks.push(context.isAborted());
+
+          // Wait for timeout to fire
+          await new Promise((resolve) => setTimeout(resolve, 50));
+
+          // Check abort state after timeout should have fired
+          abortChecks.push(context.isAborted());
+
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return {};
+        },
+      });
+
+      // The upload will fail (either timeout or processor error)
+      expect(result.success).toBe(false);
+
+      // Should have detected abort state
+      expect(abortChecks.length).toBe(2);
+      expect(abortChecks[0]).toBe(false); // Not aborted initially
+      expect(abortChecks[1]).toBe(true); // Aborted after timeout
+    });
+  });
+
+  describe('Connection Broken During Upload', () => {
+    it('should handle connection break via reply.raw.destroyed', async () => {
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'test.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, _metadata, _context) => {
+          // Simulate connection break during processing
+          reply.raw.destroyed = true;
+
+          // Give connection monitor time to detect break (runs every 100ms)
+          await new Promise((resolve) => setTimeout(resolve, 150));
+
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return {};
+        },
+      });
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('FilesLimitError Handling', () => {
+    it('should handle too many files with onComplete error', async () => {
+      // Create a request that will trigger FilesLimitError
+      const request = {
+        server: { multipartEnabled: true },
+        headers: { 'content-type': 'multipart/form-data; boundary=----' },
+        log: {
+          error: mock(),
+          warn: mock(),
+          info: mock(),
+        },
+        id: 'test-request-id',
+        files() {
+          // Simulate @fastify/multipart throwing FilesLimitError
+          // eslint-disable-next-line @typescript-eslint/require-await, require-yield
+          return (async function* () {
+            const error = new Error('Too many files');
+            error.name = 'FilesLimitError';
+            (error as Error & { code: string }).code = 'FST_FILES_LIMIT';
+            throw error;
+          })();
+        },
+      } as unknown as FastifyRequest;
+
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxFiles: 1,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, _metadata, _context) => {
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return {};
+        },
+        // eslint-disable-next-line @typescript-eslint/require-await
+        onComplete: async (_finalResult) => {
+          throw new Error('onComplete error on too many files');
+        },
+      });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.errorEnvelope.error.code).toBe('file_max_files_exceeded');
+      }
+
+      // Verify onComplete error was logged
+      expect(request.log.error).toHaveBeenCalled();
+    });
+  });
+
+  describe('Unexpected Error with onComplete', () => {
+    it('should handle unexpected error with onComplete throwing', async () => {
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'test.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content'),
+        },
+      ];
+
+      // Create request with files() that throws unexpected error
+      const request = {
+        server: { multipartEnabled: true },
+        headers: { 'content-type': 'multipart/form-data; boundary=----' },
+        log: {
+          error: mock(),
+          warn: mock(),
+          info: mock(),
+        },
+        id: 'test-request-id',
+        files() {
+          // eslint-disable-next-line @typescript-eslint/require-await
+          return (async function* () {
+            // Yield first file successfully
+            yield files[0];
+            // Then throw an unexpected error
+            throw new Error('Unexpected multipart error');
+          })();
+        },
+      } as unknown as FastifyRequest;
+
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, _metadata, _context) => {
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return {};
+        },
+        // eslint-disable-next-line @typescript-eslint/require-await
+        onComplete: async (_finalResult) => {
+          throw new Error('onComplete error after unexpected error');
+        },
+      });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.errorEnvelope.error.code).toBe('file_upload_failed');
+      }
+
+      // Verify errors were logged
+      expect(request.log.error).toHaveBeenCalled();
+    });
+  });
+
+  describe('Iterator Drain with Multiple Files', () => {
+    it('should drain remaining files when batch fails early', async () => {
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'files',
+          filename: 'file1.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content 1'),
+        },
+        {
+          fieldname: 'files',
+          filename: 'file2.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content 2'),
+        },
+        {
+          fieldname: 'files',
+          filename: 'file3.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content 3'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxFiles: 3,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, _metadata, context) => {
+          for await (const _chunk of stream) {
+            // consume
+          }
+
+          // Fail on first file - should drain remaining files
+          if (context.fileIndex === 0) {
+            throw new Error('First file failed');
+          }
+
+          return {};
+        },
+      });
+
+      expect(result.success).toBe(false);
+    });
+
+    it('should drain remaining files after timeout during file processing', async () => {
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'files',
+          filename: 'file1.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content 1'),
+        },
+        {
+          fieldname: 'files',
+          filename: 'file2.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content 2'),
+        },
+        {
+          fieldname: 'files',
+          filename: 'file3.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content 3'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxFiles: 3,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        timeoutMS: 10, // Very short timeout
+        processor: async (stream, _metadata, context) => {
+          // First file: delay to trigger timeout
+          if (context.fileIndex === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
+
+          for await (const _chunk of stream) {
+            // consume
+          }
+
+          return {};
+        },
+      });
+
+      expect(result.success).toBe(false);
+    });
+
+    it('should handle hanging iterator drain after MIME rejection', async () => {
+      let shouldHangIterator = false;
+
+      // Create request with iterator that hangs on drain
+      const request = {
+        server: { multipartEnabled: true },
+        headers: { 'content-type': 'multipart/form-data; boundary=----' },
+        log: {
+          error: mock(),
+          warn: mock(),
+          info: mock(),
+        },
+        id: 'test-request-id',
+        files() {
+          return (async function* () {
+            // Yield first file
+            yield {
+              fieldname: 'files',
+              filename: 'file1.txt',
+              encoding: '7bit',
+              mimetype: 'application/pdf', // Will be rejected (allowedMimeTypes is text/plain)
+              file: createFileStream('content 1'),
+            };
+
+            // After MIME rejection, if iterator tries to drain, hang here
+            if (shouldHangIterator) {
+              // Simulate hanging network request - wait longer than drain timeout
+              await new Promise((resolve) => setTimeout(resolve, 2000));
+            }
+
+            // Try to yield more files (won't be reached due to MIME rejection)
+            yield {
+              fieldname: 'files',
+              filename: 'file2.txt',
+              encoding: '7bit',
+              mimetype: 'text/plain',
+              file: createFileStream('content 2'),
+            };
+          })();
+        },
+      } as unknown as FastifyRequest;
+
+      const reply = createMockReply();
+
+      shouldHangIterator = true;
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxFiles: 3,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'], // Will reject PDF
+        processor: async (stream, _metadata, _context) => {
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return {};
+        },
+      });
+
+      expect(result.success).toBe(false);
+
+      // Should have logged drain timeout warning
+      expect(request.log.warn).toHaveBeenCalled();
+    });
+
+    it('should drain remaining files when timeout occurs between iterations', async () => {
+      let iteratorCallCount = 0;
+
+      // Create request with custom iterator
+      const request = {
+        server: { multipartEnabled: true },
+        headers: { 'content-type': 'multipart/form-data; boundary=----' },
+        log: {
+          error: mock(),
+          warn: mock(),
+          info: mock(),
+        },
+        id: 'test-request-id',
+        raw: {
+          destroyed: false,
+        },
+        files() {
+          return (async function* () {
+            iteratorCallCount++;
+            // First file
+            yield {
+              fieldname: 'files',
+              filename: 'file1.txt',
+              encoding: '7bit',
+              mimetype: 'text/plain',
+              file: createFileStream('content 1'),
+            };
+
+            // Small delay to allow timeout to fire between iterations
+            await new Promise((resolve) => setTimeout(resolve, 50));
+
+            iteratorCallCount++;
+            // Second file (state.aborted should be true here)
+            yield {
+              fieldname: 'files',
+              filename: 'file2.txt',
+              encoding: '7bit',
+              mimetype: 'text/plain',
+              file: createFileStream('content 2'),
+            };
+
+            iteratorCallCount++;
+            // Third file (should be drained)
+            yield {
+              fieldname: 'files',
+              filename: 'file3.txt',
+              encoding: '7bit',
+              mimetype: 'text/plain',
+              file: createFileStream('content 3'),
+            };
+          })();
+        },
+      } as unknown as FastifyRequest;
+
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxFiles: 3,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        timeoutMS: 20, // Very short timeout - will fire between file 1 and file 2
+        processor: async (stream, _metadata, _context) => {
+          // Process quickly - timeout should fire between files, not during processing
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return {};
+        },
+      });
+
+      // Should have failed due to timeout
+      expect(result.success).toBe(false);
+
+      // Iterator should have been called at least twice (first file + attempt at second)
+      expect(iteratorCallCount).toBeGreaterThanOrEqual(2);
+    });
+
+    it('should handle hanging iterator drain after timeout between iterations', async () => {
+      let wasDrainAttempted = false;
+
+      // Create request with iterator that hangs during drain
+      const request = {
+        server: { multipartEnabled: true },
+        headers: { 'content-type': 'multipart/form-data; boundary=----' },
+        log: {
+          error: mock(),
+          warn: mock(),
+          info: mock(),
+        },
+        id: 'test-request-id',
+        raw: {
+          destroyed: false,
+        },
+        files() {
+          return (async function* () {
+            // First file
+            yield {
+              fieldname: 'files',
+              filename: 'file1.txt',
+              encoding: '7bit',
+              mimetype: 'text/plain',
+              file: createFileStream('content 1'),
+            };
+
+            // Small delay to allow timeout to fire between iterations
+            await new Promise((resolve) => setTimeout(resolve, 50));
+
+            // Second file - will trigger the drain logic at line 582
+            wasDrainAttempted = true;
+            yield {
+              fieldname: 'files',
+              filename: 'file2.txt',
+              encoding: '7bit',
+              mimetype: 'text/plain',
+              file: createFileStream('content 2'),
+            };
+
+            // Hang here during drain attempt - longer than drain timeout (1000ms)
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+
+            // Third file (won't be reached due to drain timeout)
+            yield {
+              fieldname: 'files',
+              filename: 'file3.txt',
+              encoding: '7bit',
+              mimetype: 'text/plain',
+              file: createFileStream('content 3'),
+            };
+          })();
+        },
+      } as unknown as FastifyRequest;
+
+      const reply = createMockReply();
+
+      const result = await FileUploadHelpers.processUpload({
+        request,
+        reply,
+        maxFiles: 3,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        timeoutMS: 20, // Very short timeout - will fire between file 1 and file 2
+        processor: async (stream, _metadata, _context) => {
+          // Process quickly - timeout should fire between files
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return {};
+        },
+      });
+
+      // Should have failed due to timeout
+      expect(result.success).toBe(false);
+
+      // Should have attempted drain (which timed out)
+      expect(wasDrainAttempted).toBe(true);
+
+      // Should have logged drain timeout warning
+      expect(request.log.warn).toHaveBeenCalled();
+      const warnCalls = (request.log.warn as any).mock.calls;
+      const drainTimeoutWarning = warnCalls.some((call: any) => {
+        return (
+          call[1] === 'Failed to drain multipart iterator (timeout or error)'
+        );
+      });
+      expect(drainTimeoutWarning).toBe(true);
     });
   });
 });

@@ -1022,9 +1022,11 @@ export interface FileUploadsConfig {
    * Use this to reject requests early based on headers (auth, rate limiting, etc.)
    * This saves bandwidth by rejecting before any file data is parsed
    *
+   * Supports both synchronous and asynchronous validation functions
    * Return true to allow the request, or an error response object to reject it
    *
    * @example
+   * // Async validation
    * earlyValidation: async (request) => {
    *   const token = request.headers.authorization;
    *   if (!token) {
@@ -1032,10 +1034,22 @@ export interface FileUploadsConfig {
    *   }
    *   return true; // Allow request to proceed
    * }
+   *
+   * @example
+   * // Sync validation
+   * earlyValidation: (request) => {
+   *   if (!request.headers['x-api-key']) {
+   *     return { statusCode: 403, error: 'forbidden', message: 'API key required' };
+   *   }
+   *   return true;
+   * }
    */
   earlyValidation?: (
     request: FastifyRequest,
-  ) => Promise<true | { statusCode: number; error: string; message: string }>;
+  ) =>
+    | Promise<true | { statusCode: number; error: string; message: string }>
+    | true
+    | { statusCode: number; error: string; message: string };
 }
 
 /**
