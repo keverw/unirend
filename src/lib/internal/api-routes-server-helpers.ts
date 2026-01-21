@@ -21,6 +21,11 @@ export type HTTPMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
  *
  * Handlers should return an APIResponseEnvelope. Returning any other object
  * will result in a runtime error being thrown during request handling.
+ *
+ * **Return false** when you've sent a custom response (e.g., using
+ * APIResponseHelpers.sendErrorResponse() or validation helpers like ensureJSONBody).
+ * This signals that the handler has already sent the response and the framework
+ * should not attempt to send anything.
  */
 export type APIRouteHandler<T = unknown, M extends BaseMeta = BaseMeta> = (
   request: FastifyRequest,
@@ -43,8 +48,12 @@ export type APIRouteHandler<T = unknown, M extends BaseMeta = BaseMeta> = (
     /** Original URL including query string */
     originalURL: string;
   },
-  // Allow either sync or async returns
-) => APIResponseEnvelope<T, M> | Promise<APIResponseEnvelope<T, M>>;
+  // Allow either sync or async returns, including false for early-exit cases
+) =>
+  | APIResponseEnvelope<T, M>
+  | Promise<APIResponseEnvelope<T, M>>
+  | false
+  | Promise<false>;
 
 /**
  * Internal structure for storing handlers by method → endpoint → version
@@ -70,6 +79,18 @@ type MethodToEndpointMap<T, M extends BaseMeta> = Map<
  * - Validates handler return envelopes using APIResponseHelpers
  * - Provides convenient shortcuts via .api.get/.post/.put/.delete/.patch
  * - Controls wildcard usage via constructor flag
+ *
+ * ## Endpoint Convention
+ *
+ * Endpoints should be specified as path segments WITHOUT leading slashes:
+ * - ✅ `server.api.get("users/:id", handler)`  → `/api/v1/users/:id`
+ * - ✅ `server.api.post("upload/avatar", h)`   → `/api/v1/upload/avatar`
+ * - ⚠️ `server.api.get("/users/:id", handler)` → `/api/v1/users/:id` (leading slash stripped)
+ *
+ * Leading slashes are allowed but will be automatically stripped during normalization.
+ *
+ * This design treats endpoints as path segments that get appended to the API prefix
+ * and version, rather than as absolute paths.
  */
 export class APIRoutesServerHelpers<
   T = unknown,
@@ -79,6 +100,17 @@ export class APIRoutesServerHelpers<
 
   // API Shortcut method-specific helpers
   private readonly api = {
+    /**
+     * Register a GET endpoint
+     *
+     * @param endpoint - Path segment (e.g., "users/:id" or "items")
+     *   - Convention: Do NOT include leading slash - endpoints are path segments, not full paths
+     *   - Leading slashes are allowed but will be stripped during normalization
+     *   - The final path is constructed as: prefix + version + endpoint
+     *     Example: "users/:id" → "/api/v1/users/:id" (with prefix="/api", versioned)
+     * @param handlerOrVersion - Handler function, or version number if using versioned handler
+     * @param maybeHandler - Handler function when version is specified
+     */
     get: (
       endpoint: string,
       handlerOrVersion: number | APIRouteHandler<T, M>,
@@ -95,6 +127,15 @@ export class APIRoutesServerHelpers<
         this.registerAPIHandler('GET', endpoint, handlerOrVersion);
       }
     },
+    /**
+     * Register a POST endpoint
+     *
+     * @param endpoint - Path segment (e.g., "users" or "upload/avatar")
+     *   - Convention: Do NOT include leading slash - endpoints are path segments, not full paths
+     *   - Leading slashes are allowed but will be stripped during normalization
+     * @param handlerOrVersion - Handler function, or version number if using versioned handler
+     * @param maybeHandler - Handler function when version is specified
+     */
     post: (
       endpoint: string,
       handlerOrVersion: number | APIRouteHandler<T, M>,
@@ -111,6 +152,15 @@ export class APIRoutesServerHelpers<
         this.registerAPIHandler('POST', endpoint, handlerOrVersion);
       }
     },
+    /**
+     * Register a PUT endpoint
+     *
+     * @param endpoint - Path segment (e.g., "users/:id" or "items/:itemId")
+     *   - Convention: Do NOT include leading slash - endpoints are path segments, not full paths
+     *   - Leading slashes are allowed but will be stripped during normalization
+     * @param handlerOrVersion - Handler function, or version number if using versioned handler
+     * @param maybeHandler - Handler function when version is specified
+     */
     put: (
       endpoint: string,
       handlerOrVersion: number | APIRouteHandler<T, M>,
@@ -127,6 +177,15 @@ export class APIRoutesServerHelpers<
         this.registerAPIHandler('PUT', endpoint, handlerOrVersion);
       }
     },
+    /**
+     * Register a DELETE endpoint
+     *
+     * @param endpoint - Path segment (e.g., "users/:id" or "items/:itemId")
+     *   - Convention: Do NOT include leading slash - endpoints are path segments, not full paths
+     *   - Leading slashes are allowed but will be stripped during normalization
+     * @param handlerOrVersion - Handler function, or version number if using versioned handler
+     * @param maybeHandler - Handler function when version is specified
+     */
     delete: (
       endpoint: string,
       handlerOrVersion: number | APIRouteHandler<T, M>,
@@ -143,6 +202,15 @@ export class APIRoutesServerHelpers<
         this.registerAPIHandler('DELETE', endpoint, handlerOrVersion);
       }
     },
+    /**
+     * Register a PATCH endpoint
+     *
+     * @param endpoint - Path segment (e.g., "users/:id" or "profile")
+     *   - Convention: Do NOT include leading slash - endpoints are path segments, not full paths
+     *   - Leading slashes are allowed but will be stripped during normalization
+     * @param handlerOrVersion - Handler function, or version number if using versioned handler
+     * @param maybeHandler - Handler function when version is specified
+     */
     patch: (
       endpoint: string,
       handlerOrVersion: number | APIRouteHandler<T, M>,
@@ -245,6 +313,26 @@ export class APIRoutesServerHelpers<
               },
             );
 
+            // If handler returned false, it has already sent the response
+            // (e.g., via reply.sendErrorEnvelope() in a validation helper)
+            if (envelope === false) {
+              // Verify that the response was actually sent by the handler
+              if (!reply.sent) {
+                // Handler bug: returned false without sending a response
+                // This is a programming error in the user's handler code
+                const error = new Error(
+                  `API route ${method} ${fullPath} returned false but did not send a response. ` +
+                    `When returning false, you must send a response first using APIResponseHelpers.sendErrorResponse().`,
+                );
+                (error as unknown as { errorCode: string }).errorCode =
+                  'handler_returned_false_without_sending';
+                (error as unknown as { route: string }).route =
+                  `${method} ${fullPath}`;
+                throw error;
+              }
+              return; // Response was sent by handler, do not send anything more
+            }
+
             if (!APIResponseHelpers.isValidEnvelope(envelope)) {
               const error = new Error(
                 'API route ' +
@@ -309,7 +397,21 @@ export class APIRoutesServerHelpers<
     return this.handlersByMethod.size > 0;
   }
 
-  /** Normalize and validate endpoint string (no prefix, no version) */
+  /**
+   * Normalize and validate endpoint string (no prefix, no version)
+   *
+   * Endpoints are treated as path segments that will be appended to the
+   * API prefix and version. Leading slashes are stripped to enforce this
+   * segment-based approach.
+   *
+   * Convention: Callers should NOT include leading slashes, but they are
+   * allowed and will be normalized away.
+   *
+   * @example
+   * normalizeEndpoint("users/:id")  → "users/:id"
+   * normalizeEndpoint("/users/:id") → "users/:id" (leading slash stripped)
+   * normalizeEndpoint("upload/")    → "upload"    (trailing slash stripped)
+   */
   private normalizeEndpoint(endpoint: string): string {
     const trimmed = (endpoint || '').trim();
 
@@ -317,8 +419,22 @@ export class APIRoutesServerHelpers<
       throw new Error('Endpoint path segment cannot be empty');
     }
 
-    // Remove leading slash to keep it as a path segment
-    return trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
+    // Remove leading slash - endpoints are path segments, not full paths
+    let normalized = trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
+
+    // Remove trailing slash for consistency
+    if (normalized.endsWith('/') && normalized.length > 1) {
+      normalized = normalized.slice(0, -1);
+    }
+
+    // Prevent empty endpoint after normalization
+    if (normalized.length === 0) {
+      throw new Error(
+        'Endpoint path segment cannot be empty after normalization',
+      );
+    }
+
+    return normalized;
   }
 
   private ensureMethod(method: string): HTTPMethod {

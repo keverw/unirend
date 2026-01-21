@@ -12,6 +12,7 @@ import type {
   APIResponseEnvelope,
   PageResponseEnvelope,
 } from './api-envelope-types';
+import type { ControlledReply } from '../types';
 
 /**
  * Helper utilities for constructing API/Page response envelopes.
@@ -258,17 +259,90 @@ export class APIResponseHelpers {
   // Validation Helpers
 
   /**
+   * Send an error envelope response with the appropriate method
+   * Works with both FastifyReply and ControlledReply
+   *
+   * This is a public utility for sending error responses in a way that works
+   * with both standard Fastify handlers and controlled reply handlers.
+   *
+   * @param reply - Fastify reply object or ControlledReply
+   * @param statusCode - HTTP status code to send
+   * @param errorResponse - Error envelope to send
+   *
+   * @example
+   * ```typescript
+   * const errorResponse = APIResponseHelpers.createAPIErrorResponse({
+   *   request,
+   *   statusCode: 400,
+   *   errorCode: 'invalid_input',
+   *   errorMessage: 'Invalid input provided',
+   * });
+   * APIResponseHelpers.sendErrorResponse(reply, 400, errorResponse);
+   * ```
+   */
+  public static sendErrorResponse(
+    reply: FastifyReply | ControlledReply,
+    statusCode: number,
+    errorResponse: APIErrorResponse<BaseMeta> | PageErrorResponse<BaseMeta>,
+  ): void {
+    // Check if this is a ControlledReply (has _sendErrorEnvelope) or FastifyReply
+    if ('_sendErrorEnvelope' in reply) {
+      reply._sendErrorEnvelope(statusCode, errorResponse);
+    } else {
+      // Using optional chaining in case reply is mocked in tests
+      reply.code?.(statusCode)?.send(errorResponse);
+    }
+  }
+
+  /**
    * Ensures an incoming Fastify request has a valid JSON body.
-   * If invalid, sends a standardized 400 error response and returns false.
+   * If invalid, sends a standardized error response and returns false.
+   *
+   * Use this helper for POST, PUT, PATCH, and DELETE endpoints that expect JSON payloads.
+   * This is a pre-validation convenience before using schema validators like Zod.
    *
    * @param request - Fastify request object
-   * @param reply - Fastify reply object
-   * @returns true if body is valid, otherwise false (error already sent)
+   * @param reply - Fastify reply object or ControlledReply
+   * @returns true if body is valid JSON, otherwise false (error already sent)
+   *
+   * @example
+   * ```typescript
+   * server.api.post('users', async (request, reply) => {
+   *   if (!APIResponseHelpers.ensureJSONBody(request, reply)) {
+   *     return; // Error response already sent
+   *   }
+   *
+   *   // Now safe to validate using a schema validator (e.g. Zod) or process the body
+   *   const validated = userSchema.parse(request.body);
+   *   // ...
+   * });
+   * ```
    */
   public static ensureJSONBody(
     request: FastifyRequest,
-    reply: FastifyReply,
+    reply: FastifyReply | ControlledReply,
   ): boolean {
+    // Check Content-Type header first
+    const contentType = request.headers['content-type'];
+
+    if (!contentType || !contentType.includes('application/json')) {
+      const errorResponse = this.createAPIErrorResponse({
+        request,
+        statusCode: 415, // Unsupported Media Type
+        errorCode: 'invalid_content_type',
+        errorMessage: 'Content-Type must be application/json',
+        errorDetails: {
+          received_content_type: contentType || 'none',
+          expected_content_type: 'application/json',
+        },
+      });
+
+      // Send response and terminate early
+      this.sendErrorResponse(reply, 415, errorResponse);
+      return false;
+    }
+
+    // Then validate the parsed body exists and is an object
     if (!request.body || typeof request.body !== 'object') {
       const errorResponse = this.createAPIErrorResponse({
         request,
@@ -276,14 +350,158 @@ export class APIResponseHelpers {
         errorCode: 'invalid_request_body_format',
         errorMessage:
           'Request body is required and must be a valid JSON object',
+        errorDetails: {
+          received_body_type: typeof request.body,
+        },
       });
 
       // Send response and terminate early
-      // Using optional chaining in case reply is mocked in tests
-      reply.code?.(400).send(errorResponse);
+      this.sendErrorResponse(reply, 400, errorResponse);
       return false;
     }
 
+    return true;
+  }
+
+  /**
+   * Ensures an incoming Fastify request has a valid URL-encoded form body.
+   * If invalid, sends a standardized error response and returns false.
+   *
+   * Use this helper for POST, PUT, or PATCH endpoints that expect URL-encoded form data.
+   * This is a pre-validation convenience before processing form fields.
+   *
+   * Note: For file uploads with multipart/form-data, use ensureMultipartBody instead.
+   *
+   * @param request - Fastify request object
+   * @param reply - Fastify reply object or ControlledReply
+   * @returns true if form body is valid, otherwise false (error already sent)
+   *
+   * @example
+   * ```typescript
+   * server.api.post('contact', async (request, reply) => {
+   *   if (!APIResponseHelpers.ensureURLEncodedBody(request, reply)) {
+   *     return; // Error response already sent
+   *   }
+   *
+   *   // Now safe to process form fields
+   *   const formData = request.body as Record<string, unknown>;
+   *   // ...
+   * });
+   * ```
+   */
+  public static ensureURLEncodedBody(
+    request: FastifyRequest,
+    reply: FastifyReply | ControlledReply,
+  ): boolean {
+    // Check Content-Type header first
+    const contentType = request.headers['content-type'];
+
+    if (
+      !contentType ||
+      !contentType.includes('application/x-www-form-urlencoded')
+    ) {
+      const errorResponse = this.createAPIErrorResponse({
+        request,
+        statusCode: 415, // Unsupported Media Type
+        errorCode: 'invalid_content_type',
+        errorMessage: 'Content-Type must be application/x-www-form-urlencoded',
+        errorDetails: {
+          received_content_type: contentType || 'none',
+          expected_content_type: 'application/x-www-form-urlencoded',
+        },
+      });
+
+      // Send response and terminate early
+      this.sendErrorResponse(reply, 415, errorResponse);
+      return false;
+    }
+
+    // Validate the parsed body exists and is an object
+    if (!request.body || typeof request.body !== 'object') {
+      const errorResponse = this.createAPIErrorResponse({
+        request,
+        statusCode: 400,
+        errorCode: 'invalid_request_body_format',
+        errorMessage:
+          'Request body is required and must be valid URL-encoded form data',
+        errorDetails: {
+          received_body_type: typeof request.body,
+        },
+      });
+
+      this.sendErrorResponse(reply, 400, errorResponse);
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Ensures an incoming Fastify request has multipart/form-data Content-Type.
+   * If invalid, sends a standardized error response and returns false.
+   *
+   * **Note:** `FileUploadHelpers.processUpload()` automatically validates Content-Type,
+   * so you typically don't need this helper when using `FileUploadHelpers`.
+   *
+   * **Advanced use case:** Use this for early validation in middleware (e.g., auth/rate-limiting)
+   * before multipart parsing begins:
+   *
+   * ```typescript
+   * // Block uploads for non-premium users before parsing
+   * pluginHost.addHook('preHandler', async (request, reply) => {
+   *   if (request.headers['content-type']?.includes('multipart/form-data')) {
+   *     if (!user.isPremium) {
+   *       return reply.code(403).send({ error: 'Premium feature' });
+   *     }
+   *   }
+   * });
+   * ```
+   *
+   * For standard file uploads, use `FileUploadHelpers` instead:
+   * ```typescript
+   * import { FileUploadHelpers } from 'unirend/server';
+   *
+   * const results = await FileUploadHelpers.processUpload({
+   *   request,
+   *   reply,
+   *   maxSizePerFile: 5 * 1024 * 1024,
+   *   allowedMimeTypes: ['image/jpeg', 'image/png'],
+   *   processor: async (stream, metadata, context) => {
+   *     // ... handle upload
+   *   },
+   * });
+   * ```
+   *
+   * @param request - Fastify request object
+   * @param reply - Fastify reply object or ControlledReply
+   * @returns true if Content-Type is multipart/form-data, otherwise false (error already sent)
+   */
+  public static ensureMultipartBody(
+    request: FastifyRequest,
+    reply: FastifyReply | ControlledReply,
+  ): boolean {
+    // Check Content-Type header
+    const contentType = request.headers['content-type'];
+
+    if (!contentType || !contentType.includes('multipart/form-data')) {
+      const errorResponse = this.createAPIErrorResponse({
+        request,
+        statusCode: 415, // Unsupported Media Type
+        errorCode: 'invalid_content_type',
+        errorMessage: 'Content-Type must be multipart/form-data',
+        errorDetails: {
+          received_content_type: contentType || 'none',
+          expected_content_type: 'multipart/form-data',
+        },
+      });
+
+      // Send response and terminate early
+      this.sendErrorResponse(reply, 415, errorResponse);
+      return false;
+    }
+
+    // Note: We do NOT validate request.body here because multipart data
+    // is accessed through request.file() or request.files(), not request.body
     return true;
   }
 

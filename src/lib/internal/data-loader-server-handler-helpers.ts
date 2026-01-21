@@ -46,11 +46,16 @@ export interface PageDataHandlerParams {
  *
  * @param request - The Fastify request object (original request). Use for cookies, headers, IP, etc.
  * @param params - Page data context (preferred for page routing: path, query, route params)
- * @returns A PageResponseEnvelope (recommended) or APIResponseEnvelope (will be converted)
+ * @returns A PageResponseEnvelope (recommended), APIResponseEnvelope (will be converted), or false if response already sent
  *
  * **Recommendation**: Return PageResponseEnvelope for optimal performance and control.
  * APIResponseEnvelope is supported but will be converted by the pageDataLoader, which
  * adds overhead and may not preserve all metadata as intended.
+ *
+ * **Return false** when you've sent a custom response (e.g., using
+ * APIResponseHelpers.sendErrorResponse() or validation helpers like ensureJSONBody).
+ * This signals that the handler has already sent the response and the framework
+ * should not attempt to send anything.
  */
 export type PageDataHandler<T = unknown, M extends BaseMeta = BaseMeta> = (
   /** Original HTTP request (for cookies/headers/IP/auth) */
@@ -58,9 +63,10 @@ export type PageDataHandler<T = unknown, M extends BaseMeta = BaseMeta> = (
   reply: ControlledReply,
   params: PageDataHandlerParams,
 ) =>
-  | Promise<PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M>>
+  | Promise<PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M> | false>
   | PageResponseEnvelope<T, M>
-  | APIResponseEnvelope<T, M>;
+  | APIResponseEnvelope<T, M>
+  | false;
 
 /**
  * Result returned from callHandler()
@@ -70,8 +76,8 @@ export interface CallHandlerResult<T = unknown, M extends BaseMeta = BaseMeta> {
   exists: boolean;
   /** Version that was used when invoking the handler (if it exists) */
   version?: number;
-  /** The envelope returned by the handler when successful */
-  result?: PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M>;
+  /** The envelope returned by the handler when successful, or false if handler sent response directly */
+  result?: PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M> | false;
 }
 
 /**
@@ -83,6 +89,18 @@ export interface CallHandlerResult<T = unknown, M extends BaseMeta = BaseMeta> {
  *
  * Handlers are stored internally and registered when registerRoutes() is called.
  * Storage structure: Map<pageType, Map<version, handler>> for efficient lookups
+ *
+ * ## Page Type Convention
+ *
+ * Page types should be specified as path segments WITHOUT leading slashes:
+ * - ✅ `server.pageDataHandler.register("home", handler)`           → `/api/v1/page_data/home`
+ * - ✅ `server.pageDataHandler.register("protected-page", handler)` → `/api/v1/page_data/protected-page`
+ * - ⚠️ `server.pageDataHandler.register("/home", handler)`          → `/api/v1/page_data/home` (leading slash stripped)
+ *
+ * Leading slashes are allowed but will be automatically stripped during normalization.
+ *
+ * This design treats page types as path segments that get appended to the API prefix,
+ * version, and page data endpoint, rather than as absolute paths.
  */
 export class DataLoaderServerHandlerHelpers {
   // Map<pageType, Map<version, handler>> - version defaults to 1 if not specified
@@ -90,6 +108,17 @@ export class DataLoaderServerHandlerHelpers {
 
   // pageDataHandler method-specific helpers
   private readonly pageDataHandler = {
+    /**
+     * Register a page data handler
+     *
+     * @param pageType - Page type identifier (e.g., "home" or "protected-page")
+     *   - Convention: Do NOT include leading slash - page types are path segments, not full paths
+     *   - Leading slashes are allowed but will be stripped during normalization
+     *   - The final path is constructed as: prefix + version + pageDataEndpoint + pageType
+     *     Example: "home" → "/api/v1/page_data/home" (with prefix="/api", versioned, pageDataEndpoint="page_data")
+     * @param versionOrHandler - Handler function, or version number if using versioned handler
+     * @param handlerMaybe - Handler function when version is specified
+     */
     register: (
       pageType: string,
       versionOrHandler: number | PageDataHandler,
@@ -271,6 +300,26 @@ export class DataLoaderServerHandlerHelpers {
               },
             );
 
+            // If handler returned false, it has already sent the response
+            // (e.g., via reply.sendErrorEnvelope() in a validation helper)
+            if (result === false) {
+              // Verify that the response was actually sent by the handler
+              if (!reply.sent) {
+                // Handler bug: returned false without sending a response
+                // This is a programming error in the user's handler code
+                const error = new Error(
+                  `Handler for page type "${pageType}" returned false but did not send a response. ` +
+                    `When returning false, you must send a response first using APIResponseHelpers.sendErrorResponse().`,
+                );
+                (error as unknown as { pageType: string }).pageType = pageType;
+                (error as unknown as { version: number }).version = version;
+                (error as unknown as { errorCode: string }).errorCode =
+                  'handler_returned_false_without_sending';
+                throw error;
+              }
+              return; // Response was sent by handler, do not send anything more
+            }
+
             // Validate that the handler returned a proper envelope object
             if (!APIResponseHelpers.isValidEnvelope(result)) {
               // Create error with detailed context - logging will be handled by catch block
@@ -366,7 +415,10 @@ export class DataLoaderServerHandlerHelpers {
       originalURL,
     } = options;
 
-    const versionMap = this.handlersByPageType.get(pageType);
+    // Normalize pageType for consistent lookups
+    const normalizedPageType = this.normalizePageType(pageType);
+    const versionMap = this.handlersByPageType.get(normalizedPageType);
+
     if (!versionMap || versionMap.size === 0) {
       return { exists: false };
     }
@@ -384,9 +436,9 @@ export class DataLoaderServerHandlerHelpers {
 
     const handler = handlerUncasted as PageDataHandler<T, M>;
 
-    // Assemble the request body
+    // Assemble the request body with normalized pageType
     const finalParams: PageDataHandlerParams = {
-      pageType,
+      pageType: normalizedPageType,
       version: latestVersion,
       invocationOrigin: 'internal',
       routeParams,
@@ -414,14 +466,14 @@ export class DataLoaderServerHandlerHelpers {
 
     // Build a single promise that either resolves to the handler result or rejects on timeout
     const resultPromise: Promise<
-      PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M>
+      PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M> | false
     > =
       // Check if a timeout is specified
       !timeoutMS || timeoutMS <= 0
         ? // No timeout specified, return the handler result immediately
           // Handler promise when no timer is specified
           (invocation as Promise<
-            PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M>
+            PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M> | false
           >)
         : // If a timeout is specified, race the handler promise with a timer promise
           (Promise.race([
@@ -442,7 +494,7 @@ export class DataLoaderServerHandlerHelpers {
               }, timeoutMS);
             }),
           ]) as Promise<
-            PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M>
+            PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M> | false
           >);
 
     // Ensure the timeout is cleared regardless of timeout path
@@ -451,6 +503,11 @@ export class DataLoaderServerHandlerHelpers {
         clearTimeout(timeoutID);
       }
     });
+
+    // If handler returned false, it has already sent the response
+    if (result === false) {
+      return { exists: true, version: latestVersion, result: false };
+    }
 
     // Validate that the handler returned a proper envelope object
     if (!APIResponseHelpers.isValidEnvelope(result)) {
@@ -478,7 +535,9 @@ export class DataLoaderServerHandlerHelpers {
    * Used internally by pageDataLoader for short-circuit optimization
    */
   public hasHandler(pageType: string, version?: number): boolean {
-    const versionMap = this.handlersByPageType.get(pageType);
+    const normalizedPageType = this.normalizePageType(pageType);
+    const versionMap = this.handlersByPageType.get(normalizedPageType);
+
     if (!versionMap) {
       return false;
     }
@@ -492,10 +551,49 @@ export class DataLoaderServerHandlerHelpers {
   }
 
   /**
+   * Normalize and validate pageType string
+   *
+   * Page types are treated as path segments that will be appended to the
+   * API prefix, version, and page data endpoint. Leading slashes are stripped
+   * to enforce this segment-based approach.
+   *
+   * Convention: Callers should NOT include leading slashes, but they are
+   * allowed and will be normalized away.
+   *
+   * @example
+   * normalizePageType("home")            → "home"
+   * normalizePageType("/home")           → "home" (leading slash stripped)
+   * normalizePageType("protected-page/") → "protected-page" (trailing slash stripped)
+   */
+  private normalizePageType(pageType: string): string {
+    const trimmed = (pageType || '').trim();
+
+    if (trimmed.length === 0) {
+      throw new Error('Page type cannot be empty');
+    }
+
+    // Remove leading slash - page types are path segments, not full paths
+    let normalized = trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
+
+    // Remove trailing slash for consistency
+    if (normalized.endsWith('/') && normalized.length > 1) {
+      normalized = normalized.slice(0, -1);
+    }
+
+    // Prevent empty pageType after normalization
+    if (normalized.length === 0) {
+      throw new Error('Page type cannot be empty after normalization');
+    }
+
+    return normalized;
+  }
+
+  /**
    * Returns the latest (highest) version registered for a given page type
    */
   private getLatestVersion(pageType: string): number | undefined {
-    const versionMap = this.handlersByPageType.get(pageType);
+    const normalizedPageType = this.normalizePageType(pageType);
+    const versionMap = this.handlersByPageType.get(normalizedPageType);
 
     if (!versionMap || versionMap.size === 0) {
       return undefined;
@@ -537,6 +635,9 @@ export class DataLoaderServerHandlerHelpers {
     versionOrHandler: number | PageDataHandler,
     handler?: PageDataHandler,
   ): void {
+    // Normalize pageType to handle leading/trailing slashes
+    const normalizedPageType = this.normalizePageType(pageType);
+
     let version: number;
     let actualHandler: PageDataHandler;
 
@@ -559,11 +660,11 @@ export class DataLoaderServerHandlerHelpers {
     }
 
     // Get or create the version map for this page type
-    let versionMap = this.handlersByPageType.get(pageType);
+    let versionMap = this.handlersByPageType.get(normalizedPageType);
 
     if (!versionMap) {
       versionMap = new Map<number, PageDataHandler>();
-      this.handlersByPageType.set(pageType, versionMap);
+      this.handlersByPageType.set(normalizedPageType, versionMap);
     }
 
     // Last registration wins for the same pageType + version

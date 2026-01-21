@@ -71,3 +71,17 @@ export type {
 
 // Export our out of the box static web server
 export type { StaticWebServer } from './lib/internal/static-web-server';
+
+// File upload helpers
+export { FileUploadHelpers } from './lib/server/file-upload-helpers';
+export type {
+  AbortReason,
+  FileMetadata,
+  ProcessorContext,
+  ProcessedFile,
+  FileUploadConfig,
+  MimeTypeValidationResult,
+  UploadSuccess,
+  UploadError,
+  UploadResult,
+} from './lib/server/file-upload-helpers';

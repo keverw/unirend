@@ -58,6 +58,7 @@ Repo auto‑init: The CLI sets up a repository structure that supports multiple 
 - [API Envelope Structure](#api-envelope-structure)
   - [Helpers and Integration](#helpers-and-integration)
 - [Error Handling](#error-handling)
+- [File Upload Helpers](#file-upload-helpers)
 - [UX Suggestions](#ux-suggestions)
 - [Development](#development)
 - [Build Info Utilities](#build-info-utilities)
@@ -357,11 +358,61 @@ See the canonical spec in [docs/api-envelope-structure.md](docs/api-envelope-str
 - **Server middleware/plugins**: The `SSRServer` and `serveAPI` plugin systems are designed to work with these envelopes (including default error/not-found handling). Use the middleware/plugin APIs exposed by `unirend/server` to register your routes.
 - **Helper utilities**: Import helpers to construct envelopes and validate requests at your API handlers:
   - Import path: `import { APIResponseHelpers } from 'unirend/api-envelope'`
-  - Key helpers: `createAPISuccessResponse`, `createAPIErrorResponse`, `createPageSuccessResponse`, `createPageErrorResponse`, `createPageRedirectResponse`, `ensureJSONBody`, and type guards like `isSuccessResponse`, `isErrorResponse`, `isRedirectResponse`, `isPageResponse`, `isValidEnvelope`.
+  - Key helpers: `createAPISuccessResponse`, `createAPIErrorResponse`, `createPageSuccessResponse`, `createPageErrorResponse`, `createPageRedirectResponse`, `ensureJSONBody`, `ensureURLEncodedBody`, `ensureMultipartBody`, and type guards like `isSuccessResponse`, `isErrorResponse`, `isRedirectResponse`, `isPageResponse`, `isValidEnvelope`.
 
 ## Error Handling
 
 See setup recommendations and how the framework handles SSR vs client errors in the dedicated guide: [docs/error-handling.md](docs/error-handling.md).
+
+## File Upload Helpers
+
+Unirend provides first-class support for file uploads with streaming validation, cleanup handlers, and proper error responses.
+
+**Key features:**
+
+- Streaming validation with mid-stream abort if limits exceeded
+- Automatic cleanup handlers for partial uploads
+- Fail-fast behavior for batch uploads
+- Works seamlessly with the envelope pattern
+
+**Quick Start:**
+
+```typescript
+import { serveSSRDev, FileUploadHelpers } from 'unirend/server';
+import { APIResponseHelpers } from 'unirend/api-envelope';
+
+const server = serveSSRDev(paths, {
+  fileUploads: { enabled: true },
+});
+
+server.api.post('upload/avatar', async (request, reply, params) => {
+  const result = await FileUploadHelpers.processUpload({
+    request,
+    reply,
+    maxSizePerFile: 5 * 1024 * 1024,
+    allowedMimeTypes: ['image/jpeg', 'image/png'],
+    processor: async (fileStream, metadata, context) => {
+      // Stream to storage and return metadata
+      const url = await saveToStorage(fileStream);
+      return { url, filename: metadata.filename };
+    },
+  });
+
+  if (!result.success) {
+    return result.errorEnvelope;
+  }
+
+  return APIResponseHelpers.createAPISuccessResponse({
+    request,
+    data: { file: result.files[0].data },
+    statusCode: 200,
+  });
+});
+```
+
+**Full Documentation:** [docs/file-upload-helpers.md](docs/file-upload-helpers.md)
+
+Includes comprehensive examples for S3 uploads, security best practices, temporary upload folders, auth integration, and more.
 
 ## UX Suggestions
 

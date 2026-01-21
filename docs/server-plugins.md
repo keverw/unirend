@@ -19,7 +19,6 @@
   - [API Routes Plugin](#api-routes-plugin)
   - [Plugin Configuration via Factory Functions](#plugin-configuration-via-factory-functions)
   - [Authentication Plugin](#authentication-plugin)
-  - [File Upload Plugin](#file-upload-plugin)
 - [Plugin Registration](#plugin-registration-1)
   - [Basic Registration](#basic-registration)
   - [Plugin Dependencies](#plugin-dependencies)
@@ -28,6 +27,7 @@
   - [2. Handle Errors Gracefully](#2-handle-errors-gracefully)
   - [3. Use Environment-Specific Logic](#3-use-environment-specific-logic)
   - [4. Validate Input](#4-validate-input)
+- [File Upload Helpers](#file-upload-helpers)
 - [Common Pitfalls](#common-pitfalls)
   - [Setting Headers in onSend Hook](#setting-headers-in-onsend-hook)
 - [Limitations](#limitations)
@@ -447,103 +447,6 @@ const authPlugin: ServerPlugin = async (pluginHost, options) => {
 };
 ```
 
-### File Upload Plugin
-
-```typescript
-const fileUploadPlugin: ServerPlugin = async (pluginHost, options) => {
-  console.log(`📁 Registering file upload plugin (${options.mode} mode)`);
-
-  try {
-    // Register multipart plugin for file uploads
-    // Install: npm install @fastify/multipart
-    const multipart = await import('@fastify/multipart');
-    await pluginHost.register(multipart.default, {
-      limits: {
-        fileSize: 10 * 1024 * 1024, // 10MB limit
-      },
-    });
-
-    pluginHost.post('/api/upload', async (request, reply) => {
-      try {
-        // After @fastify/multipart is registered, request.file() becomes available
-        const data = await (request as any).file();
-
-        if (!data) {
-          return reply.code(400).send({ error: 'No file uploaded' });
-        }
-
-        console.log(`📤 File uploaded: ${data.filename} (${data.mimetype})`);
-
-        // Save file (implement your storage logic)
-        // const savedFile = await saveFileToStorage(data);
-
-        return {
-          success: true,
-          filename: data.filename,
-          mimetype: data.mimetype,
-          size: data.file.bytesRead,
-          message: 'File uploaded successfully',
-          // fileId: savedFile.id,
-          // url: savedFile.url
-        };
-      } catch (uploadError) {
-        console.error('Upload error:', uploadError);
-        return reply.code(500).send({ error: 'Upload failed' });
-      }
-    });
-  } catch (importError) {
-    console.warn(
-      '⚠️  File upload plugin skipped - @fastify/multipart not installed',
-    );
-    console.warn('   Run: npm install @fastify/multipart');
-
-    // Provide a placeholder endpoint that explains the missing dependency
-    pluginHost.post('/api/upload', async (request, reply) => {
-      return reply.code(501).send({
-        error: 'File upload not available',
-        message: 'Install @fastify/multipart to enable file uploads',
-        install: 'npm install @fastify/multipart',
-      });
-    });
-  }
-};
-```
-
-**Testing File Uploads:**
-
-Once you have `@fastify/multipart` installed, you can test file uploads like this:
-
-```bash
-# Test with curl
-curl -X POST http://localhost:3000/api/upload \
-  -F "file=@path/to/your/file.png" \
-  -H "Content-Type: multipart/form-data"
-
-# Response:
-# {
-#   "success": true,
-#   "filename": "file.png",
-#   "mimetype": "image/png",
-#   "size": 12345,
-#   "message": "File uploaded successfully"
-# }
-```
-
-**Available File Properties:**
-
-When `@fastify/multipart` is installed, the `data` object from `request.file()` contains:
-
-```typescript
-{
-  filename: string; // Original filename
-  mimetype: string; // MIME type (e.g., 'image/png')
-  encoding: string; // File encoding
-  file: ReadableStream; // File stream for reading data
-  fieldname: string; // Form field name
-  fields: Object; // Other form fields
-}
-```
-
 ## Plugin Registration
 
 ### Basic Registration
@@ -718,6 +621,48 @@ pluginHost.post(
   },
 );
 ```
+
+## File Upload Helpers
+
+When using `FileUploadHelpers.processUpload()` in your plugins, keep in mind that it returns an **envelope response** (API-friendly format). This works seamlessly when used in API routes registered via `pluginHost.api.*`.
+
+However, if you're using file upload helpers outside the standard API context (e.g., in a custom Fastify route registered with `pluginHost.get/post/...`), you'll need to extract the envelope and convert it to a Fastify reply:
+
+```typescript
+const uploadPlugin: ServerPlugin = async (pluginHost, options) => {
+  pluginHost.post('/custom-upload', async (request, reply) => {
+    const result = await FileUploadHelpers.processUpload({
+      request,
+      reply,
+      maxSizePerFile: 5 * 1024 * 1024,
+      allowedMimeTypes: ['image/jpeg', 'image/png'],
+      processor: async (stream, metadata, context) => {
+        // Your upload logic
+        return { uploadID: 'abc123' };
+      },
+    });
+
+    if (!result.success) {
+      // Extract envelope and send as reply
+      const envelope = result.errorEnvelope;
+
+      /*
+       * Cache-Control: no-store prevents intermediaries (proxies, CDNs) from
+       * caching transient failures (upload errors, auth errors, validation errors).
+       * Recommended for all 4xx/5xx responses, especially important for GET/HEAD.
+       */
+      reply.header('Cache-Control', 'no-store');
+
+      return reply.code(envelope.status_code).send(envelope);
+    }
+
+    // Handle success
+    return reply.code(200).send({ files: result.files });
+  });
+};
+```
+
+**Note**: When using `pluginHost.api.*` shortcuts, the framework automatically sets this header for responses with `status_code >= 400`, so you don't need to handle it manually.
 
 ## Common Pitfalls
 

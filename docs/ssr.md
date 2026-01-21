@@ -190,6 +190,13 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
     - **Regular API requests** (`isPageData=false`): Standard API endpoints (e.g., `/api/v1/users`, `/api/v1/account/create`) for operations like creating accounts, updating data, etc. These return API Response Envelopes.
 - `plugins?: ServerPlugin[]`
   - Register Fastify plugins via a controlled interface (see [plugins](./server-plugins.md)).
+- `fileUploads?: { enabled: boolean; limits?: { fileSize?, files?, fields?, fieldSize? }; allowedRoutes?: string[]; earlyValidation?: Function }`
+  - Enable built-in multipart file upload support.
+  - Set global limits that can be overridden per-route using `FileUploadHelpers.processUpload()`.
+  - Default limits: `fileSize: 10MB`, `files: 10`, `fields: 10`, `fieldSize: 1KB`
+  - `allowedRoutes` (optional): List of routes/patterns that allow multipart uploads. Supports wildcards (e.g. `/api/workspace/*/upload`). When specified, automatically rejects multipart requests to other routes (prevents bandwidth waste and DoS attacks).
+  - `earlyValidation` (optional): Async function for header-based validation (auth, rate limiting, etc.) that runs after user plugin hooks but before multipart parsing. Return `true` to allow or error object to reject.
+  - See [File Upload Helpers](./file-upload-helpers.md) for detailed usage and examples.
 - `APIResponseHelpersClass?: typeof APIResponseHelpers`
   - Provide a custom helpers class for constructing API/Page envelopes. Useful to inject default metadata (e.g., account/site info) across responses.
   - If omitted, the built-in `APIResponseHelpers` is used.
@@ -320,6 +327,8 @@ The server can automatically expose versioned and non‑versioned page data endp
 - Endpoint base: `apiEndpoints.pageDataEndpoint` (default: `"page_data"`)
 - Versioning: when `apiEndpoints.versioned: true`, routes are exposed under `/v{n}/`
 - Endpoint prefix: controlled by `apiEndpoints.apiEndpointPrefix` (default: `"/api"`)
+
+**Page Type Convention:** Page types should be specified as path segments WITHOUT leading slashes (e.g., `'home'` not `'/home'`). Leading slashes are allowed but will be stripped during normalization. This treats page types as segments appended to the API prefix, version, and page data endpoint, rather than as absolute paths.
 
 Example paths (assuming `apiEndpointPrefix = "/api"`, `pageDataEndpoint = "page_data"`, and page type `home`):
 
@@ -511,6 +520,8 @@ server.pageDataHandler.register('profile', (request, reply) => {
 ### Custom API Routes
 
 You can register versioned custom API routes using the server's `.api` shortcuts method surface (available on both `SSRServer` and `APIServer`, and inside plugins as `pluginHost.api`). These return standardized API envelopes and automatically set the HTTP response status to `status_code`.
+
+**Endpoint Convention:** Endpoints should be specified as path segments WITHOUT leading slashes (e.g., `'demo/echo/:id'` not `'/demo/echo/:id'`). Leading slashes are allowed but will be stripped during normalization. This treats endpoints as segments appended to the API prefix and version, rather than as absolute paths.
 
 ```ts
 import { APIResponseHelpers } from 'unirend/api-envelope';
@@ -720,6 +731,15 @@ main().catch(console.error);
 - `notFoundHandler?: Function | { api?, web? }`
   - Function form: Returns JSON envelope (see [JSON-Only](#json-only-ssr-compatible))
   - Object form: Split handlers for mixed API + web servers (see [Split Handlers](#split-handlers-web-server-mode)). Either handler can be omitted — missing handlers fall through to default behavior.
+- `plugins?: ServerPlugin[]`
+  - Register Fastify plugins via a controlled interface (see [plugins](./server-plugins.md)).
+- `fileUploads?: { enabled: boolean; limits?: { fileSize?, files?, fields?, fieldSize? }; allowedRoutes?: string[]; earlyValidation?: Function }`
+  - Enable built-in multipart file upload support.
+  - Set global limits that can be overridden per-route using `FileUploadHelpers.processUpload()`.
+  - Default limits: `fileSize: 10MB`, `files: 10`, `fields: 10`, `fieldSize: 1KB`
+  - `allowedRoutes` (optional): List of routes/patterns that allow multipart uploads. Supports wildcards (e.g. `/api/workspace/*/upload`). When specified, automatically rejects multipart requests to other routes (prevents bandwidth waste and DoS attacks).
+  - `earlyValidation` (optional): Async function for header-based validation (auth, rate limiting, etc.) that runs after user plugin hooks but before multipart parsing. Return `true` to allow or error object to reject.
+  - See [File Upload Helpers](./file-upload-helpers.md) for detailed usage and examples.
 - `isDevelopment?: boolean`
 - `fastifyOptions?: { logger?; trustProxy?; bodyLimit?; keepAliveTimeout? }`
 - `APIResponseHelpersClass?: typeof APIResponseHelpers`

@@ -38,6 +38,8 @@ export const homeLoader = createPageDataLoader(config, 'home');
 
 On the server, register a backend page data loader handler for the same `pageType`. See: [Page Data Loader Handlers and Versioning](./ssr.md#page-data-loader-handlers-and-versioning)
 
+**Convention:** Page types should be specified WITHOUT leading slashes (e.g., `'home'` not `'/home'`). Leading slashes are allowed but will be stripped during normalization.
+
 ```ts
 // On your SSR server instance
 import { APIResponseHelpers } from 'unirend/api-envelope';

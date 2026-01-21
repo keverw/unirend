@@ -184,6 +184,10 @@ export interface PluginHostInstance {
 /**
  * Controlled reply surface available to handlers.
  * Allows setting headers and cookies without giving full reply control.
+ *
+ * Used by page data loader handlers, API route handlers, and FileUploadHelpers.
+ * Provides limited access to prevent handlers from prematurely sending responses
+ * or bypassing the framework's envelope pattern.
  */
 export interface ControlledReply {
   /** Set a response header (content-type may be enforced by framework) */
@@ -220,6 +224,30 @@ export interface ControlledReply {
   hasHeader: (name: string) => boolean;
   /** Whether the reply has already been sent */
   sent: boolean;
+  /**
+   * Access to the underlying response stream (for connection monitoring)
+   *
+   * Limited scope: Only used internally by FileUploadHelpers for detecting
+   * broken connections during file uploads. Most handlers won't need this
+   */
+  raw: {
+    /** Whether the underlying connection has been destroyed */
+    destroyed: boolean;
+  };
+  /**
+   * Internal: Send an error envelope response and terminate the request early
+   * Used internally by APIResponseHelpers.sendErrorResponse()
+   *
+   * @internal
+   * Users should call APIResponseHelpers.sendErrorResponse() instead of calling this directly.
+   *
+   * @param statusCode - HTTP status code to send
+   * @param errorEnvelope - Error envelope object to send as JSON response
+   */
+  _sendErrorEnvelope: (
+    statusCode: number,
+    errorEnvelope: APIErrorResponse<BaseMeta> | PageErrorResponse<BaseMeta>,
+  ) => void;
 }
 
 /**
@@ -373,6 +401,12 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    * For page data loader handler endpoints, set pageDataEndpoint (default: "page_data")
    */
   apiEndpoints?: APIEndpointConfig;
+  /**
+   * File upload configuration
+   * When enabled, multipart file upload support will be available
+   * Allows use of FileUploadHelpers in your plugins
+   */
+  fileUploads?: FileUploadsConfig;
   /**
    * Name of the client folder within buildDir
    * Defaults to "client" if not provided
@@ -615,6 +649,12 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    * For page data loader handler endpoints, set pageDataEndpoint (default: "page_data")
    */
   apiEndpoints?: APIEndpointConfig;
+  /**
+   * File upload configuration
+   * When enabled, multipart file upload support will be available
+   * Allows use of FileUploadHelpers in your plugins
+   */
+  fileUploads?: FileUploadsConfig;
   /**
    * Custom error handler for server errors
    *
@@ -926,6 +966,76 @@ export interface SSGReport {
   fatalError?: Error;
   /** Page generation reports (always present, even on error) */
   pagesReport: SSGPagesReport;
+}
+
+/**
+ * Configuration for multipart file upload support
+ * When provided, the server will automatically enable multipart uploads
+ */
+export interface FileUploadsConfig {
+  /**
+   * Whether to enable file upload support
+   * When true, multipart upload support will be enabled automatically
+   * @default false
+   */
+  enabled: boolean;
+  /**
+   * Global limits for file uploads (can be overridden per-route)
+   * These act as maximum limits for security
+   */
+  limits?: {
+    /**
+     * Maximum file size in bytes
+     * @default 10485760 (10MB)
+     */
+    fileSize?: number;
+    /**
+     * Maximum number of files per request
+     * @default 10
+     */
+    files?: number;
+    /**
+     * Maximum number of form fields
+     * @default 10
+     */
+    fields?: number;
+    /**
+     * Maximum size of form field values in bytes
+     * @default 1024 (1KB)
+     */
+    fieldSize?: number;
+  };
+  /**
+   * Optional: List of routes/patterns that allow multipart uploads
+   * When provided, a preHandler hook will reject multipart requests to other routes
+   * This prevents bandwidth waste and potential DoS attacks
+   *
+   * Supports exact matches and wildcard patterns.
+   * Use asterisk (*) to match any path segment (e.g. /api/upload/workspace/*)
+   *
+   * @example
+   * allowedRoutes: ['/api/upload/avatar', '/api/upload/document']
+   */
+  allowedRoutes?: string[];
+  /**
+   * Optional: Early validation function that runs BEFORE multipart parsing
+   * Use this to reject requests early based on headers (auth, rate limiting, etc.)
+   * This saves bandwidth by rejecting before any file data is parsed
+   *
+   * Return true to allow the request, or an error response object to reject it
+   *
+   * @example
+   * earlyValidation: async (request) => {
+   *   const token = request.headers.authorization;
+   *   if (!token) {
+   *     return { statusCode: 401, error: 'unauthorized', message: 'Auth required' };
+   *   }
+   *   return true; // Allow request to proceed
+   * }
+   */
+  earlyValidation?: (
+    request: FastifyRequest,
+  ) => Promise<true | { statusCode: number; error: string; message: string }>;
 }
 
 /**

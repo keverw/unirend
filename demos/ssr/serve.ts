@@ -14,6 +14,7 @@ import {
   serveSSRDev,
   serveSSRProd,
   PluginHostInstance,
+  FileUploadHelpers,
 } from '../../src/server';
 import type {
   ServerPlugin,
@@ -25,7 +26,7 @@ import { APIResponseHelpers } from '../../src/api-envelope';
 import type { BaseMeta } from '../../src/api-envelope';
 import { pipeline } from 'stream/promises';
 import { createWriteStream } from 'fs';
-import { mkdir } from 'fs/promises';
+import { mkdir, unlink } from 'fs/promises';
 import { FastifyReply, FastifyRequest } from 'fastify';
 import type { PageDataHandlerParams } from '../../src/lib/internal/DataLoaderServerHandlerHelpers';
 import { clientInfo } from '../../src/plugins';
@@ -272,6 +273,22 @@ function createSharedConfig() {
       apiEndpointPrefix: '/api',
       versioned: true,
       pageDataEndpoint: 'page_data',
+    },
+    fileUploads: {
+      enabled: true,
+      limits: {
+        fileSize: 1, // 1 byte global limit - demonstrates per-route overrides work!
+        files: 10,
+        fields: 10,
+        fieldSize: 1024, // 1KB
+      },
+      allowedRoutes: [
+        '/api/upload/avatar',
+        '/api/upload/document',
+        '/api/upload/media',
+        '/api/upload/test',
+        '/api/upload/checksum',
+      ],
     },
     APIHandling,
     APIResponseHelpersClass: DemoResponseHelpers,
@@ -552,23 +569,27 @@ const apiRoutesPlugin: ServerPlugin = async (
     });
   });
 
-  // Contact endpoint - both GET (for browser testing) and POST (for real forms)
-  fastify.get('/api/contact', async (_request, reply) => {
-    reply.type('text/plain');
-    return `Contact API Endpoint
-
-Use POST with JSON body for actual contact form submissions
-
-Examples:
-GET:  curl http://localhost:3000/api/contact
-POST: curl -X POST http://localhost:3000/api/contact -H 'Content-Type: application/json' -d '{"name":"John","email":"john@example.com","message":"Hello!"}'
-
-Sample Data:
-{
-  "name": "John Doe",
-  "email": "john@example.com",
-  "message": "Hello from the contact form!"
-}`;
+  // Contact endpoint - GET returns info about the endpoint
+  fastify.get('/api/contact', async (request, _reply) => {
+    return APIResponseHelpers.createAPISuccessResponse({
+      request,
+      data: {
+        endpoint: '/api/contact',
+        methods: ['GET', 'POST'],
+        description: 'Contact form submission endpoint',
+        post_example: {
+          url: 'http://localhost:3000/api/contact',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: {
+            name: 'John Doe',
+            email: 'john@example.com',
+            message: 'Hello from the contact form!',
+          },
+        },
+      },
+      statusCode: 200,
+    });
   });
 
   fastify.post('/api/contact', async (request, _reply) => {
@@ -608,279 +629,340 @@ Sample Data:
 };
 
 /**
- * A reusable handler for processing file uploads with validation.
- * This consolidates the logic for avatars, documents, and media.
+ * Register file upload routes using server.api helpers
  *
- * Note: This handler is only used by POST upload routes below.
- * Since POST responses are typically not cached by intermediaries,
- * we do not add Cache-Control: no-store headers here.
+ * Examples:
+ * curl -X POST -F 'file=@small-pic.jpg' http://localhost:3000/api/upload/avatar
+ * curl -X POST -F 'file=@document.pdf' http://localhost:3000/api/upload/document
+ * curl -X POST -F 'file=@video.mp4' http://localhost:3000/api/upload/media
+ * curl -X POST -F 'file=@tiny.txt' http://localhost:3000/api/upload/test
+ *
+ * SECURITY NOTE: All examples below stream files to disk for demonstration.
+ * In production, you should ALSO verify file types using magic bytes (e.g., file-type library)
+ * to prevent malicious files disguised with fake extensions/MIME types.
+ * See docs/file-upload-helpers.md for comprehensive security best practices.
  */
-async function handleFileUpload(
-  request: FastifyRequest,
-  reply: FastifyReply,
-  config: {
-    typeName: 'Avatar' | 'Document' | 'Media' | 'Test';
-    maxSize?: number; // Optional - if undefined, uses global limit
-    maxSizeLabel: string; // Human-readable size description
-    allowedMimeTypes: string[] | ((mime: string) => boolean);
-    allowedMimeTypesDesc: string;
-  },
-) {
-  try {
-    // Per-request size limit, explicitly disabling error throwing
-    // If maxSize is undefined, don't override global limit
-    const options = config.maxSize
-      ? {
-          throwFileSizeLimit: false,
-          limits: { fileSize: config.maxSize },
-        }
-      : {
-          throwFileSizeLimit: false,
-          // No limits override - uses global multipart limits
-        };
+function registerFileUploadRoutes(server: SSRServer) {
+  console.log('📁 Registering file upload routes');
 
-    const data = await request.file(options);
-
-    if (!data) {
-      return reply
-        .code(400)
-        .send({ error: `No file uploaded for ${config.typeName}` });
-    }
-
-    // --- Stream Validation & Processing ---
-
-    // With throwFileSizeLimit: false, we must check the truncated flag after the stream ends.
-    // We'll pipe the file to a temporary location to demonstrate a real-world scenario.
-
-    const uploadDir = './uploads';
-    await mkdir(uploadDir, { recursive: true }); // Ensure upload directory exists
-    const tempPath = `${uploadDir}/${Date.now()}-${data.filename}`;
-
-    try {
-      // In a real app, you would stream the file to disk, S3, etc.
-      // This consumes the stream, preventing memory leaks.
-      await pipeline(data.file, createWriteStream(tempPath));
-
-      // IMPORTANT: Check for truncation *after* the pipeline finishes.
-      if (data.file.truncated) {
-        console.log(`🚨 File truncated after saving: ${tempPath}`);
-        // In a real app, you would delete the partial file from storage.
-        // await unlink(tempPath);
-
-        return reply.code(413).send({
-          error: `${config.typeName} file too large`,
-          maxSize: config.maxSizeLabel,
-          message: `File exceeded size limit during streaming and was truncated.`,
-          note: 'Partial file has been discarded.',
-        });
-      }
-    } catch (streamError: unknown) {
-      console.error(`🚨 Error during file stream pipeline:`, streamError);
-      return reply
-        .code(500)
-        .send({ error: 'Failed to save file during streaming.' });
-    }
-
-    // --- Mime Type Validation (after saving) ---
-
-    // SECURITY BEST PRACTICE: For robust security, NEVER trust the client-provided mimetype or filename alone.
-    // A malicious user could upload a script renamed as 'image.jpg'. In a production app, you should
-    // also verify the file's "magic bytes" to confirm its true type. Libraries like `file-type` can do this.
-
-    // Example:
-    // import { fileTypeFromFile } from 'file-type';
-    // const typeInfo = await fileTypeFromFile(tempPath);
-    // if (!typeInfo || !isMimeTypeAllowed(typeInfo.mime)) { /* reject file */ }
-
-    // PRODUCTION STRATEGY: For image uploads, it's common to save the original file
-    // and then create pre-processed versions (e.g., thumbnails, different resolutions)
-    // for efficient delivery to clients. This can be done in a background job queue.
-    // Libraries like `sharp` are excellent for image processing
-
-    const isMimeTypeAllowed = Array.isArray(config.allowedMimeTypes)
-      ? config.allowedMimeTypes.includes(data.mimetype)
-      : config.allowedMimeTypes(data.mimetype);
-
-    if (!isMimeTypeAllowed) {
-      // In a real app, you would delete the invalid file.
-      // await unlink(tempPath);
-      return reply.code(415).send({
-        error: `Invalid file type for ${config.typeName}`,
-        allowed: config.allowedMimeTypesDesc,
-        received: data.mimetype,
-      });
-    }
-
-    const successMessage = `✅ ${config.typeName} uploaded and saved: ${data.filename} to ${tempPath}`;
-    console.log(successMessage);
-
-    // In a real app, you would now move the file from tempPath to permanent storage
-    // or return the file path/URL. For the demo, we just confirm success.
-
-    return {
-      success: true,
-      type: config.typeName.toLowerCase(),
-      filename: data.filename,
-      mimetype: data.mimetype,
-      size: data.file.bytesRead,
-      // In a real app, you'd return a URL or file ID, not the temp path.
-      // path: tempPath
-    };
-  } catch (error: unknown) {
-    console.error(`🚨 ${config.typeName} upload error:`, error);
-    return reply.code(500).send({
-      error: `${config.typeName} upload failed`,
-      message:
-        error instanceof Error ? error.message : 'An unknown error occurred',
+  // Upload info endpoint (GET) - returns JSON info about upload endpoints
+  server.api.get('upload', async (request) => {
+    return APIResponseHelpers.createAPISuccessResponse({
+      request,
+      data: {
+        endpoint: '/api/upload',
+        description: 'File upload endpoints with streaming validation',
+        global_limit: '1 byte (demonstrates per-route overrides)',
+        routes: {
+          '/api/upload/avatar': {
+            method: 'POST',
+            max_size: '1MB',
+            allowed_types: ['image/jpeg', 'image/png', 'image/gif'],
+            description: 'Profile pictures',
+          },
+          '/api/upload/document': {
+            method: 'POST',
+            max_size: '5MB',
+            allowed_types: [
+              'application/pdf',
+              'text/plain',
+              'application/msword',
+              'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            ],
+            description: 'Document uploads',
+          },
+          '/api/upload/media': {
+            method: 'POST',
+            max_size: '10MB',
+            allowed_types: ['image/*', 'video/*', 'audio/*'],
+            description: 'Media files',
+          },
+          '/api/upload/test': {
+            method: 'POST',
+            max_size: '1 byte',
+            allowed_types: ['*/*'],
+            description: 'Test endpoint for demonstrating size limit errors',
+          },
+          '/api/upload/checksum': {
+            method: 'POST',
+            max_size: '5MB',
+            allowed_types: ['*/*'],
+            description:
+              'Demonstrates manual chunk processing with abort checks (computes SHA256)',
+          },
+        },
+        examples: {
+          avatar:
+            "curl -X POST -F 'file=@small-pic.jpg' http://localhost:3000/api/upload/avatar",
+          document:
+            "curl -X POST -F 'file=@document.pdf' http://localhost:3000/api/upload/document",
+          media:
+            "curl -X POST -F 'file=@video.mp4' http://localhost:3000/api/upload/media",
+          checksum:
+            "curl -X POST -F 'file=@document.txt' http://localhost:3000/api/upload/checksum",
+        },
+      },
+      statusCode: 200,
     });
-  }
-}
+  });
 
-// Example plugin for file uploads with real @fastify/multipart integration
-const fileUploadPlugin: ServerPlugin = async (
-  fastify: PluginHostInstance,
-  options: PluginOptions,
-) => {
-  console.log(`📁 Registering file upload plugin (${options.mode} mode)`);
+  // Avatar upload - Small files only (1MB limit)
+  server.api.post('upload/avatar', async (request, reply) => {
+    const result = await FileUploadHelpers.processUpload({
+      request,
+      reply,
+      maxSizePerFile: 1024 * 1024, // 1MB
+      allowedMimeTypes: ['image/jpeg', 'image/png', 'image/gif'],
+      processor: async (fileStream, metadata, context) => {
+        const uploadDir = './uploads';
+        await mkdir(uploadDir, { recursive: true });
+        const tempPath = `${uploadDir}/${Date.now()}-${metadata.filename}`;
 
-  try {
-    // Try to register multipart plugin for file uploads
-    const multipart = await import('@fastify/multipart');
-    await fastify.register(multipart.default, {
-      // Disable throwing errors on file size limit, rely on truncated flag
-      throwFileSizeLimit: false,
-      limits: {
-        fileSize: 1, // 1 byte global max - can be overridden per request (just for testing!)
-        fieldSize: 1024, // 1KB max for form field values (good security practice)
-        files: 1,
-        fields: 10,
+        context.onCleanup(async () => {
+          try {
+            await unlink(tempPath);
+            console.log(`🧹 Cleaned up avatar upload`);
+          } catch (err) {
+            // File might not exist yet
+          }
+        });
+
+        await pipeline(fileStream, createWriteStream(tempPath));
+        console.log(`✅ Avatar uploaded: ${metadata.filename}`);
+
+        return {
+          type: 'avatar',
+          filename: metadata.filename,
+          mimetype: metadata.mimetype,
+          path: tempPath,
+        };
       },
     });
 
-    console.log(`✅ @fastify/multipart plugin loaded - file uploads enabled`);
+    // Handle upload result - return error envelope or success envelope
+    if (!result.success) {
+      return result.errorEnvelope;
+    }
 
-    // Route guard: Only allow multipart data on specific, defined upload endpoints
-    // This prevents multipart data from hitting other API routes (security/performance)
-    const definedUploadRoutes = [
-      '/api/upload/avatar',
-      '/api/upload/document',
-      '/api/upload/media',
-      '/api/upload/test', // Test endpoint for global 1-byte limit
-    ];
+    return APIResponseHelpers.createAPISuccessResponse({
+      request,
+      data: result.files[0].data,
+      statusCode: 200,
+    });
+  });
 
-    fastify.addHook('preHandler', async (request, reply) => {
-      const isDefinedUploadRoute = definedUploadRoutes.some(
-        (route) => request.url === route,
-      );
+  // Document upload - Medium files (5MB limit)
+  server.api.post('upload/document', async (request, reply) => {
+    const result = await FileUploadHelpers.processUpload({
+      request,
+      reply,
+      maxSizePerFile: 5 * 1024 * 1024, // 5MB
+      allowedMimeTypes: [
+        'application/pdf',
+        'text/plain',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      ],
+      processor: async (fileStream, metadata, context) => {
+        const uploadDir = './uploads';
+        await mkdir(uploadDir, { recursive: true });
+        const tempPath = `${uploadDir}/${Date.now()}-${metadata.filename}`;
 
-      const isMultipart = request.headers['content-type']?.startsWith(
-        'multipart/form-data',
-      );
-
-      if (isMultipart && !isDefinedUploadRoute) {
-        return reply.code(400).header('Cache-Control', 'no-store').send({
-          error: 'Multipart data not allowed on this endpoint',
-          message:
-            'Multipart uploads only allowed on specific, configured routes',
-          received: request.url,
-          allowedEndpoints: definedUploadRoutes,
-          note: 'This prevents bandwidth waste on undefined upload routes',
+        context.onCleanup(async () => {
+          try {
+            await unlink(tempPath);
+            console.log(`🧹 Cleaned up document upload`);
+          } catch (err) {
+            // File might not exist yet
+          }
         });
-      }
+
+        await pipeline(fileStream, createWriteStream(tempPath));
+        console.log(`✅ Document uploaded: ${metadata.filename}`);
+
+        return {
+          type: 'document',
+          filename: metadata.filename,
+          mimetype: metadata.mimetype,
+          path: tempPath,
+        };
+      },
     });
 
-    // Upload info endpoint (GET for browser testing)
-    fastify.get('/api/upload', async (request, reply) => {
-      reply.type('text/plain');
-      return `File Upload API Endpoints
+    // Handle upload result - return error envelope or success envelope
+    if (!result.success) {
+      return result.errorEnvelope;
+    }
 
-✅ @fastify/multipart plugin is installed and active!
-
-Route-specific size limits (enforced during STREAMING - monitoring actual bytes):
-/api/upload/avatar    - Max 1MB   (profile pictures, images only)
-/api/upload/document  - Max 5MB   (PDFs, docs only)
-/api/upload/media     - Max 10MB  (videos, images, audio)
-/api/upload/test      - Global limit (1 byte for testing)
-
-Examples:
-curl -X POST -F 'file=@small-pic.jpg' http://localhost:3000/api/upload/avatar
-curl -X POST -F 'file=@document.pdf' http://localhost:3000/api/upload/document
-curl -X POST -F 'file=@video.mp4' http://localhost:3000/api/upload/media
-curl -X POST -F 'file=@tiny.txt' http://localhost:3000/api/upload/test
-
-TRUE PER-REQUEST STREAMING VALIDATION:
-- Each route uses req.file({ limits: { fileSize: N } }) for precise control
-- Files are truncated during upload when exceeding route-specific limits
-- Cannot be spoofed with fake Content-Length headers - monitors real bytes
-- Route guard prevents multipart data on non-upload endpoints
-- File type validation per route (images/documents/media)
-- Detects file.truncated flag for immediate size limit feedback`;
+    return APIResponseHelpers.createAPISuccessResponse({
+      request,
+      data: result.files[0].data,
+      statusCode: 200,
     });
+  });
 
-    // Avatar upload - Small files only (1MB limit enforced per-request)
-    fastify.post('/api/upload/avatar', (request, reply) => {
-      return handleFileUpload(request, reply, {
-        typeName: 'Avatar',
-        maxSize: 1024 * 1024,
-        maxSizeLabel: '1MB',
-        allowedMimeTypes: ['image/jpeg', 'image/png', 'image/gif'],
-        allowedMimeTypesDesc: 'JPEG, PNG, GIF only',
-      });
-    });
-
-    // Document upload - Medium files (5MB limit enforced per-request)
-    fastify.post('/api/upload/document', (request, reply) => {
-      return handleFileUpload(request, reply, {
-        typeName: 'Document',
-        maxSize: 5 * 1024 * 1024,
-        maxSizeLabel: '5MB',
-        allowedMimeTypes: [
-          'application/pdf',
-          'text/plain',
-          'application/msword',
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        ],
-        allowedMimeTypesDesc: 'PDF, TXT, DOC, DOCX only',
-      });
-    });
-
-    // Media upload - Large files (10MB limit enforced per-request)
-    fastify.post('/api/upload/media', (request, reply) => {
-      return handleFileUpload(request, reply, {
-        typeName: 'Media',
-        maxSize: 10 * 1024 * 1024,
-        maxSizeLabel: '10MB',
-        allowedMimeTypes: (mime) =>
+  // Media upload - Large files (10MB limit)
+  server.api.post('upload/media', async (request, reply) => {
+    const result = await FileUploadHelpers.processUpload({
+      request,
+      reply,
+      maxSizePerFile: 10 * 1024 * 1024, // 10MB
+      allowedMimeTypes: (mime: string) => {
+        if (
           mime.startsWith('image/') ||
           mime.startsWith('video/') ||
-          mime.startsWith('audio/'),
-        allowedMimeTypesDesc: 'Images, videos, and audio files only',
-      });
+          mime.startsWith('audio/')
+        ) {
+          return { allowed: true };
+        }
+
+        return {
+          allowed: false,
+          rejectionReason: 'Only image, video, and audio files are allowed',
+          allowedTypes: ['image/*', 'video/*', 'audio/*'],
+        };
+      },
+      processor: async (fileStream, metadata, context) => {
+        const uploadDir = './uploads';
+        await mkdir(uploadDir, { recursive: true });
+        const tempPath = `${uploadDir}/${Date.now()}-${metadata.filename}`;
+
+        context.onCleanup(async () => {
+          try {
+            await unlink(tempPath);
+            console.log(`🧹 Cleaned up media upload`);
+          } catch (err) {
+            // File might not exist yet
+          }
+        });
+
+        await pipeline(fileStream, createWriteStream(tempPath));
+        console.log(`✅ Media uploaded: ${metadata.filename}`);
+
+        return {
+          type: 'media',
+          filename: metadata.filename,
+          mimetype: metadata.mimetype,
+          path: tempPath,
+        };
+      },
     });
 
-    // Test upload - Uses global 1-byte limit (no per-request override)
-    fastify.post('/api/upload/test', (request, reply) => {
-      return handleFileUpload(request, reply, {
-        typeName: 'Test',
-        // maxSize: undefined - uses global 1-byte limit
-        maxSizeLabel: 'global (1 byte)',
-        allowedMimeTypes: () => true, // Accept any file type for testing
-        allowedMimeTypesDesc: 'Any file type (testing global limit)',
-      });
+    // Handle upload result - return error envelope or success envelope
+    if (!result.success) {
+      return result.errorEnvelope;
+    }
+
+    return APIResponseHelpers.createAPISuccessResponse({
+      request,
+      data: result.files[0].data,
+      statusCode: 200,
+    });
+  });
+
+  // Test upload - 1-byte limit for testing failure path
+  server.api.post('upload/test', async (request, reply) => {
+    const result = await FileUploadHelpers.processUpload({
+      request,
+      reply,
+      maxSizePerFile: 1, // 1 byte (testing failure path)
+      allowedMimeTypes: () => ({ allowed: true }), // Accept any file type
+      processor: async (fileStream, metadata, context) => {
+        const uploadDir = './uploads';
+        await mkdir(uploadDir, { recursive: true });
+        const tempPath = `${uploadDir}/${Date.now()}-${metadata.filename}`;
+
+        context.onCleanup(async () => {
+          try {
+            await unlink(tempPath);
+            console.log(`🧹 Cleaned up test upload`);
+          } catch (err) {
+            // File might not exist yet
+          }
+        });
+
+        await pipeline(fileStream, createWriteStream(tempPath));
+        console.log(`✅ Test uploaded: ${metadata.filename}`);
+
+        return {
+          type: 'test',
+          filename: metadata.filename,
+          mimetype: metadata.mimetype,
+          path: tempPath,
+        };
+      },
     });
 
-    // The route guard in preHandler already prevents multipart data on undefined routes
-    // Any undefined /api/upload/* routes will hit the SSR 404 handler
-  } catch (error: unknown) {
-    console.error(
-      '❌ Failed to load @fastify/multipart plugin:',
-      error instanceof Error ? error.message : String(error),
-    );
+    // Handle upload result - return error envelope or success envelope
+    if (!result.success) {
+      return result.errorEnvelope;
+    }
 
-    console.error('💡 Install with: bun add @fastify/multipart');
-    throw new Error('@fastify/multipart plugin is required for file uploads');
-  }
-};
+    return APIResponseHelpers.createAPISuccessResponse({
+      request,
+      data: result.files[0].data,
+      statusCode: 200,
+    });
+  });
+
+  // Manual chunk processing with abort checks - demonstrates isAborted() usage
+  server.api.post('upload/checksum', async (request, reply) => {
+    const result = await FileUploadHelpers.processUpload({
+      request,
+      reply,
+      maxSizePerFile: 5 * 1024 * 1024, // 5MB
+      allowedMimeTypes: ['*/*'],
+      processor: async (fileStream, metadata, context) => {
+        const crypto = await import('crypto');
+        const hash = crypto.createHash('sha256');
+        const chunks: Buffer[] = [];
+        let totalBytes = 0;
+
+        context.onCleanup(async () => {
+          console.log(`🧹 Cleaned up checksum upload`);
+        });
+
+        // Process stream chunk by chunk with abort checks
+        for await (const chunk of fileStream) {
+          // Check if aborted before processing this chunk
+          if (context.isAborted()) {
+            throw new Error('Upload aborted during checksum calculation');
+          }
+
+          // Ensure chunk is a Buffer
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          totalBytes += buffer.length;
+          hash.update(buffer);
+          chunks.push(buffer);
+        }
+
+        const checksum = hash.digest('hex');
+        console.log(
+          `✅ Checksum calculated: ${metadata.filename} (${totalBytes} bytes)`,
+        );
+
+        return {
+          filename: metadata.filename,
+          size: totalBytes,
+          checksum,
+        };
+      },
+    });
+
+    if (!result.success) {
+      return result.errorEnvelope;
+    }
+
+    return APIResponseHelpers.createAPISuccessResponse({
+      request,
+      data: result.files[0].data,
+      statusCode: 200,
+    });
+  });
+
+  // Note: Multipart route guard is handled automatically via fileUploads.allowedRoutes config
+  // Any undefined /api/upload/* routes will hit the SSR 404 handler
+}
 
 // Shared plugins array used by both dev and prod modes
 const SHARED_PLUGINS = [
@@ -889,7 +971,6 @@ const SHARED_PLUGINS = [
     logging: { requestReceived: true },
   }),
   apiRoutesPlugin,
-  fileUploadPlugin,
 ];
 
 // Parse command line arguments
@@ -960,6 +1041,9 @@ async function startServer() {
       // Register page data loader handlers for debugging
       registerPageDataHandlers(server);
 
+      // Register file upload routes
+      registerFileUploadRoutes(server);
+
       // Register a generic API route using versioned API shortcuts
       // Demonstrates server.api.get/post helpers and envelope response helpers
       server.api.get('demo/echo/:id', async (request) => {
@@ -1010,6 +1094,9 @@ async function startServer() {
 
       // Register page data loader handlers for debugging
       registerPageDataHandlers(server);
+
+      // Register file upload routes
+      registerFileUploadRoutes(server);
 
       currentServer = server;
       await server.listen(PORT, HOST);

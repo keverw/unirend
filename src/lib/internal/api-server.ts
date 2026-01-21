@@ -24,6 +24,10 @@ import { DataLoaderServerHandlerHelpers } from './data-loader-server-handler-hel
 import { APIRoutesServerHelpers } from './api-routes-server-helpers';
 import { WebSocketServerHelpers } from './web-socket-server-helpers';
 import type { WebSocketHandlerConfig } from './web-socket-server-helpers';
+import {
+  registerFileUploadValidationHooks,
+  registerMultipartPlugin,
+} from './file-upload-validation-helpers';
 import { APIResponseHelpers } from '../../api-envelope';
 import type { WebSocket, WebSocketServer } from 'ws';
 
@@ -160,6 +164,12 @@ export class APIServer extends BaseServer {
       const isDevelopment = mode === 'development';
       this.fastifyInstance.decorateRequest('isDevelopment', isDevelopment);
 
+      // Decorate requests with APIResponseHelpersClass for file upload helpers
+      this.fastifyInstance.decorateRequest(
+        'APIResponseHelpersClass',
+        this.APIResponseHelpersClass,
+      );
+
       // Initialize request context for all requests (consistent with SSRServer)
       // This runs early before plugins, so requestContext is always at least an empty object
       this.fastifyInstance.addHook('onRequest', async (request, _reply) => {
@@ -176,6 +186,22 @@ export class APIServer extends BaseServer {
       // Register plugins if provided
       if (this.options.plugins && this.options.plugins.length > 0) {
         await this.registerPlugins();
+      }
+
+      // Register file upload hooks and plugin after user plugins
+      // This ensures user plugin hooks (auth, etc.) run before upload validation
+      if (this.options.fileUploads?.enabled) {
+        // Register validation hook using shared helper
+        registerFileUploadValidationHooks(
+          this.fastifyInstance,
+          this.options.fileUploads,
+        );
+
+        // Register multipart plugin using shared helper (also decorates with multipartEnabled)
+        await registerMultipartPlugin(
+          this.fastifyInstance,
+          this.options.fileUploads,
+        );
       }
 
       // Register WebSocket preValidation hook if enabled (before routes but after plugins)

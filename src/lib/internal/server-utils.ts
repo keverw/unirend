@@ -417,7 +417,14 @@ export function createControlledReply(reply: FastifyReply): ControlledReply {
       reply.removeHeader(name);
     },
     hasHeader: (name: string) => reply.hasHeader(name),
-    sent: reply.sent,
+    get sent() {
+      return reply.sent;
+    },
+    raw: {
+      get destroyed() {
+        return reply.raw.destroyed;
+      },
+    },
     setCookie:
       typeof (reply as unknown as { setCookie?: unknown }).setCookie ===
       'function'
@@ -477,6 +484,9 @@ export function createControlledReply(reply: FastifyReply): ControlledReply {
             }
           ).signCookie
         : undefined,
+    _sendErrorEnvelope: (statusCode, errorEnvelope) => {
+      reply.code(statusCode).send(errorEnvelope);
+    },
   };
 }
 

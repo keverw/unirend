@@ -48,6 +48,10 @@ import {
 } from './cookie-utils';
 import { APIResponseHelpers } from '../../api-envelope';
 import type { WebSocket, WebSocketServer } from 'ws';
+import {
+  registerFileUploadValidationHooks,
+  registerMultipartPlugin,
+} from './file-upload-validation-helpers';
 
 type SSRServerConfigDev = {
   mode: 'development';
@@ -259,6 +263,12 @@ export class SSRServer extends BaseServer {
       const isDevelopment = mode === 'development';
       this.fastifyInstance.decorateRequest('isDevelopment', isDevelopment);
 
+      // Decorate requests with APIResponseHelpersClass for file upload helpers
+      this.fastifyInstance.decorateRequest(
+        'APIResponseHelpersClass',
+        this.APIResponseHelpersClass,
+      );
+
       // Initialize request context for all requests
       this.fastifyInstance.addHook('onRequest', async (request, _reply) => {
         (
@@ -327,6 +337,22 @@ export class SSRServer extends BaseServer {
         this.config.options.plugins.length > 0
       ) {
         await this.registerPlugins();
+      }
+
+      // Register file upload hooks and plugin after user plugins
+      // This ensures user plugin hooks (auth, etc.) run before upload validation
+      if (this.config.options.fileUploads?.enabled) {
+        // Register validation hook using shared helper
+        registerFileUploadValidationHooks(
+          this.fastifyInstance,
+          this.config.options.fileUploads,
+        );
+
+        // Register multipart plugin using shared helper (also decorates with multipartEnabled)
+        await registerMultipartPlugin(
+          this.fastifyInstance,
+          this.config.options.fileUploads,
+        );
       }
 
       // Register WebSocket preValidation hook if enabled (before routes but after plugins)
