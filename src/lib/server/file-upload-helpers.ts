@@ -381,7 +381,7 @@ export class FileUploadHelpers {
    *   maxSizePerFile: 5 * 1024 * 1024, // 5MB
    *   allowedMimeTypes: ['image/jpeg', 'image/png'],
    *   processor: async (stream, metadata, context) => {
-   *     const uploadID = generateId();
+   *     const uploadID = generateID();
    *
    *     context.onCleanup(async () => {
    *       await deleteFromObjectStorage(uploadID);
@@ -407,7 +407,7 @@ export class FileUploadHelpers {
    *     return { allowed: false, allowedTypes: ['image/*'] };
    *   },
    *   processor: async (stream, metadata, context) => {
-   *     const uploadID = `${context.fileIndex}-${generateId()}`;
+   *     const uploadID = `${context.fileIndex}-${generateID()}`;
    *
    *     context.onCleanup(async () => {
    *       await deleteFromObjectStorage(uploadID);

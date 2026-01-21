@@ -308,7 +308,7 @@ const result = await FileUploadHelpers.processUpload({
   maxSizePerFile: 10 * 1024 * 1024,
   allowedMimeTypes: ['image/*'],
   processor: async (stream, metadata, context) => {
-    const id = generateId(); // uuid/nanoid/cuid2/etc
+    const id = generateID(); // uuid/nanoid/cuid2/etc
     await db.uploads.insert({
       id,
       filename: metadata.filename,
@@ -365,7 +365,7 @@ If you set `timeoutMS`, uploads automatically abort when time expires. The frame
 
 ```typescript
 processor: async (fileStream, metadata, context) => {
-  const uploadID = generateId();
+  const uploadID = generateID();
 
   // Cleanup runs automatically if processor throws (including stream errors)
   context.onCleanup(async () => {
@@ -448,6 +448,11 @@ Enable multipart uploads in your server:
 
 ```ts
 const server = serveSSRDev(paths, {
+  apiEndpoints: {
+    apiEndpointPrefix: '/api',
+    versioned: true, // DEFAULT! Routes will be under /api/v1/, /api/v2/, etc.
+    pageDataEndpoint: 'page_data',
+  },
   fileUploads: {
     enabled: true,
     limits: {
@@ -456,8 +461,15 @@ const server = serveSSRDev(paths, {
       fields: 10, // default - max non-file form fields
       fieldSize: 1024, // 1KB default - max bytes per non-file field value
     },
-    // recommended: restrict which routes accept multipart
-    allowedRoutes: ['/api/upload/*'],
+    // IMPORTANT: versioned defaults to TRUE, so routes are under /api/v{n}/...
+    // Therefore allowedRoutes MUST include the version prefix!
+    allowedRoutes: [
+      '/api/v1/upload/avatar',
+      '/api/v1/upload/document',
+      '/api/v1/upload/*', // or use wildcards
+    ],
+    // Only if you explicitly set versioned: false, use unversioned paths:
+    // allowedRoutes: ['/api/upload/*'],
     // optional: early validation before multipart parsing (saves bandwidth)
     earlyValidation: async (request) => {
       // Run lightweight checks (auth, rate limits, etc.)
@@ -480,6 +492,7 @@ Notes:
 - `allowedRoutes` supports wildcard patterns:
   - `*` matches a single path segment: `/api/*/upload` matches `/api/foo/upload` but NOT `/api/foo/bar/upload`
   - `**` matches zero or more segments: `/api/upload/**` matches `/api/upload`, `/api/upload/foo`, `/api/upload/foo/bar`, etc.
+- **Important**: When using `apiEndpoints.versioned: true` (the default), routes registered with `server.api.*` helpers are exposed under `/api/v{n}/...`, so `allowedRoutes` must include the version prefix. Example: use `['/api/v1/upload/avatar']` instead of `['/api/upload/avatar']`. Only use unversioned paths if you explicitly set `versioned: false`.
 - `earlyValidation` runs after user plugins/hooks but before multipart parsing, allowing you to reject requests early based on headers, auth state, rate limits, etc.
 
 ## Testing

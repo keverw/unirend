@@ -283,11 +283,11 @@ function createSharedConfig() {
         fieldSize: 1024, // 1KB
       },
       allowedRoutes: [
-        '/api/upload/avatar',
-        '/api/upload/document',
-        '/api/upload/media',
-        '/api/upload/test',
-        '/api/upload/checksum',
+        '/api/v1/upload/avatar',
+        '/api/v1/upload/document',
+        '/api/v1/upload/media',
+        '/api/v1/upload/test',
+        '/api/v1/upload/checksum',
       ],
     },
     APIHandling,
