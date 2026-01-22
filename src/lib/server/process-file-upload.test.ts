@@ -23,6 +23,8 @@ interface MockMultipartFile {
  * Create a mock Fastify request with multipart support
  */
 function createMockRequest(files: MockMultipartFile[]): FastifyRequest {
+  const eventListeners = new Map<string, Array<(...args: unknown[]) => void>>();
+
   return {
     server: { multipartEnabled: true },
     headers: { 'content-type': 'multipart/form-data; boundary=----' },
@@ -32,6 +34,38 @@ function createMockRequest(files: MockMultipartFile[]): FastifyRequest {
       info: mock(),
     },
     id: 'test-request-id',
+    raw: {
+      destroyed: false,
+      on(event: string, handler: (...args: unknown[]) => void) {
+        if (!eventListeners.has(event)) {
+          eventListeners.set(event, []);
+        }
+        const handlers = eventListeners.get(event);
+        if (handlers) {
+          handlers.push(handler);
+        }
+        return this;
+      },
+      removeListener(event: string, handler: (...args: unknown[]) => void) {
+        const handlers = eventListeners.get(event);
+        if (handlers) {
+          const index = handlers.indexOf(handler);
+          if (index !== -1) {
+            handlers.splice(index, 1);
+          }
+        }
+        return this;
+      },
+      // Allow tests to simulate connection close
+      simulateClose() {
+        const closeHandlers = eventListeners.get('close') || [];
+        // Iterate over a copy to prevent issues if handlers modify the array during iteration
+        // (e.g., if a handler calls removeListener() on itself)
+        for (const handler of [...closeHandlers]) {
+          handler();
+        }
+      },
+    },
     files() {
       // eslint-disable-next-line @typescript-eslint/require-await
       return (async function* () {
@@ -206,6 +240,87 @@ describe('processFileUpload', () => {
   });
 
   describe('Race Condition Prevention', () => {
+    it('should cleanup ALL files when batch fails (transactional semantics)', async () => {
+      // This test verifies the CORRECT transactional behavior:
+      // In fail-fast batch uploads, if ANY file fails, the ENTIRE batch fails
+      // and ALL files (including successful ones) must be cleaned up.
+      //
+      // Example: File 0 succeeds, File 1 succeeds, File 2 fails
+      // Expected: Cleanup runs for ALL files (0, 1, 2)
+      // Reason: Files 0 and 1 were uploaded to storage, but the batch failed,
+      //         so they must be deleted to maintain consistency (all-or-nothing)
+
+      const cleanupCalls: Array<{ fileIndex: number; reason: string }> = [];
+
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'files',
+          filename: 'file1.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('file1 content'),
+        },
+        {
+          fieldname: 'files',
+          filename: 'file2.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('file2 content'),
+        },
+        {
+          fieldname: 'files',
+          filename: 'file3.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('file3 content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await processFileUpload({
+        request,
+        reply,
+        maxFiles: 3,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, metadata, context) => {
+          // Register cleanup handler for each file
+          // eslint-disable-next-line @typescript-eslint/require-await
+          context.onCleanup(async (reason, _details) => {
+            cleanupCalls.push({
+              fileIndex: context.fileIndex,
+              reason,
+            });
+          });
+
+          // Consume stream
+          for await (const _chunk of stream) {
+            // Just consume
+          }
+
+          // File 0 and File 1 succeed, File 2 throws
+          if (context.fileIndex === 2) {
+            throw new Error('File 2 processor error');
+          }
+
+          return { index: context.fileIndex };
+        },
+      });
+
+      expect(result.success).toBe(false);
+
+      // Verify cleanup ran for ALL files (transactional behavior)
+      // File 0: succeeded but cleanup called (because batch failed)
+      // File 1: succeeded but cleanup called (because batch failed)
+      // File 2: failed, cleanup called
+      expect(cleanupCalls.length).toBe(3);
+      expect(cleanupCalls.some((c) => c.fileIndex === 0)).toBe(true);
+      expect(cleanupCalls.some((c) => c.fileIndex === 1)).toBe(true);
+      expect(cleanupCalls.some((c) => c.fileIndex === 2)).toBe(true);
+    });
+
     it('should run cleanup immediately when processor throws error', async () => {
       const cleanupCalls: Array<{ fileIndex: number; reason: string }> = [];
 
@@ -922,6 +1037,127 @@ describe('processFileUpload', () => {
     });
   });
 
+  describe('Multiple Cleanup Handlers Per File', () => {
+    it('should support registering multiple cleanup handlers for a single file', async () => {
+      const cleanupExecutionOrder: string[] = [];
+
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'test.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await processFileUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, _metadata, context) => {
+          // Register multiple cleanup handlers for this file
+          // eslint-disable-next-line @typescript-eslint/require-await
+          context.onCleanup(async () => {
+            cleanupExecutionOrder.push('cleanup-1');
+          });
+
+          // eslint-disable-next-line @typescript-eslint/require-await
+          context.onCleanup(async () => {
+            cleanupExecutionOrder.push('cleanup-2');
+          });
+
+          // eslint-disable-next-line @typescript-eslint/require-await
+          context.onCleanup(async () => {
+            cleanupExecutionOrder.push('cleanup-3');
+          });
+
+          // Consume stream
+          for await (const _chunk of stream) {
+            // Just consume
+          }
+
+          // Throw error to trigger cleanup
+          throw new Error('Test error to trigger cleanup');
+        },
+      });
+
+      expect(result.success).toBe(false);
+
+      // All three cleanup handlers should have been called
+      expect(cleanupExecutionOrder.length).toBe(3);
+      expect(cleanupExecutionOrder).toContain('cleanup-1');
+      expect(cleanupExecutionOrder).toContain('cleanup-2');
+      expect(cleanupExecutionOrder).toContain('cleanup-3');
+    });
+
+    it('should run all cleanup handlers even if one throws', async () => {
+      const cleanupCalls: string[] = [];
+
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'test.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await processFileUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, _metadata, context) => {
+          // First handler throws
+          // eslint-disable-next-line @typescript-eslint/require-await
+          context.onCleanup(async () => {
+            cleanupCalls.push('cleanup-1');
+            throw new Error('Cleanup 1 failed');
+          });
+
+          // Second handler succeeds
+          // eslint-disable-next-line @typescript-eslint/require-await
+          context.onCleanup(async () => {
+            cleanupCalls.push('cleanup-2');
+          });
+
+          // Third handler throws
+          // eslint-disable-next-line @typescript-eslint/require-await
+          context.onCleanup(async () => {
+            cleanupCalls.push('cleanup-3');
+            throw new Error('Cleanup 3 failed');
+          });
+
+          for await (const _chunk of stream) {
+            // consume
+          }
+
+          throw new Error('Processor error');
+        },
+      });
+
+      expect(result.success).toBe(false);
+
+      // All handlers should have been called despite errors
+      expect(cleanupCalls.length).toBe(3);
+      expect(cleanupCalls).toContain('cleanup-1');
+      expect(cleanupCalls).toContain('cleanup-2');
+      expect(cleanupCalls).toContain('cleanup-3');
+
+      // Should have logged cleanup errors
+      expect(request.log.error).toHaveBeenCalled();
+    });
+  });
+
   describe('Context Methods', () => {
     it('should provide isAborted() method in context', async () => {
       const abortedChecks: boolean[] = [];
@@ -1463,7 +1699,7 @@ describe('processFileUpload', () => {
   });
 
   describe('Connection Broken During Upload', () => {
-    it('should handle connection break via reply.raw.destroyed', async () => {
+    it('should handle connection break via reply.raw.destroyed (polling)', async () => {
       const files: MockMultipartFile[] = [
         {
           fieldname: 'file',
@@ -1486,8 +1722,8 @@ describe('processFileUpload', () => {
           // Simulate connection break during processing
           reply.raw.destroyed = true;
 
-          // Give connection monitor time to detect break (runs every 100ms)
-          await new Promise((resolve) => setTimeout(resolve, 150));
+          // Give connection monitor time to detect break (runs every 500ms)
+          await new Promise((resolve) => setTimeout(resolve, 600));
 
           for await (const _chunk of stream) {
             // consume
@@ -1497,6 +1733,128 @@ describe('processFileUpload', () => {
       });
 
       expect(result.success).toBe(false);
+    });
+
+    it('should detect connection close via close event (immediate)', async () => {
+      const abortDetected: { before: boolean; after: boolean } = {
+        before: false,
+        after: false,
+      };
+
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'test.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      // We expect this to fail because the connection closes
+      const result = await processFileUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, _metadata, context) => {
+          // Check abort state before close event
+          abortDetected.before = context.isAborted();
+
+          // Consume a bit of the stream first
+          let hasReadChunk = false;
+          for await (const _chunk of stream) {
+            hasReadChunk = true;
+            // After reading first chunk, simulate connection close
+            if (hasReadChunk) {
+              (
+                request.raw as unknown as { simulateClose: () => void }
+              ).simulateClose();
+              // Give event time to propagate
+              await new Promise((resolve) => setTimeout(resolve, 10));
+              // Check if aborted
+              abortDetected.after = context.isAborted();
+              // Break to let the destroyed stream throw naturally
+              break;
+            }
+          }
+
+          return { hasReadChunk };
+        },
+      });
+
+      // Upload should fail due to connection close
+      expect(result.success).toBe(false);
+
+      // Verify abort detection
+      expect(abortDetected.before).toBe(false); // Not aborted initially
+      expect(abortDetected.after).toBe(true); // Aborted after close event
+    });
+
+    it('should remove close event listener after cleanup', async () => {
+      const files: MockMultipartFile[] = [
+        {
+          fieldname: 'file',
+          filename: 'test.txt',
+          encoding: '7bit',
+          mimetype: 'text/plain',
+          file: createFileStream('content'),
+        },
+      ];
+
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      // Track event listener calls
+      const eventListenerCalls: Array<{ action: string; event: string }> = [];
+      const originalOn = request.raw.on.bind(request.raw);
+      const originalRemoveListener =
+        (
+          (request.raw as any).removeListener as
+            | ((...args: any[]) => any)
+            | undefined
+        )?.bind(request.raw) || (() => {});
+
+      request.raw.on = function (event: string, handler: any) {
+        eventListenerCalls.push({ action: 'add', event });
+        return originalOn.call(this, event, handler);
+      };
+
+      (request.raw as any).removeListener = function (
+        event: string,
+        handler: any,
+      ) {
+        eventListenerCalls.push({ action: 'remove', event });
+        return originalRemoveListener.call(this, event, handler);
+      };
+
+      await processFileUpload({
+        request,
+        reply,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, _metadata, _context) => {
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return {};
+        },
+      });
+
+      // Verify that 'close' event listener was added
+      const addCalls = eventListenerCalls.filter(
+        (call) => call.action === 'add' && call.event === 'close',
+      );
+      expect(addCalls.length).toBeGreaterThan(0);
+
+      // Verify that 'close' event listener was removed during cleanup
+      const removeCalls = eventListenerCalls.filter(
+        (call) => call.action === 'remove' && call.event === 'close',
+      );
+      expect(removeCalls.length).toBeGreaterThan(0);
     });
   });
 
@@ -1512,6 +1870,15 @@ describe('processFileUpload', () => {
           info: mock(),
         },
         id: 'test-request-id',
+        raw: {
+          destroyed: false,
+          on() {
+            return this;
+          },
+          removeListener() {
+            return this;
+          },
+        },
         files() {
           // Simulate @fastify/multipart throwing FilesLimitError
           // eslint-disable-next-line @typescript-eslint/require-await, require-yield
@@ -1576,6 +1943,15 @@ describe('processFileUpload', () => {
           info: mock(),
         },
         id: 'test-request-id',
+        raw: {
+          destroyed: false,
+          on() {
+            return this;
+          },
+          removeListener() {
+            return this;
+          },
+        },
         files() {
           // eslint-disable-next-line @typescript-eslint/require-await
           return (async function* () {
@@ -1733,6 +2109,15 @@ describe('processFileUpload', () => {
           info: mock(),
         },
         id: 'test-request-id',
+        raw: {
+          destroyed: false,
+          on() {
+            return this;
+          },
+          removeListener() {
+            return this;
+          },
+        },
         files() {
           return (async function* () {
             // Yield first file
@@ -1801,6 +2186,12 @@ describe('processFileUpload', () => {
         id: 'test-request-id',
         raw: {
           destroyed: false,
+          on() {
+            return this;
+          },
+          removeListener() {
+            return this;
+          },
         },
         files() {
           return (async function* () {
@@ -1880,6 +2271,12 @@ describe('processFileUpload', () => {
         id: 'test-request-id',
         raw: {
           destroyed: false,
+          on() {
+            return this;
+          },
+          removeListener() {
+            return this;
+          },
         },
         files() {
           return (async function* () {

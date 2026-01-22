@@ -255,19 +255,29 @@ Use `context.onCleanup(fn)` inside the processor to register cleanup. Cleanup ru
 - Connection broken or timeout
 - Batch upload: any file fails (fail-fast)
 
+**Multiple cleanup handlers per file:**
+
+You can register multiple cleanup handlers for a single file - all handlers will execute in parallel using `Promise.allSettled()`. If a cleanup handler throws, the error is logged but other handlers still run.
+
 ```ts
 processor: async (fileStream, metadata, context) => {
   const tempPath = `./uploads/tmp/${metadata.filename}`;
+  const thumbnailPath = `./uploads/tmp/thumb-${metadata.filename}`;
 
-  // Cleanup runs automatically on ANY failure (including processor errors)
+  // Register multiple cleanup handlers - both will run on failure
   context.onCleanup(async (reason, details) => {
     // reason: 'processor_error' | 'size_exceeded' | 'mime_type_rejected' | 'timeout' | etc.
     await safeDelete(tempPath);
   });
 
-  // If this throws, cleanup WILL run
+  context.onCleanup(async () => {
+    await safeDelete(thumbnailPath);
+  });
+
+  // If this throws, ALL cleanup handlers WILL run
   await writeSomewhere(fileStream, tempPath);
-  return { tempPath };
+  await generateThumbnail(tempPath, thumbnailPath);
+  return { tempPath, thumbnailPath };
 };
 ```
 
@@ -456,6 +466,15 @@ When uploads fail, cleanup handlers receive an `AbortReason` explaining why:
 
 If you set `timeoutMS`, uploads automatically abort when time expires. The framework destroys the stream, your processor receives an error, and cleanup runs automatically. Same behavior for client disconnections.
 
+**Connection monitoring implementation:**
+
+The framework uses a dual-approach for detecting client disconnections:
+
+1. **Event-based detection**: Listens for the `'close'` event on the request socket (immediate detection)
+2. **Polling fallback**: Checks `reply.raw.destroyed` every 500ms as a safety net
+
+This combination ensures reliable detection while minimizing unnecessary polling overhead for long-running uploads.
+
 **Most common case - automatic handling:**
 
 ```typescript
@@ -524,6 +543,7 @@ curl -X POST http://localhost:3000/api/upload/gallery \
 ## Security notes
 
 - **Early MIME validation prevents bandwidth DoS**: MIME types are validated **before** consuming file streams. This means an attacker can't upload 5GB of valid files followed by an invalid file to waste your bandwidth - the invalid file is rejected immediately without downloading.
+- **Size limit truncation behavior**: Due to how the multipart parser works with streaming, file size truncation is detected **after** the stream has been consumed. This means if a file exceeds `maxSizePerFile`, the processor will upload/process the truncated file before the framework detects it and triggers cleanup. The partial file is deleted by cleanup handlers, but bandwidth has already been consumed. This is a known limitation of streaming multipart parsing - the framework cannot know the total file size until the stream completes.
 - **Do not trust client MIME type / filename**: consider validating via magic bytes after writing to temp storage.
 - **Limit sizes and counts**: set `maxSizePerFile`/`maxFiles` and consider rate limiting to reduce abuse/DoS risk.
 - **Scan if needed**: for untrusted uploads, consider virus/malware scanning as part of your ingestion pipeline.

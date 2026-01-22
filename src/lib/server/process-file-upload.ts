@@ -51,6 +51,16 @@ interface UploadState {
 }
 
 /**
+ * BusboyFileStream interface
+ *
+ * Extends Node.js Readable with Busboy-specific properties.
+ * The 'truncated' property is set by @fastify/multipart when a file exceeds size limits.
+ */
+interface BusboyFileStream extends Readable {
+  truncated?: boolean;
+}
+
+/**
  * Error class for upload aborts
  */
 class UploadAbortError extends Error {
@@ -74,12 +84,14 @@ class FileUploadProcessor<T = unknown> {
   private hasCleanupStarted = false;
 
   // Track the current file stream being processed (so we can destroy it on timeout/abort)
-  // Type is BusboyFileStream from @fastify/multipart (Node.js Readable with .destroy() method)
-  private currentFileStream: Readable | null = null;
+  private currentFileStream: BusboyFileStream | null = null;
 
   // Timer handles for timeout and connection monitoring
   private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   private connectionMonitor: ReturnType<typeof setInterval> | null = null;
+
+  // Track the close event listener to ensure proper cleanup
+  private closeHandler: (() => void) | null = null;
 
   constructor(config: FileUploadConfig<T>) {
     this.config = config;
@@ -122,20 +134,20 @@ class FileUploadProcessor<T = unknown> {
       // Process files
       const results = await this.processFiles();
 
-      // Cleanup timers
-      this.cleanupTimers();
+      // Release resources (timers + event listeners)
+      this.releaseResources();
 
       // Handle success
       return await this.handleSuccess(results);
     } catch (error) {
-      // Important: clear timers immediately on error
-      this.cleanupTimers();
+      // Important: release resources immediately on error
+      this.releaseResources();
 
       // Handle error
       return await this.handleError(error);
     } finally {
-      // Safety net: ensure timers are always cleared
-      this.cleanupTimers();
+      // Safety net: ensure resources are always released
+      this.releaseResources();
     }
   }
 
@@ -181,7 +193,7 @@ class FileUploadProcessor<T = unknown> {
         if (!this.state.aborted) {
           this.state.aborted = true;
           this.state.abortReason = 'timeout';
-          this.cleanupTimers();
+          this.releaseResources();
           if (this.currentFileStream && !this.currentFileStream.destroyed) {
             this.currentFileStream.destroy(new Error('Upload timeout'));
           }
@@ -192,29 +204,67 @@ class FileUploadProcessor<T = unknown> {
 
   /**
    * Setup connection monitoring
+   *
+   * Uses both event-based detection (via 'close' event on the request socket)
+   * and polling as a failsafe (every 500ms). The 'close' event provides immediate
+   * detection when the client disconnects, while polling catches edge cases where
+   * the event might not fire.
    */
   private setupConnectionMonitor(): void {
-    const { reply } = this.config;
+    const { reply, request } = this.config;
 
-    // Monitor connection state using reply.raw.destroyed
-    // Note: This is one of the few places that needs raw stream access
-    // for detecting broken connections during long-running uploads
-    this.connectionMonitor = setInterval(() => {
-      if (reply.raw.destroyed && !this.state.aborted) {
+    // Primary detection: listen for 'close' event on the connection
+    // This fires immediately when the client disconnects
+    const onClose = () => {
+      if (!this.state.aborted) {
         this.state.aborted = true;
         this.state.abortReason = 'connection_broken';
-        this.cleanupTimers();
+        this.releaseResources();
         if (this.currentFileStream && !this.currentFileStream.destroyed) {
           this.currentFileStream.destroy(new Error('Connection broken'));
         }
       }
-    }, 100);
+    };
+
+    // Store the handler so we can remove it during cleanup (prevents memory leaks)
+    this.closeHandler = onClose;
+
+    // Attach close listener to request (which holds the socket connection)
+    // Type assertion: request.raw is NodeJS.Socket which implements EventEmitter
+    (request.raw as NodeJS.EventEmitter).on('close', onClose);
+
+    // Fallback polling: check reply.raw.destroyed every 500ms
+    // This is a safety net in case the 'close' event doesn't fire
+    // 500ms is reasonable for large uploads that take minutes (vs aggressive 100ms polling)
+    this.connectionMonitor = setInterval(() => {
+      if (reply.raw.destroyed && !this.state.aborted) {
+        this.state.aborted = true;
+        this.state.abortReason = 'connection_broken';
+        this.releaseResources();
+        if (this.currentFileStream && !this.currentFileStream.destroyed) {
+          this.currentFileStream.destroy(new Error('Connection broken'));
+        }
+      }
+    }, 500);
   }
 
   /**
-   * Cleanup timers
+   * Release internal resources (timers and event listeners)
+   *
+   * Removes the connection monitoring interval, timeout, and close event listener
+   * to prevent memory leaks and ensure proper resource cleanup.
    */
-  private cleanupTimers(): void {
+  private releaseResources(): void {
+    // Remove close event listener to prevent memory leaks
+    if (this.closeHandler) {
+      (this.config.request.raw as NodeJS.EventEmitter).removeListener(
+        'close',
+        this.closeHandler,
+      );
+
+      this.closeHandler = null;
+    }
+
     if (this.connectionMonitor) {
       clearInterval(this.connectionMonitor);
       this.connectionMonitor = null;
@@ -298,7 +348,7 @@ class FileUploadProcessor<T = unknown> {
    */
   private async validateMimeType(
     file: {
-      file: Readable;
+      file: BusboyFileStream;
       fieldname: string;
       filename: string;
       encoding: string;
@@ -306,7 +356,7 @@ class FileUploadProcessor<T = unknown> {
     },
     fileIndex: number,
     filesIterator: AsyncIterableIterator<{
-      file: Readable;
+      file: BusboyFileStream;
       fieldname: string;
       filename: string;
       encoding: string;
@@ -366,7 +416,7 @@ class FileUploadProcessor<T = unknown> {
    */
   private async processFile(
     file: {
-      file: Readable;
+      file: BusboyFileStream;
       fieldname: string;
       filename: string;
       encoding: string;
@@ -387,7 +437,18 @@ class FileUploadProcessor<T = unknown> {
     const context: ProcessorContext = {
       fileIndex,
       onCleanup: (cleanupFn) => {
-        // Add to both file-specific and global cleanup lists
+        // Add to both file-specific and batch-level cleanup lists
+        //
+        // IMPORTANT: Cleanup handlers for successful files are INTENTIONALLY kept in the
+        // batch-level list (this.state.cleanupHandlers). This implements fail-fast
+        // transactional semantics:
+        //
+        // Example: File 0 succeeds, File 1 succeeds, File 2 fails
+        // - Result: ENTIRE batch fails (all-or-nothing)
+        // - Cleanup runs for ALL files (0, 1, 2) to maintain consistency
+        // - Files 0 and 1 were uploaded to storage, so they must be deleted
+        //
+        // This prevents orphaned files when a batch operation fails partway through.
         fileCleanupHandlers.push(cleanupFn);
         this.state.cleanupHandlers.push(cleanupFn);
       },
@@ -439,8 +500,12 @@ class FileUploadProcessor<T = unknown> {
       }
 
       // Check for truncation
-      // Note: 'truncated' property is added by @fastify/multipart on BusboyFileStream
-      if ((file.file as Readable & { truncated?: boolean }).truncated) {
+      // IMPORTANT: Due to how @fastify/multipart works with throwFileSizeLimit: false,
+      // truncation is only detected AFTER the stream has been consumed. This means
+      // the processor has already uploaded/processed the truncated file before we detect it.
+      // Cleanup will delete the partial file, but bandwidth has already been consumed.
+      // This is a known limitation of the multipart parser's streaming behavior.
+      if (file.file.truncated) {
         this.state.aborted = true;
 
         const bytesReceived = byteCounter.getBytesRead();
@@ -474,6 +539,10 @@ class FileUploadProcessor<T = unknown> {
 
       // File processed successfully
       this.state.processedFiles++;
+
+      // Note: Cleanup handlers for this successful file remain in this.state.cleanupHandlers
+      // This is intentional for fail-fast batch semantics - if ANY later file fails,
+      // ALL files (including this successful one) will be cleaned up to maintain transactional consistency
 
       return {
         fileIndex,
@@ -779,6 +848,10 @@ class FileUploadProcessor<T = unknown> {
 
   /**
    * Create a byte-counting transform stream wrapper
+   *
+   * The Transform stream respects Node.js's default backpressure handling via highWaterMark.
+   * If a downstream consumer (e.g., slow object storage) cannot keep up, the stream will
+   * naturally pause until the downstream is ready, preventing excessive memory buffering.
    */
   private createByteCounter(): {
     stream: Transform;
@@ -787,6 +860,9 @@ class FileUploadProcessor<T = unknown> {
     let bytesRead = 0;
 
     const stream = new Transform({
+      // Use Node.js default highWaterMark (16KB) which provides good backpressure handling
+      // for most upload scenarios. The stream will pause when downstream can't keep up.
+      highWaterMark: 16 * 1024,
       transform(chunk: Buffer, _encoding, callback) {
         bytesRead += chunk.length;
         callback(null, chunk);
@@ -822,6 +898,18 @@ class FileUploadProcessor<T = unknown> {
 
   /**
    * Execute onComplete callback with error handling
+   *
+   * This method uses defensive double error handling to ensure onComplete errors
+   * during error paths don't break the error flow:
+   *
+   * 1. Inner catch: Catches synchronous errors from onComplete
+   * 2. Outer catch: Safety net for any unexpected errors in the Promise chain
+   *
+   * When onComplete throws during error handling, we log but preserve the original
+   * error for the client (rather than replacing it with the onComplete error).
+   * This behavior differs from the success path where onComplete errors become
+   * 'file_upload_completion_failed' errors - this asymmetry is intentional to
+   * ensure clients always see the root cause of upload failures.
    */
   private async executeOnCompleteCallback(
     onComplete: ((result: UploadResult<T>) => Promise<void> | void) | undefined,
@@ -850,10 +938,18 @@ class FileUploadProcessor<T = unknown> {
 
   /**
    * Drain remaining parts from multipart iterator
+   *
+   * When an upload fails mid-stream (e.g., MIME rejection, size exceeded), we need to
+   * consume any remaining parts from the multipart iterator to prevent it from hanging.
+   * The 1000ms timeout is chosen as a reasonable balance:
+   * - Most multipart iterators drain quickly (< 100ms) in normal conditions
+   * - 1000ms is long enough to handle slow network conditions without blocking too long
+   * - If the iterator truly hangs (network issue, client disconnect), we don't want to
+   *   wait indefinitely - better to timeout and let the connection cleanup handle it
    */
   private async drainMultipartIterator(
     filesIterator: AsyncIterableIterator<{
-      file: Readable;
+      file: BusboyFileStream;
       fieldname: string;
       filename: string;
       encoding: string;
