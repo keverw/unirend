@@ -6,7 +6,9 @@ Unirend provides a unified API for handling multipart uploads with streaming lim
 
 - [What you get](#what-you-get)
 - [Quickstart](#quickstart)
-- [Common recipes](#common-recipes)
+- [Server configuration](#server-configuration)
+- [Using processFileUpload()](#using-processfileupload)
+  - [Configuration options](#configuration-options)
   - [Single file upload](#single-file-upload)
   - [Multiple files (batch)](#multiple-files-batch)
   - [Cleanup on abort](#cleanup-on-abort)
@@ -19,9 +21,6 @@ Unirend provides a unified API for handling multipart uploads with streaming lim
   - [Abort reasons](#abort-reasons)
   - [Timeout and connection handling](#timeout-and-connection-handling)
   - [Common HTTP statuses / error codes](#common-http-statuses--error-codes)
-- [API reference](#api-reference)
-  - [`processFileUpload(config)`](#processfileuploadconfig)
-- [Server configuration](#server-configuration)
 - [Testing](#testing)
 - [Security notes](#security-notes)
   - [Image upload workflow (common pattern)](#image-upload-workflow-common-pattern)
@@ -31,20 +30,30 @@ Unirend provides a unified API for handling multipart uploads with streaming lim
 
 ## What you get
 
-- **Unified API**: one entry point: `processFileUpload()`
 - **Early MIME validation**: MIME types validated **before** consuming streams (prevents bandwidth waste / DoS attacks)
-- **Streaming processing**: files processed during iteration, one at a time (no memory buffering of multiple files)
+- **Streaming processing**: files processed one at a time (no memory buffering of multiple files)
 - **Automatic cleanup**: `context.onCleanup()` handlers execute automatically on abort (after processor completes to avoid race conditions)
 - **Fail-fast batch behavior**: first failure aborts the whole batch and runs all registered cleanup handlers
-- **Consistent errors**: `server.api.*` handlers return API envelopes (success or error), so failures can just `return result.errorEnvelope`. On success, use `result.files` to build whatever success payload your endpoint needs.
+- **Consistent error handling**: check `result.success` — if false, just `return result.errorEnvelope`. If true, use `result.files` to build your response
 
 ## Quickstart
 
 > **Security note:** Never trust client-provided MIME types or filenames. See [Security notes](#security-notes).
 
-1. **Enable uploads in server config** (see [Server configuration](#server-configuration)).
+**1. Enable file uploads in your server:**
 
-2. **Create an API upload route** and call `processFileUpload()`:
+```ts
+import { serveSSRDev } from 'unirend/server';
+
+const server = serveSSRDev(paths, {
+  fileUploads: {
+    enabled: true,
+    allowedRoutes: ['/api/v1/upload/*'], // pre-validation (prevents DoS)
+  },
+});
+```
+
+**2. Create an upload route:**
 
 ```ts
 import { processFileUpload } from 'unirend/server';
@@ -55,10 +64,10 @@ server.api.post('upload/avatar', async (request, reply) => {
     request,
     reply,
     maxSizePerFile: 5 * 1024 * 1024, // 5MB
-    allowedMimeTypes: ['image/*'], // supports wildcards, exact types, or a validator function
+    allowedMimeTypes: ['image/*'],
     processor: async (fileStream, metadata, context) => {
-      // Store the stream somewhere (disk, object storage, etc) and return app data.
-      // IMPORTANT: you must consume the stream (e.g. pipeline()).
+      // Store the stream (disk, object storage, etc) and return your app data
+      // You MUST consume the stream (e.g. via pipeline())
       return { filename: metadata.filename };
     },
   });
@@ -73,11 +82,88 @@ server.api.post('upload/avatar', async (request, reply) => {
 });
 ```
 
-## Common recipes
+For detailed configuration and examples, see [Server configuration](#server-configuration) and [Using processFileUpload()](#using-processfileupload).
+
+## Server configuration
+
+Enable multipart uploads in your server:
+
+```ts
+const server = serveSSRDev(paths, {
+  apiEndpoints: {
+    apiEndpointPrefix: '/api',
+    versioned: true, // DEFAULT! Routes will be under /api/v1/, /api/v2/, etc.
+    pageDataEndpoint: 'page_data',
+  },
+  fileUploads: {
+    enabled: true,
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB default - max bytes per file
+      files: 10, // default - max files per request
+      fields: 10, // default - max non-file form fields
+      fieldSize: 1024, // 1KB default - max bytes per non-file field value
+    },
+    // IMPORTANT: versioned defaults to TRUE, so routes are under /api/v{n}/...
+    // Therefore allowedRoutes MUST include the version prefix!
+    allowedRoutes: [
+      '/api/v1/upload/avatar',
+      '/api/v1/upload/document',
+      '/api/v1/upload/*', // or use wildcards
+    ],
+    // Only if you explicitly set versioned: false, use unversioned paths:
+    // allowedRoutes: ['/api/upload/*'],
+    // optional: early validation before multipart parsing (saves bandwidth)
+    earlyValidation: async (request) => {
+      // Run lightweight checks (auth, rate limits, etc.)
+      // Return true to allow, or { statusCode, error, message } to reject
+      return true;
+    },
+  },
+});
+```
+
+**Configuration notes:**
+
+- **Global limits**: Set default limits for all upload routes via `fileUploads.limits`
+- **Per-route overrides**: `processFileUpload()` can override these per route (see [Configuration options](#configuration-options))
+- **Pre-validation with `allowedRoutes`**: Automatically rejects multipart requests to non-allowed routes before parsing (prevents bandwidth waste and DoS attacks)
+  - Supports wildcard patterns:
+    - `*` matches a single path segment: `/api/*/upload` matches `/api/foo/upload` but NOT `/api/foo/bar/upload`
+    - `**` matches zero or more segments: `/api/upload/**` matches `/api/upload`, `/api/upload/foo`, `/api/upload/foo/bar`, etc.
+  - **Important**: When using `apiEndpoints.versioned: true` (the default), routes registered with `server.api.*` helpers are exposed under `/api/v{n}/...`, so `allowedRoutes` must include the version prefix. Example: use `['/api/v1/upload/avatar']` instead of `['/api/upload/avatar']`. Only use unversioned paths if you explicitly set `versioned: false`.
+- **Early validation with `earlyValidation`**: Runs after user plugins/hooks but before multipart parsing, allowing you to reject requests early based on headers, auth state, rate limits, etc.
+  - Both `allowedRoutes` rejections and `earlyValidation` rejections are automatically wrapped in proper API envelopes (with `status`, `status_code`, `request_id`, etc.) using your server's `APIResponseHelpersClass` if provided, or the default `APIResponseHelpers`.
+
+## Using processFileUpload()
+
+### Configuration options
+
+`processFileUpload(config)` accepts the following configuration:
+
+- **`request`**: Fastify request
+- **`reply`**: Fastify reply (or controlled reply)
+- **`maxFiles`**: defaults to `1`
+- **`maxSizePerFile`**: bytes (overrides server `limits.fileSize`)
+- **`maxFields`**: optional max form fields (overrides server `limits.fields`)
+- **`maxFieldSize`**: optional max field value size in bytes (overrides server `limits.fieldSize`)
+- **`allowedMimeTypes`**: `string[]` supporting wildcards (e.g. `image/*`) or a validator function
+- **`timeoutMS`**: optional upload timeout (per-route)
+- **`processor(fileStream, metadata, context)`**: per-file handler (must consume stream)
+  - `fileStream`: Readable stream of file data
+  - `metadata`: `{ filename, mimetype, encoding, fieldname, fileIndex }`
+  - `context`: `{ fileIndex, onCleanup, isAborted }`
+    - `onCleanup(cleanupFn)`: Register cleanup handler that runs when upload fails (including processor errors, size exceeded, MIME rejected, timeout, connection broken, batch failures)
+    - `isAborted()`: Check if upload aborted (timeout, connection broken, etc.)
+- **`onComplete(finalResult)`**: optional post-processing hook (runs once after all files)
+
+**Return type:**
+
+- **Success**: `{ success: true; files: Array<{ fileIndex; filename; data }> }`
+- **Failure**: `{ success: false; errorEnvelope }` (ready to return)
 
 ### Single file upload
 
-Smallest “real” disk example:
+Smallest "real" disk example:
 
 ```ts
 import { pipeline } from 'stream/promises';
@@ -281,7 +367,7 @@ allowedMimeTypes: (mime) => {
 
 This is commonly called a **staging upload** (or **temp-then-finalize**) pattern.
 
-If you want “automatic” consistency, treat uploads like a state machine:
+If you want "automatic" consistency, treat uploads like a state machine:
 
 - **Before streaming**: create a DB row per file with `status='pending'` and a generated ID/path/key.
 - **On abort** (`context.onCleanup`): mark the row `status='failed'` and cleanup the partial object (runs automatically after processor completes or is interrupted - including when processor throws errors).
@@ -338,11 +424,11 @@ const result = await processFileUpload({
 });
 ```
 
-**Cleanup job pattern:** periodically delete/expire `status='pending'` uploads older than 24–48 hours (these usually indicate failed uploads that weren’t cleaned up, e.g. due to process crashes).
+**Cleanup job pattern:** periodically delete/expire `status='pending'` uploads older than 24–48 hours (these usually indicate failed uploads that weren't cleaned up, e.g. due to process crashes).
 
 ## Errors and abort reasons
 
-On failure, `processUpload()` returns `{ success: false, errorEnvelope }`. In `server.api.*` routes you typically just `return result.errorEnvelope;`.
+On failure, `processFileUpload()` returns `{ success: false, errorEnvelope }`. In `server.api.*` routes you typically just `return result.errorEnvelope;`.
 
 ### Abort reasons
 
@@ -395,7 +481,7 @@ processor: async (fileStream, metadata, context) => {
 
 ### Common HTTP statuses / error codes
 
-This is the “at a glance” mapping clients usually care about:
+This is the "at a glance" mapping clients usually care about:
 
 | Scenario                          | Typical HTTP | Typical `error.code`            |
 | --------------------------------- | -----------: | ------------------------------- |
@@ -412,86 +498,6 @@ This is the “at a glance” mapping clients usually care about:
 | `onComplete` failed after success |          500 | `file_upload_completion_failed` |
 
 **Note:** Errors are returned as full API envelopes (`status`, `status_code`, `request_id`, `error`, etc.). See [API envelope structure](./api-envelope-structure.md) for the full shape.
-
-## API reference
-
-### `processFileUpload(config)`
-
-Key config fields:
-
-- **`request`**: Fastify request
-- **`reply`**: Fastify reply (or controlled reply)
-- **`maxFiles`**: defaults to `1`
-- **`maxSizePerFile`**: bytes
-- **`maxFields`**: optional max form fields (overrides server `limits.fields`)
-- **`maxFieldSize`**: optional max field value size in bytes (overrides server `limits.fieldSize`)
-- **`allowedMimeTypes`**: `string[]` supporting wildcards (e.g. `image/*`) or a validator function
-- **`timeoutMS`**: optional upload timeout
-- **`processor(fileStream, metadata, context)`**: per-file handler (must consume stream)
-  - `fileStream`: Readable stream of file data
-  - `metadata`: `{ filename, mimetype, encoding, fieldname, fileIndex }`
-  - `context`: `{ fileIndex, onCleanup, isAborted }`
-    - `onCleanup(cleanupFn)`: Register cleanup handler that runs when upload fails (including processor errors, size exceeded, MIME rejected, timeout, connection broken, batch failures)
-    - `isAborted()`: Check if upload aborted (timeout, connection broken, etc.)
-- **`onComplete(finalResult)`**: optional post-processing hook (runs once)
-
-Return type:
-
-- **Success**: `{ success: true; files: Array<{ fileIndex; filename; data }> }`
-- **Failure**: `{ success: false; errorEnvelope }` (ready to return)
-
-## Server configuration
-
-Enable multipart uploads in your server:
-
-```ts
-const server = serveSSRDev(paths, {
-  apiEndpoints: {
-    apiEndpointPrefix: '/api',
-    versioned: true, // DEFAULT! Routes will be under /api/v1/, /api/v2/, etc.
-    pageDataEndpoint: 'page_data',
-  },
-  fileUploads: {
-    enabled: true,
-    limits: {
-      fileSize: 10 * 1024 * 1024, // 10MB default - max bytes per file
-      files: 10, // default - max files per request
-      fields: 10, // default - max non-file form fields
-      fieldSize: 1024, // 1KB default - max bytes per non-file field value
-    },
-    // IMPORTANT: versioned defaults to TRUE, so routes are under /api/v{n}/...
-    // Therefore allowedRoutes MUST include the version prefix!
-    allowedRoutes: [
-      '/api/v1/upload/avatar',
-      '/api/v1/upload/document',
-      '/api/v1/upload/*', // or use wildcards
-    ],
-    // Only if you explicitly set versioned: false, use unversioned paths:
-    // allowedRoutes: ['/api/upload/*'],
-    // optional: early validation before multipart parsing (saves bandwidth)
-    earlyValidation: async (request) => {
-      // Run lightweight checks (auth, rate limits, etc.)
-      // Return true to allow, or { statusCode, error, message } to reject
-      return true;
-    },
-  },
-});
-```
-
-Notes:
-
-- `processUpload()` can override global defaults per route:
-  - `maxSizePerFile` (overrides `limits.fileSize`)
-  - `maxFiles` (overrides `limits.files`)
-  - `maxFields` (overrides `limits.fields`)
-  - `maxFieldSize` (overrides `limits.fieldSize`)
-  - `timeoutMS` (per-route upload timeout)
-- Prefer `allowedRoutes` to reduce accidental multipart parsing on non-upload endpoints.
-- `allowedRoutes` supports wildcard patterns:
-  - `*` matches a single path segment: `/api/*/upload` matches `/api/foo/upload` but NOT `/api/foo/bar/upload`
-  - `**` matches zero or more segments: `/api/upload/**` matches `/api/upload`, `/api/upload/foo`, `/api/upload/foo/bar`, etc.
-- **Important**: When using `apiEndpoints.versioned: true` (the default), routes registered with `server.api.*` helpers are exposed under `/api/v{n}/...`, so `allowedRoutes` must include the version prefix. Example: use `['/api/v1/upload/avatar']` instead of `['/api/upload/avatar']`. Only use unversioned paths if you explicitly set `versioned: false`.
-- `earlyValidation` runs after user plugins/hooks but before multipart parsing, allowing you to reject requests early based on headers, auth state, rate limits, etc.
 
 ## Testing
 
@@ -512,14 +518,14 @@ curl -X POST http://localhost:3000/api/upload/gallery \
 - **Do not trust client MIME type / filename**: consider validating via magic bytes after writing to temp storage.
 - **Limit sizes and counts**: set `maxSizePerFile`/`maxFiles` and consider rate limiting to reduce abuse/DoS risk.
 - **Scan if needed**: for untrusted uploads, consider virus/malware scanning as part of your ingestion pipeline.
-- **Store outside web root**: don’t directly serve uploaded files from the upload directory.
-- **Generate your own filenames/IDs**: avoid path traversal and collisions; don’t use the client filename as a path.
+- **Store outside web root**: don't directly serve uploaded files from the upload directory.
+- **Generate your own filenames/IDs**: avoid path traversal and collisions; don't use the client filename as a path.
 - **Harden permissions**: ensure uploaded files are not executable and are stored with restrictive permissions.
 - **Isolate storage**: consider separate buckets/prefixes/domains for user uploads vs application assets.
 
 ### Image upload workflow (common pattern)
 
-For image uploads, it’s common to store the original file and enqueue background work to generate derived versions (thumbnails, multiple resolutions, format conversion/optimization) for efficient delivery.
+For image uploads, it's common to store the original file and enqueue background work to generate derived versions (thumbnails, multiple resolutions, format conversion/optimization) for efficient delivery.
 
 ## Plugins / raw Fastify routes
 
