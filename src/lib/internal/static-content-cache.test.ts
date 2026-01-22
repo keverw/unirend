@@ -1082,6 +1082,140 @@ describe('StaticContentCache', () => {
     });
   });
 
+  describe('Security: Null byte validation', () => {
+    it('rejects URLs containing null bytes at runtime', async () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/test.txt': '/path/to/test.txt' },
+        folderMap: { '/assets': '/path/to/assets' },
+      });
+
+      // Test null byte in exact match URL
+      const req1 = createMockRequest('/test.txt\0.js');
+      const { reply: reply1 } = createMockReply();
+
+      const result1 = await cache.handleRequest(
+        '/test.txt\0.js',
+        req1 as FastifyRequest,
+        reply1 as FastifyReply,
+      );
+
+      expect(result1.served).toBe(false);
+      if (!result1.served) {
+        expect(result1.reason).toBe('not-found');
+      }
+
+      // Test null byte in folder-based URL
+      const req2 = createMockRequest('/assets/file.txt\0.js');
+      const { reply: reply2 } = createMockReply();
+
+      const result2 = await cache.handleRequest(
+        '/assets/file.txt\0.js',
+        req2 as FastifyRequest,
+        reply2 as FastifyReply,
+      );
+
+      expect(result2.served).toBe(false);
+      if (!result2.served) {
+        expect(result2.reason).toBe('not-found');
+      }
+
+      // Verify filesystem was never accessed for null byte requests
+      expect(mockFs.stat).not.toHaveBeenCalled();
+      expect(mockFs.readFile).not.toHaveBeenCalled();
+    });
+
+    it('skips singleAssetMap entries with null bytes in configuration', () => {
+      const mockLogger = {
+        warn: mock(() => {}),
+      };
+
+      const cache = new StaticContentCache(
+        {
+          singleAssetMap: {
+            '/valid.txt': '/path/to/valid.txt',
+            '/bad\0key.txt': '/path/to/file.txt', // null byte in key
+            '/badvalue.txt': '/path/to/file\0.txt', // null byte in value
+          },
+        },
+        mockLogger,
+      );
+
+      // Access private singleAssetMap to verify null byte entries were skipped
+      const singleAssetMap = (cache as any).singleAssetMap as Map<
+        string,
+        string
+      >;
+
+      // Valid entry should be present
+      expect(singleAssetMap.has('/valid.txt')).toBe(true);
+
+      // Entries with null bytes should be skipped
+      expect(singleAssetMap.has('/bad\0key.txt')).toBe(false);
+      expect(singleAssetMap.has('/badvalue.txt')).toBe(false);
+
+      // Logger should have warned about skipped entries (2 times)
+      expect(mockLogger.warn.mock.calls.length).toBe(2);
+    });
+
+    it('skips folderMap entries with null bytes in configuration', () => {
+      const mockLogger = {
+        warn: mock(() => {}),
+      };
+
+      const cache = new StaticContentCache(
+        {
+          folderMap: {
+            '/valid': '/path/to/valid',
+            '/bad\0prefix': '/path/to/assets', // null byte in prefix
+            '/badpath': '/path/to/bad\0assets', // null byte in path (string)
+            '/badconfig': {
+              // null byte in path (config object)
+              path: '/path/to/bad\0config',
+              detectImmutableAssets: true,
+            },
+          },
+        },
+        mockLogger,
+      );
+
+      // Access private folderMap to verify null byte entries were skipped
+      const folderMap = (cache as any).folderMap as Map<string, any>;
+
+      // Valid entry should be present (normalized with trailing slash)
+      expect(folderMap.has('/valid/')).toBe(true);
+
+      // Entries with null bytes should be skipped
+      expect(folderMap.has('/bad\0prefix/')).toBe(false);
+      expect(folderMap.has('/badpath/')).toBe(false);
+      expect(folderMap.has('/badconfig/')).toBe(false);
+
+      // Logger should have warned about skipped entries (3 times)
+      expect(mockLogger.warn.mock.calls.length).toBe(3);
+    });
+
+    it('handles null byte validation without logger', () => {
+      // Should not crash when logger is not provided
+      const cache = new StaticContentCache({
+        singleAssetMap: {
+          '/bad\0key.txt': '/path/to/file.txt',
+        },
+        folderMap: {
+          '/bad\0prefix': '/path/to/assets',
+        },
+      });
+
+      // Access private maps to verify null byte entries were silently skipped
+      const singleAssetMap = (cache as any).singleAssetMap as Map<
+        string,
+        string
+      >;
+      const folderMap = (cache as any).folderMap as Map<string, any>;
+
+      expect(singleAssetMap.size).toBe(0);
+      expect(folderMap.size).toBe(0);
+    });
+  });
+
   describe('updateConfig()', () => {
     describe('singleAssetMap updates', () => {
       it('replaces singleAssetMap configuration', () => {
