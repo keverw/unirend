@@ -185,7 +185,7 @@ export interface PluginHostInstance {
  * Controlled reply surface available to handlers.
  * Allows setting headers and cookies without giving full reply control.
  *
- * Used by page data loader handlers, API route handlers, and FileUploadHelpers.
+ * Used by page data loader handlers, API route handlers, and processFileUpload().
  * Provides limited access to prevent handlers from prematurely sending responses
  * or bypassing the framework's envelope pattern.
  */
@@ -227,7 +227,7 @@ export interface ControlledReply {
   /**
    * Access to the underlying response stream (for connection monitoring)
    *
-   * Limited scope: Only used internally by FileUploadHelpers for detecting
+   * Limited scope: Only used internally by processFileUpload() for detecting
    * broken connections during file uploads. Most handlers won't need this
    */
   raw: {
@@ -404,7 +404,7 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
   /**
    * File upload configuration
    * When enabled, multipart file upload support will be available
-   * Allows use of FileUploadHelpers in your plugins
+   * Allows use of processFileUpload() in your plugins
    */
   fileUploads?: FileUploadsConfig;
   /**
@@ -652,7 +652,7 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
   /**
    * File upload configuration
    * When enabled, multipart file upload support will be available
-   * Allows use of FileUploadHelpers in your plugins
+   * Allows use of processFileUpload() in your plugins
    */
   fileUploads?: FileUploadsConfig;
   /**

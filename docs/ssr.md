@@ -180,7 +180,7 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
 - `apiEndpoints?: APIEndpointConfig`
   - Shared versioned endpoint configuration used by page data and generic API routes.
   - `apiEndpointPrefix?: string | false` — API route prefix (default: `"/api"`). Set to `false` to disable API handling (SSR-only mode). Throws error on startup if routes are registered but API is disabled.
-  - `versioned?: boolean` — Enable versioned endpoints like `/api/v1/...` (default: `true`). **Note**: This defaults to `true`, which means routes registered with `server.api.*` helpers will be under `/api/v{n}/...`. When using `FileUploadHelpers`, this also affects the paths you must specify in `fileUploads.allowedRoutes` on your SSR or standalone API server config.
+  - `versioned?: boolean` — Enable versioned endpoints like `/api/v1/...` (default: `true`). **Note**: This defaults to `true`, which means routes registered with `server.api.*` helpers will be under `/api/v{n}/...`. When using `processFileUpload()`, this also affects the paths you must specify in `fileUploads.allowedRoutes` on your SSR or standalone API server config.
   - `pageDataEndpoint?: string` — Endpoint name for page data loader handlers (default: `"page_data"`)
 - `APIHandling?: { errorHandler?; notFoundHandler? }`
   - Custom error/not-found handlers for API requests (paths matching `apiEndpoints.apiEndpointPrefix`)
@@ -192,7 +192,7 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
   - Register Fastify plugins via a controlled interface (see [plugins](./server-plugins.md)).
 - `fileUploads?: { enabled: boolean; limits?: { fileSize?, files?, fields?, fieldSize? }; allowedRoutes?: string[]; earlyValidation?: Function }`
   - Enable built-in multipart file upload support.
-  - Set global limits that can be overridden per-route using `FileUploadHelpers.processUpload()`.
+  - Set global limits that can be overridden per-route using `processFileUpload()`.
   - Default limits: `fileSize: 10MB`, `files: 10`, `fields: 10`, `fieldSize: 1KB`
   - `allowedRoutes` (optional): List of routes/patterns that allow multipart uploads. Supports wildcards (e.g. `/api/workspace/*/upload`). When specified, automatically rejects multipart requests to other routes (prevents bandwidth waste and DoS attacks).
     - **Important**: When using `apiEndpoints.versioned: true` (the default), routes are exposed under `/api/v{n}/...`, so `allowedRoutes` must include the version prefix. Example: use `['/api/v1/upload/avatar']` instead of `['/api/upload/avatar']`. Only use unversioned paths if you explicitly set `versioned: false`.
@@ -736,7 +736,7 @@ main().catch(console.error);
   - Register Fastify plugins via a controlled interface (see [plugins](./server-plugins.md)).
 - `fileUploads?: { enabled: boolean; limits?: { fileSize?, files?, fields?, fieldSize? }; allowedRoutes?: string[]; earlyValidation?: Function }`
   - Enable built-in multipart file upload support.
-  - Set global limits that can be overridden per-route using `FileUploadHelpers.processUpload()`.
+  - Set global limits that can be overridden per-route using `processFileUpload()`.
   - Default limits: `fileSize: 10MB`, `files: 10`, `fields: 10`, `fieldSize: 1KB`
   - `allowedRoutes` (optional): List of routes/patterns that allow multipart uploads. Supports wildcards (e.g. `/api/workspace/*/upload`). When specified, automatically rejects multipart requests to other routes (prevents bandwidth waste and DoS attacks).
     - **Important**: When using `apiEndpoints.versioned: true` (the default), routes are exposed under `/api/v{n}/...`, so `allowedRoutes` must include the version prefix. Example: use `['/api/v1/upload/avatar']` instead of `['/api/upload/avatar']`. Only use unversioned paths if you explicitly set `versioned: false`.

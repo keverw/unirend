@@ -1,11 +1,11 @@
 /**
- * Tests for FileUploadHelpers
+ * Tests for processFileUpload
  *
  * Focus: Race condition prevention in cleanup execution
  */
 
 import { describe, it, expect, mock } from 'bun:test';
-import { FileUploadHelpers } from './file-upload-helpers';
+import { processFileUpload } from './process-file-upload';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { Readable } from 'stream';
 import { PassThrough } from 'stream';
@@ -84,7 +84,7 @@ function createFileStream(
   return enhancedStream;
 }
 
-describe('FileUploadHelpers', () => {
+describe('processFileUpload', () => {
   // Note: Fake timers not needed for current tests
   // Tests run synchronously without timer manipulation
 
@@ -112,7 +112,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxFiles: 2,
@@ -171,7 +171,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxFiles: 1,
@@ -238,7 +238,7 @@ describe('FileUploadHelpers', () => {
       const reply = createMockReply();
 
       // Process files, file 1 throws error
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxFiles: 3,
@@ -308,7 +308,7 @@ describe('FileUploadHelpers', () => {
       const reply = createMockReply();
 
       // Create a processor that throws an error on file 2
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxFiles: 2,
@@ -379,7 +379,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxFiles: 3,
@@ -428,7 +428,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxFiles: 1,
@@ -460,7 +460,7 @@ describe('FileUploadHelpers', () => {
 
       let wasProcessorCalled = false;
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxFiles: 5, // Allow multiple files
@@ -501,6 +501,51 @@ describe('FileUploadHelpers', () => {
       }
     });
 
+    it('should run cleanup BEFORE onComplete for no_files_provided error', async () => {
+      // This test verifies the documented timing guarantee:
+      // "Failure case: Called AFTER all cleanup handlers have completed"
+      // Even though no cleanup handlers are registered in practice (processor never runs),
+      // the code should maintain consistency with other error paths
+
+      const executionOrder: string[] = [];
+      const files: MockMultipartFile[] = [];
+      const request = createMockRequest(files);
+      const reply = createMockReply();
+
+      const result = await processFileUpload({
+        request,
+        reply,
+        maxFiles: 1,
+        maxSizePerFile: 1024,
+        allowedMimeTypes: ['text/plain'],
+        processor: async (stream, _metadata, _context) => {
+          // This should never be called
+          for await (const _chunk of stream) {
+            // consume
+          }
+          return { index: 0 };
+        },
+        // eslint-disable-next-line @typescript-eslint/require-await
+        onComplete: async (finalResult) => {
+          executionOrder.push('onComplete');
+          expect(finalResult.success).toBe(false);
+          if (!finalResult.success) {
+            expect(finalResult.errorEnvelope.error.code).toBe(
+              'file_not_provided',
+            );
+          }
+        },
+      });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.errorEnvelope.error.code).toBe('file_not_provided');
+      }
+
+      // Verify onComplete was called (cleanup runs first, but no handlers registered)
+      expect(executionOrder).toEqual(['onComplete']);
+    });
+
     it('should handle invalid content type (no cleanup needed)', async () => {
       // Create a request with invalid content type
       const request = {
@@ -516,7 +561,7 @@ describe('FileUploadHelpers', () => {
 
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxFiles: 1,
@@ -555,7 +600,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxFiles: 1,
@@ -597,7 +642,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -651,7 +696,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxFiles: 5,
@@ -698,7 +743,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -742,7 +787,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -780,7 +825,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -815,7 +860,7 @@ describe('FileUploadHelpers', () => {
 
       let bytesProcessed = 0;
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -859,7 +904,7 @@ describe('FileUploadHelpers', () => {
 
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -894,7 +939,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -938,7 +983,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxFiles: 2,
@@ -971,7 +1016,7 @@ describe('FileUploadHelpers', () => {
 
       // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(
-        FileUploadHelpers.processUpload({
+        processFileUpload({
           request,
           reply,
           maxSizePerFile: 1024,
@@ -1005,7 +1050,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -1036,7 +1081,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -1069,7 +1114,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -1110,7 +1155,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -1160,7 +1205,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -1203,7 +1248,7 @@ describe('FileUploadHelpers', () => {
 
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -1240,7 +1285,7 @@ describe('FileUploadHelpers', () => {
 
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -1277,7 +1322,7 @@ describe('FileUploadHelpers', () => {
 
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -1310,7 +1355,7 @@ describe('FileUploadHelpers', () => {
 
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -1342,7 +1387,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -1384,7 +1429,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -1432,7 +1477,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -1481,7 +1526,7 @@ describe('FileUploadHelpers', () => {
 
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxFiles: 1,
@@ -1544,7 +1589,7 @@ describe('FileUploadHelpers', () => {
 
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxSizePerFile: 1024,
@@ -1600,7 +1645,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxFiles: 3,
@@ -1651,7 +1696,7 @@ describe('FileUploadHelpers', () => {
       const request = createMockRequest(files);
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxFiles: 3,
@@ -1721,7 +1766,7 @@ describe('FileUploadHelpers', () => {
 
       shouldHangIterator = true;
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxFiles: 3,
@@ -1797,7 +1842,7 @@ describe('FileUploadHelpers', () => {
 
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxFiles: 3,
@@ -1877,7 +1922,7 @@ describe('FileUploadHelpers', () => {
 
       const reply = createMockReply();
 
-      const result = await FileUploadHelpers.processUpload({
+      const result = await processFileUpload({
         request,
         reply,
         maxFiles: 3,

@@ -20,7 +20,7 @@ Unirend provides a unified API for handling multipart uploads with streaming lim
   - [Timeout and connection handling](#timeout-and-connection-handling)
   - [Common HTTP statuses / error codes](#common-http-statuses--error-codes)
 - [API reference](#api-reference)
-  - [`FileUploadHelpers.processUpload(config)`](#fileuploadhelpersprocessuploadconfig)
+  - [`processFileUpload(config)`](#processfileuploadconfig)
 - [Server configuration](#server-configuration)
 - [Testing](#testing)
 - [Security notes](#security-notes)
@@ -31,7 +31,7 @@ Unirend provides a unified API for handling multipart uploads with streaming lim
 
 ## What you get
 
-- **Unified API**: one entry point: `FileUploadHelpers.processUpload()`
+- **Unified API**: one entry point: `processFileUpload()`
 - **Early MIME validation**: MIME types validated **before** consuming streams (prevents bandwidth waste / DoS attacks)
 - **Streaming processing**: files processed during iteration, one at a time (no memory buffering of multiple files)
 - **Automatic cleanup**: `context.onCleanup()` handlers execute automatically on abort (after processor completes to avoid race conditions)
@@ -44,14 +44,14 @@ Unirend provides a unified API for handling multipart uploads with streaming lim
 
 1. **Enable uploads in server config** (see [Server configuration](#server-configuration)).
 
-2. **Create an API upload route** and call `processUpload()`:
+2. **Create an API upload route** and call `processFileUpload()`:
 
 ```ts
-import { FileUploadHelpers } from 'unirend/server';
+import { processFileUpload } from 'unirend/server';
 import { APIResponseHelpers } from 'unirend/api-envelope';
 
 server.api.post('upload/avatar', async (request, reply) => {
-  const result = await FileUploadHelpers.processUpload({
+  const result = await processFileUpload({
     request,
     reply,
     maxSizePerFile: 5 * 1024 * 1024, // 5MB
@@ -84,11 +84,11 @@ import { pipeline } from 'stream/promises';
 import { createWriteStream } from 'node:fs';
 import { mkdir, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { FileUploadHelpers } from 'unirend/server';
+import { processFileUpload } from 'unirend/server';
 import { APIResponseHelpers } from 'unirend/api-envelope';
 
 server.api.post('upload/avatar', async (request, reply) => {
-  const result = await FileUploadHelpers.processUpload({
+  const result = await processFileUpload({
     request,
     reply,
     maxSizePerFile: 5 * 1024 * 1024,
@@ -128,7 +128,7 @@ Batch uploads are **sequential** and **fail-fast**. The first failure aborts the
 
 ```ts
 server.api.post('upload/gallery', async (request, reply) => {
-  const result = await FileUploadHelpers.processUpload({
+  const result = await processFileUpload({
     request,
     reply,
     maxFiles: 10,
@@ -187,7 +187,7 @@ Use `onComplete` for a single step after all files finish (success or failure), 
 - If `onComplete` throws after success, client gets a `file_upload_completion_failed` error
 
 ```ts
-const result = await FileUploadHelpers.processUpload({
+const result = await processFileUpload({
   request,
   reply,
   maxFiles: 5,
@@ -302,7 +302,7 @@ This keeps upload latency predictable and avoids tying up server request threads
 Minimal sketch:
 
 ```ts
-const result = await FileUploadHelpers.processUpload({
+const result = await processFileUpload({
   request,
   reply,
   maxSizePerFile: 10 * 1024 * 1024,
@@ -415,7 +415,7 @@ This is the “at a glance” mapping clients usually care about:
 
 ## API reference
 
-### `FileUploadHelpers.processUpload(config)`
+### `processFileUpload(config)`
 
 Key config fields:
 
@@ -439,8 +439,6 @@ Return type:
 
 - **Success**: `{ success: true; files: Array<{ fileIndex; filename; data }> }`
 - **Failure**: `{ success: false; errorEnvelope }` (ready to return)
-
-For the authoritative types/behavior, see the implementation in `src/lib/server/file-upload-helpers.ts`.
 
 ## Server configuration
 
@@ -525,4 +523,4 @@ For image uploads, it’s common to store the original file and enqueue backgrou
 
 ## Plugins / raw Fastify routes
 
-If you need to use file upload helpers in custom Fastify routes (non-envelope API routes), see the [File Upload Helpers section in the Server Plugins documentation](./server-plugins.md#file-upload-helpers). That section explains how to handle the envelope-to-Fastify conversion when using `FileUploadHelpers.processUpload()` with raw `pluginHost.post()` routes.
+If you need to use file upload helpers in custom Fastify routes (non-envelope API routes), see the [File Upload Helpers section in the Server Plugins documentation](./server-plugins.md#file-upload-helpers). That section explains how to handle the envelope-to-Fastify conversion when using `processFileUpload()` with raw `pluginHost.post()` routes.

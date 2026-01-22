@@ -440,8 +440,8 @@ export class APIResponseHelpers {
    * Ensures an incoming Fastify request has multipart/form-data Content-Type.
    * If invalid, sends a standardized error response and returns false.
    *
-   * **Note:** `FileUploadHelpers.processUpload()` automatically validates Content-Type,
-   * so you typically don't need this helper when using `FileUploadHelpers`.
+   * **Note:** `processFileUpload()` automatically validates Content-Type,
+   * so you typically don't need this helper when using `processFileUpload()`.
    *
    * **Advanced use case:** Use this for early validation in middleware (e.g., auth/rate-limiting)
    * before multipart parsing begins:
@@ -457,11 +457,11 @@ export class APIResponseHelpers {
    * });
    * ```
    *
-   * For standard file uploads, use `FileUploadHelpers` instead:
+   * For standard file uploads, use `processFileUpload()` instead:
    * ```typescript
-   * import { FileUploadHelpers } from 'unirend/server';
+   * import { processFileUpload } from 'unirend/server';
    *
-   * const results = await FileUploadHelpers.processUpload({
+   * const results = await processFileUpload({
    *   request,
    *   reply,
    *   maxSizePerFile: 5 * 1024 * 1024,

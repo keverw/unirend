@@ -624,14 +624,14 @@ pluginHost.post(
 
 ## File Upload Helpers
 
-When using `FileUploadHelpers.processUpload()` in your plugins, keep in mind that it returns an **envelope response** (API-friendly format). This works seamlessly when used in API routes registered via `pluginHost.api.*`.
+When using `processFileUpload()` in your plugins, keep in mind that it returns an **envelope response** (API-friendly format). This works seamlessly when used in API routes registered via `pluginHost.api.*`.
 
 However, if you're using file upload helpers outside the standard API context (e.g., in a custom Fastify route registered with `pluginHost.get/post/...`), you'll need to extract the envelope and convert it to a Fastify reply:
 
 ```typescript
 const uploadPlugin: ServerPlugin = async (pluginHost, options) => {
   pluginHost.post('/custom-upload', async (request, reply) => {
-    const result = await FileUploadHelpers.processUpload({
+    const result = await processFileUpload({
       request,
       reply,
       maxSizePerFile: 5 * 1024 * 1024,

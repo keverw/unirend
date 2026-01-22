@@ -14,7 +14,7 @@ import {
   serveSSRDev,
   serveSSRProd,
   PluginHostInstance,
-  FileUploadHelpers,
+  processFileUpload,
 } from '../../src/server';
 import type {
   ServerPlugin,
@@ -708,7 +708,7 @@ function registerFileUploadRoutes(server: SSRServer) {
 
   // Avatar upload - Small files only (1MB limit)
   server.api.post('upload/avatar', async (request, reply) => {
-    const result = await FileUploadHelpers.processUpload({
+    const result = await processFileUpload({
       request,
       reply,
       maxSizePerFile: 1024 * 1024, // 1MB
@@ -753,7 +753,7 @@ function registerFileUploadRoutes(server: SSRServer) {
 
   // Document upload - Medium files (5MB limit)
   server.api.post('upload/document', async (request, reply) => {
-    const result = await FileUploadHelpers.processUpload({
+    const result = await processFileUpload({
       request,
       reply,
       maxSizePerFile: 5 * 1024 * 1024, // 5MB
@@ -803,7 +803,7 @@ function registerFileUploadRoutes(server: SSRServer) {
 
   // Media upload - Large files (10MB limit)
   server.api.post('upload/media', async (request, reply) => {
-    const result = await FileUploadHelpers.processUpload({
+    const result = await processFileUpload({
       request,
       reply,
       maxSizePerFile: 10 * 1024 * 1024, // 10MB
@@ -862,7 +862,7 @@ function registerFileUploadRoutes(server: SSRServer) {
 
   // Test upload - 1-byte limit for testing failure path
   server.api.post('upload/test', async (request, reply) => {
-    const result = await FileUploadHelpers.processUpload({
+    const result = await processFileUpload({
       request,
       reply,
       maxSizePerFile: 1, // 1 byte (testing failure path)
@@ -907,7 +907,7 @@ function registerFileUploadRoutes(server: SSRServer) {
 
   // Manual chunk processing with abort checks - demonstrates isAborted() usage
   server.api.post('upload/checksum', async (request, reply) => {
-    const result = await FileUploadHelpers.processUpload({
+    const result = await processFileUpload({
       request,
       reply,
       maxSizePerFile: 5 * 1024 * 1024, // 5MB

@@ -59,7 +59,7 @@ Local Loader
 import { createPageDataLoader } from 'unirend/router-utils';
 
 export const localInfoLoader = createPageDataLoader(
-  { timeoutMs: 8000 },
+  { timeoutMS: 8000 },
   ({ routeParams, queryParams }) => ({
     status: 'success',
     status_code: 200,
@@ -117,7 +117,7 @@ Configuration (HTTP‑based Loader):
 
 - `APIBaseURL` (required)
 - `pageDataEndpoint` (default: `/api/v1/page_data`)
-- `timeoutMs` (default: 10000)
+- `timeoutMS` (default: 10000)
 - `errorDefaults`, `connectionErrorMessages`, `loginURL`, `returnToParam`
 - `allowedRedirectOrigins`, `transformErrorMeta`, `statusCodeHandlers`
 
@@ -130,7 +130,7 @@ import { createPageDataLoader } from 'unirend/router-utils';
 
 // Local handler receives routing context, no Fastify request object
 export const localInfoLoader = createPageDataLoader(
-  { timeoutMs: 8000 },
+  { timeoutMS: 8000 },
   function ({ routeParams, queryParams }) {
     return {
       status: 'success',
@@ -150,11 +150,11 @@ Important:
 - Error handling setup required: Set up `useDataLoaderEnvelopeError` in your app layout to handle envelope errors (including 404s). This is required for local loaders in both SSG and SSR, matching the standard error handling pattern used for HTTP-based loaders. See: [Error Handling (README)](../README.md#error-handling) and the dedicated doc: [docs/error-handling.md](./error-handling.md).
 - SSR preserves `status_code` from local loaders for the HTTP response
 - SSR-only cookies are not available in the local path, use the Page Type Handler (HTTP/Short-Circuit) based one instead if you need cookie propagation
-- `timeoutMs` is respected, on timeout a 500 Page envelope is returned with the server connection error message
+- `timeoutMS` is respected, on timeout a 500 Page envelope is returned with the server connection error message
 
 Configuration (Local Loader):
 
-- Subset of HTTP‑based loader config used by the local loader: `errorDefaults`, `isDevelopment`, `connectionErrorMessages`, `timeoutMs`, `generateFallbackRequestID`, `allowedRedirectOrigins`, `transformErrorMeta`
+- Subset of HTTP‑based loader config used by the local loader: `errorDefaults`, `isDevelopment`, `connectionErrorMessages`, `timeoutMS`, `generateFallbackRequestID`, `allowedRedirectOrigins`, `transformErrorMeta`
 
 ## Using Loaders in React Router (Applies to Both Types)
 

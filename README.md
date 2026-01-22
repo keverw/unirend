@@ -378,7 +378,7 @@ Unirend provides first-class support for file uploads with streaming validation,
 **Quick Start:**
 
 ```typescript
-import { serveSSRDev, FileUploadHelpers } from 'unirend/server';
+import { serveSSRDev, processFileUpload } from 'unirend/server';
 import { APIResponseHelpers } from 'unirend/api-envelope';
 
 const server = serveSSRDev(paths, {
@@ -386,7 +386,7 @@ const server = serveSSRDev(paths, {
 });
 
 server.api.post('upload/avatar', async (request, reply, params) => {
-  const result = await FileUploadHelpers.processUpload({
+  const result = await processFileUpload({
     request,
     reply,
     maxSizePerFile: 5 * 1024 * 1024,

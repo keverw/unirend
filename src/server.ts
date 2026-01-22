@@ -73,7 +73,7 @@ export type {
 export type { StaticWebServer } from './lib/internal/static-web-server';
 
 // File upload helpers
-export { FileUploadHelpers } from './lib/server/file-upload-helpers';
+export { processFileUpload } from './lib/server/process-file-upload';
 export type {
   AbortReason,
   FileMetadata,
@@ -84,4 +84,4 @@ export type {
   UploadSuccess,
   UploadError,
   UploadResult,
-} from './lib/server/file-upload-helpers';
+} from './lib/server/process-file-upload-types';
