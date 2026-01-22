@@ -50,7 +50,7 @@ import { serveSSRDev } from 'unirend/server';
 const server = serveSSRDev(paths, {
   fileUploads: {
     enabled: true,
-    allowedRoutes: ['/api/v1/upload/*'], // pre-validation (prevents DoS)
+    allowedRoutes: ['/api/v1/upload/*'], // Pre-validation (prevents DoS)
   },
 });
 
@@ -121,8 +121,8 @@ const server = serveSSRDev(paths, {
     ],
     // Only if you explicitly set versioned: false, use unversioned paths:
     // allowedRoutes: ['/api/upload/*'],
-    // optional: early validation before multipart parsing (saves bandwidth)
-    earlyValidation: async (request) => {
+    // optional: pre-validation before multipart parsing (saves bandwidth)
+    preValidation: async (request) => {
       // Run lightweight checks (auth, rate limits, etc.)
       // Return true to allow, or { statusCode, error, message } to reject
       return true;
@@ -140,8 +140,8 @@ const server = serveSSRDev(paths, {
     - `*` matches a single path segment: `/api/*/upload` matches `/api/foo/upload` but NOT `/api/foo/bar/upload`
     - `**` matches zero or more segments: `/api/upload/**` matches `/api/upload`, `/api/upload/foo`, `/api/upload/foo/bar`, etc.
   - **Important**: When using `apiEndpoints.versioned: true` (the default), routes registered with `server.api.*` helpers are exposed under `/api/v{n}/...`, so `allowedRoutes` must include the version prefix. Example: use `['/api/v1/upload/avatar']` instead of `['/api/upload/avatar']`. Only use unversioned paths if you explicitly set `versioned: false`.
-- **Early validation with `earlyValidation`**: Runs after user plugins/hooks but before multipart parsing, allowing you to reject requests early based on headers, auth state, rate limits, etc.
-  - Both `allowedRoutes` rejections and `earlyValidation` rejections are automatically wrapped in proper API envelopes (with `status`, `status_code`, `request_id`, etc.) using your server's `APIResponseHelpersClass` if provided, or the default `APIResponseHelpers`.
+- **Pre-validation with `preValidation`**: Runs after user plugins/hooks but before multipart parsing, allowing you to reject requests early based on headers, auth state, rate limits, etc.
+  - Both `allowedRoutes` rejections and `preValidation` rejections are automatically wrapped in proper API envelopes (with `status`, `status_code`, `request_id`, etc.) using your server's `APIResponseHelpersClass` if provided, or the default `APIResponseHelpers`.
 
 ## Using processFileUpload()
 
@@ -316,11 +316,11 @@ const result = await processFileUpload({
 });
 ```
 
-### Early validation (reject before parsing multipart)
+### Pre-validation (reject before parsing multipart)
 
-You can reject requests _before_ multipart parsing to save bandwidth and work. Use `fileUploads.allowedRoutes` + `fileUploads.earlyValidation` in server config.
+You can reject requests _before_ multipart parsing to save bandwidth and work. Use `fileUploads.allowedRoutes` + `fileUploads.preValidation` in server config.
 
-`earlyValidation` supports both **synchronous** and **asynchronous** validation functions:
+`preValidation` supports both **synchronous** and **asynchronous** validation functions:
 
 ```ts
 const server = serveSSRDev(paths, {
@@ -328,7 +328,7 @@ const server = serveSSRDev(paths, {
     enabled: true,
     allowedRoutes: ['/api/upload/*'],
     // Async validation (use when you need to check databases, external services, etc.)
-    earlyValidation: async (request) => {
+    preValidation: async (request) => {
       // lightweight checks only (headers, auth context, quotas, rate limits, etc)
       // this runs after your plugins/hooks, so you can read things like request.user
 
@@ -345,7 +345,7 @@ const server = serveSSRDev(paths, {
       };
     },
     // Or use sync validation for simple header checks:
-    // earlyValidation: (request) => {
+    // preValidation: (request) => {
     //   if (!request.headers['x-api-key']) {
     //     return { statusCode: 403, error: 'forbidden', message: 'API key required' };
     //   }
@@ -355,7 +355,7 @@ const server = serveSSRDev(paths, {
 });
 ```
 
-**Note:** Both `allowedRoutes` rejections and `earlyValidation` rejections are automatically wrapped in proper API envelopes (with `status`, `status_code`, `request_id`, etc.) using your server's `APIResponseHelpersClass` if provided, or the default `APIResponseHelpers`.
+**Note:** Both `allowedRoutes` rejections and `preValidation` rejections are automatically wrapped in proper API envelopes (with `status`, `status_code`, `request_id`, etc.) using your server's `APIResponseHelpersClass` if provided, or the default `APIResponseHelpers`.
 
 ### Custom MIME type validation with validator function
 

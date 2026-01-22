@@ -1018,7 +1018,7 @@ export interface FileUploadsConfig {
    */
   allowedRoutes?: string[];
   /**
-   * Optional: Early validation function that runs BEFORE multipart parsing
+   * Optional: Pre-validation function that runs BEFORE multipart parsing
    * Use this to reject requests early based on headers (auth, rate limiting, etc.)
    * This saves bandwidth by rejecting before any file data is parsed
    *
@@ -1027,7 +1027,7 @@ export interface FileUploadsConfig {
    *
    * @example
    * // Async validation
-   * earlyValidation: async (request) => {
+   * preValidation: async (request) => {
    *   const token = request.headers.authorization;
    *   if (!token) {
    *     return { statusCode: 401, error: 'unauthorized', message: 'Auth required' };
@@ -1037,14 +1037,14 @@ export interface FileUploadsConfig {
    *
    * @example
    * // Sync validation
-   * earlyValidation: (request) => {
+   * preValidation: (request) => {
    *   if (!request.headers['x-api-key']) {
    *     return { statusCode: 403, error: 'forbidden', message: 'API key required' };
    *   }
    *   return true;
    * }
    */
-  earlyValidation?: (
+  preValidation?: (
     request: FastifyRequest,
   ) =>
     | Promise<true | { statusCode: number; error: string; message: string }>

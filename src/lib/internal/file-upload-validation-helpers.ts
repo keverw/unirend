@@ -110,11 +110,11 @@ export function registerFileUploadValidationHooks(
   fastifyInstance: FastifyInstance,
   fileUploadsConfig: FileUploadsConfig,
 ): void {
-  const earlyValidation = fileUploadsConfig.earlyValidation;
+  const preValidation = fileUploadsConfig.preValidation;
   const allowedRoutes = fileUploadsConfig.allowedRoutes;
 
   // Only register hook if there's something to validate
-  if (!earlyValidation && (!allowedRoutes || allowedRoutes.length === 0)) {
+  if (!preValidation && (!allowedRoutes || allowedRoutes.length === 0)) {
     return;
   }
 
@@ -149,12 +149,12 @@ export function registerFileUploadValidationHooks(
           }
         }
 
-        // Then run early validation if provided (useful for header-based auth, rate limiting, etc.)
-        if (earlyValidation) {
+        // Then run pre-validation if provided (useful for header-based auth, rate limiting, etc.)
+        if (preValidation) {
           // Support both sync and async validation functions (matches onComplete pattern)
           // Wrap in Promise.resolve().then() to normalize sync/async and catch sync throws
           const result = await Promise.resolve().then(() =>
-            earlyValidation(request),
+            preValidation(request),
           );
 
           if (result !== true) {

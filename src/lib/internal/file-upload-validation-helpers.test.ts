@@ -478,12 +478,12 @@ describe('registerFileUploadValidationHooks', () => {
   });
 
   describe('Early validation', () => {
-    it('should register hook when earlyValidation configured', () => {
+    it('should register hook when preValidation configured', () => {
       const fastify = createMockFastify();
       const config: FileUploadsConfig = {
         enabled: true,
         // eslint-disable-next-line @typescript-eslint/require-await
-        earlyValidation: async () => true as const,
+        preValidation: async () => true as const,
       };
 
       registerFileUploadValidationHooks(fastify, config);
@@ -499,11 +499,11 @@ describe('registerFileUploadValidationHooks', () => {
 
     it('should run early validation for multipart requests', async () => {
       // eslint-disable-next-line @typescript-eslint/require-await
-      const earlyValidationMock = mock(async () => true as const);
+      const preValidationMock = mock(async () => true as const);
       const fastify = createMockFastify();
       const config: FileUploadsConfig = {
         enabled: true,
-        earlyValidation: earlyValidationMock,
+        preValidation: preValidationMock,
       };
 
       registerFileUploadValidationHooks(fastify, config);
@@ -525,7 +525,7 @@ describe('registerFileUploadValidationHooks', () => {
 
       await hooks[0].handler(request, reply);
 
-      expect(earlyValidationMock).toHaveBeenCalledWith(request);
+      expect(preValidationMock).toHaveBeenCalledWith(request);
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(reply.send).not.toHaveBeenCalled();
     });
@@ -535,7 +535,7 @@ describe('registerFileUploadValidationHooks', () => {
       const config: FileUploadsConfig = {
         enabled: true,
         // eslint-disable-next-line @typescript-eslint/require-await
-        earlyValidation: async () => ({
+        preValidation: async () => ({
           statusCode: 401,
           error: 'unauthorized',
           message: 'Authentication required',
@@ -569,11 +569,11 @@ describe('registerFileUploadValidationHooks', () => {
 
     it('should not run early validation for non-multipart requests', async () => {
       // eslint-disable-next-line @typescript-eslint/require-await
-      const earlyValidationMock = mock(async () => true as const);
+      const preValidationMock = mock(async () => true as const);
       const fastify = createMockFastify();
       const config: FileUploadsConfig = {
         enabled: true,
-        earlyValidation: earlyValidationMock,
+        preValidation: preValidationMock,
       };
 
       registerFileUploadValidationHooks(fastify, config);
@@ -597,15 +597,15 @@ describe('registerFileUploadValidationHooks', () => {
 
       // Should not call early validation for non-multipart
 
-      expect(earlyValidationMock).not.toHaveBeenCalled();
+      expect(preValidationMock).not.toHaveBeenCalled();
     });
 
     it('should support synchronous early validation that returns true', async () => {
-      const earlyValidationMock = mock(() => true as const);
+      const preValidationMock = mock(() => true as const);
       const fastify = createMockFastify();
       const config: FileUploadsConfig = {
         enabled: true,
-        earlyValidation: earlyValidationMock,
+        preValidation: preValidationMock,
       };
 
       registerFileUploadValidationHooks(fastify, config);
@@ -627,7 +627,7 @@ describe('registerFileUploadValidationHooks', () => {
 
       await hooks[0].handler(request, reply);
 
-      expect(earlyValidationMock).toHaveBeenCalledWith(request);
+      expect(preValidationMock).toHaveBeenCalledWith(request);
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(reply.send).not.toHaveBeenCalled();
     });
@@ -636,7 +636,7 @@ describe('registerFileUploadValidationHooks', () => {
       const fastify = createMockFastify();
       const config: FileUploadsConfig = {
         enabled: true,
-        earlyValidation: () => ({
+        preValidation: () => ({
           statusCode: 403,
           error: 'forbidden',
           message: 'Synchronous rejection',
@@ -672,12 +672,12 @@ describe('registerFileUploadValidationHooks', () => {
   describe('Combined validation (routes + early)', () => {
     it('should check allowed routes before early validation', async () => {
       // eslint-disable-next-line @typescript-eslint/require-await
-      const earlyValidationMock = mock(async () => true as const);
+      const preValidationMock = mock(async () => true as const);
       const fastify = createMockFastify();
       const config: FileUploadsConfig = {
         enabled: true,
         allowedRoutes: ['/api/upload'],
-        earlyValidation: earlyValidationMock,
+        preValidation: preValidationMock,
       };
 
       registerFileUploadValidationHooks(fastify, config);
@@ -706,17 +706,17 @@ describe('registerFileUploadValidationHooks', () => {
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(reply.send).toHaveBeenCalled();
 
-      expect(earlyValidationMock).not.toHaveBeenCalled();
+      expect(preValidationMock).not.toHaveBeenCalled();
     });
 
     it('should run early validation after route check passes', async () => {
       // eslint-disable-next-line @typescript-eslint/require-await
-      const earlyValidationMock = mock(async () => true as const);
+      const preValidationMock = mock(async () => true as const);
       const fastify = createMockFastify();
       const config: FileUploadsConfig = {
         enabled: true,
         allowedRoutes: ['/api/upload'],
-        earlyValidation: earlyValidationMock,
+        preValidation: preValidationMock,
       };
 
       registerFileUploadValidationHooks(fastify, config);
@@ -741,7 +741,7 @@ describe('registerFileUploadValidationHooks', () => {
 
       // Should pass route check and call early validation
 
-      expect(earlyValidationMock).toHaveBeenCalledWith(request);
+      expect(preValidationMock).toHaveBeenCalledWith(request);
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(reply.send).not.toHaveBeenCalled();
     });

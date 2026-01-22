@@ -23,7 +23,7 @@
 Both `SSRServer` and `APIServer` support WebSockets via `@fastify/websocket` on the underlying Fastify server. Unirend provides a helper to:
 
 - Register WebSocket routes consistently on either server
-- Perform pre‑validation before the upgrade and return standardized API envelopes on rejection
+- Perform pre-validation before the upgrade and return standardized API envelopes on rejection
 - Gracefully close connections during shutdown
 
 Under the hood, the `WebSocketServerHelpers` class wires `@fastify/websocket`, a `preValidation` hook for upgrade decisions, and binds your handlers.

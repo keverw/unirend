@@ -502,6 +502,8 @@ Unirend recognizes these standard error codes for special handling by the framew
 | `file_upload_failed`            | 500    | An unexpected error occurred during file upload    | Used by `processFileUpload()` when an unknown/unexpected error occurs. Error details sanitized in production mode.                                                                                                                                                                               |
 | `file_upload_completion_failed` | 500    | Files uploaded but post-processing failed          | Used by `processFileUpload()` when files upload successfully but the `onComplete` callback throws an error (e.g., atomic move failed, transaction commit failed). Error details sanitized in production mode.                                                                                    |
 | `multipart_not_allowed`         | 400    | Multipart uploads not allowed on this endpoint     | Returned when `fileUploads.allowedRoutes` is configured and a multipart request is sent to a non-allowed route                                                                                                                                                                                   |
+| `websocket_handler_not_found`   | 404    | No WebSocket handler registered for this path      | Used by WebSocket server when a client connects to a path with no registered handler                                                                                                                                                                                                             |
+| `websocket_validation_error`    | 500    | WebSocket pre-validation hook failed               | Used by WebSocket server when the `preValidation` hook throws an error during connection upgrade                                                                                                                                                                                                 |
 
 **Recommended conventional codes** (no special framework handling, but follow HTTP semantics):
 
@@ -706,7 +708,7 @@ For convenience, Unirend provides helper functions to construct and validate env
   - `APIResponseHelpers.createPageSuccessResponse({ request, data, pageMetadata, statusCode?, meta? })`
   - `APIResponseHelpers.createPageErrorResponse({ request, statusCode, errorCode, errorMessage, pageMetadata, errorDetails?, meta? })`
   - `APIResponseHelpers.createPageRedirectResponse({ request, redirectInfo, pageMetadata, meta? })`
-- Validate input (pre-validation before schema validation):
+- Validate input (Useful for pre-validation before schema validation):
   - `APIResponseHelpers.ensureJSONBody(request, reply)` - For JSON payloads (POST/PUT/PATCH/DELETE)
   - `APIResponseHelpers.ensureURLEncodedBody(request, reply)` - For URL-encoded form data (POST/PUT/PATCH)
   - `APIResponseHelpers.ensureMultipartBody(request, reply)` - For file uploads with multipart/form-data (POST/PUT/PATCH). Note: `processFileUpload()` validates Content-Type automatically, so `ensureMultipartBody` is typically only needed for advanced use cases (e.g., early validation before multipart parsing).
