@@ -42,6 +42,8 @@ Unirend provides a unified API for handling multipart uploads with streaming lim
 
 **1. Enable file uploads in your server:**
 
+Works with both SSR servers (`serveSSRDev`/`serveSSRProd`) and standalone API servers (`serveAPI`):
+
 ```ts
 import { serveSSRDev } from 'unirend/server';
 
@@ -51,6 +53,10 @@ const server = serveSSRDev(paths, {
     allowedRoutes: ['/api/v1/upload/*'], // pre-validation (prevents DoS)
   },
 });
+
+// Or with standalone API server (same config pattern):
+// import { serveAPI } from 'unirend/server';
+// const api = serveAPI({ fileUploads: { enabled: true, allowedRoutes: [...] } });
 ```
 
 **2. Create an upload route:**
@@ -86,9 +92,12 @@ For detailed configuration and examples, see [Server configuration](#server-conf
 
 ## Server configuration
 
-Enable multipart uploads in your server:
+Enable multipart uploads in your server (works with both SSR and standalone API servers):
 
 ```ts
+import { serveSSRDev } from 'unirend/server';
+// Or: import { serveAPI } from 'unirend/server';
+
 const server = serveSSRDev(paths, {
   apiEndpoints: {
     apiEndpointPrefix: '/api',
