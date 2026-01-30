@@ -13,11 +13,20 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
-*.local
+
+# Package manager lockfiles
+# This project uses Bun - ignore npm/yarn/pnpm lockfiles to avoid confusion
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+# Ignore Bun's binary lockfile (bun.lock JSON format is preferred and should be committed)
+bun.lockb
 
 # Environment variables
 # Keep secrets out of source control! Document required variables in README or create .env.example
+*.local
 .env
 .env.local
 .env.*.local
@@ -28,6 +37,10 @@ node_modules
 
 # Build outputs
 dist/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+.eslintcache
 
 # Editor directories and files
 .vscode/*
@@ -35,11 +48,15 @@ dist/
 !.vscode/settings.json
 .idea
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?`;
+*.sw?
+
+# Temporary files
+tmp/`;
 
 /**
  * Ensure .gitignore exists at the repo root.
