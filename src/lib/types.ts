@@ -1,6 +1,7 @@
 import type {
   FastifyRequest,
   FastifyLoggerOptions,
+  FastifyBaseLogger,
   FastifyReply,
   FastifyPluginAsync,
   FastifyPluginCallback,
@@ -338,6 +339,52 @@ export interface PluginOptions {
 }
 
 /**
+ * Log levels supported by the Unirend logger adapter.
+ */
+export type UnirendLoggerLevel =
+  | 'trace'
+  | 'debug'
+  | 'info'
+  | 'warn'
+  | 'error'
+  | 'fatal';
+
+/**
+ * Logger function signature used by Unirend logger object methods.
+ */
+export type UnirendLoggerFunction = (
+  message: string,
+  context?: Record<string, unknown>,
+) => void;
+
+/**
+ * Framework-level logger object that Unirend adapts to Fastify's logger interface.
+ */
+export interface UnirendLoggerObject {
+  trace: UnirendLoggerFunction;
+  debug: UnirendLoggerFunction;
+  info: UnirendLoggerFunction;
+  warn: UnirendLoggerFunction;
+  error: UnirendLoggerFunction;
+  fatal: UnirendLoggerFunction;
+}
+
+/**
+ * High-level logging options that Unirend can adapt to Fastify.
+ */
+export interface UnirendLoggingOptions {
+  /**
+   * Logger object used by Unirend and adapted to Fastify under the hood.
+   */
+  logger: UnirendLoggerObject;
+  /**
+   * Initial minimum level used by the adapter.
+   * @default "info"
+   */
+  level?: UnirendLoggerLevel;
+}
+
+/**
  * Base options for SSR
  * @template M Custom meta type extending BaseMeta for error/notFound handlers
  */
@@ -504,6 +551,17 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
      */
     logger?: boolean | FastifyLoggerOptions;
     /**
+     * Custom Fastify logger instance (e.g. pino-compatible logger).
+     * When provided, this is passed to Fastify as `loggerInstance`.
+     */
+    loggerInstance?: FastifyBaseLogger;
+    /**
+     * Disable Fastify automatic request lifecycle logging (`incoming request` / `request completed`).
+     * This only applies when logging is enabled.
+     * @default false
+     */
+    disableRequestLogging?: boolean;
+    /**
      * Trust proxy headers (useful for deployment behind load balancers)
      * @default false
      */
@@ -519,6 +577,13 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
      */
     keepAliveTimeout?: number;
   };
+  /**
+   * Framework-level logging options adapted to Fastify under the hood.
+   *
+   * Note: Cannot be used together with `fastifyOptions.logger` or
+   * `fastifyOptions.loggerInstance`.
+   */
+  logging?: UnirendLoggingOptions;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
@@ -773,6 +838,17 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
      */
     logger?: boolean | FastifyLoggerOptions;
     /**
+     * Custom Fastify logger instance (e.g. pino-compatible logger).
+     * When provided, this is passed to Fastify as `loggerInstance`.
+     */
+    loggerInstance?: FastifyBaseLogger;
+    /**
+     * Disable Fastify automatic request lifecycle logging (`incoming request` / `request completed`).
+     * This only applies when logging is enabled.
+     * @default false
+     */
+    disableRequestLogging?: boolean;
+    /**
      * Trust proxy headers (useful for deployment behind load balancers)
      * @default false
      */
@@ -788,10 +864,18 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
      */
     keepAliveTimeout?: number;
   };
+  /**
+   * Framework-level logging options adapted to Fastify under the hood.
+   *
+   * Note: Cannot be used together with `fastifyOptions.logger` or
+   * `fastifyOptions.loggerInstance`.
+   */
+  logging?: UnirendLoggingOptions;
 }
 
 /**
- * Logger interface for SSG process
+ * Object logger for the SSG process.
+ * This is separate from Fastify's logger configuration.
  */
 export interface SSGLogger {
   /** Log info messages */

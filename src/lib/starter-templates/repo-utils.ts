@@ -1,7 +1,7 @@
 import { spawn } from 'child_process';
 import { isInMemoryFileRoot, vfsExists } from './vfs';
 import type { FileRoot } from './vfs';
-import type { Logger } from './types';
+import type { LoggerFunction } from './types';
 
 /**
  * Run a command asynchronously, capturing stdout/stderr and surfacing spawn errors.
@@ -68,7 +68,10 @@ async function runCommand(
  * @param root - File root (filesystem path or in-memory object)
  * @param log - Optional logger function for output
  */
-export async function initGitRepo(root: FileRoot, log?: Logger): Promise<void> {
+export async function initGitRepo(
+  root: FileRoot,
+  log?: LoggerFunction,
+): Promise<void> {
   // Skip for in-memory mode
   if (isInMemoryFileRoot(root)) {
     return;
@@ -152,7 +155,7 @@ export async function initGitRepo(root: FileRoot, log?: Logger): Promise<void> {
  */
 export async function installDependencies(
   root: FileRoot,
-  log?: Logger,
+  log?: LoggerFunction,
 ): Promise<void> {
   // Skip for in-memory mode
   if (isInMemoryFileRoot(root)) {
@@ -220,7 +223,7 @@ export async function installDependencies(
  */
 export async function autoFormatCode(
   root: FileRoot,
-  log?: Logger,
+  log?: LoggerFunction,
 ): Promise<void> {
   // Skip for in-memory mode
   if (isInMemoryFileRoot(root)) {

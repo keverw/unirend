@@ -22,7 +22,7 @@ import {
 import type {
   TemplateInfo,
   RepoConfig,
-  Logger,
+  LoggerFunction,
   StarterTemplateOptions,
   InitRepoOptions,
   CreateProjectResult,
@@ -63,7 +63,7 @@ export async function createProject(
   const repoRootDisplay = vfsDisplayPath(options.repoRoot);
 
   // Default logger that does nothing if none provided
-  const log: Logger = options.logger || (() => {});
+  const log: LoggerFunction = options.logger || (() => {});
 
   // Compute project path: src/apps/{projectName}
   const projectPath = `src/apps/${options.projectName}`;
@@ -505,7 +505,7 @@ export async function initRepo(
   options: InitRepoOptions = {},
 ): Promise<InitRepoResult> {
   // Default logger that does nothing if none provided
-  const log: Logger = options.logger || (() => {});
+  const log: LoggerFunction = options.logger || (() => {});
   const repoRootDisplay = vfsDisplayPath(dirPath);
 
   log('info', '🏗️  Initializing repository...');
@@ -679,7 +679,7 @@ export type {
   TemplateInfo,
   ProjectEntry,
   RepoConfig,
-  Logger,
+  LoggerFunction,
   LogLevel,
   ServerBuildTarget,
   StarterTemplateOptions,

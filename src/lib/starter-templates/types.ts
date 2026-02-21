@@ -39,9 +39,10 @@ export interface RepoConfig {
 
 export type LogLevel = 'info' | 'warning' | 'error' | 'success';
 
-export interface Logger {
-  (level: LogLevel, message: string): void;
-}
+/**
+ * Function logger used by starter-template helpers.
+ */
+export type LoggerFunction = (level: LogLevel, message: string) => void;
 
 export interface StarterTemplateOptions {
   /** Project template type */
@@ -51,7 +52,7 @@ export interface StarterTemplateOptions {
   /** Repo root directory: real FS path or in-memory directory object */
   repoRoot: FileRoot;
   /** Optional logger function for output */
-  logger?: Logger;
+  logger?: LoggerFunction;
   /** Target runtime for server build/bundle (affects scripts/config emitted by templates) */
   serverBuildTarget?: ServerBuildTarget;
   /**
@@ -88,7 +89,7 @@ export interface InitRepoOptions {
   /** Repository name (defaults to 'unirend-projects') */
   name?: string;
   /** Optional logger function for output */
-  logger?: Logger;
+  logger?: LoggerFunction;
   /**
    * Initialize git repository if not already initialized (only for filesystem mode).
    * Runs `git init` in the repo root if git is available.

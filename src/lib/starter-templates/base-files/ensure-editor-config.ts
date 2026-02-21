@@ -1,6 +1,6 @@
 import { vfsWriteIfNotExists } from '../vfs';
 import type { FileRoot } from '../vfs';
-import type { Logger } from '../types';
+import type { LoggerFunction } from '../types';
 
 const fileSrc = `# EditorConfig is awesome: https://EditorConfig.org
 
@@ -45,7 +45,7 @@ trim_trailing_whitespace = false`;
  */
 export async function ensureEditorConfig(
   repoRoot: FileRoot,
-  log?: Logger,
+  log?: LoggerFunction,
 ): Promise<void> {
   try {
     const didWrite = await vfsWriteIfNotExists(

@@ -74,6 +74,13 @@ export type FileContent =
     };
 
 /**
+ * Internal logger object used by static content helpers.
+ */
+export type StaticContentWarnLoggerObject = {
+  warn: (obj: object, msg: string) => void;
+};
+
+/**
  * Result when file is not found (404)
  */
 export interface FileNotFoundResult {
@@ -158,7 +165,7 @@ export class StaticContentCache {
   private readonly statCache: LRUCache<string, StatCacheEntry>; // fs path → file stats
 
   // Optional logger
-  private readonly logger?: { warn: (obj: object, msg: string) => void };
+  private readonly logger?: StaticContentWarnLoggerObject;
 
   /**
    * Creates a new StaticContentCache instance
@@ -168,7 +175,7 @@ export class StaticContentCache {
    */
   constructor(
     options: StaticContentRouterOptions,
-    logger?: { warn: (obj: object, msg: string) => void },
+    logger?: StaticContentWarnLoggerObject,
   ) {
     const {
       singleAssetMap = {},

@@ -1,6 +1,6 @@
 import { vfsReadJSON, vfsWriteJSON } from '../vfs';
 import type { FileRoot } from '../vfs';
-import type { Logger } from '../types';
+import type { LoggerFunction } from '../types';
 
 const defaultExtensions = [
   'dbaeumer.vscode-eslint',
@@ -26,7 +26,7 @@ interface VSCodeExtensions {
  */
 export async function ensureVSCodeExtensions(
   repoRoot: FileRoot,
-  log?: Logger,
+  log?: LoggerFunction,
 ): Promise<void> {
   try {
     const filePath = '.vscode/extensions.json';

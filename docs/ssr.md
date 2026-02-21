@@ -214,8 +214,106 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
   - Client container element ID (default `"root"`).
 - `clientFolderName?: string`, `serverFolderName?: string`
   - Names of subfolders inside the Vite build output (defaults: `client` and `server`).
-- `fastifyOptions?: { logger?: boolean | FastifyLoggerOptions; trustProxy?; bodyLimit?; keepAliveTimeout? }`
+- `logging?: { logger; level? }`
+  - Framework-level logger object adapted to Fastify under the hood.
+  - Use this for a simpler, framework-consistent logger API (works for both SSR and standalone API server).
+  - `logger` must provide all level methods (`trace`, `debug`, `info`, `warn`, `error`, `fatal`).
+  - `level` sets the adapter's minimum level (default: `"info"`).
+  - If a logger write throws, Unirend tries `logger.error` and then falls back to `globalThis.reportError` (when available) and `console.error`.
+  - **Important:** Exactly one logging source can be configured: `logging`, `fastifyOptions.logger`, or `fastifyOptions.loggerInstance`. Configuring multiple sources will cause an error on server startup.
+- `fastifyOptions?: { logger?: boolean | FastifyLoggerOptions; loggerInstance?: FastifyBaseLogger; disableRequestLogging?: boolean; trustProxy?; bodyLimit?; keepAliveTimeout? }`
   - Safe subset of Fastify server options.
+  - `loggerInstance` must satisfy Fastify's base logger interface (`info`, `error`, `debug`, `fatal`, `warn`, `trace`, `silent`, `level`) and support `child(bindings, options)`.
+  - `logger` is Fastify's built-in logger option (boolean or pino options), for example `true` or `{ level: "info" }`.
+  - `loggerInstance` is for passing an existing pino (or pino-compatible) logger instance.
+  - With logging enabled, Fastify logs request lifecycle events (access-style logs like incoming/completed requests) and your plugin/app logs from `fastify.log` / `request.log`.
+  - `disableRequestLogging` defaults to `false`.
+  - Set `disableRequestLogging: true` to keep logger usage enabled while disabling Fastify's default incoming/completed request logs. This applies the same way whether you use `logging`, `fastifyOptions.logger`, or `fastifyOptions.loggerInstance`.
+  - No separate middleware is required for baseline access logs. For custom fields or custom start/completion messages, add `onRequest`/`onResponse` hooks in a plugin (see [Plugin Host Methods -> Hooks](./server-plugins.md#hooks) and [Access Logging Plugin](./server-plugins.md#access-logging-plugin)).
+
+**Which logging approach should I use?**
+
+- **`logging`** (Recommended): Simpler, framework-consistent API. Works identically for SSR and API servers. Best when you need custom logging (external services, structured logs, special handling).
+- **`fastifyOptions.logger`**: Quick out-of-the-box console logger using pino. Best when you just want basic logs to console without external integrations.
+- **`fastifyOptions.loggerInstance`**: Pass an existing pino-compatible logger instance. Use when sharing a logger across multiple services or more advanced logging requirements.
+
+Logging behavior quick reference:
+
+- `logger: true`
+  - Enables Fastify logger at default level (`info`).
+  - Emits default request lifecycle logs (`incoming request`, `request completed`).
+- `disableRequestLogging: true`
+  - Disables Fastify's automatic incoming/completed request logs regardless of logger level.
+  - Your own `fastify.log.*`, `request.log.*`, and hook-based logs still work.
+  - Works the same with `logging`, `fastifyOptions.logger`, or `fastifyOptions.loggerInstance`.
+- `logger: { level: 'warn' }`
+  - Enables logger but sets minimum level to `warn`.
+  - Request lifecycle logs (`info` level) won't appear.
+  - **Tip:** If you want to disable the built-in request logs and implement your own custom access logging (with additional fields like user ID, tenant, etc.), use `disableRequestLogging: true` and add your own logging via hooks in a plugin. See [Access Logging Plugin](./server-plugins.md#access-logging-plugin) for an example.
+- `loggerInstance`
+  - Uses your provided pino/pino-compatible logger object.
+
+Built-in request log event shape:
+
+- Request start:
+  - message: `"incoming request"`
+  - level: `info`
+  - context typically includes: `reqId` (Fastify `request.id`) and `req`
+- Request completion:
+  - message: `"request completed"`
+  - level: `info`
+  - context typically includes: `reqId` (Fastify `request.id`), `res`, `responseTime`
+- Unhandled route/handler error (`500` path):
+  - an additional `error`-level event is emitted (message is usually the error message), then completion log still runs.
+
+When using Unirend `logging`, these become `logger.info(message, context)` / `logger.error(message, context)` calls through the adapter.
+
+**Note:** `reqId` in Fastify's logs is the Fastify request identifier (`request.id`), which is an incremental counter by default. This is separate from `request.requestID` used by Unirend envelope helpers and the clientInfo plugin, which is a globally unique identifier (ULID) that's better for distributed systems (e.g., multiple servers behind a load balancer) and correlating requests across services.
+
+If you need a strict payload shape, prefer custom `onRequest`/`onResponse` hooks and build the exact context object you want to emit.
+
+Example Unirend logger object (recommended path):
+
+```typescript
+import { serveSSRProd } from 'unirend/server';
+
+const server = serveSSRProd('./build', {
+  // Use Unirend's simpler logger abstraction
+  logging: {
+    level: 'info',
+    logger: {
+      trace: (message, context) => console.trace(message, context),
+      debug: (message, context) => console.debug(message, context),
+      info: (message, context) => console.info(message, context),
+      warn: (message, context) => console.warn(message, context),
+      error: (message, context) => console.error(message, context),
+      fatal: (message, context) => console.error(message, context),
+    },
+  },
+  // Optional: Disable automatic request logs while keeping logger enabled
+  fastifyOptions: {
+    disableRequestLogging: true,
+  },
+});
+```
+
+If you prefer Fastify/pino configuration directly, use `fastifyOptions.logger` or `fastifyOptions.loggerInstance`:
+
+```typescript
+import { serveSSRProd } from 'unirend/server';
+
+const server = serveSSRProd('./build', {
+  fastifyOptions: {
+    logger: true,
+    // or:
+    // logger: { level: 'info' },
+    // loggerInstance: existingPinoOrCompatibleLogger,
+    // disableRequestLogging: true,
+  },
+});
+```
+
+For custom request-start/completion access logs, see [Access Logging Plugin](./server-plugins.md#access-logging-plugin).
 
 ### Options (prod-only)
 
@@ -706,6 +804,17 @@ async function main() {
     // plugins: [myApiPlugin],
     // Optional: isDevelopment flag (affects error output/logging)
     // isDevelopment: true,
+    // Optional: Unirend logging abstraction
+    // logging: {
+    //   logger: {
+    //     trace: (message, context) => console.trace(message, context),
+    //     debug: (message, context) => console.debug(message, context),
+    //     info: (message, context) => console.info(message, context),
+    //     warn: (message, context) => console.warn(message, context),
+    //     error: (message, context) => console.error(message, context),
+    //     fatal: (message, context) => console.error(message, context),
+    //   },
+    // },
     // Optional: Fastify options (curated subset)
     // fastifyOptions: { logger: true },
     // Optional: error/notFound handlers (return envelope responses)
@@ -743,7 +852,12 @@ main().catch(console.error);
   - `preValidation` (optional): Async function for header-based validation (auth, rate limiting, etc.) that runs after user plugin hooks but before multipart parsing. Return `true` to allow or error object to reject.
   - See [File Upload Helpers](./file-upload-helpers.md) for detailed usage and examples.
 - `isDevelopment?: boolean`
-- `fastifyOptions?: { logger?; trustProxy?; bodyLimit?; keepAliveTimeout? }`
+- `logging?: { logger; level? }`
+  - Same behavior as SSR options above.
+- `fastifyOptions?: { logger?; loggerInstance?; disableRequestLogging?; trustProxy?; bodyLimit?; keepAliveTimeout? }`
+  - `loggerInstance` must satisfy Fastify's base logger interface (`info`, `error`, `debug`, `fatal`, `warn`, `trace`, `silent`, `level`) and support `child(bindings, options)`.
+  - Same behavior as SSR options above: use either `logger` config or `loggerInstance`, and request/access logs are emitted by Fastify when logging is enabled.
+  - `disableRequestLogging` defaults to `false`. Set it to `true` to disable Fastify's default incoming/completed request logs (hook customization in [server-plugins.md](./server-plugins.md#hooks)).
 - `APIResponseHelpersClass?: typeof APIResponseHelpers`
   - Provide a custom helpers class for constructing API/Page envelopes. Useful to inject default metadata (e.g., account/site info) across responses.
   - If omitted, the built-in `APIResponseHelpers` is used.

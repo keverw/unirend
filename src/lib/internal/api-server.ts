@@ -24,6 +24,7 @@ import { DataLoaderServerHandlerHelpers } from './data-loader-server-handler-hel
 import { APIRoutesServerHelpers } from './api-routes-server-helpers';
 import { WebSocketServerHelpers } from './web-socket-server-helpers';
 import type { WebSocketHandlerConfig } from './web-socket-server-helpers';
+import { resolveFastifyLoggerConfig } from './logger-config-utils';
 import {
   registerFileUploadValidationHooks,
   registerMultipartPlugin,
@@ -127,13 +128,17 @@ export class APIServer extends BaseServer {
       // Build Fastify options from curated subset
       const fastifyOptions: FastifyServerOptions = {};
 
-      if (this.options.fastifyOptions) {
-        const { logger, trustProxy, bodyLimit, keepAliveTimeout } =
-          this.options.fastifyOptions;
+      Object.assign(
+        fastifyOptions,
+        resolveFastifyLoggerConfig({
+          logging: this.options.logging,
+          fastifyOptions: this.options.fastifyOptions,
+        }),
+      );
 
-        if (logger !== undefined) {
-          fastifyOptions.logger = logger;
-        }
+      if (this.options.fastifyOptions) {
+        const { trustProxy, bodyLimit, keepAliveTimeout } =
+          this.options.fastifyOptions;
 
         if (trustProxy !== undefined) {
           fastifyOptions.trustProxy = trustProxy;

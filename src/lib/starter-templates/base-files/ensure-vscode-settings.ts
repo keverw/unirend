@@ -1,6 +1,6 @@
 import { vfsReadJSON, vfsWriteJSON } from '../vfs';
 import type { FileRoot } from '../vfs';
-import type { Logger } from '../types';
+import type { LoggerFunction } from '../types';
 
 // jestrunner.jestCommand assumes bun, as current scope is bun being used for dev/build tooling
 const defaultSettings = {
@@ -31,7 +31,7 @@ interface VSCodeSettings {
  */
 export async function ensureVSCodeSettings(
   repoRoot: FileRoot,
-  log?: Logger,
+  log?: LoggerFunction,
 ): Promise<void> {
   try {
     const filePath = '.vscode/settings.json';

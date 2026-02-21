@@ -1,6 +1,6 @@
 import { vfsWriteIfNotExists } from '../vfs';
 import type { FileRoot } from '../vfs';
-import type { Logger } from '../types';
+import type { LoggerFunction } from '../types';
 
 // NOTE: Keep this in sync with ensure-prettier-ignore.ts
 // Both .gitignore and .prettierignore should have the same patterns
@@ -65,7 +65,7 @@ tmp/`;
  */
 export async function ensureGitignore(
   repoRoot: FileRoot,
-  log?: Logger,
+  log?: LoggerFunction,
 ): Promise<void> {
   try {
     const didWrite = await vfsWriteIfNotExists(repoRoot, '.gitignore', fileSrc);

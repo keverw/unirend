@@ -52,6 +52,7 @@ import {
   registerFileUploadValidationHooks,
   registerMultipartPlugin,
 } from './file-upload-validation-helpers';
+import { resolveFastifyLoggerConfig } from './logger-config-utils';
 
 type SSRServerConfigDev = {
   mode: 'development';
@@ -228,13 +229,17 @@ export class SSRServer extends BaseServer {
       // Build Fastify options from curated subset
       const fastifyOptions: FastifyServerOptions = {};
 
-      if (this.config.options.fastifyOptions) {
-        const { logger, trustProxy, bodyLimit, keepAliveTimeout } =
-          this.config.options.fastifyOptions;
+      Object.assign(
+        fastifyOptions,
+        resolveFastifyLoggerConfig({
+          logging: this.config.options.logging,
+          fastifyOptions: this.config.options.fastifyOptions,
+        }),
+      );
 
-        if (logger !== undefined) {
-          fastifyOptions.logger = logger;
-        }
+      if (this.config.options.fastifyOptions) {
+        const { trustProxy, bodyLimit, keepAliveTimeout } =
+          this.config.options.fastifyOptions;
 
         if (trustProxy !== undefined) {
           fastifyOptions.trustProxy = trustProxy;

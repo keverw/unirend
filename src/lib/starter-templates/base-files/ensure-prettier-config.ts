@@ -1,6 +1,6 @@
 import { vfsWriteIfNotExists } from '../vfs';
 import type { FileRoot } from '../vfs';
-import type { Logger } from '../types';
+import type { LoggerFunction } from '../types';
 
 const fileSrc = `/** @type {import("prettier").Config} */
 export default {
@@ -17,7 +17,7 @@ export default {
  */
 export async function ensurePrettierConfig(
   repoRoot: FileRoot,
-  log?: Logger,
+  log?: LoggerFunction,
 ): Promise<void> {
   try {
     const didWrite = await vfsWriteIfNotExists(

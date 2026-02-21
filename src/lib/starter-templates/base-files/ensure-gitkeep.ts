@@ -1,7 +1,7 @@
 import { vfsWriteIfNotExists, vfsDeleteFile } from '../vfs';
 import type { FileRoot } from '../vfs';
 import { isDirEmpty } from '../internal-utils';
-import type { Logger } from '../types';
+import type { LoggerFunction } from '../types';
 
 /**
  * Ensure a directory has a .gitkeep file if it is empty (or only has .gitkeep).
@@ -16,7 +16,7 @@ export async function ensureGitkeep(
   repoRoot: FileRoot,
   dirName: string,
   fileSrc: string,
-  log?: Logger,
+  log?: LoggerFunction,
 ): Promise<void> {
   // Check if directory is empty, ignoring existing .gitkeep
   // Returns true if empty or only contains .gitkeep

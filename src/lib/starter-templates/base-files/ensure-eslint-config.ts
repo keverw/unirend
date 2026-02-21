@@ -1,6 +1,6 @@
 import { vfsWriteIfNotExists } from '../vfs';
 import type { FileRoot } from '../vfs';
-import type { Logger } from '../types';
+import type { LoggerFunction } from '../types';
 
 const fileSrc = `import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
@@ -466,7 +466,7 @@ export default [
  */
 export async function ensureEslintConfig(
   repoRoot: FileRoot,
-  log?: Logger,
+  log?: LoggerFunction,
 ): Promise<void> {
   try {
     const didWrite = await vfsWriteIfNotExists(

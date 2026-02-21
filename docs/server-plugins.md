@@ -17,6 +17,7 @@
     - [Page Data Loader Handler Registration](#page-data-loader-handler-registration)
 - [Example Plugins](#example-plugins)
   - [API Routes Plugin](#api-routes-plugin)
+  - [Access Logging Plugin](#access-logging-plugin)
   - [Plugin Configuration via Factory Functions](#plugin-configuration-via-factory-functions)
   - [Authentication Plugin](#authentication-plugin)
 - [Plugin Registration](#plugin-registration-1)
@@ -206,11 +207,23 @@ await pluginHost.register(somePlugin, options);
 pluginHost.addHook('onRequest', handler);
 pluginHost.addHook('preHandler', handler);
 pluginHost.addHook('onSend', handler);
+pluginHost.addHook('onResponse', handler);
+pluginHost.addHook('onError', handler);
+pluginHost.addHook('onTimeout', handler);
+pluginHost.addHook('onRequestAbort', handler);
 // ... other Fastify hooks
 
 // ⚠️ Important: Headers must be set before response is sent
 // Use onRequest or preHandler for headers, not onSend
 ```
+
+Common hooks for logging:
+
+- `onRequest`: At request start (good for correlation and early metadata).
+- `onResponse`: After response is sent (best for access logs with `reply.statusCode` and `reply.elapsedTime`).
+- `onRequestAbort`: Client disconnected before completion.
+- `onError`: Error path for handler/hook failures.
+- `onTimeout`: Request timeout handling.
 
 #### Decorators
 
@@ -355,6 +368,61 @@ const apiRoutesPlugin: ServerPlugin = async (pluginHost, options) => {
   });
 };
 ```
+
+### Access Logging Plugin
+
+Use hooks to customize access-style logs (for example, add user ID, tenant, etc.).
+
+```typescript
+const accessLoggingPlugin: ServerPlugin = async (pluginHost) => {
+  pluginHost.addHook('onRequest', async (request) => {
+    request.log.info(
+      {
+        // Use request.requestID (ULID) for better correlation across distributed systems
+        requestID: (request as any).requestID,
+        method: request.method,
+        url: request.url,
+      },
+      'incoming request',
+    );
+  });
+
+  pluginHost.addHook('onResponse', async (request, reply) => {
+    const logPayload = {
+      requestID: (request as any).requestID,
+      method: request.method,
+      url: request.url,
+      statusCode: reply.statusCode,
+      responseTime: reply.elapsedTime,
+    };
+
+    if (reply.statusCode >= 500) {
+      request.log.error(logPayload, 'access log');
+    } else if (reply.statusCode >= 400) {
+      request.log.warn(logPayload, 'access log');
+    } else {
+      request.log.info(logPayload, 'access log');
+    }
+  });
+
+  // Optional: detect aborted client connections separately
+  pluginHost.addHook('onRequestAbort', async (request) => {
+    request.log.warn(
+      {
+        requestID: (request as any).requestID,
+        method: request.method,
+        url: request.url,
+      },
+      'request aborted by client',
+    );
+  });
+};
+```
+
+Notes:
+
+- `onResponse` runs after the response is sent, including normal `500` responses that go through Fastify/your error handler. This is usually where completion access logs belong.
+- If the client disconnects before completion, use `onRequestAbort` for that path since a normal completion log may not run.
 
 ### Plugin Configuration via Factory Functions
 

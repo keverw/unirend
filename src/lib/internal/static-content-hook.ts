@@ -1,5 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { StaticContentCache } from './static-content-cache';
+import type { StaticContentWarnLoggerObject } from './static-content-cache';
 import type { StaticContentRouterOptions } from '../types';
 
 /**
@@ -26,7 +27,7 @@ import type { StaticContentRouterOptions } from '../types';
  */
 export function createStaticContentHook(
   optionsOrCache: StaticContentRouterOptions | StaticContentCache,
-  logger?: { warn: (obj: object, msg: string) => void },
+  logger?: StaticContentWarnLoggerObject,
 ) {
   // Determine cache source: use provided instance or create new one from options
   let cache: StaticContentCache;

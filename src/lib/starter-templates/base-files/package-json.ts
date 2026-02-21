@@ -1,6 +1,6 @@
 import { vfsReadJSON, vfsWriteJSON } from '../vfs';
 import type { FileRoot } from '../vfs';
-import type { Logger } from '../types';
+import type { LoggerFunction } from '../types';
 import semver from 'semver';
 import sortPackageJson from 'sort-package-json';
 import { PKG_VERSION } from '../../../version';
@@ -132,7 +132,7 @@ function mergeScripts(
  */
 export interface EnsurePackageJSONOptions {
   /** Optional logger function */
-  log?: Logger;
+  log?: LoggerFunction;
   /** Template-specific scripts to merge with defaults */
   templateScripts?: Record<string, string>;
   /** Template-specific dependencies to merge with defaults */

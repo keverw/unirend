@@ -13,7 +13,7 @@ Unirend provides a unified API for handling multipart uploads with streaming lim
   - [Multiple files (batch)](#multiple-files-batch)
   - [Cleanup on abort](#cleanup-on-abort)
   - [Post-processing with `onComplete`](#post-processing-with-oncomplete)
-  - [Early validation (reject before parsing multipart)](#early-validation-reject-before-parsing-multipart)
+  - [Pre-validation (reject before parsing multipart)](#pre-validation-reject-before-parsing-multipart)
   - [Custom MIME type validation with validator function](#custom-mime-type-validation-with-validator-function)
   - [Production: tracking uploads in a database](#production-tracking-uploads-in-a-database)
     - [Background processing (video, thumbnails, OCR, etc.)](#background-processing-video-thumbnails-ocr-etc)

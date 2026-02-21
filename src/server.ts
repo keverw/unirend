@@ -37,6 +37,9 @@ export type {
   PageTypeWanted,
   APIServerOptions,
   ControlledReply,
+  UnirendLoggingOptions,
+  UnirendLoggerObject,
+  UnirendLoggerLevel,
 } from './lib/types';
 
 // Server-safe constants

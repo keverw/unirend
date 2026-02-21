@@ -9,7 +9,7 @@ import { ensurePrettierIgnore } from './base-files/ensure-prettier-ignore';
 import { ensureEslintConfig } from './base-files/ensure-eslint-config';
 import { ensureVSCodeExtensions } from './base-files/ensure-vscode-extensions';
 import { ensureVSCodeSettings } from './base-files/ensure-vscode-settings';
-import type { RepoConfig, ServerBuildTarget, Logger } from './types';
+import type { RepoConfig, ServerBuildTarget, LoggerFunction } from './types';
 import type { FileRoot } from './vfs';
 import {
   APPS_GIT_KEEP_FILE_SRC,
