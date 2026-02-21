@@ -20,10 +20,27 @@ export interface BaseMeta {
   page?: PageMetadata;
 }
 
-// Error details
+// Error details - can be an object with key-value pairs or an array
 export interface ErrorDetails {
   [key: string]: unknown; // Allow any other error-specific details
 }
+
+/**
+ * Error details value - supports both object and array formats
+ *
+ * @example Object format (structured errors)
+ * { field: 'email', reason: 'invalid format', code: 'VALIDATION_ERROR' }
+ *
+ * @example Array format (multiple validation errors with type field)
+ * [
+ *   { field: 'email', type: 'invalid_email', message: 'Must be a valid email address' },
+ *   { field: 'password', type: 'invalid_length', message: 'Must be at least 8 characters long' }
+ * ]
+ *
+ * @example Array format (error trace)
+ * ['Step 1 failed', 'Rollback initiated', 'Cleanup completed']
+ */
+export type ErrorDetailsValue = ErrorDetails | unknown[];
 
 /**
  * Error object structure for API error responses
@@ -31,7 +48,7 @@ export interface ErrorDetails {
 export interface ErrorObject {
   code: string;
   message: string;
-  details?: ErrorDetails; // Can include stacktrace in development mode if passed in the error object
+  details?: ErrorDetailsValue; // Can include stacktrace in development mode, validation errors, or any error-specific details
 }
 
 // Redirect information

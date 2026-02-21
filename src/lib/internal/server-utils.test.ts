@@ -122,7 +122,7 @@ describe('normalizePageDataEndpoint', () => {
   });
 });
 
-const createMockReply = () => {
+const createMockReply = (isDestroyed = false) => {
   const headers: Record<string, string> = {};
   const reply = {
     // Header methods
@@ -140,6 +140,9 @@ const createMockReply = () => {
       Object.prototype.hasOwnProperty.call(headers, name),
     ),
     sent: false,
+    raw: {
+      destroyed: isDestroyed,
+    },
 
     // Cookie helpers
     setCookie: mock(
@@ -225,6 +228,16 @@ describe('createControlledReply', () => {
     expect(cr.clearCookie).toBeUndefined();
     expect(cr.signCookie).toBeUndefined();
     expect(cr.unsignCookie).toBeUndefined();
+  });
+
+  it('exposes raw.destroyed property', () => {
+    const mockReplyNotDestroyed = createMockReply(false);
+    const crNotDestroyed = createControlledReply(mockReplyNotDestroyed);
+    expect(crNotDestroyed.raw.destroyed).toBe(false);
+
+    const mockReplyDestroyed = createMockReply(true);
+    const crDestroyed = createControlledReply(mockReplyDestroyed);
+    expect(crDestroyed.raw.destroyed).toBe(true);
   });
 });
 
@@ -602,6 +615,68 @@ describe('createControlledInstance', () => {
       host.getDecoration<{ signingSecretProvided: boolean }>('cookiePluginInfo')
         ?.signingSecretProvided,
     ).toBe(true);
+
+    // decorateRequest and decorateReply
+    host.decorateRequest('userId', null);
+    host.decorateReply('customProp', 'value');
+    expect((f as any).decorateRequest).toHaveBeenCalledWith('userId', null);
+    expect((f as any).decorateReply).toHaveBeenCalledWith(
+      'customProp',
+      'value',
+    );
+
+    // post, put, delete, patch methods
+    host.post('/api/users', () => {});
+    host.put('/api/users/:id', () => {});
+    host.delete('/api/users/:id', () => {});
+    host.patch('/api/users/:id', () => {});
+    expect((f as any).post).toHaveBeenCalledWith(
+      '/api/users',
+      expect.any(Function),
+    );
+    expect((f as any).put).toHaveBeenCalledWith(
+      '/api/users/:id',
+      expect.any(Function),
+    );
+    expect((f as any).delete).toHaveBeenCalledWith(
+      '/api/users/:id',
+      expect.any(Function),
+    );
+    expect((f as any).patch).toHaveBeenCalledWith(
+      '/api/users/:id',
+      expect.any(Function),
+    );
+  });
+
+  it('allows wildcard routes when root wildcard is disabled (shouldDisableRootWildcard=false)', () => {
+    const f = createFakeFastify();
+    const host = createControlledInstance(
+      f,
+      false, // shouldDisableRootWildcard = false
+      { api: true },
+      { page: true },
+    );
+
+    // Wildcards should be allowed when shouldDisableRootWildcard is false
+    host.get('*', () => {});
+    host.get('/*', () => {});
+    expect((f as any).get).toHaveBeenCalledWith('*', expect.any(Function));
+    expect((f as any).get).toHaveBeenCalledWith('/*', expect.any(Function));
+  });
+
+  it('allows valid routes without wildcards', () => {
+    const f = createFakeFastify();
+    const host = createControlledInstance(
+      f,
+      true, // shouldDisableRootWildcard = true
+      { api: true },
+      { page: true },
+    );
+
+    // Valid routes without wildcards should work
+    host.route({ method: 'GET', url: '/api/users', handler: () => {} });
+    host.route({ method: 'POST', url: '/api/users/:id', handler: () => {} });
+    expect((f as any).route).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -203,8 +203,74 @@ When an error occurs, the response will have `status: "error"` and include an `e
     "message": "The provided input is invalid",
     "details": {
       // Optional additional details about the error
+      // Can be an object (key-value pairs) or an array
       // For validation errors, this often includes field-specific errors
     }
+  }
+}
+```
+
+**Error Details Format:**
+
+The `details` field supports two formats:
+
+1. **Object format** (key-value pairs) - for structured error information:
+
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "Invalid input provided",
+    "details": {
+      "field": "email",
+      "reason": "invalid format",
+      "expected_format": "user@example.com"
+    }
+  }
+}
+```
+
+2. **Array format** - for multiple errors or error traces:
+
+```json
+{
+  "error": {
+    "code": "validation_errors",
+    "message": "The request parameters did not pass validation",
+    "details": [
+      {
+        "field": "email",
+        "type": "invalid_email",
+        "message": "Must be a valid email address"
+      },
+      {
+        "field": "password",
+        "type": "invalid_length",
+        "message": "Must be at least 8 characters long"
+      },
+      {
+        "field": "username",
+        "type": "already_exists",
+        "message": "Username is already taken"
+      }
+    ]
+  }
+}
+```
+
+Or for error traces:
+
+```json
+{
+  "error": {
+    "code": "database_error",
+    "message": "Database operation failed",
+    "details": [
+      "Connection to primary database failed",
+      "Attempting retry (1/3)",
+      "Retry failed",
+      "Fallback to cache initiated"
+    ]
   }
 }
 ```

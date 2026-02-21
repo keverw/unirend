@@ -1,6 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type {
-  ErrorDetails,
+  ErrorDetailsValue,
   BaseMeta,
   APIErrorResponse,
   APISuccessResponse,
@@ -75,7 +75,7 @@ export class APIResponseHelpers {
     statusCode: number;
     errorCode: string;
     errorMessage: string;
-    errorDetails?: ErrorDetails;
+    errorDetails?: ErrorDetailsValue;
     meta?: Partial<M>;
   }): APIErrorResponse<M> {
     const { request, statusCode, errorCode, errorMessage, errorDetails, meta } =
@@ -213,7 +213,7 @@ export class APIResponseHelpers {
     errorCode: string;
     errorMessage: string;
     pageMetadata: PageMetadata;
-    errorDetails?: ErrorDetails;
+    errorDetails?: ErrorDetailsValue;
     meta?: Partial<M>;
   }): PageErrorResponse<M> {
     const {
