@@ -429,6 +429,36 @@ The server can automatically expose versioned and non‑versioned page data endp
 
 **Page Type Convention:** Page types should be specified as path segments WITHOUT leading slashes (e.g., `'home'` not `'/home'`). Leading slashes are allowed but will be stripped during normalization. This treats page types as segments appended to the API prefix, version, and page data endpoint, rather than as absolute paths.
 
+**Multi-Project Pattern:** Page types can include slashes to group handlers by project namespace. This is useful when hosting multiple projects on the same API server (e.g., monorepos, such as separate marketing/app sites):
+
+```typescript
+// Group by project
+server.pageDataHandler.register('marketing/home', handler);
+server.pageDataHandler.register('marketing/about', handler);
+server.pageDataHandler.register('accounts/dashboard', handler);
+server.pageDataHandler.register('accounts/settings', handler);
+```
+
+Frontend loaders use the same grouped page types:
+
+```typescript
+// marketing/routes.tsx
+export const homeLoader = createPageDataLoader(config, 'marketing/home');
+
+// accounts/routes.tsx
+export const dashboardLoader = createPageDataLoader(
+  config,
+  'accounts/dashboard',
+);
+```
+
+This creates endpoints like:
+
+- `POST /api/v1/page_data/marketing/home`
+- `POST /api/v1/page_data/accounts/dashboard`
+
+**Note:** Internal slashes are preserved - only leading/trailing slashes are stripped during normalization. Use this pattern to organize handlers when serving multiple projects from a single API server.
+
 Example paths (assuming `apiEndpointPrefix = "/api"`, `pageDataEndpoint = "page_data"`, and page type `home`):
 
 - Versioned enabled (`versioned: true`):
@@ -512,6 +542,8 @@ If you disable versioning (`apiEndpoints.versioned = false`), a single non‑ver
 
 - `POST /api/page_data/test` → invokes the registered handler
 
+**Note on Short-Circuit Versioning:** When handlers are registered on the same `SSRServer` instance (enabling short-circuit optimization), SSR automatically selects the **highest version** registered during the initial server render. Client-side navigation after hydration uses HTTP requests and can target specific versions via the URL path. See [Short-Circuit Versioning Behavior](#short-circuit-data-handlers) for details on version consistency between SSR and client-side navigation.
+
 Request body shape (from data loader):
 
 ```json
@@ -562,6 +594,20 @@ When page data loader handlers are registered on the same `SSRServer` instance i
 - ✅ **Initial SSR page load**: When the server renders the page, short-circuit is used if a handler is registered on the SSR server
 - ❌ **Client-side navigation**: After hydration, browser navigations always use HTTP fetch (even if handler is on SSR server)
 - ❌ **No opt-out**: Short-circuit is automatic during SSR - you cannot force HTTP fetch if a handler is registered on the SSR server
+
+**Short-Circuit Versioning Behavior:**
+
+When using versioned page data handlers (see [Page Data Loader Handlers and Versioning](#page-data-loader-handlers-and-versioning)), short-circuit and HTTP requests behave differently:
+
+- **Short-circuit (SSR initial load)**: Automatically selects the **highest version** registered for the page type. This ensures SSR always serves fresh HTML with the latest handler logic.
+- **HTTP requests (client-side navigation)**: Explicitly target a specific version via the URL path (e.g., `/api/v1/page_data/home` vs `/api/v2/page_data/home`), determined by your frontend loader's `pageDataEndpoint` configuration.
+
+**Version Consistency Considerations:**
+
+- If you have multiple versions registered (v1, v2, v3), SSR short-circuit will always use v3 (the highest), while client-side HTTP requests can target specific versions via `pageDataEndpoint` configuration.
+- **Same version everywhere**: Configure your frontend loader's `pageDataEndpoint` to match the highest version (e.g., `/api/v3/page_data`) for consistency between SSR and client-side navigation.
+- **Mixed versions (gradual rollout)**: Older cached client bundles can target older versions via HTTP (e.g., `/api/v1/page_data`), while SSR and new bundles use the highest version. This supports gradual updates without breaking cached bundles.
+- **Strict version isolation**: If you need different frontends using different versions without automatic highest-version selection, use separate API servers instead of short-circuit.
 
 **Architecture Options:**
 

@@ -47,6 +47,7 @@
     "dist"
   ],
   "scripts": {
+    "prepublishOnly": "bun run build && bun test",
     "sync-version": "bun run scripts/sync-version.ts",
     "check-deps": "bun run scripts/check-deps.ts",
     "build": "bun run sync-version && bun run check-deps && bun run update-docs && tsup",

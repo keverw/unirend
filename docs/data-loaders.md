@@ -96,6 +96,7 @@ export const homeLoader = createPageDataLoader(config, 'home');
 Notes:
 
 - Short-circuiting only happens on SSR when handlers are registered on the same `SSRServer`
+  - When using versioned handlers, short-circuit automatically selects the highest version registered. See: [Short-Circuit Versioning Behavior](./ssr.md#short-circuit-data-handlers) for details on version consistency between SSR and client-side navigation.
 
 - HTTP‑based loader can forward selected request information from SSR to your API — cookies, user agent, client IP, request ID, and correlation ID. SSR removes untrusted headers and sets trusted ones before forwarding. See: [SSR header and cookies forwarding](./ssr.md#header-and-cookies-forwarding)
   - Cookie forwarding is controlled by `cookieForwarding` on the SSR server
