@@ -3,11 +3,16 @@ import type {
   RenderResult,
   ServeSSRDevOptions,
   ServeSSRProdOptions,
+  RegisterDevAppOptions,
+  RegisterProdAppOptions,
   SSRDevPaths,
   StaticContentRouterOptions,
   SSRHelpers,
   PluginMetadata,
   APIResponseHelpersClass,
+  SSRInternalAppConfig,
+  SSRInternalAppConfigDev,
+  SSRInternalAppConfigProd,
 } from '../types';
 import {
   readHTMLFile,
@@ -23,7 +28,6 @@ import type {
   FastifyReply,
   FastifyServerOptions,
 } from 'fastify';
-import type { ViteDevServer } from 'vite';
 import {
   createControlledInstance,
   classifyRequest,
@@ -36,7 +40,8 @@ import {
   validateNoHandlersWhenAPIDisabled,
 } from './server-utils';
 import { generateDefault500ErrorPage } from './error-page-utils';
-import { createStaticContentHook } from './static-content-hook';
+import { StaticContentCache } from './static-content-cache';
+import { staticContentHookHandler } from './static-content-hook';
 import { BaseServer } from './base-server';
 import { DataLoaderServerHandlerHelpers } from './data-loader-server-handler-helpers';
 import { APIRoutesServerHelpers } from './api-routes-server-helpers';
@@ -78,18 +83,18 @@ export class SSRServer extends BaseServer {
   public readonly APIResponseHelpersClass: APIResponseHelpersClass;
 
   // config state
-  private config: SSRServerConfig;
-  private clientFolderName: string;
-  private serverFolderName: string;
+  private serverMode: 'development' | 'production';
 
-  // Internal state
-  private cachedRenderFunction:
-    | ((renderRequest: RenderRequest) => Promise<RenderResult>)
-    | null = null;
+  // Multi-app storage
+  private apps: Map<string, SSRInternalAppConfig> = new Map();
+
+  // Shared server configuration (used across all apps)
+  private sharedOptions: ServeSSRDevOptions | ServeSSRProdOptions;
+
+  // Shared server resources (used across all apps)
   private pageDataHandlers!: DataLoaderServerHandlerHelpers;
   private apiRoutes!: APIRoutesServerHelpers;
   private webSocketHelpers: WebSocketServerHelpers | null = null;
-  private viteDevServer: ViteDevServer | null = null;
   private registeredPlugins: PluginMetadata[] = [];
 
   // Cookie forwarding policy (computed from options for quick checks)
@@ -108,15 +113,42 @@ export class SSRServer extends BaseServer {
    */
   constructor(config: SSRServerConfig) {
     super();
-    this.config = config;
 
-    // Set folder names with defaults
-    this.clientFolderName = config.options.clientFolderName || 'client';
-    this.serverFolderName = config.options.serverFolderName || 'server';
+    // Store server mode and shared options
+    this.serverMode = config.mode;
+    this.sharedOptions = config.options;
+
+    // Convert single config to Map with '__default__' key
+    const defaultApp: SSRInternalAppConfig =
+      config.mode === 'development'
+        ? {
+            // Dev mode - has paths
+            paths: config.paths,
+            frontendAppConfig: config.options.frontendAppConfig,
+            clientFolderName: config.options.clientFolderName || 'client',
+            serverFolderName: config.options.serverFolderName || 'server',
+            containerID: config.options.containerID,
+            get500ErrorPage: config.options.get500ErrorPage,
+          }
+        : {
+            // Prod mode - has buildDir
+            buildDir: config.buildDir,
+            serverEntry: config.options.serverEntry,
+            template: config.options.template,
+            CDNBaseURL: config.options.CDNBaseURL,
+            staticContentRouter: config.options.staticContentRouter,
+            frontendAppConfig: config.options.frontendAppConfig,
+            clientFolderName: config.options.clientFolderName || 'client',
+            serverFolderName: config.options.serverFolderName || 'server',
+            containerID: config.options.containerID,
+            get500ErrorPage: config.options.get500ErrorPage,
+          };
+
+    this.apps.set('__default__', defaultApp);
 
     // Set helpers class (custom or default)
     this.APIResponseHelpersClass =
-      config.options.APIResponseHelpersClass || APIResponseHelpers;
+      this.sharedOptions.APIResponseHelpersClass || APIResponseHelpers;
 
     // Normalize API endpoint config once at construction
     this.normalizedAPIPrefix = normalizeAPIPrefix(
@@ -153,6 +185,145 @@ export class SSRServer extends BaseServer {
         : Array.isArray(block) && block.length > 0
           ? new Set(block)
           : undefined;
+  }
+
+  /**
+   * Register an additional dev-mode SSR app
+   *
+   * Can only be called on dev servers (created via serveSSRDev).
+   * Apps must be registered BEFORE calling listen().
+   *
+   * Uses the same parameters as serveSSRDev for consistency - you can copy/paste
+   * configuration between the default app and additional apps.
+   *
+   * @param appKey - Unique identifier for this app (used in request.activeSSRApp)
+   * @param paths - Dev-specific paths (same as serveSSRDev)
+   * @param options - Dev options (same as serveSSRDev)
+   *
+   * @example
+   * ```ts
+   * const mainPaths = {
+   *   serverEntry: './src/entry-server.tsx',
+   *   template: './index.html',
+   *   viteConfig: './vite.config.ts'
+   * };
+   * const server = serveSSRDev(mainPaths, { port: 3000 });
+   *
+   * // Same parameters as above - easy to copy/paste
+   * server.registerDevApp('marketing', {
+   *   serverEntry: './src/marketing/entry-server.tsx',
+   *   template: './src/marketing/index.html',
+   *   viteConfig: './vite.marketing.config.ts'
+   * }, {
+   *   frontendAppConfig: { apiUrl: 'http://localhost:3002' }
+   * });
+   *
+   * await server.listen(3000);
+   * ```
+   */
+  public registerDevApp(
+    appKey: string,
+    paths: SSRDevPaths,
+    options?: RegisterDevAppOptions,
+  ): void {
+    if (!appKey || typeof appKey !== 'string') {
+      throw new Error('App key must be a non-empty string');
+    }
+
+    const trimmedAppKey = appKey.trim();
+
+    if (this._isListening) {
+      throw new Error(
+        'Cannot register apps after server has started listening. Register all apps before calling listen().',
+      );
+    }
+
+    this.validateAppKey(trimmedAppKey);
+
+    if (this.serverMode !== 'development') {
+      throw new Error(
+        `Cannot register dev app "${trimmedAppKey}" on prod server. Use registerProdApp() instead.`,
+      );
+    }
+
+    const opts = options || {};
+    const appConfig: SSRInternalAppConfigDev = {
+      paths,
+      frontendAppConfig: opts.frontendAppConfig,
+      clientFolderName: opts.clientFolderName || 'client',
+      serverFolderName: opts.serverFolderName || 'server',
+      containerID: opts.containerID,
+      get500ErrorPage: opts.get500ErrorPage,
+    };
+
+    this.apps.set(trimmedAppKey, appConfig);
+  }
+
+  /**
+   * Register an additional prod-mode SSR app
+   *
+   * Can only be called on prod servers (created via serveSSRProd).
+   * Apps must be registered BEFORE calling listen().
+   *
+   * Uses the same parameters as serveSSRProd for consistency - you can copy/paste
+   * configuration between the default app and additional apps.
+   *
+   * @param appKey - Unique identifier for this app (used in request.activeSSRApp)
+   * @param buildDir - Build directory path (same as serveSSRProd)
+   * @param options - Prod options (same as serveSSRProd)
+   *
+   * @example
+   * ```ts
+   * const server = serveSSRProd('./build-main', { port: 3000 });
+   *
+   * // Same parameters as above - easy to copy/paste
+   * server.registerProdApp('marketing', './build-marketing', {
+   *   frontendAppConfig: { apiUrl: 'https://marketing.example.com' }
+   * });
+   *
+   * await server.listen(3000);
+   * ```
+   */
+  public registerProdApp(
+    appKey: string,
+    buildDir: string,
+    options?: RegisterProdAppOptions,
+  ): void {
+    if (!appKey || typeof appKey !== 'string') {
+      throw new Error('App key must be a non-empty string');
+    }
+
+    const trimmedAppKey = appKey.trim();
+
+    if (this._isListening) {
+      throw new Error(
+        'Cannot register apps after server has started listening. Register all apps before calling listen().',
+      );
+    }
+
+    this.validateAppKey(trimmedAppKey);
+
+    if (this.serverMode !== 'production') {
+      throw new Error(
+        `Cannot register prod app "${trimmedAppKey}" on dev server. Use registerDevApp() instead.`,
+      );
+    }
+
+    const opts = options || {};
+    const appConfig: SSRInternalAppConfigProd = {
+      buildDir,
+      serverEntry: opts.serverEntry,
+      template: opts.template,
+      CDNBaseURL: opts.CDNBaseURL,
+      staticContentRouter: opts.staticContentRouter,
+      frontendAppConfig: opts.frontendAppConfig,
+      clientFolderName: opts.clientFolderName || 'client',
+      serverFolderName: opts.serverFolderName || 'server',
+      containerID: opts.containerID,
+      get500ErrorPage: opts.get500ErrorPage,
+    };
+
+    this.apps.set(trimmedAppKey, appConfig);
   }
 
   /**
@@ -194,33 +365,75 @@ export class SSRServer extends BaseServer {
       this.fastifyInstance = null;
     }
 
-    if (this.viteDevServer) {
-      try {
-        await this.viteDevServer.close();
-      } catch {
-        // Ignore cleanup errors for stale instances
+    // Clean up Vite dev servers and clear caches from all apps
+    // This ensures clean state even if previous stop() failed partway through
+    for (const [_, appConfig] of this.apps) {
+      if ('viteDevServer' in appConfig && appConfig.viteDevServer) {
+        try {
+          await appConfig.viteDevServer.close();
+        } catch {
+          // Ignore cleanup errors for stale instances
+        }
+
+        appConfig.viteDevServer = undefined;
       }
 
-      this.viteDevServer = null;
+      // Clear cached templates and render functions (defensive programming)
+      if ('cachedHTMLTemplate' in appConfig) {
+        appConfig.cachedHTMLTemplate = undefined;
+      }
+
+      if ('cachedRenderFunction' in appConfig) {
+        appConfig.cachedRenderFunction = undefined;
+      }
     }
 
     try {
-      // Validate development paths exist before proceeding
-      if (this.config.mode === 'development') {
-        const pathValidation = await validateDevPaths(this.config.paths);
-        if (!pathValidation.success) {
-          throw new Error(
-            `Development paths validation failed:\n${pathValidation.errors.join('\n')}`,
-          );
+      // Validate development paths exist before proceeding for ALL dev apps
+      if (this.serverMode === 'development') {
+        for (const [appKey, appConfig] of this.apps) {
+          if ('paths' in appConfig) {
+            const pathValidation = await validateDevPaths(appConfig.paths);
+            if (!pathValidation.success) {
+              throw new Error(
+                `Development paths validation failed for app "${appKey}":\n${pathValidation.errors.join('\n')}`,
+              );
+            }
+          }
         }
       }
 
-      // Load HTML template (in production only - dev will read fresh per request)
-      let htmlTemplate: string | undefined;
+      // Load HTML templates and render functions for all prod apps
+      // (dev will read/load fresh per request for HMR support)
+      if (this.serverMode === 'production') {
+        for (const [appKey, appConfig] of this.apps) {
+          // In production mode, all apps should have buildDir (enforced by TypeScript)
+          if (!('buildDir' in appConfig)) {
+            throw new Error(
+              `Production app "${appKey}" is missing buildDir. This should not happen.`,
+            );
+          }
 
-      if (this.config.mode === 'production') {
-        const templateResult = await this.loadHTMLTemplate();
-        htmlTemplate = templateResult.content;
+          // Load and cache HTML template
+          try {
+            const templateResult = await this.loadHTMLTemplate(appConfig);
+            // CDN rewriting is now handled inside processTemplate() during loadHTMLTemplate()
+            appConfig.cachedHTMLTemplate = templateResult.content;
+          } catch (loadError) {
+            throw new Error(
+              `Failed to load HTML template for app "${appKey}": ${loadError instanceof Error ? loadError.message : String(loadError)}`,
+            );
+          }
+
+          // Load and cache render function (fail fast at startup instead of on first request)
+          try {
+            await this.loadProductionRenderFunction(appConfig);
+          } catch (loadError) {
+            throw new Error(
+              `Failed to load render function for app "${appKey}": ${loadError instanceof Error ? loadError.message : String(loadError)}`,
+            );
+          }
+        }
       }
 
       // Dynamic import to prevent bundling in client builds
@@ -232,14 +445,14 @@ export class SSRServer extends BaseServer {
       Object.assign(
         fastifyOptions,
         resolveFastifyLoggerConfig({
-          logging: this.config.options.logging,
-          fastifyOptions: this.config.options.fastifyOptions,
+          logging: this.sharedOptions.logging,
+          fastifyOptions: this.sharedOptions.fastifyOptions,
         }),
       );
 
-      if (this.config.options.fastifyOptions) {
+      if (this.sharedOptions.fastifyOptions) {
         const { trustProxy, bodyLimit, keepAliveTimeout } =
-          this.config.options.fastifyOptions;
+          this.sharedOptions.fastifyOptions;
 
         if (trustProxy !== undefined) {
           fastifyOptions.trustProxy = trustProxy;
@@ -264,9 +477,12 @@ export class SSRServer extends BaseServer {
       }
 
       // Decorate requests with environment info (per-request)
-      const mode: 'development' | 'production' = this.config.mode;
+      const mode: 'development' | 'production' = this.serverMode;
       const isDevelopment = mode === 'development';
       this.fastifyInstance.decorateRequest('isDevelopment', isDevelopment);
+
+      // Decorate requests with activeSSRApp for multi-app routing (defaults to '__default__')
+      this.fastifyInstance.decorateRequest('activeSSRApp', '__default__');
 
       // Decorate requests with APIResponseHelpersClass for file upload helpers
       this.fastifyInstance.decorateRequest(
@@ -294,7 +510,7 @@ export class SSRServer extends BaseServer {
             return;
           }
 
-          const isDevelopment = this.config.mode === 'development';
+          const isDevelopment = this.serverMode === 'development';
 
           // Log the error using Fastify's logger
           if (this.fastifyInstance) {
@@ -304,9 +520,32 @@ export class SSRServer extends BaseServer {
             );
           }
 
+          // Get active app config for error handling (fall back to default if active app not found)
+          const appKey = request.activeSSRApp || '__default__';
+          const appConfig =
+            this.apps.get(appKey) || this.apps.get('__default__');
+
+          if (!appConfig) {
+            // This should never happen, but handle gracefully
+            this.fastifyInstance?.log.error(
+              'No app config found for error handling',
+            );
+
+            reply
+              .code(500)
+              .header('Content-Type', 'text/plain')
+              .send('Internal Server Error');
+            return;
+          }
+
           // In development, let Vite fix the stack trace for better debugging.
-          if (this.viteDevServer && isDevelopment && error instanceof Error) {
-            this.viteDevServer.ssrFixStacktrace(error);
+          if (
+            'viteDevServer' in appConfig &&
+            appConfig.viteDevServer &&
+            isDevelopment &&
+            error instanceof Error
+          ) {
+            appConfig.viteDevServer.ssrFixStacktrace(error);
           }
 
           // If the response hasn't been sent, determine response type
@@ -324,7 +563,11 @@ export class SSRServer extends BaseServer {
               await this.handleAPIError(request, reply, error);
             } else {
               // Handle SSR error with HTML response
-              const errorPage = await this.generate500ErrorPage(request, error);
+              const errorPage = await this.generate500ErrorPage(
+                request,
+                error,
+                appConfig,
+              );
 
               reply
                 .code(500)
@@ -337,26 +580,23 @@ export class SSRServer extends BaseServer {
       );
 
       // Register plugins if provided
-      if (
-        this.config.options.plugins &&
-        this.config.options.plugins.length > 0
-      ) {
+      if (this.sharedOptions.plugins && this.sharedOptions.plugins.length > 0) {
         await this.registerPlugins();
       }
 
       // Register file upload hooks and plugin after user plugins
       // This ensures user plugin hooks (auth, etc.) run before upload validation
-      if (this.config.options.fileUploads?.enabled) {
+      if (this.sharedOptions.fileUploads?.enabled) {
         // Register validation hook using shared helper
         registerFileUploadValidationHooks(
           this.fastifyInstance,
-          this.config.options.fileUploads,
+          this.sharedOptions.fileUploads,
         );
 
         // Register multipart plugin using shared helper (also decorates with multipartEnabled)
         await registerMultipartPlugin(
           this.fastifyInstance,
-          this.config.options.fileUploads,
+          this.sharedOptions.fileUploads,
         );
       }
 
@@ -379,7 +619,7 @@ export class SSRServer extends BaseServer {
           this.normalizedAPIPrefix,
           this.normalizedPageDataEndpoint,
           {
-            versioned: this.config.options.apiEndpoints?.versioned,
+            versioned: this.sharedOptions.apiEndpoints?.versioned,
           },
         );
 
@@ -388,7 +628,7 @@ export class SSRServer extends BaseServer {
           this.fastifyInstance,
           this.normalizedAPIPrefix,
           {
-            versioned: this.config.options.apiEndpoints?.versioned,
+            versioned: this.sharedOptions.apiEndpoints?.versioned,
             allowWildcardAtRoot: false,
           },
         );
@@ -400,53 +640,151 @@ export class SSRServer extends BaseServer {
       }
 
       // Create Vite Dev Server Middleware (Development Only)
-      if (this.config.mode === 'development') {
-        this.viteDevServer = await (
-          await import('vite')
-        ).createServer({
-          configFile: this.config.paths.viteConfig,
-          server: { middlewareMode: true },
-          appType: 'custom',
-        });
+      if (this.serverMode === 'development') {
+        // Collect all dev apps (apps with paths)
+        const devApps = Array.from(this.apps.entries()).filter(
+          ([_, app]) => 'paths' in app,
+        );
 
-        // Mount Vite's dev server middleware after Fastify's error handling and logging
-        // c:spell:ignore middie
-        await this.fastifyInstance.register(import('@fastify/middie'));
+        if (devApps.length > 0) {
+          // Create Vite instances for all dev apps in parallel
+          // Each instance needs a unique HMR port to avoid conflicts
+          await Promise.all(
+            devApps.map(async ([appKey, appConfig], index) => {
+              const devApp = appConfig as SSRInternalAppConfigDev;
 
-        // Now we can use middleware
-        this.fastifyInstance.use(this.viteDevServer.middlewares);
+              // Auto-assign HMR port: base port + index offset
+              // Use port + 1000 + index to avoid conflicts with main server port
+              const hmrPort = port + 1000 + index;
+
+              devApp.viteDevServer = await (
+                await import('vite')
+              ).createServer({
+                configFile: devApp.paths.viteConfig,
+                server: {
+                  middlewareMode: true,
+                  hmr: {
+                    // Auto-assign unique HMR port for each app
+                    port: hmrPort,
+                  },
+                },
+                appType: 'custom',
+              });
+
+              this.fastifyInstance?.log.debug(
+                `Created Vite dev server for app "${appKey}" with HMR port ${hmrPort}`,
+              );
+            }),
+          );
+
+          // Dispatch Vite dev middleware via a Fastify onRequest hook.
+          // We use onRequest instead of @fastify/middie because we need this to run
+          // AFTER user plugin hooks (which set activeSSRApp, auth, etc.) so that
+          // multi-app routing works correctly. The .use() approach from @fastify/middie
+          // runs at the raw Node layer before Fastify decorations are available.
+          // Vite's Connect-style middleware is wrapped in a Promise to integrate
+          // with Fastify's async hook chain.
+          this.fastifyInstance.addHook('onRequest', async (request, reply) => {
+            const appKey = request.activeSSRApp || '__default__';
+            const appConfig = this.apps.get(appKey);
+
+            if (
+              !appConfig ||
+              !('viteDevServer' in appConfig) ||
+              !appConfig.viteDevServer
+            ) {
+              // No Vite server for this app — continue to route handler
+              return;
+            }
+
+            const viteMiddleware = appConfig.viteDevServer.middlewares;
+
+            // Wrap Connect-style middleware (req, res, next) in a Promise.
+            // If Vite handles the request (HMR, source files, /@vite/client, etc.)
+            // it writes to res directly and never calls next(). We detect this via
+            // res.writableEnded and tell Fastify we're done.
+            // If Vite doesn't handle it, next() is called and we resolve to let
+            // Fastify continue to the route handler for SSR rendering.
+            await new Promise<void>((resolve, reject) => {
+              viteMiddleware(request.raw, reply.raw, (err?: unknown) => {
+                if (err) {
+                  reject(
+                    err instanceof Error
+                      ? err
+                      : new Error(
+                          typeof err === 'string'
+                            ? err
+                            : 'Vite middleware error',
+                        ),
+                  );
+                } else {
+                  resolve();
+                }
+              });
+            });
+
+            // If Vite handled the request (wrote to res directly), hijack the
+            // reply so Fastify doesn't try to send a second response.
+            if (reply.raw.writableEnded) {
+              reply.hijack();
+            }
+          });
+        }
       }
       // Production Server Middleware (Production Only)
       else {
-        // Check if static router is disabled (useful for CDN setups)
-        // If staticContentRouter config is false, skip static file serving (CDN setup)
-        if (this.config.options.staticContentRouter !== false) {
-          // Configure and register the static router plugin for serving assets
-          const clientBuildAssetDir = path.join(
-            this.config.buildDir,
-            this.clientFolderName,
-            'assets',
-          );
+        // Create static content caches for all prod apps
+        const staticContentCaches = new Map<string, StaticContentCache>();
 
-          // Use the static router configuration provided by the user, or use the default
-          const staticContentRouterConfig: StaticContentRouterOptions = this
-            .config.options.staticContentRouter || {
-            // Default: just serve the assets folder with immutable caching
-            folderMap: {
-              '/assets': {
-                path: clientBuildAssetDir,
-                detectImmutableAssets: true, // Enable immutable caching for hashed assets
-              },
-            },
-          };
+        for (const [appKey, appConfig] of this.apps) {
+          if ('buildDir' in appConfig) {
+            // TypeScript knows appConfig is SSRProdAppConfig after the check
+            // Check if static router is disabled for this app
+            const staticRouterConfig = appConfig.staticContentRouter;
 
-          // Register the static content hook directly (no plugin encapsulation needed)
-          const staticContentHook = createStaticContentHook(
-            staticContentRouterConfig,
-            this.fastifyInstance.log,
-          );
+            // Skip if explicitly disabled (false)
+            if (staticRouterConfig === false) {
+              continue;
+            }
 
-          this.fastifyInstance.addHook('onRequest', staticContentHook);
+            const clientBuildAssetDir = path.join(
+              appConfig.buildDir,
+              appConfig.clientFolderName || 'client',
+              'assets',
+            );
+
+            // Use provided config or default to assets folder with immutable caching
+            const finalConfig: StaticContentRouterOptions =
+              staticRouterConfig || {
+                folderMap: {
+                  '/assets': {
+                    path: clientBuildAssetDir,
+                    detectImmutableAssets: true,
+                  },
+                },
+              };
+
+            // Create cache instance for this app
+            const cache = new StaticContentCache(
+              finalConfig,
+              this.fastifyInstance.log,
+            );
+            staticContentCaches.set(appKey, cache);
+          }
+        }
+
+        // Register routing hook if we have any caches
+        if (staticContentCaches.size > 0) {
+          this.fastifyInstance.addHook('onRequest', async (request, reply) => {
+            const appKey = request.activeSSRApp || '__default__';
+            const cache = staticContentCaches.get(appKey);
+
+            if (cache) {
+              // Use shared static content handler (includes GET check and URL validation)
+              await staticContentHookHandler(cache, request, reply);
+              // If file was served, reply was sent and hook returns early automatically
+            }
+          });
         }
       }
 
@@ -468,27 +806,42 @@ export class SSRServer extends BaseServer {
           }
 
           // Continue with SSR handling for non-API requests
+          // Get active app based on request.activeSSRApp (defaults to '__default__')
+          const appKey = request.activeSSRApp || '__default__';
+          const appConfig = this.apps.get(appKey);
+
+          if (!appConfig) {
+            const availableApps = Array.from(this.apps.keys()).join(', ');
+            throw new Error(
+              `Active app "${appKey}" not found. Available apps: ${availableApps}`,
+            );
+          }
+
           // Load and call the actual render function from the server entry
           // Signature should be: (renderRequest: RenderRequest) => Promise<RenderResult>
           let render: (renderRequest: RenderRequest) => Promise<RenderResult>;
 
           let template: string;
 
-          if (this.config.mode === 'development' && this.viteDevServer) {
+          if (
+            this.serverMode === 'development' &&
+            'viteDevServer' in appConfig &&
+            appConfig.viteDevServer
+          ) {
             // --- Development SSR ---
             // Read template fresh per request in dev mode
-            const templateResult = await this.loadHTMLTemplate();
+            const templateResult = await this.loadHTMLTemplate(appConfig);
             template = templateResult.content;
 
             // Apply Vite HTML transforms (injects HMR client, plugins)
-            template = await this.viteDevServer.transformIndexHtml(
+            template = await appConfig.viteDevServer.transformIndexHtml(
               request.url,
               template,
             );
 
             // Load server entry using Vite's SSR loader (from src)
-            const entryServer = await this.viteDevServer.ssrLoadModule(
-              this.config.paths.serverEntry,
+            const entryServer = await appConfig.viteDevServer.ssrLoadModule(
+              appConfig.paths.serverEntry,
             );
 
             if (
@@ -506,14 +859,28 @@ export class SSRServer extends BaseServer {
             ) => Promise<RenderResult>;
           } else {
             // --- Production SSR ---
-            // Use the template loaded at startup and cached render function
-            // Loaded once for performance in production mode
-            if (!htmlTemplate) {
-              throw new Error('HTML template not loaded in production mode');
+            // Use template and render function loaded at startup
+            // Both are loaded once at startup for performance and fail-fast validation
+            if (
+              !('cachedHTMLTemplate' in appConfig) ||
+              !appConfig.cachedHTMLTemplate
+            ) {
+              throw new Error(
+                `HTML template not loaded for app "${appKey}" in production mode`,
+              );
             }
 
-            template = htmlTemplate;
-            render = await this.loadProductionRenderFunction();
+            if (
+              !('cachedRenderFunction' in appConfig) ||
+              !appConfig.cachedRenderFunction
+            ) {
+              throw new Error(
+                `Render function not loaded for app "${appKey}" in production mode`,
+              );
+            }
+
+            template = appConfig.cachedHTMLTemplate;
+            render = appConfig.cachedRenderFunction;
           }
 
           // Create Fetch API Request object for React Router
@@ -584,7 +951,9 @@ export class SSRServer extends BaseServer {
 
                 return headers;
               })(),
-              signal: AbortSignal.timeout(5000),
+              signal: AbortSignal.timeout(
+                this.sharedOptions.ssrRenderTimeout ?? 5000,
+              ),
             },
           );
 
@@ -593,7 +962,7 @@ export class SSRServer extends BaseServer {
             fastifyRequest: request,
             controlledReply: createControlledReply(reply),
             handlers: this.pageDataHandlers,
-            isDevelopment: this.config.mode === 'development',
+            isDevelopment: this.serverMode === 'development',
           } as const;
 
           try {
@@ -612,11 +981,9 @@ export class SSRServer extends BaseServer {
 
           // --- Render the App ---
           try {
-            // Clone frontendAppConfig to ensure it stays immutable for the entire request
-            const frontendAppConfig = this.config.options.frontendAppConfig
-              ? Object.freeze(
-                  structuredClone(this.config.options.frontendAppConfig),
-                )
+            // Clone app-specific frontendAppConfig to ensure it stays immutable for the entire request
+            const frontendAppConfig = appConfig.frontendAppConfig
+              ? Object.freeze(structuredClone(appConfig.frontendAppConfig))
               : undefined;
 
             const renderResult = await render({
@@ -624,7 +991,7 @@ export class SSRServer extends BaseServer {
               fetchRequest,
               unirendContext: {
                 renderMode: 'ssr',
-                isDevelopment: this.config.mode === 'development',
+                isDevelopment: this.serverMode === 'development',
                 fetchRequest: fetchRequest,
                 frontendAppConfig,
                 requestContextRevision: '0-0', // Initial revision for this request
@@ -660,12 +1027,7 @@ export class SSRServer extends BaseServer {
                   renderResult.errorDetails ||
                   new Error('Internal Server Error');
 
-                await this.handleSSRError(
-                  request,
-                  reply,
-                  error,
-                  this.viteDevServer,
-                );
+                await this.handleSSRError(request, reply, error, appConfig);
 
                 return;
               }
@@ -680,8 +1042,7 @@ export class SSRServer extends BaseServer {
 
               const headInject = headParts.join('\n');
 
-              // Get config and request context for injection
-              const frontendAppConfig = this.config.options.frontendAppConfig;
+              // Get app-specific config and request context for injection
               const requestContext =
                 (
                   request as FastifyRequest & {
@@ -689,7 +1050,16 @@ export class SSRServer extends BaseServer {
                   }
                 ).requestContext || {};
 
-              // Use our utility to inject content with proper formatting
+              // Use our utility to inject content with app-specific config
+              // Check for per-request CDN URL override, fallback to app config
+              const CDNBaseURL =
+                (
+                  request as FastifyRequest & {
+                    CDNBaseURL?: string;
+                  }
+                ).CDNBaseURL ||
+                ('CDNBaseURL' in appConfig ? appConfig.CDNBaseURL : undefined);
+
               const finalHTML = injectContent(
                 template,
                 headInject,
@@ -698,6 +1068,7 @@ export class SSRServer extends BaseServer {
                   app: frontendAppConfig,
                   request: requestContext,
                 },
+                CDNBaseURL,
               );
 
               // ---> Send response with the extracted status code
@@ -722,13 +1093,16 @@ export class SSRServer extends BaseServer {
               }
 
               // Forward headers safe for redirects/responses
-              for (const [key, value] of renderResult.response
-                .headers as unknown as Iterable<[string, string]>) {
-                if (
-                  key.toLowerCase().startsWith('location') ||
-                  key.toLowerCase().startsWith('set-cookie')
-                ) {
-                  if (key.toLowerCase().startsWith('set-cookie')) {
+              // Headers is iterable at runtime but TS DOM lib types don't expose entries(),
+              // so we cast to the expected iterable shape for safe iteration.
+              const responseHeaders = renderResult.response
+                .headers as unknown as Iterable<[string, string]>;
+
+              for (const [key, value] of Array.from(responseHeaders)) {
+                const lowerKey = key.toLowerCase();
+
+                if (lowerKey === 'location' || lowerKey === 'set-cookie') {
+                  if (lowerKey === 'set-cookie') {
                     const filtered = applyCookiePolicyToSetCookie(
                       value,
                       this.cookieAllowList,
@@ -768,7 +1142,7 @@ export class SSRServer extends BaseServer {
                 request,
                 reply,
                 renderResult.error,
-                this.viteDevServer,
+                appConfig,
               );
 
               return; // Stop further processing
@@ -786,7 +1160,7 @@ export class SSRServer extends BaseServer {
                 request,
                 reply,
                 unexpectedError,
-                this.viteDevServer,
+                appConfig,
               );
 
               return;
@@ -796,7 +1170,7 @@ export class SSRServer extends BaseServer {
               request,
               reply,
               error as Error,
-              this.viteDevServer,
+              appConfig,
             );
 
             return;
@@ -807,11 +1181,27 @@ export class SSRServer extends BaseServer {
             this.fastifyInstance?.log.warn(
               'No response was sent, sending 500 error',
             );
+
+            // Re-fetch appConfig for safety check (should always exist, but be defensive)
+            const safetyAppKey = request.activeSSRApp || '__default__';
+            const fallbackAppConfig =
+              this.apps.get(safetyAppKey) || this.apps.get('__default__');
+
+            if (!fallbackAppConfig) {
+              // Ultimate fallback if even default app is missing
+              reply
+                .code(500)
+                .header('Content-Type', 'text/plain')
+                .send('Internal Server Error');
+              return;
+            }
+
+            // TypeScript doesn't narrow the type properly here, but we've verified it exists above
             await this.handleSSRError(
               request,
               reply,
               new Error('No response was generated'),
-              this.viteDevServer,
+              fallbackAppConfig as SSRInternalAppConfig,
             );
           }
         },
@@ -845,17 +1235,19 @@ export class SSRServer extends BaseServer {
         this.fastifyInstance = null;
       }
 
-      // Close Vite dev server if it was created but startup failed
-      if (this.viteDevServer) {
-        try {
-          await this.viteDevServer.close();
-        } catch (closeError) {
-          cleanupErrors.push(
-            `Vite dev server cleanup failed: ${closeError instanceof Error ? closeError.message : String(closeError)}`,
-          );
-        }
+      // Close all Vite dev servers if any were created but startup failed
+      for (const [appKey, appConfig] of this.apps) {
+        if ('viteDevServer' in appConfig && appConfig.viteDevServer) {
+          try {
+            await appConfig.viteDevServer.close();
+          } catch (closeError) {
+            cleanupErrors.push(
+              `Vite dev server cleanup failed for app "${appKey}": ${closeError instanceof Error ? closeError.message : String(closeError)}`,
+            );
+          }
 
-        this.viteDevServer = null;
+          appConfig.viteDevServer = undefined;
+        }
       }
 
       // Clear plugin tracking state on failure
@@ -879,16 +1271,52 @@ export class SSRServer extends BaseServer {
       return;
     }
 
+    // Close all Vite dev servers and clear caches
+    const cleanupErrors: string[] = [];
+
     // Close Fastify server if it exists
     if (this.fastifyInstance) {
-      await this.fastifyInstance.close();
+      try {
+        await this.fastifyInstance.close();
+      } catch (closeError) {
+        cleanupErrors.push(
+          `Fastify close failed: ${closeError instanceof Error ? closeError.message : String(closeError)}`,
+        );
+      }
+
       this.fastifyInstance = null;
     }
 
-    // Close Vite dev server if it exists
-    if (this.viteDevServer) {
-      await this.viteDevServer.close();
-      this.viteDevServer = null;
+    for (const [appKey, appConfig] of this.apps) {
+      // Close Vite dev server if present
+      if ('viteDevServer' in appConfig && appConfig.viteDevServer) {
+        try {
+          await appConfig.viteDevServer.close();
+          // Only clear reference if close succeeded
+          appConfig.viteDevServer = undefined;
+        } catch (closeError) {
+          cleanupErrors.push(
+            `Failed to close Vite dev server for app "${appKey}": ${closeError instanceof Error ? closeError.message : String(closeError)}`,
+          );
+          // Don't clear viteDevServer reference - it might still be running
+        }
+      }
+
+      // Clear cached templates and render functions (production mode)
+      if ('cachedHTMLTemplate' in appConfig) {
+        appConfig.cachedHTMLTemplate = undefined;
+      }
+
+      if ('cachedRenderFunction' in appConfig) {
+        appConfig.cachedRenderFunction = undefined;
+      }
+    }
+
+    // Throw if any cleanup errors occurred
+    if (cleanupErrors.length > 0) {
+      throw new Error(
+        `Server stop failed with ${cleanupErrors.length} error(s):\n${cleanupErrors.join('\n')}`,
+      );
     }
 
     // Only mark as stopped after both are successfully closed
@@ -956,12 +1384,41 @@ export class SSRServer extends BaseServer {
   }
 
   /**
+   * Validate app key for registration
+   * @private
+   */
+  private validateAppKey(appKey: string): void {
+    // appKey is already validated as a non-empty string and trimmed by the caller
+    if (appKey.length === 0) {
+      throw new Error('App key cannot be empty or whitespace-only');
+    }
+
+    if (appKey === '__default__') {
+      throw new Error(
+        'Cannot register app with reserved key "__default__". This key is used for the initial app.',
+      );
+    }
+
+    if (appKey.includes('/') || appKey.includes('\\')) {
+      throw new Error(
+        'App key cannot contain path separators. Use alphanumeric names like "marketing" or "admin".',
+      );
+    }
+
+    if (this.apps.has(appKey)) {
+      throw new Error(
+        `App "${appKey}" is already registered. Use a different key or unregister the existing app first.`,
+      );
+    }
+  }
+
+  /**
    * Register plugins with controlled access to Fastify instance
    * @private
    */
   private async registerPlugins(): Promise<void> {
     // If no fastify instance or plugins are provided, return early
-    if (!this.fastifyInstance || !this.config.options.plugins) {
+    if (!this.fastifyInstance || !this.sharedOptions.plugins) {
       return;
     }
 
@@ -976,15 +1433,13 @@ export class SSRServer extends BaseServer {
     // Plugin options to pass to each plugin
     const pluginOptions = {
       serverType: 'ssr' as const,
-      mode: this.config.mode,
-      isDevelopment: this.config.mode === 'development',
-      buildDir:
-        this.config.mode === 'production' ? this.config.buildDir : undefined,
-      apiEndpoints: this.config.options.apiEndpoints,
+      mode: this.serverMode,
+      isDevelopment: this.serverMode === 'development',
+      apiEndpoints: this.sharedOptions.apiEndpoints,
     };
 
     // Register each plugin with dependency validation
-    for (const plugin of this.config.options.plugins) {
+    for (const plugin of this.sharedOptions.plugins) {
       try {
         // Call plugin and get potential metadata
         const pluginResult = await plugin(controlledInstance, pluginOptions);
@@ -1006,27 +1461,28 @@ export class SSRServer extends BaseServer {
   /**
    * Loads and caches the production render function from the server entry
    * This is called once and cached for performance in production mode
+   * @param appConfig App configuration to load render function for
    * @returns Promise that resolves to the render function
    * @private
    */
-  private async loadProductionRenderFunction(): Promise<
-    (renderRequest: RenderRequest) => Promise<RenderResult>
-  > {
-    if (this.cachedRenderFunction) {
-      return this.cachedRenderFunction;
+  private async loadProductionRenderFunction(
+    appConfig: SSRInternalAppConfig,
+  ): Promise<(renderRequest: RenderRequest) => Promise<RenderResult>> {
+    // Check if already cached on app config
+    if ('cachedRenderFunction' in appConfig && appConfig.cachedRenderFunction) {
+      return appConfig.cachedRenderFunction;
     }
 
-    if (this.config.mode !== 'production') {
+    if (this.serverMode !== 'production' || !('buildDir' in appConfig)) {
       throw new Error(
-        'loadProductionRenderFunction should only be called in production mode',
+        'loadProductionRenderFunction requires production mode with buildDir',
       );
     }
 
-    const prodConfig = this.config;
-    const serverEntry = prodConfig.options.serverEntry || 'entry-server';
+    const serverEntry = appConfig.serverEntry || 'entry-server';
     const serverBuildDir = path.join(
-      prodConfig.buildDir,
-      this.serverFolderName,
+      appConfig.buildDir,
+      appConfig.serverFolderName || 'server',
     );
 
     // Load the server's regular manifest
@@ -1082,30 +1538,41 @@ export class SSRServer extends BaseServer {
       renderRequest: RenderRequest,
     ) => Promise<RenderResult>;
 
-    // Cache the render function for subsequent requests
-    this.cachedRenderFunction = renderFunction;
+    // Cache the render function on the app config for subsequent requests
+    appConfig.cachedRenderFunction = renderFunction;
     return renderFunction;
   }
 
   /**
    * Loads and processes the HTML template based on the server mode
+   * @param appConfig App configuration to load template for
    * @returns Promise that resolves to the processed template content and path
    * @private
    */
-  private async loadHTMLTemplate(): Promise<{ content: string; path: string }> {
+  private async loadHTMLTemplate(
+    appConfig: SSRInternalAppConfig,
+  ): Promise<{ content: string; path: string }> {
     // Determine template path based on mode
     let htmlTemplatePath: string;
 
-    if (this.config.mode === 'development') {
+    if (this.serverMode === 'development' && 'paths' in appConfig) {
       // Development mode: use provided template path
-      htmlTemplatePath = this.config.paths.template;
+      htmlTemplatePath = appConfig.paths.template;
+    } else if (this.serverMode === 'production' && 'buildDir' in appConfig) {
+      // Production mode: use custom template or default to client/index.html
+      if (appConfig.template) {
+        // Custom template path (relative to buildDir)
+        htmlTemplatePath = path.join(appConfig.buildDir, appConfig.template);
+      } else {
+        // Default: client folder from build directory
+        htmlTemplatePath = path.join(
+          appConfig.buildDir,
+          appConfig.clientFolderName || 'client',
+          'index.html',
+        );
+      }
     } else {
-      // Production mode: use client folder from build directory
-      htmlTemplatePath = path.join(
-        this.config.buildDir,
-        this.clientFolderName,
-        'index.html',
-      );
+      throw new Error('Invalid app config for template loading');
     }
 
     // Read the HTML template file
@@ -1114,7 +1581,7 @@ export class SSRServer extends BaseServer {
     if (!templateResult.exists) {
       throw new Error(
         `HTML template not found at ${htmlTemplatePath}. ` +
-          (this.config.mode === 'development'
+          (this.serverMode === 'development'
             ? 'Please check the templatePath parameter.'
             : 'Make sure to run the client build first.'),
       );
@@ -1133,9 +1600,9 @@ export class SSRServer extends BaseServer {
       throw new Error(`HTML template at ${htmlTemplatePath} is empty`);
     }
 
-    // Process the template based on mode and options
-    const isDevelopment = this.config.mode === 'development';
-    const containerID = this.config.options.containerID || 'root';
+    // Process the template based on mode and app-specific container ID
+    const isDevelopment = this.serverMode === 'development';
+    const containerID = appConfig.containerID || 'root';
 
     const processResult = await processTemplate(
       rawHTMLTemplate,
@@ -1162,14 +1629,14 @@ export class SSRServer extends BaseServer {
    * @param request The Fastify request object
    * @param reply The Fastify reply object
    * @param error The error that occurred
-   * @param vite The Vite dev server instance (null in production)
+   * @param appConfig The app configuration (contains viteDevServer in development)
    * @private
    */
   private async handleSSRError(
     request: FastifyRequest,
     reply: FastifyReply,
     error: Error,
-    vite: ViteDevServer | null,
+    appConfig: SSRInternalAppConfig,
   ): Promise<void> {
     // This method is invoked both by the global Fastify error handler and
     // by our route-level try/catch around the render call. If a response
@@ -1178,16 +1645,23 @@ export class SSRServer extends BaseServer {
       return;
     }
 
-    const isDevelopment = this.config.mode === 'development';
+    const isDevelopment = this.serverMode === 'development';
 
     // If an error is caught, let Vite fix the stack trace so it maps back
     // to your actual source code.
+    const vite = 'viteDevServer' in appConfig ? appConfig.viteDevServer : null;
+
     if (vite && error instanceof Error && isDevelopment) {
       vite.ssrFixStacktrace(error);
     }
 
     // Generate and send error page (handles dev vs prod internally)
-    const errorPage = await this.generate500ErrorPage(request, error);
+    const errorPage = await this.generate500ErrorPage(
+      request,
+      error,
+      appConfig,
+    );
+
     reply
       .code(500)
       .header('Content-Type', 'text/html')
@@ -1199,14 +1673,16 @@ export class SSRServer extends BaseServer {
    * Generates a 500 error page using custom handler or default
    * @param request The Fastify request object
    * @param error The error that occurred
+   * @param appConfig The active app configuration
    * @returns Promise that resolves to HTML string
    * @private
    */
   private async generate500ErrorPage(
     request: FastifyRequest,
     error: Error,
+    appConfig: SSRInternalAppConfig,
   ): Promise<string> {
-    const isDevelopment = this.config.mode === 'development';
+    const isDevelopment = this.serverMode === 'development';
 
     // Log error details for server logs (always log, regardless of mode)
     this.fastifyInstance?.log.error(
@@ -1215,17 +1691,13 @@ export class SSRServer extends BaseServer {
     );
 
     try {
-      if (this.config.options.get500ErrorPage) {
-        // Use custom error handler if provided
-        return await this.config.options.get500ErrorPage(
-          request,
-          error,
-          isDevelopment,
-        );
-      } else {
-        // Use default error page if no custom handler provided
-        return generateDefault500ErrorPage(request, error, isDevelopment);
+      // Use app-specific error handler if provided
+      if (appConfig.get500ErrorPage) {
+        return await appConfig.get500ErrorPage(request, error, isDevelopment);
       }
+
+      // Fall back to built-in default error page
+      return generateDefault500ErrorPage(request, error, isDevelopment);
     } catch (errorHandlerError) {
       // If custom error handler itself throws, fall back to the default error page
       this.fastifyInstance?.log.error(
@@ -1248,7 +1720,7 @@ export class SSRServer extends BaseServer {
     reply: FastifyReply,
     error: Error,
   ): Promise<void> {
-    const isDevelopment = this.config.mode === 'development';
+    const isDevelopment = this.serverMode === 'development';
 
     const { isPageData } = classifyRequest(
       request.url,
@@ -1257,10 +1729,10 @@ export class SSRServer extends BaseServer {
     );
 
     // Check for custom API error handler if provided
-    if (this.config.options.APIHandling?.errorHandler) {
+    if (this.sharedOptions.APIHandling?.errorHandler) {
       try {
         const customResponse = await Promise.resolve(
-          this.config.options.APIHandling.errorHandler(
+          this.sharedOptions.APIHandling.errorHandler(
             request,
             error,
             isDevelopment,
@@ -1319,10 +1791,10 @@ export class SSRServer extends BaseServer {
     );
 
     // Check for custom API not-found handler
-    if (this.config.options.APIHandling?.notFoundHandler) {
+    if (this.sharedOptions.APIHandling?.notFoundHandler) {
       try {
         const customResponse = await Promise.resolve(
-          this.config.options.APIHandling.notFoundHandler(request, isPageData),
+          this.sharedOptions.APIHandling.notFoundHandler(request, isPageData),
         );
 
         // Extract status code from envelope response

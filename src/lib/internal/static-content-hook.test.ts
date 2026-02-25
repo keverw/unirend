@@ -1,5 +1,8 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { createStaticContentHook } from './static-content-hook';
+import {
+  createStaticContentHook,
+  staticContentHookHandler,
+} from './static-content-hook';
 import { StaticContentCache } from './static-content-cache';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 
@@ -244,6 +247,116 @@ describe('createStaticContentHook', () => {
 
       // Should still work - no errors means both files are accessible
       expect(true).toBe(true);
+    });
+  });
+
+  describe('staticContentHookHandler', () => {
+    it('exports the handler function', () => {
+      expect(typeof staticContentHookHandler).toBe('function');
+    });
+
+    it('ignores non-GET requests', async () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/test.txt': '/path/to/test.txt' },
+      });
+
+      const req = createMockRequest('/test.txt', 'POST');
+      const reply = createMockReply();
+
+      const result = await staticContentHookHandler(
+        cache,
+        req as FastifyRequest,
+        reply as FastifyReply,
+      );
+
+      expect(result).toBeUndefined();
+      expect(reply.send).not.toHaveBeenCalled();
+    });
+
+    it('ignores requests without URL', async () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/test.txt': '/path/to/test.txt' },
+      });
+
+      const req = { method: 'GET', raw: {} } as FastifyRequest;
+      const reply = createMockReply();
+
+      const result = await staticContentHookHandler(
+        cache,
+        req,
+        reply as FastifyReply,
+      );
+
+      expect(result).toBeUndefined();
+      expect(reply.send).not.toHaveBeenCalled();
+    });
+
+    it('processes GET requests with URLs', async () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: {},
+      });
+
+      const req = createMockRequest('/test.txt');
+      const reply = createMockReply();
+
+      // Should not throw - delegates to cache
+      const result = await staticContentHookHandler(
+        cache,
+        req as FastifyRequest,
+        reply as FastifyReply,
+      );
+
+      // Result should be defined (ServeFileResult from cache)
+      expect(result).toBeDefined();
+    });
+
+    it('returns ServeFileResult when delegating to cache', async () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: {},
+      });
+
+      const req = createMockRequest('/nonexistent.txt');
+      const reply = createMockReply();
+
+      const result = await staticContentHookHandler(
+        cache,
+        req as FastifyRequest,
+        reply as FastifyReply,
+      );
+
+      // Should return a ServeFileResult (even if not-found)
+      expect(result).toBeDefined();
+      expect(result).toHaveProperty('served');
+    });
+
+    it('works with different HTTP methods', async () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/test.txt': '/path/to/test.txt' },
+      });
+
+      const methods = ['POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
+      const reply = createMockReply();
+
+      for (const method of methods) {
+        const req = createMockRequest('/test.txt', method);
+        const result = await staticContentHookHandler(
+          cache,
+          req as FastifyRequest,
+          reply as FastifyReply,
+        );
+
+        expect(result).toBeUndefined();
+      }
+
+      // Only GET should work
+      const getReq = createMockRequest('/test.txt', 'GET');
+      const getResult = await staticContentHookHandler(
+        cache,
+        getReq as FastifyRequest,
+        reply as FastifyReply,
+      );
+
+      expect(getResult).toBeDefined();
     });
   });
 });

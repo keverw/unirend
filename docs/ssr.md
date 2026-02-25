@@ -23,6 +23,21 @@
     - [API route handler signature and parameters:](#api-route-handler-signature-and-parameters)
   - [Param Source Parity (Data Loader vs API Routes):](#param-source-parity-data-loader-vs-api-routes)
   - [Request Context Injection](#request-context-injection)
+- [Multi-App SSR Support](#multi-app-ssr-support)
+  - [Usage Example](#usage-example)
+    - [Production Mode](#production-mode)
+    - [Development Mode](#development-mode)
+  - [API Reference](#api-reference)
+  - [Routing Strategies](#routing-strategies)
+    - [1. Subdomain-Based Routing](#1-subdomain-based-routing)
+    - [2. Path-Based Routing](#2-path-based-routing)
+    - [3. Cookie-Based Routing](#3-cookie-based-routing)
+  - [Important Notes](#important-notes)
+    - [Mode Enforcement](#mode-enforcement)
+    - [Shared Resources](#shared-resources)
+    - [Per-App Resources](#per-app-resources)
+    - [Resource Considerations](#resource-considerations)
+    - [Validation](#validation)
 - [Standalone API (APIServer)](#standalone-api-apiserver)
   - [Basic usage](#basic-usage)
   - [Options](#options)
@@ -74,12 +89,18 @@ import { serveSSRProd } from 'unirend/server';
 import path from 'path';
 
 async function main() {
-  // Point to the build directory (contains both client/ and server/ subdirectories)
+  // Build directory (contains both client/ and server/ subdirectories)
   const buildDir = path.resolve(__dirname, 'build');
 
   const server = serveSSRProd(buildDir, {
-    // Optional: Custom server entry name (default: "entry-server")
+    // Optional: Custom server entry name (default: "entry-server" - looks for entry-server.js in server manifest)
     // serverEntry: "custom-entry",
+
+    // Optional: Custom HTML template path relative to buildDir (default: "client/index.html")
+    // template: "dist/app.html",
+
+    // Optional: CDN base URL for asset URL rewriting (rewrites <script src> and <link href> at runtime)
+    // CDNBaseURL: process.env.CDN_BASE_URL,  // e.g., 'https://cdn.example.com'
 
     // Optional configuration object to be injected into the frontend app.
     // Serialized and injected as window.__FRONTEND_APP_CONFIG__ during SSR.
@@ -92,6 +113,35 @@ async function main() {
       // See docs/build-info.md for generating/loading and safe exposure.
       // build: { version: "1.2.3" },
     },
+
+    // Optional: API endpoint configuration (defaults shown)
+    // apiEndpoints: { apiEndpointPrefix: "/api", versioned: true, pageDataEndpoint: "page_data" },
+
+    // Optional: Custom error/not-found handlers for API requests
+    // APIHandling: { errorHandler: (request, error, isDev, isPageData) => {...}, notFoundHandler: (request, isPageData) => {...} },
+
+    // Optional: Custom container ID (default: "root")
+    // containerID: "app",
+
+    // Optional: SSR render timeout in milliseconds (default: 5000)
+    // ssrRenderTimeout: 10000, // 10 seconds for pages with slow data loaders
+
+    // Optional: Server plugins
+    // plugins: [myPlugin],
+
+    // Optional: Static content configuration
+    // - Default (omit): Serves from buildDir/client/assets at /assets with immutable asset detection
+    // - false: Disable static serving (e.g., when using a CDN)
+    // - Custom config: Provide your own folderMap/singleAssetMap configuration
+    // staticContentRouter: {
+    //   folderMap: { '/custom': './build/client/custom' },
+    // },
+
+    // Optional: Custom 500 error page generator (for catastrophic SSR failures)
+    // get500ErrorPage: async (request, error, isDevelopment) => {
+    //   return `<html><body><h1>Server Error</h1></body></html>`;
+    // },
+
     // Tip: See docs/build-info.md for adding a plugin that decorates request.buildInfo
   });
 
@@ -108,6 +158,39 @@ Notes:
 - `frontendAppConfig` is passed to the Unirend context and available via the `useFrontendAppConfig()` hook on both server (during rendering) and client (after HTML injection).
 - For accessing config in components vs non-component code (loaders), fallback patterns, and SPA-only dev mode considerations, see: [4. Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern).
 
+**Per-Request CDN Override Example:**
+
+You can override the CDN URL per-request in middleware for region-specific CDNs:
+
+```typescript
+const server = serveSSRProd(buildDir, {
+  // Default CDN URL
+  CDNBaseURL: 'https://cdn.example.com',
+});
+
+// Override CDN URL based on user region
+server.fastifyInstance.addHook('onRequest', async (request, reply) => {
+  // Detect region (via IP geolocation, cookie, header, etc.)
+  const region = detectRegion(request);
+
+  if (region === 'EU') {
+    (request as any).CDNBaseURL = 'https://eu-cdn.example.com';
+  } else if (region === 'APAC') {
+    (request as any).CDNBaseURL = 'https://apac-cdn.example.com';
+  }
+  // Falls back to default CDNBaseURL if not overridden
+});
+```
+
+HTML Template:
+
+- **Production mode**:
+  - **Default**: Loads from `buildDir/client/index.html`
+  - **Custom path**: Use `template` option to specify a different path relative to `buildDir` (e.g., `template: "dist/app.html"` loads from `buildDir/dist/app.html`)
+  - **Custom folder**: Use `clientFolderName` to change the folder but keep `index.html` as filename (e.g., `clientFolderName: 'dist-client'` loads from `buildDir/dist-client/index.html`)
+  - **Caching**: The template is loaded once at server startup and cached in memory for performance. Restart the server to pick up template changes.
+  - The template file must exist in your build output (generated by your Vite build process)
+
 Host binding:
 
 - For local development, `localhost` is fine. In containers or Kubernetes, bind to `0.0.0.0` (e.g., `await server.listen(port, "0.0.0.0")`) so the process is reachable from outside the container.
@@ -122,18 +205,40 @@ import { serveSSRDev } from 'unirend/server';
 async function main() {
   const server = serveSSRDev(
     {
-      serverEntry: './src/entry-server.tsx',
-      template: './index.html',
-      viteConfig: './vite.config.ts',
+      // Required: paths for development mode (no defaults, must be specified)
+      serverEntry: './src/entry-server.tsx', // Your server entry file
+      template: './index.html', // HTML template file
+      viteConfig: './vite.config.ts', // Vite config file
     },
     {
-      // Optional: same options surface as production where applicable
-      // e.g., frontendAppConfig, apiEndpoints, APIHandling, containerID, plugins, fastifyOptions
-      // frontendAppConfig: { apiUrl: "http://localhost:3001", environment: "development" },
+      // Optional configuration object to be injected into the frontend app.
+      // Serialized and injected as window.__FRONTEND_APP_CONFIG__ during SSR.
+      // Available via useFrontendAppConfig() hook on both server and client.
+      // Tip: Keep this minimal and non-sensitive, it will be passed to the client.
+      frontendAppConfig: {
+        apiUrl: process.env.API_URL || 'http://localhost:3001',
+        environment: 'development',
+      },
+
+      // Optional: API endpoint configuration (defaults shown)
       // apiEndpoints: { apiEndpointPrefix: "/api", versioned: true, pageDataEndpoint: "page_data" },
-      // APIHandling: { errorHandler: ..., notFoundHandler: ... },
+
+      // Optional: Custom error/not-found handlers for API requests
+      // APIHandling: { errorHandler: (request, error, isDev, isPageData) => {...}, notFoundHandler: (request, isPageData) => {...} },
+
+      // Optional: Custom container ID (default: "root")
+      // containerID: "app",
+
+      // Optional: SSR render timeout in milliseconds (default: 5000)
+      // ssrRenderTimeout: 10000, // 10 seconds for pages with slow data loaders
+
+      // Optional: Server plugins
       // plugins: [myPlugin],
-      // fastifyOptions: { logger: true },
+
+      // Optional: Custom 500 error page generator (for catastrophic SSR failures)
+      // get500ErrorPage: async (request, error, isDevelopment) => {
+      //   return `<html><body><h1>Server Error</h1></body></html>`;
+      // },
     },
   );
 
@@ -148,6 +253,7 @@ Notes:
 - In dev, Vite serves client assets with middleware and `vite.ssrLoadModule` is used for the server entry.
 - HMR is available. Stack traces are mapped for easier debugging.
 - `frontendAppConfig` is injected in both development and production when using `serveSSRDev` or `serveSSRProd`.
+- **HTML Template**: The `template` path in development mode is fully customizable. Specify any HTML file path (e.g., `./index.html`, `./src/app.html`, etc.). The template is read fresh on each request and transformed by Vite for HMR support.
 
 ### Organization Suggestion
 
@@ -212,6 +318,9 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
   - Use for runtime configuration (API URLs, feature flags, build info, etc.). See [4. Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern) for usage in components vs loaders.
 - `containerID?: string`
   - Client container element ID (default `"root"`).
+- `ssrRenderTimeout?: number`
+  - Timeout in milliseconds for the SSR render fetch request. If the render takes longer than this, the request is aborted and a 500 error page is returned.
+  - Default: `5000` (5 seconds). Increase for pages with slow data loaders or complex rendering.
 - `clientFolderName?: string`, `serverFolderName?: string`
   - Names of subfolders inside the Vite build output (defaults: `client` and `server`).
 - `logging?: { logger; level? }`
@@ -319,6 +428,21 @@ For custom request-start/completion access logs, see [Access Logging Plugin](./s
 
 - `serverEntry?: string`
   - Name of the server entry in manifest (default `"entry-server"`).
+- `template?: string`
+  - Custom HTML template path relative to `buildDir` (default: `"client/index.html"`).
+  - Example: `template: "dist/app.html"` loads from `buildDir/dist/app.html`.
+  - The template is loaded once at server startup and cached in memory. Restart the server to pick up template changes.
+  - Alternatively, use `clientFolderName` to change the folder but keep `index.html` as filename.
+- `CDNBaseURL?: string`
+  - CDN base URL for runtime asset URL rewriting (e.g., `'https://cdn.example.com'`).
+  - Rewrites `<script src>` and `<link href>` attributes in the HTML template to use the CDN instead of relative paths.
+  - Only affects absolute paths starting with `/` (e.g., `/assets/main.js` becomes `https://cdn.example.com/assets/main.js`).
+  - **Runtime flexibility**: During template processing, absolute URLs are converted to placeholders. The actual CDN URL is injected per-request, allowing:
+    - **Per-request override**: Set `request.CDNBaseURL` in middleware to override the CDN URL for specific requests (e.g., region-specific CDNs)
+    - **App-level default**: Falls back to the `CDNBaseURL` option configured in `serveSSRProd()` or `registerProdApp()`
+    - **No CDN**: If neither is set, original `/assets/...` paths are preserved
+  - Useful for serving assets from a CDN without build-time configuration changes.
+  - Tip: Set via environment variable (e.g., `CDNBaseURL: process.env.CDN_BASE_URL`) in `serveSSRProd()` or `registerProdApp()` options for deployment flexibility, or override per-request in middleware for region-specific CDN selection.
 - `staticContentRouter?: StaticContentRouterOptions | false`
   - Serves static assets (images, CSS, JS) in production. Not related to React Router’s StaticRouter.
   - Set to `false` to disable built‑in static serving (e.g., when using a CDN).
@@ -827,6 +951,269 @@ This forwarding is automatic and transparent - handlers work the same whether co
 **Common Use Cases:**
 
 For production-ready patterns including CSRF token management and hydration-safe theme consistency between server and client, see the [Advanced Patterns section](./unirend-context.md#advanced-patterns) in the Unirend Context documentation.
+
+## Multi-App SSR Support
+
+A single `SSRServer` instance can serve **multiple distinct React applications**, switchable via middleware based on request context (subdomain, path, headers, etc.). This is valuable for:
+
+- **Monorepo deployments**: Serve marketing + app sites from one server
+- **Subdomain routing**: `marketing.example.com` vs `app.example.com` with different builds
+- **A/B testing**: Different frontend builds for experimentation
+- **Resource efficiency**: Consolidate multiple frontend projects into one server process
+
+**Key Features:**
+
+- **Mode enforcement**: Dev server = dev apps only, prod server = prod apps only
+- **Per-app configuration**: Each app gets its own `frontendAppConfig`, templates, static assets, and error pages
+- **Shared resources**: API handlers, plugins, and cookie policies are shared across all apps
+
+### Usage Example
+
+#### Production Mode
+
+```typescript
+import { serveSSRProd } from 'unirend/server';
+
+// Create server with default app
+const server = serveSSRProd('./build-main', {
+  frontendAppConfig: { apiUrl: 'https://api.example.com' },
+});
+
+// Register additional apps - each supports the same options as serveSSRProd()
+server.registerProdApp('marketing', './build-marketing', {
+  // App-specific frontend config (injected into client)
+  frontendAppConfig: { apiUrl: 'https://marketing-api.example.com' },
+
+  // Optional: Custom server entry (default: "entry-server")
+  // serverEntry: 'custom-entry',
+
+  // Optional: Custom HTML template (default: "client/index.html")
+  // template: 'dist/marketing.html',
+
+  // Optional: CDN base URL for asset URL rewriting
+  // CDNBaseURL: process.env.CDN_BASE_URL,
+
+  // Optional: Custom folder names (default: 'client' and 'server')
+  // clientFolderName: 'dist-client',
+  // serverFolderName: 'dist-server',
+
+  // Optional: Custom container ID (default: 'root')
+  // containerID: 'marketing-root',
+
+  // Optional: Custom 500 error page
+  // get500ErrorPage: async (request, error, isDevelopment) => {
+  //   return `<html><body><h1>Marketing Error</h1></body></html>`;
+  // },
+
+  // Optional: Static content configuration
+  // - Default (omit): Serves from buildDir/client/assets at /assets with immutable asset detection
+  // - false: Disable static serving (e.g., when using a CDN)
+  // - Custom config: Provide your own folderMap/singleAssetMap configuration
+  // staticContentRouter: {
+  //   folderMap: { '/assets': './build-marketing/client/assets' },
+  // },
+});
+
+// Route requests to the correct app via middleware
+server.fastifyInstance.addHook('onRequest', async (request, reply) => {
+  const subdomain = request.hostname.split('.')[0];
+
+  if (subdomain === 'marketing') {
+    request.activeSSRApp = 'marketing';
+  } else if (subdomain === 'admin') {
+    request.activeSSRApp = 'admin';
+  }
+  // Falls back to '__default__' (main app) if not set
+});
+
+await server.listen(3000);
+```
+
+#### Development Mode
+
+```typescript
+import { serveSSRDev } from 'unirend/server';
+
+const server = serveSSRDev(
+  {
+    serverEntry: './src/entry-server.tsx',
+    template: './index.html',
+    viteConfig: './vite.config.ts',
+  },
+  {
+    frontendAppConfig: { apiUrl: 'http://localhost:3001' },
+  },
+);
+
+// Register additional apps - each supports the same options as serveSSRDev()
+server.registerDevApp(
+  'marketing',
+  {
+    serverEntry: './src/marketing/entry-server.tsx',
+    template: './src/marketing/index.html',
+    viteConfig: './vite.marketing.config.ts',
+  },
+  {
+    // App-specific frontend config (injected into client)
+    frontendAppConfig: { apiUrl: 'http://localhost:3002' },
+
+    // Optional: Custom folder names (default: 'client' and 'server')
+    // clientFolderName: 'dist-client',
+    // serverFolderName: 'dist-server',
+
+    // Optional: Custom container ID (default: 'root')
+    // containerID: 'marketing-root',
+
+    // Optional: Custom 500 error page
+    // get500ErrorPage: async (request, error, isDevelopment) => {
+    //   return `<html><body><h1>Marketing Dev Error</h1></body></html>`;
+    // },
+  },
+);
+
+// Routing middleware (same as production)
+server.fastifyInstance.addHook('onRequest', async (request, reply) => {
+  if (request.url.startsWith('/marketing')) {
+    request.activeSSRApp = 'marketing';
+  }
+});
+
+await server.listen(3000);
+```
+
+### API Reference
+
+**registerProdApp(appKey, buildDir, options?)**
+
+Register an additional production-mode app. Must be called **before** `listen()`.
+
+- `appKey`: Unique identifier (used in `request.activeSSRApp`). Cannot be `"__default__"` or contain path separators.
+- `buildDir`: Path to the app's build directory
+- `options`: Same options as `serveSSRProd()` (e.g., `frontendAppConfig`, `staticContentRouter`, etc.)
+
+**registerDevApp(appKey, paths, options?)**
+
+Register an additional development-mode app. Must be called **before** `listen()`.
+
+- `appKey`: Unique identifier (used in `request.activeSSRApp`). Cannot be `"__default__"` or contain path separators.
+- `paths`: Dev paths object (same as `serveSSRDev()`)
+- `options`: Same options as `serveSSRDev()` (e.g., `frontendAppConfig`, etc.)
+
+**Static Content Defaults (Production Only)**
+
+Each production app (both main and registered) automatically serves static assets unless `staticContentRouter` is explicitly set:
+
+- **Default behavior**: Serves files from `buildDir/<clientFolderName>/assets` at the `/assets` URL path
+- **Immutable assets**: Fingerprinted files (e.g., `main-abc123.js`) get `Cache-Control: public, max-age=31536000, immutable`
+- **Disable**: Set `staticContentRouter: false` to disable (useful when using a CDN)
+- **Customize**: Provide your own `staticContentRouter` configuration to change paths or add additional folders
+
+Each registered app gets its own independent static content configuration based on its `buildDir` and `clientFolderName`.
+
+### Routing Strategies
+
+#### 1. Subdomain-Based Routing
+
+```typescript
+server.fastifyInstance.addHook('onRequest', async (request, reply) => {
+  const subdomain = request.hostname.split('.')[0];
+
+  switch (subdomain) {
+    case 'marketing':
+      request.activeSSRApp = 'marketing';
+      break;
+    case 'app':
+      request.activeSSRApp = 'app';
+      break;
+    // Falls back to '__default__' for main domain
+  }
+});
+```
+
+#### 2. Path-Based Routing
+
+```typescript
+server.fastifyInstance.addHook('onRequest', async (request, reply) => {
+  if (request.url.startsWith('/marketing')) {
+    request.activeSSRApp = 'marketing';
+  } else if (request.url.startsWith('/admin')) {
+    request.activeSSRApp = 'admin';
+  }
+});
+```
+
+**Important**: When using path-based routing, your React Router routes must match the path prefix to avoid hydration errors. For example, if routing to the `marketing` app on `/marketing/*`, define routes like `/marketing/home`, `/marketing/about`, etc.
+
+#### 3. Cookie-Based Routing
+
+```typescript
+// Set A/B variant cookie
+server.fastifyInstance.addHook('onRequest', async (request, reply) => {
+  // Check for existing variant cookie
+  let variant = request.cookies['ab-variant'];
+
+  // Assign variant if not set (50/50 split)
+  if (!variant) {
+    variant = Math.random() < 0.5 ? 'a' : 'b';
+
+    reply.setCookie('ab-variant', variant, {
+      maxAge: 30 * 24 * 60 * 60, // 30 days
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: 'auto', // sets Secure when over HTTPS
+    });
+  }
+
+  // Route based on variant
+  if (variant === 'b') {
+    request.activeSSRApp = 'variant-b';
+  }
+  // Falls back to '__default__' for variant A
+});
+```
+
+**Note**: This approach uses cookies to maintain consistent variant assignment across requests. The cookie settings align with [recommended patterns](./built-in-plugins/cookies.md#recommended-patterns) for first-party session cookies.
+
+### Important Notes
+
+#### Mode Enforcement
+
+- Production servers (via `serveSSRProd`) can only register production apps with `registerProdApp()`
+- Development servers (via `serveSSRDev`) can only register development apps with `registerDevApp()`
+- This prevents mode mixing and simplifies deployment
+
+#### Shared Resources
+
+These resources are shared across all apps:
+
+- **API handlers**: All `pageDataHandler.register()` and custom API routes are shared across apps. To organize handlers for multiple apps, use the [Multi-Project Pattern](#page-data-loader-handlers-and-versioning) with namespaced page types (e.g., `marketing/home`, `app/dashboard`).
+- **API error handling**: `APIHandling` (custom error/not-found handlers) is shared across all apps. These are server-level handlers, not per-app configuration.
+- **Plugins**: Plugins registered via `plugins` option apply to all apps
+- **Cookie policy**: Cookie forwarding rules (`cookieForwarding`) apply to all apps. **Important**: Apps should be on the same base domain (e.g., `example.com`, `www.example.com`, `app.example.com`, `marketing.example.com`) to share cookies safely. For cross-domain apps (e.g., `myapp.com` and `partner.com`), use separate server instances.
+- **WebSockets**: WebSocket handlers are shared across apps
+
+#### Per-App Resources
+
+These resources are configured independently for each app:
+
+- **Error pages**: `get500ErrorPage` is per-app. Each app uses its own custom error page if specified, otherwise falls back to the framework's built-in default error page
+- **CDN configuration**: `CDNBaseURL` is per-app. Each app can use its own CDN base URL for asset delivery
+- **Static content**: Each app serves its own static assets from its `buildDir` and `clientFolderName`, or provide a custom `staticContentRouter` configuration (production only)
+- **HTML template**: Each app uses its own HTML template from its build directory
+- **Frontend app config**: Each app can have its own `frontendAppConfig` injected as `window.__FRONTEND_APP_CONFIG__`
+
+#### Resource Considerations
+
+- Each Vite instance (dev mode) uses ~50-100MB of memory
+- Each static content cache (prod mode) uses ~50MB of memory
+- **HMR Ports (dev mode)**: Each app's Vite instance gets a unique HMR WebSocket port automatically assigned as `port + 1000 + index` (e.g., if server runs on port 3000, HMR ports are 4000, 4001, 4002, etc.). No manual configuration needed.
+- **Recommendation**: Limit to 3-5 apps per server instance for optimal performance
+
+#### Validation
+
+- Apps must be registered **before** calling `listen()`
+- Attempting to access a non-existent app key throws an error with available apps listed
+- App keys cannot contain path separators (`/` or `\`)
 
 ## Standalone API (APIServer)
 

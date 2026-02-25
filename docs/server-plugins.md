@@ -131,7 +131,6 @@ import type { PluginMetadata } from 'unirend/server';
 interface PluginOptions {
   mode: 'development' | 'production';
   isDevelopment: boolean;
-  buildDir?: string; // Available in production mode
   serverType: 'ssr' | 'api'; // Server type context
   apiEndpoints: APIEndpointConfig; // API endpoint configuration
 }
@@ -140,7 +139,6 @@ interface PluginOptions {
 Plugins receive context about the server environment and configuration:
 
 - **`mode`** / **`isDevelopment`**: Current environment mode for conditional plugin behavior
-- **`buildDir`**: Build directory path (available in production mode)
 - **`serverType`**: Whether the plugin is running on an SSR server or standalone API server
 - **`apiEndpoints`**: API endpoint configuration including `apiEndpointPrefix` (default `"/api"`) and other settings
 

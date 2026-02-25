@@ -182,4 +182,72 @@ describe('injectContent', () => {
     const configIndex = result.indexOf('window.__FRONTEND_APP_CONFIG__');
     expect(requestIndex).toBeLessThan(configIndex);
   });
+
+  it('should replace CDN placeholder with provided CDN URL', () => {
+    const template =
+      '<!DOCTYPE html><html><head><script src="__CDN__INJECTION__POINT__/assets/main.js"></script><link href="__CDN__INJECTION__POINT__/assets/styles.css" rel="stylesheet" /></head><body><!--ss-outlet--></body></html>';
+
+    const result = injectContent(
+      template,
+      '',
+      '',
+      undefined,
+      'https://cdn.example.com',
+    );
+
+    expect(result).toContain('src="https://cdn.example.com/assets/main.js"');
+    expect(result).toContain(
+      'href="https://cdn.example.com/assets/styles.css"',
+    );
+    expect(result).not.toContain('__CDN__INJECTION__POINT__');
+  });
+
+  it('should remove CDN placeholder when no CDN URL provided', () => {
+    const template =
+      '<!DOCTYPE html><html><head><script src="__CDN__INJECTION__POINT__/assets/main.js"></script><link href="__CDN__INJECTION__POINT__/assets/styles.css" rel="stylesheet" /></head><body><!--ss-outlet--></body></html>';
+
+    const result = injectContent(template, '', '');
+
+    expect(result).toContain('src="/assets/main.js"');
+    expect(result).toContain('href="/assets/styles.css"');
+    expect(result).not.toContain('__CDN__INJECTION__POINT__');
+  });
+
+  it('should handle CDN URL with trailing slash', () => {
+    const template =
+      '<!DOCTYPE html><html><head><script src="__CDN__INJECTION__POINT__/assets/main.js"></script></head><body><!--ss-outlet--></body></html>';
+
+    const result = injectContent(
+      template,
+      '',
+      '',
+      undefined,
+      'https://cdn.example.com/',
+    );
+
+    expect(result).toContain('src="https://cdn.example.com/assets/main.js"');
+    expect(result).not.toContain('//assets/');
+    expect(result).not.toContain('__CDN__INJECTION__POINT__');
+  });
+
+  it('should replace multiple CDN placeholders', () => {
+    const template =
+      '<!DOCTYPE html><html><head><script src="__CDN__INJECTION__POINT__/assets/vendor.js"></script><script src="__CDN__INJECTION__POINT__/assets/main.js"></script><link href="__CDN__INJECTION__POINT__/assets/styles.css" rel="stylesheet" /><link href="__CDN__INJECTION__POINT__/favicon.ico" rel="icon" /></head><body><!--ss-outlet--></body></html>';
+
+    const result = injectContent(
+      template,
+      '',
+      '',
+      undefined,
+      'https://cdn.example.com',
+    );
+
+    expect(result).toContain('src="https://cdn.example.com/assets/vendor.js"');
+    expect(result).toContain('src="https://cdn.example.com/assets/main.js"');
+    expect(result).toContain(
+      'href="https://cdn.example.com/assets/styles.css"',
+    );
+    expect(result).toContain('href="https://cdn.example.com/favicon.ico"');
+    expect(result).not.toContain('__CDN__INJECTION__POINT__');
+  });
 });

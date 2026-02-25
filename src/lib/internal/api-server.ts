@@ -632,7 +632,6 @@ export class APIServer extends BaseServer {
       serverType: 'api',
       mode: this.options.isDevelopment ? 'development' : 'production',
       isDevelopment: this.options.isDevelopment ?? false,
-      buildDir: undefined, // Not applicable for API servers
       apiEndpoints: this.options.apiEndpoints,
     };
 

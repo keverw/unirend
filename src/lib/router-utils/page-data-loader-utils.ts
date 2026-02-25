@@ -1,6 +1,6 @@
 import type {
   BaseMeta,
-  ErrorDetails,
+  ErrorDetailsValue,
   PageErrorResponse,
   PageResponseEnvelope,
 } from '../api-envelope/api-envelope-types';
@@ -135,7 +135,7 @@ export function createErrorResponse(
     description?: string;
     [key: string]: unknown;
   },
-  errorDetails?: ErrorDetails,
+  errorDetails?: ErrorDetailsValue,
 ): PageErrorResponse {
   // Default error response creation - use generic error as fallback
   let title = config.errorDefaults.genericError.title;

@@ -242,10 +242,18 @@ export async function processAPIResponse(
         // redirect to login - check for return_to in the error details
         // Type guard already confirmed error exists and is an object with code property
         const errorObj = responseData.error as ErrorObject;
-        const returnTo =
-          errorObj.details && typeof errorObj.details.return_to === 'string'
-            ? errorObj.details.return_to
-            : undefined;
+
+        // Safely extract return_to from error details with proper type narrowing
+        let returnTo: string | undefined;
+        if (
+          errorObj.details &&
+          typeof errorObj.details === 'object' &&
+          !Array.isArray(errorObj.details) &&
+          'return_to' in errorObj.details &&
+          typeof errorObj.details.return_to === 'string'
+        ) {
+          returnTo = errorObj.details.return_to;
+        }
 
         const returnToParam = config.returnToParam || DEFAULT_RETURN_TO_PARAM;
 

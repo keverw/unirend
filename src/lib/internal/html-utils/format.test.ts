@@ -752,3 +752,183 @@ describe('processTemplate with custom containerID', () => {
     }
   });
 });
+
+describe('processTemplate with CDN placeholder injection', () => {
+  it('should add CDN placeholder to absolute script src URLs', async () => {
+    const html = `
+      <html>
+        <head>
+          <!--ss-head-->
+          <script src="/assets/vendor.js"></script>
+        </head>
+        <body>
+          <div id="root"><!--ss-outlet-->Content</div>
+          <script src="/assets/main.js"></script>
+        </body>
+      </html>
+    `;
+
+    const result = await processTemplate(html, 'ssr', false, 'root');
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain(
+        'src="__CDN__INJECTION__POINT__/assets/vendor.js"',
+      );
+      expect(result.html).toContain(
+        'src="__CDN__INJECTION__POINT__/assets/main.js"',
+      );
+      expect(result.html).not.toContain('src="/assets/vendor.js"');
+      expect(result.html).not.toContain('src="/assets/main.js"');
+    }
+  });
+
+  it('should add CDN placeholder to absolute link href URLs', async () => {
+    const html = `
+      <html>
+        <head>
+          <!--ss-head-->
+          <link rel="stylesheet" href="/assets/styles.css" />
+          <link rel="icon" href="/favicon.ico" />
+        </head>
+        <body>
+          <div id="root"><!--ss-outlet-->Content</div>
+        </body>
+      </html>
+    `;
+
+    const result = await processTemplate(html, 'ssr', false, 'root');
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain(
+        'href="__CDN__INJECTION__POINT__/assets/styles.css"',
+      );
+      expect(result.html).toContain(
+        'href="__CDN__INJECTION__POINT__/favicon.ico"',
+      );
+      expect(result.html).not.toContain('href="/assets/styles.css"');
+      expect(result.html).not.toContain('href="/favicon.ico"');
+    }
+  });
+
+  it('should NOT add placeholder to relative URLs (without leading slash)', async () => {
+    const html = `
+      <html>
+        <head>
+          <!--ss-head-->
+          <script src="vendor.js"></script>
+          <link rel="stylesheet" href="styles.css" />
+        </head>
+        <body>
+          <div id="root"><!--ss-outlet-->Content</div>
+        </body>
+      </html>
+    `;
+
+    const result = await processTemplate(html, 'ssr', false, 'root');
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // Relative URLs should remain unchanged
+      expect(result.html).toContain('src="vendor.js"');
+      expect(result.html).toContain('href="styles.css"');
+      expect(result.html).not.toContain('__CDN__INJECTION__POINT__');
+    }
+  });
+
+  it('should NOT add placeholder to external URLs', async () => {
+    const html = `
+      <html>
+        <head>
+          <!--ss-head-->
+          <script src="https://external.com/lib.js"></script>
+          <link rel="stylesheet" href="https://fonts.googleapis.com/css" />
+        </head>
+        <body>
+          <div id="root"><!--ss-outlet-->Content</div>
+        </body>
+      </html>
+    `;
+
+    const result = await processTemplate(html, 'ssr', false, 'root');
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // External URLs should remain unchanged
+      expect(result.html).toContain('src="https://external.com/lib.js"');
+      expect(result.html).toContain('href="https://fonts.googleapis.com/css"');
+      expect(result.html).not.toContain('__CDN__INJECTION__POINT__');
+    }
+  });
+
+  it('should handle mixed absolute and relative URLs correctly', async () => {
+    const html = `
+      <html>
+        <head>
+          <!--ss-head-->
+          <script src="/assets/vendor.js"></script>
+          <script src="inline.js"></script>
+          <script src="https://external.com/lib.js"></script>
+          <link rel="stylesheet" href="/assets/styles.css" />
+          <link rel="stylesheet" href="local.css" />
+        </head>
+        <body>
+          <div id="root"><!--ss-outlet-->Content</div>
+        </body>
+      </html>
+    `;
+
+    const result = await processTemplate(html, 'ssr', false, 'root');
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // Absolute paths should have placeholder
+      expect(result.html).toContain(
+        'src="__CDN__INJECTION__POINT__/assets/vendor.js"',
+      );
+      expect(result.html).toContain(
+        'href="__CDN__INJECTION__POINT__/assets/styles.css"',
+      );
+
+      // Relative paths should remain unchanged
+      expect(result.html).toContain('src="inline.js"');
+      expect(result.html).toContain('href="local.css"');
+
+      // External URLs should remain unchanged
+      expect(result.html).toContain('src="https://external.com/lib.js"');
+    }
+  });
+
+  it('should NOT add CDN placeholder in development mode', async () => {
+    const html = `
+      <html>
+        <head>
+          <!--ss-head-->
+          <script src="/assets/vendor.js"></script>
+          <link rel="stylesheet" href="/assets/styles.css" />
+        </head>
+        <body>
+          <div id="root"><!--ss-outlet-->Content</div>
+        </body>
+      </html>
+    `;
+
+    // isDevelopment = true
+    const result = await processTemplate(html, 'ssr', true, 'root');
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // In development mode, URLs should remain unchanged (no CDN placeholder)
+      expect(result.html).toContain('src="/assets/vendor.js"');
+      expect(result.html).toContain('href="/assets/styles.css"');
+      expect(result.html).not.toContain('__CDN__INJECTION__POINT__');
+    }
+  });
+});

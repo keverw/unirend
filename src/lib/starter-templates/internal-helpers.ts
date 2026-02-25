@@ -169,6 +169,6 @@ export async function createProjectSpecificFiles(
   projectName: string,
   templateID: string,
   serverBuildTarget: ServerBuildTarget | undefined,
-  log?: Logger,
+  log?: LoggerFunction,
 ): Promise<void> {
 

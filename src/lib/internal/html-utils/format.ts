@@ -179,6 +179,29 @@ export async function processTemplate(
       }
     });
 
+    // Replace absolute asset URLs with CDN injection placeholder (production only)
+    // In development mode, Vite needs the original URLs to serve files from its dev server
+    // This allows runtime CDN URL override per request in production
+    // The placeholder will be replaced in injectContent() for SSR with:
+    // 1. request.CDNBaseURL (if set), or
+    // 2. appConfig.CDNBaseURL (if set), or
+    // 3. empty string (preserves original /assets/... paths)
+    if (!isDevelopment) {
+      $('script[src]').each((_, el) => {
+        const src = $(el).attr('src');
+        if (src && src.startsWith('/')) {
+          $(el).attr('src', `__CDN__INJECTION__POINT__${src}`);
+        }
+      });
+
+      $('link[href]').each((_, el) => {
+        const href = $(el).attr('href');
+        if (href && href.startsWith('/')) {
+          $(el).attr('href', `__CDN__INJECTION__POINT__${href}`);
+        }
+      });
+    }
+
     // Collect all script tags
     const scripts: string[] = [];
     $('script').each((_, scriptElement) => {

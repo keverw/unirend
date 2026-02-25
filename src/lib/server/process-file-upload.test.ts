@@ -1499,7 +1499,12 @@ describe('processFileUpload', () => {
       expect(result.success).toBe(false);
       if (!result.success) {
         // In production, should show generic "Storage error"
-        expect(result.errorEnvelope.error.details?.error).toBe('Storage error');
+        const details = result.errorEnvelope.error.details;
+        expect(
+          !Array.isArray(details) && details && 'error' in details
+            ? details.error
+            : undefined,
+        ).toBe('Storage error');
       }
     });
 
@@ -1535,9 +1540,12 @@ describe('processFileUpload', () => {
       expect(result.success).toBe(false);
       if (!result.success) {
         // In development, should show actual error message
-        expect(result.errorEnvelope.error.details?.error).toBe(
-          'Specific database error',
-        );
+        const details = result.errorEnvelope.error.details;
+        expect(
+          !Array.isArray(details) && details && 'error' in details
+            ? details.error
+            : undefined,
+        ).toBe('Specific database error');
       }
     });
 
@@ -1575,7 +1583,12 @@ describe('processFileUpload', () => {
       expect(result.success).toBe(false);
       if (!result.success) {
         // Should fall back to "Storage error"
-        expect(result.errorEnvelope.error.details?.error).toBe('Storage error');
+        const details = result.errorEnvelope.error.details;
+        expect(
+          !Array.isArray(details) && details && 'error' in details
+            ? details.error
+            : undefined,
+        ).toBe('Storage error');
       }
     });
   });

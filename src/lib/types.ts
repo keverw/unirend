@@ -10,6 +10,7 @@ import type {
   FastifyInstance,
 } from 'fastify';
 import type { CookieSerializeOptions } from '@fastify/cookie';
+import type { ViteDevServer } from 'vite';
 import type { DataLoaderServerHandlerHelpers } from './internal/data-loader-server-handler-helpers';
 import type {
   APIErrorResponse,
@@ -332,8 +333,6 @@ export interface PluginOptions {
   mode: 'development' | 'production';
   /** Whether running in development mode */
   isDevelopment: boolean;
-  /** Build directory (SSR only, undefined for API server) */
-  buildDir?: string;
   /** API endpoints configuration from the server */
   apiEndpoints?: APIEndpointConfig;
 }
@@ -584,6 +583,12 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    * `fastifyOptions.loggerInstance`.
    */
   logging?: UnirendLoggingOptions;
+  /**
+   * Timeout in milliseconds for the SSR render fetch request.
+   * If the render takes longer than this, the request is aborted.
+   * @default 5000 (5 seconds)
+   */
+  ssrRenderTimeout?: number;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
@@ -603,6 +608,32 @@ export interface ServeSSRProdOptions<
    */
   serverEntry?: string;
   /**
+   * Path to the HTML template file relative to buildDir
+   * Defaults to "client/index.html" if not provided
+   *
+   * @example
+   * // Default behavior - uses buildDir/client/index.html
+   * serveSSRProd('./build')
+   *
+   * @example
+   * // Custom template location
+   * serveSSRProd('./build', { template: 'dist/app.html' })
+   */
+  template?: string;
+  /**
+   * CDN base URL for rewriting asset URLs in HTML at runtime
+   * If provided, rewrites <script src> and <link href> to use this base URL
+   * Defaults to relative URLs if not provided
+   *
+   * @example
+   * // Rewrite /assets/main.js to https://cdn.example.com/assets/main.js
+   * serveSSRProd('./build', {
+   *   CDNBaseURL: 'https://cdn.example.com',
+   *   staticContentRouter: false,  // Disable local serving
+   * })
+   */
+  CDNBaseURL?: string;
+  /**
    * Configuration for the static file router middleware
    * Used to serve static assets in production mode
    *
@@ -612,6 +643,101 @@ export interface ServeSSRProdOptions<
    */
   staticContentRouter?: StaticContentRouterOptions | false;
 }
+
+// ============================================================================
+// Multi-App SSR Types
+// ============================================================================
+
+/**
+ * Shared app configuration options (common to both dev and prod modes)
+ */
+interface SSRInternalAppConfigBase {
+  /** Configuration object injected into the client bundle */
+  frontendAppConfig?: Record<string, unknown>;
+  /** Client folder name within build directory (default: "client") */
+  clientFolderName?: string;
+  /** Server folder name within build directory (default: "server") */
+  serverFolderName?: string;
+  /** Root element ID for React mounting (default: "root") */
+  containerID?: string;
+  /** Custom 500 error page generator */
+  get500ErrorPage?: (
+    request: FastifyRequest,
+    error: Error,
+    isDevelopment: boolean,
+  ) => string | Promise<string>;
+}
+
+/**
+ * Dev-mode app configuration (internal storage)
+ * Used internally by SSRServer for dev apps
+ */
+export interface SSRInternalAppConfigDev extends SSRInternalAppConfigBase {
+  /** Dev-specific paths */
+  paths: SSRDevPaths;
+  /** Vite dev server instance (INTERNAL - created and managed by framework) */
+  viteDevServer?: ViteDevServer;
+}
+
+/**
+ * Prod-mode app configuration (internal storage)
+ * Used internally by SSRServer for prod apps
+ */
+export interface SSRInternalAppConfigProd extends SSRInternalAppConfigBase {
+  /** Prod-specific build directory */
+  buildDir: string;
+  /** Server entry name in manifest (default: "entry-server") */
+  serverEntry?: string;
+  /** HTML template path relative to buildDir (default: "client/index.html") */
+  template?: string;
+  /** CDN base URL for asset URL rewriting (prod only) */
+  CDNBaseURL?: string;
+  /** Static content router config (prod only) */
+  staticContentRouter?: StaticContentRouterOptions | false;
+  /** Cached render function (INTERNAL - cached by framework) */
+  cachedRenderFunction?: (
+    renderRequest: RenderRequest,
+  ) => Promise<RenderResult>;
+  /** Cached HTML template (INTERNAL - cached by framework) */
+  cachedHTMLTemplate?: string;
+}
+
+/**
+ * Union type for internal app storage (discriminated by presence of paths vs buildDir)
+ */
+export type SSRInternalAppConfig =
+  | SSRInternalAppConfigDev
+  | SSRInternalAppConfigProd;
+
+/**
+ * Options for registering additional dev apps via registerDevApp()
+ * Only includes per-app options (excludes server-level shared options)
+ */
+export type RegisterDevAppOptions<M extends BaseMeta = BaseMeta> = Pick<
+  ServeSSRDevOptions<M>,
+  | 'frontendAppConfig'
+  | 'containerID'
+  | 'get500ErrorPage'
+  | 'clientFolderName'
+  | 'serverFolderName'
+>;
+
+/**
+ * Options for registering additional prod apps via registerProdApp()
+ * Only includes per-app options (excludes server-level shared options)
+ */
+export type RegisterProdAppOptions<M extends BaseMeta = BaseMeta> = Pick<
+  ServeSSRProdOptions<M>,
+  | 'frontendAppConfig'
+  | 'containerID'
+  | 'get500ErrorPage'
+  | 'clientFolderName'
+  | 'serverFolderName'
+  | 'serverEntry'
+  | 'template'
+  | 'CDNBaseURL'
+  | 'staticContentRouter'
+>;
 
 // ============================================================================
 // API Server Types
@@ -1171,4 +1297,19 @@ export interface StaticContentRouterOptions {
   cacheControl?: string;
   /** Cache-Control header for immutable fingerprinted assets; default 'public, max-age=31536000, immutable' */
   immutableCacheControl?: string;
+}
+
+// ============================================================================
+// Fastify Module Augmentation for Multi-App SSR
+// ============================================================================
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    /**
+     * Active SSR app key for multi-app routing
+     * Set by user middleware to determine which app to render
+     * Defaults to '__default__' if not set
+     */
+    activeSSRApp?: string;
+  }
 }

@@ -20,6 +20,7 @@ export function injectContent(
     app?: Record<string, unknown>;
     request?: Record<string, unknown>;
   },
+  CDNBaseURL?: string,
 ): string {
   // Prettify all head tags with consistent indentation
   const compactedHead = prettifyHeadTags(headContent);
@@ -60,6 +61,19 @@ export function injectContent(
     '<!--context-scripts-injection-point-->',
     contextScripts.join('\n'),
   );
+
+  // Replace CDN injection placeholder with actual CDN URL or empty string
+  // This allows runtime CDN URL override per request
+  if (CDNBaseURL) {
+    const baseURL = CDNBaseURL.endsWith('/')
+      ? CDNBaseURL.slice(0, -1)
+      : CDNBaseURL;
+
+    result = result.replace(/__CDN__INJECTION__POINT__/g, baseURL);
+  } else {
+    // No CDN URL provided - remove placeholder to preserve original /assets/... paths
+    result = result.replace(/__CDN__INJECTION__POINT__/g, '');
+  }
 
   return result;
 }
