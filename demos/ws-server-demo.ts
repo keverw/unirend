@@ -321,7 +321,7 @@ async function runWebSocketDemo() {
     );
 
     // Start listening on port 3001
-    await ssrServer.listen(3001);
+    await ssrServer.listen(3001, '0.0.0.0');
     console.log('✅ SSR Server running at http://localhost:3001\n');
 
     // Start API server with WebSocket support on port 3002
@@ -353,7 +353,7 @@ async function runWebSocketDemo() {
     );
 
     // Start listening on port 3002
-    await apiServer.listen(3002);
+    await apiServer.listen(3002, '0.0.0.0');
     console.log('✅ API Server running at http://localhost:3002\n');
 
     // Print connection instructions

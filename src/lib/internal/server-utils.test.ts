@@ -10,7 +10,9 @@ import {
   createControlledInstance,
   validateAndRegisterPlugin,
   validateNoHandlersWhenAPIDisabled,
+  buildFastifyHTTPSOptions,
 } from './server-utils';
+import type { HTTPSOptions } from '../types';
 
 // cspell:ignore regs apix datax falsey
 
@@ -760,5 +762,228 @@ describe('validateNoHandlersWhenAPIDisabled', () => {
     expect(() =>
       validateNoHandlersWhenAPIDisabled(mockAPIRoutes, mockPageDataHandlers),
     ).toThrow(/Either enable API handling.*or remove the registered handlers/i);
+  });
+});
+
+describe('buildFastifyHTTPSOptions', () => {
+  it('passes through key, cert, and ca without modification', () => {
+    const config: HTTPSOptions = {
+      key: 'test-key',
+      cert: 'test-cert',
+      ca: 'test-ca',
+    };
+
+    const result = buildFastifyHTTPSOptions(config);
+
+    expect(result.key).toBe('test-key');
+    expect(result.cert).toBe('test-cert');
+    expect(result.ca).toBe('test-ca');
+    expect(result.SNICallback).toBeUndefined();
+  });
+
+  it('passes through passphrase option', () => {
+    const config: HTTPSOptions = {
+      key: 'test-key',
+      cert: 'test-cert',
+      passphrase: 'secret',
+    };
+
+    const result = buildFastifyHTTPSOptions(config);
+
+    expect(result.passphrase).toBe('secret');
+  });
+
+  it('does not include sni in the output object', () => {
+    const config: HTTPSOptions = {
+      key: 'test-key',
+      cert: 'test-cert',
+      sni: () => ({ context: true }) as any,
+    };
+
+    const result = buildFastifyHTTPSOptions(config);
+
+    expect(result.sni).toBeUndefined();
+    expect(result.SNICallback).toBeDefined();
+  });
+
+  it('creates SNICallback that calls sync sni and invokes callback', () => {
+    const mockCtx = { context: 'sync-ctx' };
+    const config: HTTPSOptions = {
+      key: 'k',
+      cert: 'c',
+      sni: (_servername: string) => mockCtx as any,
+    };
+
+    const result = buildFastifyHTTPSOptions(config);
+    const sniCallback = result.SNICallback as (
+      servername: string,
+      cb?: (err: Error | null, ctx?: unknown) => void,
+    ) => unknown;
+
+    const cb = mock((_err: Error | null, _ctx?: unknown) => {});
+    sniCallback('example.com', cb);
+
+    expect(cb).toHaveBeenCalledWith(null, mockCtx);
+  });
+
+  it('creates SNICallback that returns sync result when callback is undefined', () => {
+    const mockCtx = { context: 'sync-ctx' };
+    const config: HTTPSOptions = {
+      key: 'k',
+      cert: 'c',
+      sni: (_servername: string) => mockCtx as any,
+    };
+
+    const result = buildFastifyHTTPSOptions(config);
+    const sniCallback = result.SNICallback as (
+      servername: string,
+      cb?: (err: Error | null, ctx?: unknown) => void,
+    ) => unknown;
+
+    const returned = sniCallback('example.com');
+    expect(returned).toBe(mockCtx);
+  });
+
+  it('creates SNICallback that handles async sni and invokes callback on success', async () => {
+    const mockCtx = { context: 'async-ctx' };
+    const config: HTTPSOptions = {
+      key: 'k',
+      cert: 'c',
+      sni: async (_servername: string) => {
+        await Promise.resolve();
+        return mockCtx as any;
+      },
+    };
+
+    const result = buildFastifyHTTPSOptions(config);
+    const sniCallback = result.SNICallback as (
+      servername: string,
+      cb?: (err: Error | null, ctx?: unknown) => void,
+    ) => unknown;
+
+    const cbResult = await new Promise<{ err: Error | null; ctx?: unknown }>(
+      (resolve) => {
+        sniCallback('example.com', (err, ctx) => resolve({ err, ctx }));
+      },
+    );
+
+    expect(cbResult.err).toBeNull();
+    expect(cbResult.ctx).toBe(mockCtx);
+  });
+
+  it('creates SNICallback that handles async sni error and invokes callback with error', async () => {
+    const config: HTTPSOptions = {
+      key: 'k',
+      cert: 'c',
+      sni: async (_servername: string) => {
+        await Promise.resolve();
+        throw new Error('cert lookup failed');
+      },
+    };
+
+    const result = buildFastifyHTTPSOptions(config);
+    const sniCallback = result.SNICallback as (
+      servername: string,
+      cb?: (err: Error | null, ctx?: unknown) => void,
+    ) => unknown;
+
+    const cbResult = await new Promise<{ err: Error | null; ctx?: unknown }>(
+      (resolve) => {
+        sniCallback('example.com', (err, ctx) => resolve({ err, ctx }));
+      },
+    );
+
+    expect(cbResult.err).toBeInstanceOf(Error);
+    expect(cbResult.err?.message).toBe('cert lookup failed');
+  });
+
+  it('creates SNICallback that wraps non-Error throws into Error objects', async () => {
+    const config: HTTPSOptions = {
+      key: 'k',
+      cert: 'c',
+      sni: async (_servername: string) => {
+        await Promise.resolve();
+
+        // eslint-disable-next-line @typescript-eslint/only-throw-error
+        throw 'string error';
+      },
+    };
+
+    const result = buildFastifyHTTPSOptions(config);
+    const sniCallback = result.SNICallback as (
+      servername: string,
+      cb?: (err: Error | null, ctx?: unknown) => void,
+    ) => unknown;
+
+    const cbResult = await new Promise<{ err: Error | null; ctx?: unknown }>(
+      (resolve) => {
+        sniCallback('example.com', (err, ctx) => resolve({ err, ctx }));
+      },
+    );
+
+    expect(cbResult.err).toBeInstanceOf(Error);
+    expect(cbResult.err?.message).toBe('string error');
+  });
+
+  it('creates SNICallback that returns Promise when async sni called without callback', async () => {
+    const mockCtx = { context: 'async-no-cb' };
+    const config: HTTPSOptions = {
+      key: 'k',
+      cert: 'c',
+      sni: async (_servername: string) => {
+        await Promise.resolve();
+        return mockCtx as any;
+      },
+    };
+
+    const result = buildFastifyHTTPSOptions(config);
+    const sniCallback = result.SNICallback as (
+      servername: string,
+      cb?: (err: Error | null, ctx?: unknown) => void,
+    ) => unknown;
+
+    const returned = sniCallback('example.com');
+    expect(returned).toBeInstanceOf(Promise);
+    const resolved = await (returned as Promise<unknown>);
+    expect(resolved).toBe(mockCtx);
+  });
+
+  it('creates SNICallback that returns rejecting Promise when async sni errors without callback', () => {
+    const config: HTTPSOptions = {
+      key: 'k',
+      cert: 'c',
+      sni: async (_servername: string) => {
+        await Promise.resolve();
+        throw new Error('no-cb error');
+      },
+    };
+
+    const result = buildFastifyHTTPSOptions(config);
+    const sniCallback = result.SNICallback as (
+      servername: string,
+      cb?: (err: Error | null, ctx?: unknown) => void,
+    ) => unknown;
+
+    const returned = sniCallback('example.com') as Promise<unknown>;
+    expect(returned).toBeInstanceOf(Promise);
+    expect(returned).rejects.toThrow('no-cb error');
+  });
+
+  it('passes the correct servername to the sni function', () => {
+    const sniSpy = mock((_servername: string) => ({ context: true }) as any);
+    const config: HTTPSOptions = {
+      key: 'k',
+      cert: 'c',
+      sni: sniSpy,
+    };
+
+    const result = buildFastifyHTTPSOptions(config);
+    const sniCallback = result.SNICallback as (
+      servername: string,
+      cb?: (err: Error | null, ctx?: unknown) => void,
+    ) => unknown;
+
+    sniCallback('tenant.example.com', () => {});
+    expect(sniSpy).toHaveBeenCalledWith('tenant.example.com');
   });
 });

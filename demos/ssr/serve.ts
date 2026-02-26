@@ -32,7 +32,7 @@ import type { PageDataHandlerParams } from '../../src/lib/internal/DataLoaderSer
 import { clientInfo } from '../../src/plugins';
 
 const PORT = 3000;
-const HOST = 'localhost';
+const HOST = '0.0.0.0';
 
 // Track the running server instance for graceful shutdown
 let currentServer: SSRServer | null = null;

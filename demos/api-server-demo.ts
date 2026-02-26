@@ -187,7 +187,7 @@ async function runAPIServerDemo() {
 
   try {
     server = serveAPI(options);
-    await server.listen(3001, 'localhost');
+    await server.listen(3001, '0.0.0.0');
 
     console.log('✅ API Server started successfully!');
     console.log('🌐 Try these endpoints:');

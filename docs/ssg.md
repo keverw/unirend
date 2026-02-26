@@ -9,12 +9,21 @@
 - [Serving Static Files](#serving-static-files)
   - [URL Mismatch Considerations](#url-mismatch-considerations)
   - [404 Pages Suggestion](#404-pages-suggestion)
+  - [Using StaticWebServer (Recommended)](#using-staticwebserver-recommended)
+    - [Configuration Options](#configuration-options)
+      - [Error Pages](#error-pages)
+      - [Single Assets](#single-assets)
+      - [Asset Folders](#asset-folders)
+      - [Development Mode](#development-mode)
+      - [HTTPS/SSL Support](#httpsssl-support)
+      - [HTTP to HTTPS Redirect Server](#http-to-https-redirect-server)
+      - [Cache Control](#cache-control)
+      - [Features](#features)
   - [Static Hosting Services](#static-hosting-services)
   - [Apache (.htaccess)](#apache-htaccess)
   - [Nginx](#nginx)
   - [Node.js/Express Static Server](#nodejsexpress-static-server)
   - [PHP Router (for integrating SSG with PHP applications)](#php-router-for-integrating-ssg-with-php-applications)
-  - [Custom Static Server (like our demo):](#custom-static-server-like-our-demo)
 
 <!-- tocstop -->
 
@@ -68,6 +77,8 @@ async function main() {
     frontendAppConfig: {
       apiUrl: 'https://api.example.com',
     },
+    // Optional: Generate page map for StaticWebServer (see "Page Map Output" section)
+    // pageMapOutput: 'page-map.json',
     // Optional: containerID used in template processing (defaults to "root")
     // containerID: "root",
     // Optional: custom client/server folder names in buildDir (defaults: "client"/"server")
@@ -142,7 +153,7 @@ The `pageMapOutput` option generates a JSON file mapping URL paths to their corr
 ```typescript
 const options = {
   // ... other options
-  pageMapOutput: 'page-map.json', // Written to buildDir/page-map.json
+  pageMapOutput: 'page-map.json', // Written to buildDir/client/page-map.json
 };
 
 const result = await generateSSG(buildDir, pages, options);
@@ -205,6 +216,228 @@ After generating your SSG files, you'll need to configure your web server to ser
   - Apache: `ErrorDocument 404 /404.html`
   - Nginx: `try_files /404.html =404;`
   - Node/Express: `res.status(404).sendFile(path.join(__dirname, "build/client/404.html"))`
+
+### Using StaticWebServer (Recommended)
+
+Unirend provides a built-in `StaticWebServer` class that automatically consumes the page map and serves your static site with proper status codes, caching, and HTTPS support.
+
+> **Note:** Make sure to generate `page-map.json` using the `pageMapOutput` option in your generation script (see [Page Map Output](#page-map-output)).
+
+See [`demos/ssg/serve.ts`](../demos/ssg/serve.ts) for a complete working example.
+
+**Basic usage:**
+
+```typescript
+import { StaticWebServer } from 'unirend/server';
+import path from 'path';
+
+const server = new StaticWebServer({
+  buildDir: path.resolve(__dirname, 'build/client'),
+  pageMapPath: 'page-map.json', // Relative to buildDir
+  assetFolders: {
+    '/assets': 'assets', // Relative to buildDir
+  },
+});
+
+await server.listen(3000);
+console.log('Static server running at http://localhost:3000');
+```
+
+> **Note:** All file paths (`pageMapPath`, `notFoundPage`, `errorPage`, `singleAssets` values, `assetFolders` values) are resolved relative to `buildDir`.
+
+> **💡 Tip:** If you generate `/404` or `/500` pages as SSG pages (e.g., `{ type: 'ssg', path: '/404', filename: '404.html' }`), they'll be automatically detected and served with proper 404/500 status codes. This is the recommended approach for custom error pages.
+
+> **🐳 Container Deployment:** When deploying in containers, bind to `0.0.0.0` to make the server accessible from outside the container: `await server.listen(3000, '0.0.0.0')`. For local development, the default binding is fine.
+
+#### Configuration Options
+
+**Core Options:**
+
+- `buildDir` (required) - Directory containing the built client files
+- `pageMapPath` (required) - Path to page-map.json file (relative to buildDir)
+- `assetFolders` - Map of URL prefixes to filesystem directories for serving static assets
+- `singleAssets` - Map of URL paths to individual files (favicon, robots.txt, etc.)
+
+**Error Handling:**
+
+- `notFoundPage` - Custom 404 page path (relative to buildDir)
+- `errorPage` - Custom 500 error page path (relative to buildDir)
+- `isDevelopment` - Enable development mode with stack traces in built-in default 500 page only (default: `false`)
+- `logErrors` - Automatically log errors to server logger (default: `true`)
+
+**Caching:**
+
+- `cacheControl` - Cache-Control header for HTML pages (default: `"public, max-age=0, must-revalidate"`)
+- `immutableCacheControl` - Cache-Control for fingerprinted assets (default: `"public, max-age=31536000, immutable"`)
+- `detectImmutableAssets` - Auto-detect fingerprinted files for long caching (default: `true`)
+
+**Server Configuration:**
+
+- `https` - HTTPS/SSL configuration with key, cert, and optional SNI callback
+- `logging` - Framework-level logging options (Unirend logger abstraction)
+- `fastifyOptions` - Fastify server options (logger, trustProxy, bodyLimit, keepAliveTimeout, etc.)
+
+##### Error Pages
+
+**Recommended approach:** Generate 404 and 500 error pages as SSG pages (e.g., `{ type: 'ssg', path: '/404', filename: '404.html' }`). They'll be automatically detected from the page map and served with proper status codes.
+
+**Advanced configuration:** For custom error page paths (separate from generated pages), use the `notFoundPage` and `errorPage` options:
+
+```typescript
+const server = new StaticWebServer({
+  buildDir: './build/client',
+  pageMapPath: 'page-map.json',
+  notFoundPage: 'custom-404.html', // Relative to buildDir
+  errorPage: 'custom-error.html', // Relative to buildDir
+});
+```
+
+**Error page loading priority:**
+
+1. Page map entry (e.g., `/404` from generated SSG pages) - checked first
+2. Custom path if specified (`notFoundPage` / `errorPage`)
+3. Default file in buildDir (`404.html` / `500.html`)
+4. Built-in generic default (fallback if no custom pages found)
+
+**Note:** If error pages are generated as SSG pages (e.g., `{ type: 'ssg', path: '/404', filename: '404.html' }`), they are automatically **removed from normal routes** to prevent serving them with 200 status codes. Error pages are only accessible via error handlers with proper 404/500 status codes.
+
+**Development mode:** The built-in default 500 error page shows stack traces when `isDevelopment: true`. Custom error page files are served as-is (static HTML).
+
+##### Single Assets
+
+Serve standalone files like `favicon.ico` or `robots.txt` from Vite's public folder using the `singleAssets` option:
+
+```typescript
+const server = new StaticWebServer({
+  buildDir: './build/client',
+  pageMapPath: 'page-map.json',
+  singleAssets: {
+    '/robots.txt': 'robots.txt', // Relative to buildDir
+    '/favicon.ico': 'favicon.ico', // Relative to buildDir
+    '/sitemap.xml': 'sitemap.xml', // Relative to buildDir
+  },
+});
+```
+
+File paths are resolved relative to `buildDir` and served alongside pages from the page map.
+
+##### Asset Folders
+
+Serve entire directories of static assets using the `assetFolders` option:
+
+```typescript
+const server = new StaticWebServer({
+  buildDir: './build/client',
+  pageMapPath: 'page-map.json',
+  assetFolders: {
+    '/assets': 'assets', // CSS, JS, images - relative to buildDir
+    '/images': 'images', // Additional images folder - relative to buildDir
+    '/downloads': 'downloads', // Downloadable files - relative to buildDir
+  },
+  detectImmutableAssets: true, // Auto-detect fingerprinted files (default: true)
+});
+```
+
+Files with content hashes (e.g., `app-abc123.js`) automatically get long cache headers (`max-age=31536000, immutable`).
+
+##### Development Mode
+
+Enable development mode to see error stack traces in the built-in default 500 error page:
+
+```typescript
+const server = new StaticWebServer({
+  buildDir: './build/client',
+  pageMapPath: 'page-map.json',
+  isDevelopment: true, // Shows stack traces in built-in 500 error page
+  logErrors: true, // Automatically log errors (default: true)
+});
+```
+
+**Error Logging:** By default, all request errors are automatically logged to the server logger with URL, method, and error details. This is especially useful when using custom error pages that can't show dynamic stack traces. Set `logErrors: false` to disable automatic error logging if you prefer to handle logging in custom error handlers.
+
+**Note:** Stack traces only appear in the built-in generic 500 error page (used when no custom error page is found). Custom error page files are served as-is without dynamic content.
+
+##### HTTPS/SSL Support
+
+To enable HTTPS, provide SSL certificate options (same as APIServer and SSRServer):
+
+```typescript
+const server = new StaticWebServer({
+  buildDir: './build/client',
+  pageMapPath: 'page-map.json',
+  https: {
+    key: privateKey, // string | Buffer - Your SSL private key
+    cert: certificate, // string | Buffer - Your SSL certificate
+  },
+});
+
+await server.listen(443, '0.0.0.0');
+console.log('Static server running at https://localhost:443');
+```
+
+##### HTTP to HTTPS Redirect Server
+
+For production deployments, run a separate redirect server on port 80 to redirect HTTP traffic to HTTPS:
+
+```typescript
+import { StaticWebServer } from 'unirend/server';
+import { serveRedirect } from 'unirend/server';
+
+// HTTPS static server (port 443)
+const server = new StaticWebServer({
+  buildDir: './build/client',
+  pageMapPath: 'page-map.json',
+  https: {
+    key: privateKey,
+    cert: certificate,
+  },
+});
+
+await server.listen(443, '0.0.0.0');
+console.log('HTTPS static server running on port 443');
+
+// HTTP → HTTPS redirect server (port 80)
+const redirectServer = serveRedirect({
+  targetProtocol: 'https',
+  statusCode: 301, // Permanent redirect
+});
+
+await redirectServer.listen(80, '0.0.0.0');
+console.log('HTTP redirect server running on port 80');
+```
+
+See [HTTPS Configuration - HTTP to HTTPS Redirect Server](./https.md#http-to-https-redirect-server) for advanced HTTPs configuration options
+
+##### Cache Control
+
+Customize cache headers for pages and immutable assets:
+
+```typescript
+const server = new StaticWebServer({
+  buildDir: './build/client',
+  pageMapPath: 'page-map.json',
+  cacheControl: 'public, max-age=3600', // Pages: 1 hour cache
+  immutableCacheControl: 'public, max-age=31536000, immutable', // Fingerprinted assets: 1 year
+});
+```
+
+Default cache behavior:
+
+- **Pages**: `public, max-age=0, must-revalidate` (always revalidate)
+- **Immutable assets**: `public, max-age=31536000, immutable` (1 year, never revalidate)
+- **Error responses**: `no-store` (never cache)
+
+##### Features
+
+- Automatically maps clean URLs from page-map.json
+- Handles 404/500 pages with proper status codes (error pages removed from normal routes)
+- Serves static assets with correct MIME types
+- Includes ETag caching and range request support
+- Supports serving single assets (favicon, robots.txt) and asset folders
+- Configurable cache control for pages and immutable assets
+- HTTPS/SSL support
+- Server-Side JavaScript Runtime-agnostic (works with Node.js, Bun, etc.)
+- No React hydration mismatches
 
 ### Static Hosting Services
 
@@ -363,7 +596,3 @@ if (file_exists($notFoundPath)) {
 }
 exit();
 ```
-
-### Custom Static Server (like our demo):
-
-See [`demos/ssg/serve.ts`](../demos/ssg/serve.ts) for a complete example of a custom static server that handles clean URLs, asset serving, and 404 fallbacks.

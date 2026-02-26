@@ -264,7 +264,7 @@ async function runStaticContentDemo() {
 
   try {
     server = serveAPI(options);
-    await server.listen(3002, 'localhost');
+    await server.listen(3002, '0.0.0.0');
 
     console.log('✅ API Server with Static Content started successfully!\n');
     console.log('🌐 Open in browser: http://localhost:3002\n');

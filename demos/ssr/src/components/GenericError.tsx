@@ -1,5 +1,5 @@
 import React from 'react';
-import { PageErrorResponse } from '../../../../src/lib/api-envelope/api-envelope-types';
+import type { PageErrorResponse } from '../../../../src/lib/api-envelope/api-envelope-types';
 import { Helmet } from 'react-helmet-async';
 
 interface GenericErrorProps {
@@ -16,7 +16,8 @@ const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
   // Only set detailsToShow in development mode, and prioritize stacktrace over message
   const detailsToShow =
     process.env.NODE_ENV === 'development'
-      ? (data?.error?.details?.stacktrace as string | undefined) || message
+      ? (data?.error?.details?.stacktrace as unknown as string | undefined) ||
+        message
       : null;
 
   return (
@@ -105,7 +106,15 @@ const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
                 e.currentTarget.style.background = 'rgba(255, 255, 255, 0.3)';
                 e.currentTarget.style.transform = 'translateY(-2px)';
               }}
+              onFocus={(e) => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.3)';
+                e.currentTarget.style.transform = 'translateY(-2px)';
+              }}
               onMouseOut={(e) => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
+              onBlur={(e) => {
                 e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
                 e.currentTarget.style.transform = 'translateY(0)';
               }}
@@ -130,7 +139,15 @@ const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
                 e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
                 e.currentTarget.style.color = '#ffffff';
               }}
+              onFocus={(e) => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                e.currentTarget.style.color = '#ffffff';
+              }}
               onMouseOut={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
+              }}
+              onBlur={(e) => {
                 e.currentTarget.style.background = 'transparent';
                 e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
               }}
@@ -155,7 +172,15 @@ const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
                 e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
                 e.currentTarget.style.color = '#ffffff';
               }}
+              onFocus={(e) => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                e.currentTarget.style.color = '#ffffff';
+              }}
               onMouseOut={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
+              }}
+              onBlur={(e) => {
                 e.currentTarget.style.background = 'transparent';
                 e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
               }}

@@ -945,4 +945,93 @@ export function matchesCORSCredentialsList(
   return false;
 }
 
+/**
+ * Result of parsing a Host header
+ */
+export interface ParsedHost {
+  /** Domain/hostname with brackets stripped (e.g., "[::1]" → "::1") */
+  domain: string;
+  /** Port number as string, or empty string if no port specified */
+  port: string;
+}
+
+/**
+ * Parse Host header into domain and port components
+ * Supports IPv6 brackets and handles port extraction with strict validation
+ *
+ * This function is commonly used to parse the HTTP Host header,
+ * which may contain:
+ * - Regular hostnames: "example.com" or "example.com:8080"
+ * - IPv6 addresses: "[::1]" or "[::1]:8080"
+ * - IPv4 addresses: "127.0.0.1" or "127.0.0.1:8080"
+ *
+ * The returned domain has brackets stripped for normalization
+ * (e.g., "[::1]" → "::1"), while port is returned separately.
+ *
+ * **Strict validation:** For bracketed IPv6 addresses, after the closing bracket `]`,
+ * only the following are valid:
+ * - Nothing (end of string): `[::1]` → valid
+ * - Port with colon: `[::1]:8080` → valid
+ * - Any other characters: `[::1]garbage`, `[::1][::2]` → returns empty (malformed)
+ *
+ * @param host - Host header value (hostname[:port] or [ipv6][:port])
+ * @returns Object with domain (without brackets) and port (empty string if no port).
+ *          Returns `{ domain: '', port: '' }` for malformed input.
+ *
+ * @example
+ * parseHostHeader('example.com:8080')
+ * // => { domain: 'example.com', port: '8080' }
+ *
+ * parseHostHeader('[::1]:8080')
+ * // => { domain: '::1', port: '8080' }
+ *
+ * parseHostHeader('[2001:db8::1]')
+ * // => { domain: '2001:db8::1', port: '' }
+ *
+ * parseHostHeader('localhost')
+ * // => { domain: 'localhost', port: '' }
+ *
+ * parseHostHeader('[::1][::2]') // malformed
+ * // => { domain: '', port: '' }
+ */
+export function parseHostHeader(host: string): ParsedHost {
+  if (!host) {
+    return { domain: '', port: '' };
+  }
+
+  // Handle IPv6 brackets
+  if (host.startsWith('[')) {
+    const end = host.indexOf(']');
+
+    if (end !== -1) {
+      const domain = host.slice(1, end); // Remove brackets for normalization
+      const rest = host.slice(end + 1);
+
+      // Strict validation: after closing bracket, only allow empty or :port
+      if (rest === '') {
+        return { domain, port: '' };
+      }
+
+      if (rest.startsWith(':')) {
+        return { domain, port: rest.slice(1) };
+      }
+
+      // Malformed: has junk after closing bracket (e.g., "[::1]garbage" or "[::1][::2]")
+      return { domain: '', port: '' };
+    }
+
+    // Malformed bracket - missing closing bracket
+    return { domain: '', port: '' };
+  }
+
+  // Regular hostname:port parsing
+  const idx = host.indexOf(':');
+
+  if (idx === -1) {
+    return { domain: host, port: '' };
+  }
+
+  return { domain: host.slice(0, idx), port: host.slice(idx + 1) };
+}
+
 export { normalizeDomain, isIPAddress } from './helpers';

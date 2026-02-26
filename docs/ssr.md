@@ -6,13 +6,16 @@
 - [Server Classes](#server-classes)
   - [Plugins](#plugins)
   - [Common Methods](#common-methods)
+  - [Shared Server Configuration](#shared-server-configuration)
+    - [Logging](#logging)
+- [HTTPS Configuration](#https-configuration)
 - [Create SSR Server](#create-ssr-server)
   - [Create Production SSR Server](#create-production-ssr-server)
   - [Create Development SSR Server](#create-development-ssr-server)
   - [Organization Suggestion](#organization-suggestion)
   - [SSRServer Class](#ssrserver-class)
   - [Construction](#construction)
-  - [Options (shared)](#options-shared)
+  - [SSR Options](#ssr-options)
   - [Options (prod-only)](#options-prod-only)
   - [Header and Cookies Forwarding](#header-and-cookies-forwarding)
   - [Reading server decorations](#reading-server-decorations)
@@ -40,10 +43,11 @@
     - [Validation](#validation)
 - [Standalone API (APIServer)](#standalone-api-apiserver)
   - [Basic usage](#basic-usage)
-  - [Options](#options)
+  - [API-Specific Options](#api-specific-options)
   - [Error Handling](#error-handling)
     - [JSON-Only (SSR Compatible)](#json-only-ssr-compatible)
-    - [Split Handlers (Web Server Mode)](#split-handlers-web-server-mode)
+    - [Web-Only (Plain Web Server)](#web-only-plain-web-server)
+    - [Split Handlers (Mixed API + Web Server)](#split-handlers-mixed-api--web-server)
 - [Graceful Shutdown](#graceful-shutdown)
 - [WebSockets](#websockets)
 
@@ -77,6 +81,142 @@ Both server classes expose the same operational methods:
 - `getWebSocketClients(): Set<unknown>` — Get the connected WebSocket clients (empty set when not supported/not started)
 - `hasDecoration(property: string): boolean` — Check if a server-level decoration exists
 - `getDecoration<T = unknown>(property: string): T | undefined` — Read a decoration value (undefined before listen)
+
+### Shared Server Configuration
+
+The following options are accepted by both `SSRServer` and `APIServer`:
+
+- `apiEndpoints?: APIEndpointConfig`
+  - Shared versioned endpoint configuration used by page data and generic API routes.
+  - `apiEndpointPrefix?: string | false` — API route prefix (default: `"/api"`). Set to `false` to disable API handling. Throws error on startup if routes are registered but API is disabled.
+  - `versioned?: boolean` — Enable versioned endpoints like `/api/v1/...` (default: `true`). **Note**: This defaults to `true`, which means routes registered with `server.api.*` helpers will be under `/api/v{n}/...`. When using `processFileUpload()`, this also affects the paths you must specify in `fileUploads.allowedRoutes` on your SSR or standalone API server config.
+  - `pageDataEndpoint?: string` — Endpoint name for page data loader handlers (default: `"page_data"`)
+- `plugins?: ServerPlugin[]`
+  - Register Fastify plugins via a controlled interface (see [plugins](./server-plugins.md)).
+- `fileUploads?: { enabled: boolean; limits?: { fileSize?, files?, fields?, fieldSize? }; allowedRoutes?: string[]; preValidation?: Function }`
+  - Enable built-in multipart file upload support.
+  - Set global limits that can be overridden per-route using `processFileUpload()`.
+  - Default limits: `fileSize: 10MB`, `files: 10`, `fields: 10`, `fieldSize: 1KB`
+  - `allowedRoutes` (optional): List of routes/patterns that allow multipart uploads. Supports wildcards (e.g. `/api/workspace/*/upload`). When specified, automatically rejects multipart requests to other routes (prevents bandwidth waste and DoS attacks).
+    - **Important**: When using `apiEndpoints.versioned: true` (the default), routes are exposed under `/api/v{n}/...`, so `allowedRoutes` must include the version prefix. Example: use `['/api/v1/upload/avatar']` instead of `['/api/upload/avatar']`. Only use unversioned paths if you explicitly set `versioned: false`.
+  - `preValidation` (optional): Async function for header-based validation (auth, rate limiting, etc.) that runs after user plugin hooks but before multipart parsing. Return `true` to allow or error object to reject.
+  - See [File Upload Helpers](./file-upload-helpers.md) for detailed usage and examples.
+- `APIResponseHelpersClass?: typeof APIResponseHelpers`
+  - Provide a custom helpers class for constructing API/Page envelopes. Useful to inject default metadata (e.g., account/site info) across responses.
+  - If omitted, the built-in `APIResponseHelpers` is used.
+  - Note: Validation helpers like `isValidEnvelope` use the base helpers and are not overridden by this option.
+- `logging?: { logger; level? }`
+  - Framework-level logger object adapted to Fastify under the hood.
+  - Use this for a simpler, framework-consistent logger API (works for both SSR and standalone API server).
+  - `logger` must provide all level methods (`trace`, `debug`, `info`, `warn`, `error`, `fatal`).
+  - `level` sets the adapter's minimum level (default: `"info"`).
+  - If a logger write throws, Unirend tries `logger.error` and then falls back to `globalThis.reportError` (when available) and `console.error`.
+  - **Important:** Exactly one logging source can be configured: `logging`, `fastifyOptions.logger`, or `fastifyOptions.loggerInstance`. Configuring multiple sources will cause an error on server startup.
+- `logErrors?: boolean`
+  - Whether to automatically log errors via the server logger (default: `true`).
+  - When enabled, all request errors are logged before custom error handlers run with URL, method, and error details.
+  - This is especially useful when using custom error pages that can't show dynamic stack traces.
+  - Set to `false` to disable automatic error logging if you prefer to handle logging in custom error handlers.
+  - **Note:** This applies to SSRServer, APIServer, StaticWebServer, and RedirectServer.
+- `fastifyOptions?: { logger?: boolean | FastifyLoggerOptions; loggerInstance?: FastifyBaseLogger; disableRequestLogging?: boolean; trustProxy?; bodyLimit?; keepAliveTimeout? }`
+  - Safe subset of Fastify server options.
+  - `loggerInstance` must satisfy Fastify's base logger interface (`info`, `error`, `debug`, `fatal`, `warn`, `trace`, `silent`, `level`) and support `child(bindings, options)`.
+  - `logger` is Fastify's built-in logger option (boolean or pino options), for example `true` or `{ level: "info" }`.
+  - `loggerInstance` is for passing an existing pino (or pino-compatible) logger instance.
+  - With logging enabled, Fastify logs request lifecycle events (access-style logs like incoming/completed requests) and your plugin/app logs from `fastify.log` / `request.log`.
+  - `disableRequestLogging` defaults to `false`.
+  - Set `disableRequestLogging: true` to keep logger usage enabled while disabling Fastify's default incoming/completed request logs. This applies the same way whether you use `logging`, `fastifyOptions.logger`, or `fastifyOptions.loggerInstance`.
+  - No separate middleware is required for baseline access logs. For custom fields or custom start/completion messages, add `onRequest`/`onResponse` hooks in a plugin (see [Plugin Host Methods -> Hooks](./server-plugins.md#hooks) and [Access Logging Plugin](./server-plugins.md#access-logging-plugin)).
+
+#### Logging
+
+**Which logging approach should I use?**
+
+- **`logging`** (Recommended): Simpler, framework-consistent API. Works identically for SSR and API servers. Best when you need custom logging (external services, structured logs, special handling).
+- **`fastifyOptions.logger`**: Quick out-of-the-box console logger using pino. Best when you just want basic logs to console without external integrations.
+- **`fastifyOptions.loggerInstance`**: Pass an existing pino-compatible logger instance. Use when sharing a logger across multiple services or more advanced logging requirements.
+
+Logging behavior quick reference:
+
+- `logger: true`
+  - Enables Fastify logger at default level (`info`).
+  - Emits default request lifecycle logs (`incoming request`, `request completed`).
+- `disableRequestLogging: true`
+  - Disables Fastify's automatic incoming/completed request logs regardless of logger level.
+  - Your own `fastify.log.*`, `request.log.*`, and hook-based logs still work.
+  - Works the same with `logging`, `fastifyOptions.logger`, or `fastifyOptions.loggerInstance`.
+- `logger: { level: 'warn' }`
+  - Enables logger but sets minimum level to `warn`.
+  - Request lifecycle logs (`info` level) won't appear.
+  - **Tip:** If you want to disable the built-in request logs and implement your own custom access logging (with additional fields like user ID, tenant, etc.), use `disableRequestLogging: true` and add your own logging via hooks in a plugin. See [Access Logging Plugin](./server-plugins.md#access-logging-plugin) for an example.
+- `loggerInstance`
+  - Uses your provided pino/pino-compatible logger object.
+
+Built-in request log event shape:
+
+- Request start:
+  - message: `"incoming request"`
+  - level: `info`
+  - context typically includes: `reqId` (Fastify `request.id`) and `req`
+- Request completion:
+  - message: `"request completed"`
+  - level: `info`
+  - context typically includes: `reqId` (Fastify `request.id`), `res`, `responseTime`
+- Unhandled route/handler error (`500` path):
+  - an additional `error`-level event is emitted (message is usually the error message), then completion log still runs.
+
+When using Unirend `logging`, these become `logger.info(message, context)` / `logger.error(message, context)` calls through the adapter.
+
+**Note:** `reqId` in Fastify's logs is the Fastify request identifier (`request.id`), which is an incremental counter by default. This is separate from `request.requestID` used by Unirend envelope helpers and the clientInfo plugin, which is a globally unique identifier (ULID) that's better for distributed systems (e.g., multiple servers behind a load balancer) and correlating requests across services.
+
+If you need a strict payload shape, prefer custom `onRequest`/`onResponse` hooks and build the exact context object you want to emit.
+
+Example Unirend logger object (recommended path):
+
+```typescript
+import { serveSSRProd } from 'unirend/server';
+
+const server = serveSSRProd('./build', {
+  logging: {
+    level: 'info',
+    logger: {
+      trace: (message, context) => console.trace(message, context),
+      debug: (message, context) => console.debug(message, context),
+      info: (message, context) => console.info(message, context),
+      warn: (message, context) => console.warn(message, context),
+      error: (message, context) => console.error(message, context),
+      fatal: (message, context) => console.error(message, context),
+    },
+  },
+  fastifyOptions: {
+    disableRequestLogging: true,
+  },
+});
+```
+
+If you prefer Fastify/pino configuration directly, use `fastifyOptions.logger` or `fastifyOptions.loggerInstance`:
+
+```typescript
+import { serveSSRProd } from 'unirend/server';
+
+const server = serveSSRProd('./build', {
+  fastifyOptions: {
+    logger: true,
+    // or:
+    // logger: { level: 'info' },
+    // loggerInstance: existingPinoOrCompatibleLogger,
+    // disableRequestLogging: true,
+  },
+});
+```
+
+For custom request-start/completion access logs, see [Access Logging Plugin](./server-plugins.md#access-logging-plugin).
+
+## HTTPS Configuration
+
+Both server classes support HTTPS with static certificates, SNI callbacks for multi-tenant dynamic certificate selection, and an HTTP→HTTPS redirect server.
+
+See the full HTTPS Configuration guide: [https.md](./https.md)
 
 ## Create SSR Server
 
@@ -153,6 +293,8 @@ async function main() {
 main().catch(console.error);
 ```
 
+> **🐳 Container Deployment:** When deploying in containers, bind to `0.0.0.0` to make the server accessible from outside the container: `await server.listen(port, '0.0.0.0')`. For local development, the default binding is fine.
+
 Notes:
 
 - `frontendAppConfig` is passed to the Unirend context and available via the `useFrontendAppConfig()` hook on both server (during rendering) and client (after HTML injection).
@@ -190,10 +332,6 @@ HTML Template:
   - **Custom folder**: Use `clientFolderName` to change the folder but keep `index.html` as filename (e.g., `clientFolderName: 'dist-client'` loads from `buildDir/dist-client/index.html`)
   - **Caching**: The template is loaded once at server startup and cached in memory for performance. Restart the server to pick up template changes.
   - The template file must exist in your build output (generated by your Vite build process)
-
-Host binding:
-
-- For local development, `localhost` is fine. In containers or Kubernetes, bind to `0.0.0.0` (e.g., `await server.listen(port, "0.0.0.0")`) so the process is reachable from outside the container.
 
 ### Create Development SSR Server
 
@@ -281,38 +419,16 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
 - Prod: `serveSSRProd(buildDir, options)`
   - Loads server entry from the Vite server manifest in `buildDir/<serverFolderName>`.
 
-### Options (shared)
+### SSR Options
 
-- `apiEndpoints?: APIEndpointConfig`
-  - Shared versioned endpoint configuration used by page data and generic API routes.
-  - `apiEndpointPrefix?: string | false` — API route prefix (default: `"/api"`). Set to `false` to disable API handling (SSR-only mode). Throws error on startup if routes are registered but API is disabled.
-  - `versioned?: boolean` — Enable versioned endpoints like `/api/v1/...` (default: `true`). **Note**: This defaults to `true`, which means routes registered with `server.api.*` helpers will be under `/api/v{n}/...`. When using `processFileUpload()`, this also affects the paths you must specify in `fileUploads.allowedRoutes` on your SSR or standalone API server config.
-  - `pageDataEndpoint?: string` — Endpoint name for page data loader handlers (default: `"page_data"`)
+In addition to the [shared server configuration](#shared-server-configuration), SSR servers (both dev and prod) accept:
+
 - `APIHandling?: { errorHandler?; notFoundHandler? }`
   - Custom error/not-found handlers for API requests (paths matching `apiEndpoints.apiEndpointPrefix`)
   - `errorHandler` and `notFoundHandler` return standardized API/Page error envelopes instead of HTML.
   - Both handlers receive an `isPageData` parameter to distinguish between different types of API requests:
     - **Page data requests** (`isPageData=true`): Requests to the page data endpoint (e.g., `/api/v1/page_data/home`) used by data loaders to fetch page data with metadata (title, description). These return Page Response Envelopes.
     - **Regular API requests** (`isPageData=false`): Standard API endpoints (e.g., `/api/v1/users`, `/api/v1/account/create`) for operations like creating accounts, updating data, etc. These return API Response Envelopes.
-- `plugins?: ServerPlugin[]`
-  - Register Fastify plugins via a controlled interface (see [plugins](./server-plugins.md)).
-- `fileUploads?: { enabled: boolean; limits?: { fileSize?, files?, fields?, fieldSize? }; allowedRoutes?: string[]; preValidation?: Function }`
-  - Enable built-in multipart file upload support.
-  - Set global limits that can be overridden per-route using `processFileUpload()`.
-  - Default limits: `fileSize: 10MB`, `files: 10`, `fields: 10`, `fieldSize: 1KB`
-  - `allowedRoutes` (optional): List of routes/patterns that allow multipart uploads. Supports wildcards (e.g. `/api/workspace/*/upload`). When specified, automatically rejects multipart requests to other routes (prevents bandwidth waste and DoS attacks).
-    - **Important**: When using `apiEndpoints.versioned: true` (the default), routes are exposed under `/api/v{n}/...`, so `allowedRoutes` must include the version prefix. Example: use `['/api/v1/upload/avatar']` instead of `['/api/upload/avatar']`. Only use unversioned paths if you explicitly set `versioned: false`.
-  - `preValidation` (optional): Async function for header-based validation (auth, rate limiting, etc.) that runs after user plugin hooks but before multipart parsing. Return `true` to allow or error object to reject.
-  - See [File Upload Helpers](./file-upload-helpers.md) for detailed usage and examples.
-- `APIResponseHelpersClass?: typeof APIResponseHelpers`
-  - Provide a custom helpers class for constructing API/Page envelopes. Useful to inject default metadata (e.g., account/site info) across responses.
-  - If omitted, the built-in `APIResponseHelpers` is used.
-  - Note: Validation helpers like `isValidEnvelope` use the base helpers and are not overridden by this option.
-- `get500ErrorPage?: (request, error, isDevelopment) => string | Promise<string>`
-  - Provide custom HTML for SSR 500 responses.
-  - **Security Note**: When including dynamic values (error messages, URLs, etc.) in your HTML, always escape them using `escapeHTML` from `unirend/utils` to prevent XSS attacks. React automatically escapes content, but raw HTML generation requires manual escaping.
-- `cookieForwarding?: { allowCookieNames?: string[]; blockCookieNames?: string[] | true }`
-  - Controls which cookies are forwarded on SSR fetches and which `Set-Cookie` headers are returned to the browser.
 - `frontendAppConfig?: Record<string, unknown>`
   - Optional configuration object available via the `useFrontendAppConfig()` hook on both server (during SSR/SSG rendering) and client (after HTML injection) in both dev and prod modes.
   - Use for runtime configuration (API URLs, feature flags, build info, etc.). See [4. Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern) for usage in components vs loaders.
@@ -321,108 +437,13 @@ The `SSRServer` class powers both dev and prod servers created via `serveSSRDev`
 - `ssrRenderTimeout?: number`
   - Timeout in milliseconds for the SSR render fetch request. If the render takes longer than this, the request is aborted and a 500 error page is returned.
   - Default: `5000` (5 seconds). Increase for pages with slow data loaders or complex rendering.
+- `cookieForwarding?: { allowCookieNames?: string[]; blockCookieNames?: string[] | true }`
+  - Controls which cookies are forwarded on SSR fetches and which `Set-Cookie` headers are returned to the browser.
+- `get500ErrorPage?: (request, error, isDevelopment) => string | Promise<string>`
+  - Provide custom HTML for SSR 500 responses.
+  - **Security Note**: When including dynamic values (error messages, URLs, etc.) in your HTML, always escape them using `escapeHTML` from `unirend/utils` to prevent XSS attacks. React automatically escapes content, but raw HTML generation requires manual escaping.
 - `clientFolderName?: string`, `serverFolderName?: string`
   - Names of subfolders inside the Vite build output (defaults: `client` and `server`).
-- `logging?: { logger; level? }`
-  - Framework-level logger object adapted to Fastify under the hood.
-  - Use this for a simpler, framework-consistent logger API (works for both SSR and standalone API server).
-  - `logger` must provide all level methods (`trace`, `debug`, `info`, `warn`, `error`, `fatal`).
-  - `level` sets the adapter's minimum level (default: `"info"`).
-  - If a logger write throws, Unirend tries `logger.error` and then falls back to `globalThis.reportError` (when available) and `console.error`.
-  - **Important:** Exactly one logging source can be configured: `logging`, `fastifyOptions.logger`, or `fastifyOptions.loggerInstance`. Configuring multiple sources will cause an error on server startup.
-- `fastifyOptions?: { logger?: boolean | FastifyLoggerOptions; loggerInstance?: FastifyBaseLogger; disableRequestLogging?: boolean; trustProxy?; bodyLimit?; keepAliveTimeout? }`
-  - Safe subset of Fastify server options.
-  - `loggerInstance` must satisfy Fastify's base logger interface (`info`, `error`, `debug`, `fatal`, `warn`, `trace`, `silent`, `level`) and support `child(bindings, options)`.
-  - `logger` is Fastify's built-in logger option (boolean or pino options), for example `true` or `{ level: "info" }`.
-  - `loggerInstance` is for passing an existing pino (or pino-compatible) logger instance.
-  - With logging enabled, Fastify logs request lifecycle events (access-style logs like incoming/completed requests) and your plugin/app logs from `fastify.log` / `request.log`.
-  - `disableRequestLogging` defaults to `false`.
-  - Set `disableRequestLogging: true` to keep logger usage enabled while disabling Fastify's default incoming/completed request logs. This applies the same way whether you use `logging`, `fastifyOptions.logger`, or `fastifyOptions.loggerInstance`.
-  - No separate middleware is required for baseline access logs. For custom fields or custom start/completion messages, add `onRequest`/`onResponse` hooks in a plugin (see [Plugin Host Methods -> Hooks](./server-plugins.md#hooks) and [Access Logging Plugin](./server-plugins.md#access-logging-plugin)).
-
-**Which logging approach should I use?**
-
-- **`logging`** (Recommended): Simpler, framework-consistent API. Works identically for SSR and API servers. Best when you need custom logging (external services, structured logs, special handling).
-- **`fastifyOptions.logger`**: Quick out-of-the-box console logger using pino. Best when you just want basic logs to console without external integrations.
-- **`fastifyOptions.loggerInstance`**: Pass an existing pino-compatible logger instance. Use when sharing a logger across multiple services or more advanced logging requirements.
-
-Logging behavior quick reference:
-
-- `logger: true`
-  - Enables Fastify logger at default level (`info`).
-  - Emits default request lifecycle logs (`incoming request`, `request completed`).
-- `disableRequestLogging: true`
-  - Disables Fastify's automatic incoming/completed request logs regardless of logger level.
-  - Your own `fastify.log.*`, `request.log.*`, and hook-based logs still work.
-  - Works the same with `logging`, `fastifyOptions.logger`, or `fastifyOptions.loggerInstance`.
-- `logger: { level: 'warn' }`
-  - Enables logger but sets minimum level to `warn`.
-  - Request lifecycle logs (`info` level) won't appear.
-  - **Tip:** If you want to disable the built-in request logs and implement your own custom access logging (with additional fields like user ID, tenant, etc.), use `disableRequestLogging: true` and add your own logging via hooks in a plugin. See [Access Logging Plugin](./server-plugins.md#access-logging-plugin) for an example.
-- `loggerInstance`
-  - Uses your provided pino/pino-compatible logger object.
-
-Built-in request log event shape:
-
-- Request start:
-  - message: `"incoming request"`
-  - level: `info`
-  - context typically includes: `reqId` (Fastify `request.id`) and `req`
-- Request completion:
-  - message: `"request completed"`
-  - level: `info`
-  - context typically includes: `reqId` (Fastify `request.id`), `res`, `responseTime`
-- Unhandled route/handler error (`500` path):
-  - an additional `error`-level event is emitted (message is usually the error message), then completion log still runs.
-
-When using Unirend `logging`, these become `logger.info(message, context)` / `logger.error(message, context)` calls through the adapter.
-
-**Note:** `reqId` in Fastify's logs is the Fastify request identifier (`request.id`), which is an incremental counter by default. This is separate from `request.requestID` used by Unirend envelope helpers and the clientInfo plugin, which is a globally unique identifier (ULID) that's better for distributed systems (e.g., multiple servers behind a load balancer) and correlating requests across services.
-
-If you need a strict payload shape, prefer custom `onRequest`/`onResponse` hooks and build the exact context object you want to emit.
-
-Example Unirend logger object (recommended path):
-
-```typescript
-import { serveSSRProd } from 'unirend/server';
-
-const server = serveSSRProd('./build', {
-  // Use Unirend's simpler logger abstraction
-  logging: {
-    level: 'info',
-    logger: {
-      trace: (message, context) => console.trace(message, context),
-      debug: (message, context) => console.debug(message, context),
-      info: (message, context) => console.info(message, context),
-      warn: (message, context) => console.warn(message, context),
-      error: (message, context) => console.error(message, context),
-      fatal: (message, context) => console.error(message, context),
-    },
-  },
-  // Optional: Disable automatic request logs while keeping logger enabled
-  fastifyOptions: {
-    disableRequestLogging: true,
-  },
-});
-```
-
-If you prefer Fastify/pino configuration directly, use `fastifyOptions.logger` or `fastifyOptions.loggerInstance`:
-
-```typescript
-import { serveSSRProd } from 'unirend/server';
-
-const server = serveSSRProd('./build', {
-  fastifyOptions: {
-    logger: true,
-    // or:
-    // logger: { level: 'info' },
-    // loggerInstance: existingPinoOrCompatibleLogger,
-    // disableRequestLogging: true,
-  },
-});
-```
-
-For custom request-start/completion access logs, see [Access Logging Plugin](./server-plugins.md#access-logging-plugin).
 
 ### Options (prod-only)
 
@@ -1217,12 +1238,14 @@ These resources are configured independently for each app:
 
 ## Standalone API (APIServer)
 
-The `APIServer` is a flexible server with a similar plugin surface to SSRServer, but without the React SSR machinery. Use it when you don't need server-side React rendering. Common use cases:
+The `APIServer` is a flexible, general-purpose server with a similar plugin surface to SSRServer, but without the React SSR machinery. Think of it as an alternative to Fastify or Express, but designed to work seamlessly within the Unirend ecosystem with built-in support for plugins, page data loader endpoints (with versioning), and envelope responses.
+
+Use it when you don't need server-side React rendering. Common use cases:
 
 - **JSON API server**: AJAX/fetch endpoints with versioned routes and envelope responses, separately from your SSR server
 - **Page data server**: Host page data loader handlers separately from your SSR server
 - **Mixed API + web server**: Serve both JSON APIs and static HTML/assets without React (use split error handlers for HTML vs JSON responses)
-- **Plain web server**: Set `apiEndpointPrefix: false` to disable API envelope handling entirely and serve only static content via plugins
+- **Generic HTTP server**: Use as a general-purpose HTTP server (similar to Fastify/Express) with Unirend's plugin system. Set `apiEndpointPrefix: false` to disable API envelope handling and serve custom content via plugins
 
 ### Basic usage
 
@@ -1261,46 +1284,30 @@ async function main() {
 main().catch(console.error);
 ```
 
-### Options
+> **🐳 Container Deployment:** For container deployments, see the [container binding note](#create-production-ssr-server) in the SSR section - the same advice applies to APIServer.
 
-- `plugins?: ServerPlugin[]`
-- `apiEndpoints?: APIEndpointConfig`
-  - `apiEndpointPrefix?: string | false` — API route prefix (default: `"/api"`). Set to `false` to disable API handling (server becomes a plain web server). Throws error on startup if routes are registered but API is disabled.
-  - `versioned?: boolean` — Enable versioned endpoints like `/api/v1/...` (default: `true`)
-  - `pageDataEndpoint?: string` — Endpoint name for page data loader handlers (default: `"page_data"`)
+### API-Specific Options
+
+In addition to the [shared server configuration](#shared-server-configuration), the API server accepts:
+
+- `isDevelopment?: boolean`
+  - Affects error output/logging behavior. Defaults to `false`.
 - `errorHandler?: Function | { api?, web? }`
   - Function form: Returns JSON envelope (see [JSON-Only](#json-only-ssr-compatible))
-  - Object form: Split handlers for mixed API + web servers (see [Split Handlers](#split-handlers-web-server-mode)). Either handler can be omitted — missing handlers fall through to default behavior.
+  - Object form: Split handlers for mixed API + web servers (see [Split Handlers](#split-handlers-mixed-api--web-server)). Either handler can be omitted — missing handlers fall through to default behavior.
 - `notFoundHandler?: Function | { api?, web? }`
   - Function form: Returns JSON envelope (see [JSON-Only](#json-only-ssr-compatible))
-  - Object form: Split handlers for mixed API + web servers (see [Split Handlers](#split-handlers-web-server-mode)). Either handler can be omitted — missing handlers fall through to default behavior.
-- `plugins?: ServerPlugin[]`
-  - Register Fastify plugins via a controlled interface (see [plugins](./server-plugins.md)).
-- `fileUploads?: { enabled: boolean; limits?: { fileSize?, files?, fields?, fieldSize? }; allowedRoutes?: string[]; preValidation?: Function }`
-  - Enable built-in multipart file upload support.
-  - Set global limits that can be overridden per-route using `processFileUpload()`.
-  - Default limits: `fileSize: 10MB`, `files: 10`, `fields: 10`, `fieldSize: 1KB`
-  - `allowedRoutes` (optional): List of routes/patterns that allow multipart uploads. Supports wildcards (e.g. `/api/workspace/*/upload`). When specified, automatically rejects multipart requests to other routes (prevents bandwidth waste and DoS attacks).
-    - **Important**: When using `apiEndpoints.versioned: true` (the default), routes are exposed under `/api/v{n}/...`, so `allowedRoutes` must include the version prefix. Example: use `['/api/v1/upload/avatar']` instead of `['/api/upload/avatar']`. Only use unversioned paths if you explicitly set `versioned: false`.
-  - `preValidation` (optional): Async function for header-based validation (auth, rate limiting, etc.) that runs after user plugin hooks but before multipart parsing. Return `true` to allow or error object to reject.
-  - See [File Upload Helpers](./file-upload-helpers.md) for detailed usage and examples.
-- `isDevelopment?: boolean`
-- `logging?: { logger; level? }`
-  - Same behavior as SSR options above.
-- `fastifyOptions?: { logger?; loggerInstance?; disableRequestLogging?; trustProxy?; bodyLimit?; keepAliveTimeout? }`
-  - `loggerInstance` must satisfy Fastify's base logger interface (`info`, `error`, `debug`, `fatal`, `warn`, `trace`, `silent`, `level`) and support `child(bindings, options)`.
-  - Same behavior as SSR options above: use either `logger` config or `loggerInstance`, and request/access logs are emitted by Fastify when logging is enabled.
-  - `disableRequestLogging` defaults to `false`. Set it to `true` to disable Fastify's default incoming/completed request logs (hook customization in [server-plugins.md](./server-plugins.md#hooks)).
-- `APIResponseHelpersClass?: typeof APIResponseHelpers`
-  - Provide a custom helpers class for constructing API/Page envelopes. Useful to inject default metadata (e.g., account/site info) across responses.
-  - If omitted, the built-in `APIResponseHelpers` is used.
-  - Note: Validation helpers like `isValidEnvelope` use the base helpers and are not overridden by this option.
+  - Object form: Split handlers for mixed API + web servers (see [Split Handlers](#split-handlers-mixed-api--web-server)). Either handler can be omitted — missing handlers fall through to default behavior.
 
 Note: Unlike SSR servers, the API server allows full wildcard routes (including root wildcards) in plugins.
 
 ### Error Handling
 
-Both `errorHandler` and `notFoundHandler` support two forms: a function (JSON-only) compatible with the SSR server config, or an object with split handlers (for mixed HTML/JSON servers).
+Both `errorHandler` and `notFoundHandler` support two forms: a simple function or an object with split handlers. Choose based on your server type:
+
+- **API-only server** (JSON responses): Use function form returning API envelopes
+- **Web-only server** (`apiEndpointPrefix: false`): Use function form returning `WebErrorResponse` (HTML/text)
+- **Mixed API + web server**: Use split form with separate `api` and `web` handlers
 
 #### JSON-Only (SSR Compatible)
 
@@ -1337,11 +1344,61 @@ const server = serveAPI({
 
 This is the same signature used by SSR server's `APIHandling` options (see [Options (shared)](#options-shared) above), making it easy to share handler logic between SSR and standalone API servers. The `isPageData` parameter distinguishes page data loader handler requests from regular API requests.
 
-#### Split Handlers (Web Server Mode)
+#### Web-Only (Plain Web Server)
 
-When using the API server as a **standalone API/web server** (serving both HTML pages and JSON APIs without the built-in React SSR), use the split form to return different response types.
+When using APIServer as a plain web server (`apiEndpointPrefix: false`), use the function form returning `WebErrorResponse`:
 
-Either `api` or `web` handler can be omitted — missing handlers fall through to the default JSON envelope behavior when not provided:
+```typescript
+import { serveAPI } from 'unirend/server';
+import { staticContent } from 'unirend/plugins';
+import { escapeHTML } from 'unirend/utils';
+
+const server = serveAPI({
+  // Disable API handling - plain web server mode
+  apiEndpoints: { apiEndpointPrefix: false },
+
+  plugins: [
+    // Serve static files (HTML, CSS, JS, images)
+    staticContent({
+      folderMap: { '/': './public' },
+    }),
+  ],
+
+  // Simple function form - returns HTML/text
+  notFoundHandler: (request) => ({
+    contentType: 'html',
+    content: `<!DOCTYPE html>
+      <html>
+        <body>
+          <h1>404 - Page Not Found</h1>
+          <p>The page ${escapeHTML(request.url)} could not be found.</p>
+          <a href="/">Go home</a>
+        </body>
+      </html>`,
+    statusCode: 404,
+  }),
+
+  errorHandler: (request, error, isDev) => ({
+    contentType: 'html',
+    content: `<!DOCTYPE html>
+      <html>
+        <body>
+          <h1>500 - Server Error</h1>
+          ${isDev ? `<pre>${escapeHTML(error.stack || '')}</pre>` : '<p>Something went wrong.</p>'}
+        </body>
+      </html>`,
+    statusCode: 500,
+  }),
+});
+```
+
+**Note**: When `apiEndpointPrefix: false`, all requests are treated as web requests, so split handlers would only use the `web` path. The simple function form is clearer for this use case.
+
+#### Split Handlers (Mixed API + Web Server)
+
+When serving **both** JSON APIs and web content on the same server, use the split form to return different response types based on the request:
+
+Both `api` and `web` handlers are optional. If a handler is omitted or throws an error, the error is logged to the Fastify logger and the server falls back to the default response for that request type (JSON envelope for API requests, default error page for web requests). Check your server logs to debug handler failures:
 
 ```typescript
 import { serveAPI } from 'unirend/server';

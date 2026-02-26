@@ -65,8 +65,11 @@ const ok = matchesOriginList(
 
 ## API surface
 
+### Core functions
+
 - `normalizeDomain(domain: string): string`
 - `normalizeOrigin(origin: string): string`
+- `parseHostHeader(host: string): ParsedHost` - Parse HTTP Host header into domain and port
 - `matchesWildcardDomain(domain: string, pattern: string): boolean`
 - `matchesWildcardOrigin(origin: string, pattern: string): boolean`
 - `matchesDomainList(domain: string, allowedDomains: string[]): boolean`
@@ -74,6 +77,43 @@ const ok = matchesOriginList(
 - `matchesCORSCredentialsList(origin: string | undefined, allowedOrigins: string[], options?: { allowWildcardSubdomains?: boolean }): boolean`
 - `validateConfigEntry(entry: string, context: "domain" | "origin", options?: { allowGlobalWildcard?: boolean; allowProtocolWildcard?: boolean }): { valid: boolean; info?: string; wildcardKind: "none" | "global" | "protocol" | "subdomain" }`
 - `isIPAddress(s: string): boolean`
+
+### Types
+
+- `ParsedHost` - Result of parsing a Host header with `{ domain: string, port: string }`
+
+## Parsing Host headers
+
+Use `parseHostHeader` to safely parse HTTP Host headers into domain and port components:
+
+```ts
+import { parseHostHeader, normalizeDomain } from './domain-utils';
+
+const host = request.headers.host || '';
+const { domain, port } = parseHostHeader(host);
+
+// domain has brackets stripped for normalization:
+// "[::1]:8080" → domain: "::1", port: "8080"
+// "example.com:443" → domain: "example.com", port: "443"
+
+// Check for malformed input
+if (!domain) {
+  // Malformed Host header - reject or handle appropriately
+  return reply.code(400).send({ error: 'Invalid Host header' });
+}
+
+const normalized = normalizeDomain(domain);
+```
+
+**Handles:**
+
+- Regular hostnames with optional ports: `example.com`, `example.com:8080`
+- IPv6 with brackets: `[::1]`, `[::1]:8080`, `[2001:db8::1]:443`
+- IPv4 addresses: `127.0.0.1`, `192.168.1.1:3000`
+
+**Strict validation:** For bracketed IPv6, only allows empty or `:port` after closing bracket. Malformed input like `[::1]garbage`, `[::1][::2]`, or `[::1` returns `{ domain: '', port: '' }`.
+
+The returned `domain` has brackets stripped so it can be passed directly to `normalizeDomain()` or `matchesDomainList()`.
 
 ## Configuration & validation
 

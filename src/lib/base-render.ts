@@ -201,6 +201,7 @@ export async function unirendBaseRender(
           typeof data.error.message === 'string'
             ? data.error.message
             : 'Unknown error';
+
         const errorObj = new Error(errorMessage);
 
         // Add stack trace if available

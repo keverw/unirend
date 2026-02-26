@@ -9,6 +9,7 @@ import {
   createDefaultAPINotFoundResponse,
   validateAndRegisterPlugin,
   validateNoHandlersWhenAPIDisabled,
+  buildFastifyHTTPSOptions,
 } from './server-utils';
 import type {
   APIServerOptions,
@@ -126,7 +127,7 @@ export class APIServer extends BaseServer {
 
     try {
       // Build Fastify options from curated subset
-      const fastifyOptions: FastifyServerOptions = {};
+      const fastifyOptions: FastifyServerOptions & { https?: unknown } = {};
 
       Object.assign(
         fastifyOptions,
@@ -151,6 +152,11 @@ export class APIServer extends BaseServer {
         if (keepAliveTimeout !== undefined) {
           fastifyOptions.keepAliveTimeout = keepAliveTimeout;
         }
+      }
+
+      // Add HTTPS configuration if provided
+      if (this.options.https) {
+        fastifyOptions.https = buildFastifyHTTPSOptions(this.options.https);
       }
 
       this.fastifyInstance = fastify(fastifyOptions);
@@ -417,6 +423,15 @@ export class APIServer extends BaseServer {
         return;
       }
 
+      // Log errors for debugging (unless explicitly disabled)
+      // This ensures errors are never lost even with custom error handlers
+      if (this.options.logErrors !== false) {
+        request.log.error(
+          { err: error, url: request.url, method: request.method },
+          'Request error:',
+        );
+      }
+
       const { isAPI, isPageData } = classifyRequest(
         request.url,
         this.normalizedAPIPrefix,
@@ -648,6 +663,7 @@ export class APIServer extends BaseServer {
           { err: error },
           'Failed to register plugin:',
         );
+
         throw new Error(
           `Plugin registration failed: ${error instanceof Error ? error.message : String(error)}`,
         );

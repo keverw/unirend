@@ -315,14 +315,12 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
                   contentType: 'json' as const,
                   content: {
                     error: 'invalid_domain',
-                    message:
-                      'This domain is not authorized to access this server',
+                    message: `Domain "${originalDomain}" is not authorized to access this server`,
                   },
                 }
               : {
                   contentType: 'text' as const,
-                  content:
-                    'Access denied: This domain is not authorized to access this server',
+                  content: `Access denied: Domain "${originalDomain}" is not authorized`,
                 };
 
           // Set appropriate content type and send response (do not cache)

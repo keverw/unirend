@@ -79,6 +79,9 @@ async function main() {
     },
     containerID: 'root', // Default React root container
 
+    // Generate page map for StaticWebServer (maps URLs to files)
+    pageMapOutput: 'page-map.json', // Written to build/client/page-map.json
+
     // Logging options (silent by default):
     logger: SSGConsoleLogger, // Use built-in console logger with prefixes
     // logger: undefined, // Silent mode (default)
@@ -108,7 +111,7 @@ async function main() {
       console.log(`  • Successful: ${pagesReport.successCount}`);
       console.log(`  • Errors: ${pagesReport.errorCount}`);
       console.log(`  • Not found: ${pagesReport.notFoundCount}`);
-      console.log(`  • Total time: ${pagesReport.totalTimeMs}ms`);
+      console.log(`  • Total time: ${pagesReport.totalTimeMS}ms`);
       console.log(`  • Build dir: ${pagesReport.buildDir}`);
 
       // Log individual page results
@@ -124,7 +127,7 @@ async function main() {
           page.page.type === 'ssg'
             ? `${page.page.path} → ${page.page.filename}`
             : `SPA → ${page.page.filename}`;
-        console.log(`  ${status} ${pageInfo} (${page.timeMs}ms)`);
+        console.log(`  ${status} ${pageInfo} (${page.timeMS}ms)`);
 
         if (page.status === 'error' && page.errorDetails) {
           console.log(`      Error: ${page.errorDetails}`);

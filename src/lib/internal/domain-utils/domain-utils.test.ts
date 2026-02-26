@@ -9,6 +9,7 @@ import {
   matchesCORSCredentialsList,
   isIPAddress,
   validateConfigEntry,
+  parseHostHeader,
 } from './domain-utils';
 
 describe('domain-utils', () => {
@@ -2501,6 +2502,211 @@ describe('domain-utils', () => {
         Array.from({ length: 20 }, () => '**').join('.') + '.zzz.example.com';
       // Should fail without hanging due to step limit guard
       expect(matchesWildcardDomain(deepDomain, explosivePattern)).toBe(false);
+    });
+  });
+
+  describe('parseHostHeader', () => {
+    it('should parse regular hostname without port', () => {
+      expect(parseHostHeader('example.com')).toEqual({
+        domain: 'example.com',
+        port: '',
+      });
+
+      expect(parseHostHeader('api.example.com')).toEqual({
+        domain: 'api.example.com',
+        port: '',
+      });
+
+      expect(parseHostHeader('localhost')).toEqual({
+        domain: 'localhost',
+        port: '',
+      });
+    });
+
+    it('should parse regular hostname with port', () => {
+      expect(parseHostHeader('example.com:8080')).toEqual({
+        domain: 'example.com',
+        port: '8080',
+      });
+
+      expect(parseHostHeader('api.example.com:3000')).toEqual({
+        domain: 'api.example.com',
+        port: '3000',
+      });
+
+      expect(parseHostHeader('localhost:9876')).toEqual({
+        domain: 'localhost',
+        port: '9876',
+      });
+    });
+
+    it('should parse IPv4 addresses without port', () => {
+      expect(parseHostHeader('127.0.0.1')).toEqual({
+        domain: '127.0.0.1',
+        port: '',
+      });
+
+      expect(parseHostHeader('192.168.1.1')).toEqual({
+        domain: '192.168.1.1',
+        port: '',
+      });
+    });
+
+    it('should parse IPv4 addresses with port', () => {
+      expect(parseHostHeader('127.0.0.1:8080')).toEqual({
+        domain: '127.0.0.1',
+        port: '8080',
+      });
+
+      expect(parseHostHeader('192.168.1.1:3000')).toEqual({
+        domain: '192.168.1.1',
+        port: '3000',
+      });
+    });
+
+    it('should parse IPv6 addresses with brackets (no port)', () => {
+      expect(parseHostHeader('[::1]')).toEqual({
+        domain: '::1',
+        port: '',
+      });
+
+      expect(parseHostHeader('[2001:db8::1]')).toEqual({
+        domain: '2001:db8::1',
+        port: '',
+      });
+
+      expect(parseHostHeader('[fe80::1]')).toEqual({
+        domain: 'fe80::1',
+        port: '',
+      });
+    });
+
+    it('should parse IPv6 addresses with brackets and port', () => {
+      expect(parseHostHeader('[::1]:8080')).toEqual({
+        domain: '::1',
+        port: '8080',
+      });
+
+      expect(parseHostHeader('[2001:db8::1]:443')).toEqual({
+        domain: '2001:db8::1',
+        port: '443',
+      });
+
+      expect(parseHostHeader('[fe80::1]:3000')).toEqual({
+        domain: 'fe80::1',
+        port: '3000',
+      });
+    });
+
+    it('should handle empty or whitespace input', () => {
+      expect(parseHostHeader('')).toEqual({
+        domain: '',
+        port: '',
+      });
+    });
+
+    it('should reject malformed IPv6 brackets', () => {
+      // Missing closing bracket - return empty (malformed)
+      expect(parseHostHeader('[::1')).toEqual({
+        domain: '',
+        port: '',
+      });
+
+      // Opening bracket but no valid structure
+      expect(parseHostHeader('[malformed')).toEqual({
+        domain: '',
+        port: '',
+      });
+    });
+
+    it('should reject junk after closing bracket (strict validation)', () => {
+      // Double brackets - junk after first closing bracket
+      expect(parseHostHeader('[::1][::2]')).toEqual({
+        domain: '',
+        port: '',
+      });
+
+      expect(parseHostHeader('[abc][def]')).toEqual({
+        domain: '',
+        port: '',
+      });
+
+      // Nested brackets
+      expect(parseHostHeader('[[::1]]')).toEqual({
+        domain: '',
+        port: '',
+      });
+
+      // Random junk after bracket
+      expect(parseHostHeader('[::1]garbage')).toEqual({
+        domain: '',
+        port: '',
+      });
+
+      expect(parseHostHeader('[::1] ')).toEqual({
+        domain: '',
+        port: '',
+      });
+
+      // Double brackets with port notation (still malformed)
+      expect(parseHostHeader('[::1][::2]:8080')).toEqual({
+        domain: '',
+        port: '',
+      });
+    });
+
+    it('should handle edge cases with colons', () => {
+      // Multiple colons in hostname (not IPv6 with brackets)
+      expect(parseHostHeader('test:multiple:colons')).toEqual({
+        domain: 'test',
+        port: 'multiple:colons',
+      });
+
+      // Port without hostname
+      expect(parseHostHeader(':8080')).toEqual({
+        domain: '',
+        port: '8080',
+      });
+    });
+
+    it('should strip brackets from IPv6 for normalization compatibility', () => {
+      // The domain should have brackets stripped so it can be passed to normalizeDomain()
+      const result = parseHostHeader('[::1]:8080');
+      expect(result.domain).toBe('::1'); // Not '[::1]'
+      expect(result.port).toBe('8080');
+
+      // Verify this works with normalizeDomain
+      const normalized = normalizeDomain(result.domain);
+      expect(normalized).toBe('::1');
+    });
+
+    it('should handle real-world Host header examples', () => {
+      // Standard web server examples
+      expect(parseHostHeader('www.example.com')).toEqual({
+        domain: 'www.example.com',
+        port: '',
+      });
+
+      expect(parseHostHeader('example.com:443')).toEqual({
+        domain: 'example.com',
+        port: '443',
+      });
+
+      expect(parseHostHeader('localhost:3000')).toEqual({
+        domain: 'localhost',
+        port: '3000',
+      });
+
+      // IPv6 localhost
+      expect(parseHostHeader('[::1]')).toEqual({
+        domain: '::1',
+        port: '',
+      });
+
+      expect(parseHostHeader('[::1]:8443')).toEqual({
+        domain: '::1',
+        port: '8443',
+      });
     });
   });
 });

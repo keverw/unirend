@@ -38,6 +38,7 @@ import {
   createControlledReply,
   validateAndRegisterPlugin,
   validateNoHandlersWhenAPIDisabled,
+  buildFastifyHTTPSOptions,
 } from './server-utils';
 import { generateDefault500ErrorPage } from './error-page-utils';
 import { StaticContentCache } from './static-content-cache';
@@ -440,7 +441,7 @@ export class SSRServer extends BaseServer {
       const { default: fastify } = await import('fastify');
 
       // Build Fastify options from curated subset
-      const fastifyOptions: FastifyServerOptions = {};
+      const fastifyOptions: FastifyServerOptions & { https?: unknown } = {};
 
       Object.assign(
         fastifyOptions,
@@ -465,6 +466,13 @@ export class SSRServer extends BaseServer {
         if (keepAliveTimeout !== undefined) {
           fastifyOptions.keepAliveTimeout = keepAliveTimeout;
         }
+      }
+
+      // Add HTTPS configuration if provided
+      if (this.sharedOptions.https) {
+        fastifyOptions.https = buildFastifyHTTPSOptions(
+          this.sharedOptions.https,
+        );
       }
 
       this.fastifyInstance = fastify(fastifyOptions);
@@ -512,11 +520,11 @@ export class SSRServer extends BaseServer {
 
           const isDevelopment = this.serverMode === 'development';
 
-          // Log the error using Fastify's logger
-          if (this.fastifyInstance) {
-            this.fastifyInstance.log.error(
-              { err: error },
-              'Global Error Handler Caught:',
+          // Log errors for debugging (unless explicitly disabled, consistent with APIServer)
+          if (this.sharedOptions.logErrors !== false) {
+            request.log.error(
+              { err: error, url: request.url, method: request.method },
+              'Request error:',
             );
           }
 
@@ -1451,6 +1459,7 @@ export class SSRServer extends BaseServer {
           { err: error },
           'Failed to register plugin:',
         );
+
         throw new Error(
           `Plugin registration failed: ${error instanceof Error ? error.message : String(error)}`,
         );

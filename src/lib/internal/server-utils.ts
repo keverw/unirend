@@ -13,6 +13,7 @@ import type {
   SafeRouteOptions,
   ControlledReply,
   APIResponseHelpersClass,
+  HTTPSOptions,
 } from '../types';
 import type { CookieSerializeOptions } from '@fastify/cookie';
 import { DEFAULT_API_PREFIX, DEFAULT_PAGE_DATA_ENDPOINT } from './consts';
@@ -564,4 +565,60 @@ export function validateAndRegisterPlugin(
 
   // Add to registered plugins list
   registeredPlugins.push(pluginResult);
+}
+
+/**
+ * Builds Fastify-compatible HTTPS options from the shared HTTPSOptions type.
+ * Handles extracting the `sni` field and converting it to a Node.js `SNICallback`
+ * that supports both sync and async user functions.
+ *
+ * Used by APIServer, and SSRServer to avoid duplicating
+ * the SNI callback adapter logic.
+ *
+ * @param httpsConfig - The HTTPSOptions from server configuration
+ * @returns A plain object suitable for passing as `fastifyOptions.https`
+ */
+export function buildFastifyHTTPSOptions(
+  httpsConfig: HTTPSOptions,
+): Record<string, unknown> {
+  const { sni, ...httpsOptions } = httpsConfig;
+
+  // Build HTTPS options for Fastify
+  const fastifyHTTPSOptions: Record<string, unknown> = {
+    ...httpsOptions,
+  };
+
+  // Add SNI callback if provided
+  if (sni) {
+    fastifyHTTPSOptions.SNICallback = (
+      servername: string,
+      callback?: (err: Error | null, ctx?: unknown) => void,
+    ) => {
+      // Call user's SNI function (supports both sync and async)
+      const result = sni(servername);
+
+      // Handle Promise return
+      if (result && typeof result === 'object' && 'then' in result) {
+        if (callback) {
+          result
+            .then((ctx: unknown) => {
+              callback(null, ctx);
+            })
+            .catch((error: unknown) => {
+              callback(
+                error instanceof Error ? error : new Error(String(error)),
+              );
+            });
+        } else {
+          return result;
+        }
+      } else if (callback) {
+        callback(null, result);
+      } else {
+        return result;
+      }
+    };
+  }
+
+  return fastifyHTTPSOptions;
 }

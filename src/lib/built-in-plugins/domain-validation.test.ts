@@ -269,7 +269,7 @@ describe('domainValidation', () => {
       expect(reply.code).toHaveBeenCalledWith(403);
       expect(reply.type).toHaveBeenCalledWith('text/plain');
       expect(reply.send).toHaveBeenCalledWith(
-        'Access denied: This domain is not authorized to access this server',
+        'Access denied: Domain "evil.com" is not authorized',
       );
     });
 
@@ -789,7 +789,7 @@ describe('domainValidation', () => {
       expect(reply.type).toHaveBeenCalledWith('application/json');
       expect(reply.send).toHaveBeenCalledWith({
         error: 'invalid_domain',
-        message: 'This domain is not authorized to access this server',
+        message: 'Domain "evil.com" is not authorized to access this server',
       });
     });
 
@@ -815,7 +815,7 @@ describe('domainValidation', () => {
       expect(reply.type).toHaveBeenCalledWith('application/json');
       expect(reply.send).toHaveBeenCalledWith({
         error: 'invalid_domain',
-        message: 'This domain is not authorized to access this server',
+        message: 'Domain "evil.com" is not authorized to access this server',
       });
     });
 
@@ -886,7 +886,7 @@ describe('domainValidation', () => {
       expect(reply.type).toHaveBeenCalledWith('application/json');
       expect(reply.send).toHaveBeenCalledWith({
         error: 'invalid_domain',
-        message: 'This domain is not authorized to access this server',
+        message: 'Domain "evil.com" is not authorized to access this server',
       });
     });
   });
@@ -948,7 +948,7 @@ describe('domainValidation', () => {
       expect(reply.code).toHaveBeenCalledWith(403);
       expect(reply.type).toHaveBeenCalledWith('text/plain');
       expect(reply.send).toHaveBeenCalledWith(
-        'Access denied: This domain is not authorized to access this server',
+        'Access denied: Domain "evil.com" is not authorized',
       );
     });
 
@@ -974,7 +974,7 @@ describe('domainValidation', () => {
       expect(reply.type).toHaveBeenCalledWith('application/json');
       expect(reply.send).toHaveBeenCalledWith({
         error: 'invalid_domain',
-        message: 'This domain is not authorized to access this server',
+        message: 'Domain "evil.com" is not authorized to access this server',
       });
     });
 

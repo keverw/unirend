@@ -40,7 +40,9 @@ export type {
   UnirendLoggingOptions,
   UnirendLoggerObject,
   UnirendLoggerLevel,
+  HTTPSOptions,
 } from './lib/types';
+export type { RedirectServerOptions } from './lib/redirect';
 
 // Server-safe constants
 export { SSGConsoleLogger } from './lib/types';
@@ -51,6 +53,7 @@ export type {
   PluginHostInstance,
   PluginOptions,
   PluginMetadata,
+  StaticWebServerOptions,
 } from './lib/types';
 export type { SSRServer } from './lib/internal/ssr-server';
 export type { APIServer } from './lib/internal/api-server';
@@ -64,6 +67,7 @@ export { serveSSRDev, serveSSRProd } from './lib/ssr';
 export { generateSSG } from './lib/ssg';
 export { unirendBaseRender } from './lib/base-render';
 export { serveAPI } from './lib/api';
+export { serveRedirect, RedirectServer } from './lib/redirect';
 
 // Re-export Fastify request/reply types to avoid forcing consumers to import 'fastify'
 export type { FastifyRequest, FastifyReply } from 'fastify';
@@ -73,7 +77,7 @@ export type {
 } from 'fastify';
 
 // Export our out of the box static web server
-export type { StaticWebServer } from './lib/internal/static-web-server';
+export { StaticWebServer } from './lib/internal/static-web-server';
 
 // File upload helpers
 export { processFileUpload } from './lib/server/process-file-upload';

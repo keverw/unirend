@@ -602,8 +602,8 @@ export async function generateSSG(
       });
     }
 
-    // Write the page map file to the build directory
-    const pageMapPath = path.join(buildDir, options.pageMapOutput);
+    // Write the page map file to the client directory (same location as HTML files)
+    const pageMapPath = path.join(clientBuildDir, options.pageMapOutput);
 
     const pageMapWriteResult = await writeJSONFile(pageMapPath, pageMap);
 

@@ -11,6 +11,7 @@ import type {
 } from 'fastify';
 import type { CookieSerializeOptions } from '@fastify/cookie';
 import type { ViteDevServer } from 'vite';
+import type { SecureContext } from 'tls';
 import type { DataLoaderServerHandlerHelpers } from './internal/data-loader-server-handler-helpers';
 import type {
   APIErrorResponse,
@@ -299,6 +300,55 @@ export interface WebSocketOptions {
 }
 
 /**
+ * HTTPS server configuration options
+ * Provides first-class HTTPS support with certificate files and SNI callback
+ */
+export interface HTTPSOptions {
+  /**
+   * Private key in PEM format
+   * Can be a string, Buffer, or array of strings/Buffers for multiple keys
+   */
+  key: string | Buffer | Array<string | Buffer>;
+  /**
+   * Certificate chain in PEM format
+   * Can be a string, Buffer, or array of strings/Buffers for multiple certificates
+   */
+  cert: string | Buffer | Array<string | Buffer>;
+  /**
+   * Optional CA certificates in PEM format
+   * Used for client certificate verification
+   */
+  ca?: string | Buffer | Array<string | Buffer>;
+  /**
+   * Optional passphrase for the private key
+   */
+  passphrase?: string;
+  /**
+   * Optional SNI (Server Name Indication) callback for dynamic certificate selection
+   * Useful for multi-tenant SaaS applications serving multiple domains
+   *
+   * The callback receives the server name (domain) and should return a SecureContext
+   * with the appropriate certificate for that domain. Can be async.
+   *
+   * @param servername - The domain name from the TLS handshake
+   * @returns SecureContext with the appropriate certificate, or a Promise resolving to one
+   *
+   * @example
+   * ```ts
+   * sni: async (servername) => {
+   *   const ctx = tls.createSecureContext({
+   *     key: await loadKeyForDomain(servername),
+   *     cert: await loadCertForDomain(servername),
+   *   });
+   *
+   *   return ctx;
+   * }
+   * ```
+   */
+  sni?: (servername: string) => SecureContext | Promise<SecureContext>;
+}
+
+/**
  * Shared configuration for versioned API endpoint groups
  * Used by helpers that register versioned endpoints (page data, generic API routes, etc.)
  */
@@ -381,6 +431,46 @@ export interface UnirendLoggingOptions {
    * @default "info"
    */
   level?: UnirendLoggerLevel;
+}
+
+/**
+ * Subset of Fastify server options safe for use with Unirend servers.
+ * Excludes options that would conflict with server setup.
+ *
+ * These options are supported by SSRServer, APIServer, and StaticWebServer.
+ */
+export interface FastifyServerOptions {
+  /**
+   * Enable/configure Fastify logging
+   * @example true | false | { level: 'info' } | { level: 'warn', prettyPrint: true }
+   */
+  logger?: boolean | FastifyLoggerOptions;
+  /**
+   * Custom Fastify logger instance (e.g. pino-compatible logger).
+   * When provided, this is passed to Fastify as `loggerInstance`.
+   */
+  loggerInstance?: FastifyBaseLogger;
+  /**
+   * Disable Fastify automatic request lifecycle logging (`incoming request` / `request completed`).
+   * This only applies when logging is enabled.
+   * @default false
+   */
+  disableRequestLogging?: boolean;
+  /**
+   * Trust proxy headers (useful for deployment behind load balancers)
+   * @default false
+   */
+  trustProxy?: boolean | string | string[] | number;
+  /**
+   * Maximum request body size in bytes
+   * @default 1048576 (1MB)
+   */
+  bodyLimit?: number;
+  /**
+   * Keep-alive timeout in milliseconds
+   * @default 72000 (72 seconds)
+   */
+  keepAliveTimeout?: number;
 }
 
 /**
@@ -540,42 +630,38 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    */
   webSocketOptions?: WebSocketOptions;
   /**
+   * HTTPS server configuration
+   * Provides first-class HTTPS support with key, cert, and SNI callback
+   *
+   * @example Basic HTTPS
+   * ```ts
+   * https: {
+   *   key: privateKey,     // string | Buffer
+   *   cert: certificate,   // string | Buffer
+   * }
+   * ```
+   *
+   * @example SNI callback for multi-tenant SaaS
+   * ```ts
+   * https: {
+   *   key: defaultPrivateKey,   // string | Buffer - Default cert
+   *   cert: defaultCertificate,  // string | Buffer
+   *   sni: async (servername) => {
+   *     // Load certificate based on domain
+   *     const { key, cert } = await loadCertForDomain(servername);
+   *
+   *     // Return a secure context for the domain
+   *     return tls.createSecureContext({ key, cert });
+   *   },
+   * }
+   * ```
+   */
+  https?: HTTPSOptions;
+  /**
    * Curated Fastify options for SSR server configuration
    * Only exposes safe options that won't conflict with SSR setup
    */
-  fastifyOptions?: {
-    /**
-     * Enable/configure Fastify logging
-     * @example true | false | { level: 'info' } | { level: 'warn', prettyPrint: true }
-     */
-    logger?: boolean | FastifyLoggerOptions;
-    /**
-     * Custom Fastify logger instance (e.g. pino-compatible logger).
-     * When provided, this is passed to Fastify as `loggerInstance`.
-     */
-    loggerInstance?: FastifyBaseLogger;
-    /**
-     * Disable Fastify automatic request lifecycle logging (`incoming request` / `request completed`).
-     * This only applies when logging is enabled.
-     * @default false
-     */
-    disableRequestLogging?: boolean;
-    /**
-     * Trust proxy headers (useful for deployment behind load balancers)
-     * @default false
-     */
-    trustProxy?: boolean | string | string[] | number;
-    /**
-     * Maximum request body size in bytes
-     * @default 1048576 (1MB)
-     */
-    bodyLimit?: number;
-    /**
-     * Keep-alive timeout in milliseconds
-     * @default 72000 (72 seconds)
-     */
-    keepAliveTimeout?: number;
-  };
+  fastifyOptions?: FastifyServerOptions;
   /**
    * Framework-level logging options adapted to Fastify under the hood.
    *
@@ -583,6 +669,13 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    * `fastifyOptions.loggerInstance`.
    */
   logging?: UnirendLoggingOptions;
+  /**
+   * Whether to automatically log errors via the server logger
+   * When enabled, all errors are logged before custom error handlers run
+   * Useful for debugging custom error pages that can't show stack traces
+   * @default true
+   */
+  logErrors?: boolean;
   /**
    * Timeout in milliseconds for the SSR render fetch request.
    * If the render takes longer than this, the request is aborted.
@@ -798,24 +891,30 @@ export type WebNotFoundHandlerFn = (
 
 /**
  * Split error handler with separate API and web handlers
+ * Both handlers are optional - if a handler is missing or throws an error,
+ * the error is logged to the Fastify logger and the server falls back to the default error response.
+ *
  * @template M Custom meta type extending BaseMeta for API handlers
  */
 export interface SplitErrorHandler<M extends BaseMeta = BaseMeta> {
-  /** Handler for API requests (paths matching apiEndpointPrefix) */
-  api: APIErrorHandlerFn<M>;
-  /** Handler for web requests (non-API paths) */
-  web: WebErrorHandlerFn;
+  /** Handler for API requests (paths matching apiEndpointPrefix). If missing or throws, logs error and falls back to default. */
+  api?: APIErrorHandlerFn<M>;
+  /** Handler for web requests (non-API paths). If missing or throws, logs error and falls back to default. */
+  web?: WebErrorHandlerFn;
 }
 
 /**
  * Split not found handler with separate API and web handlers
+ * Both handlers are optional - if a handler is missing or throws an error,
+ * the error is logged to the Fastify logger and the server falls back to the default not found response.
+ *
  * @template M Custom meta type extending BaseMeta for API handlers
  */
 export interface SplitNotFoundHandler<M extends BaseMeta = BaseMeta> {
-  /** Handler for API requests (paths matching apiEndpointPrefix) */
-  api: APINotFoundHandlerFn<M>;
-  /** Handler for web requests (non-API paths) */
-  web: WebNotFoundHandlerFn;
+  /** Handler for API requests (paths matching apiEndpointPrefix). If missing or throws, logs error and falls back to default. */
+  api?: APINotFoundHandlerFn<M>;
+  /** Handler for web requests (non-API paths). If missing or throws, logs error and falls back to default. */
+  web?: WebNotFoundHandlerFn;
 }
 
 /**
@@ -944,6 +1043,13 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    */
   isDevelopment?: boolean;
   /**
+   * Whether to automatically log errors via the server logger
+   * When enabled, all errors are logged before custom error handlers run
+   * Useful for debugging custom error pages that can't show stack traces
+   * @default true
+   */
+  logErrors?: boolean;
+  /**
    * Enable WebSocket support on the server
    * @default false
    */
@@ -954,42 +1060,38 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    */
   webSocketOptions?: WebSocketOptions;
   /**
+   * HTTPS server configuration
+   * Provides first-class HTTPS support with key, cert, and SNI callback
+   *
+   * @example Basic HTTPS
+   * ```ts
+   * https: {
+   *   key: privateKey,     // string | Buffer
+   *   cert: certificate,   // string | Buffer
+   * }
+   * ```
+   *
+   * @example SNI callback for multi-tenant SaaS
+   * ```ts
+   * https: {
+   *   key: defaultPrivateKey,   // string | Buffer - Default cert
+   *   cert: defaultCertificate,  // string | Buffer
+   *   sni: async (servername) => {
+   *     // Load certificate based on domain
+   *     const { key, cert } = await loadCertForDomain(servername);
+   *
+   *     // Return a secure context for the domain
+   *     return tls.createSecureContext({ key, cert });
+   *   },
+   * }
+   * ```
+   */
+  https?: HTTPSOptions;
+  /**
    * Curated Fastify options for API server configuration
    * Only exposes safe options that won't conflict with API setup
    */
-  fastifyOptions?: {
-    /**
-     * Enable/configure Fastify logging
-     * @example true | false | { level: 'info' } | { level: 'warn', prettyPrint: true }
-     */
-    logger?: boolean | FastifyLoggerOptions;
-    /**
-     * Custom Fastify logger instance (e.g. pino-compatible logger).
-     * When provided, this is passed to Fastify as `loggerInstance`.
-     */
-    loggerInstance?: FastifyBaseLogger;
-    /**
-     * Disable Fastify automatic request lifecycle logging (`incoming request` / `request completed`).
-     * This only applies when logging is enabled.
-     * @default false
-     */
-    disableRequestLogging?: boolean;
-    /**
-     * Trust proxy headers (useful for deployment behind load balancers)
-     * @default false
-     */
-    trustProxy?: boolean | string | string[] | number;
-    /**
-     * Maximum request body size in bytes
-     * @default 1048576 (1MB)
-     */
-    bodyLimit?: number;
-    /**
-     * Keep-alive timeout in milliseconds
-     * @default 72000 (72 seconds)
-     */
-    keepAliveTimeout?: number;
-  };
+  fastifyOptions?: FastifyServerOptions;
   /**
    * Framework-level logging options adapted to Fastify under the hood.
    *
@@ -997,6 +1099,150 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    * `fastifyOptions.loggerInstance`.
    */
   logging?: UnirendLoggingOptions;
+}
+
+/**
+ * Options for configuring the Static Web Server
+ * Used for serving SSG-generated static sites
+ */
+export interface StaticWebServerOptions {
+  /**
+   * Path to page-map.json file (maps URLs to HTML files)
+   * Generated by generateSSG() with pageMapOutput option
+   *
+   * @example "./build/client/page-map.json"
+   */
+  pageMapPath: string;
+
+  /**
+   * Base directory containing built assets
+   *
+   * @example "./build/client"
+   */
+  buildDir: string;
+
+  /**
+   * Whether to run in development mode
+   * Enables error stack traces in default error pages and affects plugin behavior
+   * @default false
+   */
+  isDevelopment?: boolean;
+
+  /**
+   * Whether to automatically log errors via the server logger
+   * When enabled, all errors are logged before custom error handlers run
+   * Useful for debugging custom error pages that can't show stack traces
+   * @default true
+   */
+  logErrors?: boolean;
+
+  /**
+   * Custom 404 HTML file path (relative to buildDir)
+   * If not specified, automatically looks for "404.html" in buildDir
+   *
+   * @default "404.html" if it exists
+   */
+  notFoundPage?: string;
+
+  /**
+   * Custom 500 error HTML file path (relative to buildDir)
+   * If not specified, automatically looks for "500.html" in buildDir
+   *
+   * @default "500.html" if it exists, otherwise uses generated error page
+   */
+  errorPage?: string;
+
+  /**
+   * Additional folders to serve (for assets like /assets, /images)
+   * Maps URL prefix to filesystem directory
+   *
+   * @example { '/assets': './build/client/assets' }
+   */
+  assetFolders?: Record<string, string>;
+
+  /**
+   * Additional single-file assets to serve (e.g., favicon, robots.txt, sitemap.xml)
+   * Maps URL path to filesystem file path
+   *
+   * These assets are merged with the page-map assets from SSG.
+   * If a URL conflicts with a page-map asset, the singleAssets value takes precedence.
+   *
+   * @example
+   * ```typescript
+   * {
+   *   '/favicon.ico': './public/favicon.ico',
+   *   '/robots.txt': './public/robots.txt',
+   *   '/sitemap.xml': './public/sitemap.xml'
+   * }
+   * ```
+   */
+  singleAssets?: Record<string, string>;
+
+  /**
+   * Enable immutable asset detection for fingerprinted files
+   * When enabled, files with fingerprinted names get long cache headers
+   *
+   * @default true
+   */
+  detectImmutableAssets?: boolean;
+
+  /**
+   * Default Cache-Control header for HTML pages
+   * @default "public, max-age=0, must-revalidate"
+   */
+  cacheControl?: string;
+
+  /**
+   * Cache-Control header for immutable assets (fingerprinted files)
+   * @default "public, max-age=31536000, immutable"
+   */
+  immutableCacheControl?: string;
+
+  /**
+   * HTTPS/SSL configuration (same as APIServer and SSRServer)
+   * Supports SNI (Server Name Indication) for multi-domain certificates
+   *
+   * @example Basic HTTPS
+   * {
+   *   key: privateKey,     // string | Buffer
+   *   cert: certificate    // string | Buffer
+   * }
+   *
+   * @example Multi-domain with SNI
+   * {
+   *   key: defaultPrivateKey,   // string | Buffer - Default cert
+   *   cert: defaultCertificate,  // string | Buffer
+   *   sni: (servername) => {
+   *     if (servername === 'example.com') {
+   *       return tls.createSecureContext({
+   *         key: examplePrivateKey,    // string | Buffer
+   *         cert: exampleCertificate,   // string | Buffer
+   *       });
+   *     }
+   *     return null;
+   *   }
+   * }
+   */
+  https?: HTTPSOptions;
+
+  /**
+   * Fastify server options (logging, trust proxy, etc.)
+   * Subset of Fastify options that don't conflict with static server setup
+   */
+  fastifyOptions?: FastifyServerOptions;
+
+  /**
+   * Framework-level logging options adapted to Fastify under the hood
+   * Cannot be used together with fastifyOptions.logger or fastifyOptions.loggerInstance
+   */
+  logging?: UnirendLoggingOptions;
+
+  /**
+   * Additional plugins to register
+   * Useful for custom routes, middleware, or request hooks
+   * (e.g., analytics, custom headers, redirects)
+   */
+  plugins?: ServerPlugin[];
 }
 
 /**

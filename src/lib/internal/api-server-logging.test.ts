@@ -272,6 +272,7 @@ describe('API Server Logging Configuration', () => {
         log.message.includes('incoming request') ||
         log.message.includes('request completed'),
     );
+
     expect(requestLogs.length).toBe(0);
   });
 
