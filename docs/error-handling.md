@@ -15,7 +15,7 @@
   - [Client-Side (After Hydration) Errors](#client-side-after-hydration-errors)
     - [3) Thrown Errors After Hydration](#3-thrown-errors-after-hydration)
     - [4) Loader Response Errors After Hydration](#4-loader-response-errors-after-hydration)
-    - [5) Error Responses with Stacktrace (Development Only)](#5-error-responses-with-stacktrace-development-only)
+    - [5) Error Responses with Stack Trace (Development Only)](#5-error-responses-with-stack-trace-development-only)
 - [Integration with API Envelope Structure](#integration-with-api-envelope-structure)
 - [Reference Implementation](#reference-implementation)
 - [Extending the Strategy](#extending-the-strategy)
@@ -40,11 +40,11 @@ Behavior also depends on when the error occurs:
 
 ### Error Utilities and Recommended Setup
 
-- **Error Boundary (thrown errors)**: In your `routes.tsx`, set `RouteErrorBoundary` as the root route’s `errorElement` to catch thrown errors during navigation and SSR.
+- **Error Boundary (thrown errors)**: In your `routes.tsx`, set `RouteErrorBoundary` as the root route's `errorElement` to catch thrown errors during navigation and SSR.
   - Import: `import { RouteErrorBoundary } from 'unirend/router-utils'`
   - Pass your custom components: `NotFoundComponent` (404s) and `ApplicationErrorComponent` (thrown errors).
   - The `ApplicationErrorComponent` should be a standalone page (no app layout). While the `NotFoundComponent` can be standalone or use your layout, either is fine.
-  - For SSR parity, your server’s `get500ErrorPage` should visually match your `ApplicationErrorComponent`.
+  - For SSR parity, your server's `get500ErrorPage` should visually match your `ApplicationErrorComponent`.
 
   ```ts
   // routes.tsx
@@ -93,7 +93,7 @@ Behavior also depends on when the error occurs:
 
 - **Inline envelope errors in layout**: In your `AppLayout`, use `useDataLoaderEnvelopeError` to render inline errors (including 404s) returned by data loaders.
   - Import: `import { useDataLoaderEnvelopeError } from 'unirend/router-utils'`
-  - Typical mapping: render a `NotFound` component for 404s and a generic error component for other cases. See the SSR demo’s `demos/ssr/src/routes.tsx` layout pattern.
+  - Typical mapping: render a `NotFound` component for 404s and a generic error component for other cases. See the SSR demo's `demos/ssr/src/routes.tsx` layout pattern.
   - A dedicated not-found page data loader is recommended, but inline handling in your layout works too.
 
 ## Error Types
@@ -137,12 +137,12 @@ When a loader produces a page render with `statusCode === 500`:
 
 - For envelope-based errors (e.g., 4xx/5xx), use the helper hook `useDataLoaderEnvelopeError` inside your app layout to detect and render inline error UIs while keeping header/footer.
 - **SSG with Local Data Loaders**: This same pattern applies to SSG when using local data loaders. Set up `useDataLoaderEnvelopeError` in your app layout to handle envelope errors returned by local handlers.
-- Common pattern: render `CustomNotFound` for 404s, and `GenericError` for other errors. See the SSR demo’s `routes.tsx` for an example layout pattern.
+- Common pattern: render `CustomNotFound` for 404s, and `GenericError` for other errors. See the SSR demo's `routes.tsx` for an example layout pattern.
 
-#### 5) Error Responses with Stacktrace (Development Only)
+#### 5) Error Responses with Stack Trace (Development Only)
 
-- In dev, you may include a stacktrace field in the envelope’s `error.details` for debugging.
-- Show stacktraces only in development, never in production.
+- In dev, you may include a `stack` field in the envelope's `error.details` for debugging.
+- Show stack traces only in development, never in production.
 
 ## Integration with API Envelope Structure
 
@@ -164,4 +164,4 @@ When adding new error cases:
 1. Return properly structured envelopes from loaders/APIs.
 2. Update the app layout error mapping (e.g., special components for specific error codes).
 3. Keep SSR 500 error page and client inline error UIs visually consistent.
-4. In development, optionally include a stacktrace in `error.details` to aid debugging.
+4. In development, optionally include a `stack` field in `error.details` to aid debugging.

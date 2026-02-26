@@ -263,7 +263,15 @@ The `RedirectServer` handles basic HTTP→HTTPS redirects with optional domain v
 
 ## Development vs Production
 
-Use environment variables or config flags to toggle between development and production modes:
+Use `process.env.NODE_ENV` to determine whether to run in development or production mode. Set this environment variable when starting your server:
+
+```bash
+# Development
+NODE_ENV=development bun run server.ts
+
+# Production
+NODE_ENV=production bun run server.ts
+```
 
 **Basic Setup:**
 

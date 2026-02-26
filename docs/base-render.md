@@ -71,13 +71,13 @@ The `__ssOnly` field is reserved for Unirend internals. It is set and consumed b
 #### Envelope Properties
 
 - `status_code?: number` - HTTP status code (defaults to 200)
-- `error?: { message?: string, details?: { stacktrace?: string } }` - Error information
+- `error?: { message?: string, details?: { stack?: string } }` - Error information
 - `__ssOnly?: Record<string, unknown>` - Server-side-only data (internal, reserved, set by framework helpers and stripped before client hydration)
 - `...otherData` - Regular data that will be available on both server and client
 
 #### How it works
 
 1. **Status Codes**: Unirend checks for `status_code` in loader data and uses it for the HTTP response
-2. **Error Handling**: The `error.message` and `error.details.stacktrace` are extracted for error reporting
+2. **Error Handling**: The `error.message` and `error.details.stack` are extracted for error reporting
 3. **Server-Only Data**: `__ssOnly` data is available during rendering but removed before client hydration
 4. **Priority**: React Router errors take precedence over envelope errors

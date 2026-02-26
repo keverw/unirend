@@ -331,7 +331,11 @@ export async function processAPIResponse(
                     config.errorDefaults.accessDenied.message,
                   requestID,
                   apiResponse.meta,
-                  apiResponse.error?.details,
+                  // If in development mode, include error details
+                  (config.isDevelopment ??
+                    process.env.NODE_ENV === 'development')
+                    ? apiResponse.error?.details
+                    : undefined,
                 ),
                 ssrOnlyData,
               );
@@ -347,7 +351,11 @@ export async function processAPIResponse(
                     config.errorDefaults.genericError.message,
                   requestID,
                   apiResponse.meta,
-                  apiResponse.error?.details,
+                  // If in development mode, include error details
+                  (config.isDevelopment ??
+                    process.env.NODE_ENV === 'development')
+                    ? apiResponse.error?.details
+                    : undefined,
                 ),
                 ssrOnlyData,
               );

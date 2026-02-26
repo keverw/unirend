@@ -235,6 +235,7 @@ export function createDefaultAPIErrorResponse(
   const errorCode =
     statusCode === 500 ? 'internal_server_error' : 'request_error';
   const errorMessage = isDevelopment ? error.message : 'Internal Server Error';
+  const errorDetails = isDevelopment ? { stack: error.stack } : undefined;
 
   if (isPageData) {
     return HelpersClass.createPageErrorResponse({
@@ -242,6 +243,7 @@ export function createDefaultAPIErrorResponse(
       statusCode,
       errorCode,
       errorMessage,
+      errorDetails,
       pageMetadata: {
         title: 'Error',
         description: 'An error occurred while processing your request',
@@ -254,6 +256,7 @@ export function createDefaultAPIErrorResponse(
     statusCode,
     errorCode,
     errorMessage,
+    errorDetails,
   });
 }
 

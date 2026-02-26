@@ -13,11 +13,13 @@ const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
     data?.error?.message || 'Something went wrong. Please try again later.';
   const requestID = data?.request_id;
 
-  // Only set detailsToShow in development mode, and prioritize stacktrace over message
+  // Show stack trace if available (upstream data loader already gates details on isDevelopment)
   const detailsToShow =
-    process.env.NODE_ENV === 'development'
-      ? (data?.error?.details?.stacktrace as unknown as string | undefined) ||
-        message
+    data?.error?.details &&
+    typeof data.error.details === 'object' &&
+    !Array.isArray(data.error.details) &&
+    'stack' in data.error.details
+      ? (data.error.details.stack as string)
       : null;
 
   return (
@@ -189,7 +191,7 @@ const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
             </a>
           </div>
 
-          {/* Display details (stacktrace or message) in development mode if available */}
+          {/* Display details (stack trace) in development mode if available */}
           {detailsToShow && (
             <div
               style={{

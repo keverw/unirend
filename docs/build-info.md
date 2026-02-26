@@ -95,6 +95,7 @@ Use the loader to safely read the generated TypeScript module (`current-build-in
 import { loadBuildInfo } from 'unirend/build-info';
 
 const isProduction = process.env.NODE_ENV === 'production';
+
 const { info } = await loadBuildInfo(
   isProduction,
   () => import('./current-build-info.ts'),

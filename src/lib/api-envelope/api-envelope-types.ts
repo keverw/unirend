@@ -48,7 +48,7 @@ export type ErrorDetailsValue = ErrorDetails | unknown[];
 export interface ErrorObject {
   code: string;
   message: string;
-  details?: ErrorDetailsValue; // Can include stacktrace in development mode, validation errors, or any error-specific details
+  details?: ErrorDetailsValue; // Can include stack trace in development mode (via `stack` field), validation errors, or any error-specific details
 }
 
 // Redirect information

@@ -385,37 +385,37 @@ function registerPageDataHandlers(server: SSRServer) {
     },
   );
 
-  // Register stacktrace error handler demo for testing
+  // Register stack trace error handler demo for testing
   server.pageDataHandler.register(
     'test-stacktrace',
     async (request: FastifyRequest, reply, params: PageDataHandlerParams) => {
-      // Create a sample stacktrace
-      let stacktrace: string;
+      // Create a sample stack trace
+      let stack: string;
 
       try {
-        throw new Error('Demo error for stacktrace display');
+        throw new Error('Demo error for stack trace display');
       } catch (error) {
-        stacktrace =
+        stack =
           error instanceof Error && error.stack
             ? error.stack
-            : 'Error: Demo error\n    at createSampleStacktrace (/demos/ssr/serve.ts)';
+            : 'Error: Demo error\n    at handler (/demos/ssr/serve.ts)';
       }
 
       return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
         request,
         statusCode: 500,
         errorCode: 'demo_stacktrace',
-        errorMessage: 'This is a demonstration of an error with stacktrace',
+        errorMessage: 'This is a demonstration of an error with a stack trace',
         pageMetadata: {
-          title: 'Error with Stacktrace',
-          description: 'Demonstration of an error with stacktrace display',
+          title: 'Error with Stack Trace',
+          description: 'Demonstration of an error with stack trace display',
         },
         errorDetails: {
           context:
-            'This is a simulated error response that includes a stacktrace',
+            'This is a simulated error response that includes a stack trace',
           invocation_origin: params.invocationOrigin,
           timestamp: new Date().toISOString(),
-          stacktrace,
+          stack,
         },
       });
     },

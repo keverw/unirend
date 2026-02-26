@@ -177,7 +177,7 @@ export async function unirendBaseRender(
             status_code?: number;
             error?: {
               message?: string;
-              details?: { stacktrace?: string };
+              details?: { stack?: string };
             };
           }
         | undefined;
@@ -208,9 +208,9 @@ export async function unirendBaseRender(
         if (
           data.error.details &&
           typeof data.error.details === 'object' &&
-          typeof data.error.details.stacktrace === 'string'
+          typeof data.error.details.stack === 'string'
         ) {
-          errorObj.stack = data.error.details.stacktrace;
+          errorObj.stack = data.error.details.stack;
         }
 
         // Mark this as an API envelope error

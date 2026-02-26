@@ -1344,6 +1344,8 @@ const server = serveAPI({
 
 This is the same signature used by SSR server's `APIHandling` options (see [Options (shared)](#options-shared) above), making it easy to share handler logic between SSR and standalone API servers. The `isPageData` parameter distinguishes page data loader handler requests from regular API requests.
 
+**Convention: stack traces in development** When writing custom JSON error handlers, include `errorDetails: isDevelopment ? { stack: error.stack } : undefined` so that stack traces appear in development error responses. This matches the convention used by the built-in page data loader and the default error handler. Components like `GenericError` in the SSR demo look for `error.details.stack` to display stack traces during development. See [Error Handling - Error Responses with Stack Trace](./error-handling.md#5-error-responses-with-stack-trace-development-only) for more details.
+
 #### Web-Only (Plain Web Server)
 
 When using APIServer as a plain web server (`apiEndpointPrefix: false`), use the function form returning `WebErrorResponse`:
@@ -1451,6 +1453,7 @@ const server = serveAPI({
         statusCode: 500,
         errorCode: 'internal_error',
         errorMessage: isDev ? error.message : 'Internal server error',
+        errorDetails: isDev ? { stack: error.stack } : undefined,
       }),
 
     // ⚠️ Security: Always escape dynamic values when returning HTML to prevent XSS
