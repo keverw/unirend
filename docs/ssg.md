@@ -10,6 +10,7 @@
   - [URL Mismatch Considerations](#url-mismatch-considerations)
   - [404 Pages Suggestion](#404-pages-suggestion)
   - [Using StaticWebServer (Recommended)](#using-staticwebserver-recommended)
+    - [Reloading After a New Build](#reloading-after-a-new-build)
     - [Configuration Options](#configuration-options)
       - [Error Pages](#error-pages)
       - [Single Assets](#single-assets)
@@ -177,24 +178,7 @@ const result = await generateSSG(buildDir, pages, options);
 
 **Usage with static content servers:**
 
-The page map can be loaded by static servers to configure URL-to-file mappings. For example, with unirend's `staticContent` plugin:
-
-```typescript
-import pageMap from './build/client/page-map.json';
-
-// Convert to singleAssetMap format (URL → absolute file path)
-const singleAssetMap: Record<string, string> = {};
-
-for (const [urlPath, filename] of Object.entries(pageMap)) {
-  singleAssetMap[urlPath] = path.join(clientBuildDir, filename);
-}
-
-// Use with staticContent plugin
-staticContent({
-  singleAssetMap,
-  // ... other options
-});
-```
+The page map is consumed automatically by `StaticWebServer` — just pass `pageMapPath` in the constructor. See [Using StaticWebServer (Recommended)](#using-staticwebserver-recommended) below.
 
 ## Serving Static Files
 
@@ -248,6 +232,15 @@ console.log('Static server running at http://localhost:3000');
 > **💡 Tip:** If you generate `/404` or `/500` pages as SSG pages (e.g., `{ type: 'ssg', path: '/404', filename: '404.html' }`), they'll be automatically detected and served with proper 404/500 status codes. This is the recommended approach for custom error pages.
 
 > **🐳 Container Deployment:** When deploying in containers, bind to `0.0.0.0` to make the server accessible from outside the container: `await server.listen(3000, '0.0.0.0')`. For local development, the default binding is fine.
+
+#### Reloading After a New Build
+
+If you want to pick up a new build without restarting the process, call `server.reload()` after `generateSSG` completes. It re-reads the page map from disk and flushes all file caches in one step:
+
+```typescript
+await generateSSG(buildDir, pages, { pageMapOutput: 'page-map.json' });
+await server.reload();
+```
 
 #### Configuration Options
 

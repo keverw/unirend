@@ -601,6 +601,93 @@ export class StaticContentCache {
   }
 
   /**
+   * Replaces routing maps and clears all file caches in one shot.
+   *
+   * Use this after a full build has completed. Unlike `updateConfig`, this method
+   * makes no attempt at smart per-path invalidation — it simply replaces
+   * whichever maps you provide and wipes the content, stat, and ETag caches
+   * unconditionally, guaranteeing fresh reads for the next request.
+   *
+   * You may pass `singleAssetMap`, `folderMap`, or both. Omitted sections retain
+   * their current routing configuration. Pass an empty object (`{}`) for a
+   * section to clear all mappings in that section. All file caches are always
+   * cleared, regardless of which sections are provided — even when only
+   * `singleAssetMap` is passed, the rebuilt HTML pages likely reference JS/CSS
+   * bundles served from `folderMap` directories that were also regenerated in
+   * the same build step, so preserving folder caches would risk serving stale
+   * assets alongside fresh pages.
+   *
+   * For targeted cache invalidation (when URL-to-path mappings changed but
+   * file contents at those paths are unchanged), use `updateConfig` instead.
+   * Note: `updateConfig` does not detect in-place file content changes — it
+   * only tracks which filesystem paths entered or left the map.
+   *
+   * @param newConfig Sections to replace (at least one should be provided)
+   *
+   * @example
+   * ```typescript
+   * // After an SSG build completes (page map only):
+   * cache.replaceConfig({ singleAssetMap: await loadPageMap() });
+   *
+   * // After a build that changes both pages and asset folders:
+   * cache.replaceConfig({
+   *   singleAssetMap: await loadPageMap(),
+   *   folderMap: { '/assets/': { path: './dist/assets', detectImmutableAssets: true } },
+   * });
+   * ```
+   */
+  public replaceConfig(newConfig: {
+    singleAssetMap?: Record<string, string>;
+    folderMap?: Record<string, string | FolderConfig>;
+  }): void {
+    if (newConfig.singleAssetMap !== undefined) {
+      this.singleAssetMap = this.normalizeSingleAssetMap(
+        newConfig.singleAssetMap,
+      );
+    }
+
+    if (newConfig.folderMap !== undefined) {
+      this.folderMap = this.normalizeFolderMap(newConfig.folderMap);
+    }
+
+    // Always clear all caches — no smart invalidation.
+    // A build can change file contents in-place without renaming files,
+    // so preserving any cached content or stat data would risk stale reads.
+    this.clearCaches();
+  }
+
+  /**
+   * Evicts a single file's cached content, stat, and ETag without touching
+   * any URL-to-path mappings.
+   *
+   * Use this when you know a specific file changed on disk and want to force
+   * a fresh read on the next request — without flushing the entire cache.
+   * Works for files served via `singleAssetMap` or `folderMap`.
+   *
+   * The parameter is the **filesystem path** (as it appears in the cache key),
+   * not a URL.
+   *
+   * For `singleAssetMap` entries these are the absolute paths you
+   * provided.
+   *
+   * For folder-served files the cache key is the absolute path
+   * resolved at request time.
+   *
+   * @param fsPath Absolute filesystem path of the file to evict
+   *
+   * @example
+   * ```typescript
+   * // A file watcher detected /dist/about.html was rewritten:
+   * cache.invalidateFile('/dist/about.html');
+   * ```
+   */
+  public invalidateFile(fsPath: string): void {
+    this.etagCache.delete(fsPath);
+    this.contentCache.delete(fsPath);
+    this.statCache.delete(fsPath);
+  }
+
+  /**
    * Clears all caches (useful for testing or cache invalidation)
    */
   public clearCaches(): void {
@@ -630,10 +717,13 @@ export class StaticContentCache {
   }
 
   /**
-   * Updates the static content configuration at runtime
+   * Updates the static content configuration at runtime with targeted cache
+   * invalidation — only evicting entries whose URL-to-path mapping changed.
    *
-   * This method allows you to dynamically update file mappings without restarting
-   * the server. Useful for SSG scenarios where the full mapping is regenerated.
+   * Use this when URL routing is changing but file contents at existing paths
+   * are unchanged (e.g., adding or removing pages without rebuilding assets).
+   * For post-build reloads where file contents may have changed, use
+   * `replaceConfig` instead.
    *
    * **Important:** When providing a section, you must provide the COMPLETE mapping for that section.
    * - If you provide `singleAssetMap`, it replaces the entire single asset map
@@ -642,7 +732,11 @@ export class StaticContentCache {
    * - Omitted sections remain unchanged
    *
    * **Cache invalidation strategy:**
-   * - `singleAssetMap` changes: Only invalidates specific filesystem paths that changed
+   * - `singleAssetMap` changes: Only invalidates filesystem paths whose URL-to-path
+   *   *mapping* changed (added, removed, or pointed to a different file). Paths whose
+   *   mapping is unchanged are not evicted — this method has no visibility into whether
+   *   the file content on disk changed. If files were rebuilt in-place, use
+   *   `replaceConfig` instead.
    * - `folderMap` changes: Clears all caches (folder changes are structural)
    *
    * @param newConfig Complete mapping(s) for the section(s) you want to update

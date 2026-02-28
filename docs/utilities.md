@@ -38,6 +38,8 @@ import { ... } from 'unirend/utils';
     - [`handleRequest(rawUrl, req, reply): Promise<ServeFileResult>`](#handlerequestrawurl-req-reply-promiseservefileresult)
     - [`updateConfig(newConfig): void`](#updateconfignewconfig-void)
     - [`clearCaches(): void`](#clearcaches-void)
+    - [`invalidateFile(fsPath): void`](#invalidatefilefspath-void)
+    - [`replaceConfig(newConfig): void`](#replaceconfignewconfig-void)
     - [`getCacheStats(): object`](#getcachestats-object)
   - [Types](#types)
 
@@ -446,7 +448,7 @@ const result = await cache.handleRequest('/assets/main.js', request, reply);
 
 #### `updateConfig(newConfig): void`
 
-Updates file mappings at runtime with intelligent cache invalidation.
+Updates file mappings at runtime with targeted cache invalidation — only evicting entries whose URL-to-path mapping changed. Use this when routing is changing but file contents at existing paths are unchanged (e.g., adding or removing pages without rebuilding assets). For post-build reloads where file contents may have changed, use `replaceConfig` instead.
 
 **Important:** When providing a section, you must provide the **complete** mapping for that section.
 
@@ -509,12 +511,58 @@ cache.updateConfig({
 
 **Cache invalidation strategy:**
 
-- **`singleAssetMap` changes**: Only invalidates specific filesystem paths that were added, updated, or removed (efficient for incremental updates)
+- **`singleAssetMap` changes**: Only invalidates filesystem paths whose URL-to-path _mapping_ changed (added, removed, or pointed to a different file). Paths whose mapping is unchanged are not evicted — `updateConfig` has no visibility into whether the file content on disk changed. If you know specific files were rebuilt in-place, use `invalidateFile` for surgical eviction, or for a full build flush use `replaceConfig`.
 - **`folderMap` changes**: Clears all caches (folder changes are rare and structural)
 
 #### `clearCaches(): void`
 
 Clears all caches (useful for testing or cache invalidation).
+
+#### `invalidateFile(fsPath): void`
+
+Evicts a single file's cached content, stat, and ETag without touching any URL-to-path mappings.
+
+Use this when you know a specific file changed on disk and want to force a fresh read on the next request — without flushing the entire cache. Works for files served via `singleAssetMap` or `folderMap`.
+
+The parameter is the **filesystem path** (as it appears in the cache key), not a URL. For `singleAssetMap` entries these are the absolute paths you provided, and for folder-served files the cache key is the absolute path resolved at request time.
+
+**When to use:** A file watcher or webhook that knows exactly which file was rewritten, and you want surgical invalidation rather than a full cache flush.
+
+```typescript
+// A file watcher detected /dist/about.html was rewritten in-place:
+cache.invalidateFile('/dist/about.html');
+```
+
+#### `replaceConfig(newConfig): void`
+
+Replaces routing maps and clears all file caches in one shot. The intended use case is reloading after a full build has completed.
+
+Use this after a full build has completed. Unlike `updateConfig`, no attempt is made at targeted per-path invalidation — the routing maps are replaced and all file caches (content, stats, ETags) are wiped unconditionally.
+
+**Why all caches are always cleared — even folder caches:** A build can change file contents in-place without renaming files. More importantly, the rebuilt HTML pages reference JS/CSS bundles served from `folderMap` directories — and those bundles were likely regenerated in the same build step. Even when only `singleAssetMap` is passed, the folder caches are still flushed, as selectively preserving them would risk serving stale assets alongside fresh pages that now reference new bundle hashes.
+
+You may provide `singleAssetMap`, `folderMap`, or both. Omitted sections retain their current routing configuration. Pass an empty object (`{}`) for a section to clear all mappings in that section (e.g., `replaceConfig({ singleAssetMap: {} })` removes all single-asset routes).
+
+For targeted cache invalidation (when URL-to-path mappings changed but file contents at those paths are unchanged), use `updateConfig` instead. If only specific files changed on disk (e.g., detected by a file watcher), use `invalidateFile` for surgical eviction without a full flush.
+
+**When to use:**
+
+- After an SSG or full client build — pages and assets were likely both regenerated
+- When files may have been rebuilt in-place with the same filenames
+- When you need to update folder mappings at the same time (e.g., new asset output directory)
+
+```typescript
+// After an SSG build (page map only — asset folder caches also flushed):
+cache.replaceConfig({ singleAssetMap: await loadPageMap() });
+
+// After a build that changes both pages and asset folders:
+cache.replaceConfig({
+  singleAssetMap: await loadPageMap(),
+  folderMap: {
+    '/assets/': { path: './dist/assets', detectImmutableAssets: true },
+  },
+});
+```
 
 #### `getCacheStats(): object`
 

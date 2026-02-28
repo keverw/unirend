@@ -575,8 +575,8 @@ async function reloadPages() {
   try {
     const singleAssetMap = await loadPageMap();
 
-    // Update cache with complete mapping (folderMap remains unchanged)
-    pagesCache.updateConfig({ singleAssetMap });
+    // Replace page map and flush all file caches (folderMap remains unchanged)
+    pagesCache.replaceConfig({ singleAssetMap });
 
     console.log(`Reloaded ${Object.keys(singleAssetMap).length} pages`);
   } catch (error) {

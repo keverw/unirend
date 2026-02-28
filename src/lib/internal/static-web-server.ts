@@ -1,10 +1,7 @@
 import { APIServer } from './api-server';
 import { staticContent } from '../built-in-plugins/static-content';
-import type {
-  StaticWebServerOptions,
-  ServerPlugin,
-  StaticContentRouterOptions,
-} from '../types';
+import { StaticContentCache } from './static-content-cache';
+import type { StaticWebServerOptions, ServerPlugin } from '../types';
 import { readJSONFile, readHTMLFile } from './fs-utils';
 import { escapeHTML } from './html-utils/escape';
 import type { FastifyRequest } from 'fastify';
@@ -133,6 +130,9 @@ async function loadErrorPageHTML(
  */
 export class StaticWebServer {
   private server: APIServer | null = null;
+  private cache: StaticContentCache | null = null;
+  private notFoundHTML: string | undefined = undefined;
+  private errorHTML: string | undefined = undefined;
   private options: StaticWebServerOptions;
 
   constructor(options: StaticWebServerOptions) {
@@ -223,6 +223,171 @@ export class StaticWebServer {
       return;
     }
 
+    // 1. Load page map and error pages
+    const { singleAssetMap, notFoundHTML, errorHTML } = await this.buildMaps();
+
+    // 2. Set error page state (used by handlers below via `this`)
+    this.notFoundHTML = notFoundHTML;
+    this.errorHTML = errorHTML;
+
+    // 3. Build folderMap for additional asset directories
+    const folderMap: Record<
+      string,
+      string | { path: string; detectImmutableAssets: boolean }
+    > = {};
+
+    // Paths are resolved relative to buildDir for consistency
+    if (this.options.assetFolders) {
+      for (const [urlPrefix, fsPath] of Object.entries(
+        this.options.assetFolders,
+      )) {
+        folderMap[urlPrefix] = {
+          path: path.resolve(this.options.buildDir, fsPath),
+          detectImmutableAssets: this.options.detectImmutableAssets ?? true,
+        };
+      }
+    }
+
+    // 4. Create StaticContentCache externally so we can call updateConfig() on reload
+    this.cache = new StaticContentCache({
+      singleAssetMap,
+      folderMap,
+      cacheControl:
+        this.options.cacheControl || 'public, max-age=0, must-revalidate',
+      immutableCacheControl:
+        this.options.immutableCacheControl ||
+        'public, max-age=31536000, immutable',
+    });
+
+    // 5. Create plugins array (pass cache instance rather than raw config)
+    const plugins: ServerPlugin[] = [
+      staticContent(this.cache, 'static-web-server'),
+      ...(this.options.plugins || []),
+    ];
+
+    // 6. Create APIServer with web-only configuration
+    this.server = new APIServer({
+      isDevelopment: this.options.isDevelopment ?? false,
+      logErrors: this.options.logErrors, // Pass through error logging config
+      plugins,
+      https: this.options.https, // Pass through HTTPS options (includes SNI support)
+      fastifyOptions: this.options.fastifyOptions,
+      logging: this.options.logging,
+      // Disable API handling entirely (pure web server mode)
+      apiEndpoints: {
+        apiEndpointPrefix: false,
+      },
+      // Split error handlers for web routes only
+      // API handlers are omitted since apiEndpointPrefix is false (API handling disabled)
+      // If API requests somehow occur, they fall back to default handlers
+      // Arrow functions capture `this` so they always read the current notFoundHTML / errorHTML
+      notFoundHandler: {
+        web: (_request: FastifyRequest) => ({
+          contentType: 'html' as const,
+          content: this.notFoundHTML || DEFAULT_404_HTML,
+          statusCode: 404,
+        }),
+      },
+      errorHandler: {
+        web: (
+          _request: FastifyRequest,
+          error: Error,
+          isDevelopment: boolean,
+        ) => ({
+          contentType: 'html' as const,
+          content: this.errorHTML || createDefault500HTML(isDevelopment, error),
+          statusCode: 500,
+        }),
+      },
+    });
+
+    // 7. Start listening
+    await this.server.listen(port, host);
+  }
+
+  /**
+   * Reload the server configuration from disk without restarting.
+   *
+   * Re-reads the page-map.json and error pages from disk, then updates
+   * the static content cache in-place. In-flight requests continue to be
+   * served, new requests immediately see the updated file mappings.
+   *
+   * If the reload fails (e.g., the page-map.json is missing or invalid),
+   * the server continues serving the previous configuration unchanged.
+   *
+   * _When_ to call reload is the caller's responsibility. A common pattern
+   * is to invoke it after an SSG build completes:
+   * ```ts
+   * // After your build tool writes a new page-map.json:
+   * await server.reload();
+   * ```
+   *
+   * @throws {Error} If the server is not running
+   * @throws {Error} If the page-map.json cannot be read or is invalid
+   * @returns Promise that resolves when the reload is complete
+   */
+  public async reload(): Promise<void> {
+    if (!this.server || !this.cache) {
+      throw new Error('Server is not running. Call listen() first.');
+    }
+
+    // Load fresh page map + error pages from disk.
+    // If this throws, the old state is fully preserved (no partial update).
+    const { singleAssetMap, notFoundHTML, errorHTML } = await this.buildMaps();
+
+    // Re-check after await in case stop() was called concurrently
+    if (!this.cache) {
+      return; // Server was stopped during reload, nothing to update
+    }
+
+    // Replace the page map and flush all file caches in one shot.
+    // A build can change file contents in-place (same filename, new content),
+    // and the rebuilt HTML pages reference JS/CSS bundles in the asset folders
+    // that were likely rebuilt in the same step — so all caches need flushing,
+    // not just the routes that changed. folderMap routing is not reloaded. It
+    // derives from static options.assetFolders which doesn't change between builds.
+    this.cache.replaceConfig({ singleAssetMap });
+
+    // Update error page HTML (handlers read these via `this` on each request)
+    this.notFoundHTML = notFoundHTML;
+    this.errorHTML = errorHTML;
+  }
+
+  /**
+   * Stop the server
+   *
+   * @returns Promise that resolves when server is stopped
+   */
+  public async stop(): Promise<void> {
+    if (this.server) {
+      await this.server.stop();
+      this.server = null;
+      this.cache = null;
+      this.notFoundHTML = undefined;
+      this.errorHTML = undefined;
+    }
+  }
+
+  /**
+   * Check if server is currently listening
+   *
+   * @returns True if server is listening, false otherwise
+   */
+  public isListening(): boolean {
+    return this.server?.isListening() ?? false;
+  }
+
+  /**
+   * Loads the page-map.json and error pages from disk, returning the built
+   * singleAssetMap (with error page routes removed) and the error page HTML.
+   *
+   * Shared by listen() and reload() to avoid duplicating the loading logic.
+   */
+  private async buildMaps(): Promise<{
+    singleAssetMap: Record<string, string>;
+    notFoundHTML: string | undefined;
+    errorHTML: string | undefined;
+  }> {
     // 1. Load page-map.json (resolve relative to buildDir)
     const pageMapPath = path.resolve(
       this.options.buildDir,
@@ -278,25 +443,7 @@ export class StaticWebServer {
       }
     }
 
-    // 3. Build folderMap for additional asset directories
-    const folderMap: Record<
-      string,
-      string | { path: string; detectImmutableAssets: boolean }
-    > = {};
-
-    // Paths are resolved relative to buildDir for consistency
-    if (this.options.assetFolders) {
-      for (const [urlPrefix, fsPath] of Object.entries(
-        this.options.assetFolders,
-      )) {
-        folderMap[urlPrefix] = {
-          path: path.resolve(this.options.buildDir, fsPath),
-          detectImmutableAssets: this.options.detectImmutableAssets ?? true,
-        };
-      }
-    }
-
-    // 4. Load custom error pages if specified
+    // 3. Load custom error pages if specified
     // Check page map first (if generated as SSG pages), then fall back to disk
     const notFoundResult = await loadErrorPageHTML(
       this.options.notFoundPage,
@@ -312,11 +459,7 @@ export class StaticWebServer {
       this.options.buildDir,
     );
 
-    // Extract HTML content for error handlers
-    const notFoundHTML = notFoundResult?.html;
-    const errorHTML = errorResult?.html;
-
-    // Remove error page routes from singleAssetMap to prevent serving them as normal routes
+    // 4. Remove error page routes from singleAssetMap to prevent serving them as normal routes
     // Error pages should only be accessible via error handlers (with proper 404/500 status codes)
     // If user generated error pages at ANY URL, they shouldn't be served with 200 status
     if (notFoundResult || errorResult) {
@@ -331,80 +474,10 @@ export class StaticWebServer {
       }
     }
 
-    // 5. Build staticContent plugin configuration
-    const staticContentConfig: StaticContentRouterOptions = {
+    return {
       singleAssetMap,
-      folderMap,
-      cacheControl:
-        this.options.cacheControl || 'public, max-age=0, must-revalidate',
-      immutableCacheControl:
-        this.options.immutableCacheControl ||
-        'public, max-age=31536000, immutable',
+      notFoundHTML: notFoundResult?.html,
+      errorHTML: errorResult?.html,
     };
-
-    // 6. Create plugins array
-    const plugins: ServerPlugin[] = [
-      staticContent(staticContentConfig, 'static-web-server'),
-      ...(this.options.plugins || []),
-    ];
-
-    // 7. Create APIServer with web-only configuration
-    this.server = new APIServer({
-      isDevelopment: this.options.isDevelopment ?? false,
-      logErrors: this.options.logErrors, // Pass through error logging config
-      plugins,
-      https: this.options.https, // Pass through HTTPS options (includes SNI support)
-      fastifyOptions: this.options.fastifyOptions,
-      logging: this.options.logging,
-      // Disable API handling entirely (pure web server mode)
-      apiEndpoints: {
-        apiEndpointPrefix: false,
-      },
-      // Split error handlers for web routes only
-      // API handlers are omitted since apiEndpointPrefix is false (API handling disabled)
-      // If API requests somehow occur, they fall back to default handlers
-      notFoundHandler: {
-        web: (_request: FastifyRequest) => ({
-          contentType: 'html' as const,
-          content: notFoundHTML || DEFAULT_404_HTML,
-          statusCode: 404,
-        }),
-      },
-      errorHandler: {
-        web: (
-          _request: FastifyRequest,
-          error: Error,
-          isDevelopment: boolean,
-        ) => ({
-          contentType: 'html' as const,
-          content: errorHTML || createDefault500HTML(isDevelopment, error),
-          statusCode: 500,
-        }),
-      },
-    });
-
-    // 8. Start listening
-    await this.server.listen(port, host);
-  }
-
-  /**
-   * Stop the server
-   *
-   * @returns Promise that resolves when server is stopped
-   */
-  public async stop(): Promise<void> {
-    if (this.server) {
-      await this.server.stop();
-      this.server = null;
-    }
-  }
-
-  /**
-   * Check if server is currently listening
-   *
-   * @returns True if server is listening, false otherwise
-   */
-  public isListening(): boolean {
-    return this.server?.isListening() ?? false;
   }
 }

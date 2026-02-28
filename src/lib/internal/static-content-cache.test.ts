@@ -570,6 +570,213 @@ describe('StaticContentCache', () => {
     });
   });
 
+  describe('invalidateFile()', () => {
+    it('removes the file from all three caches', () => {
+      const cache = new StaticContentCache({});
+
+      const etagCache = (
+        cache as unknown as {
+          etagCache: { set: (k: string, v: string) => void; size: number };
+        }
+      ).etagCache;
+
+      const contentCache = (
+        cache as unknown as {
+          contentCache: { set: (k: string, v: unknown) => void; size: number };
+        }
+      ).contentCache;
+
+      const statCache = (
+        cache as unknown as {
+          statCache: { set: (k: string, v: unknown) => void; size: number };
+        }
+      ).statCache;
+
+      etagCache.set('/dist/about.html', '"abc"');
+      contentCache.set('/dist/about.html', Buffer.from('old'));
+      statCache.set('/dist/about.html', { size: 3 });
+
+      cache.invalidateFile('/dist/about.html');
+
+      expect(etagCache.size).toBe(0);
+      expect(contentCache.size).toBe(0);
+      expect(statCache.size).toBe(0);
+    });
+
+    it('only evicts the specified file, leaving other entries intact', () => {
+      const cache = new StaticContentCache({});
+
+      const etagCache = (
+        cache as unknown as {
+          etagCache: { set: (k: string, v: string) => void; size: number };
+        }
+      ).etagCache;
+
+      etagCache.set('/dist/index.html', '"aaa"');
+      etagCache.set('/dist/about.html', '"bbb"');
+
+      cache.invalidateFile('/dist/about.html');
+
+      expect(etagCache.size).toBe(1);
+      const remaining = (
+        cache as unknown as {
+          etagCache: { get: (k: string) => string | undefined };
+        }
+      ).etagCache;
+
+      expect(remaining.get('/dist/index.html')).toBe('"aaa"');
+    });
+
+    it('is a no-op for a path not in the cache', () => {
+      const cache = new StaticContentCache({});
+
+      // Should not throw
+      expect(() =>
+        cache.invalidateFile('/dist/nonexistent.html'),
+      ).not.toThrow();
+
+      expect(cache.getCacheStats().etag.items).toBe(0);
+    });
+  });
+
+  describe('replaceConfig()', () => {
+    it('replaces the singleAssetMap so new URLs are routed correctly', () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/old': '/fake/old.html' },
+      });
+
+      cache.replaceConfig({ singleAssetMap: { '/new': '/fake/new.html' } });
+
+      // The internal map should now only contain the new entry
+      const internalMap = (
+        cache as unknown as { singleAssetMap: Map<string, string> }
+      ).singleAssetMap;
+      expect(internalMap.has('/new')).toBe(true);
+      expect(internalMap.has('/old')).toBe(false);
+    });
+
+    it('clears all file caches after replacing the map', () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/': '/fake/index.html' },
+      });
+
+      // Manually prime the LRU caches to simulate warm cache state
+      const etagCache = (
+        cache as unknown as {
+          etagCache: { set: (k: string, v: string) => void; size: number };
+        }
+      ).etagCache;
+
+      etagCache.set('/fake/index.html', '"abc123"');
+      expect(etagCache.size).toBe(1);
+
+      cache.replaceConfig({ singleAssetMap: { '/': '/fake/index-v2.html' } });
+
+      // All caches should be empty — no stale data from before the rebuild
+      const stats = cache.getCacheStats();
+      expect(stats.etag.items).toBe(0);
+      expect(stats.content.items).toBe(0);
+      expect(stats.stat.items).toBe(0);
+    });
+
+    it('normalizes URL keys (adds leading slash)', () => {
+      const cache = new StaticContentCache({});
+
+      cache.replaceConfig({
+        singleAssetMap: { 'no-slash': '/fake/file.html' },
+      });
+
+      const internalMap = (
+        cache as unknown as { singleAssetMap: Map<string, string> }
+      ).singleAssetMap;
+      expect(internalMap.has('/no-slash')).toBe(true);
+    });
+
+    it('accepts an empty singleAssetMap, clearing all single asset routes', () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: {
+          '/': '/fake/index.html',
+          '/about': '/fake/about.html',
+        },
+      });
+
+      cache.replaceConfig({ singleAssetMap: {} });
+
+      const internalMap = (
+        cache as unknown as { singleAssetMap: Map<string, string> }
+      ).singleAssetMap;
+
+      expect(internalMap.size).toBe(0);
+    });
+
+    it('replaces the folderMap when provided', () => {
+      const cache = new StaticContentCache({
+        folderMap: { '/old-assets/': '/fake/old-assets' },
+      });
+
+      cache.replaceConfig({
+        folderMap: { '/new-assets/': '/fake/new-assets' },
+      });
+
+      const internalFolderMap = (
+        cache as unknown as { folderMap: Map<string, unknown> }
+      ).folderMap;
+
+      expect(internalFolderMap.has('/new-assets/')).toBe(true);
+      expect(internalFolderMap.has('/old-assets/')).toBe(false);
+    });
+
+    it('leaves singleAssetMap unchanged when omitted', () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/page': '/fake/page.html' },
+        folderMap: { '/assets/': '/fake/assets' },
+      });
+
+      // Only update folderMap
+      cache.replaceConfig({ folderMap: { '/assets-v2/': '/fake/assets-v2' } });
+
+      const internalMap = (
+        cache as unknown as { singleAssetMap: Map<string, string> }
+      ).singleAssetMap;
+
+      expect(internalMap.has('/page')).toBe(true);
+    });
+
+    it('leaves folderMap unchanged when omitted', () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/old': '/fake/old.html' },
+        folderMap: { '/assets/': '/fake/assets' },
+      });
+
+      // Only update singleAssetMap
+      cache.replaceConfig({ singleAssetMap: { '/new': '/fake/new.html' } });
+
+      const internalFolderMap = (
+        cache as unknown as { folderMap: Map<string, unknown> }
+      ).folderMap;
+
+      expect(internalFolderMap.has('/assets/')).toBe(true);
+    });
+
+    it('always clears all caches even when no sections are provided', () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/': '/fake/index.html' },
+      });
+
+      const etagCache = (
+        cache as unknown as {
+          etagCache: { set: (k: string, v: string) => void; size: number };
+        }
+      ).etagCache;
+      etagCache.set('/fake/index.html', '"abc123"');
+      expect(etagCache.size).toBe(1);
+
+      cache.replaceConfig({});
+
+      expect(cache.getCacheStats().etag.items).toBe(0);
+    });
+  });
+
   describe('getCacheStats()', () => {
     it('returns cache statistics', () => {
       const cache = new StaticContentCache({});

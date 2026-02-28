@@ -146,8 +146,10 @@ export class WebSocketServerHelpers {
         ).websocketServer;
         const clients = websocketServer?.clients || new Set();
 
-        // Call user's preClose handler with clients and handle the Promise
-        userPreCloseHandler(clients)
+        // Call user's preClose handler with clients and handle both sync throws
+        // and async rejections (Promise.resolve wraps sync throws into a rejection)
+        Promise.resolve()
+          .then(() => userPreCloseHandler(clients))
           .then(() => done())
           .catch((error) => {
             fastify.log.error(
