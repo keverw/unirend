@@ -42,7 +42,11 @@ export interface ClientInfoConfig {
   requestIDValidator?: (id: string) => boolean;
   /** If true, set X-Request-ID and X-Correlation-ID response headers. Default: true */
   setResponseHeaders?: boolean;
-  /** Predicate to decide if forwarded headers are trusted. Default: private IP check of request.ip */
+  /**
+   * Callback that determines whether to accept forwarded client-info headers.
+   * Default: returns true when request.clientIP is private. Otherwise forwarded
+   * headers are ignored and direct request values are used.
+   */
   trustForwardedHeaders?: (request: FastifyRequest) => boolean;
   /** Optional logging configuration */
   logging?: boolean | ClientInfoLoggingOptions;
@@ -123,7 +127,7 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
       request.requestID = requestID;
 
       // Default values from the request
-      let IPAddress = request.ip;
+      let IPAddress = request.clientIP;
       let isIPFromHeader = false;
 
       // Handle User-Agent header safely
@@ -143,7 +147,7 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
       const shouldTrustForwarded =
         (typeof config.trustForwardedHeaders === 'function'
           ? config.trustForwardedHeaders(request)
-          : isPrivateIP(request.ip)) === true;
+          : isPrivateIP(request.clientIP)) === true;
 
       if (shouldTrustForwarded) {
         // keep going
@@ -198,7 +202,7 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
                 requestID,
                 correlationID,
                 originalIP: IPAddress,
-                ssrIP: request.ip,
+                ssrIP: request.clientIP,
                 isFromSSRServerAPICall,
               },
               'Using forwarded client info from trusted source',
@@ -218,7 +222,7 @@ export function clientInfo(config: ClientInfoConfig = {}): ServerPlugin {
           request.log?.warn?.(
             {
               requestID,
-              ip: request.ip,
+              ip: request.clientIP,
             },
             'Rejected SSR headers from untrusted source',
           );

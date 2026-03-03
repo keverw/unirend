@@ -206,7 +206,7 @@ describe('API Server Logging Configuration', () => {
     expect(infoLogs.length).toBe(0);
   });
 
-  it('should emit automatic request logs when logging is enabled', async () => {
+  it('should always suppress Fastify built-in request logs', async () => {
     const logs: Array<{ level: string; message: string }> = [];
 
     server = serveAPI({
@@ -220,7 +220,8 @@ describe('API Server Logging Configuration', () => {
           fatal: (msg) => logs.push({ level: 'fatal', message: msg }),
         },
       },
-      // disableRequestLogging defaults to false, so request logs should appear
+      // disableRequestLogging is always true internally — Fastify's built-in
+      // "incoming request"/"request completed" lifecycle logs are permanently suppressed.
     });
 
     await server.listen(port, 'localhost');
@@ -229,51 +230,47 @@ describe('API Server Logging Configuration', () => {
     const response = await fetch(`http://localhost:${port}/api/nonexistent`);
     await response.text();
 
-    // Should have automatic "incoming request" and "request completed" logs
-    const incomingLogs = logs.filter((log) =>
-      log.message.includes('incoming request'),
-    );
-    const completedLogs = logs.filter((log) =>
-      log.message.includes('request completed'),
-    );
-
-    expect(incomingLogs.length).toBeGreaterThan(0);
-    expect(completedLogs.length).toBeGreaterThan(0);
-  });
-
-  it('should work with disableRequestLogging option', async () => {
-    const logs: Array<{ level: string; message: string }> = [];
-
-    server = serveAPI({
-      logging: {
-        logger: {
-          trace: (msg) => logs.push({ level: 'trace', message: msg }),
-          debug: (msg) => logs.push({ level: 'debug', message: msg }),
-          info: (msg) => logs.push({ level: 'info', message: msg }),
-          warn: (msg) => logs.push({ level: 'warn', message: msg }),
-          error: (msg) => logs.push({ level: 'error', message: msg }),
-          fatal: (msg) => logs.push({ level: 'fatal', message: msg }),
-        },
-      },
-      fastifyOptions: {
-        disableRequestLogging: true, // Disable automatic request logs
-      },
-    });
-
-    await server.listen(port, 'localhost');
-
-    // Make a request
-    const response = await fetch(`http://localhost:${port}/api/nonexistent`);
-    await response.text();
-
-    // Should not have automatic "incoming request" or "request completed" logs
-    const requestLogs = logs.filter(
+    // Fastify's built-in lifecycle logs must never appear
+    const builtInLogs = logs.filter(
       (log) =>
         log.message.includes('incoming request') ||
         log.message.includes('request completed'),
     );
 
-    expect(requestLogs.length).toBe(0);
+    expect(builtInLogs.length).toBe(0);
+  });
+
+  it('should emit access logs when accessLog is configured', async () => {
+    const logs: Array<{ level: string; message: string }> = [];
+
+    server = serveAPI({
+      logging: {
+        logger: {
+          trace: (msg) => logs.push({ level: 'trace', message: msg }),
+          debug: (msg) => logs.push({ level: 'debug', message: msg }),
+          info: (msg) => logs.push({ level: 'info', message: msg }),
+          warn: (msg) => logs.push({ level: 'warn', message: msg }),
+          error: (msg) => logs.push({ level: 'error', message: msg }),
+          fatal: (msg) => logs.push({ level: 'fatal', message: msg }),
+        },
+      },
+      accessLog: {
+        responseTemplate: '{{method}} {{url}} {{statusCode}}',
+      },
+    });
+
+    await server.listen(port, 'localhost');
+
+    // Make a request
+    const response = await fetch(`http://localhost:${port}/api/nonexistent`);
+    await response.text();
+
+    // Should have a formatted access log entry matching the template
+    const accessLogs = logs.filter((log) =>
+      log.message.includes('GET /api/nonexistent'),
+    );
+
+    expect(accessLogs.length).toBeGreaterThan(0);
   });
 
   it('should handle logger write errors gracefully with fallback chain', async () => {

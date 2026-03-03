@@ -11,6 +11,7 @@ import {
   validateAndRegisterPlugin,
   validateNoHandlersWhenAPIDisabled,
   buildFastifyHTTPSOptions,
+  registerClientIPDecoration,
 } from './server-utils';
 import type { HTTPSOptions } from '../types';
 
@@ -985,5 +986,100 @@ describe('buildFastifyHTTPSOptions', () => {
 
     sniCallback('tenant.example.com', () => {});
     expect(sniSpy).toHaveBeenCalledWith('tenant.example.com');
+  });
+});
+
+describe('registerClientIPDecoration', () => {
+  const createFakeFastify = () => {
+    const hooks: Record<string, ((...args: unknown[]) => unknown)[]> = {};
+
+    const instance = {
+      decorateRequest: mock((_name: string, _value: unknown) => {}),
+      addHook: mock(
+        (name: string, handler: (...args: unknown[]) => unknown) => {
+          hooks[name] = hooks[name] ?? [];
+          hooks[name].push(handler);
+        },
+      ),
+      _hooks: hooks,
+    };
+
+    return instance;
+  };
+
+  const makeRequest = (ip: string) =>
+    ({ ip, clientIP: '' }) as unknown as FastifyRequest;
+
+  it('decorates requests with clientIP and registers an onRequest hook', () => {
+    const f = createFakeFastify();
+    registerClientIPDecoration(f as any, undefined);
+
+    expect(f.decorateRequest).toHaveBeenCalledWith('clientIP', '');
+    expect(f.addHook).toHaveBeenCalledWith('onRequest', expect.any(Function));
+  });
+
+  it('defaults clientIP to request.ip when getClientIP is not provided', async () => {
+    const f = createFakeFastify();
+    registerClientIPDecoration(f as any, undefined);
+
+    const handler = f._hooks['onRequest']?.[0];
+    const req = makeRequest('1.2.3.4');
+    await handler(req, {});
+
+    expect((req as any).clientIP).toBe('1.2.3.4');
+  });
+
+  it('uses the return value of getClientIP when provided', async () => {
+    const f = createFakeFastify();
+    registerClientIPDecoration(f as any, () => '9.9.9.9');
+
+    const handler = f._hooks['onRequest']?.[0];
+    const req = makeRequest('1.2.3.4');
+    await handler(req, {});
+
+    expect((req as any).clientIP).toBe('9.9.9.9');
+  });
+
+  it('awaits async getClientIP resolvers', async () => {
+    const f = createFakeFastify();
+    registerClientIPDecoration(
+      f as any,
+      async () => await Promise.resolve('8.8.8.8'),
+    );
+
+    const handler = f._hooks['onRequest']?.[0];
+    const req = makeRequest('1.2.3.4');
+    await handler(req, {});
+
+    expect((req as any).clientIP).toBe('8.8.8.8');
+  });
+
+  it('propagates throws from getClientIP as a normal error (no silent fallback)', () => {
+    const f = createFakeFastify();
+
+    registerClientIPDecoration(f as any, () => {
+      throw new Error('lookup failed');
+    });
+
+    const handler = f._hooks['onRequest']?.[0];
+    const req = makeRequest('1.2.3.4');
+
+    expect(handler(req, {})).rejects.toThrow('lookup failed');
+    expect((req as any).clientIP).toBe('1.2.3.4');
+  });
+
+  it('propagates rejected async getClientIP resolvers as a normal error', () => {
+    const f = createFakeFastify();
+
+    registerClientIPDecoration(
+      f as any,
+      async () => await Promise.reject(new Error('async lookup failed')),
+    );
+
+    const handler = f._hooks['onRequest']?.[0];
+    const req = makeRequest('1.2.3.4');
+
+    expect(handler(req, {})).rejects.toThrow('async lookup failed');
+    expect((req as any).clientIP).toBe('1.2.3.4');
   });
 });

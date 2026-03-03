@@ -1,7 +1,11 @@
 import { APIServer } from './api-server';
 import { staticContent } from '../built-in-plugins/static-content';
 import { StaticContentCache } from './static-content-cache';
-import type { StaticWebServerOptions, ServerPlugin } from '../types';
+import type {
+  StaticWebServerOptions,
+  ServerPlugin,
+  AccessLogConfig,
+} from '../types';
 import { readJSONFile, readHTMLFile } from './fs-utils';
 import { escapeHTML } from './html-utils/escape';
 import type { FastifyRequest } from 'fastify';
@@ -133,6 +137,7 @@ export class StaticWebServer {
   private cache: StaticContentCache | null = null;
   private notFoundHTML: string | undefined = undefined;
   private errorHTML: string | undefined = undefined;
+  private routeCount = 0;
   private options: StaticWebServerOptions;
 
   constructor(options: StaticWebServerOptions) {
@@ -229,6 +234,7 @@ export class StaticWebServer {
     // 2. Set error page state (used by handlers below via `this`)
     this.notFoundHTML = notFoundHTML;
     this.errorHTML = errorHTML;
+    this.routeCount = Object.keys(singleAssetMap).length;
 
     // 3. Build folderMap for additional asset directories
     const folderMap: Record<
@@ -273,6 +279,8 @@ export class StaticWebServer {
       https: this.options.https, // Pass through HTTPS options (includes SNI support)
       fastifyOptions: this.options.fastifyOptions,
       logging: this.options.logging,
+      accessLog: this.options.accessLog,
+      getClientIP: this.options.getClientIP,
       // Disable API handling entirely (pure web server mode)
       apiEndpoints: {
         apiEndpointPrefix: false,
@@ -351,6 +359,7 @@ export class StaticWebServer {
     // Update error page HTML (handlers read these via `this` on each request)
     this.notFoundHTML = notFoundHTML;
     this.errorHTML = errorHTML;
+    this.routeCount = Object.keys(singleAssetMap).length;
   }
 
   /**
@@ -365,6 +374,7 @@ export class StaticWebServer {
       this.cache = null;
       this.notFoundHTML = undefined;
       this.errorHTML = undefined;
+      this.routeCount = 0;
     }
   }
 
@@ -375,6 +385,29 @@ export class StaticWebServer {
    */
   public isListening(): boolean {
     return this.server?.isListening() ?? false;
+  }
+
+  /**
+   * Merges the provided keys into the current access log config at runtime.
+   * Omitted keys stay unchanged. Pass `undefined` for a hook callback to remove
+   * it, or use `events: 'none'` to silence all logging while keeping hooks active.
+   *
+   * Changes take effect on the next request — no restart required.
+   */
+  public updateAccessLoggingConfig(partial: Partial<AccessLogConfig>): void {
+    this.server?.updateAccessLoggingConfig(partial);
+  }
+
+  /**
+   * Returns server statistics: route count and cache usage.
+   * Returns null if the server is not currently listening.
+   */
+  public getStats() {
+    if (!this.cache) {
+      return null;
+    }
+
+    return { routeCount: this.routeCount, ...this.cache.getCacheStats() };
   }
 
   /**

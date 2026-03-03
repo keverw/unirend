@@ -24,6 +24,7 @@ import type { APIResponseHelpers } from '../api-envelope';
 
 export type RenderType = 'ssg' | 'ssr';
 export type APIResponseHelpersClass = typeof APIResponseHelpers;
+type FastifyTrustProxyFunction = (address: string, hop: number) => boolean;
 
 export interface RenderRequest {
   type: RenderType;
@@ -451,16 +452,14 @@ export interface FastifyServerOptions {
    */
   loggerInstance?: FastifyBaseLogger;
   /**
-   * Disable Fastify automatic request lifecycle logging (`incoming request` / `request completed`).
-   * This only applies when logging is enabled.
-   * @default false
-   */
-  disableRequestLogging?: boolean;
-  /**
    * Trust proxy headers (useful for deployment behind load balancers)
+   * Passed directly to Fastify. Supports `true`, IP/CIDR strings like
+   * `'127.0.0.1'` or `'127.0.0.1,192.168.1.1/24'`, IP/CIDR lists like
+   * `['127.0.0.1', '10.0.0.0/8']`, hop counts, or a custom trust function
+   * `(address, hop) => boolean`.
    * @default false
    */
-  trustProxy?: boolean | string | string[] | number;
+  trustProxy?: boolean | string | string[] | number | FastifyTrustProxyFunction;
   /**
    * Maximum request body size in bytes
    * @default 1048576 (1MB)
@@ -471,6 +470,101 @@ export interface FastifyServerOptions {
    * @default 72000 (72 seconds)
    */
   keepAliveTimeout?: number;
+}
+
+/**
+ * Log level config for access logging.
+ * Can be a single level applied to all requests, or per-status-range.
+ */
+export type AccessLogLevelConfig =
+  | UnirendLoggerLevel
+  | {
+      /** Level for 2xx–3xx responses. @default 'info' */
+      success?: UnirendLoggerLevel;
+      /** Level for 4xx responses. @default 'warn' */
+      clientError?: UnirendLoggerLevel;
+      /** Level for 5xx responses. @default 'error' */
+      serverError?: UnirendLoggerLevel;
+    };
+
+/**
+ * Context passed to onRequest access log hook (request start).
+ */
+export interface AccessLogRequestContext {
+  reqID: string | number;
+  method: string;
+  url: string;
+  ip: string;
+  userAgent: string | undefined;
+  /** Raw Fastify request — same access pattern as data loaders. */
+  request: FastifyRequest;
+}
+
+/**
+ * Read-only snapshot of reply state at response time.
+ * Extracted to prevent accidental mutation of the response.
+ */
+export interface AccessLogReplyInfo {
+  statusCode: number;
+  headers: Record<string, string | string[] | undefined>;
+}
+
+/**
+ * Context passed to onResponse access log hook (request finish or abort).
+ */
+export interface AccessLogResponseContext extends AccessLogRequestContext {
+  statusCode: number;
+  /** Elapsed time in milliseconds. */
+  responseTime: number;
+  /** Whether the request completed normally or the client disconnected early. */
+  finishType: 'completed' | 'aborted';
+  /** Read-only reply snapshot. */
+  replyInfo: AccessLogReplyInfo;
+}
+
+/**
+ * First-party access logging configuration.
+ * Applies to all server types (SSRServer, APIServer, StaticWebServer, RedirectServer).
+ *
+ * Fastify's built-in request lifecycle logs are always suppressed internally,
+ * this config controls what Unirend logs instead.
+ */
+export interface AccessLogConfig {
+  /**
+   * Which lifecycle events to log.
+   * @default 'finish'
+   */
+  events?: 'start' | 'finish' | 'both' | 'none';
+  /**
+   * Template for finish/response log lines. Supports {{variable}} placeholders.
+   * Available variables: method, url, statusCode, responseTime, finishType, reqID, ip, userAgent
+   * @default 'Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'
+   */
+  responseTemplate?: string;
+  /**
+   * Template for start/request log lines. Supports {{variable}} placeholders.
+   * Available variables: method, url, reqID, ip, userAgent
+   * @default 'Request started {{method}} {{url}}'
+   */
+  requestTemplate?: string;
+  /**
+   * Log level for printed lines. Defaults to status-code-based:
+   * info for 2xx/3xx, warn for 4xx, error for 5xx.
+   */
+  level?: AccessLogLevelConfig;
+  /**
+   * Custom hook fired at request start when provided.
+   * Awaited before request handling continues.
+   * Useful for writing initial access log records (DB insert, etc.).
+   */
+  onRequest?: (context: AccessLogRequestContext) => void | Promise<void>;
+  /**
+   * Custom hook fired when a request finishes when provided
+   * (both normal completion and client aborts).
+   * Awaited after the response finishes or aborts.
+   * Use context.finishType to distinguish 'completed' from 'aborted'.
+   */
+  onResponse?: (context: AccessLogResponseContext) => void | Promise<void>;
 }
 
 /**
@@ -669,6 +763,24 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    * `fastifyOptions.loggerInstance`.
    */
   logging?: UnirendLoggingOptions;
+  /**
+   * First-party access logging configuration
+   * Controls request/response logging without needing a custom plugin
+   */
+  accessLog?: AccessLogConfig;
+  /**
+   * Custom client IP resolver.
+   * When set, called once per request to populate `request.clientIP` — available
+   * throughout the entire request lifecycle (plugins, hooks, page data loader
+   * handlers, API route handlers, access log templates/hooks, etc.).
+   * When not set, `request.clientIP` falls back to `request.ip`
+   * (which reflects Fastify proxy handling when `fastifyOptions.trustProxy`
+   * is configured).
+   *
+   * Use this when behind Cloudflare, AWS ALB, or other CDNs that carry the
+   * real client IP in a custom header.
+   */
+  getClientIP?: (request: FastifyRequest) => string | Promise<string>;
   /**
    * Whether to automatically log errors via the server logger
    * When enabled, all errors are logged before custom error handlers run
@@ -1099,6 +1211,24 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    * `fastifyOptions.loggerInstance`.
    */
   logging?: UnirendLoggingOptions;
+  /**
+   * First-party access logging configuration
+   * Controls request/response logging without needing a custom plugin
+   */
+  accessLog?: AccessLogConfig;
+  /**
+   * Custom client IP resolver.
+   * When set, called once per request to populate `request.clientIP` — available
+   * throughout the entire request lifecycle (plugins, hooks, page data loader
+   * handlers, API route handlers, access log templates/hooks, etc.).
+   * When not set, `request.clientIP` falls back to `request.ip`
+   * (which reflects Fastify proxy handling when `fastifyOptions.trustProxy`
+   * is configured).
+   *
+   * Use this when behind Cloudflare, AWS ALB, or other CDNs that carry the
+   * real client IP in a custom header.
+   */
+  getClientIP?: (request: FastifyRequest) => string | Promise<string>;
 }
 
 /**
@@ -1236,6 +1366,26 @@ export interface StaticWebServerOptions {
    * Cannot be used together with fastifyOptions.logger or fastifyOptions.loggerInstance
    */
   logging?: UnirendLoggingOptions;
+
+  /**
+   * First-party access logging configuration
+   * Controls request/response logging without needing a custom plugin
+   */
+  accessLog?: AccessLogConfig;
+
+  /**
+   * Custom client IP resolver.
+   * When set, called once per request to populate `request.clientIP` — available
+   * throughout the entire request lifecycle (plugins, hooks, page data loader
+   * handlers, API route handlers, access log templates/hooks, etc.).
+   * When not set, `request.clientIP` falls back to `request.ip`
+   * (which reflects Fastify proxy handling when `fastifyOptions.trustProxy`
+   * is configured).
+   *
+   * Use this when behind Cloudflare, AWS ALB, or other CDNs that carry the
+   * real client IP in a custom header.
+   */
+  getClientIP?: (request: FastifyRequest) => string | Promise<string>;
 
   /**
    * Additional plugins to register
@@ -1557,5 +1707,17 @@ declare module 'fastify' {
      * Defaults to '__default__' if not set
      */
     activeSSRApp?: string;
+    /**
+     * Resolved client IP address.
+     *
+     * Set once per request by the framework using `getClientIP` (if provided)
+     * or falling back to `request.ip` (which reflects Fastify proxy handling
+     * when `fastifyOptions.trustProxy` is configured).
+     *
+     * Available throughout the entire request lifecycle, including plugins,
+     * hooks, page data loader handlers, API route handlers, and access log
+     * templates/hooks.
+     */
+    clientIP: string;
   }
 }

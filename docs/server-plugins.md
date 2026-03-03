@@ -17,7 +17,6 @@
     - [Page Data Loader Handler Registration](#page-data-loader-handler-registration)
 - [Example Plugins](#example-plugins)
   - [API Routes Plugin](#api-routes-plugin)
-  - [Access Logging Plugin](#access-logging-plugin)
   - [Plugin Configuration via Factory Functions](#plugin-configuration-via-factory-functions)
   - [Authentication Plugin](#authentication-plugin)
 - [Plugin Registration](#plugin-registration-1)
@@ -367,61 +366,6 @@ const apiRoutesPlugin: ServerPlugin = async (pluginHost, options) => {
 };
 ```
 
-### Access Logging Plugin
-
-Use hooks to customize access-style logs (for example, add user ID, tenant, etc.).
-
-```typescript
-const accessLoggingPlugin: ServerPlugin = async (pluginHost) => {
-  pluginHost.addHook('onRequest', async (request) => {
-    request.log.info(
-      {
-        // Use request.requestID (ULID) for better correlation across distributed systems
-        requestID: (request as any).requestID,
-        method: request.method,
-        url: request.url,
-      },
-      'incoming request',
-    );
-  });
-
-  pluginHost.addHook('onResponse', async (request, reply) => {
-    const logPayload = {
-      requestID: (request as any).requestID,
-      method: request.method,
-      url: request.url,
-      statusCode: reply.statusCode,
-      responseTime: reply.elapsedTime,
-    };
-
-    if (reply.statusCode >= 500) {
-      request.log.error(logPayload, 'access log');
-    } else if (reply.statusCode >= 400) {
-      request.log.warn(logPayload, 'access log');
-    } else {
-      request.log.info(logPayload, 'access log');
-    }
-  });
-
-  // Optional: detect aborted client connections separately
-  pluginHost.addHook('onRequestAbort', async (request) => {
-    request.log.warn(
-      {
-        requestID: (request as any).requestID,
-        method: request.method,
-        url: request.url,
-      },
-      'request aborted by client',
-    );
-  });
-};
-```
-
-Notes:
-
-- `onResponse` runs after the response is sent, including normal `500` responses that go through Fastify/your error handler. This is usually where completion access logs belong.
-- If the client disconnects before completion, use `onRequestAbort` for that path since a normal completion log may not run.
-
 ### Plugin Configuration via Factory Functions
 
 For plugin-specific configuration, use factory functions that return the plugin. This provides type-safe configuration through closures:
@@ -438,7 +382,7 @@ const RateLimitPlugin = (config: { maxRequests: number; windowMs: number }) => {
     >();
 
     pluginHost.addHook('onRequest', async (request, reply) => {
-      const clientIP = request.ip;
+      const clientIP = request.clientIP;
       const now = Date.now();
       const windowStart = now - config.windowMs;
 

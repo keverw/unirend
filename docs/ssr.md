@@ -8,6 +8,15 @@
   - [Common Methods](#common-methods)
   - [Shared Server Configuration](#shared-server-configuration)
     - [Logging](#logging)
+    - [Access Logging](#access-logging)
+      - [Events](#events)
+      - [Template Variables](#template-variables)
+      - [IP Behind A Reverse Proxy](#ip-behind-a-reverse-proxy)
+      - [Level Config](#level-config)
+      - [Client Abort Handling](#client-abort-handling)
+      - [Fire-And-Forget Work Inside Hooks](#fire-and-forget-work-inside-hooks)
+      - [Runtime Config Updates](#runtime-config-updates)
+      - [Pattern: DB Request Tracing](#pattern-db-request-tracing)
 - [HTTPS Configuration](#https-configuration)
 - [Create SSR Server](#create-ssr-server)
   - [Create Production SSR Server](#create-production-ssr-server)
@@ -81,6 +90,7 @@ Both server classes expose the same operational methods:
 - `getWebSocketClients(): Set<unknown>` — Get the connected WebSocket clients (empty set when not supported/not started)
 - `hasDecoration(property: string): boolean` — Check if a server-level decoration exists
 - `getDecoration<T = unknown>(property: string): T | undefined` — Read a decoration value (undefined before listen)
+- `updateAccessLoggingConfig(partial: Partial<AccessLogConfig>): void` — Update access logging configuration at runtime (partial merge). Only provided keys are changed; omitted keys remain unchanged. Also available on `StaticWebServer` and `RedirectServer`.
 
 ### Shared Server Configuration
 
@@ -112,21 +122,34 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - `level` sets the adapter's minimum level (default: `"info"`).
   - If a logger write throws, Unirend tries `logger.error` and then falls back to `globalThis.reportError` (when available) and `console.error`.
   - **Important:** Exactly one logging source can be configured: `logging`, `fastifyOptions.logger`, or `fastifyOptions.loggerInstance`. Configuring multiple sources will cause an error on server startup.
+- `accessLog?: AccessLogConfig`
+  - First-party access logging — formatted request/response logs without writing a custom plugin.
+  - `events?: 'start' | 'finish' | 'both' | 'none'` — Which lifecycle events to print a log line for (default: `'finish'`).
+  - `responseTemplate?: string` — Template for finish/response events. Default: `'Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'`. Available variables: `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `ip`, `userAgent`.
+  - `requestTemplate?: string` — Template for start/request events. Default: `'Request started {{method}} {{url}}'`. Available variables: `method`, `url`, `reqID`, `ip`, `userAgent`.
+  - `level?: UnirendLoggerLevel | { success?, clientError?, serverError? }` — Log level. Default: `info` for 2xx/3xx, `warn` for 4xx, `error` for 5xx.
+  - `onRequest?: (context: AccessLogRequestContext) => void | Promise<void>` — Custom hook fired at request start when provided. It is awaited before request handling continues. If you intentionally start fire-and-forget work inside it, handle errors explicitly. Fires regardless of the `events` setting.
+  - `onResponse?: (context: AccessLogResponseContext) => void | Promise<void>` — Custom hook fired on response completion when provided (both normal and client-aborted). It is awaited after the response finishes or aborts. If you intentionally start fire-and-forget work inside it, handle errors explicitly. `context.finishType` is `'completed'` or `'aborted'`. Fires regardless of the `events` setting.
+  - See [Access Logging](#access-logging) for template examples, level config, DB tracing patterns, and runtime updates.
+- `getClientIP?: (request: FastifyRequest) => string | Promise<string>`
+  - Custom resolver for the real client IP when behind a reverse proxy or external hosted proxy.
+  - Called once per request; the result is stored as `request.clientIP` and is available throughout the entire request lifecycle — plugins, hooks, page data loader handlers, API route handlers, and access log templates/hooks.
+  - When not set, `request.clientIP` falls back to `request.ip` (which reflects Fastify proxy handling when `fastifyOptions.trustProxy` is configured).
+  - If `getClientIP` throws, the error propagates as a 500 — there is no silent fallback to `request.ip`.
+  - See [Access Logging](#access-logging) for proxy and external reverse proxy examples.
 - `logErrors?: boolean`
   - Whether to automatically log errors via the server logger (default: `true`).
   - When enabled, all request errors are logged before custom error handlers run with URL, method, and error details.
   - This is especially useful when using custom error pages that can't show dynamic stack traces.
   - Set to `false` to disable automatic error logging if you prefer to handle logging in custom error handlers.
   - **Note:** This applies to SSRServer, APIServer, StaticWebServer, and RedirectServer.
-- `fastifyOptions?: { logger?: boolean | FastifyLoggerOptions; loggerInstance?: FastifyBaseLogger; disableRequestLogging?: boolean; trustProxy?; bodyLimit?; keepAliveTimeout? }`
+- `fastifyOptions?: { logger?: boolean | FastifyLoggerOptions; loggerInstance?: FastifyBaseLogger; trustProxy?; bodyLimit?; keepAliveTimeout? }`
   - Safe subset of Fastify server options.
   - `loggerInstance` must satisfy Fastify's base logger interface (`info`, `error`, `debug`, `fatal`, `warn`, `trace`, `silent`, `level`) and support `child(bindings, options)`.
   - `logger` is Fastify's built-in logger option (boolean or pino options), for example `true` or `{ level: "info" }`.
   - `loggerInstance` is for passing an existing pino (or pino-compatible) logger instance.
-  - With logging enabled, Fastify logs request lifecycle events (access-style logs like incoming/completed requests) and your plugin/app logs from `fastify.log` / `request.log`.
-  - `disableRequestLogging` defaults to `false`.
-  - Set `disableRequestLogging: true` to keep logger usage enabled while disabling Fastify's default incoming/completed request logs. This applies the same way whether you use `logging`, `fastifyOptions.logger`, or `fastifyOptions.loggerInstance`.
-  - No separate middleware is required for baseline access logs. For custom fields or custom start/completion messages, add `onRequest`/`onResponse` hooks in a plugin (see [Plugin Host Methods -> Hooks](./server-plugins.md#hooks) and [Access Logging Plugin](./server-plugins.md#access-logging-plugin)).
+  - `trustProxy` is passed directly to Fastify. Common options are `true`, a trusted IP/CIDR string like `'127.0.0.1'` or `'127.0.0.1,192.168.1.1/24'`, a trusted IP/CIDR list like `['127.0.0.1', '10.0.0.0/8']`, or a custom trust function with signature `(address: string, hop: number) => boolean`. Fastify also supports numeric hop counts.
+  - With logging enabled, your plugin/app logs from `fastify.log` / `request.log` are emitted. Fastify's built-in request lifecycle logs (incoming/completed) are always suppressed — use `accessLog` for formatted access logging instead.
 
 #### Logging
 
@@ -140,36 +163,15 @@ Logging behavior quick reference:
 
 - `logger: true`
   - Enables Fastify logger at default level (`info`).
-  - Emits default request lifecycle logs (`incoming request`, `request completed`).
-- `disableRequestLogging: true`
-  - Disables Fastify's automatic incoming/completed request logs regardless of logger level.
-  - Your own `fastify.log.*`, `request.log.*`, and hook-based logs still work.
-  - Works the same with `logging`, `fastifyOptions.logger`, or `fastifyOptions.loggerInstance`.
+  - Fastify's built-in request lifecycle logs are always suppressed — use `accessLog` for formatted access logging (see [Access Logging](#access-logging)).
 - `logger: { level: 'warn' }`
   - Enables logger but sets minimum level to `warn`.
-  - Request lifecycle logs (`info` level) won't appear.
-  - **Tip:** If you want to disable the built-in request logs and implement your own custom access logging (with additional fields like user ID, tenant, etc.), use `disableRequestLogging: true` and add your own logging via hooks in a plugin. See [Access Logging Plugin](./server-plugins.md#access-logging-plugin) for an example.
+  - Suppresses `info`-level logs from your plugins/app code.
+  - **Tip:** Use an environment variable to set the log level at startup — for example `SERVER_LOG_LEVEL`: `logger: { level: process.env.SERVER_LOG_LEVEL ?? 'info' }`. Log level is a startup option, not a runtime toggle.
 - `loggerInstance`
   - Uses your provided pino/pino-compatible logger object.
 
-Built-in request log event shape:
-
-- Request start:
-  - message: `"incoming request"`
-  - level: `info`
-  - context typically includes: `reqId` (Fastify `request.id`) and `req`
-- Request completion:
-  - message: `"request completed"`
-  - level: `info`
-  - context typically includes: `reqId` (Fastify `request.id`), `res`, `responseTime`
-- Unhandled route/handler error (`500` path):
-  - an additional `error`-level event is emitted (message is usually the error message), then completion log still runs.
-
-When using Unirend `logging`, these become `logger.info(message, context)` / `logger.error(message, context)` calls through the adapter.
-
-**Note:** `reqId` in Fastify's logs is the Fastify request identifier (`request.id`), which is an incremental counter by default. This is separate from `request.requestID` used by Unirend envelope helpers and the clientInfo plugin, which is a globally unique identifier (ULID) that's better for distributed systems (e.g., multiple servers behind a load balancer) and correlating requests across services.
-
-If you need a strict payload shape, prefer custom `onRequest`/`onResponse` hooks and build the exact context object you want to emit.
+**Note:** `reqID` in Fastify's framework logs is the Fastify request identifier (`request.id`), which is an incremental counter by default. This is separate from `request.requestID` used by Unirend envelope helpers and the clientInfo plugin, which is a globally unique identifier (ULID) that's better for distributed systems (e.g., multiple servers behind a load balancer) and correlating requests across services.
 
 Example Unirend logger object (recommended path):
 
@@ -188,9 +190,6 @@ const server = serveSSRProd('./build', {
       fatal: (message, context) => console.error(message, context),
     },
   },
-  fastifyOptions: {
-    disableRequestLogging: true,
-  },
 });
 ```
 
@@ -205,12 +204,221 @@ const server = serveSSRProd('./build', {
     // or:
     // logger: { level: 'info' },
     // loggerInstance: existingPinoOrCompatibleLogger,
-    // disableRequestLogging: true,
   },
 });
 ```
 
-For custom request-start/completion access logs, see [Access Logging Plugin](./server-plugins.md#access-logging-plugin).
+For formatted access logs and access log hook patterns, see [Access Logging](#access-logging).
+
+#### Access Logging
+
+Use `accessLog` on any server type (SSRServer, APIServer, StaticWebServer, RedirectServer) for formatted request/response logs without writing a custom plugin. Output routes through `request.log`, so it respects whatever logger you've configured.
+
+```typescript
+const server = serveSSRProd('./build', {
+  logging: { logger: myLogger },
+  accessLog: {
+    // Which lifecycle events print a log line: 'start' | 'finish' | 'both' | 'none'
+    // events: 'finish',
+    // Template for request-start log lines
+    // requestTemplate: 'Request started {{method}} {{url}}',
+    // Template for request-finish log lines
+    // responseTemplate:
+    //   'Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)',
+    // Either one level for all access logs...
+    // level: 'info',
+    // ...or levels by status code range
+    // level: { success: 'info', clientError: 'warn', serverError: 'error' },
+    // Optional hooks for persistence, analytics, or custom side effects
+    // onRequest: async (ctx) => {},
+    // onResponse: async (ctx) => {},
+  },
+});
+```
+
+##### Events
+
+- `'finish'` (default) — log when response is sent. Covers both normal completion and client aborts.
+- `'start'` — log on request arrival only.
+- `'both'` — log on both arrival and completion.
+- `'none'` — suppress all template logging. Custom `onRequest`/`onResponse` hooks still fire.
+
+##### Template Variables
+
+- Response/finish events: `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `ip`, `userAgent`
+- Request/start events: `method`, `url`, `reqID`, `ip`, `userAgent`
+- Unknown variables are substituted as an empty string.
+
+##### IP Behind A Reverse Proxy
+
+`ip` in access log templates and hook contexts comes from `request.clientIP`, which is resolved once at request start and is available everywhere — plugins, data loader handlers, API route handlers, and access log hooks.
+
+Two options for making the IP accurate behind a proxy:
+
+- **Generic proxy / `X-Forwarded-For`**: set `fastifyOptions.trustProxy`. This can be `true`, but in stricter deployments you can pass a trusted IP/CIDR value or list instead. Fastify will parse the `X-Forwarded-For` header and `request.ip` / `request.clientIP` will reflect the first non-trusted IP in the chain. Works well for a single trusted proxy (e.g., nginx on the same host). Less reliable with multiple hops (LB + external reverse proxy) since the chain can be extended by each layer.
+
+```typescript
+// Trust all proxies
+fastifyOptions: { trustProxy: true }
+
+// Trust specific proxies or proxy ranges
+fastifyOptions: { trustProxy: '127.0.0.1,10.0.0.0/8' }
+fastifyOptions: { trustProxy: ['127.0.0.1', '10.0.0.0/8'] }
+
+// Custom trust logic
+fastifyOptions: {
+  trustProxy: (address, hop) => address === '127.0.0.1' || hop === 1,
+}
+```
+
+- **External reverse proxy with its own client-IP header**: use server-level `getClientIP` to read the right header. In a typical `browser → external reverse proxy → load balancer → your app` setup, `request.ip` is often the load balancer's private IP and `X-Forwarded-For` may contain the external proxy's edge IP rather than the real client IP. In those cases, read the provider's client-IP header only when the immediate request came from a trusted proxy or load balancer range you control:
+
+```typescript
+serveSSRProd('./build', {
+  getClientIP: (req) => {
+    // Pseudo-code: only trust the external reverse proxy header when the
+    // request came from a proxy or load balancer range you control.
+    const fromTrustedProxyRange = isTrustedProxyRange(req.ip);
+    const cfIP = req.headers['cf-connecting-ip'];
+
+    if (fromTrustedProxyRange && typeof cfIP === 'string' && cfIP) {
+      return cfIP;
+    }
+
+    return req.ip;
+  },
+  accessLog: {
+    responseTemplate: '{{ip}} {{method}} {{url}} {{statusCode}}',
+  },
+});
+```
+
+You can also use `trustProxy` and `getClientIP` together. For example, `trustProxy` can help you trust your load balancer and `getClientIP` can read the original client IP from an external reverse proxy header such as `CF-Connecting-IP`.
+
+`getClientIP` receives the raw `FastifyRequest` and may return either a string or a promise for a string. The result is awaited once at request start, then stored as `request.clientIP` for the full request lifecycle — not just access logs.
+
+##### Level Config
+
+By default, access logs use `info` for `2xx`/`3xx`, `warn` for `4xx`, and `error` for `5xx`. You can override that with either a single level or per-status-range levels:
+
+```typescript
+// Flat level — same for all status codes
+accessLog: { level: 'debug' }
+
+// Per-status-range
+accessLog: {
+  level: { success: 'info', clientError: 'warn', serverError: 'error' }
+}
+```
+
+##### Client Abort Handling
+
+`onResponse` fires for both normal completion and client disconnects (when the client disconnects before the response finishes). Use `context.finishType` (`'completed'` | `'aborted'`) to distinguish. The `{{finishType}}` template variable is also available.
+
+##### Fire-And-Forget Work Inside Hooks
+
+`onRequest` and `onResponse` are both awaited by the framework. If you intentionally start background work inside either hook, handle errors explicitly so failures are not lost:
+
+```typescript
+accessLog: {
+  onRequest: async (ctx) => {
+    try {
+      void writeRequestStart(ctx).catch((err) => {
+        ctx.request.log.error(
+          { err },
+          'Failed to write request start log',
+        );
+      });
+    } catch (err) {
+      ctx.request.log.error(
+        { err },
+        'Failed to start request log write',
+      );
+    }
+  },
+
+  onResponse: async (ctx) => {
+    try {
+      void writeRequestCompletion(ctx).catch((err) => {
+        ctx.request.log.error(
+          { err },
+          'Failed to write request completion log',
+        );
+      });
+    } catch (err) {
+      ctx.request.log.error(
+        { err },
+        'Failed to start request completion log write',
+      );
+    }
+  },
+}
+```
+
+##### Runtime Config Updates
+
+`updateAccessLoggingConfig()` does a partial merge — only the provided keys are changed:
+
+```typescript
+server.updateAccessLoggingConfig({ events: 'none' }); // pause logging
+server.updateAccessLoggingConfig({ events: 'finish' }); // resume for finish events only
+server.updateAccessLoggingConfig({ level: 'debug' }); // change level only
+```
+
+##### Pattern: DB Request Tracing
+
+Use `onRequest` and `onResponse` hooks in `accessLog` for persistent request history (audit logs, analytics, debugging). Hooks fire independently of the `events` setting, so they run even when `events: 'none'`. Both hooks are awaited by the framework, so avoid blocking on slow work unless you want that behavior.
+
+```typescript
+const server = serveSSRProd('./build', {
+  accessLog: {
+    onRequest: async (ctx) => {
+      // requestID (ULID) is on the raw request — globally unique, safe across restarts/instances
+      const requestID = (ctx.request as any).requestID;
+
+      // Fire-and-forget — don't await so the request isn't held up by the DB write
+      db.requestLog
+        .insert({
+          requestID,
+          method: ctx.method,
+          url: ctx.url,
+          startedAt: new Date(),
+          status: 'pending',
+        })
+        .catch((err) =>
+          ctx.request.log.error({ err }, 'Failed to write request start log'),
+        );
+    },
+
+    onResponse: async (ctx) => {
+      const requestID = (ctx.request as any).requestID;
+
+      db.requestLog
+        .update(requestID, {
+          statusCode: ctx.statusCode,
+          responseTime: ctx.responseTime,
+          completedAt: new Date(),
+          // 'completed' for normal finish, 'aborted' if client disconnected early
+          status: ctx.finishType,
+        })
+        .catch((err) =>
+          ctx.request.log.error(
+            { err },
+            'Failed to write request completion log',
+          ),
+        );
+    },
+  },
+});
+```
+
+Considerations:
+
+- Use `requestID` (ULID via `ctx.request`) as the record key rather than `reqID` in the context (Fastify's incremental counter per process) — it's safe across multiple server instances and restarts.
+- The framework awaits these hooks. If you do not want DB writes to hold up request handling or post-response cleanup, fire-and-forget inside the hook and attach `.catch()` or similar error handling so failures are not lost. Prefer `ctx.request.log` over `console.*` so the messages go through the server's configured logger.
+- `onResponse` covers both normal completion and client aborts via `ctx.finishType`, so you don't need a separate hook.
+
+For augmenting access logs with custom fields (user ID, tenant, etc.) not available in the template, use plugin hooks alongside `accessLog`. See [Hooks](./server-plugins.md#hooks) in the plugin docs.
 
 ## HTTPS Configuration
 
@@ -871,7 +1079,8 @@ Notes:
 - Both handlers receive a `params` object with a similar routing context, but the source differs:
   - Data loader handlers: `params` are produced by the frontend page data loader and sent in the POST body (SSR short-circuit passes the same shape internally for consistency). Treat this as the authoritative routing context for page data.
   - API route handlers: `params` are assembled on the server from Fastify’s request (route/query/path/URL). Use these directly for API endpoints.
-- In both cases, the best practices is to use `originalRequest` (the Fastify request) only for transport/ambient data (cookies/headers/IP/auth), and use `reply` for headers/cookies you want on the HTTP response. This also makes it easy to port code between page data loader handlers and custom API handlers.
+- In both cases, the best practice is to use `originalRequest` (the Fastify request) only for transport/ambient data (cookies/headers/IP/auth), and use `reply` for headers/cookies you want on the HTTP response. This also makes it easy to port code between page data loader handlers and custom API handlers.
+- Use `request.clientIP` (not `request.ip`) to read the resolved client IP. The framework sets `request.clientIP` once per request using `getClientIP` (if configured) or falling back to `request.ip`. When `fastifyOptions.trustProxy` is configured, that fallback also reflects Fastify's proxy handling. This value is the same in plugins, hooks, page data loader handlers, and API route handlers — so you never need to re-implement proxy header logic per handler.
 
 ### Request Context Injection
 

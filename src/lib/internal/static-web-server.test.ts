@@ -214,6 +214,37 @@ describe('StaticWebServer', () => {
     });
   });
 
+  // ─── getStats() ─────────────────────────────────────────────────────────────
+
+  describe('getStats()', () => {
+    it('returns null before listen() is called', () => {
+      server = makeServer();
+      expect(server.getStats()).toBeNull();
+    });
+
+    it('returns stats with routeCount after listen()', async () => {
+      setReadFileMock({ 'page-map.json': VALID_PAGE_MAP });
+      server = makeServer();
+      await server.listen(testPort);
+
+      const stats = server.getStats();
+      expect(stats).not.toBeNull();
+      expect(stats).toHaveProperty('routeCount', 2); // VALID_PAGE_MAP has '/' and '/about'
+      expect(stats).toHaveProperty('etag');
+      expect(stats).toHaveProperty('content');
+      expect(stats).toHaveProperty('stat');
+    });
+
+    it('returns null after stop()', async () => {
+      setReadFileMock({ 'page-map.json': VALID_PAGE_MAP });
+      server = makeServer();
+      await server.listen(testPort);
+      await server.stop();
+
+      expect(server.getStats()).toBeNull();
+    });
+  });
+
   // ─── listen() ───────────────────────────────────────────────────────────────
 
   describe('listen()', () => {
@@ -688,10 +719,9 @@ describe('StaticWebServer', () => {
       const cache = (server as unknown as { cache: StaticContentCache }).cache;
       const orig = cache.handleRequest.bind(cache);
 
-      (cache as unknown as { handleRequest: unknown }).handleRequest =
-        () => {
-          throw new Error('Simulated cache error');
-        };
+      (cache as unknown as { handleRequest: unknown }).handleRequest = () => {
+        throw new Error('Simulated cache error');
+      };
 
       try {
         const response = await fetch(`http://localhost:${testPort}/`);
@@ -711,10 +741,9 @@ describe('StaticWebServer', () => {
       const cache = (server as unknown as { cache: StaticContentCache }).cache;
       const orig = cache.handleRequest.bind(cache);
 
-      (cache as unknown as { handleRequest: unknown }).handleRequest =
-        () => {
-          throw new Error('Dev mode error');
-        };
+      (cache as unknown as { handleRequest: unknown }).handleRequest = () => {
+        throw new Error('Dev mode error');
+      };
 
       try {
         const response = await fetch(`http://localhost:${testPort}/`);
@@ -739,10 +768,9 @@ describe('StaticWebServer', () => {
       const cache = (server as unknown as { cache: StaticContentCache }).cache;
       const orig = cache.handleRequest.bind(cache);
 
-      (cache as unknown as { handleRequest: unknown }).handleRequest =
-        () => {
-          throw new Error('Simulated cache error');
-        };
+      (cache as unknown as { handleRequest: unknown }).handleRequest = () => {
+        throw new Error('Simulated cache error');
+      };
 
       try {
         const response = await fetch(`http://localhost:${testPort}/`);

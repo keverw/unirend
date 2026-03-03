@@ -571,6 +571,31 @@ export function validateAndRegisterPlugin(
 }
 
 /**
+ * Decorates requests with a resolved client IP, set once per request.
+ * Always sets clientIP to request.ip first (which respects fastifyOptions.trustProxy),
+ * then overwrites it with the awaited return value of getClientIP if provided.
+ *
+ * If getClientIP throws or rejects, clientIP retains request.ip and the error
+ * propagates as a normal 500.
+ */
+export function registerClientIPDecoration(
+  fastify: FastifyInstance,
+  getClientIP:
+    | ((request: FastifyRequest) => string | Promise<string>)
+    | undefined,
+): void {
+  fastify.decorateRequest('clientIP', '');
+
+  fastify.addHook('onRequest', async (request, _reply) => {
+    request.clientIP = request.ip;
+
+    if (getClientIP) {
+      request.clientIP = await getClientIP(request);
+    }
+  });
+}
+
+/**
  * Builds Fastify-compatible HTTPS options from the shared HTTPSOptions type.
  * Handles extracting the `sni` field and converting it to a Node.js `SNICallback`
  * that supports both sync and async user functions.

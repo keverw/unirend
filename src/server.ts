@@ -41,6 +41,11 @@ export type {
   UnirendLoggerObject,
   UnirendLoggerLevel,
   HTTPSOptions,
+  AccessLogConfig,
+  AccessLogLevelConfig,
+  AccessLogRequestContext,
+  AccessLogResponseContext,
+  AccessLogReplyInfo,
 } from './lib/types';
 export type { RedirectServerOptions } from './lib/redirect';
 

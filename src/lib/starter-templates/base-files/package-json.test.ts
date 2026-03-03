@@ -22,6 +22,7 @@ describe('ensurePackageJSON', () => {
       expect(pkg.license).toBe('UNLICENSED');
       expect(pkg.dependencies).toBeDefined();
       expect(pkg.devDependencies).toBeDefined();
+      expect(pkg.dependencies.lifecycleion).toBe(dependencies.lifecycleion);
       expect(pkg.dependencies.react).toBe(dependencies.react);
       expect(pkg.dependencies['react-dom']).toBe(dependencies['react-dom']);
       expect(pkg.devDependencies.typescript).toBe(devDependencies.typescript);

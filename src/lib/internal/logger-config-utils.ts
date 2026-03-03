@@ -9,12 +9,15 @@ import { createFastifyLoggerFromUnirendLogging } from './unirend-logger-adapter'
 type CuratedFastifyLoggerOptions = {
   logger?: boolean | FastifyLoggerOptions;
   loggerInstance?: FastifyBaseLogger;
-  disableRequestLogging?: boolean;
 };
 
 /**
  * Resolve logging options into Fastify logger configuration while enforcing
  * mutual exclusivity across logging configuration paths.
+ *
+ * Note: disableRequestLogging is always set to true — Fastify's built-in
+ * request lifecycle logs are permanently suppressed. Use accessLog on the
+ * server config for first-party request logging instead.
  */
 export function resolveFastifyLoggerConfig({
   logging,
@@ -49,7 +52,11 @@ export function resolveFastifyLoggerConfig({
   const resolvedConfig: Pick<
     FastifyServerOptions,
     'logger' | 'loggerInstance' | 'disableRequestLogging'
-  > = {};
+  > = {
+    // Always suppress Fastify's built-in "incoming request" / "request completed" logs.
+    // Use the accessLog server option for first-party request logging.
+    disableRequestLogging: true,
+  };
 
   if (logging) {
     resolvedConfig.loggerInstance =
@@ -58,10 +65,6 @@ export function resolveFastifyLoggerConfig({
     resolvedConfig.logger = fastifyOptions.logger;
   } else if (fastifyOptions?.loggerInstance !== undefined) {
     resolvedConfig.loggerInstance = fastifyOptions.loggerInstance;
-  }
-
-  if (fastifyOptions?.disableRequestLogging !== undefined) {
-    resolvedConfig.disableRequestLogging = fastifyOptions.disableRequestLogging;
   }
 
   return resolvedConfig;

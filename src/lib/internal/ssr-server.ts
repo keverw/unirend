@@ -13,7 +13,9 @@ import type {
   SSRInternalAppConfig,
   SSRInternalAppConfigDev,
   SSRInternalAppConfigProd,
+  AccessLogConfig,
 } from '../types';
+import { AccessLogPlugin } from './access-log-plugin';
 import {
   readHTMLFile,
   checkAndLoadManifest,
@@ -39,6 +41,7 @@ import {
   validateAndRegisterPlugin,
   validateNoHandlersWhenAPIDisabled,
   buildFastifyHTTPSOptions,
+  registerClientIPDecoration,
 } from './server-utils';
 import { generateDefault500ErrorPage } from './error-page-utils';
 import { StaticContentCache } from './static-content-cache';
@@ -91,6 +94,7 @@ export class SSRServer extends BaseServer {
 
   // Shared server configuration (used across all apps)
   private sharedOptions: ServeSSRDevOptions | ServeSSRProdOptions;
+  private _accessLog: AccessLogPlugin;
 
   // Shared server resources (used across all apps)
   private pageDataHandlers!: DataLoaderServerHandlerHelpers;
@@ -118,6 +122,7 @@ export class SSRServer extends BaseServer {
     // Store server mode and shared options
     this.serverMode = config.mode;
     this.sharedOptions = config.options;
+    this._accessLog = new AccessLogPlugin(config.options.accessLog);
 
     // Convert single config to Map with '__default__' key
     const defaultApp: SSRInternalAppConfig =
@@ -506,6 +511,16 @@ export class SSRServer extends BaseServer {
           }
         ).requestContext = {};
       });
+
+      // Set request.clientIP once per request — available to plugins, hooks, and access logs.
+      registerClientIPDecoration(
+        this.fastifyInstance,
+        this.sharedOptions.getClientIP,
+      );
+
+      // Register access logging hooks. Config is read per request so
+      // updateAccessLoggingConfig() changes take effect without a restart.
+      this._accessLog.register(this.fastifyInstance);
 
       // --- Setup Global Error Handling ---
       // IMPORTANT: The global error handler must be registered *before* any plugins
@@ -926,7 +941,7 @@ export class SSRServer extends BaseServer {
 
                 // Now set these headers with our trusted server-side values
                 headers.set('X-SSR-Request', 'true');
-                headers.set('X-SSR-Original-IP', request.ip);
+                headers.set('X-SSR-Original-IP', request.clientIP);
 
                 // Forward the user agent if needed
                 const userAgent = request.headers['user-agent'];
@@ -1332,6 +1347,17 @@ export class SSRServer extends BaseServer {
 
     // Clear plugin tracking state
     this.registeredPlugins = [];
+  }
+
+  /**
+   * Merges the provided keys into the current access log config at runtime.
+   * Omitted keys stay unchanged. Pass `undefined` for a hook callback to remove
+   * it, or use `events: 'none'` to silence all logging while keeping hooks active.
+   *
+   * Changes take effect on the next request — no restart required.
+   */
+  public updateAccessLoggingConfig(partial: Partial<AccessLogConfig>): void {
+    this._accessLog.update(partial);
   }
 
   /**

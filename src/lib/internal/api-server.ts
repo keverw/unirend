@@ -10,6 +10,7 @@ import {
   validateAndRegisterPlugin,
   validateNoHandlersWhenAPIDisabled,
   buildFastifyHTTPSOptions,
+  registerClientIPDecoration,
 } from './server-utils';
 import type {
   APIServerOptions,
@@ -19,7 +20,9 @@ import type {
   WebErrorResponse,
   SplitErrorHandler,
   SplitNotFoundHandler,
+  AccessLogConfig,
 } from '../types';
+import { AccessLogPlugin } from './access-log-plugin';
 import { BaseServer } from './base-server';
 import { DataLoaderServerHandlerHelpers } from './data-loader-server-handler-helpers';
 import { APIRoutesServerHelpers } from './api-routes-server-helpers';
@@ -43,6 +46,7 @@ export class APIServer extends BaseServer {
   public readonly APIResponseHelpersClass: APIResponseHelpersClass;
 
   private options: APIServerOptions;
+  private _accessLog: AccessLogPlugin;
   private pageDataHandlers!: DataLoaderServerHandlerHelpers;
   private apiRoutes!: APIRoutesServerHelpers;
   private webSocketHelpers: WebSocketServerHelpers | null = null;
@@ -55,10 +59,13 @@ export class APIServer extends BaseServer {
 
   constructor(options: APIServerOptions = {}) {
     super();
+
     this.options = {
       isDevelopment: false,
       ...options,
     };
+
+    this._accessLog = new AccessLogPlugin(options.accessLog);
 
     // Normalize API endpoint config once at construction
     this.normalizedAPIPrefix = normalizeAPIPrefix(
@@ -189,6 +196,16 @@ export class APIServer extends BaseServer {
         ).requestContext = {};
       });
 
+      // Set request.clientIP once per request — available to plugins, hooks, and access logs.
+      registerClientIPDecoration(
+        this.fastifyInstance,
+        this.options.getClientIP,
+      );
+
+      // Register access logging hooks. Config is read per request so
+      // updateAccessLoggingConfig() changes take effect without a restart.
+      this._accessLog.register(this.fastifyInstance);
+
       // Register global error handler
       this.setupErrorHandler();
       // Register not-found handler
@@ -307,6 +324,17 @@ export class APIServer extends BaseServer {
       // Clear plugin tracking state
       this.registeredPlugins = [];
     }
+  }
+
+  /**
+   * Merges the provided keys into the current access log config at runtime.
+   * Omitted keys stay unchanged. Pass `undefined` for a hook callback to remove
+   * it, or use `events: 'none'` to silence all logging while keeping hooks active.
+   *
+   * Changes take effect on the next request — no restart required.
+   */
+  public updateAccessLoggingConfig(partial: Partial<AccessLogConfig>): void {
+    this._accessLog.update(partial);
   }
 
   /**

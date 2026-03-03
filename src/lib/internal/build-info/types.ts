@@ -10,7 +10,7 @@ export interface BuildInfo {
   version: string;
   git_hash: string;
   git_branch: string;
-  // Allow additional custom properties
+  /** Allow additional custom properties */
   [key: string]: unknown;
 }
 
@@ -57,6 +57,7 @@ export type BuildInfoStatus =
  */
 export interface LoadResult {
   status: BuildInfoStatus;
-  isDefault: boolean; // true when using DEFAULT_BUILD_INFO, false when using loaded info
+  /** True when using DEFAULT_BUILD_INFO, false when using loaded info */
+  isDefault: boolean;
   info: BuildInfo;
 }

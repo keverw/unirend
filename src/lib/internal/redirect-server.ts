@@ -6,7 +6,11 @@ import {
   validateConfigEntry,
   parseHostHeader,
 } from './domain-utils/domain-utils';
-import type { UnirendLoggingOptions, FastifyServerOptions } from '../types';
+import type {
+  UnirendLoggingOptions,
+  FastifyServerOptions,
+  AccessLogConfig,
+} from '../types';
 
 /**
  * Response configuration for invalid domain handler
@@ -97,6 +101,26 @@ export interface RedirectServerOptions {
   fastifyOptions?: FastifyServerOptions;
 
   /**
+   * First-party access logging configuration
+   * Controls request/response logging without needing a custom plugin
+   */
+  accessLog?: AccessLogConfig;
+
+  /**
+   * Custom client IP resolver.
+   * When set, called once per request to populate `request.clientIP` — available
+   * throughout the entire request lifecycle (plugins, hooks, page data loader
+   * handlers, API route handlers, access log templates/hooks, etc.).
+   * When not set, `request.clientIP` falls back to `request.ip`
+   * (which reflects Fastify proxy handling when `fastifyOptions.trustProxy`
+   * is configured).
+   *
+   * Use this when behind Cloudflare, AWS ALB, or other CDNs that carry the
+   * real client IP in a custom header.
+   */
+  getClientIP?: (request: FastifyRequest) => string | Promise<string>;
+
+  /**
    * HTTPS server configuration for the redirect server itself
    * Typically not needed (redirect servers usually run on HTTP port 80)
    */
@@ -183,6 +207,8 @@ export class RedirectServer {
       logErrors: options.logErrors, // Pass through error logging config
       logging: options.logging, // Pass through logging config
       fastifyOptions: options.fastifyOptions, // Pass through Fastify options
+      accessLog: options.accessLog, // Pass through access log config
+      getClientIP: options.getClientIP, // Pass through client IP resolver
       plugins: [
         (pluginHost) => {
           // Register redirect logic as an onRequest hook
@@ -218,6 +244,17 @@ export class RedirectServer {
    */
   public isListening(): boolean {
     return this.apiServer.isListening();
+  }
+
+  /**
+   * Merges the provided keys into the current access log config at runtime.
+   * Omitted keys stay unchanged. Pass `undefined` for a hook callback to remove
+   * it, or use `events: 'none'` to silence all logging while keeping hooks active.
+   *
+   * Changes take effect on the next request — no restart required.
+   */
+  public updateAccessLoggingConfig(partial: Partial<AccessLogConfig>): void {
+    this.apiServer.updateAccessLoggingConfig(partial);
   }
 
   /**

@@ -568,6 +568,16 @@ cache.replaceConfig({
 
 Returns statistics about cache usage (items count, byte sizes).
 
+```typescript
+const stats = cache.getCacheStats();
+// stats.etag.items       — ETag cache entries
+// stats.etag.byteSize    — ETag cache memory usage in bytes
+// stats.content.items    — file content cache entries
+// stats.content.byteSize — file content cache memory usage in bytes
+// stats.stat.items       — file stat cache entries
+// stats.stat.byteSize    — file stat cache memory usage in bytes
+```
+
 ### Types
 
 ```typescript

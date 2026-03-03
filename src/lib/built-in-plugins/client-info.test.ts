@@ -9,6 +9,7 @@ interface MockRequest {
   method: string;
   url: string;
   ip: string;
+  clientIP: string;
   log: {
     info: ReturnType<typeof mock>;
     debug: ReturnType<typeof mock>;
@@ -34,10 +35,13 @@ const createMockRequest = (
     'user-agent': 'UA',
   };
 
+  const ip = overrides.ip ?? '127.0.0.1';
+
   return {
     method: 'GET',
     url: '/test',
-    ip: '127.0.0.1',
+    ip,
+    clientIP: overrides.clientIP ?? ip,
     log: {
       info: mock(() => {}),
       debug: mock(() => {}),
@@ -169,6 +173,7 @@ describe('clientInfo', () => {
 
     const request = createMockRequest({
       ip: '10.0.0.9',
+      clientIP: '10.0.0.99',
       headers: {
         'x-ssr-request': 'true',
         'x-ssr-original-ip': '9.9.9.9',
@@ -188,7 +193,7 @@ describe('clientInfo', () => {
       requestID: 'req-fwd',
       correlationID: 'corr-fwd',
       originalIP: '9.9.9.9',
-      ssrIP: '10.0.0.9',
+      ssrIP: '10.0.0.99',
       isFromSSRServerAPICall: true,
     });
     expect(msg).toContain('Using forwarded client info from trusted source');
@@ -210,6 +215,7 @@ describe('clientInfo', () => {
 
     const request = createMockRequest({
       ip: '203.0.113.50',
+      clientIP: '198.51.100.12',
       headers: {
         'x-ssr-request': 'true',
         'x-ssr-original-ip': '1.1.1.1',
@@ -223,7 +229,7 @@ describe('clientInfo', () => {
       mock: { calls: unknown[][] };
     };
     const [meta, msg] = warnMock.mock.calls[0];
-    expect(meta).toMatchObject({ requestID: 'req-warn', ip: '203.0.113.50' });
+    expect(meta).toMatchObject({ requestID: 'req-warn', ip: '198.51.100.12' });
     expect(msg).toContain('Rejected SSR headers from untrusted source');
   });
   it('sets requestID, correlationID (default), response headers, and clientInfo defaults', async () => {
@@ -254,6 +260,30 @@ describe('clientInfo', () => {
     expect(request.clientInfo?.userAgent).toBe('UA');
     expect(request.clientInfo?.isIPFromHeader).toBe(false);
     expect(request.clientInfo?.isUserAgentFromHeader).toBe(false);
+  });
+
+  it('uses request.clientIP for direct request IP normalization', async () => {
+    const pluginHost = createMockPluginHost();
+    const options = createMockOptions();
+    const plugin = clientInfo({
+      requestIDGenerator: () => 'req-client-ip',
+    });
+
+    await plugin(pluginHost, options);
+    const onRequestHook = pluginHost
+      .getHooks()
+      .find((h) => h.event === 'onRequest');
+
+    const request = createMockRequest({
+      ip: '10.0.0.1',
+      clientIP: '198.51.100.7',
+    });
+    const reply = createMockReply();
+
+    await onRequestHook?.handler(request, reply);
+
+    expect(request.clientInfo?.IPAddress).toBe('198.51.100.7');
+    expect(request.clientInfo?.isIPFromHeader).toBe(false);
   });
 
   it('trusts forwarded headers and sets SSR flags, correlationID, IP and UA', async () => {
