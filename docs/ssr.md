@@ -11,6 +11,7 @@
     - [Access Logging](#access-logging)
       - [Events](#events)
       - [Template Variables](#template-variables)
+      - [Additional Context in Log Output](#additional-context-in-log-output)
       - [IP Behind A Reverse Proxy](#ip-behind-a-reverse-proxy)
       - [Level Config](#level-config)
       - [Client Abort Handling](#client-abort-handling)
@@ -123,7 +124,7 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - If a logger write throws, Unirend tries `logger.error` and then falls back to `globalThis.reportError` (when available) and `console.error`.
   - **Important:** Exactly one logging source can be configured: `logging`, `fastifyOptions.logger`, or `fastifyOptions.loggerInstance`. Configuring multiple sources will cause an error on server startup.
 - `accessLog?: AccessLogConfig`
-  - First-party access logging — formatted request/response logs without writing a custom plugin.
+  - First-party access logging — on by default. Use `{ events: 'none' }` to disable, or provide config to customize.
   - `events?: 'start' | 'finish' | 'both' | 'none'` — Which lifecycle events to print a log line for (default: `'finish'`).
   - `responseTemplate?: string` — Template for finish/response events. Default: `'Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'`. Available variables: `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `ip`, `userAgent`.
   - `requestTemplate?: string` — Template for start/request events. Default: `'Request started {{method}} {{url}}'`. Available variables: `method`, `url`, `reqID`, `ip`, `userAgent`.
@@ -212,7 +213,7 @@ For formatted access logs and access log hook patterns, see [Access Logging](#ac
 
 #### Access Logging
 
-Use `accessLog` on any server type (SSRServer, APIServer, StaticWebServer, RedirectServer) for formatted request/response logs without writing a custom plugin. Output routes through `request.log`, so it respects whatever logger you've configured.
+Access logging is **on by default** on all server types (SSRServer, APIServer, StaticWebServer, RedirectServer) — finish events are logged using the default template with no configuration required. Use `accessLog` to customize behavior, or `accessLog: { events: 'none' }` to disable it. Output routes through `request.log`, so it respects whatever logger you've configured.
 
 ```typescript
 const server = serveSSRProd('./build', {
@@ -251,6 +252,64 @@ const server = serveSSRProd('./build', {
 - Dot notation is supported for nested properties (e.g. `{{replyInfo.headers['x-request-id']}}`).
 - Unknown variables are substituted as `???`.
 - Avoid logging sensitive data (auth tokens, passwords, PII) in templates, as access logs are typically written to files or external services.
+
+##### Additional Context in Log Output
+
+Beyond the template string, access logs include additional structured metadata in the log output. This is valuable because structured logging systems can store and index this metadata separately from the human-readable message, enabling powerful filtering, querying, and aggregation.
+
+- **`event`**: Either `'start'` (for request events) or `'finish'` (for response events). This helps distinguish log entries when using `events: 'both'`.
+- **All template variables**: The same variables available in the template (`method`, `url`, `statusCode`, etc.) are also included as structured fields in the log metadata, making them available for log aggregation and filtering even if not included in the template string.
+
+Example log output structure:
+
+```typescript
+// Request start event
+request.log.info(
+  {
+    method: 'GET',
+    url: '/page',
+    reqID: '123',
+    ip: '127.0.0.1',
+    userAgent: '...',
+    event: 'start',
+  },
+  'Request started GET /page',
+);
+
+// Response finish event (normal completion)
+request.log.info(
+  {
+    method: 'GET',
+    url: '/page',
+    statusCode: 200,
+    responseTime: 45,
+    finishType: 'completed',
+    reqID: '123',
+    ip: '127.0.0.1',
+    userAgent: '...',
+    event: 'finish',
+  },
+  'Request finished GET /page 200 (45ms)',
+);
+
+// Response finish event (client aborted - disconnected before response finished)
+request.log.info(
+  {
+    method: 'GET',
+    url: '/page',
+    statusCode: 0,
+    responseTime: 0,
+    finishType: 'aborted',
+    reqID: '123',
+    ip: '127.0.0.1',
+    userAgent: '...',
+    event: 'finish',
+  },
+  'Request finished GET /page 0 (0ms)',
+);
+```
+
+When using structured logging (e.g., JSON format with pino or other logging adapters), this metadata is stored as separate fields alongside the message. This enables powerful capabilities for log aggregation systems, such as filtering by status code ranges, grouping by URL patterns, calculating response time percentiles, or tracking client abort rates. Since the metadata is separate from the template string, you can include detailed information in the structured fields that you might not want in plain text logs, and different logging sinks (console, database, external services) can selectively use the fields they need.
 
 ##### IP Behind A Reverse Proxy
 

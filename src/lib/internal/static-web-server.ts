@@ -389,8 +389,9 @@ export class StaticWebServer {
 
   /**
    * Merges the provided keys into the current access log config at runtime.
-   * Omitted keys stay unchanged. Pass `undefined` for a hook callback to remove
-   * it, or use `events: 'none'` to silence all logging while keeping hooks active.
+   * Access logging is on by default (finish events, default template). Use
+   * `events: 'none'` to disable logging while keeping hooks active.
+   * Omitted keys stay unchanged. Pass `undefined` for a hook callback to remove it.
    *
    * Changes take effect on the next request — no restart required.
    */

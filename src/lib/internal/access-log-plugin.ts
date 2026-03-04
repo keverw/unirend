@@ -183,14 +183,14 @@ function buildResponseContext(
  * via the accessLog option on server config and server.updateAccessLoggingConfig().
  */
 export class AccessLogPlugin {
-  private _config: AccessLogConfig | undefined;
+  private _config: AccessLogConfig;
 
   constructor(initialConfig?: AccessLogConfig) {
     if (initialConfig !== undefined) {
       validateAccessLogConfig(initialConfig);
     }
 
-    this._config = initialConfig;
+    this._config = initialConfig ?? {};
   }
 
   /**
@@ -212,10 +212,6 @@ export class AccessLogPlugin {
       'onRequest',
       async (request: FastifyRequest, _reply: FastifyReply) => {
         const config = this._config;
-        if (!config) {
-          return;
-        }
-
         const events = config.events ?? 'finish';
         const ctx = buildRequestContext(request);
 
@@ -225,7 +221,10 @@ export class AccessLogPlugin {
           const { request: _req, ...templateData } = ctx;
           const msg = CurlyBrackets(template, templateData, TEMPLATE_FALLBACK);
 
-          request.log[resolveAccessLogLevel(config.level, -1)](msg);
+          request.log[resolveAccessLogLevel(config.level, -1)](
+            { ...templateData, event: 'start' },
+            msg,
+          );
         }
 
         // Hook fires unconditionally (for DB writes, audit logs, etc.)
@@ -240,10 +239,6 @@ export class AccessLogPlugin {
       'onResponse',
       async (request: FastifyRequest, reply: FastifyReply) => {
         const config = this._config;
-        if (!config) {
-          return;
-        }
-
         const events = config.events ?? 'finish';
         const ctx = buildResponseContext(request, reply, 'completed');
 
@@ -254,6 +249,7 @@ export class AccessLogPlugin {
           const msg = CurlyBrackets(template, templateData, TEMPLATE_FALLBACK);
 
           request.log[resolveAccessLogLevel(config.level, reply.statusCode)](
+            { ...templateData, event: 'finish' },
             msg,
           );
         }
@@ -269,10 +265,6 @@ export class AccessLogPlugin {
     // Fastify does NOT fire onResponse in this case, so we handle it here.
     fastify.addHook('onRequestAbort', async (request: FastifyRequest) => {
       const config = this._config;
-      if (!config) {
-        return;
-      }
-
       const events = config.events ?? 'finish';
 
       // Build a response context with whatever state is available at abort time.
@@ -292,7 +284,10 @@ export class AccessLogPlugin {
         const { request: _req, ...templateData } = ctx;
         const msg = CurlyBrackets(template, templateData, TEMPLATE_FALLBACK);
 
-        request.log[resolveAccessLogLevel(config.level, 0)](msg);
+        request.log[resolveAccessLogLevel(config.level, 0)](
+          { ...templateData, event: 'finish' },
+          msg,
+        );
       }
 
       // Hook fires unconditionally (for DB writes, audit logs, etc.)

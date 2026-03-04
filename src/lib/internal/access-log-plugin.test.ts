@@ -116,18 +116,17 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
     }
   });
 
-  it('emits no access logs when accessLog is not configured', async () => {
+  it('emits default finish access logs when accessLog is not configured', async () => {
     server = serveAPI({ logging: makeMockLoggingConfig() });
     await server.listen(port, 'localhost');
 
     await fetch(`http://localhost:${port}/api/nonexistent`);
 
-    // No access log should appear (no template/hooks configured)
-    const accessLogs = logs.filter(
-      (log) =>
-        log.message.includes('GET') || log.message.includes('nonexistent'),
-    );
-    expect(accessLogs.length).toBe(0);
+    // Access logging is on by default — one finish log using the default template.
+    const accessLogs = logs.filter((log) => log.message.includes('GET'));
+    expect(accessLogs.length).toBe(1);
+    expect(accessLogs[0].message).toContain('Request finished');
+    expect(accessLogs[0].message).toContain('/api/nonexistent');
   });
 
   it('emits no access logs when events is "none"', async () => {
@@ -491,6 +490,15 @@ describe('AccessLogPlugin onRequestAbort', () => {
 
     new AccessLogPlugin(config).register(fastify as any);
 
+    function extractMsg(args: unknown[]): string {
+      // Handle pino-style (metadata, msg) and single-arg (msg) forms.
+      return typeof args[0] === 'string'
+        ? args[0]
+        : typeof args[1] === 'string'
+          ? args[1]
+          : '';
+    }
+
     const request = {
       id: 'req-abort-1',
       method: 'GET',
@@ -500,12 +508,18 @@ describe('AccessLogPlugin onRequestAbort', () => {
         'user-agent': 'abort-test-agent',
       },
       log: {
-        trace: (msg: string) => logs.push({ level: 'trace', message: msg }),
-        debug: (msg: string) => logs.push({ level: 'debug', message: msg }),
-        info: (msg: string) => logs.push({ level: 'info', message: msg }),
-        warn: (msg: string) => logs.push({ level: 'warn', message: msg }),
-        error: (msg: string) => logs.push({ level: 'error', message: msg }),
-        fatal: (msg: string) => logs.push({ level: 'fatal', message: msg }),
+        trace: (...args: unknown[]) =>
+          logs.push({ level: 'trace', message: extractMsg(args) }),
+        debug: (...args: unknown[]) =>
+          logs.push({ level: 'debug', message: extractMsg(args) }),
+        info: (...args: unknown[]) =>
+          logs.push({ level: 'info', message: extractMsg(args) }),
+        warn: (...args: unknown[]) =>
+          logs.push({ level: 'warn', message: extractMsg(args) }),
+        error: (...args: unknown[]) =>
+          logs.push({ level: 'error', message: extractMsg(args) }),
+        fatal: (...args: unknown[]) =>
+          logs.push({ level: 'fatal', message: extractMsg(args) }),
       },
     };
 
@@ -573,11 +587,15 @@ describe('AccessLogPlugin onRequestAbort', () => {
     expect(captured[0].statusCode).toBe(0);
   });
 
-  it('does nothing for aborted requests when access logging is disabled', async () => {
+  it('emits default finish log for aborted requests when accessLog is not configured', async () => {
     const { abortHook, logs, request } = createAbortHarness();
 
     await abortHook?.(request);
 
-    expect(logs).toHaveLength(0);
+    // Access logging is on by default — one finish log using the default template.
+    expect(logs).toHaveLength(1);
+    expect(logs[0].level).toBe('info');
+    expect(logs[0].message).toContain('Request finished');
+    expect(logs[0].message).toContain('/api/aborted');
   });
 });
