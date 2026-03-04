@@ -416,7 +416,7 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
     expect(after).toBe(0);
   });
 
-  it('template substitutes unknown variables as empty string', async () => {
+  it('template substitutes unknown variables as ???', async () => {
     server = serveAPI({
       logging: makeMockLoggingConfig(),
       accessLog: {
@@ -428,7 +428,49 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
     const response = await fetch(`http://localhost:${port}/api/nonexistent`);
     await response.text();
 
-    const accessLogs = logs.filter((log) => log.message.includes('GET  404'));
+    const accessLogs = logs.filter((log) =>
+      log.message.includes('GET ??? 404'),
+    );
+
+    expect(accessLogs.length).toBeGreaterThan(0);
+  });
+
+  it('template resolves nested dot notation (replyInfo.statusCode)', async () => {
+    server = serveAPI({
+      logging: makeMockLoggingConfig(),
+      accessLog: {
+        responseTemplate: '{{method}} {{url}} nested={{replyInfo.statusCode}}',
+      },
+    });
+    await server.listen(port, 'localhost');
+
+    const response = await fetch(`http://localhost:${port}/api/nonexistent`);
+    await response.text();
+
+    const accessLogs = logs.filter((log) =>
+      log.message.includes('GET /api/nonexistent nested=404'),
+    );
+
+    expect(accessLogs.length).toBeGreaterThan(0);
+  });
+
+  it('template substitutes unknown nested dot path as ???', async () => {
+    server = serveAPI({
+      logging: makeMockLoggingConfig(),
+      accessLog: {
+        responseTemplate: '{{method}} {{replyInfo.nonexistent}} {{statusCode}}',
+      },
+    });
+
+    await server.listen(port, 'localhost');
+
+    const response = await fetch(`http://localhost:${port}/api/nonexistent`);
+    await response.text();
+
+    const accessLogs = logs.filter((log) =>
+      log.message.includes('GET ??? 404'),
+    );
+
     expect(accessLogs.length).toBeGreaterThan(0);
   });
 });
@@ -471,7 +513,7 @@ describe('AccessLogPlugin onRequestAbort', () => {
       logs,
       request,
       abortHook: hooks.onRequestAbort?.[0] as
-        | ((request: typeof request) => Promise<void>)
+        | ((req: typeof request) => Promise<void>)
         | undefined,
     };
   }

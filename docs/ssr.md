@@ -246,8 +246,11 @@ const server = serveSSRProd('./build', {
 ##### Template Variables
 
 - Response/finish events: `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `ip`, `userAgent`
+  - Also supports dot notation for nested fields: `replyInfo.statusCode`, `replyInfo.headers['content-type']`
 - Request/start events: `method`, `url`, `reqID`, `ip`, `userAgent`
-- Unknown variables are substituted as an empty string.
+- Dot notation is supported for nested properties (e.g. `{{replyInfo.headers['x-request-id']}}`).
+- Unknown variables are substituted as `???`.
+- Avoid logging sensitive data (auth tokens, passwords, PII) in templates, as access logs are typically written to files or external services.
 
 ##### IP Behind A Reverse Proxy
 
@@ -418,7 +421,7 @@ Considerations:
 - The framework awaits these hooks. If you do not want DB writes to hold up request handling or post-response cleanup, fire-and-forget inside the hook and attach `.catch()` or similar error handling so failures are not lost. Prefer `ctx.request.log` over `console.*` so the messages go through the server's configured logger.
 - `onResponse` covers both normal completion and client aborts via `ctx.finishType`, so you don't need a separate hook.
 
-For augmenting access logs with custom fields (user ID, tenant, etc.) not available in the template, use plugin hooks alongside `accessLog`. See [Hooks](./server-plugins.md#hooks) in the plugin docs.
+For augmenting finish/response event templates with custom fields set by plugins (user ID, tenant, etc.), use dot notation to access nested context properties (e.g. `{{requestContext.userID}}`). Note that start/request event templates run before plugin hooks, so plugin-set fields are not yet available there.
 
 ## HTTPS Configuration
 

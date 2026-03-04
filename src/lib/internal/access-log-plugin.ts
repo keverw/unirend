@@ -1,3 +1,4 @@
+import { CurlyBrackets } from 'lifecycleion/curly-brackets';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type {
   AccessLogConfig,
@@ -131,40 +132,7 @@ export function resolveAccessLogLevel(
   return level.success ?? DEFAULT_ACCESS_LOG_LEVELS.success;
 }
 
-type TemplateVars = Record<string, string | number | boolean | undefined>;
-
-/**
- * Substitute {{variable}} placeholders in a template string.
- * vars must contain only primitive-safe values (no objects).
- */
-function applyTemplate(template: string, vars: TemplateVars): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) =>
-    String(vars[key] ?? ''),
-  );
-}
-
-function requestTemplateVars(ctx: AccessLogRequestContext): TemplateVars {
-  return {
-    reqID: ctx.reqID,
-    method: ctx.method,
-    url: ctx.url,
-    ip: ctx.ip,
-    userAgent: ctx.userAgent,
-  };
-}
-
-function responseTemplateVars(ctx: AccessLogResponseContext): TemplateVars {
-  return {
-    reqID: ctx.reqID,
-    method: ctx.method,
-    url: ctx.url,
-    ip: ctx.ip,
-    userAgent: ctx.userAgent,
-    statusCode: ctx.statusCode,
-    responseTime: ctx.responseTime,
-    finishType: ctx.finishType,
-  };
-}
+const TEMPLATE_FALLBACK = '???';
 
 function buildRequestContext(request: FastifyRequest): AccessLogRequestContext {
   return {
@@ -254,7 +222,9 @@ export class AccessLogPlugin {
         // Template printing — only when events includes 'start' or 'both'
         if (events === 'start' || events === 'both') {
           const template = config.requestTemplate ?? DEFAULT_REQUEST_TEMPLATE;
-          const msg = applyTemplate(template, requestTemplateVars(ctx));
+          const { request: _req, ...templateData } = ctx;
+          const msg = CurlyBrackets(template, templateData, TEMPLATE_FALLBACK);
+
           request.log[resolveAccessLogLevel(config.level, -1)](msg);
         }
 
@@ -280,7 +250,9 @@ export class AccessLogPlugin {
         // Template printing — only when events includes 'finish' or 'both'
         if (events === 'finish' || events === 'both') {
           const template = config.responseTemplate ?? DEFAULT_RESPONSE_TEMPLATE;
-          const msg = applyTemplate(template, responseTemplateVars(ctx));
+          const { request: _req, ...templateData } = ctx;
+          const msg = CurlyBrackets(template, templateData, TEMPLATE_FALLBACK);
+
           request.log[resolveAccessLogLevel(config.level, reply.statusCode)](
             msg,
           );
@@ -317,7 +289,9 @@ export class AccessLogPlugin {
       // Template printing — only when events includes 'finish' or 'both'
       if (events === 'finish' || events === 'both') {
         const template = config.responseTemplate ?? DEFAULT_RESPONSE_TEMPLATE;
-        const msg = applyTemplate(template, responseTemplateVars(ctx));
+        const { request: _req, ...templateData } = ctx;
+        const msg = CurlyBrackets(template, templateData, TEMPLATE_FALLBACK);
+
         request.log[resolveAccessLogLevel(config.level, 0)](msg);
       }
 

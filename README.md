@@ -21,7 +21,11 @@ yarn add unirend
 **Peer Dependencies:** You'll also need to install these in your project:
 
 ```bash
-npm install react react-dom react-helmet-async react-router vite
+npm install lifecycleion react react-dom react-helmet-async react-router vite
+# or
+bun add lifecycleion react react-dom react-helmet-async react-router vite
+# or
+yarn add lifecycleion react react-dom react-helmet-async react-router vite
 ```
 
 Unirend includes Fastify as a regular dependency for server side rendering and API server, so you don't need to install it separately.

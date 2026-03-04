@@ -115,7 +115,6 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-unicorn": "^62.0.0",
     "get-port": "^7.1.0",
-    "lifecycleion": "^0.0.4",
     "markdown-toc-gen": "^1.2.0",
     "prettier": "^3.5.3",
     "tsup": "^8.4.0",
@@ -123,6 +122,7 @@
     "typescript-eslint": "^8.46.3"
   },
   "peerDependencies": {
+    "lifecycleion": "^0.0.6",
     "react": "^18.0.0 || ^19.0.0",
     "react-dom": "^18.0.0 || ^19.0.0",
     "react-helmet-async": "^2.0.0",
