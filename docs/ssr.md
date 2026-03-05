@@ -156,7 +156,7 @@ The following options are accepted by both `SSRServer` and `APIServer`:
 
 **Which logging approach should I use?**
 
-- **`logging`** (Recommended): Simpler, framework-consistent API. Works identically for SSR and API servers. Best when you need custom logging (external services, structured logs, special handling).
+- **`logging`** (Recommended): Simpler, framework-consistent API. Works identically for SSR and API servers. Best when you need custom logging (external services, structured logs, special handling). If your logger writes to an external store and you need resilience against write failures, see [Resilient Write Queue](./patterns.md#resilient-write-queue).
 - **`fastifyOptions.logger`**: Quick out-of-the-box console logger using pino. Best when you just want basic logs to console without external integrations.
 - **`fastifyOptions.loggerInstance`**: Pass an existing pino-compatible logger instance. Use when sharing a logger across multiple services or more advanced logging requirements.
 
@@ -481,6 +481,7 @@ Considerations:
 - Use `requestID` (ULID via `ctx.request`) as the record key rather than `reqID` in the context (Fastify's incremental counter per process) — it's safe across multiple server instances and restarts.
 - The framework awaits these hooks. If you do not want DB writes to hold up request handling or post-response cleanup, fire-and-forget inside the hook and attach `.catch()` or similar error handling so failures are not lost. Prefer `ctx.request.log` over `console.*` so the messages go through the server's configured logger.
 - `onResponse` covers both normal completion and client aborts via `ctx.finishType`, so you don't need a separate hook.
+- If writes to your primary store can fail, consider a local fallback queue with a background retry timer so data isn't silently lost. See [Resilient Write Queue](./patterns.md#resilient-write-queue) for the pattern.
 
 For augmenting finish/response event templates with custom fields set by plugins (user ID, tenant, etc.), use dot notation to access nested context properties (e.g. `{{requestContext.userID}}`). Note that start/request event templates run before plugin hooks, so plugin-set fields are not yet available there.
 
