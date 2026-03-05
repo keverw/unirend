@@ -457,8 +457,13 @@ export class SSRServer extends BaseServer {
       );
 
       if (this.sharedOptions.fastifyOptions) {
-        const { trustProxy, bodyLimit, keepAliveTimeout } =
-          this.sharedOptions.fastifyOptions;
+        const {
+          trustProxy,
+          bodyLimit,
+          keepAliveTimeout,
+          requestTimeout,
+          connectionTimeout,
+        } = this.sharedOptions.fastifyOptions;
 
         if (trustProxy !== undefined) {
           fastifyOptions.trustProxy = trustProxy;
@@ -471,6 +476,14 @@ export class SSRServer extends BaseServer {
         if (keepAliveTimeout !== undefined) {
           fastifyOptions.keepAliveTimeout = keepAliveTimeout;
         }
+
+        if (requestTimeout !== undefined) {
+          fastifyOptions.requestTimeout = requestTimeout;
+        }
+
+        if (connectionTimeout !== undefined) {
+          fastifyOptions.connectionTimeout = connectionTimeout;
+        }
       }
 
       // Add HTTPS configuration if provided
@@ -481,6 +494,11 @@ export class SSRServer extends BaseServer {
       }
 
       this.fastifyInstance = fastify(fastifyOptions);
+
+      // Register formbody to support application/x-www-form-urlencoded bodies
+      await this.fastifyInstance.register(
+        (await import('@fastify/formbody')).default,
+      );
 
       // Register WebSocket plugin if enabled
       if (this.webSocketHelpers) {

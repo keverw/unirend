@@ -131,6 +131,7 @@
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
+    "@fastify/formbody": "^8.0.2",
     "@fastify/multipart": "^9.0.0",
     "@fastify/websocket": "^11.2.0",
     "cheerio": "^1.1.0",

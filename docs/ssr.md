@@ -144,12 +144,17 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - This is especially useful when using custom error pages that can't show dynamic stack traces.
   - Set to `false` to disable automatic error logging if you prefer to handle logging in custom error handlers.
   - **Note:** This applies to SSRServer, APIServer, StaticWebServer, and RedirectServer.
-- `fastifyOptions?: { logger?: boolean | FastifyLoggerOptions; loggerInstance?: FastifyBaseLogger; trustProxy?; bodyLimit?; keepAliveTimeout? }`
+- `fastifyOptions?: { logger?: boolean | FastifyLoggerOptions; loggerInstance?: FastifyBaseLogger; trustProxy?; bodyLimit?; keepAliveTimeout?; requestTimeout?; connectionTimeout? }`
   - Safe subset of Fastify server options.
   - `loggerInstance` must satisfy Fastify's base logger interface (`info`, `error`, `debug`, `fatal`, `warn`, `trace`, `silent`, `level`) and support `child(bindings, options)`.
   - `logger` is Fastify's built-in logger option (boolean or pino options), for example `true` or `{ level: "info" }`.
   - `loggerInstance` is for passing an existing pino (or pino-compatible) logger instance.
   - `trustProxy` is passed directly to Fastify. Common options are `true`, a trusted IP/CIDR string like `'127.0.0.1'` or `'127.0.0.1,192.168.1.1/24'`, a trusted IP/CIDR list like `['127.0.0.1', '10.0.0.0/8']`, or a custom trust function with signature `(address: string, hop: number) => boolean`. Fastify also supports numeric hop counts.
+  - `bodyLimit` — maximum request body size in bytes for non-multipart requests (JSON, text, URL-encoded forms). Default: `1048576` (1 MB). Rejected with `413` when exceeded. Does **not** apply to multipart file uploads — those are controlled entirely by `fileUploads.limits.fileSize` (the multipart plugin registers its own streaming content-type parser, bypassing `bodyLimit`).
+    - **Request body parsing note:** JSON (`application/json`) and URL-encoded forms (`application/x-www-form-urlencoded`) are both parsed automatically — both result in `request.body` as a plain object. Use `request.headers['content-type']` to distinguish them if needed. Multipart file uploads are handled separately via `fileUploads`.
+  - `keepAliveTimeout` — how long (in milliseconds) to keep an idle HTTP keep-alive connection open before closing it. Default: `72000` (72 seconds). Should be set higher than your upstream load balancer's idle timeout to avoid race-condition resets.
+  - `requestTimeout` — idle timeout in milliseconds for an in-progress request. The timer resets on each data chunk received, so large file uploads are unaffected as long as data keeps flowing. A request that stalls (no new data) is closed with `408` once the timeout elapses. Default: `0` (disabled). Most reverse proxies (nginx, Cloudflare, AWS ALB) enforce their own request timeouts, so this mainly matters for servers exposed directly — `30000` (30 s) is a reasonable starting point in that case.
+  - `connectionTimeout` — TCP connection timeout in milliseconds. Closes connections that open a socket but never send (or finish sending) an HTTP request. Default: `0` (disabled). Like `requestTimeout`, typically covered by a reverse proxy in production. **WebSocket caveat:** this timeout applies to the underlying socket, so idle WebSocket connections (e.g. a notification channel waiting for an event) will be closed if no frames are exchanged within the window. Only set this when WebSockets are disabled, or ensure clients send regular ping/pong heartbeats.
   - With logging enabled, your plugin/app logs from `fastify.log` / `request.log` are emitted. Fastify's built-in request lifecycle logs (incoming/completed) are always suppressed — use `accessLog` for formatted access logging instead.
 
 #### Logging

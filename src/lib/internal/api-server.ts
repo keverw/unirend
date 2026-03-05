@@ -1,4 +1,5 @@
 import fastify from 'fastify';
+import formbody from '@fastify/formbody';
 import type { FastifyServerOptions, FastifyError, FastifyReply } from 'fastify';
 import {
   createControlledInstance,
@@ -145,8 +146,13 @@ export class APIServer extends BaseServer {
       );
 
       if (this.options.fastifyOptions) {
-        const { trustProxy, bodyLimit, keepAliveTimeout } =
-          this.options.fastifyOptions;
+        const {
+          trustProxy,
+          bodyLimit,
+          keepAliveTimeout,
+          requestTimeout,
+          connectionTimeout,
+        } = this.options.fastifyOptions;
 
         if (trustProxy !== undefined) {
           fastifyOptions.trustProxy = trustProxy;
@@ -159,6 +165,14 @@ export class APIServer extends BaseServer {
         if (keepAliveTimeout !== undefined) {
           fastifyOptions.keepAliveTimeout = keepAliveTimeout;
         }
+
+        if (requestTimeout !== undefined) {
+          fastifyOptions.requestTimeout = requestTimeout;
+        }
+
+        if (connectionTimeout !== undefined) {
+          fastifyOptions.connectionTimeout = connectionTimeout;
+        }
       }
 
       // Add HTTPS configuration if provided
@@ -167,6 +181,9 @@ export class APIServer extends BaseServer {
       }
 
       this.fastifyInstance = fastify(fastifyOptions);
+
+      // Register formbody to support application/x-www-form-urlencoded bodies
+      await this.fastifyInstance.register(formbody);
 
       // Register WebSocket plugin if enabled
       if (this.webSocketHelpers) {

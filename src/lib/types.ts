@@ -463,7 +463,10 @@ export interface FastifyServerOptions {
    */
   trustProxy?: boolean | string | string[] | number | FastifyTrustProxyFunction;
   /**
-   * Maximum request body size in bytes
+   * Maximum request body size in bytes for non-multipart requests (JSON, text,
+   * URL-encoded forms). Does NOT apply to multipart file uploads — those are
+   * controlled by `fileUploads.limits.fileSize` (the multipart plugin registers
+   * its own streaming content-type parser, bypassing this limit).
    * @default 1048576 (1MB)
    */
   bodyLimit?: number;
@@ -472,6 +475,29 @@ export interface FastifyServerOptions {
    * @default 72000 (72 seconds)
    */
   keepAliveTimeout?: number;
+  /**
+   * Request idle timeout in milliseconds. The timer resets on every data chunk
+   * received, so large file uploads are not affected as long as data keeps
+   * flowing. A stalled or hung request (no new data) is closed with 408 once
+   * the timeout elapses. Set to `0` to disable. When running without a reverse
+   * proxy, `30000` (30 s) is a reasonable starting point.
+   * @default 0 (disabled)
+   */
+  requestTimeout?: number;
+  /**
+   * TCP connection timeout in milliseconds. Closes connections that have been
+   * idle (no data in either direction) for longer than this value. Protects
+   * against clients that open a socket but never send an HTTP request. Set to
+   * `0` to disable.
+   *
+   * **WebSocket caveat:** this timeout applies to the underlying socket, so
+   * idle WebSocket connections (e.g. a notification channel waiting for events)
+   * will be closed if no frames are exchanged within the timeout window. Only
+   * set this when WebSockets are disabled, or ensure your clients send regular
+   * ping/pong heartbeats to keep the socket active.
+   * @default 0 (disabled)
+   */
+  connectionTimeout?: number;
 }
 
 /**

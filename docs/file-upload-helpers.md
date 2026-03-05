@@ -133,6 +133,7 @@ const server = serveSSRDev(paths, {
 
 **Configuration notes:**
 
+- **`bodyLimit` does not apply to multipart**: `fastifyOptions.bodyLimit` (a server-level option, see [Shared Server Configuration](./ssr.md#shared-server-configuration)) controls non-multipart request bodies (JSON, text, URL-encoded forms). It does not apply to file uploads — the multipart plugin registers its own streaming content-type parser, bypassing `bodyLimit`. File upload size is controlled entirely by `fileUploads.limits.fileSize`.
 - **Global limits**: Set default limits for all upload routes via `fileUploads.limits`
 - **Per-route overrides**: `processFileUpload()` can override these per route (see [Configuration options](#configuration-options))
 - **Pre-validation with `allowedRoutes`**: Automatically rejects multipart requests to non-allowed routes before parsing (prevents bandwidth waste and DoS attacks)
