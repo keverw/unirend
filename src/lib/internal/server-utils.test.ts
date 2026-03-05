@@ -552,6 +552,11 @@ describe('createControlledInstance', () => {
   const createFakeFastify = () => {
     const instance: any = {
       _decorations: Object.create(null),
+      log: {
+        info: mock(() => {}),
+        warn: mock(() => {}),
+        error: mock(() => {}),
+      },
       register: mock((_p: any, _o?: any) => Promise.resolve()),
       addHook: mock((_name: string, _handler: any) => {}),
       decorate: mock((name: string, value: unknown) => {
@@ -610,6 +615,9 @@ describe('createControlledInstance', () => {
     // and allows specific paths
     host.get('/ok', () => {});
     expect((f as any).get).toHaveBeenCalledWith('/ok', expect.any(Function));
+
+    // log is forwarded from the fastify instance
+    expect(host.log).toBe((f as any).log);
 
     // decorations passthrough
     host.decorate('cookiePluginInfo', { signingSecretProvided: true });

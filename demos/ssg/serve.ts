@@ -1,6 +1,6 @@
 /**
  * Static file server for SSG-generated sites.
- * Uses unirend's StaticWebServer with lifecycleion for lifecycle management.
+ * Uses unirend's StaticWebServer with Lifecycleion for lifecycle management and logging.
  *
  * Signals:
  *   SIGHUP / R key        — reload page map and flush file caches (no restart)
@@ -10,6 +10,7 @@
  */
 
 import { StaticWebServer } from '../../src/lib/internal/static-web-server';
+import { UnirendLifecycleionLoggerAdaptor } from '../../src/server';
 import {
   LifecycleManager,
   BaseComponent,
@@ -34,27 +35,6 @@ class StaticWebServerComponent extends BaseComponent {
   constructor() {
     super(logger, { name: 'static-web-server' });
 
-    // Capture the scoped component logger for use inside the plugin closure.
-    const componentLogger = this.logger;
-
-    // Adapter: route Fastify's internal logs (errors, warnings, etc.) through
-    // this component's scoped logger. lifecycleion has no trace/fatal, so map
-    // them to debug/error.
-    const loggingAdapter = {
-      trace: (msg: string, ctx?: Record<string, unknown>) =>
-        componentLogger.debug(msg, ctx ? { params: ctx } : undefined),
-      debug: (msg: string, ctx?: Record<string, unknown>) =>
-        componentLogger.debug(msg, ctx ? { params: ctx } : undefined),
-      info: (msg: string, ctx?: Record<string, unknown>) =>
-        componentLogger.info(msg, ctx ? { params: ctx } : undefined),
-      warn: (msg: string, ctx?: Record<string, unknown>) =>
-        componentLogger.warn(msg, ctx ? { params: ctx } : undefined),
-      error: (msg: string, ctx?: Record<string, unknown>) =>
-        componentLogger.error(msg, ctx ? { params: ctx } : undefined),
-      fatal: (msg: string, ctx?: Record<string, unknown>) =>
-        componentLogger.error(msg, ctx ? { params: ctx } : undefined),
-    };
-
     this.server = new StaticWebServer({
       buildDir: BUILD_DIR,
       pageMapPath: 'page-map.json',
@@ -67,7 +47,7 @@ class StaticWebServerComponent extends BaseComponent {
       },
       detectImmutableAssets: true,
       logging: {
-        logger: loggingAdapter,
+        logger: UnirendLifecycleionLoggerAdaptor(this.logger),
       },
     });
   }

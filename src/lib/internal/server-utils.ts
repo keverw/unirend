@@ -397,6 +397,7 @@ export function createControlledInstance(
       fastifyInstance.delete(path, handler),
     patch: (path: string, handler: RouteHandler) =>
       fastifyInstance.patch(path, handler),
+    log: fastifyInstance.log,
     api: apiShortcuts,
     pageDataHandler: pageDataHandlerShortcuts,
   };

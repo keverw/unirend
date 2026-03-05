@@ -84,6 +84,10 @@ export type {
 // Export our out of the box static web server
 export { StaticWebServer } from './lib/internal/static-web-server';
 
+// Lifecycleion logger adaptor
+export { UnirendLifecycleionLoggerAdaptor } from './lib/internal/lifecycleion-logger-adaptor';
+export type { LifecycleionLogContextOptions } from './lib/internal/lifecycleion-logger-adaptor';
+
 // File upload helpers
 export { processFileUpload } from './lib/server/process-file-upload';
 export type {

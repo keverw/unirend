@@ -11,6 +11,7 @@
     - [Route Registration](#route-registration)
     - [Plugin Registration](#plugin-registration)
     - [Hooks](#hooks)
+    - [Server-Level Logging](#server-level-logging)
     - [Decorators](#decorators)
     - [Reading server decorations](#reading-server-decorations)
     - [API Shortcuts (Envelope Helpers)](#api-shortcuts-envelope-helpers)
@@ -221,6 +222,25 @@ Common hooks for logging:
 - `onRequestAbort`: Client disconnected before completion.
 - `onError`: Error path for handler/hook failures.
 - `onTimeout`: Request timeout handling.
+
+#### Server-Level Logging
+
+`pluginHost.log` is the server-level pino logger. Use it for logging during plugin setup, background tasks, or anywhere you don't have a `request` reference. It uses pino's `(obj, msg)` argument order, the same as `request.log`:
+
+```typescript
+const myPlugin: ServerPlugin = (pluginHost) => {
+  // Log during setup — no request needed
+  pluginHost.log.info('myPlugin registered');
+
+  pluginHost.get('/api/hello', (request) => {
+    // Per-request logging still uses request.log
+    request.log.info('hello handler called');
+    return { ok: true };
+  });
+};
+```
+
+If a custom logger is configured via the server's `logging.logger` option, `pluginHost.log` routes through it the same as `request.log`.
 
 #### Decorators
 

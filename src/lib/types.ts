@@ -179,6 +179,8 @@ export interface PluginHostInstance {
   put: (path: string, handler: RouteHandler) => void;
   delete: (path: string, handler: RouteHandler) => void;
   patch: (path: string, handler: RouteHandler) => void;
+  /** Server-level logger (pino). Use `(obj, msg)` argument order. Useful for logging during plugin setup, before any request exists. */
+  log: FastifyBaseLogger;
   /** API route registration shortcuts method for versioned endpoints */
   api?: unknown;
   /** Page data loader handler registration method for page data endpoints */

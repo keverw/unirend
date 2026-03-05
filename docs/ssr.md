@@ -194,6 +194,8 @@ const server = serveSSRProd('./build', {
 });
 ```
 
+If you already use **Lifecycleion** as your logger, see [Lifecycleion Logger Adaptor](./lifecycleion-logger-adaptor.md) for a drop-in adaptor that wraps a `Logger`, `LoggerService`, or entity logger as a `UnirendLoggerObject`, with support for template rendering and redaction.
+
 If you prefer Fastify/pino configuration directly, use `fastifyOptions.logger` or `fastifyOptions.loggerInstance`:
 
 ```typescript
