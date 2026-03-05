@@ -72,10 +72,10 @@ export interface RenderPageResult extends RenderResultBase {
   resultType: 'page';
   html: string;
   preloadLinks: string;
-  helmet?: {
-    title: { toString(): string };
-    meta: { toString(): string };
-    link: { toString(): string };
+  head?: {
+    title: string;
+    meta: string;
+    link: string;
   };
   statusCode?: number;
   errorDetails?: Error;
@@ -490,11 +490,13 @@ export interface FastifyServerOptions {
    * against clients that open a socket but never send an HTTP request. Set to
    * `0` to disable.
    *
-   * **WebSocket caveat:** this timeout applies to the underlying socket, so
-   * idle WebSocket connections (e.g. a notification channel waiting for events)
-   * will be closed if no frames are exchanged within the timeout window. Only
-   * set this when WebSockets are disabled, or ensure your clients send regular
-   * ping/pong heartbeats to keep the socket active.
+   * When running without a reverse proxy, `10000` (10 s) is a reasonable
+   * starting point. **WebSocket caveat:** this timeout applies to the
+   * underlying socket, so idle WebSocket connections (e.g. a notification
+   * channel waiting for events) will be closed if no frames are exchanged
+   * within the timeout window. Only set this when WebSockets are disabled, or
+   * ensure your clients send regular ping/pong heartbeats to keep the socket
+   * active.
    * @default 0 (disabled)
    */
   connectionTimeout?: number;

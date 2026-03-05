@@ -1,5 +1,5 @@
 import React from 'react';
-import { Helmet } from 'react-helmet-async';
+import { UnirendHead } from '../../../../src/client';
 import { useTheme } from '../providers/ThemeProvider';
 import { Header } from '../components/Header';
 
@@ -8,13 +8,13 @@ const Home: React.FC = () => {
 
   return (
     <>
-      <Helmet>
+      <UnirendHead>
         <title>Home - Unirend SSG Demo</title>
         <meta
           name="description"
           content="Welcome to the Unirend SSG demo homepage"
         />
-      </Helmet>
+      </UnirendHead>
 
       <Header />
 
@@ -32,7 +32,7 @@ const Home: React.FC = () => {
           <h2>✨ Key Features</h2>
           <ul>
             <li>React Router for seamless client-side routing</li>
-            <li>React Helmet for powerful SEO meta management</li>
+            <li>UnirendHead for built-in SEO meta management</li>
             <li>Vite for lightning-fast development and building</li>
             <li>Full TypeScript support out of the box</li>
             <li>Modern build tooling and optimizations</li>

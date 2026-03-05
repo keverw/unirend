@@ -1,14 +1,14 @@
 import React from 'react';
-import { Helmet } from 'react-helmet-async';
+import { UnirendHead } from '../../../../src/client';
 import { Header } from '../components/Header';
 
 const Contact: React.FC = () => {
   return (
     <>
-      <Helmet>
+      <UnirendHead>
         <title>Contact - Unirend SSG Demo</title>
         <meta name="description" content="Get in touch with the Unirend team" />
-      </Helmet>
+      </UnirendHead>
 
       <Header />
 

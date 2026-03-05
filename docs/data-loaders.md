@@ -173,6 +173,8 @@ export const routes: RouteObject[] = [
 ];
 ```
 
+Access loader data in components via `useLoaderData()`. The `pageMetadata` you return from your handler or local loader is available as `loaderData.meta.page` — pass it to `UnirendHead` for dynamic page titles. See [UnirendHead — Hardcoded vs loader-driven titles](./unirendhead.md#hardcoded-vs-loader-driven-titles).
+
 ## Data Loader Error Transformation and Additional Config
 
 When API responses don’t follow the Page Envelope, the loader converts them using your configured strings and rules.

@@ -1,5 +1,5 @@
 import { RouteObject, Outlet, useLoaderData, useParams } from 'react-router';
-import { Helmet } from 'react-helmet-async';
+import { UnirendHead } from '../../../src/client';
 import RouteErrorBoundary from '../../../src/lib/router-utils/RouteErrorBoundary';
 import {
   createPageDataLoader,
@@ -46,10 +46,10 @@ const PageDataDisplay = () => {
 
   return (
     <>
-      <Helmet>
+      <UnirendHead>
         <title>{title}</title>
         <meta name="description" content={description} />
-      </Helmet>
+      </UnirendHead>
 
       <main className="main-content">
         <h1 className="hero-title">

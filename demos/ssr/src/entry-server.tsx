@@ -14,7 +14,7 @@ import { routes } from './routes';
  */
 export async function render(renderRequest: RenderRequest) {
   // Use the base render function - it handles router creation internally
-  // including static handler/router creation, helmet context, StrictMode, and RouterProvider
+  // including static handler/router creation, UnirendProvider, UnirendHeadProvider, StrictMode, and StaticRouterProvider
   return await unirendBaseRender(renderRequest, routes, {
     strictMode: true, // Enable StrictMode for SSR
     // wrapProviders: ({ children }) => <CustomProvider>{children}</CustomProvider>, // Optional custom wrapper

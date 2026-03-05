@@ -134,7 +134,9 @@ Used for SSR routes and data loaders. Includes required page metadata for SEO.
       "current_year": 2025
     },
     "page": {
-      // REQUIRED for page responses if you use helmet within your app layout
+      // Required fields for all page-type envelopes (validated by isValidEnvelope).
+      // Your layout reads and uses these however it needs to — not automatically
+      // applied by the framework. e.g. pass to UnirendHead, render in a breadcrumb, etc.
       "title": "Page Title - Your App",
       "description": "Page description for SEO"
     }

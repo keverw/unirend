@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Helmet } from 'react-helmet-async';
+import { UnirendHead } from '../../../../src/client';
 import { Header } from '../components/Header';
 import {
   useIsSSR,
@@ -67,13 +67,13 @@ const ContextDemo: React.FC = () => {
 
   return (
     <>
-      <Helmet>
+      <UnirendHead>
         <title>Unirend Context Demo - SSG</title>
         <meta
           name="description"
           content="Demonstration of Unirend Context hooks in SSG mode"
         />
-      </Helmet>
+      </UnirendHead>
 
       <Header />
 

@@ -350,11 +350,11 @@ export async function generateSSG(
       const renderResult = await render(renderRequest);
 
       if (renderResult.resultType === 'page') {
-        // --- Prepare Helmet data for injection ---
+        // --- Prepare head data for injection ---
         const headInject = `
-        ${renderResult.helmet?.title.toString() || ''}
-        ${renderResult.helmet?.meta.toString() || ''}
-        ${renderResult.helmet?.link.toString() || ''}
+        ${renderResult.head?.title || ''}
+        ${renderResult.head?.meta || ''}
+        ${renderResult.head?.link || ''}
         ${renderResult.preloadLinks}
       `;
 

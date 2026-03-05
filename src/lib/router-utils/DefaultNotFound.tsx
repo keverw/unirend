@@ -1,5 +1,5 @@
 import React from 'react';
-import { Helmet } from 'react-helmet-async';
+import { UnirendHead } from '../internal/UnirendHead';
 
 export interface DefaultNotFoundProps {
   /** The error object from React Router */
@@ -23,9 +23,9 @@ export default function DefaultNotFound({
         background: '#f7f7f8',
       }}
     >
-      <Helmet>
+      <UnirendHead>
         <title>404 - Page Not Found</title>
-      </Helmet>
+      </UnirendHead>
       <main
         style={{
           background: '#fff',

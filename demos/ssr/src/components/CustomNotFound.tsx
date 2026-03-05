@@ -1,4 +1,4 @@
-import { Helmet } from 'react-helmet-async';
+import { UnirendHead } from '../../../../src/client';
 import { PageErrorResponse } from '../../../../src/lib/api-envelope/api-envelope-types';
 
 interface CustomNotFoundProps {
@@ -23,10 +23,10 @@ export default function CustomNotFound({
 
   return (
     <>
-      <Helmet>
+      <UnirendHead>
         <title>{title}</title>
         <meta name="description" content={description} />
-      </Helmet>
+      </UnirendHead>
       <main
         className="main-content"
         style={{

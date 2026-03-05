@@ -42,7 +42,6 @@ export const dependencies = {
   lifecycleion: '^0.0.7',
   react: '^19.2.1',
   'react-dom': '^19.2.1',
-  'react-helmet-async': '^2.0.0',
   'react-router': '^7.0.0',
   unirend: `^${PKG_VERSION}`,
 };

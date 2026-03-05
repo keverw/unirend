@@ -24,7 +24,7 @@ export type MountAppOptions = {
   strictMode?: boolean;
   /**
    * Optional custom wrapper component for additional providers
-   * Applied after HelmetProvider but before StrictMode (StrictMode is always outermost)
+   * Applied after UnirendHeadProvider but before StrictMode (StrictMode is always outermost)
    * Must be a React component that accepts children
    */
   wrapProviders?: React.ComponentType<{ children: React.ReactNode }>;

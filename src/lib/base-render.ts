@@ -3,8 +3,9 @@ import type { ReactNode } from 'react';
 import { createStaticRouter, createStaticHandler } from 'react-router';
 import type { RouteObject, StaticHandlerContext } from 'react-router';
 import { wrapStaticRouter } from './internal/WrapAppElement';
+import { serializeHeadCollector } from './internal/UnirendHead';
+import type { HeadCollector } from './internal/UnirendHead';
 import { renderToString } from 'react-dom/server';
-import type { HelmetServerState } from 'react-helmet-async';
 
 // Debug flag to enable/disable logging in the base renderer
 const DEBUG_BASE_RENDER = false; // Set to false in a production release
@@ -20,7 +21,7 @@ export type BaseRenderOptions = {
   strictMode?: boolean;
   /**
    * Optional custom wrapper component for additional providers
-   * Applied after HelmetProvider but before StrictMode (StrictMode is always outermost)
+   * Applied after UnirendHeadProvider but before StrictMode (StrictMode is always outermost)
    * Must be a React component that accepts children
    */
   wrapProviders?: React.ComponentType<{ children: ReactNode }>;
@@ -30,7 +31,7 @@ export type BaseRenderOptions = {
  * Base render function that handles React Router wrapping and rendering.
  *
  * This function takes routes and handles all the router creation and wrapping logic
- * internally, including helmet context creation for SSR/SSG scenarios.
+ * internally, including UnirendHead collection for SSR/SSG scenarios.
  *
  * @param renderRequest - The render request containing type, URL, and other options
  * @param routes - The React Router routes configuration
@@ -64,7 +65,7 @@ export async function unirendBaseRender(
   options: BaseRenderOptions = {},
 ): Promise<RenderResult> {
   // Create new instances per request for isolation
-  const helmetContext: { helmet?: HelmetServerState } = {}; // Object to hold Helmet data
+  const headCollector: HeadCollector = { title: '', metas: [], links: [] };
 
   // Create a Static Handler
   // The handler examines the routes and prepares data for rendering
@@ -236,13 +237,13 @@ export async function unirendBaseRender(
       wrapProviders: options.wrapProviders,
       unirendContext: renderRequest.unirendContext, // unirendContext is always provided in renderRequest by SSRServer or SSG Generation
     },
-    helmetContext,
+    headCollector,
   );
 
   const appHTML = renderToString(wrappedElement);
 
-  // Extract helmet data AFTER rendering
-  const { helmet } = helmetContext;
+  // Serialize collected head data AFTER rendering
+  const head = serializeHeadCollector(headCollector);
 
   // TODO: Inject Preload Links (using ssrManifest)
   // This part requires logic to parse the ssrManifest and context.modules
@@ -254,7 +255,7 @@ export async function unirendBaseRender(
     resultType: 'page',
     html: appHTML,
     preloadLinks: preloadLinks,
-    helmet,
+    head,
     statusCode: statusCode,
     errorDetails: errorDetails,
     ssOnlyData: ssOnlyData,

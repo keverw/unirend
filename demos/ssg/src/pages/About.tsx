@@ -1,17 +1,17 @@
 import React from 'react';
-import { Helmet } from 'react-helmet-async';
+import { UnirendHead } from '../../../../src/client';
 import { Header } from '../components/Header';
 
 const About: React.FC = () => {
   return (
     <>
-      <Helmet>
+      <UnirendHead>
         <title>About - Unirend SSG Demo</title>
         <meta
           name="description"
           content="Learn about the Unirend framework and this demo"
         />
-      </Helmet>
+      </UnirendHead>
 
       <Header />
 

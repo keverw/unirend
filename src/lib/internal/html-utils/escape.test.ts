@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { escapeHTML } from './escape';
+import { escapeHTML, escapeHTMLAttr } from './escape';
 
 describe('escapeHTML', () => {
   it('should escape ampersands', () => {
@@ -86,5 +86,51 @@ describe('escapeHTML', () => {
     const expected =
       'https://example.com/search?q=&lt;script&gt;&amp;foo=&quot;bar&quot;';
     expect(escapeHTML(url)).toBe(expected);
+  });
+});
+
+describe('escapeHTMLAttr', () => {
+  it('should escape ampersands', () => {
+    expect(escapeHTMLAttr('foo & bar')).toBe('foo &amp; bar');
+    expect(escapeHTMLAttr('&&&')).toBe('&amp;&amp;&amp;');
+  });
+
+  it('should escape less-than signs', () => {
+    expect(escapeHTMLAttr('1 < 2')).toBe('1 &lt; 2');
+    expect(escapeHTMLAttr('<')).toBe('&lt;');
+  });
+
+  it('should escape greater-than signs', () => {
+    expect(escapeHTMLAttr('2 > 1')).toBe('2 &gt; 1');
+    expect(escapeHTMLAttr('>')).toBe('&gt;');
+  });
+
+  it('should escape double quotes', () => {
+    expect(escapeHTMLAttr('say "hello"')).toBe('say &quot;hello&quot;');
+    expect(escapeHTMLAttr('"')).toBe('&quot;');
+  });
+
+  it('should not escape single quotes', () => {
+    expect(escapeHTMLAttr("it's working")).toBe("it's working");
+    expect(escapeHTMLAttr("'")).toBe("'");
+  });
+
+  it('should escape all attribute-sensitive characters in combination', () => {
+    const input = '<img src="x" alt="A & B">';
+    const expected = '&lt;img src=&quot;x&quot; alt=&quot;A &amp; B&quot;&gt;';
+    expect(escapeHTMLAttr(input)).toBe(expected);
+  });
+
+  it('should handle empty strings', () => {
+    expect(escapeHTMLAttr('')).toBe('');
+  });
+
+  it('should not modify strings without special characters', () => {
+    expect(escapeHTMLAttr('hello world')).toBe('hello world');
+    expect(escapeHTMLAttr('12345')).toBe('12345');
+  });
+
+  it('should preserve already-escaped sequences', () => {
+    expect(escapeHTMLAttr('&lt;')).toBe('&amp;lt;');
   });
 });

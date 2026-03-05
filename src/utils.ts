@@ -74,4 +74,4 @@ export type { FolderConfig } from './lib/types';
 // =============================================================================
 // Utility functions for safely handling HTML content
 
-export { escapeHTML } from './lib/internal/html-utils/escape';
+export { escapeHTML, escapeHTMLAttr } from './lib/internal/html-utils/escape';

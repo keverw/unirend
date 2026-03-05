@@ -21,11 +21,11 @@ yarn add unirend
 **Peer Dependencies:** You'll also need to install these in your project:
 
 ```bash
-npm install lifecycleion react react-dom react-helmet-async react-router vite
+npm install lifecycleion react react-dom react-router vite
 # or
-bun add lifecycleion react react-dom react-helmet-async react-router vite
+bun add lifecycleion react react-dom react-router vite
 # or
-yarn add lifecycleion react react-dom react-helmet-async react-router vite
+yarn add lifecycleion react react-dom react-router vite
 ```
 
 Unirend includes Fastify as a regular dependency for server side rendering and API server, so you don't need to install it separately.
@@ -115,6 +115,28 @@ mountApp('root', routes, {
 - `<!--ss-head-->`: Marks where server/SSG-rendered head content will be injected
 - `<!--ss-outlet-->`: Marks where server/SSG-rendered body content will be injected
 - These comments are preserved during processing and are required for SSR/SSG to work properly
+
+**Managing `<title>`, `<meta>`, and `<link>` tags:** Use `UnirendHead` from `unirend/client` — Unirend's built-in document head manager. It works identically in SSR, SSG, and SPA mode and injects into the `<!--ss-head-->` slot on the server.
+
+```tsx
+import { UnirendHead } from 'unirend/client';
+
+function HomePage() {
+  return (
+    <>
+      <UnirendHead>
+        <title>Home - My App</title>
+        <meta name="description" content="Welcome to my app" />
+        <meta property="og:title" content="Home - My App" />
+        <link rel="canonical" href="https://example.com/" />
+      </UnirendHead>
+      <main>...</main>
+    </>
+  );
+}
+```
+
+See [docs/unirendhead.md](docs/unirendhead.md) for full API details.
 
 For more details on mounting, options, and best practices (including why providers should not render HTML), see [docs/mount-app-helper.md](docs/mount-app-helper.md).
 

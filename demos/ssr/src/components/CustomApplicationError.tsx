@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Helmet } from 'react-helmet-async';
+import { UnirendHead } from '../../../../src/client';
 
 interface CustomApplicationErrorProps {
   error: unknown;
@@ -26,9 +26,9 @@ export default function CustomApplicationError({
 
   return (
     <>
-      <Helmet>
+      <UnirendHead>
         <title>500 - Application Error | Unirend SSR Demo</title>
-      </Helmet>
+      </UnirendHead>
       <div
         style={{
           minHeight: '100vh',

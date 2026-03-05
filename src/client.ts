@@ -26,6 +26,9 @@ export type {
 // Client-safe functions
 export { mountApp } from './lib/mount-app';
 
+// UnirendHead — framework-native document head manager
+export { UnirendHead } from './lib/internal/UnirendHead';
+
 // Unirend context hooks
 export {
   useIsSSR,

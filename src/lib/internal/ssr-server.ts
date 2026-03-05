@@ -1073,11 +1073,11 @@ export class SSRServer extends BaseServer {
                 return;
               }
 
-              // --- Prepare Helmet data for injection ---
+              // --- Prepare head data for injection ---
               const headParts = [
-                renderResult.helmet?.title.toString() || '',
-                renderResult.helmet?.meta.toString() || '',
-                renderResult.helmet?.link.toString() || '',
+                renderResult.head?.title || '',
+                renderResult.head?.meta || '',
+                renderResult.head?.link || '',
                 renderResult.preloadLinks || '',
               ].filter(Boolean);
 

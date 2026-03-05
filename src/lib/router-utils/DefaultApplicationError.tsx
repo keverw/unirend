@@ -1,5 +1,5 @@
 import React from 'react';
-import { Helmet } from 'react-helmet-async';
+import { UnirendHead } from '../internal/UnirendHead';
 
 export interface DefaultApplicationErrorProps {
   /** The error object */
@@ -30,9 +30,9 @@ export default function DefaultApplicationError({
         background: '#f7f7f8',
       }}
     >
-      <Helmet>
+      <UnirendHead>
         <title>500 - Internal Server Error</title>
-      </Helmet>
+      </UnirendHead>
       <main
         style={{
           background: '#fff',

@@ -1,6 +1,6 @@
 import React from 'react';
 import type { PageErrorResponse } from '../../../../src/lib/api-envelope/api-envelope-types';
-import { Helmet } from 'react-helmet-async';
+import { UnirendHead } from '../../../../src/client';
 
 interface GenericErrorProps {
   data: PageErrorResponse | null;
@@ -24,10 +24,10 @@ const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
 
   return (
     <>
-      <Helmet>
+      <UnirendHead>
         <title>{title}</title>
         <meta name="description" content={description} />
-      </Helmet>
+      </UnirendHead>
 
       <main
         className="main-content"

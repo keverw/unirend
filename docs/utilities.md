@@ -10,6 +10,7 @@ import { ... } from 'unirend/utils';
 
 - [HTML Utilities](#html-utilities)
   - [`escapeHTML(str: string): string`](#escapehtmlstr-string-string)
+  - [`escapeHTMLAttr(str: string): string`](#escapehtmlattrstr-string-string)
 - [Domain Utilities](#domain-utilities)
   - [`normalizeOrigin(origin: string): string`](#normalizeoriginorigin-string-string)
   - [`normalizeDomain(domain: string): string`](#normalizedomaindomain-string-string)
@@ -84,6 +85,24 @@ const get500ErrorPage = (error?: Error) => `
   </body>
 </html>
 `;
+```
+
+### `escapeHTMLAttr(str: string): string`
+
+Escapes characters that are unsafe in double-quoted HTML attribute values.
+
+Converts the following to HTML entities:
+
+- `&` -> `&amp;`
+- `"` -> `&quot;`
+- `<` -> `&lt;`
+- `>` -> `&gt;`
+
+```typescript
+import { escapeHTMLAttr } from 'unirend/utils';
+
+const href = escapeHTMLAttr('https://example.com/?q="x"&next=<home>');
+// Returns: 'https://example.com/?q=&quot;x&quot;&amp;next=&lt;home&gt;'
 ```
 
 ## Domain Utilities
