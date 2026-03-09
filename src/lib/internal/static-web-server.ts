@@ -112,7 +112,7 @@ async function loadErrorPageHTML(
  * ```ts
  * const server = new StaticWebServer({
  *   buildDir: './build/client',
- *   pageMapPath: 'page-map.json', // Relative to buildDir
+ *   // pageMapPath defaults to 'page-map.json' (relative to buildDir)
  * });
  *
  * await server.listen(3000);
@@ -122,7 +122,6 @@ async function loadErrorPageHTML(
  * ```ts
  * const server = new StaticWebServer({
  *   buildDir: './build/client',
- *   pageMapPath: 'page-map.json',
  *   https: {
  *     key: privateKey,     // string | Buffer
  *     cert: certificate,   // string | Buffer
@@ -142,9 +141,12 @@ export class StaticWebServer {
 
   constructor(options: StaticWebServerOptions) {
     // Validate required options
-    if (!options.pageMapPath || typeof options.pageMapPath !== 'string') {
+    if (
+      options.pageMapPath !== undefined &&
+      (typeof options.pageMapPath !== 'string' || options.pageMapPath === '')
+    ) {
       throw new TypeError(
-        'StaticWebServerOptions.pageMapPath is required and must be a string',
+        'StaticWebServerOptions.pageMapPath must be a non-empty string',
       );
     }
 
@@ -425,7 +427,7 @@ export class StaticWebServer {
     // 1. Load page-map.json (resolve relative to buildDir)
     const pageMapPath = path.resolve(
       this.options.buildDir,
-      this.options.pageMapPath,
+      this.options.pageMapPath ?? 'page-map.json',
     );
     const pageMapResult = await readJSONFile(pageMapPath);
 

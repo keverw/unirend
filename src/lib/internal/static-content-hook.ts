@@ -24,8 +24,8 @@ export async function staticContentHookHandler(
   req: FastifyRequest,
   reply: FastifyReply,
 ): Promise<ServeFileResult | undefined> {
-  // Exit early for non-GET requests
-  if (req.method !== 'GET') {
+  // Only handle GET and HEAD requests — all other methods (POST, PUT, etc.) fall through
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
     return;
   }
 

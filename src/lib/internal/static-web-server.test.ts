@@ -110,6 +110,10 @@ describe('StaticWebServer', () => {
       expect(() => makeServer()).not.toThrow();
     });
 
+    it('works without pageMapPath (defaults to page-map.json)', () => {
+      expect(() => new StaticWebServer({ buildDir: BUILD_DIR })).not.toThrow();
+    });
+
     it('throws TypeError if pageMapPath is empty string', () => {
       expect(
         () => new StaticWebServer({ buildDir: BUILD_DIR, pageMapPath: '' }),
@@ -127,10 +131,7 @@ describe('StaticWebServer', () => {
     });
 
     it('throws TypeError if buildDir is empty string', () => {
-      expect(
-        () =>
-          new StaticWebServer({ buildDir: '', pageMapPath: 'page-map.json' }),
-      ).toThrow(TypeError);
+      expect(() => new StaticWebServer({ buildDir: '' })).toThrow(TypeError);
     });
 
     it('throws TypeError if buildDir is not a string', () => {
@@ -138,7 +139,6 @@ describe('StaticWebServer', () => {
         () =>
           new StaticWebServer({
             buildDir: null as unknown as string,
-            pageMapPath: 'page-map.json',
           }),
       ).toThrow(TypeError);
     });

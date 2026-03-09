@@ -135,6 +135,72 @@ export type FileResult =
   | FileFoundResult;
 
 /**
+ * Parse a Range header into [start, end] byte offsets (both inclusive).
+ *
+ * Supports:
+ *   bytes=0-499      explicit range
+ *   bytes=500-       from offset to end of file
+ *   bytes=-500       last 500 bytes (suffix range)
+ *
+ * Returns null (→ 416) for:
+ *   - Multipart ranges (bytes=0-499, 500-999)
+ *   - Malformed header
+ *   - start > end or start >= fileSize (unsatisfiable)
+ */
+function parseRange(header: string, fileSize: number): [number, number] | null {
+  if (!header.startsWith('bytes=')) {
+    return null;
+  }
+
+  const spec = header.slice(6);
+
+  // Reject multipart ranges
+  if (spec.includes(',')) {
+    return null;
+  }
+
+  const match = /^(\d*)-(\d*)$/.exec(spec);
+
+  if (!match) {
+    return null;
+  }
+
+  const startStr = match[1];
+  const endStr = match[2];
+
+  if (startStr === '' && endStr === '') {
+    return null;
+  }
+
+  let start: number;
+  let end: number;
+
+  if (startStr === '') {
+    // Suffix range: bytes=-500 → last 500 bytes
+    const suffix = parseInt(endStr, 10);
+    start = Math.max(0, fileSize - suffix);
+    end = fileSize - 1;
+  } else if (endStr === '') {
+    // Open-ended range: bytes=500-
+    start = parseInt(startStr, 10);
+    end = fileSize - 1;
+  } else {
+    start = parseInt(startStr, 10);
+    end = parseInt(endStr, 10);
+  }
+
+  // Validate: start must be within file, start must not exceed end
+  if (start >= fileSize || start > end) {
+    return null;
+  }
+
+  // Clamp end to last valid byte
+  end = Math.min(end, fileSize - 1);
+
+  return [start, end];
+}
+
+/**
  * Encapsulates caching and serving of static content files.
  *
  * This class manages:
@@ -540,33 +606,9 @@ export class StaticContentCache {
 
     // Handle range requests if present and file is being streamed
     if (rangeHeader && result.content.shouldStream) {
-      // Parse the range header
-      const matches = /bytes=(\d+)-(\d*)/.exec(rangeHeader);
+      const range = parseRange(rangeHeader, result.stat.size);
 
-      if (!matches) {
-        // Malformed range header
-        return reply
-          .code(400)
-          .header('Cache-Control', 'no-store')
-          .send({ error: 'Invalid range header format' });
-      }
-
-      // Extract range values
-      const start = parseInt(matches[1], 10);
-      let end = matches[2] ? parseInt(matches[2], 10) : result.stat.size - 1;
-
-      // Cap the end to actual file size
-      end = Math.min(end, result.stat.size - 1);
-
-      // Validate range
-      if (
-        isNaN(start) ||
-        isNaN(end) ||
-        start < 0 ||
-        start >= result.stat.size ||
-        end < start
-      ) {
-        // Invalid range
+      if (range === null) {
         return reply
           .code(416) // Range Not Satisfiable
           .header('Cache-Control', 'no-store')
@@ -574,6 +616,7 @@ export class StaticContentCache {
           .send({ error: 'Range not satisfiable' });
       }
 
+      const [start, end] = range;
       const chunkSize = end - start + 1;
 
       // Set headers for partial content response
@@ -582,9 +625,22 @@ export class StaticContentCache {
         .header('Content-Range', `bytes ${start}-${end}/${result.stat.size}`)
         .header('Content-Length', chunkSize.toString());
 
+      // HEAD — headers are set; skip stream creation entirely (no fd opened, no disk I/O)
+      if (req.method === 'HEAD') {
+        await reply.send();
+        return { served: true, statusCode: 206 };
+      }
+
       // Stream the requested range using factory function with range options
       await reply.send(result.content.createStream({ start, end }));
       return { served: true, statusCode: 206 };
+    }
+
+    // HEAD — set Content-Length from stat, then send empty body without touching file content
+    if (req.method === 'HEAD') {
+      reply.header('Content-Length', result.stat.size.toString());
+      await reply.send();
+      return { served: true, statusCode: 200 };
     }
 
     // Serve full file based on whether streaming is needed

@@ -1,0 +1,8 @@
+RewriteEngine On
+
+# Route all requests through index.php.
+# Intentionally NO !-f condition — .html files are never served directly by
+# Apache. This prevents React hydration mismatches from users hitting
+# /about.html instead of /about.
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L]

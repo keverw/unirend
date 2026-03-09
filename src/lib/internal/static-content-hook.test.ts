@@ -329,12 +329,12 @@ describe('createStaticContentHook', () => {
       expect(result).toHaveProperty('served');
     });
 
-    it('works with different HTTP methods', async () => {
+    it('skips non-GET, non-HEAD methods', async () => {
       const cache = new StaticContentCache({
         singleAssetMap: { '/test.txt': '/path/to/test.txt' },
       });
 
-      const methods = ['POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
+      const methods = ['POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'];
       const reply = createMockReply();
 
       for (const method of methods) {
@@ -347,16 +347,24 @@ describe('createStaticContentHook', () => {
 
         expect(result).toBeUndefined();
       }
+    });
 
-      // Only GET should work
-      const getReq = createMockRequest('/test.txt', 'GET');
-      const getResult = await staticContentHookHandler(
+    it('handles HEAD requests (passes through to cache, not skipped)', async () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/test.txt': '/path/to/test.txt' },
+      });
+
+      const reply = createMockReply();
+      const req = createMockRequest('/test.txt', 'HEAD');
+      const result = await staticContentHookHandler(
         cache,
-        getReq as FastifyRequest,
+        req as FastifyRequest,
         reply as FastifyReply,
       );
 
-      expect(getResult).toBeDefined();
+      // HEAD is not skipped — it reaches the cache which sets headers and sends
+      // an empty body (no stream created, no file I/O wasted)
+      expect(result).toBeDefined();
     });
   });
 });

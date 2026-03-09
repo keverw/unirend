@@ -55,3 +55,13 @@ tmp/
 # Demos
 demos/ssg/build
 demos/ssr/build
+
+# PHP / Composer (unirend-php)
+unirend-php/vendor/
+unirend-php/.phpunit.cache/
+unirend-php/.phpunit.result.cache
+unirend-php/composer.lock
+
+# Test fixture with intentionally malformed content
+unirend-php/tests/fixtures/build-malformed-json/
+

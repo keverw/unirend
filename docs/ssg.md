@@ -24,7 +24,7 @@
   - [Apache (.htaccess)](#apache-htaccess)
   - [Nginx](#nginx)
   - [Node.js/Express Static Server](#nodejsexpress-static-server)
-  - [PHP Router (for integrating SSG with PHP applications)](#php-router-for-integrating-ssg-with-php-applications)
+  - [PHP Shared Hosting (unirend/php-static-server)](#php-shared-hosting-unirendphp-static-server)
 
 <!-- tocstop -->
 
@@ -178,7 +178,7 @@ const result = await generateSSG(buildDir, pages, options);
 
 **Usage with static content servers:**
 
-The page map is consumed automatically by `StaticWebServer` — just pass `pageMapPath` in the constructor. See [Using StaticWebServer (Recommended)](#using-staticwebserver-recommended) below.
+The page map is consumed automatically by `StaticWebServer` (Node.js) and `unirend/php-static-server` (PHP/shared hosting) — both default to `'page-map.json'` relative to `buildDir`. See [Using StaticWebServer (Recommended)](#using-staticwebserver-recommended) and [PHP Shared Hosting](#php-shared-hosting-unirendphp-static-server) below.
 
 ## Serving Static Files
 
@@ -217,7 +217,7 @@ import path from 'path';
 
 const server = new StaticWebServer({
   buildDir: path.resolve(__dirname, 'build/client'),
-  pageMapPath: 'page-map.json', // Relative to buildDir
+  pageMapPath: 'page-map.json', // Optional — defaults to 'page-map.json' relative to buildDir
   assetFolders: {
     '/assets': 'assets', // Relative to buildDir
   },
@@ -247,9 +247,9 @@ await server.reload();
 **Core Options:**
 
 - `buildDir` (required) - Directory containing the built client files
-- `pageMapPath` (required) - Path to page-map.json file (relative to buildDir)
+- `pageMapPath` (optional, default: `'page-map.json'`) - Path to page-map.json file (relative to buildDir)
 - `assetFolders` - Map of URL prefixes to filesystem directories for serving static assets
-- `singleAssets` - Map of URL paths to individual files (favicon, robots.txt, etc.)
+- `singleAssets` - Map individual files (favicon, robots.txt, etc.) — merged with page map, takes precedence on conflicts with page map and asset folders
 
 **Error Handling:**
 
@@ -312,7 +312,7 @@ const server = new StaticWebServer({
 });
 ```
 
-File paths are resolved relative to `buildDir` and served alongside pages from the page map.
+File paths are resolved relative to `buildDir` and merged with pages from the page map. If a URL path exists in both the page map and `singleAssets`, the `singleAssets` entry takes precedence.
 
 ##### Asset Folders
 
@@ -524,68 +524,57 @@ app.get('*', (req, res) => {
 });
 ```
 
-### PHP Router (for integrating SSG with PHP applications)
+### PHP Shared Hosting (unirend/php-static-server)
+
+The PHP companion package `unirend/php-static-server` is the recommended approach for deploying Unirend SSG output on shared hosting (such as cPanel based providers using the LAMP stack - Linux, Apache, MySQL, PHP). It mirrors `StaticWebServer` from this package — reads the same `page-map.json`, serves clean URLs, handles 404/500 error pages with correct status codes, range requests, and custom routes.
+
+**Installation:**
+
+```bash
+composer require unirend/php-static-server
+```
+
+**Basic usage** (`index.php` in your document root):
 
 ```php
-// router.php - Simple router with SSG fallback
-$requestPath = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+<?php
+require_once __DIR__ . '/vendor/autoload.php';
 
-// Handle your PHP routes first
-if ($requestPath === '/api/submit') {
-    require __DIR__ . '/api/submit.php';
-    exit();
-}
+use Unirend\StaticServer\StaticServer;
 
-if ($requestPath === '/admin') {
-    require __DIR__ . '/admin/index.php';
-    exit();
-}
+$server = new StaticServer([
+  'buildDir' => __DIR__ . '/build/client',
+  'assetFolders' => ['/assets' => 'assets'],
+]);
 
-// Try to serve SSG page
-$ssgPath = __DIR__ . '/build/client' . $requestPath . '.html';
-
-// Security check: Prevent directory traversal
-$realSsgPath = realpath($ssgPath);
-$realBuildDir = realpath(__DIR__ . '/build/client');
-
-if ($realSsgPath && $realBuildDir && strpos($realSsgPath, $realBuildDir) === 0 && file_exists($ssgPath)) {
-    header('Content-Type: text/html');
-    readfile($ssgPath);
-    exit();
-}
-
-// Try to serve static assets
-$assetPath = __DIR__ . '/build/client' . $requestPath;
-
-// Security check: Prevent directory traversal
-$realAssetPath = realpath($assetPath);
-
-if ($realAssetPath && $realBuildDir && strpos($realAssetPath, $realBuildDir) === 0 && is_file($assetPath)) {
-    // Basic MIME type detection
-    $extension = strtolower(pathinfo($assetPath, PATHINFO_EXTENSION));
-    $mimeTypes = [
-        'css' => 'text/css',
-        'js' => 'application/javascript',
-        'png' => 'image/png',
-        'jpg' => 'image/jpeg',
-        'gif' => 'image/gif',
-        'svg' => 'image/svg+xml',
-        'ico' => 'image/x-icon',
-    ];
-
-    $mimeType = $mimeTypes[$extension] ?? 'application/octet-stream';
-    header('Content-Type: ' . $mimeType);
-    readfile($assetPath);
-    exit();
-}
-
-// 404 - serve SSG 404 page if available
-http_response_code(404);
-$notFoundPath = __DIR__ . '/build/client/404.html';
-if (file_exists($notFoundPath)) {
-    readfile($notFoundPath);
-} else {
-    echo '404 Not Found';
-}
-exit();
+$server->serve();
 ```
+
+**With custom API routes** (e.g. a contact form on an otherwise static site):
+
+```php
+$server->addRoute('POST', '/api/contact', function (
+  array $params,
+  array $body,
+): void {
+  // $body is parsed from JSON or $_POST automatically
+  header('Content-Type: application/json');
+  echo json_encode(['ok' => true]);
+});
+
+$server->serve();
+```
+
+**`.htaccess`** (required — routes all requests through `index.php`):
+
+```apache
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L]
+```
+
+> **Note:** There is no `!-f` condition. This means `.html` files are never served directly by Apache, preventing React hydration mismatches if a user visits `/about.html` instead of `/about`.
+
+> **Error pages:** Generate `/404` and `/500` as SSG pages — they are automatically detected from `page-map.json` and served with the correct status codes. They are also removed from normal routes so they can never be served with a `200` status.
+
+See the [unirend/php-static-server README](../unirend-php/README.md) for the full options reference and local development tips.

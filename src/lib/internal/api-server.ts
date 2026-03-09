@@ -180,6 +180,10 @@ export class APIServer extends BaseServer {
         fastifyOptions.https = buildFastifyHTTPSOptions(this.options.https);
       }
 
+      // Ignore trailing slashes for flexible routing (matches Express behavior)
+      fastifyOptions.ignoreTrailingSlash = true;
+
+      // Create Fastify instance with merged options (user options + defaults + HTTPS + trailing slash)
       this.fastifyInstance = fastify(fastifyOptions);
 
       // Register formbody to support application/x-www-form-urlencoded bodies

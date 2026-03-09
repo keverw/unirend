@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Home — Unirend PHP Demo</title>
+    <link rel="stylesheet" href="/assets/style.a1b2c3d4.css" />
+  </head>
+  <body>
+    <h1>Home</h1>
+    <p>Welcome to the <strong>unirend/php-static-server</strong> demo.</p>
+    <p>
+      This page is served from <code>index.html</code> at the clean URL
+      <code>/</code>.
+    </p>
+    <nav>
+      <a href="/">Home</a> | <a href="/about">About</a> |
+      <a href="/nope">Trigger 404</a>
+    </nav>
+    <h2>Things to try</h2>
+    <ul>
+      <li><a href="/about">/about</a> — clean URL (no .html)</li>
+      <li><a href="/nope">/nope</a> — custom 404 page with correct status</li>
+      <li>
+        <a href="/trigger-500">/trigger-500</a> — 500 error with stack trace
+        (isDevelopment mode)
+      </li>
+      <li>
+        <a href="/assets/app.abc123ef.js">/assets/app.abc123ef.js</a> —
+        immutable Cache-Control (JS)
+      </li>
+      <li>
+        <a href="/assets/style.a1b2c3d4.css">/assets/style.a1b2c3d4.css</a> —
+        immutable Cache-Control (CSS)
+      </li>
+      <li><a href="/robots.txt">/robots.txt</a> — single asset mapping</li>
+      <li>
+        <a href="/api/posts/42">/api/posts/42</a> — dynamic
+        <code>:param</code> route
+      </li>
+    </ul>
+    <hr />
+    <h2>POST /api/contact</h2>
+    <p>Submits a form to the custom POST route — response is JSON.</p>
+    <form method="post" action="/api/contact">
+      <label>Name: <input type="text" name="name" value="Alice" /></label>
+      <button type="submit">Submit</button>
+    </form>
+    <script src="/assets/app.abc123ef.js"></script>
+  </body>
+</html>
