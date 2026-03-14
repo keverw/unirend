@@ -14,9 +14,15 @@ export default [
     ignores: [
       // Build outputs
       '**/dist/**',
+      '**/build/**',
       '**/coverage/**',
+      '**/tmp/**',
+      // TODO: Re-enable demo linting after planned demo upgrades
+      '**/demos/**',
       // Dependencies
       '**/node_modules/**',
+      // Repo-specific: Composer dependencies for the unirend-php companion package
+      'unirend-php/vendor/**',
       // Config files
       '*.config.js',
       '*.config.mjs',
@@ -451,6 +457,6 @@ export default [
   {
     // Disable type-checked rules for JavaScript files
     ...tseslint.configs.disableTypeChecked,
-    files: ['**/*.js', '**/*.jsx'],
+    files: ['**/*.js', '**/*.jsx', '**/*.cjs', '**/*.mjs'],
   },
 ];

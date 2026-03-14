@@ -16,7 +16,7 @@
  * Packagist auto-updates on push via webhook — no manual step needed.
  *
  * Usage:
- *   bun run publish-php
+ *   bun run php-publish
  */
 
 import { join } from 'path';
@@ -30,6 +30,53 @@ const MIRROR_REPO = 'git@github.com:keverw/unirend-php.git';
 const projectRoot = join(import.meta.dir, '..');
 const phpDir = join(projectRoot, 'unirend-php');
 const versionFile = join(phpDir, 'version.json');
+
+interface GitIdentity {
+  name: string;
+  email: string;
+}
+
+async function readGitConfigValue(
+  scope: '--local' | '--global',
+  key: 'user.name' | 'user.email',
+): Promise<string | undefined> {
+  const result = await $`git -C ${projectRoot} config ${scope} ${key}`
+    .quiet()
+    .nothrow();
+
+  if (result.exitCode !== 0) {
+    return undefined;
+  }
+
+  const value = String(result.stdout ?? '').trim();
+  return value || undefined;
+}
+
+async function resolveGitIdentity(): Promise<GitIdentity> {
+  // Prefer the identity configured for this monorepo so publish commits
+  // match the author's normal local setup for unirend. Fall back to global
+  // git config if local values are not set.
+  const localName = await readGitConfigValue('--local', 'user.name');
+  const localEmail = await readGitConfigValue('--local', 'user.email');
+  const globalName = await readGitConfigValue('--global', 'user.name');
+  const globalEmail = await readGitConfigValue('--global', 'user.email');
+
+  const name = localName || globalName;
+  const email = localEmail || globalEmail;
+
+  if (!name || !email) {
+    console.error('❌ Missing git author identity for publish commit');
+    console.error(
+      '   Set local config in this repo (preferred): git config user.name "<name>" && git config user.email "<email>"',
+    );
+    console.error(
+      '   Or set global config: git config --global user.name "<name>" && git config --global user.email "<email>"',
+    );
+    process.exit(1);
+  }
+
+  return { name, email };
+}
 
 // ── Read version ─────────────────────────────────────────────────────────────
 
@@ -67,6 +114,56 @@ if (rsyncCheck.exitCode !== 0) {
   process.exit(1);
 }
 
+const mirrorReadCheck = await $`git ls-remote ${MIRROR_REPO}`.quiet().nothrow();
+
+if (mirrorReadCheck.exitCode !== 0) {
+  const readError = String(mirrorReadCheck.stderr ?? '').trim();
+  console.error(`❌ Cannot access mirror repo: ${MIRROR_REPO}`);
+
+  if (readError) {
+    console.error(`   ${readError}`);
+  }
+
+  console.error('   Ensure this machine can authenticate to GitHub over SSH.');
+  console.error('   Quick setup (one-time):');
+  console.error(
+    '   1) Check for a key: ls -la ~/.ssh && ls ~/.ssh/id_ed25519.pub',
+  );
+  console.error(
+    '   2) If missing, create one: ssh-keygen -t ed25519 -C "you@example.com"',
+  );
+  console.error(
+    '      (This writes ~/.ssh/id_ed25519 + ~/.ssh/id_ed25519.pub; it does not auto-load the key.)',
+  );
+  console.error('   3) Start agent in this shell: eval "$(ssh-agent -s)"');
+  console.error(
+    '      (eval applies SSH_AUTH_SOCK from ssh-agent so ssh-add can talk to it.)',
+  );
+  console.error(
+    '   4) First-time setup (unless your key is auto-loaded): ssh-add ~/.ssh/id_ed25519',
+  );
+  console.error(
+    '   5) Copy public key (macOS): pbcopy < ~/.ssh/id_ed25519.pub',
+  );
+  console.error(
+    '      Linux: cat ~/.ssh/id_ed25519.pub (or xclip/wl-copy if installed)',
+  );
+  console.error(
+    '   6) Add key in GitHub: Settings > SSH and GPG keys > New SSH key',
+  );
+  console.error('   7) Verify auth: ssh -T git@github.com');
+  console.error(
+    '      (ssh-add -l is optional diagnostics; it may be empty if your SSH config/keychain provides the key directly.)',
+  );
+  console.error(
+    `   8) Verify repo access directly: git ls-remote ${MIRROR_REPO}`,
+  );
+  process.exit(1);
+}
+
+const publishGitIdentity = await resolveGitIdentity();
+const publishCommitAuthor = `${publishGitIdentity.name} <${publishGitIdentity.email}>`;
+
 // ── Confirm ───────────────────────────────────────────────────────────────────
 
 const rl = readline.createInterface({
@@ -83,7 +180,7 @@ try {
     );
 
     rl.question(
-      `\nPublish ${tag} to ${MIRROR_REPO}?\nThis will commit, tag, and push. (y/N) `,
+      `\nPublish ${tag} to ${MIRROR_REPO}?\nCommit author: ${publishCommitAuthor}\nThis will commit, tag, and push. (y/N) `,
       resolve,
     );
   });
@@ -122,6 +219,11 @@ const tmpDir = await createTempDir({
 try {
   console.log(`\nCloning ${MIRROR_REPO}...`);
   await $`git clone ${MIRROR_REPO} ${tmpDir.path}`;
+  // Mirror repo is cloned into a temp dir with its own git config. Explicitly
+  // set author identity there so release commits use the same identity resolved
+  // from the monorepo context above.
+  await $`git -C ${tmpDir.path} config user.name ${publishGitIdentity.name}`;
+  await $`git -C ${tmpDir.path} config user.email ${publishGitIdentity.email}`;
 
   console.log('\nSyncing files...');
 

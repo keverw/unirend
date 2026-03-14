@@ -1,5 +1,8 @@
 # unirend/php-static-server
 
+[![Packagist Version](https://img.shields.io/packagist/v/unirend/php-static-server)](https://packagist.org/packages/unirend/php-static-server)
+[![Packagist Downloads](https://img.shields.io/packagist/dt/unirend/php-static-server)](https://packagist.org/packages/unirend/php-static-server)
+
 **Current version:** `0.0.1`
 
 Serve [Unirend](https://github.com/keverw/unirend) SSG output on shared hosting (cPanel, Apache). Mirrors `StaticWebServer` from the Node.js package — reads the same `page-map.json` format, serves clean URLs, handles 404/500 error pages with correct status codes, range requests, and custom API routes.
@@ -228,9 +231,18 @@ The canonical source for this package is the [unirend monorepo](https://github.c
 
 ### Running tests
 
+From the monorepo root:
+
+Install PHP dependencies (first time, or after dependency changes):
+
 ```bash
-composer install
-./vendor/bin/phpunit
+bun run php-install-deps
+```
+
+Run tests:
+
+```bash
+bun run php-test
 ```
 
 ### Running the demo locally
@@ -254,7 +266,7 @@ Open [http://localhost:8080](http://localhost:8080) and explore the links listed
 2. Run the publish script from the monorepo root:
 
 ```bash
-bun run publish-php
+bun run php-publish
 ```
 
 The script clones the mirror repo, syncs files (excluding `vendor/`, `demo/`, `version.json`, etc.), updates the version line in this README, commits `Release vX.Y.Z`, tags it, and pushes — which triggers Packagist to update automatically via webhook.
