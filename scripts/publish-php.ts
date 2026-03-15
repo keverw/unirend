@@ -100,6 +100,7 @@ const tag = `v${version}`;
 
 // ── Preflight checks ─────────────────────────────────────────────────────────
 
+// 1) Local tooling required by this script.
 const gitCheck = await $`which git`.quiet().nothrow();
 
 if (gitCheck.exitCode !== 0) {
@@ -114,6 +115,7 @@ if (rsyncCheck.exitCode !== 0) {
   process.exit(1);
 }
 
+// 2) Mirror connectivity + auth check (same transport used for clone/push).
 const mirrorReadCheck = await $`git ls-remote ${MIRROR_REPO}`.quiet().nothrow();
 
 if (mirrorReadCheck.exitCode !== 0) {
@@ -161,6 +163,24 @@ if (mirrorReadCheck.exitCode !== 0) {
   process.exit(1);
 }
 
+// 3) Release safety check: do not reuse an existing tag.
+const existingTagCheck =
+  await $`git ls-remote --tags ${MIRROR_REPO} ${`refs/tags/${tag}`}`
+    .quiet()
+    .nothrow();
+
+const existingTagRef = String(existingTagCheck.stdout ?? '').trim();
+
+if (existingTagRef) {
+  console.error(`❌ Remote tag ${tag} already exists in mirror repo.`);
+  console.error(
+    `   Bump unirend-php/version.json (current: ${version}) before publishing again.`,
+  );
+
+  process.exit(1);
+}
+
+// 4) Resolve commit author identity before confirmation.
 const publishGitIdentity = await resolveGitIdentity();
 const publishCommitAuthor = `${publishGitIdentity.name} <${publishGitIdentity.email}>`;
 
