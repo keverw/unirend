@@ -14,7 +14,9 @@
 - [Client Example](#client-example)
 - [Demo](#demo)
 - [Behavior notes](#behavior-notes)
-- [Known Issues (Bun)](#known-issues-bun)
+- [Known Issues](#known-issues)
+  - [TypeScript language server warning (`fastify-tsconfig` not found)](#typescript-language-server-warning-fastify-tsconfig-not-found)
+  - [Bun](#bun)
 
 <!-- tocstop -->
 
@@ -249,7 +251,18 @@ bun run demos/ws-server-demo.ts
 - If the `Connection`/`Upgrade` headers are invalid for a WebSocket upgrade, a 400 JSON error response is sent and the connection is not upgraded.
 - When a `preValidate` is present but does not return `{ action: "upgrade" }`, the server prevents the upgrade, any attempt to connect to the handler will be closed with code `1008`.
 
-## Known Issues (Bun)
+## Known Issues
+
+### TypeScript language server warning (`fastify-tsconfig` not found)
+
+If you see a TS language server warning about `fastify-tsconfig` not found (from `@fastify/websocket`'s tsconfig), add it as a dev dependency to silence it — it has no runtime or build impact:
+
+```sh
+bun add -d fastify-tsconfig
+# or: npm install --save-dev fastify-tsconfig
+```
+
+### Bun
 
 When running with Bun, Fastify's WebSocket `preValidation` interactions can hang under certain conditions. Track progress here: [Fastify Websocket preValidation hook hangs server](https://github.com/oven-sh/bun/issues/22119).
 
