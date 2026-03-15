@@ -119,6 +119,37 @@ class StaticServerTest extends TestCase
         $this->assertInstanceOf(StaticServer::class, $server);
     }
 
+    public function testConstructorRejectsNonCallableOnError(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('onError must be a callable or null');
+
+        new StaticServer([
+            'buildDir' => $this->buildDir,
+            'onError' => 'not-a-callable',
+        ]);
+    }
+
+    public function testConstructorAcceptsNullOnError(): void
+    {
+        $server = new StaticServer([
+            'buildDir' => $this->buildDir,
+            'onError' => null,
+        ]);
+
+        $this->assertInstanceOf(StaticServer::class, $server);
+    }
+
+    public function testConstructorAcceptsCallableOnError(): void
+    {
+        $server = new StaticServer([
+            'buildDir' => $this->buildDir,
+            'onError' => fn(\Throwable $e, string $ctx) => null,
+        ]);
+
+        $this->assertInstanceOf(StaticServer::class, $server);
+    }
+
     public function testAddRouteDoesNotThrow(): void
     {
         $server = new StaticServer(['buildDir' => $this->buildDir]);
@@ -448,6 +479,141 @@ class StaticServerTest extends TestCase
             throw new \RuntimeException('Test error');
         });
 
+        $output = $this->capture($server);
+
+        $this->assertSame(500, http_response_code());
+        $this->assertStringContainsString('500 fixture', $output);
+    }
+
+    public function testOnErrorHookIsCalledOnRouteError(): void
+    {
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/api/error';
+
+        $capturedErrors = [];
+
+        $server = new StaticServer([
+            'buildDir' => $this->buildDir,
+            'onError' => function (\Throwable $e, string $context) use (
+                &$capturedErrors,
+            ): void {
+                $capturedErrors[] = [
+                    'message' => $e->getMessage(),
+                    'context' => $context,
+                ];
+            },
+        ]);
+
+        $server->addRoute('GET', '/api/error', function (): void {
+            throw new \RuntimeException('Hook test error');
+        });
+
+        $this->capture($server);
+
+        $this->assertCount(1, $capturedErrors);
+        $this->assertSame('Hook test error', $capturedErrors[0]['message']);
+        $this->assertSame(
+            'Custom route handler error',
+            $capturedErrors[0]['context'],
+        );
+        $this->assertSame(500, http_response_code());
+    }
+
+    public function testOnErrorHookFiresEvenWhenLogErrorsIsFalse(): void
+    {
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/api/error';
+
+        $hookCalled = false;
+
+        $server = new StaticServer([
+            'buildDir' => $this->buildDir,
+            'logErrors' => false,
+            'onError' => function (\Throwable $e, string $context) use (
+                &$hookCalled,
+            ): void {
+                $hookCalled = true;
+            },
+        ]);
+
+        $server->addRoute('GET', '/api/error', function (): void {
+            throw new \RuntimeException('Test error');
+        });
+
+        $this->capture($server);
+
+        $this->assertTrue(
+            $hookCalled,
+            'onError hook should fire even when logErrors is false',
+        );
+        $this->assertSame(500, http_response_code());
+    }
+
+    public function testLogErrorsDisabledWithNoHookStillSends500(): void
+    {
+        // logErrors: false + no hook — nothing logged, 500 still sent correctly
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/api/error';
+
+        $server = new StaticServer([
+            'buildDir' => $this->buildDir,
+            'logErrors' => false,
+        ]);
+
+        $server->addRoute('GET', '/api/error', function (): void {
+            throw new \RuntimeException('Test error');
+        });
+
+        $output = $this->capture($server);
+
+        $this->assertSame(500, http_response_code());
+        $this->assertStringContainsString('500 fixture', $output);
+    }
+
+    public function testOnErrorHookFallsBackToErrorLogWhenHookThrows(): void
+    {
+        // logErrors: true (default) — broken hook falls back to error_log()
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/api/error';
+
+        $server = new StaticServer([
+            'buildDir' => $this->buildDir,
+            'onError' => function (\Throwable $e, string $context): void {
+                throw new \RuntimeException('Hook itself failed');
+            },
+        ]);
+
+        $server->addRoute('GET', '/api/error', function (): void {
+            throw new \RuntimeException('Original error');
+        });
+
+        // Should not throw — falls back to error_log() silently
+        $output = $this->capture($server);
+
+        // Response is still sent correctly despite the broken hook
+        $this->assertSame(500, http_response_code());
+        $this->assertStringContainsString('500 fixture', $output);
+    }
+
+    public function testOnErrorHookThrowsWithLogErrorsDisabledSwallowsSilently(): void
+    {
+        // logErrors: false — broken hook has no fallback, swallowed silently
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/api/error';
+
+        $server = new StaticServer([
+            'buildDir' => $this->buildDir,
+            'logErrors' => false,
+            'onError' => function (\Throwable $e, string $context): void {
+                throw new \RuntimeException('Hook itself failed');
+            },
+        ]);
+
+        $server->addRoute('GET', '/api/error', function (): void {
+            throw new \RuntimeException('Original error');
+        });
+
+        // Should not throw — nothing logged, response still sent correctly
         $output = $this->capture($server);
 
         $this->assertSame(500, http_response_code());

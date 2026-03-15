@@ -142,34 +142,36 @@ export type FileResult =
  *   bytes=500-       from offset to end of file
  *   bytes=-500       last 500 bytes (suffix range)
  *
- * Returns null (→ 416) for:
- *   - Multipart ranges (bytes=0-499, 500-999)
- *   - Malformed header
- *   - start > end or start >= fileSize (unsatisfiable)
+ * Returns [start, end] on success.
+ * Returns 'malformed' (→ 400) for syntactically invalid headers (no bytes= prefix, bad spec format).
+ * Returns 'unsatisfiable' (→ 416) for multipart ranges or ranges that exceed the file size.
  */
-function parseRange(header: string, fileSize: number): [number, number] | null {
+function parseRange(
+  header: string,
+  fileSize: number,
+): [number, number] | 'malformed' | 'unsatisfiable' {
   if (!header.startsWith('bytes=')) {
-    return null;
+    return 'malformed';
   }
 
   const spec = header.slice(6);
 
-  // Reject multipart ranges
+  // Reject multipart ranges (satisfiable syntax, but unsupported)
   if (spec.includes(',')) {
-    return null;
+    return 'unsatisfiable';
   }
 
   const match = /^(\d*)-(\d*)$/.exec(spec);
 
   if (!match) {
-    return null;
+    return 'malformed';
   }
 
   const startStr = match[1];
   const endStr = match[2];
 
   if (startStr === '' && endStr === '') {
-    return null;
+    return 'malformed';
   }
 
   let start: number;
@@ -191,7 +193,7 @@ function parseRange(header: string, fileSize: number): [number, number] | null {
 
   // Validate: start must be within file, start must not exceed end
   if (start >= fileSize || start > end) {
-    return null;
+    return 'unsatisfiable';
   }
 
   // Clamp end to last valid byte
@@ -608,7 +610,12 @@ export class StaticContentCache {
     if (rangeHeader && result.content.shouldStream) {
       const range = parseRange(rangeHeader, result.stat.size);
 
-      if (range === null) {
+      if (range === 'malformed') {
+        return reply
+          .code(400) // Bad Request — syntactically invalid Range header
+          .header('Cache-Control', 'no-store')
+          .send({ error: 'Invalid Range header' });
+      } else if (range === 'unsatisfiable') {
         return reply
           .code(416) // Range Not Satisfiable
           .header('Cache-Control', 'no-store')

@@ -277,6 +277,7 @@ export class StaticWebServer {
     this.server = new APIServer({
       isDevelopment: this.options.isDevelopment ?? false,
       logErrors: this.options.logErrors, // Pass through error logging config
+      serverLabel: this.options.serverLabel ?? 'Static', // Pass through server label with static default
       plugins,
       https: this.options.https, // Pass through HTTPS options (includes SNI support)
       fastifyOptions: this.options.fastifyOptions,

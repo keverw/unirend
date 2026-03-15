@@ -18,6 +18,7 @@ Serve [Unirend](https://github.com/keverw/unirend) SSG output on shared hosting 
 - [Error Pages](#error-pages)
 - [Error Logging](#error-logging)
   - [Default Behavior (logErrors: true)](#default-behavior-logerrors-true)
+  - [Custom Error Hook (onError)](#custom-error-hook-onerror)
   - [Disabling Error Logging](#disabling-error-logging)
   - [PHP Error Log Location](#php-error-log-location)
 - [Custom Routes](#custom-routes)
@@ -76,19 +77,20 @@ $server->serve();
 
 ## Options
 
-| Option                  | Type           | Default                                 | Description                                                                                                                            |
-| ----------------------- | -------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `buildDir`              | `string`       | required                                | Absolute path to your SSG build directory                                                                                              |
-| `pageMapPath`           | `string`       | `'page-map.json'`                       | Path to page map, relative to `buildDir`                                                                                               |
-| `singleAssets`          | `array`        | `[]`                                    | Map individual files (favicon, robots.txt, etc.) — merged with page map, takes precedence on conflicts with page map and asset folders |
-| `assetFolders`          | `array`        | `[]`                                    | URL prefix → directory mappings for asset folders                                                                                      |
-| `notFoundPage`          | `string\|null` | `null`                                  | Custom 404 page path, relative to `buildDir`                                                                                           |
-| `errorPage`             | `string\|null` | `null`                                  | Custom 500 page path, relative to `buildDir`                                                                                           |
-| `cacheControl`          | `string`       | `'public, max-age=0, must-revalidate'`  | Cache-Control for HTML pages                                                                                                           |
-| `immutableCacheControl` | `string`       | `'public, max-age=31536000, immutable'` | Cache-Control for hashed assets                                                                                                        |
-| `detectImmutableAssets` | `bool`         | `true`                                  | Auto-detect content-hashed filenames                                                                                                   |
-| `isDevelopment`         | `bool`         | `false`                                 | Show stack traces in default 500 error page HTML                                                                                       |
-| `logErrors`             | `bool`         | `true`                                  | Log exceptions to PHP's error log                                                                                                      |
+| Option                  | Type             | Default                                 | Description                                                                                                                                                                       |
+| ----------------------- | ---------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `buildDir`              | `string`         | required                                | Absolute path to your SSG build directory                                                                                                                                         |
+| `pageMapPath`           | `string`         | `'page-map.json'`                       | Path to page map, relative to `buildDir`                                                                                                                                          |
+| `singleAssets`          | `array`          | `[]`                                    | Map individual files (favicon, robots.txt, etc.) — merged with page map, takes precedence on conflicts with page map and asset folders                                            |
+| `assetFolders`          | `array`          | `[]`                                    | URL prefix → directory mappings for asset folders                                                                                                                                 |
+| `notFoundPage`          | `string\|null`   | `null`                                  | Custom 404 page path, relative to `buildDir`                                                                                                                                      |
+| `errorPage`             | `string\|null`   | `null`                                  | Custom 500 page path, relative to `buildDir`                                                                                                                                      |
+| `cacheControl`          | `string`         | `'public, max-age=0, must-revalidate'`  | Cache-Control for HTML pages                                                                                                                                                      |
+| `immutableCacheControl` | `string`         | `'public, max-age=31536000, immutable'` | Cache-Control for hashed assets                                                                                                                                                   |
+| `detectImmutableAssets` | `bool`           | `true`                                  | Auto-detect content-hashed filenames                                                                                                                                              |
+| `isDevelopment`         | `bool`           | `false`                                 | Show stack traces in default 500 error page HTML                                                                                                                                  |
+| `logErrors`             | `bool`           | `true`                                  | Enable `error_log()` as the fallback when no `onError` hook is set (or when the hook throws)                                                                                      |
+| `onError`               | `callable\|null` | `null`                                  | Custom error hook called with `(\Throwable $e, string $context)`. Fires regardless of `logErrors`. If the hook throws, falls back to `error_log()` only if `logErrors` is `true`. |
 
 ### `singleAssets`
 
@@ -125,16 +127,58 @@ If your SSG generates `/404` or `/500` pages, they are automatically removed fro
 
 ## Error Logging
 
-By default, exceptions are logged to PHP's error log via `error_log()` before displaying error pages. To disable logging:
+### Default Behavior (`logErrors: true`)
+
+By default, exceptions are written to PHP's error log via `error_log()` before displaying error pages:
 
 ```php
 $server = new StaticServer([
   'buildDir' => __DIR__ . '/build/client',
-  'logErrors' => false,
+]);
+// Exceptions are logged to PHP's error log automatically
+```
+
+### Custom Error Hook (`onError`)
+
+Use `onError` to route errors to your own logging system instead of `error_log()`. The hook receives the exception and a context string describing where the error occurred (e.g. `'Custom route handler error'`):
+
+```php
+$server = new StaticServer([
+  'buildDir' => __DIR__ . '/build/client',
+  'onError' => function (\Throwable $e, string $context): void {
+    // Send to your logging service, write to a custom log file, etc.
+    myLogger()->error($context . ': ' . $e->getMessage(), [
+      'exception' => $e,
+    ]);
+  },
 ]);
 ```
 
-Error pages are still displayed normally — only the logging is disabled.
+If the hook itself throws, the error is silently caught and `error_log()` is used as a fallback (unless `logErrors: false`) — the 500 response is still sent correctly.
+
+### Disabling `error_log()` Fallback
+
+Set `logErrors: false` to disable the built-in `error_log()` fallback. A custom `onError` hook will still fire if one is provided — `logErrors` only controls whether `error_log()` is used:
+
+```php
+$server = new StaticServer([
+  'buildDir' => __DIR__ . '/build/client',
+  'logErrors' => false, // Disables error_log() — onError hook still fires if set
+]);
+```
+
+To suppress all error logging entirely, set `logErrors: false` and omit `onError`.
+
+Error pages are always displayed normally regardless of logging configuration.
+
+### PHP Error Log Location
+
+Where `error_log()` writes depends on your PHP and server configuration:
+
+- **cPanel/shared hosting**: Usually `~/logs/error_log` or the domain's error log in the control panel
+- **Apache**: Typically `/var/log/apache2/error.log` or `/var/log/httpd/error_log`
+- **PHP-FPM**: Configured via `error_log` in `php-fpm.conf`
+- **Local dev** (`php -S`): Printed to the terminal
 
 ## Custom Routes
 

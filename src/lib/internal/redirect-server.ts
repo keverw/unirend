@@ -87,6 +87,12 @@ export interface RedirectServerOptions {
    * @default true
    */
   logErrors?: boolean;
+  /**
+   * Label for this server instance, used in error log messages and access log templates.
+   * @default 'Redirect'
+   * @example 'Redirect:http'
+   */
+  serverLabel?: string;
 
   /**
    * Framework-level logging options adapted to Fastify under the hood
@@ -205,6 +211,7 @@ export class RedirectServer {
       },
       isDevelopment: false,
       logErrors: options.logErrors, // Pass through error logging config
+      serverLabel: options.serverLabel ?? 'Redirect', // Pass through server label with redirect default
       logging: options.logging, // Pass through logging config
       fastifyOptions: options.fastifyOptions, // Pass through Fastify options
       accessLog: options.accessLog, // Pass through access log config

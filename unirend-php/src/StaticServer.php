@@ -53,6 +53,7 @@ class StaticServer
         'detectImmutableAssets' => true,
         'isDevelopment' => false,
         'logErrors' => true,
+        'onError' => null,
     ];
 
     /**
@@ -88,6 +89,16 @@ class StaticServer
         if (isset($options['errorPage']) && !is_string($options['errorPage'])) {
             throw new \InvalidArgumentException(
                 'StaticServer: errorPage must be a string',
+            );
+        }
+
+        if (
+            isset($options['onError']) &&
+            $options['onError'] !== null &&
+            !is_callable($options['onError'])
+        ) {
+            throw new \InvalidArgumentException(
+                'StaticServer: onError must be a callable or null',
             );
         }
 
@@ -478,7 +489,22 @@ class StaticServer
      */
     private function logError(\Throwable $e, string $context = ''): void
     {
-        if (!($this->options['logErrors'] ?? true)) {
+        $logErrors = (bool) ($this->options['logErrors'] ?? true);
+        $onError = $this->options['onError'] ?? null;
+
+        // Custom hook always fires when provided (regardless of logErrors)
+        if (is_callable($onError)) {
+            try {
+                $onError($e, $context);
+                return;
+            } catch (\Throwable) {
+                // Hook itself threw — fall back to error_log only if logErrors is enabled
+                if (!$logErrors) {
+                    return;
+                }
+            }
+        } elseif (!$logErrors) {
+            // No hook and logging disabled — nothing to do
             return;
         }
 

@@ -526,6 +526,8 @@ export interface AccessLogRequestContext {
   url: string;
   ip: string;
   userAgent: string | undefined;
+  /** Server label string (e.g. `'SSR'`, `'API'`). Set via the `serverLabel` server option. */
+  serverLabel: string;
   /** Raw Fastify request — same access pattern as data loaders. */
   request: FastifyRequest;
 }
@@ -818,6 +820,13 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    * @default true
    */
   logErrors?: boolean;
+  /**
+   * Label for this server instance, used in error log messages and access log templates.
+   * Useful for distinguishing log output when running multiple server instances.
+   * @default 'SSR'
+   * @example 'SSR:marketing'
+   */
+  serverLabel?: string;
   /**
    * Timeout in milliseconds for the SSR render fetch request.
    * If the render takes longer than this, the request is aborted.
@@ -1192,6 +1201,13 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    */
   logErrors?: boolean;
   /**
+   * Label for this server instance, used in error log messages and access log templates.
+   * Useful for distinguishing log output when running multiple server instances.
+   * @default 'API'
+   * @example 'API:v2'
+   */
+  serverLabel?: string;
+  /**
    * Enable WebSocket support on the server
    * @default false
    */
@@ -1295,6 +1311,13 @@ export interface StaticWebServerOptions {
    * @default true
    */
   logErrors?: boolean;
+  /**
+   * Label for this server instance, used in error log messages and access log templates.
+   * Useful for distinguishing log output when running multiple server instances.
+   * @default 'Static'
+   * @example 'Static:marketing'
+   */
+  serverLabel?: string;
 
   /**
    * Custom 404 HTML file path (relative to buildDir)
@@ -1749,5 +1772,13 @@ declare module 'fastify' {
      * templates/hooks.
      */
     clientIP: string;
+    /**
+     * Server label for this instance (e.g. `'SSR'`, `'API'`).
+     *
+     * Set once per request by the framework from the `serverLabel` server option.
+     * Available in access log templates as `{{serverLabel}}` and throughout
+     * the request lifecycle via `request.serverLabel`.
+     */
+    serverLabel: string;
   }
 }

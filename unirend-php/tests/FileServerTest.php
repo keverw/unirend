@@ -178,56 +178,96 @@ class FileServerTest extends TestCase
         $this->assertSame([0, 999], $result);
     }
 
-    public function testParseRangeReturnsNullForMultipart(): void
+    public function testParseRangeReturnsUnsatisfiableForMultipart(): void
     {
-        $this->assertNull(FileServer::parseRange('bytes=0-499, 500-999', 1000));
+        $this->assertSame(
+            'unsatisfiable',
+            FileServer::parseRange('bytes=0-499, 500-999', 1000),
+        );
     }
 
-    public function testParseRangeReturnsNullWhenStartBeyondFile(): void
+    public function testParseRangeReturnsUnsatisfiableWhenStartBeyondFile(): void
     {
-        $this->assertNull(FileServer::parseRange('bytes=2000-', 1000));
+        $this->assertSame(
+            'unsatisfiable',
+            FileServer::parseRange('bytes=2000-', 1000),
+        );
     }
 
-    public function testParseRangeReturnsNullWhenStartExceedsEnd(): void
+    public function testParseRangeReturnsUnsatisfiableWhenStartExceedsEnd(): void
     {
-        $this->assertNull(FileServer::parseRange('bytes=500-100', 1000));
+        $this->assertSame(
+            'unsatisfiable',
+            FileServer::parseRange('bytes=500-100', 1000),
+        );
     }
 
-    public function testParseRangeReturnsNullForBadPrefix(): void
+    public function testParseRangeReturnsMalformedForBadPrefix(): void
     {
-        $this->assertNull(FileServer::parseRange('items=0-499', 1000));
+        $this->assertSame(
+            'malformed',
+            FileServer::parseRange('items=0-499', 1000),
+        );
     }
 
-    public function testParseRangeReturnsNullForEmptySpec(): void
+    public function testParseRangeReturnsMalformedForEmptySpec(): void
     {
-        $this->assertNull(FileServer::parseRange('bytes=-', 1000));
+        $this->assertSame('malformed', FileServer::parseRange('bytes=-', 1000));
     }
 
-    public function testParseRangeRejectsGarbageInput(): void
+    public function testParseRangeReturnsMalformedForGarbageInput(): void
     {
-        // Random garbage words should be safely rejected
-        $this->assertNull(FileServer::parseRange('bytes=garbage', 1000));
-        $this->assertNull(FileServer::parseRange('bytes=asdfghjkl', 1000));
-        $this->assertNull(FileServer::parseRange('bytes=hello-world', 1000));
-        $this->assertNull(FileServer::parseRange('bytes=🎉', 1000));
+        // Random garbage words should be safely rejected as malformed
+        $this->assertSame(
+            'malformed',
+            FileServer::parseRange('bytes=garbage', 1000),
+        );
+        $this->assertSame(
+            'malformed',
+            FileServer::parseRange('bytes=asdfghjkl', 1000),
+        );
+        $this->assertSame(
+            'malformed',
+            FileServer::parseRange('bytes=hello-world', 1000),
+        );
+        $this->assertSame(
+            'malformed',
+            FileServer::parseRange('bytes=🎉', 1000),
+        );
     }
 
-    public function testParseRangeRejectsInjectionAttempts(): void
+    public function testParseRangeReturnsMalformedForInjectionAttempts(): void
     {
-        // SQL injection, XSS, etc. should be safely rejected
-        $this->assertNull(FileServer::parseRange('bytes=DROP TABLE', 1000));
-        $this->assertNull(FileServer::parseRange('bytes=<script>', 1000));
-        $this->assertNull(
+        // SQL injection, XSS, etc. should be safely rejected as malformed
+        $this->assertSame(
+            'malformed',
+            FileServer::parseRange('bytes=DROP TABLE', 1000),
+        );
+        $this->assertSame(
+            'malformed',
+            FileServer::parseRange('bytes=<script>', 1000),
+        );
+        $this->assertSame(
+            'malformed',
             FileServer::parseRange('bytes=../../etc/passwd', 1000),
         );
     }
 
-    public function testParseRangeRejectsWhitespace(): void
+    public function testParseRangeReturnsMalformedForWhitespace(): void
     {
         // Whitespace should not be allowed in range spec
-        $this->assertNull(FileServer::parseRange('bytes= 0-100', 1000));
-        $this->assertNull(FileServer::parseRange('bytes=0 - 100', 1000));
-        $this->assertNull(FileServer::parseRange('bytes=0-100 ', 1000));
+        $this->assertSame(
+            'malformed',
+            FileServer::parseRange('bytes= 0-100', 1000),
+        );
+        $this->assertSame(
+            'malformed',
+            FileServer::parseRange('bytes=0 - 100', 1000),
+        );
+        $this->assertSame(
+            'malformed',
+            FileServer::parseRange('bytes=0-100 ', 1000),
+        );
     }
 
     // -------------------------------------------------------------------------

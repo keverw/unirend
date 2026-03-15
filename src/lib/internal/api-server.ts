@@ -47,6 +47,7 @@ export class APIServer extends BaseServer {
   public readonly APIResponseHelpersClass: APIResponseHelpersClass;
 
   private options: APIServerOptions;
+  private readonly serverLabel: string;
   private _accessLog: AccessLogPlugin;
   private pageDataHandlers!: DataLoaderServerHandlerHelpers;
   private apiRoutes!: APIRoutesServerHelpers;
@@ -66,7 +67,8 @@ export class APIServer extends BaseServer {
       ...options,
     };
 
-    this._accessLog = new AccessLogPlugin(options.accessLog);
+    this.serverLabel = options.serverLabel ?? 'API';
+    this._accessLog = new AccessLogPlugin(this.serverLabel, options.accessLog);
 
     // Normalize API endpoint config once at construction
     this.normalizedAPIPrefix = normalizeAPIPrefix(
@@ -181,7 +183,7 @@ export class APIServer extends BaseServer {
       }
 
       // Ignore trailing slashes for flexible routing (matches Express behavior)
-      fastifyOptions.ignoreTrailingSlash = true;
+      fastifyOptions.routerOptions = { ignoreTrailingSlash: true };
 
       // Create Fastify instance with merged options (user options + defaults + HTTPS + trailing slash)
       this.fastifyInstance = fastify(fastifyOptions);
@@ -202,6 +204,7 @@ export class APIServer extends BaseServer {
         : 'production';
       const isDevelopment = mode === 'development';
       this.fastifyInstance.decorateRequest('isDevelopment', isDevelopment);
+      this.fastifyInstance.decorateRequest('serverLabel', this.serverLabel);
 
       // Decorate requests with APIResponseHelpersClass for file upload helpers
       this.fastifyInstance.decorateRequest(
@@ -476,9 +479,17 @@ export class APIServer extends BaseServer {
       // Log errors for debugging (unless explicitly disabled)
       // This ensures errors are never lost even with custom error handlers
       if (this.options.logErrors !== false) {
+        const requestID = (request as unknown as { requestID?: string })
+          .requestID;
+
         request.log.error(
-          { err: error, url: request.url, method: request.method },
-          'Request error:',
+          {
+            err: error,
+            method: request.method,
+            url: request.url,
+            ...(requestID ? { requestID } : {}),
+          },
+          `[${this.serverLabel}] Request error`,
         );
       }
 
@@ -555,10 +566,10 @@ export class APIServer extends BaseServer {
             return reply.send(errorResponse);
           }
         } catch (handlerError) {
-          // Fallback if custom error handler fails
-          this.fastifyInstance?.log.error(
-            { err: handlerError },
-            'Error handler failed:',
+          // If custom handler fails, fall back to default
+          request.log.error(
+            { err: handlerError, method: request.method, url: request.url },
+            `[${this.serverLabel}] Custom error handler failed`,
           );
         }
       }
@@ -647,10 +658,10 @@ export class APIServer extends BaseServer {
             return reply.send(custom);
           }
         } catch (handlerError) {
-          // Fallback if custom not-found handler fails
-          this.fastifyInstance?.log.error(
-            { err: handlerError },
-            'Not found handler failed:',
+          // If custom handler fails, fall back to default
+          request.log.error(
+            { err: handlerError, method: request.method, url: request.url },
+            `[${this.serverLabel}] Custom not-found handler failed`,
           );
         }
       }
@@ -711,7 +722,7 @@ export class APIServer extends BaseServer {
       } catch (error) {
         this.fastifyInstance?.log.error(
           { err: error },
-          'Failed to register plugin:',
+          `[${this.serverLabel}] Failed to register plugin`,
         );
 
         throw new Error(

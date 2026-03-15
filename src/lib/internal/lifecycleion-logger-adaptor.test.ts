@@ -124,7 +124,7 @@ describe('UnirendLifecycleionLoggerAdaptor (unit)', () => {
     expect(arraySink.logs[0].params).toBeUndefined();
   });
 
-  it('logs normally when context has no logger key', () => {
+  it('forwards context fields as pinoContext when no logger key is present', () => {
     const { logger, arraySink } = Logger.createTestOptimizedLogger();
     const adaptor = UnirendLifecycleionLoggerAdaptor(logger);
 
@@ -132,7 +132,29 @@ describe('UnirendLifecycleionLoggerAdaptor (unit)', () => {
 
     expect(arraySink.logs).toHaveLength(1);
     expect(arraySink.logs[0].template).toBe('plain message');
-    expect(arraySink.logs[0].params).toBeUndefined();
+    expect(arraySink.logs[0].params).toEqual({
+      pinoContext: { someKey: 'abc', pid: 1234 },
+    });
+  });
+
+  it('excludes the logger key from pinoContext when both logger and other context fields are present', () => {
+    const { logger, arraySink } = Logger.createTestOptimizedLogger();
+    const adaptor = UnirendLifecycleionLoggerAdaptor(logger);
+
+    adaptor.info('request {{pinoContext.reqId}} by user {{id}}', {
+      logger: { params: { id: 'u_123' } },
+      // eslint-disable-next-line @typescript-eslint/naming-convention
+      reqId: 'req_abc',
+      pid: 1234,
+    });
+
+    expect(arraySink.logs[0].params).toEqual({
+      // eslint-disable-next-line @typescript-eslint/naming-convention
+      pinoContext: { reqId: 'req_abc', pid: 1234 },
+      id: 'u_123',
+    });
+    // logger key must not leak into pinoContext
+    expect(arraySink.logs[0].params?.pinoContext).not.toHaveProperty('logger');
   });
 
   it('logs normally when context is undefined', () => {
@@ -276,7 +298,9 @@ describe('UnirendLifecycleionLoggerAdaptor (integration via APIServer)', () => {
 
     expect(entry).toBeDefined();
     expect(entry?.message).toBe('user u_999 visited');
-    expect(entry?.params).toEqual({ id: 'u_999' });
+    // User params are at the top level; pino bindings land under pinoContext
+    expect(entry?.params?.id).toBe('u_999');
+    expect(entry?.params).toHaveProperty('pinoContext');
   });
 
   it('handles pino object-only log (no message string) — normalizes to empty template', async () => {

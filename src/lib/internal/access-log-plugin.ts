@@ -9,9 +9,10 @@ import type {
   UnirendLoggerLevel,
 } from '../types';
 
-const DEFAULT_REQUEST_TEMPLATE = 'Request started {{method}} {{url}}';
+const DEFAULT_REQUEST_TEMPLATE =
+  '[{{serverLabel}}] Request started {{method}} {{url}}';
 const DEFAULT_RESPONSE_TEMPLATE =
-  'Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)';
+  '[{{serverLabel}}] Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)';
 
 const VALID_EVENTS = new Set(['start', 'finish', 'both', 'none']);
 const VALID_LEVELS = new Set<UnirendLoggerLevel>([
@@ -134,13 +135,17 @@ export function resolveAccessLogLevel(
 
 const TEMPLATE_FALLBACK = '???';
 
-function buildRequestContext(request: FastifyRequest): AccessLogRequestContext {
+function buildRequestContext(
+  request: FastifyRequest,
+  serverLabel: string,
+): AccessLogRequestContext {
   return {
     reqID: request.id,
     method: request.method,
     url: request.url,
     ip: request.clientIP,
     userAgent: request.headers['user-agent'],
+    serverLabel,
     request,
   };
 }
@@ -164,9 +169,10 @@ function buildResponseContext(
   request: FastifyRequest,
   reply: FastifyReply,
   finishType: 'completed' | 'aborted',
+  serverLabel: string,
 ): AccessLogResponseContext {
   return {
-    ...buildRequestContext(request),
+    ...buildRequestContext(request, serverLabel),
     statusCode: reply.statusCode,
     responseTime: Math.round(reply.elapsedTime),
     finishType,
@@ -184,8 +190,11 @@ function buildResponseContext(
  */
 export class AccessLogPlugin {
   private _config: AccessLogConfig;
+  private readonly serverLabel: string;
 
-  constructor(initialConfig?: AccessLogConfig) {
+  constructor(serverLabel: string, initialConfig?: AccessLogConfig) {
+    this.serverLabel = serverLabel;
+
     if (initialConfig !== undefined) {
       validateAccessLogConfig(initialConfig);
     }
@@ -213,7 +222,7 @@ export class AccessLogPlugin {
       async (request: FastifyRequest, _reply: FastifyReply) => {
         const config = this._config;
         const events = config.events ?? 'finish';
-        const ctx = buildRequestContext(request);
+        const ctx = buildRequestContext(request, this.serverLabel);
 
         // Template printing — only when events includes 'start' or 'both'
         if (events === 'start' || events === 'both') {
@@ -240,7 +249,12 @@ export class AccessLogPlugin {
       async (request: FastifyRequest, reply: FastifyReply) => {
         const config = this._config;
         const events = config.events ?? 'finish';
-        const ctx = buildResponseContext(request, reply, 'completed');
+        const ctx = buildResponseContext(
+          request,
+          reply,
+          'completed',
+          this.serverLabel,
+        );
 
         // Template printing — only when events includes 'finish' or 'both'
         if (events === 'finish' || events === 'both') {
@@ -271,7 +285,7 @@ export class AccessLogPlugin {
       // reply is not passed to onRequestAbort, so we synthesize replyInfo from
       // the request object (status code may be 0 if never set).
       const ctx: AccessLogResponseContext = {
-        ...buildRequestContext(request),
+        ...buildRequestContext(request, this.serverLabel),
         statusCode: 0,
         responseTime: 0,
         finishType: 'aborted',

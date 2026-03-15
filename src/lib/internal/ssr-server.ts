@@ -88,6 +88,7 @@ export class SSRServer extends BaseServer {
 
   // config state
   private serverMode: 'development' | 'production';
+  private readonly serverLabel: string;
 
   // Multi-app storage
   private apps: Map<string, SSRInternalAppConfig> = new Map();
@@ -122,7 +123,11 @@ export class SSRServer extends BaseServer {
     // Store server mode and shared options
     this.serverMode = config.mode;
     this.sharedOptions = config.options;
-    this._accessLog = new AccessLogPlugin(config.options.accessLog);
+    this.serverLabel = config.options.serverLabel ?? 'SSR';
+    this._accessLog = new AccessLogPlugin(
+      this.serverLabel,
+      config.options.accessLog,
+    );
 
     // Convert single config to Map with '__default__' key
     const defaultApp: SSRInternalAppConfig =
@@ -494,7 +499,7 @@ export class SSRServer extends BaseServer {
       }
 
       // Ignore trailing slashes for flexible routing (matches Express behavior)
-      fastifyOptions.ignoreTrailingSlash = true;
+      fastifyOptions.routerOptions = { ignoreTrailingSlash: true };
 
       // Create Fastify instance with merged options (user options + defaults + HTTPS + trailing slash)
       this.fastifyInstance = fastify(fastifyOptions);
@@ -515,6 +520,7 @@ export class SSRServer extends BaseServer {
       const mode: 'development' | 'production' = this.serverMode;
       const isDevelopment = mode === 'development';
       this.fastifyInstance.decorateRequest('isDevelopment', isDevelopment);
+      this.fastifyInstance.decorateRequest('serverLabel', this.serverLabel);
 
       // Decorate requests with activeSSRApp for multi-app routing (defaults to '__default__')
       this.fastifyInstance.decorateRequest('activeSSRApp', '__default__');
@@ -555,16 +561,6 @@ export class SSRServer extends BaseServer {
             return;
           }
 
-          const isDevelopment = this.serverMode === 'development';
-
-          // Log errors for debugging (unless explicitly disabled, consistent with APIServer)
-          if (this.sharedOptions.logErrors !== false) {
-            request.log.error(
-              { err: error, url: request.url, method: request.method },
-              'Request error:',
-            );
-          }
-
           // Get active app config for error handling (fall back to default if active app not found)
           const appKey = request.activeSSRApp || '__default__';
           const appConfig =
@@ -572,8 +568,9 @@ export class SSRServer extends BaseServer {
 
           if (!appConfig) {
             // This should never happen, but handle gracefully
-            this.fastifyInstance?.log.error(
-              'No app config found for error handling',
+            request.log.error(
+              { method: request.method, url: request.url },
+              `[${this.serverLabel}] No app config found for error handling`,
             );
 
             reply
@@ -583,11 +580,12 @@ export class SSRServer extends BaseServer {
             return;
           }
 
-          // In development, let Vite fix the stack trace for better debugging.
+          // In development, fix Vite stack traces for all errors so source locations are accurate.
+          // ssrFixStacktrace is idempotent — safe to call here even if handleSSRError calls it again.
           if (
             'viteDevServer' in appConfig &&
             appConfig.viteDevServer &&
-            isDevelopment &&
+            this.serverMode === 'development' &&
             error instanceof Error
           ) {
             appConfig.viteDevServer.ssrFixStacktrace(error);
@@ -604,21 +602,29 @@ export class SSRServer extends BaseServer {
             );
 
             if (isAPI && this.normalizedAPIPrefix) {
+              // Log the original request error here (single log point for API errors).
+              // If a custom errorHandler also throws, that failure is logged separately
+              // inside handleAPIError — two different errors, intentionally two log entries.
+              if (this.sharedOptions.logErrors !== false) {
+                const requestID = (request as unknown as { requestID?: string })
+                  .requestID;
+
+                request.log.error(
+                  {
+                    err: error,
+                    method: request.method,
+                    url: request.url,
+                    ...(requestID ? { requestID } : {}),
+                  },
+                  `[${this.serverLabel}] Request error`,
+                );
+              }
+
               // Handle API error with JSON response
               await this.handleAPIError(request, reply, error);
             } else {
-              // Handle SSR error with HTML response
-              const errorPage = await this.generate500ErrorPage(
-                request,
-                error,
-                appConfig,
-              );
-
-              reply
-                .code(500)
-                .header('Content-Type', 'text/html')
-                .header('Cache-Control', 'no-store')
-                .send(errorPage);
+              // Handle SSR error via handleSSRError (Vite stack fix + logs + generates 500 page)
+              await this.handleSSRError(request, reply, error, appConfig);
             }
           }
         },
@@ -1173,9 +1179,9 @@ export class SSRServer extends BaseServer {
                   reply.send();
                 }
               } catch (bodyError) {
-                this.fastifyInstance?.log.error(
-                  { err: bodyError },
-                  'Error reading response body:',
+                request.log.error(
+                  { err: bodyError, method: request.method, url: request.url },
+                  `[${this.serverLabel}] Error reading response body`,
                 );
                 reply.send(); // End response even if body reading fails
               }
@@ -1506,7 +1512,7 @@ export class SSRServer extends BaseServer {
       } catch (error) {
         this.fastifyInstance?.log.error(
           { err: error },
-          'Failed to register plugin:',
+          `[${this.serverLabel}] Failed to register plugin`,
         );
 
         throw new Error(
@@ -1713,6 +1719,23 @@ export class SSRServer extends BaseServer {
       vite.ssrFixStacktrace(error);
     }
 
+    // Log SSR errors here (single log point — avoids double-logging when called from global error handler)
+    // Uses request.log to include per-request logger bindings
+    if (this.sharedOptions.logErrors !== false) {
+      const requestID = (request as unknown as { requestID?: string })
+        .requestID;
+
+      request.log.error(
+        {
+          err: error,
+          method: request.method,
+          url: request.url,
+          ...(requestID ? { requestID } : {}),
+        },
+        `[${this.serverLabel}] Request error`,
+      );
+    }
+
     // Generate and send error page (handles dev vs prod internally)
     const errorPage = await this.generate500ErrorPage(
       request,
@@ -1742,12 +1765,6 @@ export class SSRServer extends BaseServer {
   ): Promise<string> {
     const isDevelopment = this.serverMode === 'development';
 
-    // Log error details for server logs (always log, regardless of mode)
-    this.fastifyInstance?.log.error(
-      { err: error },
-      `[SSR Error] ${request.method} ${request.url}:`,
-    );
-
     try {
       // Use app-specific error handler if provided
       if (appConfig.get500ErrorPage) {
@@ -1757,10 +1774,12 @@ export class SSRServer extends BaseServer {
       // Fall back to built-in default error page
       return generateDefault500ErrorPage(request, error, isDevelopment);
     } catch (errorHandlerError) {
-      // If custom error handler itself throws, fall back to the default error page
-      this.fastifyInstance?.log.error(
-        { err: errorHandlerError },
-        '[SSR Error Handler Error]:',
+      // If custom handler throws, log that failure separately and fall back to the default page.
+      // The original request error was already logged in handleSSRError — two different errors,
+      // intentionally two log entries.
+      request.log.error(
+        { err: errorHandlerError, method: request.method, url: request.url },
+        `[${this.serverLabel}] Custom 500 error page handler failed`,
       );
       return generateDefault500ErrorPage(request, error, isDevelopment);
     }
@@ -1805,9 +1824,9 @@ export class SSRServer extends BaseServer {
         return reply.send(customResponse);
       } catch (handlerError) {
         // If custom handler fails, fall back to default
-        this.fastifyInstance?.log.error(
-          { err: handlerError },
-          '[API Error Handler Error]:',
+        request.log.error(
+          { err: handlerError, method: request.method, url: request.url },
+          `[${this.serverLabel}] Custom API error handler failed`,
         );
       }
     }
@@ -1862,9 +1881,9 @@ export class SSRServer extends BaseServer {
         return reply.send(customResponse);
       } catch (handlerError) {
         // If custom handler fails, fall back to default
-        this.fastifyInstance?.log.error(
-          { err: handlerError },
-          '[API Not Found Handler Error]:',
+        request.log.error(
+          { err: handlerError, method: request.method, url: request.url },
+          `[${this.serverLabel}] Custom API not-found handler failed`,
         );
       }
     }

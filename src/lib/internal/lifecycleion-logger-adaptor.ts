@@ -39,25 +39,36 @@ function extractLogOptions(
     return undefined;
   }
 
-  const raw = context.logger;
-  if (!isPlainObject(raw)) {
-    return undefined;
-  }
+  // Strip the Lifecycleion-specific `logger` key from the rest of the context.
+  // Everything else (pino bindings like reqId/pid/hostname, user context fields
+  // like err/requestID) is passed as a nested `pinoContext` param — accessible
+  // in templates as {{pinoContext.reqId}} etc.
+  // User-provided params (context.logger.params) are spread beside it at the
+  // top level, keeping them separate and clearly user-owned.
+  const { logger: rawLogger, ...pinoContext } = context;
+  const raw = isPlainObject(rawLogger) ? rawLogger : null;
 
   const result: LogOptions = {};
   let hasAny = false;
 
-  if (isPlainObject(raw.params)) {
-    result.params = raw.params;
+  const hasPinoContext = Object.keys(pinoContext).length > 0;
+  const userParams = raw && isPlainObject(raw.params) ? raw.params : null;
+
+  if (hasPinoContext || userParams) {
+    result.params = {
+      ...(hasPinoContext ? { pinoContext } : {}),
+      ...(userParams ?? {}),
+    };
+
     hasAny = true;
   }
 
-  if (Array.isArray(raw.redactedKeys)) {
+  if (raw && Array.isArray(raw.redactedKeys)) {
     result.redactedKeys = raw.redactedKeys as string[];
     hasAny = true;
   }
 
-  if (Array.isArray(raw.tags)) {
+  if (raw && Array.isArray(raw.tags)) {
     result.tags = raw.tags as string[];
     hasAny = true;
   }

@@ -69,7 +69,11 @@ class FileServer
         if ($rangeHeader !== null) {
             $range = self::parseRange($rangeHeader, $fileSize);
 
-            if ($range === null) {
+            if ($range === 'malformed') {
+                // 400 Bad Request — syntactically invalid Range header
+                http_response_code(400);
+                return;
+            } elseif ($range === 'unsatisfiable') {
                 // 416 Range Not Satisfiable
                 http_response_code(416);
                 header('Content-Range: bytes */' . $fileSize);
@@ -133,36 +137,36 @@ class FileServer
      *   bytes=500-       from offset to end of file
      *   bytes=-500       last 500 bytes (suffix range)
      *
-     * Returns null (→ 416) for:
-     *   - Multipart ranges (bytes=0-499, 500-999)
-     *   - Malformed header
-     *   - start > end
-     *   - start >= fileSize (unsatisfiable)
+     * Returns [start, end] on success.
+     * Returns 'malformed' (→ 400) for syntactically invalid headers (wrong unit, bad format).
+     * Returns 'unsatisfiable' (→ 416) for multipart ranges or ranges that exceed the file size.
      *
-     * @return array{0: int, 1: int}|null
+     * @return array{0: int, 1: int}|'malformed'|'unsatisfiable'
      */
-    public static function parseRange(string $header, int $fileSize): ?array
-    {
+    public static function parseRange(
+        string $header,
+        int $fileSize,
+    ): array|string {
         if (!str_starts_with($header, 'bytes=')) {
-            return null;
+            return 'malformed';
         }
 
         $spec = substr($header, 6);
 
-        // Reject multipart ranges (bytes=0-499, 500-999)
+        // Reject multipart ranges (satisfiable syntax, but unsupported)
         if (str_contains($spec, ',')) {
-            return null;
+            return 'unsatisfiable';
         }
 
         if (!preg_match('/^(\d*)-(\d*)$/', $spec, $m)) {
-            return null;
+            return 'malformed';
         }
 
         $startStr = $m[1];
         $endStr = $m[2];
 
         if ($startStr === '' && $endStr === '') {
-            return null;
+            return 'malformed';
         }
 
         if ($startStr === '') {
@@ -181,7 +185,7 @@ class FileServer
 
         // Validate: start must be within file, start must not exceed end
         if ($start >= $fileSize || $start > $end) {
-            return null;
+            return 'unsatisfiable';
         }
 
         // Clamp end to last valid byte

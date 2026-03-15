@@ -154,9 +154,9 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
     const response = await fetch(`http://localhost:${port}/api/nonexistent`);
     await response.text();
 
-    // Default template: 'Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'
+    // Default template: '[{{serverLabel}}] Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'
     const accessLogs = logs.filter((log) =>
-      log.message.includes('Request finished GET /api/nonexistent 404'),
+      log.message.includes('[API] Request finished GET /api/nonexistent 404'),
     );
 
     expect(accessLogs.length).toBeGreaterThan(0);
@@ -264,7 +264,7 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
     await response.text();
 
     const startLogs = logs.filter(
-      (log) => log.message === 'Request started GET /api/nonexistent',
+      (log) => log.message === '[API] Request started GET /api/nonexistent',
     );
     const finishLogs = logs.filter((log) =>
       log.message.includes('GET /api/nonexistent 404'),
@@ -488,7 +488,7 @@ describe('AccessLogPlugin onRequestAbort', () => {
       },
     };
 
-    new AccessLogPlugin(config).register(fastify as any);
+    new AccessLogPlugin('Test', config).register(fastify as any);
 
     function extractMsg(args: unknown[]): string {
       // Handle pino-style (metadata, msg) and single-arg (msg) forms.

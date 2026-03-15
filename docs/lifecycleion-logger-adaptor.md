@@ -147,9 +147,9 @@ const myPlugin: ServerPlugin = (pluginHost) => {
 };
 ```
 
-Fastify/pino automatically attaches bindings (like `reqId`, `pid`, `hostname`) to child loggers for each request. These are useful for pino's JSON serializer but are **not automatically forwarded** to Lifecycleion params — passing them all would be verbose and most sinks don't need them.
+Fastify/pino automatically attaches bindings to child loggers. The adaptor forwards everything in the log context object except the `logger` key as a nested `pinoContext` param, keeping it separate from your own `params`. For `request.log` calls, `pinoContext` is always present — Fastify creates a per-request child logger with bindings. For `pluginHost.log` calls (server-level, no active request), `pinoContext` is only present if you pass additional context fields alongside `logger` since there are no request bindings at that level.
 
-If you want specific Fastify request metadata available in Lifecycleion template rendering or redaction, pass it explicitly via `context.logger.params`:
+If your sink doesn't need the Fastify bindings, you can ignore or filter out the entire `pinoContext` key — a custom sink that only cares about your own params can simply omit it from its output.
 
 ```typescript
 const authPlugin: ServerPlugin = (pluginHost) => {
@@ -157,11 +157,12 @@ const authPlugin: ServerPlugin = (pluginHost) => {
     request.log.warn(
       {
         logger: {
-          params: { reqId: request.id, url: request.url },
+          params: { userId: 'u_123' }, // top-level: {{userId}}
           tags: ['auth'],
         },
       },
-      'Unauthorized request {{reqId}} to {{url}}',
+      // pinoContext fields come from Fastify automatically
+      'Unauthorized request from {{pinoContext.hostname}} by user {{userId}}',
     );
   });
 };
