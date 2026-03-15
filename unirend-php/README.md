@@ -3,7 +3,7 @@
 [![Packagist Version](https://img.shields.io/packagist/v/unirend/php-static-server)](https://packagist.org/packages/unirend/php-static-server)
 [![Packagist Downloads](https://img.shields.io/packagist/dt/unirend/php-static-server)](https://packagist.org/packages/unirend/php-static-server)
 
-**Current version:** `0.0.1`
+**Current version:** `0.0.2`
 
 Serve [Unirend](https://github.com/keverw/unirend) SSG output on shared hosting (cPanel, Apache). Mirrors `StaticWebServer` from the Node.js package — reads the same `page-map.json` format, serves clean URLs, handles 404/500 error pages with correct status codes, range requests, and custom API routes.
 
