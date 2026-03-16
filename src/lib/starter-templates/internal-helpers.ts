@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+// todo: reenable @typescript-eslint/no-unused-vars once we implement the functions
 import { ensurePackageJSON } from './base-files/package-json';
 import type { EnsurePackageJSONOptions } from './base-files/package-json';
 import { ensureGitignore } from './base-files/ensure-gitignore';
@@ -147,7 +149,6 @@ export function getTemplateConfig(
   projectPath: string,
   serverBuildTarget?: ServerBuildTarget,
 ): TemplateConfig {
-
   return {};
 }
 
@@ -162,7 +163,7 @@ export function getTemplateConfig(
  * @param serverBuildTarget - Target runtime for server build/bundle
  * @param log - Optional logger function for output
  */
-// eslint-disable-next-line @typescript-eslint/require-await
+
 export async function createProjectSpecificFiles(
   root: FileRoot,
   projectPath: string,
@@ -171,4 +172,5 @@ export async function createProjectSpecificFiles(
   serverBuildTarget: ServerBuildTarget | undefined,
   log?: LoggerFunction,
 ): Promise<void> {
-
+  // todo: implement
+}

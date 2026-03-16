@@ -29,6 +29,7 @@ export const devDependencies = {
   'eslint-plugin-jsx-a11y': '^6.10.2',
   'eslint-plugin-react': '^7.37.5',
   'eslint-plugin-react-hooks': '^7.0.1',
+  'eslint-plugin-react-refresh': '^0.5.2',
   'eslint-plugin-unicorn': '^62.0.0',
   prettier: '^3.6.2',
   'prettier-plugin-tailwindcss': '^0.7.1',
