@@ -1,4 +1,4 @@
-import React from 'react';
+import type { ReactElement } from 'react';
 import type { HeadCollector } from '../UnirendHead';
 import { UnirendProvider } from '../UnirendContext';
 import {
@@ -25,10 +25,10 @@ import type { WrapAppElementOptions } from './types';
  */
 
 export function createAppWrapper(
-  routerElement: React.ReactElement,
+  routerElement: ReactElement,
   options: WrapAppElementOptions,
   headCollector?: HeadCollector,
-): React.ReactElement {
+): ReactElement {
   const {
     strictMode: isStrictMode = true,
     wrapProviders,

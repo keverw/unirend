@@ -1,4 +1,4 @@
-import React from 'react';
+import type { ReactElement } from 'react';
 import { RouterProvider } from 'react-router';
 import type { DataRouter } from 'react-router';
 import { createAppWrapper } from './CreateAppWrapper';
@@ -16,7 +16,7 @@ import type { WrapAppElementOptions } from './types';
 export function wrapRouter(
   router: DataRouter,
   options: WrapAppElementOptions,
-): React.ReactElement {
+): ReactElement {
   const routerElement = <RouterProvider router={router} />;
   return createAppWrapper(routerElement, options);
 }

@@ -1,5 +1,4 @@
-import React from 'react';
-import type { ReactNode } from 'react';
+import React, { type ComponentType, type ReactNode } from 'react';
 import { UnirendHeadProvider } from '../UnirendHead';
 import type { HeadCollector } from '../UnirendHead';
 
@@ -44,7 +43,7 @@ export function CustomWrapper({
   WrapComponent,
   children,
 }: {
-  WrapComponent?: React.ComponentType<{ children: ReactNode }>;
+  WrapComponent?: ComponentType<{ children: ReactNode }>;
   children: ReactNode;
 }) {
   if (WrapComponent) {

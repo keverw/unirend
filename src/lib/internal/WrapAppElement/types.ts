@@ -1,5 +1,4 @@
-import type React from 'react';
-import type { ReactNode } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import type { UnirendContextValue } from '../UnirendContext';
 
 /**
@@ -16,7 +15,7 @@ export type WrapAppElementOptions = {
    * Applied after UnirendHeadProvider but before StrictMode (StrictMode is always outermost)
    * Must be a React component that accepts children
    */
-  wrapProviders?: React.ComponentType<{ children: ReactNode }>;
+  wrapProviders?: ComponentType<{ children: ReactNode }>;
   /**
    * Unirend context value to provide to the app
    * Contains render mode, development status, and server request info

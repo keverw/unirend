@@ -1,4 +1,4 @@
-import React from 'react';
+import type { ReactElement } from 'react';
 import { StaticRouterProvider } from 'react-router';
 import type { StaticHandlerContext } from 'react-router';
 import type { HeadCollector } from '../UnirendHead';
@@ -21,7 +21,7 @@ export function wrapStaticRouter(
   context: StaticHandlerContext,
   options: WrapAppElementOptions,
   headCollector?: HeadCollector,
-): React.ReactElement {
+): ReactElement {
   const routerElement = (
     <StaticRouterProvider router={router} context={context} />
   );

@@ -1,4 +1,5 @@
 import { createContext } from 'react';
+import type { ReactNode } from 'react';
 
 /**
  * Render mode type - SSR, SSG, or Client
@@ -251,7 +252,7 @@ export const UnirendContext =
  * Provider props
  */
 export interface UnirendProviderProps {
-  children: React.ReactNode;
+  children: ReactNode;
   value: UnirendContextValue;
 }
 
