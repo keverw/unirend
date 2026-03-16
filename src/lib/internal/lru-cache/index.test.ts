@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, mock } from 'bun:test';
-import { LRUCache } from './index';
+import { LRUCache } from './';
 
 describe('LRUCache', () => {
   describe('Basic operations', () => {

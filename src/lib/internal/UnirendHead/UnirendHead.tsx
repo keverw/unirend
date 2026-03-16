@@ -1,45 +1,7 @@
-import React, { createContext, useContext } from 'react';
+import React, { useContext } from 'react';
 import type { ReactNode } from 'react';
-import { escapeHTML, escapeHTMLAttr } from './html-utils/escape';
-
-/**
- * Collected head data built up during server-side renderToString.
- * Last write wins for title, meta and link entries accumulate.
- */
-export interface HeadCollector {
-  title: string;
-  metas: Array<Record<string, string>>;
-  links: Array<Record<string, string>>;
-}
-
-/**
- * Context value is the collector on the server, null on the client.
- * null signals "render JSX tags so React 19 can hoist them to <head>".
- */
-const UnirendHeadContext = createContext<HeadCollector | null>(null);
-
-/**
- * Wraps the app tree to enable UnirendHead on both server and client.
- *
- * Server: pass a collector object — UnirendHead will push entries into it
- * during renderToString, then the caller reads the collected data.
- *
- * Client: pass null — UnirendHead renders the actual <title>/<meta>/<link>
- * tags and React 19 hoists them to <head> automatically.
- */
-export function UnirendHeadProvider({
-  children,
-  collector,
-}: {
-  children: ReactNode;
-  collector: HeadCollector | null;
-}) {
-  return (
-    <UnirendHeadContext.Provider value={collector}>
-      {children}
-    </UnirendHeadContext.Provider>
-  );
-}
+import { UnirendHeadContext } from './context';
+import type { HeadCollector } from './context';
 
 /**
  * Framework-native document head manager.
@@ -159,40 +121,4 @@ function toHeadAttributeValue(value: unknown): string | null {
   }
 
   return null;
-}
-
-/**
- * Serialize a collected HeadCollector into three HTML strings
- * suitable for injection into the <!--ss-head--> slot.
- */
-export function serializeHeadCollector(collector: HeadCollector): {
-  title: string;
-  meta: string;
-  link: string;
-} {
-  const title = collector.title
-    ? `<title>${escapeHTML(collector.title)}</title>`
-    : '';
-
-  const meta = collector.metas
-    .map((attrs) => {
-      const attrsStr = Object.entries(attrs)
-        .map(([k, v]) => `${k}="${escapeHTMLAttr(v)}"`)
-        .join(' ');
-
-      return `<meta ${attrsStr} />`;
-    })
-    .join('\n');
-
-  const link = collector.links
-    .map((attrs) => {
-      const attrsStr = Object.entries(attrs)
-        .map(([k, v]) => `${k}="${escapeHTMLAttr(v)}"`)
-        .join(' ');
-
-      return `<link ${attrsStr} />`;
-    })
-    .join('\n');
-
-  return { title, meta, link };
 }
