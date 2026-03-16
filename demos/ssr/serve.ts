@@ -27,8 +27,8 @@ import type { BaseMeta } from '../../src/api-envelope';
 import { pipeline } from 'stream/promises';
 import { createWriteStream } from 'fs';
 import { mkdir, unlink } from 'fs/promises';
-import { FastifyReply, FastifyRequest } from 'fastify';
-import type { PageDataHandlerParams } from '../../src/lib/internal/DataLoaderServerHandlerHelpers';
+import { FastifyRequest } from 'fastify';
+import type { PageDataHandlerParams } from '../../src/lib/internal/data-loader-server-handler-helpers';
 import { clientInfo } from '../../src/plugins';
 
 const PORT = 3000;
