@@ -268,6 +268,8 @@ export default [
       'no-eval': 'error',
       'no-implied-eval': 'error',
       'import/newline-after-import': 'error',
+      // Disallow unnecessary /index in import paths (prefer ./foo over ./foo/index)
+      'import/no-useless-path-segments': ['error', { noUselessIndex: true }],
       // Prevent function declarations inside blocks
       'no-inner-declarations': 'error',
       // Limit callback nesting to prevent callback hell
