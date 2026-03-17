@@ -21,7 +21,7 @@ export const devDependencies = {
   '@types/react-dom': '^19.2.2',
   '@typescript-eslint/eslint-plugin': '^8.46.3',
   '@typescript-eslint/parser': '^8.46.3',
-  '@vitejs/plugin-react': '^5.1.0',
+  '@vitejs/plugin-react': '^6.0.1',
   eslint: '^9.39.1',
   'eslint-import-resolver-typescript': '^4.4.4',
   'eslint-plugin-check-file': '^3.3.1',
@@ -36,7 +36,7 @@ export const devDependencies = {
   tailwindcss: '^4.1.17',
   typescript: '^5.9.3',
   'typescript-eslint': '^8.46.3',
-  vite: '^7.3.1',
+  vite: '^8.0.0',
 };
 
 export const dependencies = {

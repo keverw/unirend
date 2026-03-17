@@ -107,7 +107,7 @@ describe('ensurePackageJSON', () => {
           },
           devDependencies: {
             typescript: '^6.0.0', // Newer than template
-            vite: '^8.0.0', // Newer than template
+            vite: '^9.0.0', // Newer than template
           },
         }),
       };
@@ -118,7 +118,7 @@ describe('ensurePackageJSON', () => {
       expect(pkg.dependencies.react).toBe('^20.0.0'); // Not downgraded
       expect(pkg.dependencies['react-dom']).toBe('^20.0.0'); // Not downgraded
       expect(pkg.devDependencies.typescript).toBe('^6.0.0'); // Not downgraded
-      expect(pkg.devDependencies.vite).toBe('^8.0.0'); // Not downgraded
+      expect(pkg.devDependencies.vite).toBe('^9.0.0'); // Not downgraded
     });
 
     test('preserves custom dependencies not in template', async () => {

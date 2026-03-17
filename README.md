@@ -21,18 +21,31 @@ yarn add unirend
 **Peer Dependencies:** You'll also need to install these in your project:
 
 ```bash
-npm install lifecycleion react react-dom react-router vite
+npm install lifecycleion react react-dom react-router
+npm install --save-dev vite
 # or
-bun add lifecycleion react react-dom react-router vite
+bun add lifecycleion react react-dom react-router
+bun add -d vite
 # or
-yarn add lifecycleion react react-dom react-router vite
+yarn add lifecycleion react react-dom react-router
+yarn add --dev vite
 ```
 
-Unirend includes Fastify as a regular dependency for server side rendering and API server, so you don't need to install it separately.
+You'll also need `@vitejs/plugin-react` as a dev dependency for your Vite config. Unirend does not depend on it directly, but every project needs it to configure React support in Vite:
+
+```bash
+npm install --save-dev @vitejs/plugin-react
+# or
+bun add -d @vitejs/plugin-react
+# or
+yarn add --dev @vitejs/plugin-react
+```
+
+Unirend includes Fastify as a regular dependency powering its built-in servers (SSR, API, redirect, and static file serving), so you don't need to install it separately.
 
 ### Runtime requirements
 
-- Node >= 18.17.0 (uses Web Fetch APIs, `structuredClone`, and `AbortSignal.timeout`)
+- Node >= 20.19.0 (uses newer web APIs such as Web Fetch APIs, `structuredClone`, and `AbortSignal.timeout`, and is also the minimum version required by Vite 8 for `require(esm)` support without a flag)
 - Or Bun with equivalent APIs
 
 Recommendation: We recommend Bun as the default toolchain. Bun can run TypeScript directly in development and can bundle your server to a single JavaScript file for production. The unirend library itself avoids Bun-specific APIs, so your bundled server can run under either Bun or Node. Pure Node tooling setups (e.g., `ts-node`, `tsc`, `esbuild`, `rollup`) or vanilla JavaScript are possible, but not the focus of this guide, the CLI, or the starter template utility functions.
