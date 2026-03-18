@@ -8,7 +8,7 @@
  * returning HTML for web requests and JSON for API requests.
  *
  * This is useful when you are using the API server as a standalone web server that serves both HTML pages and JSON APIs
- * without using the built-in React compatible SSR server.
+ * without using the built-in React compatible SSR server or dedicated static web server.
  *
  * Run with: bun run demos/api-static-content-demo.ts
  */

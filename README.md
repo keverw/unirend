@@ -20,6 +20,8 @@ yarn add unirend
 
 **Peer Dependencies:** You'll also need to install these in your project:
 
+`lifecycleion` is a utility library providing lifecycle management, structured logging, retry logic, and other foundational utilities — used internally by Unirend, in generated project templates, and useful in your own server and application code as well.
+
 ```bash
 npm install lifecycleion react react-dom react-router
 npm install --save-dev vite
@@ -48,9 +50,9 @@ Unirend includes Fastify as a regular dependency powering its built-in servers (
 - Node >= 20.19.0 (uses newer web APIs such as Web Fetch APIs, `structuredClone`, and `AbortSignal.timeout`, and is also the minimum version required by Vite 8 for `require(esm)` support without a flag)
 - Or Bun with equivalent APIs
 
-Recommendation: We recommend Bun as the default toolchain. Bun can run TypeScript directly in development and can bundle your server to a single JavaScript file for production. The unirend library itself avoids Bun-specific APIs, so your bundled server can run under either Bun or Node. Pure Node tooling setups (e.g., `ts-node`, `tsc`, `esbuild`, `rollup`) or vanilla JavaScript are possible, but not the focus of this guide, the CLI, or the starter template utility functions.
+Recommendation: We recommend Bun as the default toolchain. Bun can run TypeScript directly in development and can bundle your server to a single JavaScript file for production. The unirend library itself avoids Bun-specific APIs, so your server can be bundled to run under Node as well — just pass `--target node` when building (see the optional scripts in the SSR section below). Pure Node tooling setups (e.g., `ts-node`, `tsc`, `esbuild`, `rollup`) or vanilla JavaScript are possible, but not the focus of this guide, the CLI, or the starter template utility functions.
 
-CLI note: The Unirend project generator (CLI) requires Bun for a simple, out‑of‑the‑box experience. Generated projects can still run under Node when bundled (e.g., `bun build --target node`), while using Bun only for the development and build tooling. As Node tooling continues to improve, we may add first-class Node CLI support in the future.
+CLI note: The Unirend project generator (CLI) requires Bun for a simple, out‑of‑the‑box experience. Generated projects use Bun for development and build tooling, but can target Node at bundle time (`bun build --target node`). As Node tooling continues to improve, we may add first-class Node CLI support in the future.
 
 Repo auto‑init: The CLI sets up a repository structure that supports multiple projects in one workspace. You can initialize it explicitly with `init-repo`, but if it’s missing when you run `create`, Unirend will set it up automatically with a sensible default.
 
@@ -85,11 +87,11 @@ Repo auto‑init: The CLI sets up a repository structure that supports multiple 
 
 ## Common Setup for SSG (Static Site Generation) or SSR (Server-Side Rendering)
 
-Between both SSG (Static Site Generation) and SSR (Server-Side Rendering), there is some overlap setup.
+Between both SSG (Static Site Generation) and SSR (Server-Side Rendering), there is some overlapping setup.
 
 ### Prepare Client Frontend
 
-1. Create a vite + React project, like normal. Define your routes using React Router's `RouteObject[]` format.
+1. Create a Vite + React project, like normal. Define your routes using React Router's `RouteObject[]` format.
 2. Rename your module in the `index.html` file to something like `entry-client` and update the reference.
 3. In your client entry point, use `mountApp` instead of `createRoot`, passing your routes directly:
 
@@ -226,7 +228,7 @@ vite build --outDir build/server --ssr src/entry-server.tsx
 
 #### 3. Package.json Scripts
 
-Add these scripts to your `package.json` for both SSG and SSR workflows. We recommend Bun for simplicity, you can also run the Bun‑built bundle with Node (example shown below).
+Add these scripts to your `package.json` for both SSG and SSR workflows. We recommend Bun for simplicity, but you can also run the Bun‑built bundle with Node (example shown below).
 
 ```json
 {
@@ -315,11 +317,11 @@ After completing the Common Setup, see the dedicated guide for Server-Side Rende
 
 - [docs/ssr.md](docs/ssr.md)
 
-SSR servers support a plugin system for extending functionality, data loader endpoints for page data handling, and can host your API endpoints for actions outside of SSR data loader handlers. You can create a standalone API server (useful when you want to separate API hosting from SSR rendering while sharing the same plugin and handler code conventions as if you were hosting within the same SSR server).
+SSR servers support a [plugin system](docs/server-plugins.md) for extending functionality, data loader endpoints for page data handling, and can host your API endpoints for actions outside of SSR data loader handlers. You can also create a standalone API server — covered in [docs/ssr.md](docs/ssr.md) — useful when you want to separate API hosting from SSR rendering while sharing the same plugin and handler code conventions, such as API endpoints and data loaders.
 
 ## Demos
 
-Runable, self-contained examples live under `demos/` and are wired to root-level scripts (no need to cd):
+Runnable, self-contained examples live under `demos/` and are wired to root-level scripts (no need to cd):
 
 - `demos/ssg` — SSG example (build, generate, serve)
 - `demos/ssr` — SSR example (dev and production)
@@ -392,7 +394,9 @@ See the canonical spec in [docs/api-envelope-structure.md](docs/api-envelope-str
 - **Page data loaders**: Expect and return the documented Page Response Envelope. When a backend returns an API envelope, the loader should transform it to a page envelope as needed (preserving metadata and handling redirects/authentication per the spec).
 - **AJAX/fetch and form posts**: Use the API Response Envelope. This is the recommended standard across your application so client code can handle success and error states consistently.
 
-#### Helpers and Integration
+### Helpers and Integration
+
+The following helpers and integrations make it easy to work with these envelopes throughout your application.
 
 - **Server middleware/plugins**: The `SSRServer` and `serveAPI` plugin systems are designed to work with these envelopes (including default error/not-found handling). Use the middleware/plugin APIs exposed by `unirend/server` to register your routes.
 - **Helper utilities**: Import helpers to construct envelopes and validate requests at your API handlers:
@@ -466,7 +470,7 @@ Includes comprehensive examples for S3 uploads, security best practices, tempora
   ```
 
 - Scroll to top for standalone application error pages
-  - When rendering a top-level application error (caught by the error boundary), include a scroll-to-top on mount so it doesn’t depend on your normal layout, as recommend.
+  - When rendering a top-level application error (caught by the error boundary), include a scroll-to-top on mount so it doesn’t depend on your normal layout, as recommended.
   - Example: see `demos/ssr/src/components/CustomApplicationError.tsx`.
 
 ## Development
@@ -501,11 +505,11 @@ The build process uses the `update-docs` script defined in `package.json`. It up
 bun publish
 ```
 
-Make sure to commit the new version back to GIT
+After publishing, commit the generated file changes back to Git. The build updates `src/version.ts`, the README title, and the TOCs.
 
 ## Build Info Utilities
 
-See [docs/build-info.md](docs/build-info.md) for generating and loading build metadata (version, git hash/branch, timestamp).
+See [docs/build-info.md](docs/build-info.md) for generating and loading build metadata (version, Git hash/branch, timestamp).
 
 ## Utilities
 
