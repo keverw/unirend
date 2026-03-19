@@ -114,7 +114,7 @@
     "@typescript-eslint/parser": "^8.46.3",
     "@vitejs/plugin-react": "^6.0.1",
     "eslint": "^9.39.1",
-    "lifecycleion": "^0.0.8",
+    "lifecycleion": "^0.0.9",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router": "^7.0.0",
@@ -136,7 +136,7 @@
     "typescript-eslint": "^8.46.3"
   },
   "peerDependencies": {
-    "lifecycleion": "^0.0.8",
+    "lifecycleion": "^0.0.9",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router": "^7.0.0",
