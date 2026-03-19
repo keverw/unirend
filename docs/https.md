@@ -306,11 +306,7 @@ Add domain validation plugin for additional security and canonical domain enforc
 
 ```typescript
 import { initDevMode, getDevMode } from 'lifecycleion/dev-mode';
-import {
-  serveRedirect,
-  serveSSRProd,
-  serveSSRDev,
-} from 'unirend/server';
+import { serveRedirect, serveSSRProd, serveSSRDev } from 'unirend/server';
 import { domainValidation } from 'unirend/plugins';
 
 async function main() {

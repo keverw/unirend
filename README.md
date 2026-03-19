@@ -343,13 +343,13 @@ From the repo root (using package scripts):
 bun run ssg-build
 
 # Generate static HTML files using the built server entry
-bun run ssg-generate
+bun run ssg-generate-prod
 
 # Or do both in one step
-bun run ssg-build-and-generate
+bun run ssg-build-and-generate-prod
 
 # Serve the generated site (simple static file server)
-bun run ssg-serve
+bun run ssg-serve-prod
 ```
 
 Notes:
