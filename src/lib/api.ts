@@ -16,7 +16,6 @@ import type { APIServerOptions } from './types';
  * import { serveAPI } from 'unirend/server';
  *
  * const server = serveAPI({
- *   isDevelopment: true,
  *   plugins: [
  *     async (fastify, options) => {
  *       // Full wildcard support - even root wildcards are allowed

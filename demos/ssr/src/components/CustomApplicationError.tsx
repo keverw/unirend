@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { UnirendHead } from '../../../../src/client';
-import { getDevMode } from '../../../../src/lib/dev-mode';
+import { getDevMode } from 'lifecycleion/dev-mode';
 
 interface CustomApplicationErrorProps {
   error: unknown;

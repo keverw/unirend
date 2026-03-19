@@ -1,7 +1,7 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { StaticWebServer } from './static-web-server';
 import { StaticContentCache } from './static-content-cache';
-import { overrideDevMode } from '../dev-mode';
+import { overrideDevMode } from 'lifecycleion/dev-mode';
 import fs from 'fs';
 import getPort from 'get-port';
 

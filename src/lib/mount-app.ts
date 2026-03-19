@@ -4,7 +4,7 @@ import { createBrowserRouter } from 'react-router';
 import type { RouteObject } from 'react-router';
 import { wrapRouter } from './internal/WrapAppElement';
 import type { UnirendContextValue } from './internal/UnirendContext';
-import { getDevMode } from './dev-mode';
+import { getDevMode } from 'lifecycleion/dev-mode';
 
 /**
  * Result type indicating how the app was mounted

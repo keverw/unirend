@@ -88,10 +88,6 @@ export { StaticWebServer } from './lib/internal/static-web-server';
 export { UnirendLifecycleionLoggerAdaptor } from './lib/internal/lifecycleion-logger-adaptor';
 export type { LifecycleionLogContextOptions } from './lib/internal/lifecycleion-logger-adaptor';
 
-// Dev mode (lifecycleion convention)
-// todo: remove this once moved to lifecycleion
-export { initDevMode, getDevMode, overrideDevMode } from './lib/dev-mode';
-
 // File upload helpers
 export { processFileUpload } from './lib/server/process-file-upload';
 export type {

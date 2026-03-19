@@ -36,7 +36,7 @@ import {
 } from './file-upload-validation-helpers';
 import { APIResponseHelpers } from '../../api-envelope';
 import type { WebSocket, WebSocketServer } from 'ws';
-import { getDevMode } from '../dev-mode';
+import { getDevMode } from 'lifecycleion/dev-mode';
 
 /**
  * API Server class for creating JSON API servers with plugin support

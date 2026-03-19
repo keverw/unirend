@@ -1,4 +1,5 @@
-import { generateSSG, SSGConsoleLogger, initDevMode } from '../../src/server';
+import { initDevMode } from 'lifecycleion/dev-mode';
+import { generateSSG, SSGConsoleLogger } from '../../src/server';
 import path from 'path';
 
 /**

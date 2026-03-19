@@ -93,7 +93,7 @@ Use the loader to safely read the generated TypeScript module (`current-build-in
 
 ```ts
 import { loadBuildInfo } from 'unirend/build-info';
-import { getDevMode } from 'unirend/server';
+import { getDevMode } from 'lifecycleion/dev-mode';
 
 const { info } = await loadBuildInfo(
   !getDevMode(), // true in production

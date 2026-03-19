@@ -19,7 +19,7 @@ import {
 } from './internal/fs-utils';
 import { processTemplate } from './internal/html-utils/format';
 import { injectContent } from './internal/html-utils/inject';
-import { getDevMode } from './dev-mode';
+import { getDevMode } from 'lifecycleion/dev-mode';
 
 /**
  * Normalize a URL path: collapse multiple slashes, remove trailing slash (except root),

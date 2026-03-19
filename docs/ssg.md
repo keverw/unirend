@@ -38,7 +38,8 @@ Create a script to generate your static pages using the `generateSSG` function:
 > 💡 **Tip:** For a more comprehensive generation example script with detailed error handling and reporting, see [`demos/ssg/generate.ts`](../demos/ssg/generate.ts) in this repository.
 
 ```typescript
-import { generateSSG, initDevMode } from 'unirend/server';
+import { initDevMode } from 'lifecycleion/dev-mode';
+import { generateSSG } from 'unirend/server';
 import path from 'path';
 
 async function main() {
@@ -192,7 +193,8 @@ By default, if a page renders and returns a 5xx status code, the generator treat
 **Debugging unexpected 5xx pages:** Call `initDevMode(true)` before running `generateSSG()` so components using `useIsDevelopment()` can render extra debug output in the generated file:
 
 ```typescript
-import { generateSSG, initDevMode } from 'unirend/server';
+import { initDevMode } from 'lifecycleion/dev-mode';
+import { generateSSG } from 'unirend/server';
 
 initDevMode(true); // Enable dev mode — components can render richer error output
 
@@ -299,7 +301,7 @@ await server.reload();
 - `errorPage` - Custom 500 error page path (relative to buildDir)
 - `logErrors` - Automatically log errors to server logger (default: `true`)
 
-Dev mode (stack traces in built-in 500 page, not custom error page provided) is controlled via the lifecycleion dev mode convention — call `initDevMode()` at startup. See [Dev Mode](./dev-mode.md).
+Dev mode (stack traces in built-in 500 page, not custom error page provided) is controlled via the Lifecycleion dev mode convention — call `initDevMode()` at startup. See [Dev Mode](./dev-mode.md).
 
 **Caching:**
 
@@ -381,7 +383,7 @@ Files with content hashes (e.g., `app-abc123.js`) automatically get long cache h
 Enable development mode to see error stack traces in the built-in default 500 error page:
 
 ```typescript
-import { initDevMode } from 'unirend/server';
+import { initDevMode } from 'lifecycleion/dev-mode';
 
 initDevMode(true); // Shows stack traces in built-in 500 error page
 

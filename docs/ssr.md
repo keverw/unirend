@@ -867,6 +867,7 @@ Within your request handlers (including page data loader handlers), you can chec
 server.pageDataHandler.register('example', (request, params) => {
   const isDev = (request as FastifyRequest & { isDevelopment?: boolean })
     .isDevelopment;
+
   return APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { environment: isDev ? 'development' : 'production' },
@@ -877,8 +878,7 @@ server.pageDataHandler.register('example', (request, params) => {
 
 Notes:
 
-- On the SSR server this reflects whether the server is running in development or production mode.
-- On the API server this reflects `options.isDevelopment` (defaults to false).
+- Reflects the current value of `getDevMode()` from `lifecycleion/dev-mode`, set per-request. Call `initDevMode()` at startup to control this value.
 
 The resolved client IP and server label are also available as `request.clientIP` and `request.serverLabel` in any handler or hook:
 
@@ -1588,8 +1588,6 @@ async function main() {
     // apiEndpoints: { apiEndpointPrefix: "/api", versioned: true, pageDataEndpoint: "page_data" },
     // Optional: plugins for custom routes, hooks, decorators
     // plugins: [myApiPlugin],
-    // Optional: isDevelopment flag (affects error output/logging)
-    // isDevelopment: true,
     // Optional: Unirend logging abstraction
     // logging: {
     //   logger: {
@@ -1620,8 +1618,6 @@ main().catch(console.error);
 
 In addition to the [shared server configuration](#shared-server-configuration), the API server accepts:
 
-- `isDevelopment?: boolean`
-  - Affects error output/logging behavior. Defaults to `false`.
 - `errorHandler?: Function | { api?, web? }`
   - Function form: Returns JSON envelope (see [JSON-Only](#json-only-ssr-compatible))
   - Object form: Split handlers for mixed API + web servers (see [Split Handlers](#split-handlers-mixed-api--web-server)). Either handler can be omitted - missing handlers fall through to default behavior.

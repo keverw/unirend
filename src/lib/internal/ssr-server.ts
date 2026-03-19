@@ -62,7 +62,7 @@ import {
   registerMultipartPlugin,
 } from './file-upload-validation-helpers';
 import { resolveFastifyLoggerConfig } from './logger-config-utils';
-import { getDevMode } from '../dev-mode';
+import { getDevMode } from 'lifecycleion/dev-mode';
 
 type SSRServerConfigDev = {
   mode: 'development';

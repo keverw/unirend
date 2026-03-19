@@ -276,7 +276,8 @@ bun run server.ts prod
 **Basic Setup:**
 
 ```typescript
-import { initDevMode, getDevMode } from 'unirend/server';
+import { initDevMode, getDevMode } from 'lifecycleion/dev-mode';
+import { serveSSRDev, serveSSRProd, serveRedirect } from 'unirend/server';
 
 initDevMode({ detect: 'cmd' }); // reads "dev" / "prod" from process.argv
 const isDev = getDevMode();
@@ -304,12 +305,11 @@ if (isDev) {
 Add domain validation plugin for additional security and canonical domain enforcement:
 
 ```typescript
+import { initDevMode, getDevMode } from 'lifecycleion/dev-mode';
 import {
   serveRedirect,
   serveSSRProd,
   serveSSRDev,
-  initDevMode,
-  getDevMode,
 } from 'unirend/server';
 import { domainValidation } from 'unirend/plugins';
 

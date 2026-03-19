@@ -5,7 +5,8 @@
  * using the serveAPI function from unirend.
  */
 
-import { serveAPI, initDevMode } from '../src/server';
+import { initDevMode } from 'lifecycleion/dev-mode';
+import { serveAPI } from '../src/server';
 import type { APIServerOptions, APIServer } from '../src/server';
 // import { APIResponseHelpers } from "../src/api-envelope"; // Uncomment when using custom handlers
 

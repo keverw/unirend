@@ -1,5 +1,5 @@
 import { TAB_SPACES } from '../consts';
-import { getDevMode } from '../../dev-mode';
+import { getDevMode } from 'lifecycleion/dev-mode';
 
 // Prettify all head tags: each tag (<title>, <meta>, <link>, etc.) on its own line, indented
 export function prettifyHeadTags(head: string, indent = TAB_SPACES): string {

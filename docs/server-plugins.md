@@ -864,7 +864,8 @@ The direct Fastify-style methods are tied to the underlying Fastify instance:
 - **Use a factory function for dynamic scenarios**: If you need to dynamically create or reassign server instances with different route configurations, use a factory function that returns a fresh server:
 
 ```typescript
-import { serveSSRProd, initDevMode } from 'unirend/server';
+import { initDevMode } from 'lifecycleion/dev-mode';
+import { serveSSRProd } from 'unirend/server';
 import type { SSRServer } from 'unirend/server';
 
 // Set dev mode once at startup (see docs/dev-mode.md)

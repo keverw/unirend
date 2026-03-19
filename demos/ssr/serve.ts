@@ -15,9 +15,8 @@ import {
   serveSSRProd,
   PluginHostInstance,
   processFileUpload,
-  initDevMode,
-  getDevMode,
 } from '../../src/server';
+import { initDevMode, getDevMode } from 'lifecycleion/dev-mode';
 import type {
   ServerPlugin,
   SSRServer,

@@ -10,10 +10,8 @@
  */
 
 import { StaticWebServer } from '../../src/lib/internal/static-web-server';
-import {
-  UnirendLifecycleionLoggerAdaptor,
-  initDevMode,
-} from '../../src/server';
+import { initDevMode } from 'lifecycleion/dev-mode';
+import { UnirendLifecycleionLoggerAdaptor } from '../../src/server';
 import {
   LifecycleManager,
   BaseComponent,

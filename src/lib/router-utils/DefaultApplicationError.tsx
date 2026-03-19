@@ -1,6 +1,6 @@
 import React from 'react';
 import { UnirendHead } from '../internal/UnirendHead';
-import { getDevMode } from '../dev-mode';
+import { getDevMode } from 'lifecycleion/dev-mode';
 
 export interface DefaultApplicationErrorProps {
   /** The error object */

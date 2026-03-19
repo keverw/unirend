@@ -1,10 +1,6 @@
 # Dev Mode
 
-Unirend uses the **lifecycleion dev mode convention** — a single runtime global (`globalThis.__lifecycleion_is_dev__`) that is set once at startup and injected into every rendered HTML page so the client always matches the server.
-
-> This prototype lives in unirend today and will migrate to `lifecycleion/dev-mode` once published. When that happens, `src/lib/dev-mode.ts` becomes a one-liner re-export.
-
-<!-- TODO: link to lifecycleion dev-mode docs once published -->
+Unirend integrates with the **Lifecycleion dev mode convention** via the [`lifecycleion`](https://github.com/keverw/lifecycleion/blob/master/docs/dev-mode.md) package — a single runtime global (`globalThis.__lifecycleion_is_dev__`) set once at startup and injected into every rendered HTML page so client and server always agree. Import `initDevMode()`, `getDevMode()`, and `overrideDevMode()` from `lifecycleion/dev-mode` directly in your server files or app code.
 
 <!-- toc -->
 
@@ -38,7 +34,7 @@ They are orthogonal. You could run `serveSSRDev` (live reload via Vite) with `in
 Sets the global **once** (first-wins). If already set, subsequent calls are no-ops.
 
 ```typescript
-import { initDevMode } from 'unirend/server';
+import { initDevMode } from 'lifecycleion/dev-mode';
 
 // Explicit
 initDevMode(true);
@@ -68,7 +64,7 @@ initDevMode({ detect: 'both' });
 Reads the global. Returns `false` if not yet initialized — never throws. Safe to call anywhere (server or client).
 
 ```typescript
-import { getDevMode } from 'unirend/server';
+import { getDevMode } from 'lifecycleion/dev-mode';
 
 if (getDevMode()) {
   console.log('Running in development mode');
@@ -80,7 +76,7 @@ if (getDevMode()) {
 Bypasses first-wins — always overwrites the global.
 
 ```typescript
-import { overrideDevMode } from 'unirend/server';
+import { overrideDevMode } from 'lifecycleion/dev-mode';
 
 overrideDevMode(true); // force dev
 overrideDevMode(false); // force prod
@@ -109,7 +105,7 @@ Since `overrideDevMode()` is primarily a testing/debugging tool and not somethin
 Call `initDevMode()` **before** starting your server or running SSG:
 
 ```typescript
-import { initDevMode } from 'unirend/server';
+import { initDevMode } from 'lifecycleion/dev-mode';
 
 initDevMode({ detect: 'cmd' });
 
@@ -138,7 +134,7 @@ This runs before any `<script type="module">` (Vite bundles), so the global is a
 If you need dev mode in a pure SPA, call `initDevMode()` in your entry file before `mountApp()`:
 
 ```typescript
-import { initDevMode } from 'unirend/server';
+import { initDevMode } from 'lifecycleion/dev-mode';
 import { mountApp } from 'unirend';
 import { routes } from './routes';
 

@@ -185,7 +185,7 @@ import type {
   APIResponseEnvelope,
 } from '../api-envelope/api-envelope-types';
 import type { SSRHelpers } from '../types';
-import { getDevMode } from '../dev-mode';
+import { getDevMode } from 'lifecycleion/dev-mode';
 import {
   createBaseHeaders,
   createErrorResponse,
