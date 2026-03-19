@@ -1,5 +1,6 @@
 import React from 'react';
 import { UnirendHead } from '../internal/UnirendHead';
+import { getDevMode } from '../dev-mode';
 
 export interface DefaultApplicationErrorProps {
   /** The error object */
@@ -17,7 +18,7 @@ export default function DefaultApplicationError({
     error instanceof Error ? error.message : 'An unexpected error occurred';
   const errorStack = error instanceof Error ? error.stack : undefined;
 
-  const isDevelopment = process.env.NODE_ENV === 'development';
+  const isDevelopment = getDevMode();
 
   return (
     <div

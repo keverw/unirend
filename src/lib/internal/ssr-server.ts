@@ -62,6 +62,7 @@ import {
   registerMultipartPlugin,
 } from './file-upload-validation-helpers';
 import { resolveFastifyLoggerConfig } from './logger-config-utils';
+import { getDevMode } from '../dev-mode';
 
 type SSRServerConfigDev = {
   mode: 'development';
@@ -516,10 +517,9 @@ export class SSRServer extends BaseServer {
         );
       }
 
-      // Decorate requests with environment info (per-request)
-      const mode: 'development' | 'production' = this.serverMode;
-      const isDevelopment = mode === 'development';
-      this.fastifyInstance.decorateRequest('isDevelopment', isDevelopment);
+      // Decorate requests with environment info
+      // The default here is just a shape hint for Fastify; the live value is set per-request in the onRequest hook below.
+      this.fastifyInstance.decorateRequest('isDevelopment', false);
       this.fastifyInstance.decorateRequest('serverLabel', this.serverLabel);
 
       // Decorate requests with activeSSRApp for multi-app routing (defaults to '__default__')
@@ -531,8 +531,17 @@ export class SSRServer extends BaseServer {
         this.APIResponseHelpersClass,
       );
 
-      // Initialize request context for all requests
+      // Initialize request context and set live dev-mode flag for all requests
       this.fastifyInstance.addHook('onRequest', async (request, _reply) => {
+        // Set live dev-mode flag (read fresh each request so overrideDevMode() takes effect)
+        (
+          request as FastifyRequest & {
+            isDevelopment?: boolean;
+            requestContext?: Record<string, unknown>;
+          }
+        ).isDevelopment = getDevMode();
+
+        // Initialize per-request context object (always present, never undefined)
         (
           request as FastifyRequest & {
             requestContext?: Record<string, unknown>;
@@ -1013,7 +1022,6 @@ export class SSRServer extends BaseServer {
             fastifyRequest: request,
             controlledReply: createControlledReply(reply),
             handlers: this.pageDataHandlers,
-            isDevelopment: this.serverMode === 'development',
           } as const;
 
           try {
@@ -1042,7 +1050,9 @@ export class SSRServer extends BaseServer {
               fetchRequest,
               unirendContext: {
                 renderMode: 'ssr',
-                isDevelopment: this.serverMode === 'development',
+                isDevelopment: (
+                  request as FastifyRequest & { isDevelopment: boolean }
+                ).isDevelopment,
                 fetchRequest: fetchRequest,
                 frontendAppConfig,
                 requestContextRevision: '0-0', // Initial revision for this request
@@ -1497,7 +1507,7 @@ export class SSRServer extends BaseServer {
     const pluginOptions = {
       serverType: 'ssr' as const,
       mode: this.serverMode,
-      isDevelopment: this.serverMode === 'development',
+      isDevelopment: getDevMode(),
       apiEndpoints: this.sharedOptions.apiEndpoints,
     };
 
@@ -1665,13 +1675,14 @@ export class SSRServer extends BaseServer {
     }
 
     // Process the template based on mode and app-specific container ID
-    const isDevelopment = this.serverMode === 'development';
+    const isDevServer = this.serverMode === 'development';
     const containerID = appConfig.containerID || 'root';
 
     const processResult = await processTemplate(
       rawHTMLTemplate,
       'ssr', // mode
-      isDevelopment,
+      getDevMode(), // runtime behavior (dev comment)
+      isDevServer, // asset serving strategy (CDN rewriting)
       containerID,
     );
 
@@ -1709,13 +1720,11 @@ export class SSRServer extends BaseServer {
       return;
     }
 
-    const isDevelopment = this.serverMode === 'development';
-
     // If an error is caught, let Vite fix the stack trace so it maps back
     // to your actual source code.
     const vite = 'viteDevServer' in appConfig ? appConfig.viteDevServer : null;
 
-    if (vite && error instanceof Error && isDevelopment) {
+    if (vite && error instanceof Error && this.serverMode === 'development') {
       vite.ssrFixStacktrace(error);
     }
 
@@ -1763,7 +1772,9 @@ export class SSRServer extends BaseServer {
     error: Error,
     appConfig: SSRInternalAppConfig,
   ): Promise<string> {
-    const isDevelopment = this.serverMode === 'development';
+    const isDevelopment = (
+      request as FastifyRequest & { isDevelopment: boolean }
+    ).isDevelopment;
 
     try {
       // Use app-specific error handler if provided
@@ -1797,7 +1808,9 @@ export class SSRServer extends BaseServer {
     reply: FastifyReply,
     error: Error,
   ): Promise<void> {
-    const isDevelopment = this.serverMode === 'development';
+    const isDevelopment = (
+      request as FastifyRequest & { isDevelopment: boolean }
+    ).isDevelopment;
 
     const { isPageData } = classifyRequest(
       request.url,

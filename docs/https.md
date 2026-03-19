@@ -263,20 +263,23 @@ The `RedirectServer` handles basic HTTP→HTTPS redirects with optional domain v
 
 ## Development vs Production
 
-Use `process.env.NODE_ENV` to determine whether to run in development or production mode. Set this environment variable when starting your server:
+Use `initDevMode()` to set development mode at startup. Pass a CLI argument (`dev` or `prod`) or use environment detection:
 
 ```bash
 # Development
-NODE_ENV=development bun run server.ts
+bun run server.ts dev
 
 # Production
-NODE_ENV=production bun run server.ts
+bun run server.ts prod
 ```
 
 **Basic Setup:**
 
 ```typescript
-const isDev = process.env.NODE_ENV === 'development';
+import { initDevMode, getDevMode } from 'unirend/server';
+
+initDevMode({ detect: 'cmd' }); // reads "dev" / "prod" from process.argv
+const isDev = getDevMode();
 
 if (isDev) {
   // Development: serveSSRDev with hot reloading
@@ -301,11 +304,18 @@ if (isDev) {
 Add domain validation plugin for additional security and canonical domain enforcement:
 
 ```typescript
-import { serveRedirect, serveSSRProd, serveSSRDev } from 'unirend/server';
+import {
+  serveRedirect,
+  serveSSRProd,
+  serveSSRDev,
+  initDevMode,
+  getDevMode,
+} from 'unirend/server';
 import { domainValidation } from 'unirend/plugins';
 
 async function main() {
-  const isDev = process.env.NODE_ENV === 'development';
+  initDevMode({ detect: 'cmd' });
+  const isDev = getDevMode();
 
   if (isDev) {
     // Development: serveSSRDev with hot reloading

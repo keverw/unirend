@@ -52,6 +52,7 @@ export type CustomStatusCodeHandler = (
   statusCode: number,
   responseData: unknown,
   config: PageDataLoaderConfig,
+  isDevelopment: boolean,
 ) => PageResponseEnvelope | null | undefined;
 
 /**
@@ -71,21 +72,6 @@ export interface PageDataLoaderConfig {
   pageDataEndpoint?: string;
   /** Default error constants for common scenarios */
   errorDefaults: ErrorDefaults;
-  /**
-   * Whether the application is running in development mode
-   *
-   * When true, detailed error information (like stack traces and error details)
-   * may be included in error responses. When false, only user-friendly messages
-   * are included for security. On the server, if provided, the SSR server's
-   * isDevelopment flag is authoritative; otherwise this value is used. As a
-   * final fallback, NODE_ENV === "development" is treated as development.
-   *
-   * Defaults to checking process.env.NODE_ENV === "development" if not explicitly set,
-   * but you should explicitly set this for better Bun/Deno compatibility and clarity.
-   *
-   * @default process.env.NODE_ENV === "development"
-   */
-  isDevelopment?: boolean;
   /** Connection error messages for network failures */
   connectionErrorMessages?: {
     /** Message shown on server when API connection fails */
@@ -188,11 +174,12 @@ export interface PageDataLoaderConfig {
    * ```typescript
    * statusCodeHandlers: {
    *   // Wildcard handler for all status codes (checked after specific handlers)
-   *   '*': (statusCode, responseData, config) => {
+   *   '*': (statusCode, responseData, config, isDevelopment) => {
    *     // Log all errors in development
-   *     if (config.isDevelopment) {
+   *     if (isDevelopment) {
    *       console.error(`Unhandled status code ${statusCode}:`, responseData);
    *     }
+   *
    *     // Return null to fall back to default handling
    *     return null;
    *   },
@@ -245,7 +232,6 @@ export interface PageDataLoaderConfig {
 export type LocalPageDataLoaderConfig = Pick<
   PageDataLoaderConfig,
   | 'errorDefaults'
-  | 'isDevelopment'
   | 'connectionErrorMessages'
   | 'timeoutMS'
   | 'generateFallbackRequestID'

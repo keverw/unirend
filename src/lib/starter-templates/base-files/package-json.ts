@@ -6,6 +6,7 @@ import sortPackageJson from 'sort-package-json';
 import { PKG_VERSION } from '../../../version';
 
 const defaultScripts = {
+  test: 'bun test',
   lint: 'eslint .',
   'lint:fix': 'eslint . --fix',
   format: 'prettier --write "**/*.{js,jsx,ts,tsx,json,css,md}"',

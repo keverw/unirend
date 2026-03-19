@@ -639,7 +639,7 @@ When mounting on the client with `mountApp()`, the context is populated from inj
 ```typescript
 {
   renderMode: "client", // Default for pure SPA (SSR/SSG override this during hydration)
-  isDevelopment: Boolean(import.meta.env.DEV), // Vite sets this: true in dev, false in production build
+  isDevelopment: getDevMode(), // Reads from globalThis.__lifecycleion_is_dev__ (injected by server, see docs/dev-mode.md)
   fetchRequest: undefined, // No server request on client
   frontendAppConfig: window.__FRONTEND_APP_CONFIG__, // Read from injected global (SSR/SSG) or undefined (pure SPA)
 }

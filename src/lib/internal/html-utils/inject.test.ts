@@ -86,7 +86,9 @@ describe('injectContent', () => {
     const expected =
       '<!DOCTYPE html><html><head>' +
       `<title>React App</title>` +
-      '</head><body><div id="root" data-reactroot=""><div>React Content</div></div></body></html>';
+      '</head><body><div id="root" data-reactroot=""><div>React Content</div></div>' +
+      '<script>globalThis.__lifecycleion_is_dev__=false;</script>' +
+      '</body></html>';
 
     expect(injectContent(template, headContent, bodyContent)).toBe(expected);
   });

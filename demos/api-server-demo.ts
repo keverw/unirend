@@ -5,7 +5,7 @@
  * using the serveAPI function from unirend.
  */
 
-import { serveAPI } from '../src/server';
+import { serveAPI, initDevMode } from '../src/server';
 import type { APIServerOptions, APIServer } from '../src/server';
 // import { APIResponseHelpers } from "../src/api-envelope"; // Uncomment when using custom handlers
 
@@ -13,10 +13,11 @@ import type { APIServerOptions, APIServer } from '../src/server';
 let server: APIServer | null = null;
 
 async function runAPIServerDemo() {
+  initDevMode({ detect: 'cmd', strict: true });
+
   console.log('🚀 Starting API Server Demo...\n');
 
   const options: APIServerOptions = {
-    isDevelopment: true,
     plugins: [
       // Plugin demonstrating full wildcard support
       async (fastify, pluginOptions) => {

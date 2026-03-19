@@ -188,7 +188,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssr', false);
+    const result = await processTemplate(html, 'ssr', false, false);
 
     expect(result.success).toBe(true);
 
@@ -208,7 +208,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssr', true);
+    const result = await processTemplate(html, 'ssr', true, true);
 
     expect(result.success).toBe(true);
 
@@ -231,7 +231,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssr', false);
+    const result = await processTemplate(html, 'ssr', false, false);
 
     expect(result.success).toBe(true);
 
@@ -259,7 +259,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssg', false);
+    const result = await processTemplate(html, 'ssg', false, false);
 
     expect(result.success).toBe(true);
 
@@ -284,7 +284,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssr', false);
+    const result = await processTemplate(html, 'ssr', false, false);
 
     expect(result.success).toBe(true);
 
@@ -311,7 +311,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssg', false);
+    const result = await processTemplate(html, 'ssg', false, false);
 
     expect(result.success).toBe(true);
 
@@ -337,7 +337,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssr', false);
+    const result = await processTemplate(html, 'ssr', false, false);
 
     expect(result.success).toBe(true);
 
@@ -364,7 +364,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssr', false);
+    const result = await processTemplate(html, 'ssr', false, false);
 
     expect(result.success).toBe(true);
 
@@ -401,7 +401,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssg', false);
+    const result = await processTemplate(html, 'ssg', false, false);
 
     expect(result.success).toBe(true);
 
@@ -436,7 +436,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssr', false);
+    const result = await processTemplate(html, 'ssr', false, false);
 
     expect(result.success).toBe(true);
 
@@ -463,7 +463,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssg', false);
+    const result = await processTemplate(html, 'ssg', false, false);
 
     expect(result.success).toBe(true);
 
@@ -479,7 +479,7 @@ describe('processTemplate', () => {
     const html =
       '<html><head><!--ss-head--></head><body><!--ss-outlet--></body></html>';
 
-    const result = await processTemplate(html, 'ssr', false);
+    const result = await processTemplate(html, 'ssr', false, false);
 
     expect(result.success).toBe(true);
 
@@ -505,7 +505,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssr', false);
+    const result = await processTemplate(html, 'ssr', false, false);
 
     expect(result.success).toBe(true);
 
@@ -537,7 +537,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssg', false);
+    const result = await processTemplate(html, 'ssg', false, false);
 
     expect(result.success).toBe(true);
 
@@ -579,7 +579,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssr', true);
+    const result = await processTemplate(html, 'ssr', true, true);
 
     expect(result.success).toBe(true);
 
@@ -629,7 +629,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssr', false);
+    const result = await processTemplate(html, 'ssr', false, false);
 
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -654,7 +654,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssg', false);
+    const result = await processTemplate(html, 'ssg', false, false);
 
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -676,7 +676,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssr', false);
+    const result = await processTemplate(html, 'ssr', false, false);
 
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -699,7 +699,7 @@ describe('processTemplate', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssg', false);
+    const result = await processTemplate(html, 'ssg', false, false);
 
     expect(result.success).toBe(true);
 
@@ -733,7 +733,7 @@ describe('processTemplate with custom containerID', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssg', false, 'my-app');
+    const result = await processTemplate(html, 'ssg', false, false, 'my-app');
 
     expect(result.success).toBe(true);
 
@@ -768,7 +768,7 @@ describe('processTemplate with CDN placeholder injection', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssr', false, 'root');
+    const result = await processTemplate(html, 'ssr', false, false, 'root');
 
     expect(result.success).toBe(true);
 
@@ -798,7 +798,7 @@ describe('processTemplate with CDN placeholder injection', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssr', false, 'root');
+    const result = await processTemplate(html, 'ssr', false, false, 'root');
 
     expect(result.success).toBe(true);
 
@@ -828,7 +828,7 @@ describe('processTemplate with CDN placeholder injection', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssr', false, 'root');
+    const result = await processTemplate(html, 'ssr', false, false, 'root');
 
     expect(result.success).toBe(true);
 
@@ -854,7 +854,7 @@ describe('processTemplate with CDN placeholder injection', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssr', false, 'root');
+    const result = await processTemplate(html, 'ssr', false, false, 'root');
 
     expect(result.success).toBe(true);
 
@@ -883,7 +883,7 @@ describe('processTemplate with CDN placeholder injection', () => {
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssr', false, 'root');
+    const result = await processTemplate(html, 'ssr', false, false, 'root');
 
     expect(result.success).toBe(true);
 
@@ -920,7 +920,7 @@ describe('processTemplate with CDN placeholder injection', () => {
     `;
 
     // isDevelopment = true
-    const result = await processTemplate(html, 'ssr', true, 'root');
+    const result = await processTemplate(html, 'ssr', true, true, 'root');
 
     expect(result.success).toBe(true);
 

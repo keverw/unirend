@@ -15,6 +15,8 @@ import {
   serveSSRProd,
   PluginHostInstance,
   processFileUpload,
+  initDevMode,
+  getDevMode,
 } from '../../src/server';
 import type {
   ServerPlugin,
@@ -973,21 +975,15 @@ const SHARED_PLUGINS = [
   apiRoutesPlugin,
 ];
 
-// Parse command line arguments
-const mode = process.argv[2];
-
-if (!mode || !['dev', 'prod'].includes(mode)) {
-  console.error('Usage: bun run serve.ts <dev|prod>');
-  console.error('  dev  - Start development server with Vite HMR');
-  console.error('  prod - Start production server with built assets');
-  process.exit(1);
-}
+// Initialize dev mode from CLI args (strict: throws if neither "dev" nor "prod" provided)
+initDevMode({ detect: 'cmd', strict: true });
+const isDev = getDevMode();
 
 async function startServer() {
-  console.log(`🚀 Starting SSR server in ${mode} mode...`);
+  console.log(`🚀 Starting SSR server in ${isDev ? 'dev' : 'prod'} mode...`);
 
   try {
-    if (mode === 'dev') {
+    if (isDev) {
       // Development mode - uses source files with Vite HMR
       const server = serveSSRDev(
         {
@@ -1069,7 +1065,7 @@ async function startServer() {
       currentServer = server;
       await server.listen(PORT, HOST);
       logServerStartup('dev', HOST, PORT);
-    } else if (mode === 'prod') {
+    } else {
       // Production mode - uses built assets
       const server = serveSSRProd('./build', {
         // Production options
@@ -1103,7 +1099,10 @@ async function startServer() {
       logServerStartup('prod', HOST, PORT);
     }
   } catch (error) {
-    console.error(`❌ Failed to start ${mode} server:`, error);
+    console.error(
+      `❌ Failed to start ${isDev ? 'dev' : 'prod'} server:`,
+      error,
+    );
     process.exit(1);
   }
 }

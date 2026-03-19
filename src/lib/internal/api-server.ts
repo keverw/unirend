@@ -36,6 +36,7 @@ import {
 } from './file-upload-validation-helpers';
 import { APIResponseHelpers } from '../../api-envelope';
 import type { WebSocket, WebSocketServer } from 'ws';
+import { getDevMode } from '../dev-mode';
 
 /**
  * API Server class for creating JSON API servers with plugin support
@@ -63,7 +64,6 @@ export class APIServer extends BaseServer {
     super();
 
     this.options = {
-      isDevelopment: false,
       ...options,
     };
 
@@ -198,12 +198,9 @@ export class APIServer extends BaseServer {
         );
       }
 
-      // Decorate requests with environment info (per-request)
-      const mode: 'development' | 'production' = this.options.isDevelopment
-        ? 'development'
-        : 'production';
-      const isDevelopment = mode === 'development';
-      this.fastifyInstance.decorateRequest('isDevelopment', isDevelopment);
+      // Decorate requests with environment info
+      // The default here is just a shape hint for Fastify; the live value is set per-request in the onRequest hook below.
+      this.fastifyInstance.decorateRequest('isDevelopment', false);
       this.fastifyInstance.decorateRequest('serverLabel', this.serverLabel);
 
       // Decorate requests with APIResponseHelpersClass for file upload helpers
@@ -212,9 +209,13 @@ export class APIServer extends BaseServer {
         this.APIResponseHelpersClass,
       );
 
-      // Initialize request context for all requests (consistent with SSRServer)
+      // Initialize request context and set live dev-mode flag for all requests (consistent with SSRServer)
       // This runs early before plugins, so requestContext is always at least an empty object
       this.fastifyInstance.addHook('onRequest', async (request, _reply) => {
+        // Set live dev-mode flag (read fresh each request so overrideDevMode() takes effect)
+        (request as { isDevelopment?: boolean }).isDevelopment = getDevMode();
+
+        // Initialize per-request context object (always present, never undefined)
         (
           request as { requestContext?: Record<string, unknown> }
         ).requestContext = {};
@@ -499,7 +500,8 @@ export class APIServer extends BaseServer {
         this.normalizedPageDataEndpoint,
       );
 
-      const isDev = this.options.isDevelopment ?? false;
+      const isDev = (request as unknown as { isDevelopment: boolean })
+        .isDevelopment;
 
       // Use custom error handler if provided
       if (this.options.errorHandler) {
@@ -704,10 +706,12 @@ export class APIServer extends BaseServer {
     );
 
     // Plugin options to pass to each plugin
+    const isDevelopment = getDevMode();
+
     const pluginOptions: PluginOptions = {
       serverType: 'api',
-      mode: this.options.isDevelopment ? 'development' : 'production',
-      isDevelopment: this.options.isDevelopment ?? false,
+      mode: isDevelopment ? 'development' : 'production',
+      isDevelopment,
       apiEndpoints: this.options.apiEndpoints,
     };
 

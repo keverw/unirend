@@ -208,6 +208,7 @@ export function applyCustomHTTPStatusHandler(
   responseData: unknown,
   config: PageDataLoaderConfig,
   ssrOnlyData: Record<string, unknown>,
+  isDevelopment: boolean,
 ): PageResponseEnvelope | null {
   // Check for specific status code handlers first (number or string)
   const specificHandler =
@@ -223,7 +224,12 @@ export function applyCustomHTTPStatusHandler(
     return null;
   }
 
-  const customResult = statusHandler(statusCode, responseData, config);
+  const customResult = statusHandler(
+    statusCode,
+    responseData,
+    config,
+    isDevelopment,
+  );
 
   if (customResult === null || customResult === undefined) {
     if (DEBUG_PAGE_LOADER) {

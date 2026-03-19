@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { StaticWebServer } from './static-web-server';
 import { StaticContentCache } from './static-content-cache';
+import { overrideDevMode } from '../dev-mode';
 import fs from 'fs';
 import getPort from 'get-port';
 
@@ -733,9 +734,10 @@ describe('StaticWebServer', () => {
       }
     });
 
-    it('includes an escaped stack trace in the 500 page when isDevelopment is true', async () => {
+    it('includes an escaped stack trace in the 500 page when dev mode is enabled', async () => {
       setReadFileMock({ 'page-map.json': VALID_PAGE_MAP });
-      server = makeServer({ isDevelopment: true, logErrors: false });
+      overrideDevMode(true);
+      server = makeServer({ logErrors: false });
       await server.listen(testPort);
 
       const cache = (server as unknown as { cache: StaticContentCache }).cache;
@@ -753,6 +755,7 @@ describe('StaticWebServer', () => {
         expect(body).toContain('Dev mode error');
       } finally {
         (cache as unknown as { handleRequest: unknown }).handleRequest = orig;
+        overrideDevMode(false); // reset dev mode for subsequent tests
       }
     });
 

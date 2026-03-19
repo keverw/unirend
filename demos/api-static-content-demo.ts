@@ -14,7 +14,7 @@
  */
 
 import path from 'path';
-import { serveAPI } from '../src/server';
+import { serveAPI, initDevMode } from '../src/server';
 import type { APIServerOptions, APIServer } from '../src/server';
 import { staticContent } from '../src/plugins';
 import { APIResponseHelpers } from '../src/api-envelope';
@@ -122,11 +122,12 @@ function generate404Html(url: string): string {
 let server: APIServer | null = null;
 
 async function runStaticContentDemo() {
+  initDevMode({ detect: 'cmd', strict: true });
+
   console.log('🚀 Starting API Server with Static Content Demo...\n');
   console.log(`📁 Serving static files from: ${staticFilesDir}\n`);
 
   const options: APIServerOptions = {
-    isDevelopment: true,
     // apiEndpoints.apiEndpointPrefix defaults to '/api'
     // Split handlers use this to detect API vs web requests
     plugins: [

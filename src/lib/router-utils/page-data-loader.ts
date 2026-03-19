@@ -35,7 +35,6 @@
  *   pageDataEndpoint: '/api/v1/page_data', // Custom page data endpoint (default: '/api/v1/page_data')
  *   loginURL: '/auth/login',
  *   returnToParam: 'redirect_to', // Custom query param name for login redirects
- *   isDevelopment: true, // Explicitly set for Bun/Deno compatibility
  *   timeoutMS: 15000, // Custom timeout in milliseconds (default: 10000)
  *   generateFallbackRequestID: (context) => `myapp_${context}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
  *   connectionErrorMessages: {
@@ -186,6 +185,7 @@ import type {
   APIResponseEnvelope,
 } from '../api-envelope/api-envelope-types';
 import type { SSRHelpers } from '../types';
+import { getDevMode } from '../dev-mode';
 import {
   createBaseHeaders,
   createErrorResponse,
@@ -218,11 +218,6 @@ import {
 
 /**
  * Creates a default configuration object with sensible defaults
- *
- * Note: isDevelopment is not set by default, so it will fall back to
- * checking process.env.NODE_ENV !== "production". For better Bun/Deno
- * compatibility, consider explicitly setting isDevelopment when creating
- * your config.
  */
 export function createDefaultPageDataLoaderConfig(
   APIBaseURL: string,
@@ -290,15 +285,16 @@ async function pageDataLoader({
   config,
 }: PageDataLoaderOptions): Promise<PageResponseEnvelope> {
   const isServer = typeof window === 'undefined';
-  // Unified development mode flag derived in order of precedence:
-  // 1) SSRHelpers (authoritative on server), 2) config.isDevelopment, 3) NODE_ENV
   const SSRHelpers = (request as unknown as { SSRHelpers?: SSRHelpers })
     .SSRHelpers;
 
+  // Per-request isDevelopment: prefer the Fastify request decoration (set by
+  // the onRequest hook), fall back to the global for client-side loaders.
   const isDevelopment =
-    (isServer ? SSRHelpers?.isDevelopment : undefined) ??
-    config.isDevelopment ??
-    process.env.NODE_ENV === 'development';
+    (isServer
+      ? (SSRHelpers?.fastifyRequest as { isDevelopment?: boolean } | undefined)
+          ?.isDevelopment
+      : undefined) ?? getDevMode();
 
   // Get the API server URL (already normalized)
   const APIBaseURL = config.APIBaseURL;
@@ -517,7 +513,7 @@ async function pageDataLoader({
         config.timeoutMS ?? DEFAULT_TIMEOUT_MS,
       );
 
-      const result = await processAPIResponse(response, config);
+      const result = await processAPIResponse(response, config, isDevelopment);
 
       // Merge ssr_request_context from API response back into SSR request (SSR-only)
       if (
@@ -571,7 +567,7 @@ async function pageDataLoader({
         config.timeoutMS ?? DEFAULT_TIMEOUT_MS,
       );
 
-      return processAPIResponse(response, config);
+      return processAPIResponse(response, config, isDevelopment);
     }
   } catch (error) {
     if (DEBUG_PAGE_LOADER) {
@@ -737,11 +733,7 @@ async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
     //   the HTTP-backed loader path (API fetch) so cookies can be forwarded via __ssOnly.
     return decorateWithSsrOnlyData(result as PageResponseEnvelope, {});
   } catch (internalError) {
-    // Determine dev mode (mirrors pageDataLoader)
-    const isDevelopment =
-      typeof process !== 'undefined'
-        ? process.env.NODE_ENV === 'development'
-        : config.isDevelopment === true;
+    const isDevelopment = getDevMode();
 
     // Identify timeout errors produced by the race above
     const isHandlerTimeout =

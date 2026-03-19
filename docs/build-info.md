@@ -93,11 +93,10 @@ Use the loader to safely read the generated TypeScript module (`current-build-in
 
 ```ts
 import { loadBuildInfo } from 'unirend/build-info';
-
-const isProduction = process.env.NODE_ENV === 'production';
+import { getDevMode } from 'unirend/server';
 
 const { info } = await loadBuildInfo(
-  isProduction,
+  !getDevMode(), // true in production
   () => import('./current-build-info.ts'),
 );
 
@@ -135,7 +134,7 @@ import { AppResponseHelpers } from './helpers/AppResponseHelpers';
 async function main() {
   // Load once at startup
   const buildResult = await loadBuildInfo(
-    process.env.NODE_ENV === 'production',
+    !getDevMode(), // true in production
     () => import('./current-build-info.ts'),
   );
 

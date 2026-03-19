@@ -4,6 +4,7 @@ import { createBrowserRouter } from 'react-router';
 import type { RouteObject } from 'react-router';
 import { wrapRouter } from './internal/WrapAppElement';
 import type { UnirendContextValue } from './internal/UnirendContext';
+import { getDevMode } from './dev-mode';
 
 /**
  * Result type indicating how the app was mounted
@@ -111,7 +112,7 @@ export function mountApp(
   // This default is only used for pure client-side SPA scenarios (no SSR/SSG)
   const unirendContext: UnirendContextValue = {
     renderMode: 'client', // Pure client-side (server overrides to "ssr" or "ssg" during server rendering)
-    isDevelopment: Boolean(import.meta.env.DEV), // Vite sets this: true in dev, false in production build
+    isDevelopment: getDevMode(), // false if global not set (safe production default)
     fetchRequest: undefined, // No server request on client
     frontendAppConfig, // Config injected by server (SSR/SSG) or undefined (pure SPA)
     requestContextRevision: '0-0', // Initial revision for client-side

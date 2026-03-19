@@ -1,4 +1,5 @@
 import { TAB_SPACES } from '../consts';
+import { getDevMode } from '../../dev-mode';
 
 // Prettify all head tags: each tag (<title>, <meta>, <link>, etc.) on its own line, indented
 export function prettifyHeadTags(head: string, indent = TAB_SPACES): string {
@@ -34,6 +35,11 @@ export function injectContent(
 
   // Build context scripts array
   const contextScripts: string[] = [];
+
+  // Inject dev mode global so the client always matches the server
+  contextScripts.push(
+    `<script>globalThis.__lifecycleion_is_dev__=${String(getDevMode())};</script>`,
+  );
 
   // Add __FRONTEND_REQUEST_CONTEXT__ if provided (even if empty object)
   if (context?.request !== undefined) {

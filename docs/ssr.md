@@ -22,6 +22,7 @@
 - [Create SSR Server](#create-ssr-server)
   - [Create Production SSR Server](#create-production-ssr-server)
   - [Create Development SSR Server](#create-development-ssr-server)
+  - [Asset Serving vs Runtime Behavior](#asset-serving-vs-runtime-behavior)
   - [Organization Suggestion](#organization-suggestion)
   - [SSRServer Class](#ssrserver-class)
   - [Construction](#construction)
@@ -689,6 +690,23 @@ Notes:
 - HMR is available. Stack traces are mapped for easier debugging.
 - `frontendAppConfig` is injected in both development and production when using `serveSSRDev` or `serveSSRProd`.
 - **HTML Template**: The `template` path in development mode is fully customizable. Specify any HTML file path (e.g., `./index.html`, `./src/app.html`, etc.). The template is read fresh on each request and transformed by Vite for HMR support.
+
+### Asset Serving vs Runtime Behavior
+
+`serveSSRDev` and `serveSSRProd` control the **asset serving strategy** — how your code is loaded and served:
+
+- **`serveSSRDev`**: Uses Vite middleware with HMR. Source files are transformed on-the-fly, and changes are hot-reloaded in the browser. Server entry is loaded via `vite.ssrLoadModule`.
+- **`serveSSRProd`**: Serves pre-built assets from disk. Server entry is loaded from the Vite server manifest. Fingerprinted assets (e.g. `main.CTpDmzGw.js`) get immutable cache headers, other static files do not.
+
+This is separate from **runtime behavior** controlled by `initDevMode()` / `getDevMode()`:
+
+- **Runtime behavior**: Whether detailed error messages (stack traces, error details) are shown to users, using debug logging, etc.
+
+These two concepts are **orthogonal**. You _in theory_ could run `serveSSRProd` (serving built assets) while `initDevMode(true)` shows verbose errors — useful for staging environments. Or run `serveSSRDev` (with HMR) while treating errors as production-safe.
+
+In practice, you'll usually pair them: dev asset serving with dev runtime, and prod asset serving with prod runtime. But the separation lets you mix and match when needed.
+
+See [Dev Mode](./dev-mode.md) for full details on `initDevMode()` and `getDevMode()`.
 
 ### Organization Suggestion
 

@@ -45,8 +45,6 @@ export interface SSRHelpers {
   /** Controlled reply to allow handlers to set headers/cookies in short-circuit path */
   controlledReply: ControlledReply;
   handlers: DataLoaderServerHandlerHelpers;
-  /** True when SSR server is running in development mode */
-  isDevelopment?: boolean;
 }
 
 /**
@@ -1188,12 +1186,6 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    */
   notFoundHandler?: APINotFoundHandlerFn<M> | SplitNotFoundHandler<M>;
   /**
-   * Whether to run in development mode
-   * Enables error stack traces in default error page HTML
-   * @default false
-   */
-  isDevelopment?: boolean;
-  /**
    * Whether to automatically log errors via the server logger
    * When enabled, all errors are logged before custom error handlers run
    * Useful for debugging custom error pages that can't show stack traces
@@ -1296,13 +1288,6 @@ export interface StaticWebServerOptions {
    * @example "./build/client"
    */
   buildDir: string;
-
-  /**
-   * Whether to run in development mode
-   * Enables error stack traces in default error page HTML
-   * @default false
-   */
-  isDevelopment?: boolean;
 
   /**
    * Whether to automatically log errors via the server logger
@@ -1535,6 +1520,12 @@ export interface SSGOptions {
    * If not provided, no page map file is written.
    */
   pageMapOutput?: string;
+  /**
+   * Whether to treat 5xx server error status codes as generation errors.
+   * Defaults to true. Set to false if you intentionally want to generate
+   * and write custom error pages (e.g., a 500.html) without failing the build.
+   */
+  failOn5xx?: boolean;
 }
 
 /**

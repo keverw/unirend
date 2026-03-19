@@ -157,9 +157,13 @@ export async function processTemplate(
   html: string,
   mode: RenderType,
   isDevelopment: boolean,
+  isDevServer: boolean,
   containerID = 'root',
 ): Promise<ProcessTemplateResult> {
   try {
+    // isDevelopment = runtime behavior (dev comment injection)
+    // isDevServer  = asset serving strategy (CDN rewriting skipped for Vite dev server)
+
     // Dynamic import to prevent bundling in client builds
     const cheerio = await import('cheerio');
     const $ = cheerio.load(html);
@@ -179,14 +183,14 @@ export async function processTemplate(
       }
     });
 
-    // Replace absolute asset URLs with CDN injection placeholder (production only)
-    // In development mode, Vite needs the original URLs to serve files from its dev server
+    // Replace absolute asset URLs with CDN injection placeholder (production builds only)
+    // In dev server mode, Vite needs the original URLs to serve files from its dev server
     // This allows runtime CDN URL override per request in production
     // The placeholder will be replaced in injectContent() for SSR with:
     // 1. request.CDNBaseURL (if set), or
     // 2. appConfig.CDNBaseURL (if set), or
     // 3. empty string (preserves original /assets/... paths)
-    if (!isDevelopment) {
+    if (!isDevServer) {
       $('script[src]').each((_, el) => {
         const src = $(el).attr('src');
         if (src && src.startsWith('/')) {

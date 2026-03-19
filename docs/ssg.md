@@ -6,6 +6,7 @@
   - [Request Context Injection](#request-context-injection)
   - [Template Caching Info](#template-caching-info)
   - [Page Map Output](#page-map-output)
+  - [5xx Error Handling](#5xx-error-handling)
 - [Serving Static Files](#serving-static-files)
   - [URL Mismatch Considerations](#url-mismatch-considerations)
   - [404 Pages Suggestion](#404-pages-suggestion)
@@ -37,10 +38,12 @@ Create a script to generate your static pages using the `generateSSG` function:
 > 💡 **Tip:** For a more comprehensive generation example script with detailed error handling and reporting, see [`demos/ssg/generate.ts`](../demos/ssg/generate.ts) in this repository.
 
 ```typescript
-import { generateSSG } from 'unirend/server';
+import { generateSSG, initDevMode } from 'unirend/server';
 import path from 'path';
 
 async function main() {
+  initDevMode({ detect: 'cmd', strict: true });
+
   // Point to the build directory (contains both client/ and server/ subdirectories)
   const buildDir = path.resolve(__dirname, 'build');
 
@@ -87,6 +90,8 @@ async function main() {
     // serverFolderName: "server",
     // Optional: logger (defaults to silent)
     // logger: SSGConsoleLogger,
+    // Optional: treat 5xx status codes as generation errors (default: true)
+    // failOn5xx: true,
   };
 
   const result = await generateSSG(buildDir, pages, options);
@@ -180,6 +185,43 @@ const result = await generateSSG(buildDir, pages, options);
 
 The page map is consumed automatically by `StaticWebServer` (Node.js) and `unirend/php-static-server` (PHP/shared hosting) — both default to `'page-map.json'` relative to `buildDir`. See [Using StaticWebServer (Recommended)](#using-staticwebserver-recommended) and [PHP Shared Hosting](#php-shared-hosting-unirendphp-static-server) below.
 
+### 5xx Error Handling
+
+By default, if a page renders and returns a 5xx status code, the generator treats it as a generation error. The file is still written to disk so you can inspect it, and `outputPath` is included in the error report entry so you know where to find it.
+
+**Debugging unexpected 5xx pages:** Call `initDevMode(true)` before running `generateSSG()` so components using `useIsDevelopment()` can render extra debug output in the generated file:
+
+```typescript
+import { generateSSG, initDevMode } from 'unirend/server';
+
+initDevMode(true); // Enable dev mode — components can render richer error output
+
+const result = await generateSSG(buildDir, pages, {
+  failOn5xx: true, // Default — marks 5xx pages as errors in the report
+});
+```
+
+**Custom 500 error page:** The recommended approach is to generate a plain SSG page styled as a generic error — no need to render with a 5xx status at all. Since the static server never injects the actual error into the page, a static design is all you need:
+
+```typescript
+const pages = [
+  // Generate a generic 500 error page as a normal SSG page
+  { type: 'ssg', path: '/500', filename: '500.html' },
+];
+```
+
+`StaticWebServer` will automatically detect and serve `500.html` with the correct status code (see [Error Pages](#error-pages)).
+
+If you do have a legitimate reason to render a page that returns a 5xx status and want it written without being flagged as an error, set `failOn5xx: false`:
+
+```typescript
+const options = {
+  failOn5xx: false, // Write 5xx pages without treating them as errors
+};
+```
+
+> **Note:** 404 pages are always written regardless of this setting — they have their own `not_found` status in the report and are a normal part of SSG workflows.
+
 ## Serving Static Files
 
 After generating your SSG files, you'll need to configure your web server to serve clean URLs without `.html` extensions. Here are common approaches:
@@ -255,8 +297,9 @@ await server.reload();
 
 - `notFoundPage` - Custom 404 page path (relative to buildDir)
 - `errorPage` - Custom 500 error page path (relative to buildDir)
-- `isDevelopment` - Enable development mode with stack traces in built-in default 500 page only (default: `false`)
 - `logErrors` - Automatically log errors to server logger (default: `true`)
+
+Dev mode (stack traces in built-in 500 page, not custom error page provided) is controlled via the lifecycleion dev mode convention — call `initDevMode()` at startup. See [Dev Mode](./dev-mode.md).
 
 **Caching:**
 
@@ -294,7 +337,7 @@ const server = new StaticWebServer({
 
 **Note:** If error pages are generated as SSG pages (e.g., `{ type: 'ssg', path: '/404', filename: '404.html' }`), they are automatically **removed from normal routes** to prevent serving them with 200 status codes. Error pages are only accessible via error handlers with proper 404/500 status codes.
 
-**Development mode:** The built-in default 500 error page shows stack traces when `isDevelopment: true`. Custom error page files are served as-is (static HTML).
+**Development mode:** The built-in default 500 error page shows stack traces when dev mode is enabled (via `initDevMode()`). Custom error page files are served as-is (static HTML).
 
 ##### Single Assets
 
@@ -338,10 +381,13 @@ Files with content hashes (e.g., `app-abc123.js`) automatically get long cache h
 Enable development mode to see error stack traces in the built-in default 500 error page:
 
 ```typescript
+import { initDevMode } from 'unirend/server';
+
+initDevMode(true); // Shows stack traces in built-in 500 error page
+
 const server = new StaticWebServer({
   buildDir: './build/client',
   pageMapPath: 'page-map.json',
-  isDevelopment: true, // Shows stack traces in built-in 500 error page
   logErrors: true, // Automatically log errors (default: true)
 });
 ```

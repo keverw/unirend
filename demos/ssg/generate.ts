@@ -1,4 +1,4 @@
-import { generateSSG, SSGConsoleLogger } from '../../src/server';
+import { generateSSG, SSGConsoleLogger, initDevMode } from '../../src/server';
 import path from 'path';
 
 /**
@@ -16,6 +16,8 @@ import path from 'path';
  */
 
 async function main() {
+  initDevMode({ detect: 'cmd', strict: true });
+
   console.log('🚀 Starting SSG generation...');
 
   // Define the build directory (where Vite outputs the built files)

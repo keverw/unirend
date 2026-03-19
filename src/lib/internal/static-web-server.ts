@@ -275,7 +275,6 @@ export class StaticWebServer {
 
     // 6. Create APIServer with web-only configuration
     this.server = new APIServer({
-      isDevelopment: this.options.isDevelopment ?? false,
       logErrors: this.options.logErrors, // Pass through error logging config
       serverLabel: this.options.serverLabel ?? 'Static', // Pass through server label with static default
       plugins,

@@ -10,7 +10,10 @@
  */
 
 import { StaticWebServer } from '../../src/lib/internal/static-web-server';
-import { UnirendLifecycleionLoggerAdaptor } from '../../src/server';
+import {
+  UnirendLifecycleionLoggerAdaptor,
+  initDevMode,
+} from '../../src/server';
 import {
   LifecycleManager,
   BaseComponent,
@@ -20,6 +23,8 @@ import path from 'path';
 
 const BUILD_DIR = path.resolve(__dirname, 'build/client');
 const PORT = 3000;
+
+initDevMode({ detect: 'cmd', strict: true });
 
 // ─── Logger ──────────────────────────────────────────────────────────────────
 

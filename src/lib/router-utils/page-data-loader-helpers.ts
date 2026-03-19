@@ -95,6 +95,7 @@ export function processRedirectResponse(
 export async function processAPIResponse(
   response: Response,
   config: PageDataLoaderConfig,
+  isDevelopment: boolean,
 ): Promise<PageResponseEnvelope> {
   const isServer = typeof window === 'undefined'; // detecting here again instead of passing to promote tree-shaking
   const statusCode = response.status;
@@ -163,6 +164,7 @@ export async function processAPIResponse(
       responseData,
       config,
       ssrOnlyData,
+      isDevelopment,
     );
 
     if (customHandlerResult) {
@@ -313,10 +315,7 @@ export async function processAPIResponse(
                   requestID,
                   apiResponse.meta,
                   // If in development mode, include error details
-                  (config.isDevelopment ??
-                    process.env.NODE_ENV === 'development')
-                    ? apiResponse.error?.details
-                    : undefined,
+                  isDevelopment ? apiResponse.error?.details : undefined,
                 ),
                 ssrOnlyData,
               );
@@ -332,10 +331,7 @@ export async function processAPIResponse(
                   requestID,
                   apiResponse.meta,
                   // If in development mode, include error details
-                  (config.isDevelopment ??
-                    process.env.NODE_ENV === 'development')
-                    ? apiResponse.error?.details
-                    : undefined,
+                  isDevelopment ? apiResponse.error?.details : undefined,
                 ),
                 ssrOnlyData,
               );
@@ -352,10 +348,7 @@ export async function processAPIResponse(
                   requestID,
                   apiResponse.meta,
                   // If in development mode, include error details
-                  (config.isDevelopment ??
-                    process.env.NODE_ENV === 'development')
-                    ? apiResponse.error?.details
-                    : undefined,
+                  isDevelopment ? apiResponse.error?.details : undefined,
                 ),
                 ssrOnlyData,
               );
@@ -423,6 +416,7 @@ export async function processAPIResponse(
       null,
       config,
       ssrOnlyData,
+      isDevelopment,
     );
 
     if (customHandlerResult) {

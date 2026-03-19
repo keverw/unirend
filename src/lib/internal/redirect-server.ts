@@ -209,7 +209,6 @@ export class RedirectServer {
       apiEndpoints: {
         apiEndpointPrefix: false, // Disable API handling
       },
-      isDevelopment: false,
       logErrors: options.logErrors, // Pass through error logging config
       serverLabel: options.serverLabel ?? 'Redirect', // Pass through server label with redirect default
       logging: options.logging, // Pass through logging config

@@ -19,6 +19,7 @@ import {
 } from './internal/fs-utils';
 import { processTemplate } from './internal/html-utils/format';
 import { injectContent } from './internal/html-utils/inject';
+import { getDevMode } from './dev-mode';
 
 /**
  * Normalize a URL path: collapse multiple slashes, remove trailing slash (except root),
@@ -101,6 +102,8 @@ export async function generateSSG(
   let successCount = 0;
   let errorCount = 0;
   let notFoundCount = 0;
+
+  const isDevelopment: boolean = getDevMode();
 
   // Set up logger - default to silent, opt-in for logging
   const logger: SSGLogger = options.logger || {
@@ -230,7 +233,8 @@ export async function generateSSG(
     const processResult = await processTemplate(
       templateContent,
       'ssg', // mode
-      false, // isDevelopment = false for SSG
+      getDevMode(), // runtime behavior (dev comment)
+      false, // isDevServer — SSG always uses built assets
       options.containerID,
     );
 
@@ -340,7 +344,7 @@ export async function generateSSG(
         fetchRequest: fetchRequest,
         unirendContext: {
           renderMode: 'ssg',
-          isDevelopment: false, // SSG is always production (build-time)
+          isDevelopment,
           fetchRequest: fetchRequest, // Fetch request available in SSG
           frontendAppConfig,
           requestContextRevision: '0-0', // Initial revision for this page
@@ -395,6 +399,25 @@ export async function generateSSG(
             });
 
             logger.warn(`⚠ Generated 404 page ${page.filename} (${timeMS}ms)`);
+          } else if (
+            renderResult.statusCode !== undefined &&
+            renderResult.statusCode >= 500 &&
+            (options.failOn5xx ?? true)
+          ) {
+            // 5xx status code — treat as error by default unless failOn5xx is disabled
+            errorCount++;
+
+            pageReports.push({
+              page,
+              status: 'error',
+              outputPath, // File was written — inspect it to debug the render error
+              errorDetails: `Server error status code: ${renderResult.statusCode}`,
+              timeMS,
+            });
+
+            logger.error(
+              `✗ Server error (${renderResult.statusCode}) on page ${page.path}: ${page.filename} — file written for inspection (${timeMS}ms)`,
+            );
           } else {
             // Normal success
             successCount++;

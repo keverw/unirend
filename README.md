@@ -233,14 +233,18 @@ Add these scripts to your `package.json` for both SSG and SSR workflows. We reco
 ```json
 {
   "scripts": {
-    "dev": "vite", // SPA-only dev mode (no SSR)
+    "dev-spa": "vite", // SPA-only dev mode (no SSR)
     "build:client": "vite build --outDir build/client --base=/ --ssrManifest",
 
     // For SSG:
     "build:server:ssg": "vite build --outDir build/server --ssr src/entry-ssg.tsx",
     "build:ssg": "bun run build:client && bun run build:server:ssg",
-    "generate": "bun run generate.ts",
-    "build-and-generate": "bun run build:ssg && bun run generate",
+    "generate:dev": "bun run generate.ts dev", // Generate with dev mode enabled
+    "generate:prod": "bun run generate.ts prod", // Generate for production
+    "build-and-generate": "bun run build:ssg && bun run generate:prod",
+    "serve:dev": "bun run serve.ts dev", // Static server with dev runtime (verbose errors)
+    "serve:prod": "bun run serve.ts prod", // Static server with prod runtime
+    "build-and-serve": "bun run build-and-generate && bun run serve:prod",
 
     // For SSR:
     "build:server:ssr": "vite build --outDir build/server --ssr src/entry-server.tsx",

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { UnirendHead } from '../../../../src/client';
+import { getDevMode } from '../../../../src/lib/dev-mode';
 
 interface CustomApplicationErrorProps {
   error: unknown;
@@ -14,7 +15,7 @@ export default function CustomApplicationError({
 }: CustomApplicationErrorProps) {
   const errorMessage =
     error instanceof Error ? error.message : 'An unexpected error occurred';
-  const isDevelopment = process.env.NODE_ENV === 'development';
+  const isDevelopment = getDevMode();
 
   // Scroll to top when error component mounts
   useEffect(() => {
