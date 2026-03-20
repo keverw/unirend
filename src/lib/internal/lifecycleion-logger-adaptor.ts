@@ -1,3 +1,9 @@
+/**
+ * Lifecycleion logger adapter for Unirend servers (SSR/API/Static).
+ *
+ * For the SSG generator version, see {@link ./ssg-lifecycleion-logger}.
+ */
+
 import type { Logger, LoggerService, LogOptions } from 'lifecycleion/logger';
 import { isPlainObject } from 'lifecycleion/is-plain-object';
 import type { UnirendLoggerObject } from '../types';

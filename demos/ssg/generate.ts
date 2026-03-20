@@ -1,5 +1,6 @@
 import { initDevMode } from 'lifecycleion/dev-mode';
-import { generateSSG, SSGConsoleLogger } from '../../src/server';
+import { Logger, ConsoleSink } from 'lifecycleion/logger';
+import { generateSSG, SSGLifecycleionLogger } from '../../src/server';
 import path from 'path';
 
 /**
@@ -12,14 +13,27 @@ import path from 'path';
  * vite build --outDir build/client --base=/ --ssrManifest
  * vite build --outDir build/server --ssr src/entry-ssg.tsx
  *
+ * Note: Use different output directories for client and server (e.g., build/client and
+ * build/server). Reusing the same output directory for both can cause files to overwrite each other.
+ *
  * This generates both the client build (with regular and SSR manifests) and the server build
  * that unirend uses to automatically locate your server entry file.
+ *
+ * Template Caching: Unirend caches the processed HTML template in .unirend-ssg.json within
+ * your client build directory. Vite clears this on each build (build.emptyOutDir: true),
+ * ensuring fresh template processing. If you've disabled emptyOutDir in your Vite config,
+ * the cache will persist between builds. While this improves performance, make sure to
+ * rebuild when you change your HTML template or app configuration.
  */
 
-async function main() {
-  initDevMode({ detect: 'cmd', strict: true });
+initDevMode({ detect: 'cmd', strict: true });
 
-  console.log('🚀 Starting SSG generation...');
+const logger = new Logger({
+  sinks: [new ConsoleSink({ colors: true, timestamps: true })],
+});
+
+async function main() {
+  logger.info('🚀 Starting SSG generation...');
 
   // Define the build directory (where Vite outputs the built files)
   const buildDir = path.resolve(__dirname, 'build');
@@ -85,14 +99,15 @@ async function main() {
     // Generate page map for StaticWebServer (maps URLs to files)
     pageMapOutput: 'page-map.json', // Written to build/client/page-map.json
 
-    // Logging options (silent by default):
-    logger: SSGConsoleLogger, // Use built-in console logger with prefixes
-    // logger: undefined, // Silent mode (default)
+    logger: SSGLifecycleionLogger(logger), // service name defaults to 'SSG'
+    // logger: SSGLifecycleionLogger(logger, 'my-site-generator'), // Custom service name
+    // logger: SSGConsoleLogger, // import { SSGConsoleLogger } from 'unirend/server' — simpler alternative, no Lifecycleion needed, prefixes each line with [SSG Info] / [SSG Warn] / [SSG Error]
     // logger: {
     //   info: (msg: string) => console.log(`[Custom] ${msg}`),
     //   warn: (msg: string) => console.warn(`[Custom] ${msg}`),
     //   error: (msg: string) => console.error(`[Custom] ${msg}`),
     // }, // Custom logger with your own prefixes
+    // logger: undefined, // Silent mode (default)
   };
 
   try {
@@ -100,58 +115,82 @@ async function main() {
     const result = await generateSSG(buildDir, pages, options);
 
     if (result.fatalError) {
-      console.error('❌ Fatal error during SSG generation:');
-      console.error(result.fatalError.message);
-      process.exit(1);
+      logger.error('Fatal error during SSG generation: {{error}}', {
+        params: { error: result.fatalError.message },
+        exitCode: 1,
+      });
+
+      return;
     }
 
     if (result.pagesReport) {
       const { pagesReport } = result;
 
-      console.log('✅ SSG generation completed!');
-      console.log(`📊 Summary:`);
-      console.log(`  • Total pages: ${pagesReport.totalPages}`);
-      console.log(`  • Successful: ${pagesReport.successCount}`);
-      console.log(`  • Errors: ${pagesReport.errorCount}`);
-      console.log(`  • Not found: ${pagesReport.notFoundCount}`);
-      console.log(`  • Total time: ${pagesReport.totalTimeMS}ms`);
-      console.log(`  • Build dir: ${pagesReport.buildDir}`);
+      logger.success('✅ SSG generation completed!');
+
+      logger.info(
+        '📊 Summary:\n  • Total pages: {{total}}\n  • Successful: {{success}}\n  • Errors: {{errors}}\n  • Not found: {{notFound}}\n  • Total time: {{time}}ms\n  • Build dir: {{dir}}',
+        {
+          params: {
+            total: pagesReport.totalPages,
+            success: pagesReport.successCount,
+            errors: pagesReport.errorCount,
+            notFound: pagesReport.notFoundCount,
+            time: pagesReport.totalTimeMS,
+            dir: pagesReport.buildDir,
+          },
+        },
+      );
 
       // Log individual page results
-      console.log('\n📄 Page Results:');
-      pagesReport.pages.forEach((page) => {
-        const status =
-          page.status === 'success'
-            ? '✅'
-            : page.status === 'error'
-              ? '❌'
-              : '⚠️';
+      logger.info('📄 Page Results:');
+
+      for (const page of pagesReport.pages) {
         const pageInfo =
           page.page.type === 'ssg'
             ? `${page.page.path} → ${page.page.filename}`
             : `SPA → ${page.page.filename}`;
-        console.log(`  ${status} ${pageInfo} (${page.timeMS}ms)`);
 
-        if (page.status === 'error' && page.errorDetails) {
-          console.log(`      Error: ${page.errorDetails}`);
+        if (page.status === 'success') {
+          logger.success('  ✅ {{pageInfo}} ({{time}}ms)', {
+            params: { pageInfo, time: page.timeMS },
+          });
+        } else if (page.status === 'error') {
+          logger.error(
+            page.errorDetails
+              ? '  ❌ {{pageInfo}} ({{time}}ms)\n      Error: {{error}}'
+              : '  ❌ {{pageInfo}} ({{time}}ms)',
+            {
+              params: { pageInfo, time: page.timeMS, error: page.errorDetails },
+            },
+          );
+        } else {
+          logger.warn('  ⚠️ {{pageInfo}} ({{time}}ms)', {
+            params: { pageInfo, time: page.timeMS },
+          });
         }
 
         if (page.outputPath) {
-          console.log(`      Output: ${page.outputPath}`);
+          logger.info('      Output: {{path}}', {
+            params: { path: page.outputPath },
+          });
         }
-      });
+      }
     }
 
-    console.log('\n🎉 Static site generation complete!');
+    logger.success('🎉 Static site generation complete!');
   } catch (error) {
-    console.error('❌ Unexpected error during SSG generation:');
-    console.error(error);
-    process.exit(1);
+    logger.error('Unexpected error during SSG generation: {{error}}', {
+      params: { error },
+      exitCode: 1,
+    });
   }
 }
 
 // Run the script
 main().catch((error) => {
-  console.error('❌ Script failed:', error);
-  process.exit(1);
+  logger.error('Script failed: {{error}}', {
+    params: { error },
+    exitCode: 1,
+  });
 });

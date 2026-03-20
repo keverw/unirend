@@ -86,6 +86,7 @@ export { StaticWebServer } from './lib/internal/static-web-server';
 
 // Lifecycleion logger adaptor
 export { UnirendLifecycleionLoggerAdaptor } from './lib/internal/lifecycleion-logger-adaptor';
+export { SSGLifecycleionLogger } from './lib/internal/ssg-lifecycleion-logger';
 export type { LifecycleionLogContextOptions } from './lib/internal/lifecycleion-logger-adaptor';
 
 // File upload helpers

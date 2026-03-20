@@ -7,6 +7,10 @@
   - [Template Caching Info](#template-caching-info)
   - [Page Map Output](#page-map-output)
   - [5xx Error Handling](#5xx-error-handling)
+  - [Logging](#logging)
+    - [Built-in Console Logger](#built-in-console-logger)
+    - [Lifecycleion Logger](#lifecycleion-logger)
+    - [Custom Logger](#custom-logger)
 - [Serving Static Files](#serving-static-files)
   - [URL Mismatch Considerations](#url-mismatch-considerations)
   - [404 Pages Suggestion](#404-pages-suggestion)
@@ -91,6 +95,7 @@ async function main() {
     // serverFolderName: "server",
     // Optional: logger (defaults to silent)
     // logger: SSGConsoleLogger,
+    // logger: SSGLifecycleionLogger(logger), // pipe to your app's Lifecycleion logger
     // Optional: treat 5xx status codes as generation errors (default: true)
     // failOn5xx: true,
   };
@@ -223,6 +228,53 @@ const options = {
 ```
 
 > **Note:** 404 pages are always written regardless of this setting — they have their own `not_found` status in the report and are a normal part of SSG workflows.
+
+### Logging
+
+By default the SSG generator is silent. Pass a `logger` in options to see generation output.
+
+#### Built-in Console Logger
+
+Zero setup, prefixes every line with `[SSG Info]` / `[SSG Warn]` / `[SSG Error]`:
+
+```typescript
+import { generateSSG, SSGConsoleLogger } from 'unirend/server';
+
+const result = await generateSSG(buildDir, pages, {
+  logger: SSGConsoleLogger,
+});
+```
+
+#### Lifecycleion Logger
+
+Pipe SSG output into your app's existing Lifecycleion logger using `SSGLifecycleionLogger`. Pass an optional service name (defaults to `'SSG'`):
+
+```typescript
+import { generateSSG, SSGLifecycleionLogger } from 'unirend/server';
+import { Logger } from 'lifecycleion';
+
+const logger = new Logger({ sinks: [...] });
+
+const result = await generateSSG(buildDir, pages, {
+  logger: SSGLifecycleionLogger(logger),
+  // Custom service name:
+  // logger: SSGLifecycleionLogger(logger, 'my-site-generator'),
+});
+```
+
+#### Custom Logger
+
+Implement the `SSGLogger` interface directly:
+
+```typescript
+import type { SSGLogger } from 'unirend/server';
+
+const myLogger: SSGLogger = {
+  info: (msg) => mySystem.log('info', msg),
+  warn: (msg) => mySystem.log('warn', msg),
+  error: (msg) => mySystem.log('error', msg),
+};
+```
 
 ## Serving Static Files
 
