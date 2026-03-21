@@ -227,7 +227,7 @@ export class SSRServer extends BaseServer {
    *   template: './src/marketing/index.html',
    *   viteConfig: './vite.marketing.config.ts'
    * }, {
-   *   frontendAppConfig: { apiUrl: 'http://localhost:3002' }
+   *   frontendAppConfig: { api_endpoint: 'http://localhost:3002' }
    * });
    *
    * await server.listen(3000);
@@ -290,7 +290,7 @@ export class SSRServer extends BaseServer {
    *
    * // Same parameters as above - easy to copy/paste
    * server.registerProdApp('marketing', './build-marketing', {
-   *   frontendAppConfig: { apiUrl: 'https://marketing.example.com' }
+   *   frontendAppConfig: { api_endpoint: 'https://marketing.example.com' }
    * });
    *
    * await server.listen(3000);

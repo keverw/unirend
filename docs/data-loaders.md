@@ -112,7 +112,7 @@ Notes:
 
 Tip:
 
-- If your API base URL differs between server and client (e.g., internal vs public URLs), configure `APIBaseURL` dynamically. Since data loaders run outside the React component tree and don't have access to hooks, access `window.__FRONTEND_APP_CONFIG__` directly at module level on the client, with a server-side fallback (e.g., environment variable) for SSR. See the [Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern) for the complete pattern with examples.
+- If your API base URL differs between server and client (e.g., internal vs public URLs), configure `APIBaseURL` dynamically. Since data loaders run outside the React component tree and don't have access to hooks, access `window.__FRONTEND_APP_CONFIG__` directly at module level on the client, with a server-side fallback (e.g., environment variable) for SSR. See the [Frontend App Config Pattern](../README.md#frontend-app-config-pattern) for the complete pattern with examples.
 
 Configuration (HTTP‑based Loader):
 

@@ -67,7 +67,7 @@ Repo auto‑init: The CLI sets up a repository structure that supports multiple 
     - [1. Create Server Entry Point](#1-create-server-entry-point)
     - [2. Build Commands](#2-build-commands)
     - [3. Package.json Scripts](#3-packagejson-scripts)
-    - [4. Frontend App Config Pattern](#4-frontend-app-config-pattern)
+- [Frontend App Config Pattern](#frontend-app-config-pattern)
 - [SSG (Static Site Generation)](#ssg-static-site-generation)
 - [SSR (Server-Side Rendering)](#ssr-server-side-rendering)
 - [Demos](#demos)
@@ -269,7 +269,7 @@ Tip: When you plan to run the Bun-built bundle under Node, include the `--target
 
 Note: If you prefer a pure-Node toolchain without Bun, explore compiling or bundling your server with tools like `tsc`, `esbuild`, `rollup`, or `tsup`, or use vanilla JavaScript, then run with `node`. These alternatives are not covered in depth here to keep the setup simple and easy out of the box.
 
-#### 4. Frontend App Config Pattern
+## Frontend App Config Pattern
 
 You can inject configuration into your frontend app via the `frontendAppConfig` option. This works in both SSG and SSR modes (both dev and prod) when using `generateSSG`, `serveSSRDev`, or `serveSSRProd`.
 
@@ -282,10 +282,10 @@ function MyComponent() {
   const config = useFrontendAppConfig();
 
   // Access config values with fallbacks
-  const apiUrl = (config?.apiUrl as string) || "http://localhost:3001";
+  const api_endpoint = (config?.api_endpoint as string) || "http://localhost:3001";
   const environment = (config?.environment as string) || "development";
 
-  return <div>API: {apiUrl}</div>;
+  return <div>API: {api_endpoint}</div>;
 }
 ```
 
@@ -297,7 +297,7 @@ function MyComponent() {
 // On server (SSR): Use internal endpoints (same network/datacenter) when not using the Fetch/Short-Circuit functionality
 const APIBaseURL =
   typeof window !== 'undefined'
-    ? (window.__FRONTEND_APP_CONFIG__?.apiUrl as string) ||
+    ? (window.__FRONTEND_APP_CONFIG__?.api_endpoint as string) ||
       'http://localhost:3001'
     : process.env.INTERNAL_API_URL || 'http://api-internal:3001'; // Internal endpoint or service URL
 

@@ -91,7 +91,7 @@ async function main() {
     // serverEntry: "entry-server", // Use this if you want to share with SSR
     frontendAppConfig: {
       // Any config you want to inject into the frontend
-      apiUrl: 'https://api.example.com',
+      api_endpoint: 'https://api.example.com',
       version: '1.0.0',
     },
     containerID: 'root', // Default React root container

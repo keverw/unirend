@@ -84,7 +84,7 @@ async function main() {
   const options = {
     serverEntry: 'entry-ssg', // Default for SSG, customize if needed
     frontendAppConfig: {
-      apiUrl: 'https://api.example.com',
+      api_endpoint: 'https://api.example.com',
     },
     // Optional: Generate page map for StaticWebServer (see "Page Map Output" section)
     // pageMapOutput: 'page-map.json',

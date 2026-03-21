@@ -153,7 +153,7 @@ export function useIsServer(): boolean {
  *
  *   return (
  *     <div>
- *       <p>API URL: {config.apiUrl}</p>
+ *       <p>API URL: {config.api_endpoint}</p>
  *       <p>App Name: {config.appName}</p>
  *     </div>
  *   );

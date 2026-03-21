@@ -98,14 +98,14 @@ describe('injectContent', () => {
       '<!DOCTYPE html><html><head><!--ss-head--></head><body><!--ss-outlet--><!--context-scripts-injection-point--></body></html>';
     const headContent = '<title>Test</title>';
     const bodyContent = '<div>Content</div>';
-    const appConfig = { APIUrl: 'https://api.example.com', debug: true };
+    const appConfig = { api_endpoint: 'https://api.example.com', debug: true };
 
     const result = injectContent(template, headContent, bodyContent, {
       app: appConfig,
     });
 
     expect(result).toContain('window.__FRONTEND_APP_CONFIG__=');
-    expect(result).toContain('"APIUrl":"https://api.example.com"');
+    expect(result).toContain('"api_endpoint":"https://api.example.com"');
     expect(result).toContain('"debug":true');
   });
 
@@ -150,7 +150,7 @@ describe('injectContent', () => {
   it('should inject both app config and request context', () => {
     const template =
       '<!DOCTYPE html><html><body><!--ss-outlet--><!--context-scripts-injection-point--></body></html>';
-    const appConfig = { APIUrl: 'https://api.example.com' };
+    const appConfig = { api_endpoint: 'https://api.example.com' };
     const requestContext = { user: { id: '123' } };
 
     const result = injectContent(template, '', '', {
@@ -159,7 +159,7 @@ describe('injectContent', () => {
     });
 
     expect(result).toContain('window.__FRONTEND_APP_CONFIG__=');
-    expect(result).toContain('"APIUrl":"https://api.example.com"');
+    expect(result).toContain('"api_endpoint":"https://api.example.com"');
     expect(result).toContain('window.__FRONTEND_REQUEST_CONTEXT__=');
     expect(result).toContain('"user"');
   });
@@ -167,7 +167,7 @@ describe('injectContent', () => {
   it('should inject both scripts on separate lines when both provided', () => {
     const template =
       '<!DOCTYPE html><html><body><!--ss-outlet--><!--context-scripts-injection-point--></body></html>';
-    const appConfig = { APIUrl: 'https://api.example.com' };
+    const appConfig = { api_endpoint: 'https://api.example.com' };
     const requestContext = { user: { id: '123' } };
 
     const result = injectContent(template, '', '', {

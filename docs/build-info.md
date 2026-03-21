@@ -140,7 +140,7 @@ async function main() {
 
   const server = serveSSRProd('./build', {
     frontendAppConfig: {
-      apiUrl: process.env.API_URL || 'https://api.example.com',
+      api_endpoint: process.env.API_URL || 'https://api.example.com',
       environment: buildResult.isDefault ? 'development' : 'production',
       build: {
         version: buildResult.info.version,

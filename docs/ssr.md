@@ -545,7 +545,7 @@ async function main() {
     // Available via useFrontendAppConfig() hook on both server and client.
     // Tip: Keep this minimal and non-sensitive, it will be passed to the client.
     frontendAppConfig: {
-      apiUrl: process.env.API_URL || 'https://api.example.com',
+      api_endpoint: process.env.API_URL || 'https://api.example.com',
       environment: 'production',
       // Optionally include selected build info for troubleshooting/version display.
       // See docs/build-info.md for generating/loading and safe exposure.
@@ -596,7 +596,7 @@ main().catch(console.error);
 Notes:
 
 - `frontendAppConfig` is passed to the Unirend context and available via the `useFrontendAppConfig()` hook on both server (during rendering) and client (after HTML injection).
-- For accessing config in components vs non-component code (loaders), fallback patterns, and SPA-only dev mode considerations, see: [4. Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern).
+- For accessing config in components vs non-component code (loaders), fallback patterns, and SPA-only dev mode considerations, see: [Frontend App Config Pattern](../README.md#frontend-app-config-pattern).
 
 **Per-Request CDN Override Example:**
 
@@ -652,7 +652,7 @@ async function main() {
       // Available via useFrontendAppConfig() hook on both server and client.
       // Tip: Keep this minimal and non-sensitive, it will be passed to the client.
       frontendAppConfig: {
-        apiUrl: process.env.API_URL || 'http://localhost:3001',
+        api_endpoint: process.env.API_URL || 'http://localhost:3001',
         environment: 'development',
       },
 
@@ -746,7 +746,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
     - **Regular API requests** (`isPageData=false`): Standard API endpoints (e.g., `/api/v1/users`, `/api/v1/account/create`) for operations like creating accounts, updating data, etc. These return API Response Envelopes.
 - `frontendAppConfig?: Record<string, unknown>`
   - Optional configuration object available via the `useFrontendAppConfig()` hook on both server (during SSR/SSG rendering) and client (after HTML injection) in both dev and prod modes.
-  - Use for runtime configuration (API URLs, feature flags, build info, etc.). See [4. Frontend App Config Pattern](../README.md#4-frontend-app-config-pattern) for usage in components vs loaders.
+  - Use for runtime configuration (API URLs, feature flags, build info, etc.). See [Frontend App Config Pattern](../README.md#frontend-app-config-pattern) for usage in components vs loaders.
 - `containerID?: string`
   - Client container element ID (default `"root"`).
 - `ssrRenderTimeout?: number`
@@ -1327,13 +1327,13 @@ import { serveSSRProd } from 'unirend/server';
 
 // Create server with default app
 const server = serveSSRProd('./build-main', {
-  frontendAppConfig: { apiUrl: 'https://api.example.com' },
+  frontendAppConfig: { api_endpoint: 'https://api.example.com' },
 });
 
 // Register additional apps - each supports the same options as serveSSRProd()
 server.registerProdApp('marketing', './build-marketing', {
   // App-specific frontend config (injected into client)
-  frontendAppConfig: { apiUrl: 'https://marketing-api.example.com' },
+  frontendAppConfig: { api_endpoint: 'https://marketing-api.example.com' },
 
   // Optional: Custom server entry (default: "entry-server")
   // serverEntry: 'custom-entry',
@@ -1392,7 +1392,7 @@ const server = serveSSRDev(
     viteConfig: './vite.config.ts',
   },
   {
-    frontendAppConfig: { apiUrl: 'http://localhost:3001' },
+    frontendAppConfig: { api_endpoint: 'http://localhost:3001' },
   },
 );
 
@@ -1406,7 +1406,7 @@ server.registerDevApp(
   },
   {
     // App-specific frontend config (injected into client)
-    frontendAppConfig: { apiUrl: 'http://localhost:3002' },
+    frontendAppConfig: { api_endpoint: 'http://localhost:3002' },
 
     // Optional: Custom folder names (default: 'client' and 'server')
     // clientFolderName: 'dist-client',

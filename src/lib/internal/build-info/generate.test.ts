@@ -503,7 +503,7 @@ describe('GenerateBuildInfo', () => {
         buildNumber: 123,
         features: ['auth', 'payments', 'notifications'],
         config: {
-          apiURL: 'https://api.example.com',
+          api_endpoint: 'https://api.example.com',
           timeout: 5000,
         },
         buildMetadata: {
@@ -531,7 +531,7 @@ describe('GenerateBuildInfo', () => {
         'notifications',
       ]);
       expect(info.buildInfo.config).toEqual({
-        apiURL: 'https://api.example.com',
+        api_endpoint: 'https://api.example.com',
         timeout: 5000,
       });
 
@@ -541,7 +541,7 @@ describe('GenerateBuildInfo', () => {
       expect(sourceCode).toContain(
         'features: ["auth","payments","notifications"]',
       );
-      expect(sourceCode).toContain('"apiURL":"https://api.example.com"');
+      expect(sourceCode).toContain('"api_endpoint":"https://api.example.com"');
 
       // Check JSON generation
       const parsed = JSON.parse(jsonString) as Record<string, unknown>;
@@ -551,9 +551,9 @@ describe('GenerateBuildInfo', () => {
         'payments',
         'notifications',
       ]);
-      expect((parsed.config as Record<string, unknown>).apiURL as string).toBe(
-        'https://api.example.com',
-      );
+      expect(
+        (parsed.config as Record<string, unknown>).api_endpoint as string,
+      ).toBe('https://api.example.com');
     });
 
     it('should generate consistent timestamps across calls when using cached info', async () => {

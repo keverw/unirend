@@ -997,7 +997,7 @@ async function startServer() {
           plugins: SHARED_PLUGINS,
           frontendAppConfig: {
             // Example config that gets injected on the frontend html (SSG/SSR) - see the Frontend App Config Pattern section of the README
-            apiUrl: 'http://localhost:3001',
+            api_endpoint: 'http://localhost:3001',
             version: '1.0.0-dev',
             environment: 'development',
           },
@@ -1079,7 +1079,7 @@ async function startServer() {
         },
         frontendAppConfig: {
           // Example config that gets injected on the frontend html (SSG/SSR) - see the Frontend App Config Pattern section of the README
-          apiUrl: 'https://api.example.com',
+          api_endpoint: 'https://api.example.com',
           version: '1.0.0-prod',
           environment: 'production',
         },

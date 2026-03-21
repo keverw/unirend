@@ -614,7 +614,7 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    *
    * Keep this minimal and non-sensitive; it will be passed to the client.
    *
-   * See README section "4. Frontend App Config Pattern" for usage in components,
+   * See README section "Frontend App Config Pattern" for usage in components,
    * loaders, fallback patterns, and SPA-only dev mode considerations.
    */
   frontendAppConfig?: Record<string, unknown>;
@@ -1470,7 +1470,7 @@ export interface SSGOptions {
    *
    * Keep this minimal and non-sensitive; it will be passed to the client.
    *
-   * See README section "4. Frontend App Config Pattern" for usage in components,
+   * See README section "Frontend App Config Pattern" for usage in components,
    * loaders, fallback patterns, and SPA-only dev mode considerations.
    */
   frontendAppConfig?: Record<string, unknown>;

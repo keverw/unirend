@@ -350,7 +350,7 @@ async function main() {
       ],
 
       frontendAppConfig: {
-        apiUrl: 'https://api.example.com',
+        api_endpoint: 'https://api.example.com',
       },
     });
 

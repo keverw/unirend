@@ -157,7 +157,7 @@ function MyComponent() {
 
   return (
     <div>
-      <p>API URL: {config.apiUrl as string}</p>
+      <p>API URL: {config.api_endpoint as string}</p>
       <p>App Name: {config.appName as string}</p>
       <p>Feature Flags: {JSON.stringify(config.features)}</p>
     </div>
@@ -699,13 +699,14 @@ function APIClient() {
   const config = useFrontendAppConfig();
 
   // Access public API configuration
-  const apiUrl = (config?.apiUrl as string) || 'http://localhost:3000';
+  const api_endpoint =
+    (config?.api_endpoint as string) || 'http://localhost:3000';
   const cdnUrl = config?.cdnUrl as string;
   const appVersion = config?.version as string;
 
   return (
     <div>
-      <p>API Endpoint: {apiUrl}</p>
+      <p>API Endpoint: {api_endpoint}</p>
       <p>CDN: {cdnUrl || 'Not configured'}</p>
       <p>Version: {appVersion}</p>
     </div>
@@ -786,7 +787,7 @@ import type { UnirendRenderMode, RequestContextManager } from 'unirend/client';
 8. **Frontend app config best practices**:
    - **Safe to display**: Unlike other context values, `frontendAppConfig` is **safe to render directly** because it's identical on server and client (injected into HTML and read back)
    - **Immutable**: The config is frozen and cannot be modified, ensuring consistent behavior throughout the request lifecycle
-   - **Type assertions**: Use type assertions for better TypeScript support (e.g., `config?.apiUrl as string`)
+   - **Type assertions**: Use type assertions for better TypeScript support (e.g., `config?.api_endpoint as string`)
 
 ## Related Documentation
 
