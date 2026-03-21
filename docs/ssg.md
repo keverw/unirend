@@ -58,6 +58,18 @@ async function main() {
     { type: 'ssg', path: '/about', filename: 'about.html' },
     { type: 'ssg', path: '/contact', filename: 'contact.html' },
 
+    // Server-rendered SSG page with pre-seeded request context
+    // These values are available to components via useRequestContextValue() during render
+    // and are injected into the client HTML (available after hydration too)
+    {
+      type: 'ssg',
+      path: '/blog',
+      filename: 'blog.html',
+      requestContext: {
+        theme: 'light',
+      },
+    },
+
     // Client-rendered SPA pages with custom metadata
     {
       type: 'spa',
@@ -126,8 +138,9 @@ Both SSG and SPA pages support injecting request context data that will be avail
 
 **SSG Pages (Server-Rendered):**
 
-- Request context can be populated dynamically during the rendering process
-- Useful for injecting render-time metadata (e.g., page-specific generation timestamps, debug info, default theme, or other defaults)
+- Request context can be seeded before rendering via the `requestContext` property on the page definition — values are merged into `SSGHelpers.requestContext` before `render()` is called
+- Components can also populate or override context values dynamically during the rendering process
+- Useful for injecting page-specific defaults (e.g., theme, locale) that components can then read or further update during render
 
 **SPA Pages (Client-Rendered):**
 

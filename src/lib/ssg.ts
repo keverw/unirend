@@ -331,8 +331,9 @@ export async function generateSSG(
         : undefined;
 
       // Create SSGHelpers with requestContext that can be populated during render
+      // Seed with any requestContext provided on the page definition
       const SSGHelpers: SSGHelpers = {
-        requestContext: {},
+        requestContext: page.requestContext ? { ...page.requestContext } : {},
       };
 
       // Attach SSGHelpers to fetch request for access during rendering

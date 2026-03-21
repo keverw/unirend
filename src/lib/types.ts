@@ -1544,6 +1544,8 @@ export interface SSGPageType extends GeneratorPageBase {
   type: 'ssg';
   /** The URL path for the page (required for SSG) */
   path: string;
+  /** Optional request context to seed before rendering (merged into SSGHelpers.requestContext before render is called) */
+  requestContext?: Record<string, unknown>;
 }
 
 /**

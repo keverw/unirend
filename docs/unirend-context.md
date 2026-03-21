@@ -357,7 +357,7 @@ function DebugPanel() {
 
 **Build-Time (SSG):**
 
-- SSG pages: Components can populate context during the generation process
+- SSG pages: Context can be seeded before rendering via the `requestContext` property on the page definition, and components can also populate or override values during the generation process
 - SPA pages: Context can be manually provided in the page definition via the `requestContext` property
 - The context acts as a key-value store initially populated during page generation
 
