@@ -12,6 +12,7 @@ import {
   validateNoHandlersWhenAPIDisabled,
   buildFastifyHTTPSOptions,
   registerClientIPDecoration,
+  normalizeCDNBaseURL,
 } from './server-utils';
 import type { HTTPSOptions } from '../types';
 
@@ -1089,5 +1090,33 @@ describe('registerClientIPDecoration', () => {
 
     expect(handler(req, {})).rejects.toThrow('async lookup failed');
     expect((req as any).clientIP).toBe('1.2.3.4');
+  });
+});
+
+describe('normalizeCDNBaseURL', () => {
+  it('strips a trailing slash', () => {
+    expect(normalizeCDNBaseURL('https://cdn.example.com/')).toBe(
+      'https://cdn.example.com',
+    );
+  });
+
+  it('leaves a URL without a trailing slash unchanged', () => {
+    expect(normalizeCDNBaseURL('https://cdn.example.com')).toBe(
+      'https://cdn.example.com',
+    );
+  });
+
+  it('returns empty string for undefined', () => {
+    expect(normalizeCDNBaseURL(undefined)).toBe('');
+  });
+
+  it('returns empty string for empty string', () => {
+    expect(normalizeCDNBaseURL('')).toBe('');
+  });
+
+  it('strips only a single trailing slash (not double)', () => {
+    expect(normalizeCDNBaseURL('https://cdn.example.com//')).toBe(
+      'https://cdn.example.com/',
+    );
   });
 });

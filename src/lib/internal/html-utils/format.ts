@@ -206,19 +206,23 @@ export async function processTemplate(
       });
     }
 
-    // Collect all script tags
-    const scripts: string[] = [];
-    $('script').each((_, scriptElement) => {
-      scripts.push($.html(scriptElement));
+    // Collect head and body scripts separately so we can control insertion order.
+    // Head scripts (e.g. inline theme flash scripts) are re-inserted after the context
+    // placeholder, guaranteeing they can always read __FRONTEND_REQUEST_CONTEXT__.
+    const headScripts: string[] = [];
+
+    $('head script').each((_, el) => {
+      headScripts.push($.html(el));
     });
 
-    // Remove scripts from their original locations
-    $('script').remove();
+    const bodyScripts: string[] = [];
 
-    // Add placeholder for runtime injection of context scripts
-    // This will be replaced per-request in injectContent() with any needed scripts
-    // (e.g., __FRONTEND_REQUEST_CONTEXT__, __FRONTEND_APP_CONFIG__, etc.)
-    scripts.unshift('<!--context-scripts-injection-point-->');
+    $('body script').each((_, el) => {
+      bodyScripts.push($.html(el));
+    });
+
+    // Remove all scripts from their original locations
+    $('script').remove();
 
     // Track required markers during comment processing
     let hasHeadMarker = false;
@@ -229,7 +233,7 @@ export async function processTemplate(
     // AND validate that required markers are present
     $('*:not(script):not(style)')
       .contents()
-      .each((index: number, node: cheerio.Element) => {
+      .each((_index: number, node: cheerio.Element) => {
         if (node.type === 'comment') {
           const commentData = node.data?.trim() || '';
           const shouldKeep =
@@ -277,15 +281,28 @@ export async function processTemplate(
       };
     }
 
-    // Find the container element and append scripts AFTER it, not inside it
+    // Append context placeholder first, then user head scripts — so context globals
+    // are always available when user inline scripts run.
+    // Final order in <head>: ss-head content → static tags → context globals → user inline scripts.
+    // Must be added AFTER comment cleanup so the placeholder isn't stripped by the ss- filter.
+    $('head').append('\n<!--context-scripts-injection-point-->');
+
+    if (headScripts.length > 0) {
+      $('head').append('\n' + headScripts.join('\n'));
+    }
+
+    // Find the container element and append body scripts AFTER it, not inside it
     const rootElement = $(`#${containerID}`);
 
     if (rootElement.length > 0) {
-      // Append scripts after the root element
-      rootElement.after(scripts.join('\n'));
+      if (bodyScripts.length > 0) {
+        rootElement.after(bodyScripts.join('\n'));
+      }
     } else {
-      // Fallback: If no #root element is found, append scripts to the end of body
-      $('body').append(scripts.join('\n'));
+      // Fallback: If no #root element is found, append to the end of body
+      if (bodyScripts.length > 0) {
+        $('body').append(bodyScripts.join('\n'));
+      }
     }
 
     return {

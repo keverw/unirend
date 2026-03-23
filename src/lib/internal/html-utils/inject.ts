@@ -62,20 +62,37 @@ export function injectContent(
     );
   }
 
-  // Replace the placeholder with all context scripts (or remove if none)
+  // Normalize CDN base URL (strip trailing slash) so it's consistent everywhere
+  const normalizedCDN = CDNBaseURL
+    ? CDNBaseURL.endsWith('/')
+      ? CDNBaseURL.slice(0, -1)
+      : CDNBaseURL
+    : '';
+
+  // Always inject __CDN_BASE_URL__ — empty string when no CDN configured so client
+  // code can read it unconditionally without guarding against undefined
+  const safeCDNJSON = JSON.stringify(normalizedCDN).replace(/</g, '\\u003c');
+
+  contextScripts.push(
+    `<script>window.__CDN_BASE_URL__=${safeCDNJSON};</script>`,
+  );
+
+  // Replace the placeholder with all context scripts (or remove if none).
+  // Detect the placeholder's leading whitespace so injected scripts match indentation.
+  const indentMatch = result.match(
+    /^([ \t]*)<!--context-scripts-injection-point-->/m,
+  );
+
+  const indent = indentMatch ? indentMatch[1] : '';
   result = result.replace(
     '<!--context-scripts-injection-point-->',
-    contextScripts.join('\n'),
+    contextScripts.join('\n' + indent),
   );
 
   // Replace CDN injection placeholder with actual CDN URL or empty string
   // This allows runtime CDN URL override per request
-  if (CDNBaseURL) {
-    const baseURL = CDNBaseURL.endsWith('/')
-      ? CDNBaseURL.slice(0, -1)
-      : CDNBaseURL;
-
-    result = result.replace(/__CDN__INJECTION__POINT__/g, baseURL);
+  if (normalizedCDN) {
+    result = result.replace(/__CDN__INJECTION__POINT__/g, normalizedCDN);
   } else {
     // No CDN URL provided - remove placeholder to preserve original /assets/... paths
     result = result.replace(/__CDN__INJECTION__POINT__/g, '');

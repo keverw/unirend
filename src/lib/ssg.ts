@@ -18,6 +18,8 @@ import {
   writeHTMLFile,
 } from './internal/fs-utils';
 import { processTemplate } from './internal/html-utils/format';
+import { normalizeCDNBaseURL } from './internal/server-utils';
+import { deepFreeze } from './internal/utils';
 import { injectContent } from './internal/html-utils/inject';
 import { getDevMode } from 'lifecycleion/dev-mode';
 
@@ -327,7 +329,7 @@ export async function generateSSG(
 
       // Clone frontendAppConfig to ensure it stays immutable for the entire request
       const frontendAppConfig = options.frontendAppConfig
-        ? Object.freeze(structuredClone(options.frontendAppConfig))
+        ? deepFreeze(structuredClone(options.frontendAppConfig))
         : undefined;
 
       // Create SSGHelpers with requestContext that can be populated during render
@@ -348,6 +350,7 @@ export async function generateSSG(
           isDevelopment,
           fetchRequest: fetchRequest, // Fetch request available in SSG
           frontendAppConfig,
+          cdnBaseURL: normalizeCDNBaseURL(options.CDNBaseURL),
           requestContextRevision: '0-0', // Initial revision for this page
         },
       };
@@ -373,9 +376,10 @@ export async function generateSSG(
           headInject,
           renderResult.html,
           {
-            app: options.frontendAppConfig,
+            app: frontendAppConfig,
             request: requestContext,
           },
+          options.CDNBaseURL,
         );
 
         // Write the HTML file to the client directory (where assets are)
@@ -512,6 +516,7 @@ export async function generateSSG(
           app: options.frontendAppConfig, // Inject app config for SPA pages if provided from options
           request: page.requestContext, // Inject request context for SPA pages that was manually provided for the specific page
         },
+        options.CDNBaseURL,
       );
 
       // Write the HTML file to the client directory (where assets are)

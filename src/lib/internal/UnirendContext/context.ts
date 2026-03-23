@@ -216,6 +216,14 @@ export interface UnirendContextValue {
   frontendAppConfig?: Record<string, unknown>;
 
   /**
+   * CDN base URL for asset serving (e.g. 'https://cdn.example.com')
+   * Available on both server (from app config or per-request override) and client
+   * (read from window.__CDN_BASE_URL__ injected into HTML by the server)
+   * Empty string when no CDN is configured
+   */
+  cdnBaseURL?: string;
+
+  /**
    * Request context revision counter for reactivity
    * Format: `${timestamp}-${counter}` (e.g., "1729123456789-0", "1729123456789-1")
    * Increments whenever request context is modified to trigger re-renders

@@ -1475,6 +1475,16 @@ export interface SSGOptions {
    */
   frontendAppConfig?: Record<string, unknown>;
   /**
+   * CDN base URL for rewriting asset URLs in the generated HTML
+   * (e.g., `'https://cdn.example.com'`).
+   * Rewrites `<script src>` and `<link href>` absolute paths in the template to use the CDN.
+   * Also injected as `window.__CDN_BASE_URL__` and available via `useCDNBaseURL()` in components.
+   * Note: This is resolved at generation time (build-time), not per-request. The CDN URL is baked
+   * into the generated HTML files. Set via a build-time environment variable if needed
+   * (e.g., `CDNBaseURL: process.env.CDN_BASE_URL`).
+   */
+  CDNBaseURL?: string;
+  /**
    * ID of the container element (defaults to "root")
    * This element will be formatted inline to prevent hydration issues
    */

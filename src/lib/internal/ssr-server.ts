@@ -16,6 +16,7 @@ import type {
   AccessLogConfig,
 } from '../types';
 import { AccessLogPlugin } from './access-log-plugin';
+import { deepFreeze } from './utils';
 import {
   readHTMLFile,
   checkAndLoadManifest,
@@ -35,6 +36,7 @@ import {
   classifyRequest,
   normalizeAPIPrefix,
   normalizePageDataEndpoint,
+  normalizeCDNBaseURL,
   createDefaultAPIErrorResponse,
   createDefaultAPINotFoundResponse,
   createControlledReply,
@@ -1042,8 +1044,20 @@ export class SSRServer extends BaseServer {
           try {
             // Clone app-specific frontendAppConfig to ensure it stays immutable for the entire request
             const frontendAppConfig = appConfig.frontendAppConfig
-              ? Object.freeze(structuredClone(appConfig.frontendAppConfig))
+              ? deepFreeze(structuredClone(appConfig.frontendAppConfig))
               : undefined;
+
+            // Resolve CDN URL before render so it's available via useCDNBaseURL() in components
+            // Check for per-request CDN URL override, fallback to app config.
+            // Use ?? so that an explicit empty-string override (disabling CDN for this request)
+            // is honoured rather than silently falling through to the app-level default.
+            const CDNBaseURL =
+              (
+                request as FastifyRequest & {
+                  CDNBaseURL?: string;
+                }
+              ).CDNBaseURL ??
+              ('CDNBaseURL' in appConfig ? appConfig.CDNBaseURL : undefined);
 
             const renderResult = await render({
               type: 'ssr',
@@ -1055,6 +1069,7 @@ export class SSRServer extends BaseServer {
                 ).isDevelopment,
                 fetchRequest: fetchRequest,
                 frontendAppConfig,
+                cdnBaseURL: normalizeCDNBaseURL(CDNBaseURL),
                 requestContextRevision: '0-0', // Initial revision for this request
               },
             });
@@ -1110,16 +1125,6 @@ export class SSRServer extends BaseServer {
                     requestContext?: Record<string, unknown>;
                   }
                 ).requestContext || {};
-
-              // Use our utility to inject content with app-specific config
-              // Check for per-request CDN URL override, fallback to app config
-              const CDNBaseURL =
-                (
-                  request as FastifyRequest & {
-                    CDNBaseURL?: string;
-                  }
-                ).CDNBaseURL ||
-                ('CDNBaseURL' in appConfig ? appConfig.CDNBaseURL : undefined);
 
               const finalHTML = injectContent(
                 template,

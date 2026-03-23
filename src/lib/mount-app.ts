@@ -107,6 +107,16 @@ export function mountApp(
     ? structuredClone(globalConfig)
     : undefined;
 
+  const cdnBaseURL =
+    typeof window !== 'undefined'
+      ? ((
+          window as unknown as {
+            // eslint-disable-next-line @typescript-eslint/naming-convention
+            __CDN_BASE_URL__?: string;
+          }
+        ).__CDN_BASE_URL__ ?? '')
+      : '';
+
   // Provide default Unirend context for client-side
   // Note: When hydrating SSR/SSG content, the server provides the correct context values
   // This default is only used for pure client-side SPA scenarios (no SSR/SSG)
@@ -115,6 +125,7 @@ export function mountApp(
     isDevelopment: getDevMode(), // false if global not set (safe production default)
     fetchRequest: undefined, // No server request on client
     frontendAppConfig, // Config injected by server (SSR/SSG) or undefined (pure SPA)
+    cdnBaseURL, // CDN base URL injected by server (SSR/SSG) or empty string if not configured
     requestContextRevision: '0-0', // Initial revision for client-side
   };
 

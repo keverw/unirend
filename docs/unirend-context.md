@@ -13,6 +13,7 @@ The Unirend Context system provides React hooks to access render mode, developme
   - [`useIsDevelopment()`](#useisdevelopment)
   - [`useIsServer()`](#useisserver)
   - [`useFrontendAppConfig()`](#usefrontendappconfig)
+  - [`useCDNBaseURL()`](#usecdnbaseurl)
 - [Request Context Management](#request-context-management)
   - [`useRequestContext()`](#userequestcontext)
   - [`useRequestContextValue<T>(key)`](#userequestcontextvaluetkey)
@@ -20,6 +21,12 @@ The Unirend Context system provides React hooks to access render mode, developme
   - [How Request Context Works](#how-request-context-works)
   - [Advanced Patterns](#advanced-patterns)
     - [Theme Management (Hydration-Safe)](#theme-management-hydration-safe)
+      - [Server Plugin](#server-plugin)
+      - [Server Setup](#server-setup)
+      - [Flash Prevention (`index.html`)](#flash-prevention-indexhtml)
+      - [React Context & Hook](#react-context--hook)
+      - [Usage](#usage)
+      - [Theme-Aware Images](#theme-aware-images)
     - [CSRF Token Management](#csrf-token-management)
 - [How It Works](#how-it-works)
   - [Server-Side (SSR)](#server-side-ssr)
@@ -41,7 +48,8 @@ The context is automatically provided by Unirend during server-side rendering, s
 
 - **Render Mode**: Whether the app is SSR (Server-Side Rendering), SSG (Static Site Generation), or Client (SPA or after hydration)
 - **Development Status**: Whether running in development or production mode
-- **Frontend App Config**: Immutable configuration object passed from the server (available on both server and client)
+- **Frontend App Config**: Read-only configuration object passed from the server (frozen during server rendering, available as a plain clone on the client)
+- **CDN Base URL**: The effective CDN URL for asset serving (available on both server and client via `useCDNBaseURL()`)
 - **Request Context**: Per-request key-value store for managing mutable state across the request lifecycle
 
 ## Available Hooks
@@ -57,6 +65,7 @@ import {
   useIsDevelopment,
   useIsServer,
   useFrontendAppConfig,
+  useCDNBaseURL,
   useRequestContext,
   useRequestContextValue,
   useRequestContextObjectRaw,
@@ -145,7 +154,7 @@ function MyComponent() {
 
 ### `useFrontendAppConfig()`
 
-Returns the frontend application configuration object. This is a frozen (immutable) copy of the config passed to the server, available on both server and client.
+Returns the frontend application configuration object. During server rendering (SSR/SSG) this is a deep-frozen clone — mutations are blocked for the duration of the render. On the client it is a plain clone of the injected config, isolated to the current page session but not frozen.
 
 ```tsx
 function MyComponent() {
@@ -167,18 +176,32 @@ function MyComponent() {
 
 **Returns:** `Record<string, unknown> | undefined`
 
-**Note:** The config is cloned and frozen on each request to ensure immutability. Unlike other context values like `renderMode` or `fetchRequest`, the `frontendAppConfig` is **safe to display directly in your UI** because it remains identical between server rendering and client hydration. The server injects it into the HTML, and the client reads it back from the same source, preventing hydration mismatches.
+**Note:** The config is deep-cloned and deep-frozen on each request — all nested objects are immutable for the duration of the request. Unlike other context values like `renderMode` or `fetchRequest`, the `frontendAppConfig` is **safe to display directly in your UI** because it remains identical between server rendering and client hydration. The server injects it into the HTML, and the client reads it back from the same source, preventing hydration mismatches.
 
-**Dynamic Updates:** Since the config is cloned on each request, you can store the config object in a variable, pass it to `frontendAppConfig`, and update it dynamically between requests. For example, you could update a `year` field used to display the current year in the footer, and the changes will only apply to subsequent requests while keeping each request's config isolated and immutable.
+### `useCDNBaseURL()`
+
+Returns the effective CDN base URL for the current request. Available on both server (SSR resolves the per-request or app-level CDN URL before rendering) and client (reads from `window.__CDN_BASE_URL__` injected by the server). Always returns a `string` — empty string when no CDN is configured.
+
+```tsx
+function AssetImage({ path }: { path: string }) {
+  const cdnBase = useCDNBaseURL();
+
+  return <img src={`${cdnBase}${path}`} />;
+}
+```
+
+**Returns:** `string` — empty string when no CDN is configured (including when running Vite directly without the unirend server)
+
+**Dynamic Updates:** Since the config is cloned from the source at request time, you can update values between requests by holding a reference to the object (or a sub-object within it) that you passed in. For example, you could keep a `const timeConfig = { year: 2025 }` sub-object, pass it inside your config, and update `timeConfig.year` at midnight — all requests after that point will pick up the new value. Updates are global (all subsequent requests, not a specific user), and in-flight requests are unaffected since their clone is already isolated. Use `requestContext` instead if you need per-request or per-user values.
 
 ## Request Context Management
 
-Unirend provides a key-value store for managing per-request context data that can be populated on the server and mutated on the client. This is separate from `frontendAppConfig` which is immutable.
+Unirend provides a key-value store for managing per-request context data that can be populated on the server and mutated on the client. This is separate from `frontendAppConfig`, which is intended to be read-only.
 
 **Request Context vs Frontend App Config:**
 
 - **Request Context**: Per-page/per-request mutable key-value store (e.g., user session data, theme preferences, page-specific state)
-- **Frontend App Config**: Global, immutable configuration shared across all pages (e.g., API URLs, feature flags, build info)
+- **Frontend App Config**: Global, read-only configuration shared across all pages (e.g., API URLs, feature flags, build info)
 
 ### `useRequestContext()`
 
@@ -335,7 +358,7 @@ function DebugPanel() {
 
 **Key Features:**
 
-- **Cloned & Immutable**: Uses `structuredClone()` and `Object.freeze()` to prevent accidental mutations
+- **Cloned & Immutable**: Uses `structuredClone()` and deep freeze to prevent accidental mutations (all nested objects are frozen)
 - **Reactive**: Updates when the request context changes
 - **Hydration Safe**: Only populates after client-side hydration to avoid SSR/client mismatches
 - **Cross-Environment**: Works in SSR, SSG, and client environments
@@ -365,6 +388,26 @@ function DebugPanel() {
 
 - Components can read or update the context using the functions above
 - Changes persist in memory for the current page session
+- For non-component code (data loaders, utilities, module-level functions), all three framework globals are available directly on the client. These only exist in the browser — guard with `typeof window !== 'undefined'` and provide a server-side fallback:
+
+```typescript
+// window globals for use outside of React components (e.g. data loaders)
+// In components, use the hooks instead: useRequestContext(), useFrontendAppConfig(), useCDNBaseURL()
+
+// Per-request context (set by SSR middleware or SSG page definitions)
+const requestCtx =
+  typeof window !== 'undefined'
+    ? window.__FRONTEND_REQUEST_CONTEXT__
+    : undefined; // server fallback: not available outside of components on the server
+
+// App-wide config (set via frontendAppConfig option in serveSSRProd/serveSSGProd)
+const appConfig =
+  typeof window !== 'undefined' ? window.__FRONTEND_APP_CONFIG__ : undefined; // server fallback: use process.env or your config source directly
+
+// CDN base URL (set via CDNBaseURL option or per-request middleware override)
+const cdnBase =
+  typeof window !== 'undefined' ? window.__CDN_BASE_URL__ : undefined; // server fallback: use process.env.CDN_BASE_URL or ''
+```
 
 For more details on populating request context on the server, see:
 
@@ -375,26 +418,35 @@ For more details on populating request context on the server, see:
 
 #### Theme Management (Hydration-Safe)
 
-Handle automatic theme detection while avoiding hydration mismatches:
+Handle theme preferences ('light', 'dark', 'auto') without hydration mismatches or flash.
 
-```tsx
-import { useRequestContext, useRequestContextValue } from 'unirend/client';
+Drive all theming via the `dark` class on `<html>` — use Tailwind `dark:` classes or CSS selectors rather than conditional JSX based on theme. Conditional rendering based on theme can cause hydration errors since the server and client may resolve `auto` differently.
+
+Two separate concerns:
+
+- **`themePreference`** — what the user chose ('light'/'dark'/'auto'), stored in request context and persisted to a cookie
+- **`resolvedTheme`** — the actual 'light' or 'dark' applied to `<html>`, derived from preference + system `matchMedia`
+
+##### Server Plugin
+
+Seeds `themePreference` into request context from the cookie on each request (`theme-plugin.ts`):
+
+```typescript
 import type { ServerPlugin } from 'unirend/server';
 
-// Server-side: Set theme from cookie in a plugin
-function themePlugin(): ServerPlugin {
+// Seed theme preference from cookie. Store the raw preference — the server never
+// resolves 'auto' since OS preference isn't available server-side.
+export function themePlugin(): ServerPlugin {
   return async (pluginHost) => {
     pluginHost.addHook('onRequest', async (request, reply) => {
-      // Read theme preference from cookie, default to 'light'
-      const themePreference = request.cookies.themePreference || 'light';
-      const currentTheme = request.cookies.currentTheme || themePreference;
+      const cookie = request.cookies.themePreference;
+      const validPreferences = ['light', 'dark', 'auto'] as const;
 
-      // For 'auto' preference, detect from User-Agent or default to light for SSR
-      const resolvedTheme = themePreference === 'auto' ? 'light' : currentTheme;
-
-      // Store in request context for components to use
-      request.requestContext.theme = resolvedTheme;
-      request.requestContext.themePreference = themePreference; // Original preference
+      request.requestContext.themePreference = validPreferences.includes(
+        cookie as (typeof validPreferences)[number],
+      )
+        ? cookie
+        : 'auto'; // fallback to OS preference if missing or tampered
     });
 
     return {
@@ -403,83 +455,295 @@ function themePlugin(): ServerPlugin {
     };
   };
 }
+```
 
-// Register the plugin in your server setup
+##### Server Setup
+
+```typescript
+import { serveSSRProd } from 'unirend/server';
+import { cookies } from '@fastify/cookie';
+import { themePlugin } from './theme-plugin';
+
 const server = serveSSRProd({
   // ... other options
   plugins: [cookies(), themePlugin()],
 });
+```
 
-// Optional: Add to your index.html template head to prevent theme flash
-// (like in demos/ssg/index.html - Unirend's processTemplate will preserve this script
-// and inject it before context scripts and your original scripts built by vite)
-// <script>
-//   (function() {
-//     const themePreference = document.cookie.match(/themePreference=([^;]+)/)?.[1] || 'light';
-//     const currentTheme = document.cookie.match(/currentTheme=([^;]+)/)?.[1] || themePreference;
-//     const theme = themePreference === 'auto' ? 'light' : currentTheme;
-//     document.documentElement.className = `theme-${theme}`;
-//   })();
-// </script>
+##### Flash Prevention (`index.html`)
 
-// Usage in your app layout component
-function AppLayout({ children }) {
-  // Theme preference can be updated from other components (e.g., toggle in header, settings page)
-  // using: const [themePreference, setThemePreference] = useRequestContextValue<string>('themePreference');
-  // Remember to also update the cookie: document.cookie = `themePreference=${newValue}; path=/; max-age=${60 * 60 * 24 * 365}`;
-  const [themePreference] = useRequestContextValue<string>('themePreference'); // 'light', 'dark', or 'auto'
+Add to `<head>` to apply the correct class before JS loads. Unirend injects `__FRONTEND_REQUEST_CONTEXT__` into `<head>` before your scripts so the preference is already available. For `'auto'`, `matchMedia` resolves the OS preference immediately:
 
-  // Current theme comes directly from context (set by server plugin initially)
-  // This also allows components to conditionally render based on theme without relying on CSS classes
-  const [currentTheme, setCurrentTheme] =
-    useRequestContextValue<string>('theme'); // useState-like API
+```html
+<script>
+  (function () {
+    var pref = window.__FRONTEND_REQUEST_CONTEXT__?.themePreference || 'auto';
 
-  const resolvedTheme = currentTheme || 'light';
+    var theme =
+      pref === 'auto'
+        ? window.matchMedia('(prefers-color-scheme: dark)').matches
+          ? 'dark'
+          : 'light'
+        : pref;
+
+    document.documentElement.className = 'theme-' + theme;
+  })();
+</script>
+```
+
+##### React Context & Hook
+
+**`theme/context.ts`** — types and context object:
+
+```typescript
+import { createContext, useContext } from 'react';
+
+export type ThemePreference = 'auto' | 'dark' | 'light';
+export type ResolvedTheme = 'dark' | 'light';
+
+export interface ThemeContextValue {
+  preference: ThemePreference;
+  systemTheme: ResolvedTheme;
+  resolvedTheme: ResolvedTheme;
+  cycleTheme: () => void;
+}
+
+export const ThemeContext = createContext<ThemeContextValue | null>(null);
+
+export function useTheme() {
+  const ctx = useContext(ThemeContext);
+
+  if (!ctx) throw new Error('useTheme must be used within ThemeProvider');
+  return ctx;
+}
+```
+
+**`theme/ThemeProvider.tsx`** — single instance owns resolution, system tracking, and `<html>` class:
+
+```tsx
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useRequestContextValue } from 'unirend/client';
+import {
+  ThemeContext,
+  type ThemePreference,
+  type ResolvedTheme,
+} from './context';
+
+const CYCLE: ThemePreference[] = ['auto', 'dark', 'light'];
+
+// cookieDomain: pass '.example.com' to share across subdomains.
+// Omit for single-domain apps — auto-detecting the root domain isn't reliable
+// across all TLD formats (.co.uk etc), so set it explicitly if needed.
+export function ThemeProvider({
+  children,
+  cookieDomain,
+}: {
+  children: ReactNode;
+  cookieDomain?: string;
+}) {
+  // preference is server-seeded from cookie via the theme plugin (see server plugin above)
+  const [preference, setContextPref] =
+    useRequestContextValue<ThemePreference>('themePreference');
+  const channelRef = useRef<BroadcastChannel | null>(null);
+
+  // systemTheme always defaults to 'light' on the server (window.matchMedia isn't available
+  // during SSR). The useEffect below updates it on the client after hydration.
+
+  // This is why we don't recommend conditional JSX based on resolvedTheme — when preference
+  // is 'auto', the server resolves to 'light' but the client may resolve to 'dark', causing
+  // a hydration mismatch. Use the 'dark' class on <html> with Tailwind dark: or CSS selectors instead.
+  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>('light');
 
   useEffect(() => {
-    // Always update HTML element for Tailwind or CSS library dark mode and extra safety
-    document.documentElement.className = `theme-${resolvedTheme}`;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    setSystemTheme(mq.matches ? 'dark' : 'light');
 
-    // Update cookie so theme persists on future visits
-    document.cookie = `currentTheme=${resolvedTheme}; path=/; max-age=${60 * 60 * 24 * 365}`; // 1 year
+    function handler(e: MediaQueryListEvent) {
+      setSystemTheme(e.matches ? 'dark' : 'light');
+    }
+
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  const resolvedTheme: ResolvedTheme =
+    preference === 'auto' ? systemTheme : (preference ?? 'light');
+
+  // Single place that updates <html> — Tailwind dark: classes and CSS selectors key off this
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', resolvedTheme === 'dark');
   }, [resolvedTheme]);
 
+  const cycleTheme = () => {
+    const next =
+      CYCLE[
+        (CYCLE.indexOf((preference ?? 'auto') as ThemePreference) + 1) %
+          CYCLE.length
+      ];
+
+    const domain = cookieDomain ? `; domain=${cookieDomain}` : '';
+    document.cookie = `themePreference=${next}; path=/${domain}; max-age=${60 * 60 * 24 * 365}`;
+
+    // Notify other same-origin tabs
+    channelRef.current?.postMessage({ themePreference: next });
+    setContextPref(next);
+  };
+
+  // Single BroadcastChannel instance — used for both sending (cycleTheme) and receiving
   useEffect(() => {
-    // Only run on client after hydration
-    if (themePreference === 'auto') {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const channel = new BroadcastChannel('theme');
+    channelRef.current = channel;
 
-      const updateTheme = () => {
-        const detectedTheme = mediaQuery.matches ? 'dark' : 'light';
+    channel.onmessage = (
+      e: MessageEvent<{ themePreference?: ThemePreference }>,
+    ) => {
+      if (e.data?.themePreference) setContextPref(e.data.themePreference);
+    };
 
-        // Update context if theme changed (using setState-like API)
-        if (detectedTheme !== resolvedTheme) {
-          setCurrentTheme(detectedTheme);
-        }
-      };
+    return () => {
+      channel.close();
+      channelRef.current = null;
+    };
+  }, []);
 
-      // Initial detection
-      updateTheme();
+  // Re-read cookie when tab becomes visible — catches changes from other tabs or subdomains
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      const match = document.cookie.match(/(?:^|;\s*)themePreference=([^;]+)/);
+      const val = match?.[1] as ThemePreference | undefined;
+      const valid: ThemePreference[] = ['light', 'dark', 'auto'];
+      if (val && valid.includes(val)) setContextPref(val);
+    };
 
-      // Listen for changes
-      mediaQuery.addEventListener('change', updateTheme);
+    document.addEventListener('visibilitychange', handleVisibility);
 
-      // Cleanup listener
-      return () => {
-        mediaQuery.removeEventListener('change', updateTheme);
-      };
-    }
-  }, [themePreference, resolvedTheme, setCurrentTheme]);
+    return () =>
+      document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
 
   return (
-    <div>
-      <header>...</header>
-      <main>{children}</main>
-      <footer>...</footer>
-    </div>
+    <ThemeContext.Provider
+      value={{
+        preference: preference ?? 'auto',
+        systemTheme,
+        resolvedTheme,
+        cycleTheme,
+      }}
+    >
+      {children}
+    </ThemeContext.Provider>
   );
 }
 ```
+
+##### Usage
+
+**`AppLayout.tsx`** — wrap your app with `ThemeProvider`:
+
+```tsx
+import { ThemeProvider } from './theme/ThemeProvider';
+
+export function AppLayout({ children }) {
+  return (
+    <ThemeProvider /* cookieDomain=".example.com" */>
+      <div>
+        <header>...</header>
+        <main>{children}</main>
+        <footer>...</footer>
+      </div>
+    </ThemeProvider>
+  );
+}
+```
+
+**`ThemeToggle.tsx`** — can live anywhere inside `ThemeProvider`:
+
+```tsx
+import { useTheme } from './theme/context';
+
+export function ThemeToggle() {
+  const { preference, cycleTheme } = useTheme();
+
+  const labels: Record<string, string> = {
+    auto: 'Auto',
+    dark: 'Dark',
+    light: 'Light',
+  };
+
+  return <button onClick={cycleTheme}>Theme: {labels[preference]}</button>;
+}
+```
+
+##### Theme-Aware Images
+
+When you need different images per theme, avoid two `<img>` tags with CSS `display: none` — browsers load both regardless. Instead, use `background-image` via CSS (only the matching rule's image loads) combined with `role="img"` and `aria-label` to restore accessibility:
+
+```css
+/* Only the active theme's image is requested by the browser */
+.dark .theme-illustration {
+  background-image: url('/illustration-dark.png');
+}
+
+html:not(.dark) .theme-illustration {
+  background-image: url('/illustration-light.png');
+}
+
+/* Size the element to match your image */
+.theme-illustration {
+  width: 400px;
+  height: 300px;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+```
+
+```html
+<div
+  class="theme-illustration"
+  role="img"
+  aria-label="A description of the illustration"
+/>
+```
+
+`role="img"` + `aria-label` gives screen readers the same information a real `<img alt="...">` would. This works automatically with the `dark` class toggle on `<html>` — no JavaScript needed.
+
+**Vite asset handling:** Use relative paths in your CSS file so Vite fingerprints the images for long-term caching. Absolute `/` paths work too but won't be hashed:
+
+```css
+.dark .theme-illustration {
+  background-image: url('./assets/illustration-dark.png'); /* Vite hashes this */
+}
+html:not(.dark) .theme-illustration {
+  background-image: url('./assets/illustration-light.png');
+}
+```
+
+**Co-locating styles in a component:** For self-contained components, you can inline the `<style>` directly in JSX. Vite does **not** process `url()` references inside JSX style strings, so import the images to get Vite's asset hashing:
+
+```tsx
+import darkImg from './assets/illustration-dark.png';
+import lightImg from './assets/illustration-light.png';
+
+export function ErrorIllustration() {
+  return (
+    <>
+      <style>{`
+        .error-illustration { background-image: url('${lightImg}'); }
+        .dark .error-illustration { background-image: url('${darkImg}'); }
+      `}</style>
+      <div
+        className="error-illustration w-[400px] h-[300px] bg-contain bg-no-repeat bg-center"
+        role="img"
+        aria-label="Lost in the dark"
+      />
+    </>
+  );
+}
+```
+
+For images in the `public/` folder (stable URLs, no hashing needed), you can use `/` paths directly in the style string without importing.
 
 #### CSRF Token Management
 
@@ -645,7 +909,7 @@ When mounting on the client with `mountApp()`, the context is populated from inj
 }
 ```
 
-**Note:** The `frontendAppConfig` is automatically read from `window.__FRONTEND_APP_CONFIG__` which is injected into the HTML by the server during SSR/SSG. In pure SPA mode (no server rendering), this will be `undefined`.
+**Note:** The `frontendAppConfig` is automatically read from `window.__FRONTEND_APP_CONFIG__` which is injected into the HTML by the server during SSR/SSG. In pure SPA mode (no server rendering), this will be `undefined`. `window.__CDN_BASE_URL__` is also injected by the server — as an empty string when no CDN URL is configured, or `undefined` if running Vite directly without the unirend server.
 
 ## Use Cases
 
@@ -786,7 +1050,7 @@ import type { UnirendRenderMode, RequestContextManager } from 'unirend/client';
 7. **Debugging values only**: Most context values are primarily useful for debugging and controlling behavior - avoid displaying them directly in your UI
 8. **Frontend app config best practices**:
    - **Safe to display**: Unlike other context values, `frontendAppConfig` is **safe to render directly** because it's identical on server and client (injected into HTML and read back)
-   - **Immutable**: The config is frozen and cannot be modified, ensuring consistent behavior throughout the request lifecycle
+   - **Read-only by convention**: The config is deep-frozen during server rendering (SSR/SSG) to prevent accidental mutations mid-render. On the client it is a plain clone — technically mutable, but treat it as read-only since it represents static configuration
    - **Type assertions**: Use type assertions for better TypeScript support (e.g., `config?.api_endpoint as string`)
 
 ## Related Documentation

@@ -622,6 +622,8 @@ server.fastifyInstance.addHook('onRequest', async (request, reply) => {
 });
 ```
 
+The effective CDN URL for each request is also available to frontend code — use `useCDNBaseURL()` in components (works on both server and client, see [Unirend Context](../docs/unirend-context.md)), or `window.__CDN_BASE_URL__` in non-component code (guard with `typeof window !== 'undefined'` since `window` is not available during SSR).
+
 HTML Template:
 
 - **Production mode**:
@@ -689,6 +691,7 @@ Notes:
 - In dev, Vite serves client assets with middleware and `vite.ssrLoadModule` is used for the server entry.
 - HMR is available. Stack traces are mapped for easier debugging.
 - `frontendAppConfig` is injected in both development and production when using `serveSSRDev` or `serveSSRProd`.
+- All context globals (`window.__FRONTEND_APP_CONFIG__`, `window.__FRONTEND_REQUEST_CONTEXT__`, `window.__CDN_BASE_URL__`) are injected into `<head>` before any of your app scripts, so they are available to inline `<head>` scripts, body scripts, and all module code that runs after page load.
 - **HTML Template**: The `template` path in development mode is fully customizable. Specify any HTML file path (e.g., `./index.html`, `./src/app.html`, etc.). The template is read fresh on each request and transformed by Vite for HMR support.
 
 ### Asset Serving vs Runtime Behavior
@@ -747,6 +750,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
 - `frontendAppConfig?: Record<string, unknown>`
   - Optional configuration object available via the `useFrontendAppConfig()` hook on both server (during SSR/SSG rendering) and client (after HTML injection) in both dev and prod modes.
   - Use for runtime configuration (API URLs, feature flags, build info, etc.). See [Frontend App Config Pattern](../README.md#frontend-app-config-pattern) for usage in components vs loaders.
+  - Within a request, read the config via `useFrontendAppConfig()` in components (available on both server and client). Each request receives a deep-cloned, deep-frozen snapshot — mutations inside a request are isolated and do not affect other requests. If you hold a reference to the object (or a sub-object within it) that you passed here, you can mutate it between requests and the next clone will pick up the change. Updates are global (all subsequent requests, not a specific user) — use `requestContext` for per-user or per-request values.
 - `containerID?: string`
   - Client container element ID (default `"root"`).
 - `ssrRenderTimeout?: number`
@@ -778,6 +782,13 @@ In addition to the [shared server configuration](#shared-server-configuration), 
     - **Per-request override**: Set `request.CDNBaseURL` in middleware to override the CDN URL for specific requests (e.g., region-specific CDNs)
     - **App-level default**: Falls back to the `CDNBaseURL` option configured in `serveSSRProd()` or `registerProdApp()`
     - **No CDN**: If neither is set, original `/assets/...` paths are preserved
+  - The effective CDN URL is also available to frontend code:
+    - **In components**: use `useCDNBaseURL()` — works on both server and client. See [Unirend Context](../docs/unirend-context.md).
+    - **In non-component code** (data loaders, utilities): use `window.__CDN_BASE_URL__` with a `typeof window !== 'undefined'` guard, since `window` is not available during SSR:
+      ```typescript
+      const cdnBase =
+        typeof window !== 'undefined' ? window.__CDN_BASE_URL__ : undefined;
+      ```
   - Useful for serving assets from a CDN without build-time configuration changes.
   - Tip: Set via environment variable (e.g., `CDNBaseURL: process.env.CDN_BASE_URL`) in `serveSSRProd()` or `registerProdApp()` options for deployment flexibility, or override per-request in middleware for region-specific CDN selection.
 - `staticContentRouter?: StaticContentRouterOptions | false`
@@ -1210,7 +1221,7 @@ SSR supports injecting per-request context data that will be available on the cl
 **Request Context vs Frontend App Config:**
 
 - **Request Context**: Per-page data that can vary between requests and be mutated on the client (e.g., page-specific state, user preferences, theme)
-- **Frontend App Config**: Global, immutable configuration shared across all pages (e.g., API URLs, feature flags, build info)
+- **Frontend App Config**: Global configuration shared across all pages (e.g., API URLs, feature flags, build info). Read within a request via `useFrontendAppConfig()` in components. Each request gets a deep-frozen clone — immutable within the request. You can mutate the source between requests to update values globally (e.g., rotating an API endpoint, updating a year), but those changes apply to all subsequent requests, not a specific user.
 
 **Design Philosophy:**
 

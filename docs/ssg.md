@@ -98,6 +98,9 @@ async function main() {
     frontendAppConfig: {
       api_endpoint: 'https://api.example.com',
     },
+    // Optional: CDN base URL — baked into generated HTML at generation time (not per-request).
+    // Rewrites asset URLs and injected as window.__CDN_BASE_URL__ (useCDNBaseURL() in components).
+    // CDNBaseURL: process.env.CDN_BASE_URL,  // e.g., 'https://cdn.example.com' (build-time env var)
     // Optional: Generate page map for StaticWebServer (see "Page Map Output" section)
     // pageMapOutput: 'page-map.json',
     // Optional: containerID used in template processing (defaults to "root")

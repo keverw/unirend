@@ -1,4 +1,5 @@
 import { useContext, useState, useEffect } from 'react';
+import { deepFreeze } from '../utils';
 import {
   UnirendContext,
   getRequestContextValue,
@@ -166,6 +167,31 @@ export function useFrontendAppConfig(): Record<string, unknown> | undefined {
 }
 
 /**
+ * Hook to get the CDN base URL configured for asset serving.
+ *
+ * Returns the effective CDN base URL for the current request — either a per-request
+ * override (set in middleware via `request.CDNBaseURL`) or the app-level default
+ * (`CDNBaseURL` in `serveSSRProd`/`registerProdApp` options). Returns an empty string
+ * when no CDN is configured or when running Vite directly without the unirend server.
+ *
+ * Available on both server (during SSR rendering) and client (read from
+ * `window.__CDN_BASE_URL__` injected into the page).
+ *
+ * @example
+ * ```tsx
+ * function AssetImage({ path }: { path: string }) {
+ *   const cdnBase = useCDNBaseURL();
+ *
+ *   return <img src={`${cdnBase}${path}`} />;
+ * }
+ * ```
+ */
+export function useCDNBaseURL(): string {
+  const { cdnBaseURL } = useContext(UnirendContext);
+  return cdnBaseURL ?? '';
+}
+
+/**
  * Hook to get the raw request context object for debugging purposes.
  * Returns a cloned, immutable copy of the entire request context.
  *
@@ -198,7 +224,7 @@ export function useRequestContextObjectRaw():
   >(() => {
     // Get initial value on server
     const contextObj = getRequestContextObject(context);
-    return contextObj ? Object.freeze(structuredClone(contextObj)) : undefined;
+    return contextObj ? deepFreeze(structuredClone(contextObj)) : undefined;
   });
 
   useEffect(() => {
@@ -210,7 +236,7 @@ export function useRequestContextObjectRaw():
       const cloned = structuredClone(contextObj);
 
       // Synchronizing with external state (request context) tracked by revision counter
-      setRawContext(Object.freeze(cloned));
+      setRawContext(deepFreeze(cloned));
     } else {
       setRawContext(undefined);
     }

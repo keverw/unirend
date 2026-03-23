@@ -15,6 +15,7 @@ export {
   useIsDevelopment,
   useIsServer,
   useFrontendAppConfig,
+  useCDNBaseURL,
   useRequestContextObjectRaw,
   useRequestContext,
   useRequestContextValue,

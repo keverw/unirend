@@ -300,7 +300,7 @@ describe('processTemplate', () => {
     }
   });
 
-  it('should add app config placeholder as first script', async () => {
+  it('should keep <!--ss-head--> in processed template for runtime injection', async () => {
     const html = `
       <html>
         <head><!--ss-head--></head>
@@ -316,33 +316,45 @@ describe('processTemplate', () => {
     expect(result.success).toBe(true);
 
     if (result.success) {
-      expect(result.html).toContain('<!--context-scripts-injection-point-->');
+      // ss-head marker must survive for injectContent to inject context scripts after it
+      expect(result.html).toContain('<!--ss-head-->');
 
-      // Context scripts placeholder should come before app.js
-      const contextIndex = result.html.indexOf(
-        '<!--context-scripts-injection-point-->',
-      );
+      // body scripts are moved after #root
+      const ssHeadIndex = result.html.indexOf('<!--ss-head-->');
       const appJsIndex = result.html.indexOf('src="app.js"');
-      expect(contextIndex).toBeLessThan(appJsIndex);
+      expect(appJsIndex).toBeGreaterThan(ssHeadIndex);
     }
   });
 
-  it('should add request context placeholder before app config in SSR mode', async () => {
+  it('should preserve inline <head> scripts and re-append them after static head content', async () => {
     const html = `
       <html>
-        <head><!--ss-head--></head>
+        <head>
+          <!--ss-head-->
+          <script>(function(){ var t = 'light'; document.documentElement.className = 'theme-' + t; })();</script>
+        </head>
         <body>
           <div id="root"><!--ss-outlet-->Content</div>
+          <script src="app.js"></script>
         </body>
       </html>
     `;
 
-    const result = await processTemplate(html, 'ssr', false, false);
+    const result = await processTemplate(html, 'ssg', false, false);
 
     expect(result.success).toBe(true);
 
     if (result.success) {
-      expect(result.html).toContain('<!--context-scripts-injection-point-->');
+      const ssHeadIndex = result.html.indexOf('<!--ss-head-->');
+      const inlineScriptIndex = result.html.indexOf('theme-');
+      const appJsIndex = result.html.indexOf('src="app.js"');
+      const headCloseIndex = result.html.indexOf('</head>');
+
+      // ss-head stays in head, inline script comes after it in head
+      expect(inlineScriptIndex).toBeGreaterThan(ssHeadIndex);
+      expect(inlineScriptIndex).toBeLessThan(headCloseIndex);
+      // app.js is in body (after </head>)
+      expect(appJsIndex).toBeGreaterThan(headCloseIndex);
     }
   });
 
@@ -515,17 +527,23 @@ describe('processTemplate', () => {
       expect(result.html).toContain("console.log('inline1')");
       expect(result.html).toContain("console.log('inline2')");
 
-      // All scripts should be after root element
+      const headCloseIndex = result.html.indexOf('</head>');
       const rootEndIndex = result.html.indexOf('</div>');
       const lib1Index = result.html.indexOf('src="lib1.js"');
+      const inline1Index = result.html.indexOf("console.log('inline1')");
       const lib2Index = result.html.indexOf('src="lib2.js"');
+      const inline2Index = result.html.indexOf("console.log('inline2')");
 
-      expect(lib1Index).toBeGreaterThan(rootEndIndex);
+      // Head scripts stay in <head>
+      expect(lib1Index).toBeLessThan(headCloseIndex);
+      expect(inline1Index).toBeLessThan(headCloseIndex);
+      // Body scripts stay in body after root element
       expect(lib2Index).toBeGreaterThan(rootEndIndex);
+      expect(inline2Index).toBeGreaterThan(rootEndIndex);
     }
   });
 
-  it('should preserve script order with app config first', async () => {
+  it('should preserve user script order in body', async () => {
     const html = `
       <html>
         <head><!--ss-head--></head>
@@ -542,13 +560,16 @@ describe('processTemplate', () => {
     expect(result.success).toBe(true);
 
     if (result.success) {
-      const contextIndex = result.html.indexOf(
-        '<!--context-scripts-injection-point-->',
-      );
+      const headCloseIndex = result.html.indexOf('</head>');
       const firstJsIndex = result.html.indexOf('src="first.js"');
       const secondJsIndex = result.html.indexOf('src="second.js"');
 
-      expect(contextIndex).toBeLessThan(firstJsIndex);
+      // ss-head marker stays in head
+      const ssHeadIndex = result.html.indexOf('<!--ss-head-->');
+      expect(ssHeadIndex).toBeLessThan(headCloseIndex);
+
+      // User scripts follow in order in body
+      expect(firstJsIndex).toBeGreaterThan(headCloseIndex);
       expect(firstJsIndex).toBeLessThan(secondJsIndex);
     }
   });

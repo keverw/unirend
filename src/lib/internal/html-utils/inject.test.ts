@@ -53,7 +53,7 @@ describe('prettifyHeadTags', () => {
 describe('injectContent', () => {
   it('should inject head and body content into template', () => {
     const template =
-      '<!DOCTYPE html><html><head><!--ss-head--></head><body><!--ss-outlet--></body></html>';
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
     const headContent =
       '<title>Test Title</title><meta name="description" content="Test">';
     const bodyContent = '<div>Hello World</div>';
@@ -62,6 +62,8 @@ describe('injectContent', () => {
       '<!DOCTYPE html><html><head>' +
       `<title>Test Title</title>\n` +
       `${TAB_SPACES}<meta name="description" content="Test">` +
+      '<script>globalThis.__lifecycleion_is_dev__=false;</script>\n' +
+      '<script>window.__CDN_BASE_URL__="";</script>' +
       '</head><body><div>Hello World</div></body></html>';
 
     expect(injectContent(template, headContent, bodyContent)).toBe(expected);
@@ -69,9 +71,10 @@ describe('injectContent', () => {
 
   it('should handle empty head and body content', () => {
     const template =
-      '<!DOCTYPE html><html><head><!--ss-head--></head><body><!--ss-outlet--></body></html>';
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
 
-    const expected = '<!DOCTYPE html><html><head></head><body></body></html>';
+    const expected =
+      '<!DOCTYPE html><html><head><script>globalThis.__lifecycleion_is_dev__=false;</script>\n<script>window.__CDN_BASE_URL__="";</script></head><body></body></html>';
 
     expect(injectContent(template, '', '')).toBe(expected);
   });
@@ -87,7 +90,8 @@ describe('injectContent', () => {
       '<!DOCTYPE html><html><head>' +
       `<title>React App</title>` +
       '</head><body><div id="root" data-reactroot=""><div>React Content</div></div>' +
-      '<script>globalThis.__lifecycleion_is_dev__=false;</script>' +
+      '<script>globalThis.__lifecycleion_is_dev__=false;</script>\n' +
+      '<script>window.__CDN_BASE_URL__="";</script>' +
       '</body></html>';
 
     expect(injectContent(template, headContent, bodyContent)).toBe(expected);
@@ -111,7 +115,7 @@ describe('injectContent', () => {
 
   it('should escape < characters in app config', () => {
     const template =
-      '<!DOCTYPE html><html><body><!--ss-outlet--><!--context-scripts-injection-point--></body></html>';
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
     const appConfig = { htmlContent: "<script>alert('xss')</script>" };
 
     const result = injectContent(template, '', '', { app: appConfig });
@@ -122,7 +126,7 @@ describe('injectContent', () => {
 
   it('should inject request context when provided', () => {
     const template =
-      '<!DOCTYPE html><html><body><!--ss-outlet--><!--context-scripts-injection-point--></body></html>';
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
     const requestContext = {
       user: { id: '123', name: 'John' },
       locale: 'en-US',
@@ -138,7 +142,7 @@ describe('injectContent', () => {
 
   it('should remove context scripts placeholder when not provided', () => {
     const template =
-      '<!DOCTYPE html><html><body><!--ss-outlet--><!--context-scripts-injection-point--></body></html>';
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
 
     const result = injectContent(template, '', '');
 
@@ -149,7 +153,7 @@ describe('injectContent', () => {
 
   it('should inject both app config and request context', () => {
     const template =
-      '<!DOCTYPE html><html><body><!--ss-outlet--><!--context-scripts-injection-point--></body></html>';
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
     const appConfig = { api_endpoint: 'https://api.example.com' };
     const requestContext = { user: { id: '123' } };
 
@@ -166,7 +170,7 @@ describe('injectContent', () => {
 
   it('should inject both scripts on separate lines when both provided', () => {
     const template =
-      '<!DOCTYPE html><html><body><!--ss-outlet--><!--context-scripts-injection-point--></body></html>';
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
     const appConfig = { api_endpoint: 'https://api.example.com' };
     const requestContext = { user: { id: '123' } };
 
@@ -251,5 +255,51 @@ describe('injectContent', () => {
     );
     expect(result).toContain('href="https://cdn.example.com/favicon.ico"');
     expect(result).not.toContain('__CDN__INJECTION__POINT__');
+  });
+
+  it('should inject window.__CDN_BASE_URL__ with the CDN URL when provided', () => {
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
+
+    const result = injectContent(
+      template,
+      '',
+      '',
+      undefined,
+      'https://cdn.example.com',
+    );
+
+    expect(result).toContain(
+      'window.__CDN_BASE_URL__="https://cdn.example.com"',
+    );
+  });
+
+  it('should inject window.__CDN_BASE_URL__ as empty string when no CDN URL provided', () => {
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
+
+    const result = injectContent(template, '', '');
+
+    expect(result).toContain('window.__CDN_BASE_URL__=""');
+  });
+
+  it('should strip trailing slash from CDN URL in window.__CDN_BASE_URL__', () => {
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
+
+    const result = injectContent(
+      template,
+      '',
+      '',
+      undefined,
+      'https://cdn.example.com/',
+    );
+
+    expect(result).toContain(
+      'window.__CDN_BASE_URL__="https://cdn.example.com"',
+    );
+    expect(result).not.toContain(
+      'window.__CDN_BASE_URL__="https://cdn.example.com/"',
+    );
   });
 });
