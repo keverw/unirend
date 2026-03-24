@@ -18,7 +18,10 @@ import {
   writeHTMLFile,
 } from './internal/fs-utils';
 import { processTemplate } from './internal/html-utils/format';
-import { normalizeCDNBaseURL } from './internal/server-utils';
+import {
+  normalizeCDNBaseURL,
+  computeDomainInfo,
+} from './internal/server-utils';
 import { deepFreeze } from './internal/utils';
 import { injectContent } from './internal/html-utils/inject';
 import { getDevMode } from 'lifecycleion/dev-mode';
@@ -319,6 +322,11 @@ export async function generateSSG(
     }
   ).render;
 
+  // Compute domain info once for all pages (null if hostname not provided)
+  const domainInfo = options.hostname
+    ? computeDomainInfo(options.hostname)
+    : null;
+
   // Process pages here...
   for (const page of pages) {
     const pageStartedAt = Date.now();
@@ -351,6 +359,7 @@ export async function generateSSG(
           fetchRequest: fetchRequest, // Fetch request available in SSG
           frontendAppConfig,
           cdnBaseURL: normalizeCDNBaseURL(options.CDNBaseURL),
+          domainInfo, // Computed from options.hostname if provided, null otherwise
           requestContextRevision: '0-0', // Initial revision for this page
         },
       };
@@ -380,6 +389,7 @@ export async function generateSSG(
             request: requestContext,
           },
           options.CDNBaseURL,
+          domainInfo,
         );
 
         // Write the HTML file to the client directory (where assets are)
@@ -517,6 +527,7 @@ export async function generateSSG(
           request: page.requestContext, // Inject request context for SPA pages that was manually provided for the specific page
         },
         options.CDNBaseURL,
+        domainInfo,
       );
 
       // Write the HTML file to the client directory (where assets are)

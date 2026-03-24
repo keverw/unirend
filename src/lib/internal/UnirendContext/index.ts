@@ -3,6 +3,7 @@ export type {
   UnirendContextValue,
   UnirendProviderProps,
   RequestContextManager,
+  DomainInfo,
 } from './context';
 
 export { UnirendProvider } from './UnirendProvider';
@@ -16,6 +17,7 @@ export {
   useIsServer,
   useFrontendAppConfig,
   useCDNBaseURL,
+  useDomainInfo,
   useRequestContextObjectRaw,
   useRequestContext,
   useRequestContextValue,

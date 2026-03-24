@@ -3,7 +3,10 @@ import { createRoot, hydrateRoot } from 'react-dom/client';
 import { createBrowserRouter } from 'react-router';
 import type { RouteObject } from 'react-router';
 import { wrapRouter } from './internal/WrapAppElement';
-import type { UnirendContextValue } from './internal/UnirendContext';
+import type {
+  UnirendContextValue,
+  DomainInfo,
+} from './internal/UnirendContext';
 import { getDevMode } from 'lifecycleion/dev-mode';
 
 /**
@@ -117,6 +120,16 @@ export function mountApp(
         ).__CDN_BASE_URL__ ?? '')
       : '';
 
+  const domainInfo =
+    typeof window !== 'undefined'
+      ? ((
+          window as unknown as {
+            // eslint-disable-next-line @typescript-eslint/naming-convention
+            __DOMAIN_INFO__?: DomainInfo | null;
+          }
+        ).__DOMAIN_INFO__ ?? null)
+      : null;
+
   // Provide default Unirend context for client-side
   // Note: When hydrating SSR/SSG content, the server provides the correct context values
   // This default is only used for pure client-side SPA scenarios (no SSR/SSG)
@@ -126,6 +139,7 @@ export function mountApp(
     fetchRequest: undefined, // No server request on client
     frontendAppConfig, // Config injected by server (SSR/SSG) or undefined (pure SPA)
     cdnBaseURL, // CDN base URL injected by server (SSR/SSG) or empty string if not configured
+    domainInfo, // Domain info injected by server (SSR, or SSG when hostname is configured) or null
     requestContextRevision: '0-0', // Initial revision for client-side
   };
 

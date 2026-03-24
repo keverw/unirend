@@ -37,6 +37,7 @@ import {
   normalizeAPIPrefix,
   normalizePageDataEndpoint,
   normalizeCDNBaseURL,
+  computeDomainInfo,
   createDefaultAPIErrorResponse,
   createDefaultAPINotFoundResponse,
   createControlledReply,
@@ -1059,6 +1060,8 @@ export class SSRServer extends BaseServer {
               ).CDNBaseURL ??
               ('CDNBaseURL' in appConfig ? appConfig.CDNBaseURL : undefined);
 
+            const domainInfo = computeDomainInfo(request.hostname);
+
             const renderResult = await render({
               type: 'ssr',
               fetchRequest,
@@ -1070,6 +1073,7 @@ export class SSRServer extends BaseServer {
                 fetchRequest: fetchRequest,
                 frontendAppConfig,
                 cdnBaseURL: normalizeCDNBaseURL(CDNBaseURL),
+                domainInfo,
                 requestContextRevision: '0-0', // Initial revision for this request
               },
             });
@@ -1135,6 +1139,7 @@ export class SSRServer extends BaseServer {
                   request: requestContext,
                 },
                 CDNBaseURL,
+                domainInfo,
               );
 
               // ---> Send response with the extracted status code

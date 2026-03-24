@@ -17,6 +17,8 @@ import type {
 } from '../types';
 import type { CookieSerializeOptions } from '@fastify/cookie';
 import { DEFAULT_API_PREFIX, DEFAULT_PAGE_DATA_ENDPOINT } from './consts';
+import { getDomain } from 'tldts';
+import { parseHostHeader } from './domain-utils/domain-utils';
 
 /**
  * Normalize an API prefix to ensure it has a leading slash and no trailing slash.
@@ -667,4 +669,26 @@ export function normalizeCDNBaseURL(url: string | undefined): string {
   }
 
   return url.endsWith('/') ? url.slice(0, -1) : url;
+}
+
+/**
+ * Computes domain info from a request hostname using the public suffix list.
+ * - `hostname`: the bare hostname (port stripped)
+ * - `rootDomain`: the apex domain without a leading dot (e.g. `'example.com'`),
+ *   or empty string for localhost / IP addresses where no root domain can be resolved.
+ */
+export function computeDomainInfo(hostname: string): {
+  hostname: string;
+  rootDomain: string;
+} {
+  // Use parseHostHeader for correct IPv6 bracket handling
+  // e.g. '[::1]:3000' → '::1', 'localhost:3000' → 'localhost'
+  const { domain: host } = parseHostHeader(hostname);
+  const root = getDomain(host) ?? '';
+
+  return {
+    hostname: host,
+    // Empty string when tldts cannot resolve a root (localhost, raw IP, etc.)
+    rootDomain: root,
+  };
 }

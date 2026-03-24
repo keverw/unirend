@@ -289,9 +289,9 @@ function MyComponent() {
 }
 ```
 
-**Inside React components**, use the hooks `useFrontendAppConfig()`, `useRequestContext()`, and `useCDNBaseURL()` — they work on both server and client. See [Unirend Context](docs/unirend-context.md) for full hook documentation.
+**Inside React components**, use the hooks `useFrontendAppConfig()`, `useRequestContext()`, `useCDNBaseURL()`, and `useDomainInfo()` — they work on both server and client. See [Unirend Context](docs/unirend-context.md) for full hook documentation.
 
-**In Non-Component Code** (loaders, utilities, module-level) - access `window.__FRONTEND_APP_CONFIG__`, `window.__FRONTEND_REQUEST_CONTEXT__`, and `window.__CDN_BASE_URL__` directly:
+**In Non-Component Code** (loaders, utilities, module-level) - access `window.__FRONTEND_APP_CONFIG__`, `window.__FRONTEND_REQUEST_CONTEXT__`, `window.__CDN_BASE_URL__`, and `window.__DOMAIN_INFO__` directly:
 
 ```typescript
 // Non-component code runs outside React component tree, so use direct window access. For example in a data loader.
@@ -318,11 +318,15 @@ const theme =
 // The CDN base URL is always injected by the framework (empty string when not configured):
 const cdnBase =
   typeof window !== 'undefined' ? window.__CDN_BASE_URL__ : undefined;
+
+// Domain info (hostname + rootDomain, useful for subdomain-spanning cookies) — SSR/SSG with hostname configured:
+const domainInfo =
+  typeof window !== 'undefined' ? window.__DOMAIN_INFO__ : null;
 ```
 
-**Note:** If you run Vite in SPA-only dev mode directly (not through the SSR dev/prod servers), the injection won't happen. All three globals will be `undefined`, so use fallback values as shown above.
+**Note:** If you run Vite in SPA-only dev mode directly (not through the SSR dev/prod servers), the injection won't happen. All four globals will be `undefined`, so use fallback values as shown above.
 
-**Note on timing:** All three globals are injected into `<head>` by the server, before any of your app scripts (whether in `<head>` or `<body>`), so they are available everywhere — inline `<head>` scripts, body scripts, and all module code that runs after page load.
+**Note on timing:** All four globals are injected into `<head>` by the server, before any of your app scripts (whether in `<head>` or `<body>`), so they are available everywhere — inline `<head>` scripts, body scripts, and all module code that runs after page load.
 
 For more details on the Unirend Context system, see [docs/unirend-context.md](docs/unirend-context.md).
 

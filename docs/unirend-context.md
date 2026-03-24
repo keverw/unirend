@@ -14,6 +14,7 @@ The Unirend Context system provides React hooks to access render mode, developme
   - [`useIsServer()`](#useisserver)
   - [`useFrontendAppConfig()`](#usefrontendappconfig)
   - [`useCDNBaseURL()`](#usecdnbaseurl)
+  - [`useDomainInfo()`](#usedomaininfo)
 - [Request Context Management](#request-context-management)
   - [`useRequestContext()`](#userequestcontext)
   - [`useRequestContextValue<T>(key)`](#userequestcontextvaluetkey)
@@ -191,6 +192,42 @@ function AssetImage({ path }: { path: string }) {
 ```
 
 **Returns:** `string` — empty string when no CDN is configured (including when running Vite directly without the unirend server)
+
+### `useDomainInfo()`
+
+Returns domain information computed server-side from the request hostname. Available during SSR (always) and SSG (when a `hostname` option is provided at build time). Returns `null` when the hostname is not known — SSG without hostname configured, or pure SPA.
+
+```tsx
+import { useDomainInfo } from 'unirend/client';
+
+function setCookie(name: string, value: string, rootDomain?: string) {
+  document.cookie = [
+    `${name}=${value}`,
+    'path=/',
+    'max-age=31536000',
+    rootDomain ? `domain=.${rootDomain}` : null,
+  ]
+    .filter(Boolean)
+    .join('; ');
+}
+
+function ThemeToggle() {
+  const domainInfo = useDomainInfo();
+  // domainInfo?.hostname  → 'app.example.com'
+  // domainInfo?.rootDomain → 'example.com' (no leading dot — prepend '.' for cookie domain attribute)
+
+  return (
+    <button onClick={() => setCookie('theme', 'dark', domainInfo?.rootDomain)}>
+      Switch to dark
+    </button>
+  );
+}
+```
+
+**Returns:** `DomainInfo | null`
+
+- `hostname` — the bare requested hostname with port stripped (e.g. `'app.example.com'`)
+- `rootDomain` — the apex domain without a leading dot (e.g. `'example.com'`), or empty string for localhost / IP addresses. Prepend `.` when using as a cookie `domain` attribute to span subdomains (e.g. `domain=.example.com`).
 
 **Dynamic Updates:** Since the config is cloned from the source at request time, you can update values between requests by holding a reference to the object (or a sub-object within it) that you passed in. For example, you could keep a `const timeConfig = { year: 2025 }` sub-object, pass it inside your config, and update `timeConfig.year` at midnight — all requests after that point will pick up the new value. Updates are global (all subsequent requests, not a specific user), and in-flight requests are unaffected since their clone is already isolated. Use `requestContext` instead if you need per-request or per-user values.
 
@@ -522,7 +559,7 @@ export function useTheme() {
 
 ```tsx
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useRequestContextValue } from 'unirend/client';
+import { useRequestContextValue, useDomainInfo } from 'unirend/client';
 import {
   ThemeContext,
   type ThemePreference,
@@ -531,20 +568,16 @@ import {
 
 const CYCLE: ThemePreference[] = ['auto', 'dark', 'light'];
 
-// cookieDomain: pass '.example.com' to share across subdomains.
-// Omit for single-domain apps — auto-detecting the root domain isn't reliable
-// across all TLD formats (.co.uk etc), so set it explicitly if needed.
-export function ThemeProvider({
-  children,
-  cookieDomain,
-}: {
-  children: ReactNode;
-  cookieDomain?: string;
-}) {
+export function ThemeProvider({ children }: { children: ReactNode }) {
   // preference is server-seeded from cookie via the theme plugin (see server plugin above)
   const [preference, setContextPref] =
     useRequestContextValue<ThemePreference>('themePreference');
   const channelRef = useRef<BroadcastChannel | null>(null);
+
+  // useDomainInfo() gives us the root domain for subdomain-spanning cookies.
+  // Available in SSR (always) and SSG (when hostname is configured at build time).
+  // Returns null otherwise — cookie is then scoped to the current host, which is fine.
+  const domainInfo = useDomainInfo();
 
   // systemTheme always defaults to 'light' on the server (window.matchMedia isn't available
   // during SSR). The useEffect below updates it on the client after hydration.
@@ -581,8 +614,14 @@ export function ThemeProvider({
           CYCLE.length
       ];
 
-    const domain = cookieDomain ? `; domain=${cookieDomain}` : '';
-    document.cookie = `themePreference=${next}; path=/${domain}; max-age=${60 * 60 * 24 * 365}`;
+    document.cookie = [
+      `themePreference=${next}`,
+      'path=/',
+      `max-age=${60 * 60 * 24 * 365}`,
+      domainInfo?.rootDomain ? `domain=.${domainInfo.rootDomain}` : null,
+    ]
+      .filter(Boolean)
+      .join('; ');
 
     // Notify other same-origin tabs
     channelRef.current?.postMessage({ themePreference: next });
@@ -646,7 +685,7 @@ import { ThemeProvider } from './theme/ThemeProvider';
 
 export function AppLayout({ children }) {
   return (
-    <ThemeProvider /* cookieDomain=".example.com" */>
+    <ThemeProvider>
       <div>
         <header>...</header>
         <main>{children}</main>

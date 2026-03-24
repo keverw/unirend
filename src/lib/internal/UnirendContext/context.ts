@@ -186,6 +186,29 @@ export function incrementContextRevision(context: UnirendContextValue): void {
 }
 
 /**
+ * Domain information computed server-side from the request hostname.
+ * - `hostname`: the bare requested hostname (port stripped), e.g. `'app.example.com'`
+ * - `rootDomain`: the apex domain without a leading dot, e.g. `'example.com'`.
+ *   Empty string for localhost / IP addresses.
+ *   Prepend `.` when using as a cookie `domain` attribute to span subdomains:
+ *   ```ts
+ *   document.cookie = [
+ *     'theme=dark',
+ *     'path=/',
+ *     'max-age=31536000',
+ *     domainInfo?.rootDomain ? `domain=.${domainInfo.rootDomain}` : null,
+ *   ].filter(Boolean).join('; ');
+ *   ```
+ *
+ * Available during SSR (computed per-request) and SSG when a `hostname` option is provided.
+ * `null` when hostname is not known (SSG without hostname configured, or pure SPA).
+ */
+export interface DomainInfo {
+  hostname: string;
+  rootDomain: string;
+}
+
+/**
  * Unirend context value type
  */
 export interface UnirendContextValue {
@@ -222,6 +245,14 @@ export interface UnirendContextValue {
    * Empty string when no CDN is configured
    */
   cdnBaseURL?: string;
+
+  /**
+   * Domain information computed server-side from the request hostname.
+   * Available during SSR (computed per-request) and SSG when a `hostname` option is
+   * provided at build time. `null` when hostname is not known (SSG without hostname
+   * configured, or pure SPA — no server to compute it via the public suffix list).
+   */
+  domainInfo?: DomainInfo | null;
 
   /**
    * Request context revision counter for reactivity

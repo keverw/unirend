@@ -13,6 +13,7 @@ import {
   buildFastifyHTTPSOptions,
   registerClientIPDecoration,
   normalizeCDNBaseURL,
+  computeDomainInfo,
 } from './server-utils';
 import type { HTTPSOptions } from '../types';
 
@@ -1118,5 +1119,73 @@ describe('normalizeCDNBaseURL', () => {
     expect(normalizeCDNBaseURL('https://cdn.example.com//')).toBe(
       'https://cdn.example.com/',
     );
+  });
+});
+
+describe('computeDomainInfo', () => {
+  it('returns rootDomain without leading dot for a standard domain', () => {
+    const result = computeDomainInfo('app.example.com');
+    expect(result.hostname).toBe('app.example.com');
+    expect(result.rootDomain).toBe('example.com');
+  });
+
+  it('returns rootDomain for an apex domain', () => {
+    const result = computeDomainInfo('example.com');
+    expect(result.hostname).toBe('example.com');
+    expect(result.rootDomain).toBe('example.com');
+  });
+
+  it('handles multi-part TLDs correctly', () => {
+    const result = computeDomainInfo('app.example.co.uk');
+    expect(result.hostname).toBe('app.example.co.uk');
+    expect(result.rootDomain).toBe('example.co.uk');
+  });
+
+  it('handles deeply nested subdomains with multi-part TLDs', () => {
+    const result = computeDomainInfo('foo.bar.example.co.uk');
+    expect(result.hostname).toBe('foo.bar.example.co.uk');
+    expect(result.rootDomain).toBe('example.co.uk');
+  });
+
+  it('strips port from hostname', () => {
+    const result = computeDomainInfo('app.example.com:3000');
+    expect(result.hostname).toBe('app.example.com');
+    expect(result.rootDomain).toBe('example.com');
+  });
+
+  it('returns empty rootDomain for localhost', () => {
+    const result = computeDomainInfo('localhost');
+    expect(result.hostname).toBe('localhost');
+    expect(result.rootDomain).toBe('');
+  });
+
+  it('returns empty rootDomain for localhost with port', () => {
+    const result = computeDomainInfo('localhost:3000');
+    expect(result.hostname).toBe('localhost');
+    expect(result.rootDomain).toBe('');
+  });
+
+  it('returns empty rootDomain for an IP address', () => {
+    const result = computeDomainInfo('192.168.1.1');
+    expect(result.hostname).toBe('192.168.1.1');
+    expect(result.rootDomain).toBe('');
+  });
+
+  it('returns empty rootDomain for an IPv6 loopback address', () => {
+    const result = computeDomainInfo('[::1]');
+    expect(result.hostname).toBe('::1');
+    expect(result.rootDomain).toBe('');
+  });
+
+  it('strips port from a bracketed IPv6 address', () => {
+    const result = computeDomainInfo('[::1]:3000');
+    expect(result.hostname).toBe('::1');
+    expect(result.rootDomain).toBe('');
+  });
+
+  it('handles a full IPv6 address with port', () => {
+    const result = computeDomainInfo('[2001:db8::1]:8080');
+    expect(result.hostname).toBe('2001:db8::1');
+    expect(result.rootDomain).toBe('');
   });
 });

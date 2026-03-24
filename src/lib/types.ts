@@ -1485,6 +1485,16 @@ export interface SSGOptions {
    */
   CDNBaseURL?: string;
   /**
+   * The hostname of the site being generated (e.g., `'app.example.com'`).
+   *
+   * Used to compute `window.__DOMAIN_INFO__` (hostname + rootDomain for subdomain-spanning cookies)
+   * and populate `useDomainInfo()` in components during SSG rendering and on the client.
+   *
+   * If not provided, `useDomainInfo()` returns `null` in SSG and SPA pages.
+   * Set via a build-time environment variable if needed (e.g., `hostname: process.env.SITE_HOSTNAME`).
+   */
+  hostname?: string;
+  /**
    * ID of the container element (defaults to "root")
    * This element will be formatted inline to prevent hydration issues
    */

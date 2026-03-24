@@ -8,6 +8,8 @@ import {
   useIsDevelopment,
   useIsServer,
   useFrontendAppConfig,
+  useCDNBaseURL,
+  useDomainInfo,
   useRequestContext,
   useRequestContextValue,
   useRequestContextObjectRaw,
@@ -23,6 +25,8 @@ const ContextDemo: React.FC = () => {
     isDevelopment: boolean;
     isServer: boolean;
     hasFrontendConfig: boolean;
+    cdnBaseURL: string;
+    domainInfo: { hostname: string; rootDomain: string } | null;
   } | null>(null);
 
   // Get hooks (but don't render directly to avoid hydration mismatch)
@@ -33,6 +37,8 @@ const ContextDemo: React.FC = () => {
   const isDevelopment = useIsDevelopment();
   const isServer = useIsServer();
   const frontendAppConfig = useFrontendAppConfig();
+  const cdnBaseURL = useCDNBaseURL();
+  const domainInfo = useDomainInfo();
   const requestContext = useRequestContext();
   const rawRequestContext = useRequestContextObjectRaw();
 
@@ -41,6 +47,8 @@ const ContextDemo: React.FC = () => {
   if (!requestContext.has('__debug_initialRenderMode')) {
     requestContext.set('__debug_initialRenderMode', renderMode);
     requestContext.set('__debug_initialIsDevelopment', isDevelopment);
+    requestContext.set('__debug_initialCdnBaseURL', cdnBaseURL);
+    requestContext.set('__debug_initialDomainInfo', JSON.stringify(domainInfo));
   }
 
   // Populate context snapshot after hydration
@@ -52,14 +60,25 @@ const ContextDemo: React.FC = () => {
       isDevelopment,
       isServer,
       hasFrontendConfig: !!frontendAppConfig,
+      cdnBaseURL,
+      domainInfo,
     });
-  }, [renderMode, isDevelopment, isServer, frontendAppConfig]);
+  }, [
+    renderMode,
+    isDevelopment,
+    isServer,
+    frontendAppConfig,
+    cdnBaseURL,
+    domainInfo,
+  ]);
 
   // Cleanup: Clear debug values when navigating away
   useEffect(() => {
     return () => {
       requestContext.delete('__debug_initialRenderMode');
       requestContext.delete('__debug_initialIsDevelopment');
+      requestContext.delete('__debug_initialCdnBaseURL');
+      requestContext.delete('__debug_initialDomainInfo');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentional: cleanup should only run on unmount, and requestContext methods are stable
   }, []);
@@ -215,6 +234,36 @@ const ContextDemo: React.FC = () => {
                     </code>
                   </div>
                   <div>
+                    <strong>useCDNBaseURL():</strong>{' '}
+                    <code
+                      style={{
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
+                      }}
+                    >
+                      {contextSnapshot?.cdnBaseURL
+                        ? `"${contextSnapshot.cdnBaseURL}"`
+                        : '(not configured)'}
+                    </code>
+                  </div>
+                  <div>
+                    <strong>useDomainInfo():</strong>{' '}
+                    <code
+                      style={{
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
+                      }}
+                    >
+                      {contextSnapshot?.domainInfo
+                        ? `{ hostname: "${contextSnapshot.domainInfo.hostname}", rootDomain: "${contextSnapshot.domainInfo.rootDomain || '(localhost/IP)'}" }`
+                        : 'null'}
+                    </code>
+                  </div>
+                  <div>
                     <strong>useRequestContext():</strong>{' '}
                     <code
                       style={{
@@ -324,6 +373,38 @@ const ContextDemo: React.FC = () => {
                     >
                       {String(
                         requestContext.get('__debug_initialIsDevelopment'),
+                      )}
+                    </code>
+                  </div>
+                  <div>
+                    <strong>Initial CDN Base URL:</strong>{' '}
+                    <code
+                      style={{
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
+                      }}
+                    >
+                      {String(
+                        requestContext.get('__debug_initialCdnBaseURL') ||
+                          '(not configured)',
+                      )}
+                    </code>
+                  </div>
+                  <div>
+                    <strong>Initial Domain Info:</strong>{' '}
+                    <code
+                      style={{
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        color: '#fff',
+                      }}
+                    >
+                      {String(
+                        requestContext.get('__debug_initialDomainInfo') ||
+                          'null',
                       )}
                     </code>
                   </div>
@@ -569,6 +650,40 @@ const ContextDemo: React.FC = () => {
               <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Returns the frontend application configuration object (frozen
                 and immutable).
+              </p>
+            </div>
+            <div>
+              <code
+                style={{
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  padding: '0.25rem 0.5rem',
+                  borderRadius: '4px',
+                  color: '#fff',
+                }}
+              >
+                useCDNBaseURL()
+              </code>
+              <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
+                Returns the effective CDN base URL (per-request override or
+                app-level default). Empty string when not configured.
+              </p>
+            </div>
+            <div>
+              <code
+                style={{
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  padding: '0.25rem 0.5rem',
+                  borderRadius: '4px',
+                  color: '#fff',
+                }}
+              >
+                useDomainInfo()
+              </code>
+              <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
+                Returns <code>{'{ hostname, rootDomain }'}</code> computed
+                server-side.
+                <code>rootDomain</code> is empty for localhost or IP addresses.
+                Returns <code>null</code> only if domain info is unavailable.
               </p>
             </div>
             <div>

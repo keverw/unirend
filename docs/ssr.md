@@ -691,7 +691,8 @@ Notes:
 - In dev, Vite serves client assets with middleware and `vite.ssrLoadModule` is used for the server entry.
 - HMR is available. Stack traces are mapped for easier debugging.
 - `frontendAppConfig` is injected in both development and production when using `serveSSRDev` or `serveSSRProd`.
-- All context globals (`window.__FRONTEND_APP_CONFIG__`, `window.__FRONTEND_REQUEST_CONTEXT__`, `window.__CDN_BASE_URL__`) are injected into `<head>` before any of your app scripts, so they are available to inline `<head>` scripts, body scripts, and all module code that runs after page load.
+- All context globals (`window.__FRONTEND_APP_CONFIG__`, `window.__FRONTEND_REQUEST_CONTEXT__`, `window.__CDN_BASE_URL__`, `window.__DOMAIN_INFO__`) are injected into `<head>` before any of your app scripts, so they are available to inline `<head>` scripts, body scripts, and all module code that runs after page load.
+- `window.__DOMAIN_INFO__` contains `{ hostname, rootDomain }` computed from the request hostname server-side — access it in components via `useDomainInfo()` (see [Unirend Context](../docs/unirend-context.md)). Useful for setting cookies that span subdomains without hardcoding the domain.
 - **HTML Template**: The `template` path in development mode is fully customizable. Specify any HTML file path (e.g., `./index.html`, `./src/app.html`, etc.). The template is read fresh on each request and transformed by Vite for HMR support.
 
 ### Asset Serving vs Runtime Behavior

@@ -21,6 +21,7 @@ export type {
   UnirendContextValue,
   UnirendRenderMode,
   RequestContextManager,
+  DomainInfo,
 } from './lib/internal/UnirendContext';
 
 // Client-safe functions
@@ -39,6 +40,7 @@ export {
   useIsServer,
   useFrontendAppConfig,
   useCDNBaseURL,
+  useDomainInfo,
   useRequestContext,
   useRequestContextValue,
   useRequestContextObjectRaw,

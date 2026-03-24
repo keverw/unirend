@@ -22,6 +22,7 @@ export function injectContent(
     request?: Record<string, unknown>;
   },
   CDNBaseURL?: string,
+  domainInfo?: { hostname: string; rootDomain: string } | null,
 ): string {
   // Prettify all head tags with consistent indentation
   const compactedHead = prettifyHeadTags(headContent);
@@ -75,6 +76,17 @@ export function injectContent(
 
   contextScripts.push(
     `<script>window.__CDN_BASE_URL__=${safeCDNJSON};</script>`,
+  );
+
+  // Inject __DOMAIN_INFO__ — null when hostname not known (SSG without hostname configured, or SPA)
+  // so client code can check for null rather than guarding against undefined
+  const safeDomainJSON = JSON.stringify(domainInfo ?? null).replace(
+    /</g,
+    '\\u003c',
+  );
+
+  contextScripts.push(
+    `<script>window.__DOMAIN_INFO__=${safeDomainJSON};</script>`,
   );
 
   // Replace the placeholder with all context scripts (or remove if none).

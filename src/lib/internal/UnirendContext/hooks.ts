@@ -10,7 +10,11 @@ import {
   hasWindowRequestContext,
   incrementContextRevision,
 } from './context';
-import type { UnirendRenderMode, RequestContextManager } from './context';
+import type {
+  UnirendRenderMode,
+  RequestContextManager,
+  DomainInfo,
+} from './context';
 
 /**
  * Hook to check if the app is rendering in SSR mode
@@ -189,6 +193,39 @@ export function useFrontendAppConfig(): Record<string, unknown> | undefined {
 export function useCDNBaseURL(): string {
   const { cdnBaseURL } = useContext(UnirendContext);
   return cdnBaseURL ?? '';
+}
+
+/**
+ * Returns domain information computed server-side from the request hostname.
+ *
+ * - `hostname`: the bare requested hostname (port stripped), e.g. `'app.example.com'`
+ * - `rootDomain`: the apex domain without a leading dot, e.g. `'example.com'`.
+ *   Empty string for localhost / IP addresses.
+ *   Prepend `.` when using as a cookie `domain` attribute to span subdomains:
+ *   ```ts
+ *   document.cookie = [
+ *     'theme=dark',
+ *     'path=/',
+ *     'max-age=31536000',
+ *     domainInfo?.rootDomain ? `domain=.${domainInfo.rootDomain}` : null,
+ *   ].filter(Boolean).join('; ');
+ *   ```
+ *
+ * Returns `null` when hostname is not known — SSG without a `hostname` option
+ * configured, or pure SPA (no server to compute it via the public suffix list).
+ *
+ * @example
+ * ```tsx
+ * function ThemeProvider({ children }) {
+ *   const domainInfo = useDomainInfo();
+ *   // domainInfo?.hostname  → 'app.example.com'
+ *   // domainInfo?.rootDomain → 'example.com'
+ * }
+ * ```
+ */
+export function useDomainInfo(): DomainInfo | null {
+  const { domainInfo } = useContext(UnirendContext);
+  return domainInfo ?? null;
 }
 
 /**

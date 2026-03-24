@@ -63,7 +63,8 @@ describe('injectContent', () => {
       `<title>Test Title</title>\n` +
       `${TAB_SPACES}<meta name="description" content="Test">` +
       '<script>globalThis.__lifecycleion_is_dev__=false;</script>\n' +
-      '<script>window.__CDN_BASE_URL__="";</script>' +
+      '<script>window.__CDN_BASE_URL__="";</script>\n' +
+      '<script>window.__DOMAIN_INFO__=null;</script>' +
       '</head><body><div>Hello World</div></body></html>';
 
     expect(injectContent(template, headContent, bodyContent)).toBe(expected);
@@ -74,7 +75,7 @@ describe('injectContent', () => {
       '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
 
     const expected =
-      '<!DOCTYPE html><html><head><script>globalThis.__lifecycleion_is_dev__=false;</script>\n<script>window.__CDN_BASE_URL__="";</script></head><body></body></html>';
+      '<!DOCTYPE html><html><head><script>globalThis.__lifecycleion_is_dev__=false;</script>\n<script>window.__CDN_BASE_URL__="";</script>\n<script>window.__DOMAIN_INFO__=null;</script></head><body></body></html>';
 
     expect(injectContent(template, '', '')).toBe(expected);
   });
@@ -91,7 +92,8 @@ describe('injectContent', () => {
       `<title>React App</title>` +
       '</head><body><div id="root" data-reactroot=""><div>React Content</div></div>' +
       '<script>globalThis.__lifecycleion_is_dev__=false;</script>\n' +
-      '<script>window.__CDN_BASE_URL__="";</script>' +
+      '<script>window.__CDN_BASE_URL__="";</script>\n' +
+      '<script>window.__DOMAIN_INFO__=null;</script>' +
       '</body></html>';
 
     expect(injectContent(template, headContent, bodyContent)).toBe(expected);
