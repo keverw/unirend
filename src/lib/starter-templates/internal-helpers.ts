@@ -149,6 +149,8 @@ export function getTemplateConfig(
   projectPath: string,
   serverBuildTarget?: ServerBuildTarget,
 ): TemplateConfig {
+  // todo: when building serve, got to remember if we're goin to target bun or node...
+  // this changes the bun buidl target and if we call bun or node when running.
   return {};
 }
 
