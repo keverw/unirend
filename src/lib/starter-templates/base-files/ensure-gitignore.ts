@@ -37,6 +37,7 @@ bun.lockb
 
 # Build outputs
 dist/
+build/
 coverage/
 .nyc_output/
 *.tsbuildinfo
