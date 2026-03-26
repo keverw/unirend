@@ -35,7 +35,7 @@ export interface PageDataHandlerParams {
   /** Route params (from React Router via POST body) */
   routeParams: Record<string, string>;
   /** Query params (from React Router via POST body) */
-  queryParams: Record<string, string>;
+  queryParams: Record<string, unknown>;
   /** Request path (from React Router via POST body) */
   requestPath: string;
   /** Original URL (from React Router via POST body) */
@@ -296,7 +296,7 @@ export class DataLoaderServerHandlerHelpers {
                 routeParams:
                   (routeParams as Record<string, string> | undefined) || {},
                 queryParams:
-                  (queryParams as Record<string, string> | undefined) || {},
+                  (queryParams as Record<string, unknown> | undefined) || {},
                 requestPath: requestPath as string,
                 originalURL: originalURL as string,
               },
@@ -401,7 +401,7 @@ export class DataLoaderServerHandlerHelpers {
     /** Route params (from React Router via POST body) */
     routeParams: Record<string, string>;
     /** Query params (from React Router via POST body) */
-    queryParams: Record<string, string>;
+    queryParams: Record<string, unknown>;
     /** Request path (from React Router via POST body) */
     requestPath: string;
     /** Original URL (from React Router via POST body) */

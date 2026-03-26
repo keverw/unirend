@@ -179,6 +179,7 @@
  */
 
 import type { LoaderFunctionArgs } from 'react-router';
+import qs from 'qs';
 import type {
   PageResponseEnvelope,
   BaseMeta,
@@ -320,10 +321,7 @@ async function pageDataLoader({
   // Assemble the request body
   const requestBody: Record<string, unknown> = {
     route_params: routeParams, // react router params
-    query_params: Object.fromEntries(
-      // url query params
-      url.searchParams.entries(),
-    ),
+    query_params: qs.parse(url.search, { ignoreQueryPrefix: true }),
     // Include the requested path and original URL for debugging
     request_path: url.pathname,
     original_url: request.url,
@@ -378,7 +376,7 @@ async function pageDataLoader({
             routeParams:
               (requestBody.route_params as Record<string, string>) || {},
             queryParams:
-              (requestBody.query_params as Record<string, string>) || {},
+              (requestBody.query_params as Record<string, unknown>) || {},
             requestPath: (requestBody.request_path as string) || '',
             originalURL: (requestBody.original_url as string) || '',
           });
@@ -647,7 +645,7 @@ async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
     pageType: 'local',
     invocationOrigin: 'local',
     routeParams: routeParams,
-    queryParams: Object.fromEntries(url.searchParams.entries()),
+    queryParams: qs.parse(url.search, { ignoreQueryPrefix: true }),
     requestPath: url.pathname,
     originalURL: request.url,
   };

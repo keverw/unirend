@@ -453,6 +453,7 @@ export class SSRServer extends BaseServer {
 
       // Dynamic import to prevent bundling in client builds
       const { default: fastify } = await import('fastify');
+      const { default: qs } = await import('qs');
 
       // Build Fastify options from curated subset
       const fastifyOptions: FastifyServerOptions & { https?: unknown } = {};
@@ -501,6 +502,9 @@ export class SSRServer extends BaseServer {
           this.sharedOptions.https,
         );
       }
+
+      // Use qs for richer query string parsing (nested objects, arrays, encoded brackets)
+      fastifyOptions.querystringParser = (str) => qs.parse(str);
 
       // Ignore trailing slashes for flexible routing (matches Express behavior)
       fastifyOptions.routerOptions = { ignoreTrailingSlash: true };

@@ -256,7 +256,7 @@ export interface LocalPageHandlerParams {
   /** Route params (from React Router) */
   routeParams: Record<string, string>;
   /** Query params (from React Router) */
-  queryParams: Record<string, string>;
+  queryParams: Record<string, unknown>;
   /** Request path (from React Router) */
   requestPath: string;
   /** Original URL (from React Router) */

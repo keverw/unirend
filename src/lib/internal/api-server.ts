@@ -1,4 +1,5 @@
 import fastify from 'fastify';
+import qs from 'qs';
 import formbody from '@fastify/formbody';
 import type { FastifyServerOptions, FastifyError, FastifyReply } from 'fastify';
 import {
@@ -181,6 +182,9 @@ export class APIServer extends BaseServer {
       if (this.options.https) {
         fastifyOptions.https = buildFastifyHTTPSOptions(this.options.https);
       }
+
+      // Use qs for richer query string parsing (nested objects, arrays, encoded brackets)
+      fastifyOptions.querystringParser = (str) => qs.parse(str);
 
       // Ignore trailing slashes for flexible routing (matches Express behavior)
       fastifyOptions.routerOptions = { ignoreTrailingSlash: true };

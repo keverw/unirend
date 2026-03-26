@@ -968,7 +968,7 @@ Handler signature and return type:
     - `version`: version number used for this invocation
     - `invocationOrigin`: `"http" | "internal"`
     - `routeParams`: dynamic route params
-    - `queryParams`: URL query params
+    - `queryParams`: URL query params (`Record<string, unknown>`, parsed with qs — supports nested objects and arrays)
     - `requestPath`: resolved request path used by the loader
     - `originalURL`: full original URL
 
@@ -1203,7 +1203,7 @@ Notes:
     - `version`: numeric version used
     - `fullPath`: full registered path
     - `routeParams`: dynamic route params
-    - `queryParams`: URL query params
+    - `queryParams`: URL query params (`Record<string, unknown>`, parsed with qs — supports nested objects and arrays)
     - `requestPath`: path without query
     - `originalURL`: full original URL
 

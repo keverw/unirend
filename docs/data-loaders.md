@@ -13,6 +13,7 @@ Unirend centralizes route data fetching through a single loader system. Define l
 - [Page Type Handler (Fetch/Short-Circuit) Data Loader](#page-type-handler-fetchshort-circuit-data-loader)
 - [Local Data Loader](#local-data-loader)
 - [Using Loaders in React Router (Applies to Both Types)](#using-loaders-in-react-router-applies-to-both-types)
+- [Query Parameters](#query-parameters)
 - [Data Loader Error Transformation and Additional Config](#data-loader-error-transformation-and-additional-config)
   - [`errorDefaults` presets](#errordefaults-presets)
   - [`connectionErrorMessages`](#connectionerrormessages)
@@ -174,6 +175,55 @@ export const routes: RouteObject[] = [
 ```
 
 Access loader data in components via `useLoaderData()`. The `pageMetadata` you return from your handler or local loader is available as `loaderData.meta.page` — pass it to `UnirendHead` for dynamic page titles. See [UnirendHead — Hardcoded vs loader-driven titles](./unirendhead.md#hardcoded-vs-loader-driven-titles).
+
+## Query Parameters
+
+Query parameters are parsed with [qs](https://github.com/ljharb/qs), so nested objects and arrays work out of the box. `params.queryParams` is typed as `Record<string, unknown>`.
+
+```
+?filters[status]=active&filters[tags][]=sale&filters[tags][]=new
+→ { filters: { status: 'active', tags: ['sale', 'new'] } }
+```
+
+**In a handler:**
+
+```ts
+server.pageDataHandler.register('products', (request, reply, params) => {
+  const { filters } = params.queryParams as {
+    filters?: { status?: string; tags?: string[] };
+  };
+  // ...
+});
+```
+
+**In a component** — use `useQueryParams()` for the same parsed structure:
+
+```ts
+import { useQueryParams } from 'unirend/client';
+
+function ProductsPage() {
+  const { filters } = useQueryParams() as {
+    filters?: { status?: string; tags?: string[] };
+  };
+}
+```
+
+**Building a query string** — use `stringifyQueryParams()`:
+
+```ts
+import { stringifyQueryParams } from 'unirend/client';
+import { useNavigate } from 'react-router';
+
+function Filters() {
+  const navigate = useNavigate();
+
+  function apply() {
+    navigate(
+      `?${stringifyQueryParams({ filters: { status: 'active', tags: ['sale', 'new'] } })}`,
+    );
+  }
+}
+```
 
 ## Data Loader Error Transformation and Additional Config
 
