@@ -1634,7 +1634,15 @@ export interface SSGPagesReport {
  * Complete report for the SSG process, including potential fatal errors
  */
 export interface SSGReport {
-  /** Fatal error if the process failed before page generation */
+  /**
+   * True if the SSG generation should be considered failed. This is true when there is a
+   * fatalError (pre-generation failure) or when any pages had errors (e.g. 5xx
+   * status with failOn5xx, render failures, write failures).
+   *
+   * Check this instead of fatalError alone to correctly handle page-level failures.
+   */
+  generationFailed: boolean;
+  /** Fatal error if the process failed before page generation could start */
   fatalError?: Error;
   /** Page generation reports (always present, even on error) */
   pagesReport: SSGPagesReport;

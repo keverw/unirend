@@ -71,6 +71,7 @@ function createSSGReport({
   notFoundCount?: number;
 }): SSGReport {
   return {
+    generationFailed: !!fatalError || errorCount > 0,
     fatalError,
     pagesReport: {
       pages,

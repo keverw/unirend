@@ -120,8 +120,25 @@ async function main() {
 
   const result = await generateSSG(buildDir, pages, options);
 
-  if (result.fatalError) {
-    console.error('SSG generation failed:', result.fatalError.message);
+  // result.generationFailed is true for both pre-generation fatal errors and page-level
+  // errors (e.g. 5xx status with failOn5xx, render failures, write failures).
+  // result.pagesReport has per-page details when pages were attempted (empty on fatal pre-generation errors).
+  if (result.generationFailed) {
+    if (result.fatalError) {
+      console.error('SSG generation failed:', result.fatalError.message);
+    } else {
+      const errorPages = result.pagesReport.pages
+        .filter((p) => p.status === 'error')
+        .map(
+          (p) => `  ${p.page.filename}: ${p.errorDetails ?? 'unknown error'}`,
+        )
+        .join('\n');
+
+      console.error(
+        `SSG generation completed with page errors:\n${errorPages}`,
+      );
+    }
+
     process.exit(1);
   }
 
@@ -212,7 +229,17 @@ The page map is consumed automatically by `StaticWebServer` (Node.js) and `unire
 
 ### 5xx Error Handling
 
-By default, if a page renders and returns a 5xx status code, the generator treats it as a generation error. The file is still written to disk so you can inspect it, and `outputPath` is included in the error report entry so you know where to find it.
+There are two distinct failure modes during SSG, and it's important to understand the difference:
+
+**Component-level throws** (a component throws during render) are not caught by React Router's `errorElement` during SSG and result in a `render-error` internally. These are always treated as generation errors and the file is never written — `failOn5xx` has no effect on them. Unlike SSR — which serves live requests and provides `get500ErrorPage` to gracefully handle 500 responses at runtime — SSG has no equivalent, so a component throw is a build-time failure you fix before generating.
+
+Why: React Router does set up a React error boundary for `errorElement`, and on the **client** it will catch component-level render errors. But SSG uses React's synchronous `renderToString`, which does not support error boundary recovery — if a component throws inside `renderToString`, the error propagates straight out regardless of any error boundaries in the tree.
+
+**Data loader throws and 404s** (a loader throws, or a route has no match and no wildcard handler) _are_ caught by React Router's `errorElement` and render the error UI as a normal page. The file is written to disk — and since these often produce a 5xx or 4xx status, `failOn5xx` applies here. These work because React Router resolves loader errors and routing mismatches at the routing layer first — by the time `renderToString` is called, the router already knows to render `errorElement` instead of the route component.
+
+**5xx status codes from successful renders** (e.g., a data loader that calls an external API returns HTTP 503 when the service is unavailable) result in a fully rendered page with a non-2xx status code. By default, `failOn5xx: true` treats these as generation errors, but the file _is_ still written to disk so you can inspect it — `outputPath` is included in the error report entry.
+
+The `failOn5xx` option is specifically for the second case: a page that renders successfully but whose status code signals an error. A typical use case is an SSG page that fetches data from an external API at build time (e.g., recent news for a business site) — if the API is temporarily unavailable, the render may complete but return a 503.
 
 **Debugging unexpected 5xx pages:** Call `initDevMode(true)` before running `generateSSG()` so components using `useIsDevelopment()` can render extra debug output in the generated file:
 
@@ -223,7 +250,7 @@ import { generateSSG } from 'unirend/server';
 initDevMode(true); // Enable dev mode — components can render richer error output
 
 const result = await generateSSG(buildDir, pages, {
-  failOn5xx: true, // Default — marks 5xx pages as errors in the report
+  failOn5xx: true, // Default — marks 5xx status pages as errors in the report
 });
 ```
 
@@ -242,7 +269,7 @@ If you do have a legitimate reason to render a page that returns a 5xx status an
 
 ```typescript
 const options = {
-  failOn5xx: false, // Write 5xx pages without treating them as errors
+  failOn5xx: false, // Write 5xx status code pages without treating them as errors
 };
 ```
 

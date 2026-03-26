@@ -114,19 +114,9 @@ async function main() {
     // Generate the static pages
     const result = await generateSSG(buildDir, pages, options);
 
-    if (result.fatalError) {
-      logger.error('Fatal error during SSG generation: {{error}}', {
-        params: { error: result.fatalError.message },
-        exitCode: 1,
-      });
-
-      return;
-    }
-
+    // Always log the page report so errors are visible before we exit
     if (result.pagesReport) {
       const { pagesReport } = result;
-
-      logger.success('✅ SSG generation completed!');
 
       logger.info(
         '📊 Summary:\n  • Total pages: {{total}}\n  • Successful: {{success}}\n  • Errors: {{errors}}\n  • Not found: {{notFound}}\n  • Total time: {{time}}ms\n  • Build dir: {{dir}}',
@@ -176,6 +166,19 @@ async function main() {
           });
         }
       }
+    }
+
+    if (result.generationFailed) {
+      logger.error('SSG generation failed: {{error}}', {
+        params: {
+          error: result.fatalError
+            ? result.fatalError.message
+            : `${result.pagesReport.errorCount} page error(s)`,
+        },
+        exitCode: 1,
+      });
+
+      return;
     }
 
     logger.success('🎉 Static site generation complete!');
