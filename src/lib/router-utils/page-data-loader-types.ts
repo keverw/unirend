@@ -147,12 +147,18 @@ export interface PageDataLoaderConfig {
    *   "https://myapp.com",
    *   "https://auth.myapp.com"
    * ]
+   *
+   * // Allow relative paths + SaaS tenant subdomains
+   * allowedRedirectOrigins: [
+   *   "https://*.myapp.com"
+   * ]
    * ```
    *
    * With specific origins configured, this allows:
    * - "/dashboard" (relative path - always allowed)
    * - "https://myapp.com/profile" (allowed origin)
    * - "https://auth.myapp.com/login" (allowed origin)
+   * - "https://tenant.myapp.com/dashboard" (wildcard origin pattern)
    *
    * But blocks:
    * - "https://evil.com/phishing" (not in allowed origins)

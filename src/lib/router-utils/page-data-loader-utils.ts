@@ -13,6 +13,7 @@ import type {
   LocalPageDataLoaderConfig,
   PageDataLoaderConfig,
 } from './page-data-loader-types';
+import { matchesOriginList } from 'lifecycleion/domain-utils';
 
 /**
  * Helper function to create base headers with Content-Type: application/json
@@ -57,8 +58,8 @@ export function isSafeRedirect(
     return true;
   }
 
-  // Always allow relative paths (starting with "/")
-  if (target.startsWith('/')) {
+  // Allow root-relative paths, but block protocol-relative URLs such as //evil.com
+  if (target.startsWith('/') && !target.startsWith('//')) {
     return true;
   }
 
@@ -67,8 +68,17 @@ export function isSafeRedirect(
     return false;
   }
 
-  // Check if the target starts with any of the allowed origins
-  return allowedOrigins.some((origin) => target.startsWith(origin));
+  try {
+    const targetURL = new URL(target);
+
+    if (!['http:', 'https:'].includes(targetURL.protocol)) {
+      return false;
+    }
+
+    return matchesOriginList(targetURL.origin, allowedOrigins);
+  } catch {
+    return false;
+  }
 }
 
 /**

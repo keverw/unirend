@@ -724,6 +724,12 @@ For the specific case of authentication required errors, we use the existing err
 
 The frontend data loader handles this by redirecting the user to the login page, including the return_to parameter.
 
+Important implementation notes:
+
+- `loginURL` is framework configuration and is treated as the actual redirect destination. If `allowedRedirectOrigins` is configured, `loginURL` must be relative or match an allowed origin.
+- `error.details.return_to` is forwarded to your login route as untrusted application data. It may be relative or absolute depending on your architecture.
+- Unirend does not validate `return_to` before forwarding it. This allows patterns such as central auth for multi-tenant or subdomain-based SaaS apps, but your login page or auth callback handler must validate it before redirecting the user after login to avoid open redirect vulnerabilities.
+
 #### Benefits of Application-Level Redirects
 
 This approach:
@@ -768,7 +774,7 @@ Unirend’s `pageDataLoader` implements a consistent, envelope-first pattern acr
   - Application redirects: If the response is a Page redirect envelope, it is converted to a React Router redirect (preserving query if requested).
   - HTTP redirects: HTTP 3xx from API responses are not followed and are converted to `redirectNotFollowed` errors, preserving `Location` in details.
   - Page vs API envelopes: Page envelopes are passed through (decorated with SSR‑only data such as cookies on the server). API error envelopes are transformed into Page error envelopes, preserving metadata and optionally extending it via `transformErrorMeta`.
-  - Auth flows: 401 with `error.code === "authentication_required"` triggers a redirect to `loginURL` with an optional return parameter (`returnToParam`). 403 maps to access denied, 404 to not found, other codes fall back to generic handling.
+  - Auth flows: 401 with `error.code === "authentication_required"` triggers a redirect to `loginURL` with an optional return parameter (`returnToParam`). `loginURL` is validated against `allowedRedirectOrigins` when configured. The forwarded `return_to` value is not validated by the framework. 403 maps to access denied, 404 to not found, other codes fall back to generic handling.
 
 - Timeouts and resiliency
   - HTTP requests use `fetchWithTimeout(timeoutMS)`. On timeout or network failures, the loader returns a standardized 500 Page error using configured friendly messages.

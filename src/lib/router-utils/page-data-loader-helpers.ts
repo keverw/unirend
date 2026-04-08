@@ -243,7 +243,18 @@ export async function processAPIResponse(
       ) {
         // redirect to login - check for return_to in the error details
         // Type guard already confirmed error exists and is an object with code property
-        const errorObj = responseData.error as ErrorObject;
+        const authResponse = responseData as {
+          request_id?: string;
+          meta?: Record<string, unknown>;
+          error: ErrorObject;
+        };
+
+        const errorObj = authResponse.error;
+        const requestID =
+          authResponse.request_id ||
+          (config.generateFallbackRequestID
+            ? config.generateFallbackRequestID('redirect')
+            : DEFAULT_FALLBACK_REQUEST_ID_GENERATOR('redirect'));
 
         // Safely extract return_to from error details with proper type narrowing
         let returnTo: string | undefined;
@@ -258,6 +269,25 @@ export async function processAPIResponse(
         }
 
         const returnToParam = config.returnToParam || DEFAULT_RETURN_TO_PARAM;
+
+        // Validate login redirect safety if allowedRedirectOrigins is configured.
+        // `return_to` remains application-owned data and is intentionally not validated here.
+        if (!isSafeRedirect(config.loginURL, config.allowedRedirectOrigins)) {
+          return decorateWithSsrOnlyData(
+            createErrorResponse(
+              config,
+              400,
+              config.errorDefaults.unsafeRedirect.code,
+              config.errorDefaults.unsafeRedirect.message,
+              requestID,
+              authResponse.meta,
+              {
+                loginURL: config.loginURL,
+              },
+            ),
+            ssrOnlyData,
+          );
+        }
 
         // Only include return_to in the URL if it has a value, and ensure it's properly encoded
         if (returnTo) {

@@ -303,8 +303,13 @@ When API responses don’t follow the Page Envelope, the loader converts them us
 - `allowedRedirectOrigins`: redirect safety validation
   - undefined: validation disabled (any redirect target allowed)
   - []: only relative paths allowed, all external URLs blocked
-  - ["https://myapp.com", "https://auth.myapp.com"]: allow relative paths plus listed origins
+  - ["https://myapp.com", "https://auth.myapp.com"]: allow relative paths plus listed exact origins
+  - Supports the same origin patterns as `lifecycleion/domain-utils`, including wildcard entries such as `"https://*.example.com"` when you need subdomain-based SaaS redirects
+  - Applies to both page redirect envelope targets and for `loginURL` in authentication-required redirects
 - `loginURL` and `returnToParam`
   - `loginURL`: default "/login"
   - `returnToParam`: default "return_to"
-  - On 401 with `error.code === "authentication_required"`, redirects to login and includes the return URL when provided
+  - On 401 with `error.code === "authentication_required"`, redirects to `loginURL` and includes the return URL when provided
+  - `loginURL` is framework configuration and is validated using the same redirect safety rules as other redirect targets
+  - `error.details.return_to` is forwarded as application data and is not validated by Unirend, your login or auth callback handler must validate it before using it for a post-login redirect
+  - This allows patterns such as SaaS apps that send users to a central login domain and then back to an app subdomain after authentication
