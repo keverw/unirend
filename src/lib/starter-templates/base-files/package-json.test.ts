@@ -28,6 +28,7 @@ describe('ensurePackageJSON', () => {
       expect(pkg.devDependencies.typescript).toBe(devDependencies.typescript);
       expect(pkg.devDependencies.vite).toBe(devDependencies.vite);
       expect(pkg.scripts).toBeDefined();
+      expect(pkg.scripts['type-check']).toBe('tsc --noEmit');
       expect(pkg.scripts.lint).toBe('eslint .');
       expect(pkg.scripts['lint:fix']).toBe('eslint . --fix');
       expect(pkg.scripts.format).toBeDefined();

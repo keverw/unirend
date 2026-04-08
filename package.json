@@ -47,13 +47,14 @@
     "dist"
   ],
   "scripts": {
-    "prepublishOnly": "bun run build && bun test",
+    "prepublishOnly": "bun run build && bun run lint && bun test",
     "sync-version": "bun run scripts/sync-version.ts",
     "php-publish": "bun run php-test && bun run scripts/publish-php.ts",
     "php-install-deps": "cd unirend-php && composer install --no-interaction",
     "php-test": "bun run scripts/check-php-test-setup.ts && cd unirend-php && ./vendor/bin/phpunit",
     "check-deps": "bun run scripts/check-deps.ts",
     "build": "bun run sync-version && bun run check-deps && bun run update-docs && tsup",
+    "type-check": "tsc --noEmit",
     "test": "bun test",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,scss,md,html,php}\"",
     "lint": "eslint .",
