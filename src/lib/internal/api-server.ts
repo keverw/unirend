@@ -221,6 +221,9 @@ export class APIServer extends BaseServer {
         // Set live dev-mode flag (read fresh each request so overrideDevMode() takes effect)
         (request as { isDevelopment?: boolean }).isDevelopment = getDevMode();
 
+        // Capture request start time for envelope timestamp
+        (request as { receivedAt?: number }).receivedAt = Date.now();
+
         // Initialize per-request context object (always present, never undefined)
         (
           request as { requestContext?: Record<string, unknown> }

@@ -550,6 +550,9 @@ export class SSRServer extends BaseServer {
           }
         ).isDevelopment = getDevMode();
 
+        // Capture request start time for envelope timestamp
+        (request as { receivedAt?: number }).receivedAt = Date.now();
+
         // Initialize per-request context object (always present, never undefined)
         (
           request as FastifyRequest & {

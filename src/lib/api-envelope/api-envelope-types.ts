@@ -80,6 +80,7 @@ export interface APISuccessResponse<T, M extends BaseMeta = BaseMeta> {
   status: 'success';
   status_code: number;
   request_id: string;
+  request_timestamp?: string;
   type: 'api';
   data: T;
   meta: M;
@@ -95,6 +96,7 @@ export interface APIErrorResponse<M extends BaseMeta = BaseMeta> {
   status: 'error';
   status_code: number;
   request_id: string;
+  request_timestamp?: string;
   type: 'api';
   data: null;
   meta: M;
@@ -123,6 +125,7 @@ export interface PageSuccessResponse<T, M extends BaseMeta = BaseMeta> {
   status: 'success';
   status_code: number;
   request_id: string;
+  request_timestamp?: string;
   type: 'page';
   data: T;
   meta: M;
@@ -139,6 +142,7 @@ export interface PageErrorResponse<M extends BaseMeta = BaseMeta> {
   status: 'error';
   status_code: number;
   request_id: string;
+  request_timestamp?: string;
   type: 'page';
   data: null;
   meta: M;
@@ -155,6 +159,7 @@ export interface PageRedirectResponse<M extends BaseMeta = BaseMeta> {
   status: 'redirect';
   status_code: 200; // Always use 200 to avoid confusion with HTTP redirects
   request_id: string;
+  request_timestamp?: string;
   type: 'page';
   data: null;
   meta: M;

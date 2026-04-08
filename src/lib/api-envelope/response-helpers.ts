@@ -50,10 +50,15 @@ export class APIResponseHelpers {
     // Only include meta if explicitly provided
     const defaultMeta = {} as M;
 
+    const receivedAt = (request as { receivedAt?: number }).receivedAt;
+
     return {
       status: 'success',
       status_code: statusCode,
       request_id: (request as { requestID?: string }).requestID ?? 'unknown',
+      ...(receivedAt !== undefined
+        ? { request_timestamp: new Date(receivedAt).toISOString() }
+        : {}),
       type: 'api',
       data,
       meta: { ...defaultMeta, ...(meta as Partial<M>) } as M,
@@ -85,10 +90,15 @@ export class APIResponseHelpers {
     // Only include meta if explicitly provided
     const defaultMeta = {} as M;
 
+    const receivedAt = (request as { receivedAt?: number }).receivedAt;
+
     return {
       status: 'error',
       status_code: statusCode,
       request_id: (request as { requestID?: string }).requestID ?? 'unknown',
+      ...(receivedAt !== undefined
+        ? { request_timestamp: new Date(receivedAt).toISOString() }
+        : {}),
       type: 'api',
       data: null,
       meta: { ...defaultMeta, ...(meta as Partial<M>) } as M,
@@ -133,10 +143,15 @@ export class APIResponseHelpers {
       request as { requestContext?: Record<string, unknown> }
     ).requestContext;
 
+    const receivedAt = (request as { receivedAt?: number }).receivedAt;
+
     return {
       status: 'success',
       status_code: statusCode,
       request_id: (request as { requestID?: string }).requestID ?? 'unknown',
+      ...(receivedAt !== undefined
+        ? { request_timestamp: new Date(receivedAt).toISOString() }
+        : {}),
       type: 'page',
       data,
       meta: { ...(baseMeta as M), ...(meta as Partial<M>) } as M,
@@ -178,10 +193,15 @@ export class APIResponseHelpers {
       request as { requestContext?: Record<string, unknown> }
     ).requestContext;
 
+    const receivedAt = (request as { receivedAt?: number }).receivedAt;
+
     return {
       status: 'redirect',
       status_code: 200,
       request_id: (request as { requestID?: string }).requestID ?? 'unknown',
+      ...(receivedAt !== undefined
+        ? { request_timestamp: new Date(receivedAt).toISOString() }
+        : {}),
       type: 'page',
       data: null,
       meta: { ...(baseMeta as M), ...(meta as Partial<M>) } as M,
@@ -235,10 +255,15 @@ export class APIResponseHelpers {
       request as { requestContext?: Record<string, unknown> }
     ).requestContext;
 
+    const receivedAt = (request as { receivedAt?: number }).receivedAt;
+
     return {
       status: 'error',
       status_code: statusCode,
       request_id: (request as { requestID?: string }).requestID ?? 'unknown',
+      ...(receivedAt !== undefined
+        ? { request_timestamp: new Date(receivedAt).toISOString() }
+        : {}),
       type: 'page',
       data: null,
       meta: { ...(baseMeta as M), ...(meta as Partial<M>) } as M,

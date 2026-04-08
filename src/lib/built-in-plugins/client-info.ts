@@ -20,6 +20,8 @@ declare module 'fastify' {
     /** Optional unique request ID used by response helpers */
     requestID?: string;
     clientInfo?: ClientInfo;
+    /** Unix timestamp (ms) when the request was received — set by onRequest hook */
+    receivedAt?: number;
   }
 }
 

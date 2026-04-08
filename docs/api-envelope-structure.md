@@ -57,22 +57,25 @@ Both patterns use standardized response envelope structures as defined in the ne
 
 ## Response Envelopes
 
-The application uses two standardized response envelope formats. These formats serve as the source of truth for all API responses in the system.
+The application uses two envelope types — `api` and `page` — each with success, error, and (for page) redirect variants. These are the standardized response envelopes for both the framework and applications built with it.
+
+> **Note:** As a general rule, always check `Content-Type: application/json` before attempting to parse any HTTP response as JSON — regardless of status code. Infrastructure layers (proxies, WAFs, CDNs, load balancers) and middleware performing their own checks (domain validation, file upload policies, rate limiting, etc.) can intercept requests at any point and return HTML or plain text with any status code, including 200. Parse defensively: verify the content type first, then the envelope structure.
 
 ### Common Response Properties
 
 All response envelopes include these common properties:
 
-| Property      | Type    | Description                                               |
-| ------------- | ------- | --------------------------------------------------------- |
-| `status`      | string  | Either "success", "error", or "redirect"                  |
-| `status_code` | integer | HTTP status code (200, 301, 302, 400, 401, etc.)          |
-| `request_id`  | string  | Unique identifier for the request (for tracing/debugging) |
-| `type`        | string  | Either "page" or "api" depending on endpoint type         |
-| `data`        | object  | Main payload (null if error or redirect)                  |
-| `meta`        | object  | User-Definable Metadata about the request and context     |
-| `error`       | object  | Error details (null if success or redirect)               |
-| `redirect`    | object  | Redirect details (only present for redirect status)       |
+| Property            | Type    | Description                                                                         |
+| ------------------- | ------- | ----------------------------------------------------------------------------------- |
+| `status`            | string  | Either "success", "error", or "redirect"                                            |
+| `status_code`       | integer | HTTP status code (200, 301, 302, 400, 401, etc.)                                    |
+| `request_id`        | string  | Unique identifier for the request (for tracing/debugging)                           |
+| `request_timestamp` | string  | ISO 8601 UTC timestamp of when the server received the request (omitted if not set) |
+| `type`              | string  | Either "page" or "api" depending on endpoint type                                   |
+| `data`              | object  | Main payload (null if error or redirect)                                            |
+| `meta`              | object  | User-Definable Metadata about the request and context                               |
+| `error`             | object  | Error details (null if success or redirect)                                         |
+| `redirect`          | object  | Redirect details (only present for redirect status)                                 |
 
 ### Request ID Handling
 
@@ -114,6 +117,7 @@ Used for SSR routes and data loaders. Includes required page metadata for SEO.
   "status": "success",
   "status_code": 200,
   "request_id": "req-12345-abcde",
+  "request_timestamp": "2026-04-08T14:23:01.412Z",
   "type": "page",
   "data": {
     // The main payload - varies by endpoint
@@ -163,6 +167,7 @@ This is the suggested standard, the page data loader can pickup on these for aut
   "status": "success",
   "status_code": 200,
   "request_id": "req-12345-abcde",
+  "request_timestamp": "2026-04-08T14:23:01.412Z",
   "type": "api",
   "data": {
     // The main payload - varies by endpoint
@@ -196,6 +201,7 @@ When an error occurs, the response will have `status: "error"` and include an `e
   "status": "error",
   "status_code": 400,
   "request_id": "req-12345-abcde",
+  "request_timestamp": "2026-04-08T14:23:01.412Z",
   "type": "api", // or "page"
   "data": null,
   "meta": {
@@ -365,6 +371,7 @@ Page data endpoints always use the **Page Response Envelope** format that includ
   "status": "success",
   "status_code": 200,
   "request_id": "req-12345-abcde",
+  "request_timestamp": "2026-04-08T14:23:01.412Z",
   "type": "page",
   "data": {
     "page": {
@@ -418,6 +425,7 @@ When errors occur for page data requests, the response includes an `error` objec
   "status": "error",
   "status_code": 404,
   "request_id": "req-12345-abcde",
+  "request_timestamp": "2026-04-08T14:23:01.412Z",
   "type": "page",
   "data": null,
   "meta": {
@@ -474,6 +482,7 @@ Traditional API endpoints use the **API Response Envelope** format, which does n
   "status": "success",
   "status_code": 200,
   "request_id": "req-12345-abcde",
+  "request_timestamp": "2026-04-08T14:23:01.412Z",
   "type": "api",
   "data": {
     // Response payload specific to the endpoint
@@ -505,6 +514,7 @@ When errors occur for traditional API endpoints:
   "status": "error",
   "status_code": 403,
   "request_id": "req-12345-abcde",
+  "request_timestamp": "2026-04-08T14:23:01.412Z",
   "type": "api",
   "data": null,
   "meta": {
@@ -531,6 +541,7 @@ When a user attempts to access a protected resource without being authenticated 
   "status": "error",
   "status_code": 401,
   "request_id": "req-12345-abcde",
+  "request_timestamp": "2026-04-08T14:23:01.412Z",
   "type": "api",
   "data": null,
   "meta": {
@@ -640,6 +651,7 @@ When redirects are part of the application flow, use the dedicated `redirect` st
   "status": "redirect",
   "status_code": 200,
   "request_id": "req-12345-abcde",
+  "request_timestamp": "2026-04-08T14:23:01.412Z",
   "type": "page",
   "data": null,
   "meta": {
@@ -692,6 +704,7 @@ For the specific case of authentication required errors, we use the existing err
   "status": "error",
   "status_code": 401,
   "request_id": "req-12345-abcde",
+  "request_timestamp": "2026-04-08T14:23:01.412Z",
   "type": "api",
   "data": null,
   "meta": {
