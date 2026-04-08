@@ -95,6 +95,7 @@ const requestIdPlugin: ServerPlugin = async (pluginHost, options) => {
     // Always generate a unique request ID
     (request as { requestID?: string }).requestID = randomUUID();
   });
+
   pluginHost.addHook('onSend', async (request, reply, payload) => {
     reply.header('X-Request-ID', (request as { requestID?: string }).requestID);
     return payload;
@@ -624,7 +625,7 @@ HTTP-level redirects (status codes 301, 302, 303, 307, 308) are generally discou
 - Bypass security validation and origin checks
 - Lose request context and metadata during the redirect chain
 
-The page data loader uses `redirect: 'manual'` in fetch options to prevent automatic redirect following. If an API endpoint serving page data returns an HTTP redirect, the data loader will intercept it and return an error response with code `redirect_not_followed`.
+The page data loader uses `redirect: 'manual'` in fetch options to prevent automatic redirect following. If an API endpoint serving page data returns an HTTP redirect, the data loader will intercept it and return an error response with code `api_redirect_not_followed`.
 
 **Note:** If your API uses HTTP redirects, they should only be in pure API endpoints (not routes serving page data loaders) and should not be added by middleware before page data handler routes.
 

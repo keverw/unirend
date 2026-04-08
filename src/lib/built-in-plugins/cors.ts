@@ -4,7 +4,7 @@ import {
   matchesOriginList,
   matchesCORSCredentialsList,
   validateConfigEntry,
-} from '../internal/domain-utils/domain-utils';
+} from 'lifecycleion/domain-utils';
 
 /**
  * CORS origin configuration - can be a string, array, or function
@@ -599,10 +599,14 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
     fastify.addHook(
       'onRequest',
       async (request: FastifyRequest, reply: FastifyReply) => {
+        // origin is undefined for same-origin and non-browser requests; all
+        // branches below guard with `origin &&` or `!origin` checks accordingly.
         const origin = request.headers.origin;
         const method = request.method;
 
-        // Always add Vary: Origin when we might echo an origin
+        // Set Vary: Origin unconditionally so CDN caches don't serve a cached
+        // non-CORS response (which lacks Access-Control-Allow-Origin) to a
+        // later CORS request for the same URL.
         addToVaryHeader(reply, 'Origin');
 
         // Security headers (applied for all requests early in lifecycle)

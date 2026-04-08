@@ -109,7 +109,6 @@
     "@types/react": "^19.2.4",
     "@types/react-dom": "^19.2.2",
     "@types/semver": "^7.7.1",
-    "@types/tr46": "^5.0.1",
     "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.46.3",
     "@typescript-eslint/parser": "^8.46.3",
@@ -125,7 +124,7 @@
     "eslint-plugin-unicorn": "^62.0.0",
     "fastify-tsconfig": "^3.0.0",
     "get-port": "^7.1.0",
-    "lifecycleion": "^0.0.9",
+    "lifecycleion": "^0.0.10",
     "markdown-toc-gen": "^1.2.0",
     "prettier": "^3.5.3",
     "react": "^19.0.0",
@@ -137,7 +136,7 @@
     "vite": "^8.0.0"
   },
   "peerDependencies": {
-    "lifecycleion": "^0.0.9",
+    "lifecycleion": "^0.0.10",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router": "^7.0.0",
@@ -155,8 +154,6 @@
     "range_check": "^4.1.0",
     "semver": "^7.7.3",
     "sort-package-json": "^3.4.0",
-    "tldts": "^7.0.12",
-    "tr46": "^5.1.1",
     "ulid": "^3.0.1"
   }
 }

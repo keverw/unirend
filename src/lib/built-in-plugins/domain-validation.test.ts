@@ -1282,6 +1282,75 @@ describe('domainValidation', () => {
     });
   });
 
+  describe('missing or invalid Host header', () => {
+    it('should return 400 plain text when Host header is missing (non-API)', async () => {
+      const config: DomainValidationConfig = { enforceHTTPS: true };
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        headers: { host: '' },
+        protocol: 'http',
+      });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.code).toHaveBeenCalledWith(400);
+      expect(reply.type).toHaveBeenCalledWith('text/plain');
+      expect(reply.send).toHaveBeenCalledWith(
+        'Bad Request: Missing or invalid Host header',
+      );
+      expect(reply.redirect).not.toHaveBeenCalled();
+    });
+
+    it('should return 400 JSON when Host header is missing on an API endpoint', async () => {
+      const config: DomainValidationConfig = { enforceHTTPS: true };
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        url: '/api/users',
+        headers: { host: '' },
+        protocol: 'http',
+      });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.code).toHaveBeenCalledWith(400);
+      expect(reply.type).toHaveBeenCalledWith('application/json');
+      expect(reply.send).toHaveBeenCalledWith({
+        error: 'bad_request',
+        message: 'Missing or invalid Host header',
+      });
+      expect(reply.redirect).not.toHaveBeenCalled();
+    });
+
+    it('should return 400 when Host header is whitespace only', async () => {
+      const config: DomainValidationConfig = {};
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({ headers: { host: '   ' } });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.code).toHaveBeenCalledWith(400);
+      expect(reply.redirect).not.toHaveBeenCalled();
+    });
+  });
+
   describe('comma-separated proxy headers', () => {
     it('should honor first value in comma-separated x-forwarded-proto', async () => {
       const config: DomainValidationConfig = {

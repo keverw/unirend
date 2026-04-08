@@ -538,18 +538,13 @@ See [docs/build-info.md](docs/build-info.md) for generating and loading build me
 
 ## Utilities
 
-Unirend exposes utilities for domain/origin validation, static file caching, and related functionality. While used internally by unirend, they can also be used standalone in any project:
+Unirend exposes utilities for static file caching and HTML escaping. While used internally by unirend, they can also be used standalone in any project:
 
-- **Domain utilities**: Functions for domain/origin validation, normalization, and wildcard matching (useful for CORS, security checks, URL handling)
-- **LRUCache**: A TTL-aware LRU cache with configurable size limits and automatic expiration
 - **StaticContentCache**: A caching layer for static file serving with ETag support and LRU caching
+- **escapeHTML / escapeHTMLAttr**: Safe HTML escaping for server-side HTML generation (e.g. custom error pages, `dangerouslySetInnerHTML`)
 
 ```typescript
-import {
-  normalizeOrigin,
-  matchesWildcardDomain,
-  StaticContentCache,
-} from 'unirend/utils';
+import { StaticContentCache, escapeHTML, escapeHTMLAttr } from 'unirend/utils';
 ```
 
 See [docs/utilities.md](docs/utilities.md) for full API documentation.

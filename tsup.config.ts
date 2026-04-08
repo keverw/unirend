@@ -139,7 +139,7 @@ export default defineConfig([
     external: allExternals,
   },
 
-  // Public utilities (domain-utils, StaticContentCache, etc.)
+  // Public utilities (StaticContentCache, HTML helpers)
   {
     entry: ['src/utils.ts'],
     outDir: 'dist/utils',

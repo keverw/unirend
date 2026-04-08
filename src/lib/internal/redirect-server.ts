@@ -5,7 +5,7 @@ import {
   matchesDomainList,
   validateConfigEntry,
   parseHostHeader,
-} from './domain-utils/domain-utils';
+} from 'lifecycleion/domain-utils';
 import type {
   UnirendLoggingOptions,
   FastifyServerOptions,

@@ -1,50 +1,12 @@
 /**
  * Public utilities exported from unirend/utils
  *
- * This module exposes utilities for domain/origin validation, static file caching,
- * and related functionality. While these are used internally by unirend, they can
- * also be used standalone in any project.
+ * This module exposes utilities for static file caching and HTML escaping.
+ * While these are used internally by unirend, they can also be used standalone in any project.
+ *
+ * - StaticContentCache: Caching layer for static file serving with ETag support and LRU caching
+ * - escapeHTML / escapeHTMLAttr: Safe HTML escaping for server-side HTML generation
  */
-
-// =============================================================================
-// Domain Utilities
-// =============================================================================
-// Functions for domain/origin validation, normalization, and wildcard matching.
-// Useful for CORS configuration, security checks, and URL handling.
-
-export {
-  // Core normalization functions
-  normalizeOrigin,
-  normalizeDomain,
-
-  // Wildcard matching functions
-  matchesWildcardDomain,
-  matchesWildcardOrigin,
-
-  // List matching functions
-  matchesDomainList,
-  matchesOriginList,
-  matchesCORSCredentialsList,
-
-  // Validation function
-  validateConfigEntry,
-
-  // IP address detection
-  isIPAddress,
-
-  // Type exports
-  type WildcardKind,
-} from './lib/internal/domain-utils/domain-utils';
-
-// Additional low-level helpers that may be useful
-export { checkDNSLength } from './lib/internal/domain-utils/helpers';
-
-// =============================================================================
-// LRU Cache
-// =============================================================================
-// A TTL-aware LRU (Least Recently Used) cache with size-based eviction.
-
-export { LRUCache } from './lib/internal/lru-cache';
 
 // =============================================================================
 // Static Content Cache

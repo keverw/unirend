@@ -1,11 +1,12 @@
 import type { PluginHostInstance, PluginOptions, ServerPlugin } from '../types';
 import type { FastifyRequest } from 'fastify';
-import { getDomain, getSubdomain } from 'tldts';
 import {
   normalizeDomain,
   matchesDomainList,
+  isApexDomain,
   validateConfigEntry,
-} from '../internal/domain-utils/domain-utils';
+  parseHostHeader,
+} from 'lifecycleion/domain-utils';
 import {
   classifyRequest,
   normalizeAPIPrefix,
@@ -182,61 +183,6 @@ function getHost(
 }
 
 /**
- * Helper to parse the Host header into domain and optional port.
- * Supports bracketed IPv6 literals with optional port (e.g., "[::1]:3000").
- */
-function parseHostHeader(host: string): { domain: string; port: string } {
-  if (!host) {
-    return { domain: '', port: '' };
-  }
-
-  if (host.startsWith('[')) {
-    const end = host.indexOf(']');
-
-    if (end !== -1) {
-      const domain = host.slice(0, end + 1); // keep brackets
-      const rest = host.slice(end + 1);
-
-      if (rest.startsWith(':')) {
-        return { domain, port: rest.slice(1) };
-      }
-
-      return { domain, port: '' };
-    }
-
-    // Malformed bracket - fall back to whole string as domain
-    return { domain: host, port: '' };
-  }
-
-  const idx = host.indexOf(':');
-
-  if (idx === -1) {
-    return { domain: host, port: '' };
-  }
-
-  return { domain: host.slice(0, idx), port: host.slice(idx + 1) };
-}
-
-/**
- * Helper function to check if domain is apex (no subdomain)
- * Uses tldts to properly handle multi-part TLDs like .co.uk
- */
-function isApexDomain(domain: string): boolean {
-  // Use tldts to properly detect apex domains vs subdomains
-  // This correctly handles multi-part TLDs like .co.uk, .com.au, etc.
-  const parsedDomain = getDomain(domain);
-  const subdomain = getSubdomain(domain);
-
-  // Guard against null returns from tldts for invalid hosts
-  if (!parsedDomain) {
-    return false;
-  }
-
-  // Domain is apex if it matches the parsed domain and has no subdomain
-  return parsedDomain === domain && !subdomain;
-}
-
-/**
  * Domain security plugin that handles:
  * - Domain validation and canonical domain redirects
  * - HTTPS enforcement (HTTP to HTTPS redirects)
@@ -275,12 +221,37 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
 
       const isAPIEndpoint = checkIfAPIEndpoint(request.url, options);
       const shouldTrustProxyHeaders = !!config.trustProxyHeaders;
+
       const host = getHost(request, shouldTrustProxyHeaders);
       const parsed = parseHostHeader(host);
       const originalDomain = parsed.domain; // Keep original for error messages
       const domain = normalizeDomain(originalDomain);
       const port = parsed.port;
       const protocol = getProtocol(request, shouldTrustProxyHeaders);
+
+      // Reject requests with a missing or unparseable Host header before any
+      // redirect logic runs — an empty domain would otherwise produce a
+      // malformed redirect URL (e.g. "https:///path").
+      if (!domain) {
+        if (isAPIEndpoint) {
+          reply
+            .code(400)
+            .header('Cache-Control', 'no-store')
+            .type('application/json')
+            .send({
+              error: 'bad_request',
+              message: 'Missing or invalid Host header',
+            });
+        } else {
+          reply
+            .code(400)
+            .header('Cache-Control', 'no-store')
+            .type('text/plain')
+            .send('Bad Request: Missing or invalid Host header');
+        }
+
+        return;
+      }
 
       // Skip all validation and redirects for localhost (including IPv4/IPv6)
       if (
@@ -366,6 +337,7 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
       const normalizedCanonical = config.canonicalDomain
         ? normalizeDomain(config.canonicalDomain)
         : undefined;
+
       if (normalizedCanonical && domain !== normalizedCanonical) {
         finalDomain = normalizedCanonical;
         finalHost = normalizedCanonical;
@@ -381,6 +353,7 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
 
       // 3. Apply WWW handling (only for apex domains)
       const wwwMode = config.wwwHandling || 'preserve';
+
       if (wwwMode !== 'preserve' && isApexDomain(finalDomain)) {
         const hasWww = finalHost.startsWith('www.');
         if (wwwMode === 'add' && !hasWww) {

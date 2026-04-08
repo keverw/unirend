@@ -136,4 +136,5 @@ When `trustProxyHeaders: true`, the plugin handles common proxy headers (first v
 
 - **API endpoints**: Returns JSON error responses
 - **Web requests**: Returns plain text error by default (or HTML if your custom handler returns it)
-- **Custom handler**: Use `invalidDomainHandler` for custom error handling
+- **Custom handler**: Use `invalidDomainHandler` for custom error handling (domain validation failures only)
+- **Missing/invalid Host header**: Returns `400 Bad Request` before any redirect logic runs — JSON for API endpoints, plain text for web requests. Not customizable (protocol-level error, not business logic).

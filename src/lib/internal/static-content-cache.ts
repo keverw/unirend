@@ -2,7 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'node:crypto';
-import LRUCache from './lru-cache';
+import { LRUCache } from 'lifecycleion/lru-cache';
 import type { StaticContentRouterOptions, FolderConfig } from '../types';
 
 /**

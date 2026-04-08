@@ -503,11 +503,13 @@ export class SSRServer extends BaseServer {
         );
       }
 
-      // Use qs for richer query string parsing (nested objects, arrays, encoded brackets)
-      fastifyOptions.querystringParser = (str) => qs.parse(str);
-
-      // Ignore trailing slashes for flexible routing (matches Express behavior)
-      fastifyOptions.routerOptions = { ignoreTrailingSlash: true };
+      fastifyOptions.routerOptions = {
+        // Ignore trailing slashes for flexible routing (matches Express behavior)
+        ignoreTrailingSlash: true,
+        // Use qs for richer query string parsing (nested objects, arrays, encoded brackets)
+        // querystringParser is a router option in Fastify v5+
+        querystringParser: (str) => qs.parse(str),
+      };
 
       // Create Fastify instance with merged options (user options + defaults + HTTPS + trailing slash)
       this.fastifyInstance = fastify(fastifyOptions);
@@ -1064,6 +1066,8 @@ export class SSRServer extends BaseServer {
               ).CDNBaseURL ??
               ('CDNBaseURL' in appConfig ? appConfig.CDNBaseURL : undefined);
 
+            // computeDomainInfo handles empty/missing hostname gracefully:
+            // parseHostHeader('') → { domain: '', port: '' }, rootDomain falls back to ''.
             const domainInfo = computeDomainInfo(request.hostname);
 
             const renderResult = await render({

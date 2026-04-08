@@ -500,8 +500,10 @@ export class APIResponseHelpers {
       return false;
     }
 
-    // Note: We do NOT validate request.body here because multipart data
-    // is accessed through request.file() or request.files(), not request.body
+    // Note: This helper only validates the Content-Type header.
+    // In this codebase, multipart payloads are consumed later through the
+    // streaming request.file()/request.files() APIs, so we do not validate
+    // request.body here.
     return true;
   }
 

@@ -16,8 +16,6 @@
         "range_check": "^4.1.0",
         "semver": "^7.7.3",
         "sort-package-json": "^3.4.0",
-        "tldts": "^7.0.12",
-        "tr46": "^5.1.1",
         "ulid": "^3.0.1",
       },
       "devDependencies": {
@@ -30,7 +28,6 @@
         "@types/react": "^19.2.4",
         "@types/react-dom": "^19.2.2",
         "@types/semver": "^7.7.1",
-        "@types/tr46": "^5.0.1",
         "@types/ws": "^8.18.1",
         "@typescript-eslint/eslint-plugin": "^8.46.3",
         "@typescript-eslint/parser": "^8.46.3",
@@ -46,7 +43,7 @@
         "eslint-plugin-unicorn": "^62.0.0",
         "fastify-tsconfig": "^3.0.0",
         "get-port": "^7.1.0",
-        "lifecycleion": "^0.0.9",
+        "lifecycleion": "^0.0.10",
         "markdown-toc-gen": "^1.2.0",
         "prettier": "^3.5.3",
         "react": "^19.0.0",
@@ -58,7 +55,7 @@
         "vite": "^8.0.0",
       },
       "peerDependencies": {
-        "lifecycleion": "^0.0.9",
+        "lifecycleion": "^0.0.10",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
         "react-router": "^7.0.0",
@@ -336,8 +333,6 @@
     "@types/react-dom": ["@types/react-dom@19.2.3", "", { "peerDependencies": { "@types/react": "^19.2.0" } }, "sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ=="],
 
     "@types/semver": ["@types/semver@7.7.1", "", {}, "sha512-FmgJfu+MOcQ370SD0ev7EI8TlCAfKYU+B4m5T3yXc1CiRN94g/SZPtsCkk506aUDtlMnFZvasDwHHUcZUEaYuA=="],
-
-    "@types/tr46": ["@types/tr46@5.0.1", "", {}, "sha512-/nNLTzy884WMMjksAFsrazXpwKcipQn1FltlXu4PycQFD8t6a4aq/z+F7mw05UI7p5O8MUvXLTPbISOoQtaugg=="],
 
     "@types/ws": ["@types/ws@8.18.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg=="],
 
@@ -851,7 +846,7 @@
 
     "levn": ["levn@0.4.1", "", { "dependencies": { "prelude-ls": "^1.2.1", "type-check": "~0.4.0" } }, "sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ=="],
 
-    "lifecycleion": ["lifecycleion@0.0.9", "", { "dependencies": { "bson-objectid": "^2.0.4", "chalk": "^5.6.2", "datamask": "^1.0.0", "date-fns": "^4.1.0", "string-width": "^8.1.0", "ulid": "^3.0.2", "uuid": "^13.0.0" } }, "sha512-80mFYOUv6jKxcPSnGqPlIT4Y0/LcD9LrSRRChtG64dZWbqV6NHQy7F6rLfSd/jnj0944vVBVfgoxQUevnz9weA=="],
+    "lifecycleion": ["lifecycleion@0.0.10", "", { "dependencies": { "bson-objectid": "^2.0.4", "chalk": "^5.6.2", "datamask": "^1.0.0", "date-fns": "^4.1.0", "find-my-way": "^9.5.0", "qs": "^6.15.0", "string-width": "^8.1.0", "tldts": "^7.0.27", "tr46": "^5.1.1", "ulid": "^3.0.2", "uuid": "^13.0.0" } }, "sha512-jm0YL70lu4VhmvreC8ImhzgA3N3aZrI3dECvHns4eiG9/SUnPuqdmQHCd4v/k97BalvJmuE+KQUO917+PJ8vDw=="],
 
     "light-my-request": ["light-my-request@6.6.0", "", { "dependencies": { "cookie": "^1.0.1", "process-warning": "^4.0.0", "set-cookie-parser": "^2.6.0" } }, "sha512-CHYbu8RtboSIoVsHZ6Ye4cj4Aw/yg2oAFimlF7mNvfDV192LR7nDiKtSIfCuLT7KokPSTn/9kfVLm5OGN0A28A=="],
 
@@ -1151,9 +1146,9 @@
 
     "tinyglobby": ["tinyglobby@0.2.15", "", { "dependencies": { "fdir": "^6.5.0", "picomatch": "^4.0.3" } }, "sha512-j2Zq4NyQYG5XMST4cbs02Ak8iJUdxRM0XI5QyxXuZOzKOINmWurp3smXu3y5wDcJrptwpSjgXHzIQxR0omXljQ=="],
 
-    "tldts": ["tldts@7.0.26", "", { "dependencies": { "tldts-core": "^7.0.26" }, "bin": { "tldts": "bin/cli.js" } }, "sha512-WiGwQjr0qYdNNG8KpMKlSvpxz652lqa3Rd+/hSaDcY4Uo6SKWZq2LAF+hsAhUewTtYhXlorBKgNF3Kk8hnjGoQ=="],
+    "tldts": ["tldts@7.0.28", "", { "dependencies": { "tldts-core": "^7.0.28" }, "bin": { "tldts": "bin/cli.js" } }, "sha512-+Zg3vWhRUv8B1maGSTFdev9mjoo8Etn2Ayfs4cnjlD3CsGkxXX4QyW3j2WJ0wdjYcYmy7Lx2RDsZMhgCWafKIw=="],
 
-    "tldts-core": ["tldts-core@7.0.26", "", {}, "sha512-5WJ2SqFsv4G2Dwi7ZFVRnz6b2H1od39QME1lc2y5Ew3eWiZMAeqOAfWpRP9jHvhUl881406QtZTODvjttJs+ew=="],
+    "tldts-core": ["tldts-core@7.0.28", "", {}, "sha512-7W5Efjhsc3chVdFhqtaU0KtK32J37Zcr9RKtID54nG+tIpcY79CQK/veYPODxtD/LJ4Lue66jvrQzIX2Z2/pUQ=="],
 
     "to-regex-range": ["to-regex-range@5.0.1", "", { "dependencies": { "is-number": "^7.0.0" } }, "sha512-65P7iz6X5yEr1cwcgvQxbbIw7Uk3gOy5dIdtZ4rDveLqhrdJP+Li/Hx6tyK0NEb+2GCyneCMJiGqrADCSNk8sQ=="],
 

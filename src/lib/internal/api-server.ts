@@ -183,11 +183,13 @@ export class APIServer extends BaseServer {
         fastifyOptions.https = buildFastifyHTTPSOptions(this.options.https);
       }
 
-      // Use qs for richer query string parsing (nested objects, arrays, encoded brackets)
-      fastifyOptions.querystringParser = (str) => qs.parse(str);
-
-      // Ignore trailing slashes for flexible routing (matches Express behavior)
-      fastifyOptions.routerOptions = { ignoreTrailingSlash: true };
+      fastifyOptions.routerOptions = {
+        // Ignore trailing slashes for flexible routing (matches Express behavior)
+        ignoreTrailingSlash: true,
+        // Use qs for richer query string parsing (nested objects, arrays, encoded brackets)
+        // querystringParser is a router option in Fastify v5+
+        querystringParser: (str) => qs.parse(str),
+      };
 
       // Create Fastify instance with merged options (user options + defaults + HTTPS + trailing slash)
       this.fastifyInstance = fastify(fastifyOptions);

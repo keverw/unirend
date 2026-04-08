@@ -17,8 +17,7 @@ import type {
 } from '../types';
 import type { CookieSerializeOptions } from '@fastify/cookie';
 import { DEFAULT_API_PREFIX, DEFAULT_PAGE_DATA_ENDPOINT } from './consts';
-import { getDomain } from 'tldts';
-import { parseHostHeader } from './domain-utils/domain-utils';
+import { parseHostHeader, getDomain } from 'lifecycleion/domain-utils';
 
 /**
  * Normalize an API prefix to ensure it has a leading slash and no trailing slash.
@@ -688,7 +687,7 @@ export function computeDomainInfo(hostname: string): {
 
   return {
     hostname: host,
-    // Empty string when tldts cannot resolve a root (localhost, raw IP, etc.)
+    // Empty string when domain-utils cannot resolve a root (localhost, raw IP, etc.)
     rootDomain: root,
   };
 }
