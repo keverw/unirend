@@ -2,9 +2,12 @@
 
 Unirend centralizes route data fetching through a single loader system. Define loaders per route using helpers, and return standardized envelopes. See `docs/api-envelope-structure.md` for the canonical envelope specs.
 
-- Create config: `createDefaultPageDataLoaderConfig(APIBaseURL)` or provide a custom config
+- Create config: use `createDefaultPageDataLoaderConfig(APIBaseURL, overrides?)` for HTTP-backed loaders or `createDefaultLocalPageDataLoaderConfig(overrides?)` for local loaders, or manually provide a config object that matches the expected loader config shape
 - Define loaders: `createPageDataLoader(config, pageType)` or `createPageDataLoader(localConfig, localHandler)`
-- Errors/redirects: handled uniformly via envelopes. Integrate with `RouteErrorBoundary` and `useDataLoaderEnvelopeError`
+- Errors/redirects: handled uniformly via envelopes, but in practice they usually surface in three ways.
+  - Router error path: use `RouteErrorBoundary` as your route `errorElement` helper for router-level 404s and thrown route or loader errors.
+  - Rendered page error envelope path: use `useDataLoaderEnvelopeError` in your app layout when a loader returns a page error envelope directly, or when the framework converts a loader failure into one.
+  - Environment-specific final behavior: the same loader concepts can surface a little differently in SSR, SSG, and hydrated client navigation. See: [Error Handling (README)](../README.md#error-handling), [docs/error-handling.md](./error-handling.md), and [docs/ssg.md](./ssg.md#5xx-error-handling).
 
 <!-- toc -->
 
@@ -57,10 +60,13 @@ server.pageDataHandler.register('home', (request, params) => {
 Local Loader
 
 ```ts
-import { createPageDataLoader } from 'unirend/router-utils';
+import {
+  createDefaultLocalPageDataLoaderConfig,
+  createPageDataLoader,
+} from 'unirend/router-utils';
 
 export const localInfoLoader = createPageDataLoader(
-  { timeoutMS: 8000 },
+  createDefaultLocalPageDataLoaderConfig({ timeoutMS: 8000 }),
   ({ routeParams, queryParams }) => ({
     status: 'success',
     status_code: 200,
@@ -99,14 +105,14 @@ Notes:
 - Short-circuiting only happens on SSR when handlers are registered on the same `SSRServer`
   - When using versioned handlers, short-circuit automatically selects the highest version registered. See: [Short-Circuit Versioning Behavior](./ssr.md#short-circuit-data-handlers) for details on version consistency between SSR and client-side navigation.
 
-- HTTP‑based loader can forward selected request information from SSR to your API — cookies, user agent, client IP, request ID, and correlation ID. SSR removes untrusted headers and sets trusted ones before forwarding. See: [SSR header and cookies forwarding](./ssr.md#header-and-cookies-forwarding)
+- HTTP‑based loader can forward selected request information from SSR to your API, including cookies, user agent, client IP, request ID, and correlation ID. SSR removes untrusted headers and sets trusted ones before forwarding. See: [SSR header and cookies forwarding](./ssr.md#header-and-cookies-forwarding)
   - Cookie forwarding is controlled by `cookieForwarding` on the SSR server
     - If both `allowCookieNames` and `blockCookieNames` are unset or empty, all cookies are forwarded
     - `allowCookieNames` forwards only the listed cookie names
     - `blockCookieNames` blocks the listed names, or set to `true` to block all cookies
     - The block list takes precedence over the allow list
     - The policy applies to cookies forwarded on SSR fetches and `Set-Cookie` headers returned to the browser
-  - Request and correlation IDs and client details are handled by the built‑in `clientInfo` plugin. It reads trusted `X‑SSR-*` headers when allowed and otherwise uses the real request IP and user agent. Works for both short‑circuit handlers and HTTP‑forwarded API requests — whether hosted on the same server or a separate API server. For cookies — including reading and setting — see the dedicated cookies plugin doc. Cookie handling works the same for both loader types. See: [clientInfo](./built-in-plugins/clientInfo.md) and [cookies](./built-in-plugins/cookies.md)
+  - Request and correlation IDs and client details are handled by the built‑in `clientInfo` plugin. It reads trusted `X‑SSR-*` headers when allowed and otherwise uses the real request IP and user agent. Works for both short‑circuit handlers and HTTP‑forwarded API requests, whether hosted on the same server or a separate API server. For cookies, including reading and setting, see the dedicated cookies plugin doc. Cookie handling works the same for both loader types. See: [clientInfo](./built-in-plugins/clientInfo.md) and [cookies](./built-in-plugins/cookies.md)
 
 - Prefer `APIResponseHelpers` on the server to build envelopes and auto-populate `request_id` from the request object when set
 - The `pageType` you pass here must match what you register on the server via `server.pageDataHandler.register(pageType, ...)`. See `docs/ssr.md` "Page Data Loader Handlers and Versioning".
@@ -128,11 +134,14 @@ Configuration (HTTP‑based Loader):
 Runs a page data loader locally without framework data loader handler HTTP request. Primarily intended for SSG, but can be used in SSR if you don't need cookie propagation.
 
 ```ts
-import { createPageDataLoader } from 'unirend/router-utils';
+import {
+  createDefaultLocalPageDataLoaderConfig,
+  createPageDataLoader,
+} from 'unirend/router-utils';
 
 // Local handler receives routing context, no Fastify request object
 export const localInfoLoader = createPageDataLoader(
-  { timeoutMS: 8000 },
+  createDefaultLocalPageDataLoaderConfig({ timeoutMS: 8000 }),
   function ({ routeParams, queryParams }) {
     return {
       status: 'success',
@@ -147,16 +156,19 @@ export const localInfoLoader = createPageDataLoader(
 );
 ```
 
-Important:
+Local loader notes:
 
-- Error handling setup required: Set up `useDataLoaderEnvelopeError` in your app layout to handle envelope errors (including 404s). This is required for local loaders in both SSG and SSR, matching the standard error handling pattern used for HTTP-based loaders. See: [Error Handling (README)](../README.md#error-handling) and the dedicated doc: [docs/error-handling.md](./error-handling.md).
 - SSR preserves `status_code` from local loaders for the HTTP response
 - SSR-only cookies are not available in the local path, use the Page Type Handler (HTTP/Short-Circuit) based one instead if you need cookie propagation
-- `timeoutMS` is respected, on timeout a 500 Page envelope is returned with the server connection error message
+- `timeoutMS` is respected. On timeout, a 500 Page envelope is returned using the `connectionErrorMessages.server` message for parity with other timeout/connection-style failures
+- Local loaders do not use `APIBaseURL`, but they can still return auth/redirect-style page envelopes or redirects, which is why shared settings such as `loginURL` and `returnToParam` still apply
+- `createDefaultLocalPageDataLoaderConfig(overrides?)` exports the shared defaults used by both local and HTTP-backed loaders, including auth redirect settings such as `loginURL` and `returnToParam`
+- `createDefaultPageDataLoaderConfig(APIBaseURL, overrides?)` extends those same defaults with the HTTP-only fields (`APIBaseURL`, `pageDataEndpoint`, `statusCodeHandlers`)
+- Helper overrides are applied shallowly. If you override nested objects such as `errorDefaults` or `connectionErrorMessages`, provide the full nested object shape you want to use
 
 Configuration (Local Loader):
 
-- Subset of HTTP‑based loader config used by the local loader: `errorDefaults`, `isDevelopment`, `connectionErrorMessages`, `timeoutMS`, `generateFallbackRequestID`, `allowedRedirectOrigins`, `transformErrorMeta`
+- Shared config used by the local loader: `errorDefaults`, `connectionErrorMessages`, `loginURL`, `returnToParam`, `timeoutMS`, `generateFallbackRequestID`, `allowedRedirectOrigins`, `transformErrorMeta`
 
 ## Using Loaders in React Router (Applies to Both Types)
 
@@ -174,7 +186,7 @@ export const routes: RouteObject[] = [
 ];
 ```
 
-Access loader data in components via `useLoaderData()`. The `pageMetadata` you return from your handler or local loader is available as `loaderData.meta.page` — pass it to `UnirendHead` for dynamic page titles. See [UnirendHead — Hardcoded vs loader-driven titles](./unirendhead.md#hardcoded-vs-loader-driven-titles).
+Access loader data in components via `useLoaderData()`. The `pageMetadata` you return from your handler or local loader is available as `loaderData.meta.page`. Pass it to `UnirendHead` for dynamic page titles. See [UnirendHead - Hardcoded vs loader-driven titles](./unirendhead.md#hardcoded-vs-loader-driven-titles).
 
 ## Query Parameters
 
@@ -196,7 +208,7 @@ server.pageDataHandler.register('products', (request, reply, params) => {
 });
 ```
 
-**In a component** — use `useQueryParams()` for the same parsed structure:
+**In a component** use `useQueryParams()` for the same parsed structure:
 
 ```ts
 import { useQueryParams } from 'unirend/client';
@@ -208,7 +220,7 @@ function ProductsPage() {
 }
 ```
 
-**Building a query string** — use `stringifyQueryParams()`:
+**Building a query string** use `stringifyQueryParams()`:
 
 ```ts
 import { stringifyQueryParams } from 'unirend/client';
@@ -289,11 +301,11 @@ When API responses don’t follow the Page Envelope, the loader converts them us
 ### `statusCodeHandlers`
 
 - Customize handling per HTTP status
-  - Match order: exact code (number or string) first — if none matches, wildcard "`*`" applies
+  - Match order: exact code (number or string) first. If none matches, wildcard "`*`" applies
   - Return a PageResponseEnvelope to override. Return null/undefined to fall back to defaults
   - For redirects, return a Page envelope with `status: "redirect"` and `status_code: 200`. In server/API handlers, prefer using `APIResponseHelpers.createPageRedirectResponse`.
   - The loader automatically decorates Page envelopes with SSR-only data (e.g., cookies) where applicable
-- HTTP redirects from API endpoints are not followed — they become redirectNotFollowed errors with original status/location preserved
+- HTTP redirects from API endpoints are not followed. They become redirectNotFollowed errors with original status/location preserved
 - Fallback request_id: if missing, a generated ID is used via generateFallbackRequestID (or a default generator)
   - contexts: "error" or "redirect"
   - default format: `${context}_${Date.now()}` (e.g., `error_1712868472000`)

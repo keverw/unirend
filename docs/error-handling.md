@@ -15,6 +15,7 @@
   - [Client-Side (After Hydration) Errors](#client-side-after-hydration-errors)
     - [3) Thrown Errors After Hydration](#3-thrown-errors-after-hydration)
     - [4) Loader Response Errors After Hydration](#4-loader-response-errors-after-hydration)
+  - [Static Site Generation (SSG) Notes](#static-site-generation-ssg-notes)
     - [5) Error Responses with Stack Trace (Development Only)](#5-error-responses-with-stack-trace-development-only)
 - [Integration with API Envelope Structure](#integration-with-api-envelope-structure)
 - [Reference Implementation](#reference-implementation)
@@ -31,10 +32,11 @@ Unirend distinguishes between:
 - **Thrown errors**: Uncaught exceptions (`throw new Error(...)`).
 - **Envelope response errors**: Structured error responses returned by data loaders or API handlers (per the API Envelope spec).
 
-Behavior also depends on when the error occurs:
+Behavior also depends on both the error path and when it occurs:
 
-1. During initial server-side rendering (SSR)
-2. After hydration on the client
+1. Thrown route, loader, or render errors
+2. Returned or framework-converted page error envelopes
+3. The final environment where the error is surfaced, such as SSR, SSG, or after hydration on the client
 
 ## Recommended Setup
 
@@ -91,7 +93,7 @@ Behavior also depends on when the error occurs:
   ]
   ```
 
-- **Inline envelope errors in layout**: In your `AppLayout`, use `useDataLoaderEnvelopeError` to render inline errors (including 404s) returned by data loaders.
+- **Inline envelope errors in layout**: In your `AppLayout`, use `useDataLoaderEnvelopeError` to render inline errors when a loader returns a page error envelope directly, or when the framework converts a loader failure into one.
   - Import: `import { useDataLoaderEnvelopeError } from 'unirend/router-utils'`
   - Typical mapping: render a `NotFound` component for 404s and a generic error component for other cases. See the SSR demo's `demos/ssr/src/routes.tsx` layout pattern.
   - A dedicated not-found page data loader is recommended, but inline handling in your layout works too.
@@ -116,28 +118,38 @@ When an unhandled error occurs during SSR:
 
 - The server error handler in `SSRServer` catches it.
 - In development, Vite fixes stack traces for clarity.
-- A full page 500 error is returned via your configured `get500ErrorPage()` which SHOULD NOT use your main app layout, and be a separate standalone error page to cascading layout failures.
+- A full page 500 error is returned via your configured `get500ErrorPage()`.
+- Your route-level `ApplicationErrorComponent` should generally stay standalone to avoid cascading layout failures.
+- For a consistent branded experience, your server `get500ErrorPage()` and your standalone `ApplicationErrorComponent` should usually look and feel similar, even though one is server-generated HTML and the other is a React component.
 - In development, details may be shown, in production, show a generic message.
 
 #### 2) Loader Response Errors During SSR
 
-When a loader produces a page render with `statusCode === 500`:
+When a loader returns a page error envelope directly, or when the framework converts a loader failure into one first:
 
-- `SSRServer` detects the 500 code in the render result and sends the server 500 page via `get500ErrorPage()`.
-- This ensures a clean, consistent 500 page for initial SSR.
+- A rendered page with `statusCode === 500` is detected by `SSRServer`, which then sends the server 500 page via `get500ErrorPage()`.
+- A rendered 4xx page envelope can still be handled in your normal app-shell pattern.
+- This means loader failures or returned 500 page envelopes may first render through the page-envelope path, and SSR may then replace the final rendered 500 page with the server 500 page flow.
 
 ### Client-Side (After Hydration) Errors
 
 #### 3) Thrown Errors After Hydration
 
 - `RouteErrorBoundary` catches thrown errors from routes/elements.
-- Render a standalone application error page component for thrown errors to avoid cascading layout failures.
+- Render a standalone application error page component for thrown errors to avoid cascading layout failures. If you provide a custom one, it should generally stay standalone, without shared headers, footers, or other layout wrappers.
 
 #### 4) Loader Response Errors After Hydration
 
-- For envelope-based errors (e.g., 4xx/5xx), use the helper hook `useDataLoaderEnvelopeError` inside your app layout to detect and render inline error UIs while keeping header/footer.
+- For envelope-based errors (e.g., rendered 4xx/5xx page envelopes), use the helper hook `useDataLoaderEnvelopeError` inside your app layout to detect and render inline error UIs while keeping header/footer.
 - **SSG with Local Data Loaders**: This same pattern applies to SSG when using local data loaders. Set up `useDataLoaderEnvelopeError` in your app layout to handle envelope errors returned by local handlers.
 - Common pattern: render `CustomNotFound` for 404s, and `GenericError` for other errors. See the SSR demo's `routes.tsx` for an example layout pattern.
+
+### Static Site Generation (SSG) Notes
+
+- A rendered 4xx/5xx page envelope can still be written to disk.
+- A local loader throw may first be normalized into a 500 page error envelope and then rendered through the normal page-envelope path.
+- A raw component render throw is different. That becomes a render error instead of a rendered page envelope.
+- See [docs/ssg.md](./ssg.md#5xx-error-handling) for the SSG-specific write and `failOn5xx` behavior.
 
 #### 5) Error Responses with Stack Trace (Development Only)
 

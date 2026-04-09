@@ -199,7 +199,9 @@ import type {
   LocalPageHandler,
   LocalPageHandlerParams,
   LocalPageDataLoaderConfig,
+  LocalPageDataLoaderConfigOverrides,
   ErrorDefaults,
+  PageDataLoaderConfigOverrides,
 } from './page-data-loader-types';
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
 import {
@@ -222,7 +224,44 @@ import {
  */
 export function createDefaultPageDataLoaderConfig(
   APIBaseURL: string,
+  overrides: PageDataLoaderConfigOverrides = {},
 ): PageDataLoaderConfig {
+  // Overrides are applied shallowly. If you override nested objects such as
+  // errorDefaults or connectionErrorMessages, provide the full nested object
+  // shape you want to use.
+  const {
+    pageDataEndpoint = DEFAULT_PAGE_DATA_ENDPOINT,
+    loginURL = DEFAULT_LOGIN_URL,
+    returnToParam = DEFAULT_RETURN_TO_PARAM,
+    statusCodeHandlers,
+    ...localOverrides
+  } = overrides;
+
+  const defaultLocalConfig =
+    createDefaultLocalPageDataLoaderConfig(localOverrides);
+
+  const config: PageDataLoaderConfig = {
+    APIBaseURL,
+    ...defaultLocalConfig,
+  };
+
+  config.pageDataEndpoint = pageDataEndpoint;
+  config.loginURL = loginURL;
+  config.returnToParam = returnToParam;
+
+  if (statusCodeHandlers) {
+    config.statusCodeHandlers = statusCodeHandlers;
+  }
+
+  return config;
+}
+
+export function createDefaultLocalPageDataLoaderConfig(
+  overrides: LocalPageDataLoaderConfigOverrides = {},
+): LocalPageDataLoaderConfig {
+  // Overrides are applied shallowly. If you override nested objects such as
+  // errorDefaults or connectionErrorMessages, provide the full nested object
+  // shape you want to use.
   // Deep-clone nested defaults to avoid shared references
   const errorDefaultsClone: ErrorDefaults = JSON.parse(
     JSON.stringify(DEFAULT_ERROR_DEFAULTS),
@@ -233,14 +272,13 @@ export function createDefaultPageDataLoaderConfig(
   } as const;
 
   return {
-    APIBaseURL,
-    pageDataEndpoint: DEFAULT_PAGE_DATA_ENDPOINT,
     errorDefaults: errorDefaultsClone,
     connectionErrorMessages: connectionErrorMessagesClone,
     loginURL: DEFAULT_LOGIN_URL,
     returnToParam: DEFAULT_RETURN_TO_PARAM,
     generateFallbackRequestID: DEFAULT_FALLBACK_REQUEST_ID_GENERATOR,
     timeoutMS: DEFAULT_TIMEOUT_MS,
+    ...overrides,
   };
 }
 
@@ -624,8 +662,8 @@ async function pageDataLoader({
  *   here applies to the entire handler execution
  * - The handler receives `LocalPageHandlerParams` (no Fastify request object)
  * - `invocationOrigin` is set to "local" for debugging
- * - Timeout uses `config.timeoutMS` (0 disables); timeout message mirrors the
- *   HTTP path by using `connectionErrorMessages.server` when available
+ * - Timeout uses `config.timeoutMS` (0 disables); local timeout failures reuse
+ *   `connectionErrorMessages.server` for parity with the HTTP loader path
  */
 async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
   config: LocalPageDataLoaderConfig,
@@ -739,7 +777,8 @@ async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
       (internalError as unknown as { errorCode?: string }).errorCode ===
         'handler_timeout';
 
-    // Friendly message parity with HTTP fetch timeouts
+    // Local timeout failures reuse the same user-facing message bucket as
+    // HTTP timeout/connection-style failures.
     const message = isHandlerTimeout
       ? config.connectionErrorMessages?.server ||
         DEFAULT_CONNECTION_ERROR_MESSAGES.server

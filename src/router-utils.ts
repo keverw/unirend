@@ -15,11 +15,18 @@ export { useDataLoaderEnvelopeError } from './lib/router-utils/use-data-loader-e
 export {
   createPageDataLoader,
   createDefaultPageDataLoaderConfig,
+  createDefaultLocalPageDataLoaderConfig,
 } from './lib/router-utils/page-data-loader';
 export {
   type PageDataLoaderConfig,
+  type BasePageDataLoaderConfig,
+  type LocalPageDataLoaderConfig,
+  type LocalPageDataLoaderConfigOverrides,
+  type PageDataLoaderConfigOverrides,
   type ErrorDefaults,
   type BaseErrorDefinition,
   type FullErrorDefinition,
   type CustomStatusCodeHandler,
+  type LocalPageHandler,
+  type LocalPageHandlerParams,
 } from './lib/router-utils/page-data-loader-types';

@@ -56,27 +56,20 @@ export type CustomStatusCodeHandler = (
 ) => PageResponseEnvelope | null | undefined;
 
 /**
- * Configuration object interface for the page data loader system
+ * Shared configuration used by both HTTP-backed and local page data loaders.
+ *
+ * Local loaders do not use `APIBaseURL`, but they can still produce
+ * auth/redirect-style responses and page envelopes, so shared redirect/auth
+ * settings such as `loginURL` and `returnToParam` live here.
  */
-export interface PageDataLoaderConfig {
-  /** Base URL for the API server (e.g., "http://localhost:3001" or "https://api.example.com") */
-  APIBaseURL: string;
-  /**
-   * Page data endpoint path (e.g., "/api/v1/page_data" or "/api/page_data")
-   *
-   * This path will be appended to the APIBaseURL to form the complete endpoint URL.
-   * The pageType will be appended to this path: `{APIBaseURL}{pageDataEndpoint}/{pageType}`
-   *
-   * @default "/api/v1/page_data"
-   */
-  pageDataEndpoint?: string;
+export interface BasePageDataLoaderConfig {
   /** Default error constants for common scenarios */
   errorDefaults: ErrorDefaults;
-  /** Connection error messages for network failures */
+  /** User-facing messages for timeout/connection-style failures */
   connectionErrorMessages?: {
-    /** Message shown on server when API connection fails */
+    /** Message shown for server-side timeout/connection-style failures */
     server?: string;
-    /** Message shown on client when API connection fails */
+    /** Message shown for client-side timeout/connection-style failures */
     client?: string;
   };
   /** Login URL for authentication redirects (e.g., "/login") */
@@ -165,6 +158,29 @@ export interface PageDataLoaderConfig {
    * - "javascript:alert('xss')" (not a valid origin)
    */
   allowedRedirectOrigins?: string[];
+}
+
+/**
+ * Configuration for local-only page data loaders (no framework HTTP fetch).
+ * Includes only the fields actually used by the local data loader path.
+ */
+export type LocalPageDataLoaderConfig = BasePageDataLoaderConfig;
+
+/**
+ * Configuration object interface for the HTTP-backed page data loader system.
+ */
+export interface PageDataLoaderConfig extends BasePageDataLoaderConfig {
+  /** Base URL for the API server (e.g., "http://localhost:3001" or "https://api.example.com") */
+  APIBaseURL: string;
+  /**
+   * Page data endpoint path (e.g., "/api/v1/page_data" or "/api/page_data")
+   *
+   * This path will be appended to the APIBaseURL to form the complete endpoint URL.
+   * The pageType will be appended to this path: `{APIBaseURL}{pageDataEndpoint}/{pageType}`
+   *
+   * @default "/api/v1/page_data"
+   */
+  pageDataEndpoint?: string;
   /**
    * Optional map of custom status code handlers
    *
@@ -231,18 +247,11 @@ export interface PageDataLoaderConfig {
   statusCodeHandlers?: Record<string | number, CustomStatusCodeHandler>;
 }
 
-/**
- * Narrower configuration for local-only page data loaders (no framework HTTP fetch).
- * Includes only the fields actually used by the local data loader path.
- */
-export type LocalPageDataLoaderConfig = Pick<
-  PageDataLoaderConfig,
-  | 'errorDefaults'
-  | 'connectionErrorMessages'
-  | 'timeoutMS'
-  | 'generateFallbackRequestID'
-  | 'allowedRedirectOrigins'
-  | 'transformErrorMeta'
+export type LocalPageDataLoaderConfigOverrides =
+  Partial<LocalPageDataLoaderConfig>;
+
+export type PageDataLoaderConfigOverrides = Partial<
+  Omit<PageDataLoaderConfig, 'APIBaseURL'>
 >;
 
 // Options interface for the page data loader

@@ -229,17 +229,19 @@ The page map is consumed automatically by `StaticWebServer` (Node.js) and `unire
 
 ### 5xx Error Handling
 
-There are two distinct failure modes during SSG, and it's important to understand the difference:
+There are four distinct SSG outcomes that are easy to confuse:
 
 **Component-level throws** (a component throws during render) are not caught by React Router's `errorElement` during SSG and result in a `render-error` internally. These are always treated as generation errors and the file is never written — `failOn5xx` has no effect on them. Unlike SSR — which serves live requests and provides `get500ErrorPage` to gracefully handle 500 responses at runtime — SSG has no equivalent, so a component throw is a build-time failure you fix before generating.
 
 Why: React Router does set up a React error boundary for `errorElement`, and on the **client** it will catch component-level render errors. But SSG uses React's synchronous `renderToString`, which does not support error boundary recovery — if a component throws inside `renderToString`, the error propagates straight out regardless of any error boundaries in the tree.
 
-**Data loader throws and 404s** (a loader throws, or a route has no match and no wildcard handler) _are_ caught by React Router's `errorElement` and render the error UI as a normal page. The file is written to disk — and since these often produce a 5xx or 4xx status, `failOn5xx` applies here. These work because React Router resolves loader errors and routing mismatches at the routing layer first — by the time `renderToString` is called, the router already knows to render `errorElement` instead of the route component.
+**Local data loader throws converted to page envelopes** are different. In the common Unirend pattern, a local page data loader throw is converted by `createPageDataLoader()` into a rendered page error envelope with `status_code: 500`. That page still renders, the HTML file is written to disk, and `failOn5xx` determines whether the generation report marks it as an error. This path is typically surfaced in the app via `useDataLoaderEnvelopeError`, not by relying on React Router `errorElement`. HTTP-backed loaders can also render error pages, but the exact behavior depends on whether the failure is normalized into a page response before render or handled by the router error path.
 
-**5xx status codes from successful renders** (e.g., a data loader that calls an external API returns HTTP 503 when the service is unavailable) result in a fully rendered page with a non-2xx status code. By default, `failOn5xx: true` treats these as generation errors, but the file _is_ still written to disk so you can inspect it — `outputPath` is included in the error report entry.
+**Route-level 404s and React Router error routes** are still a separate case. A route miss without a matching wildcard handler, or a thrown route error that React Router resolves through `errorElement`, renders as a normal page and is written to disk. A 404 remains a normal SSG outcome and is reported as `not_found`; `failOn5xx` does not apply to it. If React Router resolves a thrown route error into a rendered 5xx error page, that page follows the normal rendered-5xx rules below.
 
-The `failOn5xx` option is specifically for the second case: a page that renders successfully but whose status code signals an error. A typical use case is an SSG page that fetches data from an external API at build time (e.g., recent news for a business site) — if the API is temporarily unavailable, the render may complete but return a 503.
+**Explicit rendered 5xx page envelopes** are also successful renders from SSG's perspective. If a loader returns a page envelope with `status_code: 500` or `status_code: 503`, the page is rendered and written to disk. By default, `failOn5xx: true` marks those pages as errors in the report and sets `generationFailed` to `true`, but `outputPath` is still included so you can inspect the generated file.
+
+The `failOn5xx` option applies only to rendered pages whose final status code is 5xx. It does not affect raw component render crashes. A typical use case is an SSG page that fetches data from an external API at build time, if the API is temporarily unavailable, the render may still complete but return a 503 envelope.
 
 **Debugging unexpected 5xx pages:** Call `initDevMode(true)` before running `generateSSG()` so components using `useIsDevelopment()` can render extra debug output in the generated file:
 
