@@ -157,6 +157,7 @@ describe('local page data loader', () => {
     const loader = createPageDataLoader(
       createDefaultLocalPageDataLoaderConfig(),
       () => {
+        // eslint-disable-next-line @typescript-eslint/only-throw-error
         throw 'Boom string';
       },
     );
@@ -1060,6 +1061,7 @@ describe('HTTP-backed page data loader', () => {
       handlers: {
         hasHandler: () => true,
         callHandler: () => {
+          // eslint-disable-next-line @typescript-eslint/only-throw-error
           throw 'short-circuit string error';
         },
       },
