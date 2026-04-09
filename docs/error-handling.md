@@ -42,8 +42,9 @@ Behavior also depends on both the error path and when it occurs:
 
 ### Error Utilities and Recommended Setup
 
-- **Error Boundary (thrown errors)**: In your `routes.tsx`, set `RouteErrorBoundary` as the root route's `errorElement` to catch thrown errors during navigation and SSR.
+- **Error Boundary (thrown errors)**: In your `routes.tsx`, set React Router's root `errorElement` to Unirend's `RouteErrorBoundary` helper component for router-level 404s and thrown route or loader errors.
   - Import: `import { RouteErrorBoundary } from 'unirend/router-utils'`
+  - During SSG, component render throws may bypass boundary-style recovery and surface as render failures instead.
   - Pass your custom components: `NotFoundComponent` (404s) and `ApplicationErrorComponent` (thrown errors).
   - The `ApplicationErrorComponent` should be a standalone page (no app layout). While the `NotFoundComponent` can be standalone or use your layout, either is fine.
   - For SSR parity, your server's `get500ErrorPage` should visually match your `ApplicationErrorComponent`.

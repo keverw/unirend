@@ -5,7 +5,7 @@ Unirend centralizes route data fetching through a single loader system. Define l
 - Create config: use `createDefaultPageDataLoaderConfig(APIBaseURL, overrides?)` for HTTP-backed loaders or `createDefaultLocalPageDataLoaderConfig(overrides?)` for local loaders, or manually provide a config object that matches the expected loader config shape
 - Define loaders: `createPageDataLoader(config, pageType)` or `createPageDataLoader(localConfig, localHandler)`
 - Errors/redirects: handled uniformly via envelopes, but in practice they usually surface in three ways.
-  - Router error path: use `RouteErrorBoundary` as your route `errorElement` helper for router-level 404s and thrown route or loader errors.
+  - Router error path: set React Router's `errorElement` to Unirend's `RouteErrorBoundary` helper component for router-level 404s and thrown route or loader errors.
   - Rendered page error envelope path: use `useDataLoaderEnvelopeError` in your app layout when a loader returns a page error envelope directly, or when the framework converts a loader failure into one.
   - Environment-specific final behavior: the same loader concepts can surface a little differently in SSR, SSG, and hydrated client navigation. See: [Error Handling (README)](../README.md#error-handling), [docs/error-handling.md](./error-handling.md), and [docs/ssg.md](./ssg.md#5xx-error-handling).
 
