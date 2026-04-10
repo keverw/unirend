@@ -2,8 +2,17 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'node:crypto';
-import { LRUCache } from 'lifecycleion/lru-cache';
+import { LRUCache, type LRUCacheChangeEvent } from 'lifecycleion/lru-cache';
 import type { StaticContentRouterOptions, FolderConfig } from '../types';
+import { addToVaryHeader } from './http-header-utils';
+import {
+  buildEncodedETag,
+  compressPayload,
+  isCompressibleContentType,
+  matchesIfNoneMatch,
+  normalizeResponseCompressionOptions,
+  selectResponseEncoding,
+} from './response-compression';
 
 /**
  * Minimal stat info interface with only the properties we actually use
@@ -23,6 +32,18 @@ interface NegativeCacheEntry {
   notFound: true;
 }
 
+type CompressedVariantState =
+  | {
+      kind: 'compressed';
+      data: Buffer;
+    }
+  | {
+      kind: 'not-worth-it';
+    }
+  | {
+      kind: 'tombstone';
+    };
+
 /**
  * Combined type for stat cache entries
  */
@@ -36,6 +57,8 @@ export interface GetFileOptions {
   shouldDetectImmutable?: boolean;
   /** Optional ETag from client's If-None-Match header (for 304 optimization) */
   clientETag?: string;
+  /** Accepted content encodings from the request for representation selection */
+  acceptEncoding?: string | string[];
 }
 
 /**
@@ -100,10 +123,14 @@ export interface FileErrorResult {
  */
 export interface FileNotModifiedResult {
   status: 'not-modified';
-  /** Generated ETag for the file */
+  /** Generated ETag for the selected response representation */
   etag: string;
   /** Last-Modified date as HTTP header string */
   lastModified: string;
+  /** Selected content encoding, if a compressed representation was chosen */
+  contentEncoding?: 'br' | 'gzip';
+  /** Whether the response should include `Vary: Accept-Encoding` */
+  varyByAcceptEncoding: boolean;
 }
 
 /**
@@ -113,14 +140,20 @@ export interface FileFoundResult {
   status: 'ok';
   /** File stats (size, modification time, etc.) */
   stat: MinimalStatInfo;
-  /** Generated ETag for the file */
+  /** Generated ETag for the selected response representation */
   etag: string;
+  /** Base file ETag before representation-specific encoding suffixes */
+  baseETag: string;
   /** Last-Modified date as HTTP header string */
   lastModified: string;
   /** MIME type based on file extension */
   mimeType: string;
   /** File content - either buffered or needs streaming */
   content: FileContent;
+  /** Selected content encoding, if a compressed representation was chosen */
+  contentEncoding?: 'br' | 'gzip';
+  /** Whether the response should include `Vary: Accept-Encoding` */
+  varyByAcceptEncoding: boolean;
   /** Whether this file appears to be fingerprinted/immutable (for aggressive caching) */
   isImmutableAsset: boolean;
 }
@@ -226,11 +259,26 @@ export class StaticContentCache {
   private readonly immutableCacheControl: string;
   private readonly negativeCacheTtl: number;
   private readonly positiveCacheTtl: number;
+  private readonly compression: ReturnType<
+    typeof normalizeResponseCompressionOptions
+  >;
 
   // LRU caches (all keyed by filesystem path)
   private readonly etagCache: LRUCache<string, string>; // fs path → ETag
   private readonly contentCache: LRUCache<string, Buffer>; // fs path → file content
+  // Keyed by fs path + BASE file ETag + encoding.
+  // The stored ETag component is the uncompressed file's identity; the
+  // representation-specific HTTP ETag is derived later by suffixing the
+  // encoding (e.g. "--gzip", "--br") when sending the response.
+  private readonly compressedVariantCache: LRUCache<
+    string,
+    CompressedVariantState
+  >; // fs path + base etag + encoding → compressed variant state
   private readonly statCache: LRUCache<string, StatCacheEntry>; // fs path → file stats
+  // Reverse index of filesystem path -> compressed cache keys for that file.
+  // This lets invalidateFile() clear every cached compressed representation for
+  // a path without needing to know which base ETag variants are currently live.
+  private readonly compressedContentIndex: Map<string, Set<string>> = new Map();
 
   // Optional logger
   private readonly logger?: StaticContentWarnLoggerObject;
@@ -256,6 +304,7 @@ export class StaticContentCache {
       positiveCacheTtl = 60 * 60 * 1000, // 1 hour
       cacheControl = 'public, max-age=0, must-revalidate',
       immutableCacheControl = 'public, max-age=31536000, immutable',
+      compression = true,
     } = options;
 
     this.smallFileMaxSize = smallFileMaxSize;
@@ -263,6 +312,7 @@ export class StaticContentCache {
     this.immutableCacheControl = immutableCacheControl;
     this.negativeCacheTtl = negativeCacheTtl;
     this.positiveCacheTtl = positiveCacheTtl;
+    this.compression = normalizeResponseCompressionOptions(compression);
     this.logger = logger;
 
     // Normalize singleAssetMap
@@ -279,6 +329,18 @@ export class StaticContentCache {
       defaultTtl,
       maxSize: contentCacheMaxSize,
     });
+
+    this.compressedVariantCache = new LRUCache<string, CompressedVariantState>(
+      cacheEntries,
+      {
+        defaultTtl,
+        maxSize: contentCacheMaxSize,
+        // Keep the reverse index aligned when compressed variants disappear from
+        // the LRU on their own, not just when StaticContentCache deletes them.
+        onChange: (event) => this.handleCompressedVariantCacheChange(event),
+        onChangeReasons: ['evict', 'expired', 'delete', 'clear'],
+      },
+    );
     this.statCache = new LRUCache<string, StatCacheEntry>(statCacheEntries, {
       defaultTtl,
     });
@@ -307,8 +369,13 @@ export class StaticContentCache {
   ): Promise<FileResult> {
     // Wrap entire operation in try-catch to return errors instead of throwing
     try {
-      const { shouldDetectImmutable = false, clientETag } = options || {};
+      const {
+        shouldDetectImmutable = false,
+        clientETag,
+        acceptEncoding,
+      } = options || {};
 
+      // Step 1: Resolve file metadata, preferably from the stat cache.
       // Try to get file stats from cache to avoid filesystem operations
       const cachedStat = this.statCache.get(resolvedPath);
 
@@ -388,6 +455,8 @@ export class StaticContentCache {
       // Generate Last-Modified header from file modification time
       const lastModified = stat.mtime.toUTCString();
 
+      // Step 2: Derive the base file validator used for identity responses and
+      // as the source for encoding-specific ETags.
       // Try to get ETag from cache
       let etag = this.etagCache.get(resolvedPath);
 
@@ -437,18 +506,6 @@ export class StaticContentCache {
         this.etagCache.set(resolvedPath, etag);
       }
 
-      // Extract client cache validation header (ETag-based validation)
-      // Check if client's ETag matches (short-circuit for 304)
-      if (clientETag && clientETag === etag) {
-        // Return HTTP 304 Not Modified response (no body)
-        // This saves bandwidth as the client will use its cached version
-        return {
-          status: 'not-modified',
-          etag,
-          lastModified,
-        };
-      }
-
       // Determine if we should use immutable cache headers based on the filename pattern
       // A fingerprinted file typically has a name like main.a1b2c3.js or chunk-5a7d9c8b.js
       const isImmutableAsset =
@@ -457,6 +514,8 @@ export class StaticContentCache {
       // Get MIME type based on file extension
       const mimeType = this.getMimeType(resolvedPath);
 
+      // Step 3: Load the file body as either a cached/buffered payload or a
+      // stream factory, depending on size.
       // Build content discriminated union based on file size
       // Small files: buffered in memory (get from cache or read from disk as fallback)
       // Large files: must be streamed from disk with factory function that supports ranges
@@ -514,13 +573,146 @@ export class StaticContentCache {
         };
       }
 
+      // Step 4: Choose the response representation before checking
+      // If-None-Match so gzip/br variants get their own ETags and 304 behavior.
+      const shouldVaryByAcceptEncoding =
+        this.compression.enabled &&
+        !fileContent.shouldStream &&
+        isCompressibleContentType(mimeType) &&
+        fileContent.data.length >= this.compression.threshold;
+
+      const selectedEncoding = shouldVaryByAcceptEncoding
+        ? selectResponseEncoding(acceptEncoding, this.compression.preferBrotli)
+        : null;
+      let responseEncoding: 'br' | 'gzip' | undefined;
+
+      // Step 5: For buffered responses, reuse or build a compressed variant if
+      // the negotiated encoding is smaller than the original bytes.
+      if (!fileContent.shouldStream && selectedEncoding) {
+        const compressedCacheKey = this.getCompressedCacheKey(
+          resolvedPath,
+          etag,
+          selectedEncoding,
+        );
+
+        const cachedVariant =
+          this.compressedVariantCache.get(compressedCacheKey);
+
+        let compressed =
+          cachedVariant?.kind === 'compressed' ? cachedVariant.data : undefined;
+        const isCompressedNotWorthIt = cachedVariant?.kind === 'not-worth-it';
+        const isCompressedTombstone = cachedVariant?.kind === 'tombstone';
+
+        if (!cachedVariant || isCompressedTombstone) {
+          // A plain cache miss may leave behind a stale reverse-index entry, so
+          // clean that up before recomputing. Tombstones stay tracked on
+          // purpose: they still represent a live variant key that should block
+          // immediate reinsertion after invalidateFile().
+          if (!isCompressedTombstone) {
+            this.untrackCompressedVariant(resolvedPath, compressedCacheKey);
+          }
+
+          compressed = await compressPayload(
+            fileContent.data,
+            selectedEncoding,
+            this.compression,
+          );
+        }
+
+        // Only keep an encoded variant if it is actually smaller than the
+        // original bytes. Otherwise prefer the identity response and clear any
+        // stale cached compressed entry for this representation.
+        if (compressed && compressed.length < fileContent.data.length) {
+          responseEncoding = selectedEncoding;
+
+          // Only store compressed bytes if we do not already have them cached
+          // and this exact variant key is not still inside the invalidation
+          // tombstone window from a recent invalidateFile() call.
+          if (
+            !this.compressedVariantCache.get(compressedCacheKey) &&
+            !isCompressedTombstone
+          ) {
+            // invalidateFile() leaves a short-lived tombstone for the old
+            // path + base ETag + encoding key so an older in-flight request
+            // cannot immediately repopulate a stale compressed variant.
+            this.compressedVariantCache.set(compressedCacheKey, {
+              kind: 'compressed',
+              data: compressed,
+            });
+
+            // The reverse index groups all compressed variants for a file path
+            // so invalidateFile() can clear them without knowing the current
+            // base ETag or encoding ahead of time.
+            const existingCompressedKeys =
+              this.compressedContentIndex.get(resolvedPath);
+
+            if (existingCompressedKeys) {
+              existingCompressedKeys.add(compressedCacheKey);
+            } else {
+              this.compressedContentIndex.set(
+                resolvedPath,
+                new Set([compressedCacheKey]),
+              );
+            }
+          }
+
+          fileContent = {
+            shouldStream: false,
+            data: compressed,
+          };
+        } else {
+          // Only record a fresh negative result. Reuse existing tombstones and
+          // prior "not worth it" decisions instead of resetting their state.
+          if (!isCompressedNotWorthIt && !isCompressedTombstone) {
+            // Record that this exact variant key negotiated successfully but
+            // did not beat the identity response, so future requests can skip
+            // recompressing until the file version changes or the entry expires.
+            this.compressedVariantCache.delete(compressedCacheKey);
+            this.compressedVariantCache.set(compressedCacheKey, {
+              kind: 'not-worth-it',
+            });
+
+            // Track negative variant decisions in the same reverse index so
+            // invalidateFile() can clear all per-variant state for the path.
+            const existingVariantKeys =
+              this.compressedContentIndex.get(resolvedPath);
+
+            if (existingVariantKeys) {
+              existingVariantKeys.add(compressedCacheKey);
+            } else {
+              this.compressedContentIndex.set(
+                resolvedPath,
+                new Set([compressedCacheKey]),
+              );
+            }
+          }
+        }
+      }
+
+      const responseETag = responseEncoding
+        ? buildEncodedETag(etag, responseEncoding)
+        : etag;
+
+      if (clientETag && matchesIfNoneMatch(clientETag, responseETag)) {
+        return {
+          status: 'not-modified',
+          etag: responseETag,
+          lastModified,
+          contentEncoding: responseEncoding,
+          varyByAcceptEncoding: shouldVaryByAcceptEncoding,
+        };
+      }
+
       return {
         status: 'ok',
         stat,
-        etag,
+        etag: responseETag,
+        baseETag: etag,
         lastModified,
         mimeType,
         content: fileContent,
+        contentEncoding: responseEncoding,
+        varyByAcceptEncoding: shouldVaryByAcceptEncoding,
         isImmutableAsset,
       };
     } catch (error) {
@@ -555,13 +747,14 @@ export class StaticContentCache {
     resolvedPath: string,
     options?: GetFileOptions,
   ): Promise<ServeFileResult> {
-    // Extract If-None-Match header for ETag comparison
-    const clientETag = req.headers['if-none-match'];
-
     // Get file with all metadata and caching
     const result = await this.getFile(resolvedPath, {
       ...options,
-      clientETag,
+      // Extract client cache validation header (ETag-based validation).
+      clientETag: req.headers['if-none-match'],
+      // Pass through Accept-Encoding so getFile() can choose the response
+      // representation before doing ETag/304 handling.
+      acceptEncoding: req.headers['accept-encoding'],
     });
 
     // Handle different result statuses
@@ -573,6 +766,27 @@ export class StaticContentCache {
       return { served: false, reason: 'error', error: result.error };
     } else if (result.status === 'not-modified') {
       // Client's cache is still valid, send 304
+      // Return HTTP 304 Not Modified response (no body). This saves bandwidth
+      // because the client reuses its cached representation.
+      //
+      // Static content already chose the final representation for this
+      // response (identity/gzip/br), so the generic onSend hook must not try
+      // to compress it again.
+      (req as { _unirendSkipCompression?: boolean })._unirendSkipCompression =
+        true;
+
+      // Representation selection depends on Accept-Encoding, so advertise that
+      // caches must keep separate variants when compression is in play.
+      if (result.varyByAcceptEncoding) {
+        addToVaryHeader(reply, 'Accept-Encoding');
+      }
+
+      // A 304 carries metadata for the representation the client validated, so
+      // keep Content-Encoding aligned with the selected cached variant.
+      if (result.contentEncoding) {
+        reply.header('Content-Encoding', result.contentEncoding);
+      }
+
       await reply
         .code(304)
         .header('ETag', result.etag)
@@ -588,6 +802,24 @@ export class StaticContentCache {
     const headerCacheControl = result.isImmutableAsset
       ? this.immutableCacheControl
       : this.cacheControl;
+
+    // Static content already chose the final representation for this response
+    // (including ETag semantics), so the generic onSend hook must stand down
+    // before headers/body are written for either buffered or streamed output.
+    (req as { _unirendSkipCompression?: boolean })._unirendSkipCompression =
+      true;
+
+    // Representation selection depends on Accept-Encoding, so advertise that
+    // caches must keep separate variants when compression is in play.
+    if (result.varyByAcceptEncoding) {
+      addToVaryHeader(reply, 'Accept-Encoding');
+    }
+
+    // Only encoded representations send Content-Encoding; identity responses
+    // intentionally omit it even when compression was considered.
+    if (result.contentEncoding) {
+      reply.header('Content-Encoding', result.contentEncoding);
+    }
 
     // Set common headers
     reply
@@ -645,7 +877,14 @@ export class StaticContentCache {
 
     // HEAD — set Content-Length from stat, then send empty body without touching file content
     if (req.method === 'HEAD') {
-      reply.header('Content-Length', result.stat.size.toString());
+      // When the response would be compressed, report the compressed size so
+      // the Content-Length matches what a GET would actually transfer.
+      // Compressed responses are always buffered (!shouldStream), so narrow first.
+      const headContentLength =
+        result.contentEncoding && !result.content.shouldStream
+          ? result.content.data.length
+          : result.stat.size;
+      reply.header('Content-Length', headContentLength.toString());
       await reply.send();
       return { served: true, statusCode: 200 };
     }
@@ -657,6 +896,11 @@ export class StaticContentCache {
     } else {
       // Small file - send buffered data directly
       // This avoids redundant filesystem operations
+
+      if (result.contentEncoding) {
+        reply.header('Content-Length', result.content.data.length.toString());
+      }
+
       await reply.send(result.content.data);
     }
 
@@ -748,6 +992,7 @@ export class StaticContentCache {
     this.etagCache.delete(fsPath);
     this.contentCache.delete(fsPath);
     this.statCache.delete(fsPath);
+    this.invalidateCompressedVariants(fsPath);
   }
 
   /**
@@ -756,7 +1001,9 @@ export class StaticContentCache {
   public clearCaches(): void {
     this.etagCache.clear();
     this.contentCache.clear();
+    this.compressedVariantCache.clear();
     this.statCache.clear();
+    this.compressedContentIndex.clear();
   }
 
   /**
@@ -771,6 +1018,10 @@ export class StaticContentCache {
       content: {
         items: this.contentCache.size,
         byteSize: this.contentCache.byteSize,
+      },
+      compressedVariants: {
+        items: this.compressedVariantCache.size,
+        byteSize: this.compressedVariantCache.byteSize,
       },
       stat: {
         items: this.statCache.size,
@@ -876,6 +1127,7 @@ export class StaticContentCache {
         this.etagCache.delete(fsPath);
         this.contentCache.delete(fsPath);
         this.statCache.delete(fsPath);
+        this.invalidateCompressedVariants(fsPath);
       }
     }
 
@@ -1148,5 +1400,77 @@ export class StaticContentCache {
       /\.[A-Za-z0-9]{6,}\./.test(fileBasename) ||
       /-[A-Za-z0-9]{6,}\./.test(fileBasename)
     );
+  }
+
+  private getCompressedCacheKey(
+    resolvedPath: string,
+    etag: string,
+    encoding: string,
+  ): string {
+    return `${resolvedPath}::${etag}::${encoding}`;
+  }
+
+  private invalidateCompressedVariants(fsPath: string): void {
+    // Leave a short-lived tombstone for each invalidated compressed variant so
+    // an older in-flight request cannot immediately repopulate the same stale
+    // path + base ETag + encoding entry after invalidateFile() runs.
+    const keys = this.compressedContentIndex.get(fsPath);
+
+    if (!keys) {
+      return;
+    }
+
+    for (const key of keys) {
+      // Replace the current variant state with a short-lived tombstone so an
+      // older in-flight request cannot immediately repopulate the same stale
+      // compressed variant after invalidateFile() runs.
+      this.compressedVariantCache.set(key, { kind: 'tombstone' }, 5 * 1000);
+    }
+
+    this.compressedContentIndex.delete(fsPath);
+  }
+
+  private handleCompressedVariantCacheChange(
+    event: LRUCacheChangeEvent<string, CompressedVariantState>,
+  ): void {
+    if (
+      event.reason !== 'evict' &&
+      event.reason !== 'expired' &&
+      event.reason !== 'delete' &&
+      event.reason !== 'clear'
+    ) {
+      return;
+    }
+
+    // The compressed LRU is keyed by path + base ETag + encoding, but the
+    // reverse index is keyed only by filesystem path.
+    this.untrackCompressedVariantByKey(event.key);
+  }
+
+  private untrackCompressedVariantByKey(cacheKey: string): void {
+    // Compressed cache keys are stored as path + base ETag + encoding, so drop
+    // the final two segments to recover the filesystem path used by the index.
+    const keyParts = cacheKey.split('::');
+    const fsPath = keyParts.slice(0, -2).join('::');
+
+    this.untrackCompressedVariant(fsPath, cacheKey);
+  }
+
+  private untrackCompressedVariant(fsPath: string, cacheKey: string): void {
+    // Missing index state is harmless here. This map only helps invalidate all
+    // variant keys for a file path later, it is not consulted when choosing
+    // what bytes or variant state to serve for the current request.
+    const existing = this.compressedContentIndex.get(fsPath);
+
+    if (!existing) {
+      return;
+    }
+
+    existing.delete(cacheKey);
+
+    // Remove the path entry entirely once no compressed variants remain for it.
+    if (existing.size === 0) {
+      this.compressedContentIndex.delete(fsPath);
+    }
   }
 }

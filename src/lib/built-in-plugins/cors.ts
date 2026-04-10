@@ -5,6 +5,7 @@ import {
   matchesCORSCredentialsList,
   validateConfigEntry,
 } from 'lifecycleion/domain-utils';
+import { addToVaryHeader } from '../internal/http-header-utils';
 
 /**
  * CORS origin configuration - can be a string, array, or function
@@ -282,30 +283,6 @@ async function areCredentialsAllowed(
   }
 
   return false;
-}
-
-/**
- * Helper to add values to Vary header without duplicates
- */
-// addToVaryHeader: safer header read
-function addToVaryHeader(reply: FastifyReply, ...values: string[]): void {
-  const existing = reply.getHeader('Vary');
-  const current = Array.isArray(existing)
-    ? existing.join(', ')
-    : ((existing ?? '') as string);
-
-  const vary = new Set(
-    current
-      .split(',')
-      .map((h) => h.trim())
-      .filter(Boolean),
-  );
-
-  for (const v of values) {
-    vary.add(v);
-  }
-
-  reply.header('Vary', Array.from(vary).join(', '));
 }
 
 /**

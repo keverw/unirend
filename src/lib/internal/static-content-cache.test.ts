@@ -3,6 +3,7 @@ import { StaticContentCache } from './static-content-cache';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import fs from 'fs';
 import { Readable } from 'stream';
+import { gunzipSync } from 'node:zlib';
 
 // Mock fs operations
 const mockFs = {
@@ -46,6 +47,12 @@ const createMockReply = (): {
     }),
     type: mock((contentType: string) => {
       sentData.headers['Content-Type'] = contentType;
+      return reply as FastifyReply;
+    }),
+    getHeader: mock((name: string) => sentData.headers[name]),
+    hasHeader: mock((name: string) => name in sentData.headers),
+    removeHeader: mock((name: string) => {
+      delete sentData.headers[name];
       return reply as FastifyReply;
     }),
     send: mock((body?: unknown) => {
@@ -154,6 +161,7 @@ describe('StaticContentCache', () => {
       expect(result.status).toBe('ok');
       if (result.status === 'ok') {
         expect(result.etag).toBeDefined();
+        expect(result.baseETag).toBeDefined();
         expect(result.mimeType).toBe('text/plain');
       }
     });
@@ -187,6 +195,115 @@ describe('StaticContentCache', () => {
           expect(secondResult.etag).toBe(firstResult.etag);
         }
       }
+    });
+
+    it('selects a compressed representation when accept-encoding allows it', async () => {
+      const cache = new StaticContentCache({});
+      const fileContent = Buffer.from('hello world '.repeat(300));
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      const result = await cache.getFile('/path/to/file.txt', {
+        acceptEncoding: 'gzip',
+      });
+
+      expect(result.status).toBe('ok');
+
+      if (result.status === 'ok') {
+        expect(result.contentEncoding).toBe('gzip');
+        expect(result.etag).toContain('--gzip');
+        expect(result.varyByAcceptEncoding).toBe(true);
+        expect(result.content.shouldStream).toBe(false);
+
+        if (!result.content.shouldStream) {
+          expect(gunzipSync(result.content.data).toString()).toBe(
+            fileContent.toString(),
+          );
+        }
+      }
+    });
+
+    it('returns not-modified for a matching compressed representation ETag', async () => {
+      const cache = new StaticContentCache({});
+      const fileContent = Buffer.from('hello world '.repeat(300));
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      const firstResult = await cache.getFile('/path/to/file.txt', {
+        acceptEncoding: 'gzip',
+      });
+      expect(firstResult.status).toBe('ok');
+
+      if (firstResult.status === 'ok') {
+        const secondResult = await cache.getFile('/path/to/file.txt', {
+          acceptEncoding: 'gzip',
+          clientETag: firstResult.etag,
+        });
+
+        expect(secondResult.status).toBe('not-modified');
+        if (secondResult.status === 'not-modified') {
+          expect(secondResult.etag).toBe(firstResult.etag);
+          expect(secondResult.contentEncoding).toBe('gzip');
+          expect(secondResult.varyByAcceptEncoding).toBe(true);
+        }
+      }
+    });
+
+    it('caches when compression is not worth it and falls back to identity', async () => {
+      const cache = new StaticContentCache({
+        compression: {
+          threshold: 1,
+        },
+      });
+      const fileContent = Buffer.from('hello');
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      const firstResult = await cache.getFile('/path/to/file.txt', {
+        acceptEncoding: 'gzip',
+      });
+
+      expect(firstResult.status).toBe('ok');
+      if (firstResult.status === 'ok') {
+        expect(firstResult.contentEncoding).toBeUndefined();
+        expect(firstResult.etag).not.toContain('--gzip');
+        expect(cache.getCacheStats().compressedVariants.items).toBe(1);
+      }
+
+      const secondResult = await cache.getFile('/path/to/file.txt', {
+        acceptEncoding: 'gzip',
+        clientETag: firstResult.status === 'ok' ? firstResult.etag : undefined,
+      });
+
+      expect(secondResult.status).toBe('not-modified');
+      if (secondResult.status === 'not-modified') {
+        expect(secondResult.contentEncoding).toBeUndefined();
+      }
+      expect(cache.getCacheStats().compressedVariants.items).toBe(1);
     });
   });
 
@@ -283,6 +400,231 @@ describe('StaticContentCache', () => {
           expect(secondResult.statusCode).toBe(304);
         }
       }
+    });
+
+    it('compresses buffered responses when gzip is accepted', async () => {
+      const cache = new StaticContentCache({});
+      const req = createMockRequest('/test.txt', 'GET', {
+        'accept-encoding': 'gzip',
+      });
+      const { reply, sentData } = createMockReply();
+      const fileContent = Buffer.from('hello world '.repeat(300));
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      const result = await cache.serveFile(
+        req as FastifyRequest,
+        reply as FastifyReply,
+        '/path/to/file.txt',
+      );
+
+      expect(result.served).toBe(true);
+      expect(sentData.headers['Content-Encoding']).toBe('gzip');
+      expect(sentData.headers['Vary']).toBe('Accept-Encoding');
+      expect(sentData.headers['ETag']).toContain('--gzip');
+      expect(gunzipSync(sentData.body as Buffer).toString()).toBe(
+        fileContent.toString(),
+      );
+      expect(cache.getCacheStats().compressedVariants.items).toBe(1);
+    });
+
+    it('reports compressed Content-Length for HEAD requests on compressible files', async () => {
+      const cache = new StaticContentCache({});
+      const req = createMockRequest('/test.txt', 'HEAD', {
+        'accept-encoding': 'gzip',
+      });
+      const { reply, sentData } = createMockReply();
+      const fileContent = Buffer.from('hello world '.repeat(300));
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      const result = await cache.serveFile(
+        req as FastifyRequest,
+        reply as FastifyReply,
+        '/path/to/file.txt',
+      );
+
+      expect(result.served).toBe(true);
+      expect(sentData.headers['Content-Encoding']).toBe('gzip');
+      // Content-Length must reflect the compressed size, not the original uncompressed size
+      const reportedLength = parseInt(sentData.headers['Content-Length'], 10);
+      expect(reportedLength).toBeGreaterThan(0);
+      expect(reportedLength).toBeLessThan(fileContent.length);
+      // HEAD responses must not include a body
+      expect(sentData.body).toBeUndefined();
+    });
+
+    it('returns 304 for matching compressed ETags', async () => {
+      const cache = new StaticContentCache({});
+      const fileContent = Buffer.from('hello world '.repeat(300));
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      const req1 = createMockRequest('/test.txt', 'GET', {
+        'accept-encoding': 'gzip',
+      });
+      const { reply: reply1, sentData: sentData1 } = createMockReply();
+
+      await cache.serveFile(
+        req1 as FastifyRequest,
+        reply1 as FastifyReply,
+        '/path/to/file.txt',
+      );
+
+      const req2 = createMockRequest('/test.txt', 'GET', {
+        'accept-encoding': 'gzip',
+        'if-none-match': sentData1.headers['ETag'],
+      });
+      const { reply: reply2, sentData: sentData2 } = createMockReply();
+
+      const result = await cache.serveFile(
+        req2 as FastifyRequest,
+        reply2 as FastifyReply,
+        '/path/to/file.txt',
+      );
+
+      expect(result.served).toBe(true);
+      if (result.served) {
+        expect(result.statusCode).toBe(304);
+      }
+      expect(sentData2.headers['Content-Encoding']).toBe('gzip');
+      expect(sentData2.headers['ETag']).toBe(sentData1.headers['ETag']);
+      expect(cache.getCacheStats().compressedVariants.items).toBe(1);
+    });
+
+    it('replaces cached compressed variants with tombstones when invalidating a file', async () => {
+      const cache = new StaticContentCache({});
+      const req = createMockRequest('/test.txt', 'GET', {
+        'accept-encoding': 'gzip',
+      });
+      const { reply } = createMockReply();
+      const fileContent = Buffer.from('hello world '.repeat(300));
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      await cache.serveFile(
+        req as FastifyRequest,
+        reply as FastifyReply,
+        '/path/to/file.txt',
+      );
+
+      // @ts-expect-error testing internal variant-state cache behavior
+      const variantKeysBefore = cache.compressedContentIndex.get(
+        '/path/to/file.txt',
+      );
+      expect(variantKeysBefore?.size).toBe(1);
+
+      const [variantKey] = Array.from(variantKeysBefore ?? []);
+      expect(variantKey).toBeDefined();
+
+      // @ts-expect-error testing internal variant-state cache behavior
+      const cachedVariantBefore = cache.compressedVariantCache.get(variantKey);
+      expect(cachedVariantBefore).toMatchObject({ kind: 'compressed' });
+
+      cache.invalidateFile('/path/to/file.txt');
+
+      // @ts-expect-error testing internal variant-state cache behavior
+      const tombstoneVariant = cache.compressedVariantCache.get(variantKey);
+      expect(tombstoneVariant).toEqual({ kind: 'tombstone' });
+    });
+
+    it('does not immediately repopulate the compressed cache after invalidation', async () => {
+      const cache = new StaticContentCache({});
+      const req = createMockRequest('/test.txt', 'GET', {
+        'accept-encoding': 'gzip',
+      });
+      const fileContent = Buffer.from('hello world '.repeat(300));
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      const { reply: firstReply } = createMockReply();
+
+      await cache.serveFile(
+        req as FastifyRequest,
+        firstReply as FastifyReply,
+        '/path/to/file.txt',
+      );
+
+      // @ts-expect-error testing internal variant-state cache behavior
+      const variantKeysBefore = cache.compressedContentIndex.get(
+        '/path/to/file.txt',
+      );
+      expect(variantKeysBefore?.size).toBe(1);
+
+      const [variantKey] = Array.from(variantKeysBefore ?? []);
+      expect(variantKey).toBeDefined();
+
+      // @ts-expect-error testing internal variant-state cache behavior
+      const cachedVariantBefore = cache.compressedVariantCache.get(variantKey);
+      expect(cachedVariantBefore).toMatchObject({ kind: 'compressed' });
+
+      cache.invalidateFile('/path/to/file.txt');
+
+      // @ts-expect-error testing internal variant-state cache behavior
+      const tombstoneVariantBeforeRetry = cache.compressedVariantCache.get(
+        variantKey,
+      );
+      expect(tombstoneVariantBeforeRetry).toEqual({ kind: 'tombstone' });
+
+      const { reply: secondReply, sentData: secondSentData } =
+        createMockReply();
+
+      await cache.serveFile(
+        req as FastifyRequest,
+        secondReply as FastifyReply,
+        '/path/to/file.txt',
+      );
+
+      expect(secondSentData.headers['Content-Encoding']).toBe('gzip');
+      expect(gunzipSync(secondSentData.body as Buffer).toString()).toBe(
+        fileContent.toString(),
+      );
+
+      // @ts-expect-error testing internal variant-state cache behavior
+      const tombstoneVariantAfterRetry = cache.compressedVariantCache.get(
+        variantKey,
+      );
+      expect(tombstoneVariantAfterRetry).toEqual({ kind: 'tombstone' });
     });
   });
 

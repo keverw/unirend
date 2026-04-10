@@ -414,6 +414,12 @@ Dev mode (stack traces in built-in 500 page, not custom error page provided) is 
 - `https` - HTTPS/SSL configuration with key, cert, and optional SNI callback
 - `logging` - Framework-level logging options (Unirend logger abstraction)
 - `fastifyOptions` - Fastify server options (logger, trustProxy, bodyLimit, keepAliveTimeout, etc.)
+- `responseCompression` - Compress non-streaming responses by default and static files when possible; negotiates `Accept-Encoding`, skips range responses, and caches static compressed variants in memory for repeated requests
+  - `enabled?: boolean` - Enable/disable compression explicitly
+  - `threshold?: number` - Minimum payload size in bytes before compression is attempted (default: `1024`)
+  - `preferBrotli?: boolean` - Prefer Brotli over gzip when the client supports both equally (same `q` value) (default: `true`)
+  - `brotliQuality?: number` - Brotli compression quality passed to Node.js zlib (default: `4`)
+  - `gzipLevel?: number` - gzip compression level passed to Node.js zlib (default: `6`)
 
 ##### Error Pages
 

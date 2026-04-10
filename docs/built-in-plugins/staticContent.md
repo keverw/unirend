@@ -342,12 +342,23 @@ staticContent({
 
 These options control **HTTP Cache-Control headers** sent to browsers/CDNs:
 
-| Option                  | Type     | Default                                 | Description                           |
-| ----------------------- | -------- | --------------------------------------- | ------------------------------------- |
-| `cacheControl`          | `string` | `'public, max-age=0, must-revalidate'`  | Default Cache-Control header          |
-| `immutableCacheControl` | `string` | `'public, max-age=31536000, immutable'` | Cache-Control for fingerprinted files |
+| Option                  | Type                                    | Default                                 | Description                                                    |
+| ----------------------- | --------------------------------------- | --------------------------------------- | -------------------------------------------------------------- |
+| `cacheControl`          | `string`                                | `'public, max-age=0, must-revalidate'`  | Default Cache-Control header                                   |
+| `immutableCacheControl` | `string`                                | `'public, max-age=31536000, immutable'` | Cache-Control for fingerprinted files                          |
+| `compression`           | `boolean \| ResponseCompressionOptions` | `true`                                  | Compress buffered static responses when the client supports it |
 
 **Note:** These headers tell **browsers and CDNs** how long to cache files. This is separate from server memory caching (above) which reduces disk I/O.
+
+Compression negotiation is separate from Cache-Control. When enabled, the static content layer adds `Vary: Accept-Encoding`, serves Brotli or gzip when supported, uses encoding-specific ETags, skips range/streaming responses, and caches compressed variants in memory for repeated requests.
+
+`ResponseCompressionOptions` supports:
+
+- `enabled?: boolean` - Enable/disable compression explicitly
+- `threshold?: number` - Minimum payload size in bytes before compression is attempted (default: `1024`)
+- `preferBrotli?: boolean` - Prefer Brotli over gzip when the client supports both equally (same `q` value) (default: `true`)
+- `brotliQuality?: number` - Brotli compression quality passed to Node.js zlib (default: `4`)
+- `gzipLevel?: number` - gzip compression level passed to Node.js zlib (default: `6`)
 
 **Example - Custom browser/CDN caching:**
 

@@ -66,6 +66,7 @@ import {
 } from './file-upload-validation-helpers';
 import { resolveFastifyLoggerConfig } from './logger-config-utils';
 import { getDevMode } from 'lifecycleion/dev-mode';
+import { registerResponseCompression } from './response-compression';
 
 type SSRServerConfigDev = {
   mode: 'development';
@@ -571,6 +572,13 @@ export class SSRServer extends BaseServer {
       // updateAccessLoggingConfig() changes take effect without a restart.
       this._accessLog.register(this.fastifyInstance);
 
+      // Register response compression for non-streaming SSR/API responses.
+      // Static file compression is handled separately in the static content layer.
+      registerResponseCompression(
+        this.fastifyInstance,
+        this.sharedOptions.responseCompression,
+      );
+
       // --- Setup Global Error Handling ---
       // IMPORTANT: The global error handler must be registered *before* any plugins
       // or routes. This ensures it can catch errors that occur during plugin
@@ -826,15 +834,22 @@ export class SSRServer extends BaseServer {
             );
 
             // Use provided config or default to assets folder with immutable caching
-            const finalConfig: StaticContentRouterOptions =
-              staticRouterConfig || {
-                folderMap: {
-                  '/assets': {
-                    path: clientBuildAssetDir,
-                    detectImmutableAssets: true,
+            const finalConfig: StaticContentRouterOptions = staticRouterConfig
+              ? {
+                  ...staticRouterConfig,
+                  compression:
+                    staticRouterConfig.compression ??
+                    this.sharedOptions.responseCompression,
+                }
+              : {
+                  folderMap: {
+                    '/assets': {
+                      path: clientBuildAssetDir,
+                      detectImmutableAssets: true,
+                    },
                   },
-                },
-              };
+                  compression: this.sharedOptions.responseCompression,
+                };
 
             // Create cache instance for this app
             const cache = new StaticContentCache(

@@ -603,6 +603,17 @@ export interface AccessLogConfig {
  */
 interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
   /**
+   * Response compression for SSR HTML and API responses.
+   * Applies to non-streaming responses and negotiates `Accept-Encoding`.
+   *
+   * Static files served through `staticContentRouter` use the same shape but
+   * handle compression in the static file layer so ETags and range requests
+   * remain correct.
+   *
+   * @default true
+   */
+  responseCompression?: boolean | ResponseCompressionOptions;
+  /**
    * ID of the container element (defaults to "root")
    * This element will be formatted inline to prevent hydration issues
    */
@@ -1072,6 +1083,13 @@ export interface SplitNotFoundHandler<M extends BaseMeta = BaseMeta> {
  */
 export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
   /**
+   * Response compression for non-streaming API and web responses.
+   * Negotiates `Accept-Encoding` and skips range or already-encoded replies.
+   *
+   * @default true
+   */
+  responseCompression?: boolean | ResponseCompressionOptions;
+  /**
    * Array of plugins to register with the server
    * Plugins get access to a controlled Fastify instance with full wildcard support
    */
@@ -1288,6 +1306,13 @@ export interface StaticWebServerOptions {
    * @example "./build/client"
    */
   buildDir: string;
+
+  /**
+   * Response compression for static pages/assets and generated web responses.
+   *
+   * @default true
+   */
+  responseCompression?: boolean | ResponseCompressionOptions;
 
   /**
    * Whether to automatically log errors via the server logger
@@ -1751,6 +1776,8 @@ export interface StaticContentRouterOptions {
   singleAssetMap?: Record<string, string>;
   /** URL prefix → absolute directory path (as string) or folder config object */
   folderMap?: Record<string, string | FolderConfig>;
+  /** Response compression for buffered static responses; default true */
+  compression?: boolean | ResponseCompressionOptions;
   /** Maximum size (in bytes) for hashing & in-memory caching; default 5 MB */
   smallFileMaxSize?: number;
   /** Maximum number of entries in ETag/content caches; default 100 */
@@ -1767,6 +1794,19 @@ export interface StaticContentRouterOptions {
   cacheControl?: string;
   /** Cache-Control header for immutable fingerprinted assets; default 'public, max-age=31536000, immutable' */
   immutableCacheControl?: string;
+}
+
+export interface ResponseCompressionOptions {
+  /** Whether compression is enabled when using the object form */
+  enabled?: boolean;
+  /** Minimum response size in bytes before compression is attempted */
+  threshold?: number;
+  /** Prefer Brotli over gzip when the client gives both equal q-values */
+  preferBrotli?: boolean;
+  /** Brotli quality level passed to Node.js zlib */
+  brotliQuality?: number;
+  /** gzip compression level passed to Node.js zlib */
+  gzipLevel?: number;
 }
 
 // ============================================================================

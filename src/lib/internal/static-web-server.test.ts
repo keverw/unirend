@@ -4,6 +4,10 @@ import { StaticContentCache } from './static-content-cache';
 import { overrideDevMode } from 'lifecycleion/dev-mode';
 import fs from 'fs';
 import getPort from 'get-port';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { gunzipSync } from 'node:zlib';
 
 // ─── fs mock ──────────────────────────────────────────────────────────────────
 //
@@ -83,6 +87,46 @@ function makeServer(
     buildDir: BUILD_DIR,
     pageMapPath: 'page-map.json',
     ...overrides,
+  });
+}
+
+function makeRawRequest(options: {
+  method?: string;
+  port: number;
+  path: string;
+  headers?: Record<string, string>;
+}): Promise<{
+  statusCode: number;
+  headers: http.IncomingHttpHeaders;
+  body: Buffer;
+}> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        host: 'localhost',
+        port: options.port,
+        path: options.path,
+        method: options.method ?? 'GET',
+        headers: options.headers,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+
+        res.on('data', (chunk) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
+        res.on('end', () => {
+          resolve({
+            statusCode: res.statusCode ?? 0,
+            headers: res.headers,
+            body: Buffer.concat(chunks),
+          });
+        });
+      },
+    );
+
+    req.on('error', reject);
+    req.end();
   });
 }
 
@@ -782,6 +826,81 @@ describe('StaticWebServer', () => {
         expect(body).toBe('<html>Custom 500</html>');
       } finally {
         (cache as unknown as { handleRequest: unknown }).handleRequest = orig;
+      }
+    });
+
+    it('keeps static GET, HEAD, and 304 compression behavior aligned on a live server', async () => {
+      (fs.promises as { readFile: unknown }).readFile = originalReadFile;
+
+      const tempBuildDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'unirend-static-compression-'),
+      );
+
+      try {
+        const html = `<html><body>${'hello world '.repeat(400)}</body></html>`;
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'page-map.json'),
+          JSON.stringify({ '/': 'index.html' }),
+        );
+        fs.writeFileSync(path.join(tempBuildDir, 'index.html'), html);
+
+        server = new StaticWebServer({
+          buildDir: tempBuildDir,
+          pageMapPath: 'page-map.json',
+        });
+
+        await server.listen(testPort);
+
+        const getResponse = await makeRawRequest({
+          port: testPort,
+          path: '/',
+          headers: {
+            'accept-encoding': 'gzip',
+          },
+        });
+
+        expect(getResponse.statusCode).toBe(200);
+        expect(getResponse.headers['content-encoding']).toBe('gzip');
+        expect(getResponse.headers.vary).toContain('Accept-Encoding');
+        expect(String(getResponse.headers.etag)).toContain('--gzip');
+        expect(gunzipSync(getResponse.body).toString()).toBe(html);
+
+        const getContentLength = getResponse.headers['content-length'];
+        expect(getContentLength).toBeDefined();
+
+        const headResponse = await makeRawRequest({
+          port: testPort,
+          path: '/',
+          method: 'HEAD',
+          headers: {
+            'accept-encoding': 'gzip',
+          },
+        });
+
+        expect(headResponse.statusCode).toBe(200);
+        expect(headResponse.headers['content-encoding']).toBe('gzip');
+        expect(headResponse.headers.vary).toContain('Accept-Encoding');
+        expect(headResponse.headers.etag).toBe(getResponse.headers.etag);
+        expect(headResponse.headers['content-length']).toBe(getContentLength);
+        expect(headResponse.body.length).toBe(0);
+
+        const notModifiedResponse = await makeRawRequest({
+          port: testPort,
+          path: '/',
+          headers: {
+            'accept-encoding': 'gzip',
+            'if-none-match': String(getResponse.headers.etag),
+          },
+        });
+
+        expect(notModifiedResponse.statusCode).toBe(304);
+        expect(notModifiedResponse.headers['content-encoding']).toBe('gzip');
+        expect(notModifiedResponse.headers.vary).toContain('Accept-Encoding');
+        expect(notModifiedResponse.headers.etag).toBe(getResponse.headers.etag);
+        expect(notModifiedResponse.body.length).toBe(0);
+      } finally {
+        fs.rmSync(tempBuildDir, { recursive: true, force: true });
+        (fs.promises as { readFile: unknown }).readFile = mockReadFile;
       }
     });
   });

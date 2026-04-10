@@ -139,6 +139,16 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - When not set, `request.clientIP` falls back to `request.ip` (which reflects Fastify proxy handling when `fastifyOptions.trustProxy` is configured).
   - If `getClientIP` throws, the error propagates as a 500 - there is no silent fallback to `request.ip`.
   - See [Access Logging](#access-logging) for proxy and external reverse proxy examples.
+- `responseCompression?: boolean | ResponseCompressionOptions`
+  - Enables built-in response compression for non-streaming SSR HTML and API responses (default: `true`).
+  - Negotiates `Accept-Encoding`, honors client `q` weights, uses `preferBrotli` to break ties when gzip and Brotli are equally preferred, and skips very small responses.
+  - Use the object form to tune behavior:
+    - `enabled?: boolean` - Enable/disable compression explicitly
+    - `threshold?: number` - Minimum payload size in bytes before compression is attempted (default: `1024`)
+    - `preferBrotli?: boolean` - Prefer Brotli over gzip when the client supports both equally (same `q` value) (default: `true`)
+    - `brotliQuality?: number` - Brotli compression quality passed to Node.js zlib (default: `4`)
+    - `gzipLevel?: number` - gzip compression level passed to Node.js zlib (default: `6`)
+  - Static assets served by `staticContentRouter` inherit this setting by default and handle compression in the static file layer so `ETag`, `Vary`, and `Range` behavior stay correct.
 - `logErrors?: boolean`
   - Whether to automatically log request errors (default: `true`). `method`, `url`, `err`, and `requestID` (if available) are included as structured fields in the log entry alongside the `[Label] Request error` message.
   - Exactly one log entry is emitted per error - no double-logging. All SSR errors (whether caught at route level or by the global error handler) are logged before the 500 page is generated, so the log fires whether you use a custom `get500ErrorPage` or not. API errors are logged in the global error handler.
@@ -807,6 +817,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
     - `positiveCacheTtl?: number`: TTL ms for positive stat cache entries
     - `cacheControl?: string`: Default Cache‑Control header
     - `immutableCacheControl?: string`: Cache‑Control for hashed/immutable assets
+    - `compression?: boolean | ResponseCompressionOptions`: Compression settings for buffered static responses. When omitted, inherits the server-level `responseCompression` setting.
   - Path matching notes:
     - `singleAssetMap` keys are normalized to include a leading slash (you may provide with or without it).
     - `folderMap` prefixes are normalized to ensure both leading and trailing slash, so `/assets` and `assets/` are treated as `/assets/`.

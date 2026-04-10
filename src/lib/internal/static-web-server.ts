@@ -260,6 +260,7 @@ export class StaticWebServer {
     this.cache = new StaticContentCache({
       singleAssetMap,
       folderMap,
+      compression: this.options.responseCompression,
       cacheControl:
         this.options.cacheControl || 'public, max-age=0, must-revalidate',
       immutableCacheControl:
@@ -283,6 +284,7 @@ export class StaticWebServer {
       logging: this.options.logging,
       accessLog: this.options.accessLog,
       getClientIP: this.options.getClientIP,
+      responseCompression: this.options.responseCompression,
       // Disable API handling entirely (pure web server mode)
       apiEndpoints: {
         apiEndpointPrefix: false,

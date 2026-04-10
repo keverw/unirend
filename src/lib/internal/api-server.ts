@@ -38,6 +38,7 @@ import {
 import { APIResponseHelpers } from '../../api-envelope';
 import type { WebSocket, WebSocketServer } from 'ws';
 import { getDevMode } from 'lifecycleion/dev-mode';
+import { registerResponseCompression } from './response-compression';
 
 /**
  * API Server class for creating JSON API servers with plugin support
@@ -239,6 +240,13 @@ export class APIServer extends BaseServer {
       // Register access logging hooks. Config is read per request so
       // updateAccessLoggingConfig() changes take effect without a restart.
       this._accessLog.register(this.fastifyInstance);
+
+      // Register response compression for non-streaming API/web responses.
+      // Static file compression is handled separately in the static content layer.
+      registerResponseCompression(
+        this.fastifyInstance,
+        this.options.responseCompression,
+      );
 
       // Register global error handler
       this.setupErrorHandler();
@@ -458,16 +466,16 @@ export class APIServer extends BaseServer {
     reply: FastifyReply,
     response: WebErrorResponse,
     defaultStatusCode: number,
-  ): void {
+  ): FastifyReply {
     const statusCode = response.statusCode ?? defaultStatusCode;
     reply.code(statusCode).header('Cache-Control', 'no-store');
 
     if (response.contentType === 'json') {
-      reply.type('application/json').send(response.content);
+      return reply.type('application/json').send(response.content);
     } else if (response.contentType === 'html') {
-      reply.type('text/html').send(response.content);
+      return reply.type('text/html').send(response.content);
     } else {
-      reply.type('text/plain').send(response.content);
+      return reply.type('text/plain').send(response.content);
     }
   }
 
@@ -549,9 +557,7 @@ export class APIServer extends BaseServer {
                 splitHandler.web(request, error as FastifyError, isDev),
               );
 
-              this.sendWebErrorResponse(reply, webResponse, 500);
-
-              return;
+              return this.sendWebErrorResponse(reply, webResponse, 500);
             }
 
             // Missing handler for this case - fall through to default
@@ -650,9 +656,7 @@ export class APIServer extends BaseServer {
                 splitHandler.web(request),
               );
 
-              this.sendWebErrorResponse(reply, webResponse, 404);
-
-              return;
+              return this.sendWebErrorResponse(reply, webResponse, 404);
             }
 
             // Missing handler for this case - fall through to default
