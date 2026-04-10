@@ -540,10 +540,9 @@ describe('StaticContentCache', () => {
         '/path/to/file.txt',
       );
 
-      // @ts-expect-error testing internal variant-state cache behavior
-      const variantKeysBefore = cache.compressedContentIndex.get(
-        '/path/to/file.txt',
-      );
+      const variantKeysBefore =
+        // @ts-expect-error testing internal variant-state cache behavior
+        cache.compressedContentIndex.get('/path/to/file.txt');
       expect(variantKeysBefore?.size).toBe(1);
 
       const [variantKey] = Array.from(variantKeysBefore ?? []);
@@ -585,10 +584,9 @@ describe('StaticContentCache', () => {
         '/path/to/file.txt',
       );
 
-      // @ts-expect-error testing internal variant-state cache behavior
-      const variantKeysBefore = cache.compressedContentIndex.get(
-        '/path/to/file.txt',
-      );
+      const variantKeysBefore =
+        // @ts-expect-error testing internal variant-state cache behavior
+        cache.compressedContentIndex.get('/path/to/file.txt');
       expect(variantKeysBefore?.size).toBe(1);
 
       const [variantKey] = Array.from(variantKeysBefore ?? []);
@@ -600,10 +598,9 @@ describe('StaticContentCache', () => {
 
       cache.invalidateFile('/path/to/file.txt');
 
-      // @ts-expect-error testing internal variant-state cache behavior
-      const tombstoneVariantBeforeRetry = cache.compressedVariantCache.get(
-        variantKey,
-      );
+      const tombstoneVariantBeforeRetry =
+        // @ts-expect-error testing internal variant-state cache behavior
+        cache.compressedVariantCache.get(variantKey);
       expect(tombstoneVariantBeforeRetry).toEqual({ kind: 'tombstone' });
 
       const { reply: secondReply, sentData: secondSentData } =
@@ -620,10 +617,9 @@ describe('StaticContentCache', () => {
         fileContent.toString(),
       );
 
-      // @ts-expect-error testing internal variant-state cache behavior
-      const tombstoneVariantAfterRetry = cache.compressedVariantCache.get(
-        variantKey,
-      );
+      const tombstoneVariantAfterRetry =
+        // @ts-expect-error testing internal variant-state cache behavior
+        cache.compressedVariantCache.get(variantKey);
       expect(tombstoneVariantAfterRetry).toEqual({ kind: 'tombstone' });
     });
   });
@@ -910,6 +906,52 @@ describe('StaticContentCache', () => {
       expect(stats.content.items).toBe(0);
       expect(stats.stat.items).toBe(0);
     });
+
+    it('removes compressed variant index entries when caches are cleared', async () => {
+      const cache = new StaticContentCache({});
+      const req = createMockRequest('/test.txt', 'GET', {
+        'accept-encoding': 'gzip',
+      });
+      const { reply } = createMockReply();
+      const fileContent = Buffer.from('hello world '.repeat(300));
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      await cache.serveFile(
+        req as FastifyRequest,
+        reply as FastifyReply,
+        '/path/to/file.txt',
+      );
+
+      const compressedVariantCache = (
+        cache as unknown as {
+          compressedVariantCache: {
+            set: (k: string, v: unknown) => void;
+            size: number;
+          };
+        }
+      ).compressedVariantCache;
+      const compressedContentIndex = (
+        cache as unknown as {
+          compressedContentIndex: Map<string, Set<string>>;
+        }
+      ).compressedContentIndex;
+      expect(compressedVariantCache.size).toBe(1);
+      expect(compressedContentIndex.get('/path/to/file.txt')?.size).toBe(1);
+
+      cache.clearCaches();
+
+      expect(compressedVariantCache.size).toBe(0);
+      expect(compressedContentIndex.size).toBe(0);
+    });
   });
 
   describe('invalidateFile()', () => {
@@ -978,6 +1020,106 @@ describe('StaticContentCache', () => {
       ).not.toThrow();
 
       expect(cache.getCacheStats().etag.items).toBe(0);
+    });
+
+    it('untracks compressed variant keys when a cached variant is deleted', async () => {
+      const cache = new StaticContentCache({});
+      const req = createMockRequest('/test.txt', 'GET', {
+        'accept-encoding': 'gzip',
+      });
+      const { reply } = createMockReply();
+      const fileContent = Buffer.from('hello world '.repeat(300));
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      await cache.serveFile(
+        req as FastifyRequest,
+        reply as FastifyReply,
+        '/path/to/file.txt',
+      );
+
+      const compressedVariantCache = (
+        cache as unknown as {
+          compressedVariantCache: {
+            set: (k: string, v: unknown) => void;
+            delete: (k: string) => void;
+          };
+        }
+      ).compressedVariantCache;
+
+      const compressedContentIndex = (
+        cache as unknown as {
+          compressedContentIndex: Map<string, Set<string>>;
+        }
+      ).compressedContentIndex;
+      const variantKeys = compressedContentIndex.get('/path/to/file.txt');
+      expect(variantKeys?.size).toBe(1);
+      const [variantKey] = Array.from(variantKeys ?? []);
+      expect(variantKey).toBeDefined();
+
+      compressedVariantCache.delete(variantKey);
+
+      expect(compressedContentIndex.has('/path/to/file.txt')).toBe(false);
+    });
+
+    it('ignores delete events for compressed keys that are not indexed', async () => {
+      const cache = new StaticContentCache({});
+      const req = createMockRequest('/test.txt', 'GET', {
+        'accept-encoding': 'gzip',
+      });
+      const { reply } = createMockReply();
+      const fileContent = Buffer.from('hello world '.repeat(300));
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      await cache.serveFile(
+        req as FastifyRequest,
+        reply as FastifyReply,
+        '/path/to/file.txt',
+      );
+
+      const compressedVariantCache = (
+        cache as unknown as {
+          compressedVariantCache: {
+            set: (k: string, v: unknown) => void;
+            delete: (k: string) => void;
+          };
+        }
+      ).compressedVariantCache;
+      const compressedContentIndex = (
+        cache as unknown as {
+          compressedContentIndex: Map<string, Set<string>>;
+        }
+      ).compressedContentIndex;
+      const indexedKeys = compressedContentIndex.get('/path/to/file.txt');
+      expect(indexedKeys?.size).toBe(1);
+      const [indexedKey] = Array.from(indexedKeys ?? []);
+      expect(indexedKey).toBeDefined();
+
+      const orphanedKey =
+        '/path/to/missing::with::separator.html::"etag"::gzip';
+      compressedVariantCache.set(orphanedKey, { kind: 'not-worth-it' });
+
+      expect(() => compressedVariantCache.delete(orphanedKey)).not.toThrow();
+      expect(compressedContentIndex.get('/path/to/file.txt')).toEqual(
+        new Set([indexedKey]),
+      );
     });
   });
 

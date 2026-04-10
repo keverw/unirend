@@ -655,12 +655,16 @@ describe('response compression', () => {
       const encodedETag = initialResponse.headers.etag;
       expect(encodedETag).toBe('"dynamic-304--gzip"');
 
+      if (typeof encodedETag !== 'string') {
+        throw new TypeError('Expected encoded ETag header to be a string');
+      }
+
       const notModifiedResponse = await makeRawRequest({
         port,
         path: '/api/compression-304',
         headers: {
           'accept-encoding': 'gzip',
-          'if-none-match': encodedETag!,
+          'if-none-match': encodedETag,
         },
       });
 
