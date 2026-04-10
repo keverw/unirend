@@ -98,7 +98,7 @@
     "url": "https://github.com/keverw/unirend"
   },
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=25"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

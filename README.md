@@ -47,7 +47,7 @@ Unirend includes Fastify as a regular dependency powering its built-in servers (
 
 ### Runtime requirements
 
-- Node >= 20.19.0 (uses newer web APIs such as Web Fetch APIs, `structuredClone`, and `AbortSignal.timeout`, and is also the minimum version required by Vite 8 for `require(esm)` support without a flag)
+- Node >= 25 (uses newer web APIs such as `fetch`, `structuredClone`, and `AbortSignal.timeout`, covers the Node 20.19.0 minimum required by Vite 8 for `require(esm)` support without a flag, and also meets the Node 25 requirement of the `lifecycleion` peer dependency, which relies on browser-style global error event APIs such as `ErrorEvent` and `reportError`)
 - Or Bun with equivalent APIs
 
 Recommendation: We recommend Bun as the default toolchain. Bun can run TypeScript directly in development and can bundle your server to a single JavaScript file for production. The unirend library itself avoids Bun-specific APIs, so your server can be bundled to run under Node as well — just pass `--target node` when building (see the optional scripts in the SSR section below). Pure Node tooling setups (e.g., `ts-node`, `tsc`, `esbuild`, `rollup`) or vanilla JavaScript are possible, but not the focus of this guide, the CLI, or the starter template utility functions.
