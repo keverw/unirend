@@ -218,8 +218,7 @@ export function matchesIfNoneMatch(
     .split(',')
     .map((value) => value.trim())
     .some(
-      (value) =>
-        value === '*' || normalizeWeakETag(value) === normalizedETag,
+      (value) => value === '*' || normalizeWeakETag(value) === normalizedETag,
     );
 }
 

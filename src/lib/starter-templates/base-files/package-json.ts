@@ -39,6 +39,7 @@ export const devDependencies = {
   typescript: '^5.9.3',
   'typescript-eslint': '^8.46.3',
   vite: '^8.0.0',
+  'rollup-plugin-visualizer': '^7.0.1',
 };
 
 export const dependencies = {
