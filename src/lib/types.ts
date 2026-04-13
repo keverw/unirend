@@ -239,19 +239,21 @@ export interface ControlledReply {
     destroyed: boolean;
   };
   /**
-   * Internal: Send an error envelope response and terminate the request early
-   * Used internally by APIResponseHelpers.sendErrorResponse()
+   * Internal: send an error envelope and finish the response immediately.
    *
-   * @internal
-   * Users should call APIResponseHelpers.sendErrorResponse() instead of calling this directly.
+   * This is installed by the framework's controlled-reply wrapper so helpers
+   * can terminate with the same raw/hijacked path while still reusing shared
+   * header logic such as CORS application.
    *
-   * @param statusCode - HTTP status code to send
-   * @param errorEnvelope - Error envelope object to send as JSON response
+   * ControlledReply intentionally does not expose general-purpose send/write
+   * methods to user handlers. This internal escape hatch exists only so
+   * framework-owned helpers like APIResponseHelpers can terminate early in a
+   * controlled way without reopening arbitrary reply access.
    */
   _sendErrorEnvelope: (
     statusCode: number,
     errorEnvelope: APIErrorResponse<BaseMeta> | PageErrorResponse<BaseMeta>,
-  ) => void;
+  ) => Promise<void>;
 }
 
 /**
@@ -597,14 +599,32 @@ export interface AccessLogConfig {
   onResponse?: (context: AccessLogResponseContext) => void | Promise<void>;
 }
 
+export interface ResponseTimeHeaderOptions {
+  /**
+   * Whether to emit the response-time header.
+   * @default true
+   */
+  enabled?: boolean;
+  /**
+   * Header name to emit.
+   * @default 'X-Response-Time'
+   */
+  headerName?: string;
+  /**
+   * Number of fractional digits to include in the emitted time.
+   * @default 2
+   */
+  digits?: number;
+}
+
 /**
  * Base options for SSR
  * @template M Custom meta type extending BaseMeta for error/notFound handlers
  */
 interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
   /**
-   * Response compression for SSR HTML and API responses.
-   * Applies to non-streaming responses and negotiates `Accept-Encoding`.
+   * Response compression for non-streaming SSR HTML and API responses.
+   * Negotiates `Accept-Encoding` and skips range or already-encoded replies.
    *
    * Static files served through `staticContentRouter` use the same shape but
    * handle compression in the static file layer so ETags and range requests
@@ -613,6 +633,18 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    * @default true
    */
   responseCompression?: boolean | ResponseCompressionOptions;
+  /**
+   * Optional response-time header emitted on completed responses.
+   * Normal Fastify-managed replies apply and measure this in `onSend`.
+   *
+   * For hijacked/raw replies, it is applied when `reply.hijack()` is called so
+   * `reply.getHeaders()` includes it before a
+   * subsequent raw `writeHead(...)`. Access logging measures when the response
+   * finishes, so raw/hijacked responses can report different timings there.
+   *
+   * @default false
+   */
+  responseTimeHeader?: boolean | ResponseTimeHeaderOptions;
   /**
    * ID of the container element (defaults to "root")
    * This element will be formatted inline to prevent hydration issues
@@ -1090,6 +1122,18 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    */
   responseCompression?: boolean | ResponseCompressionOptions;
   /**
+   * Optional response-time header emitted on completed responses.
+   * Normal Fastify-managed replies apply and measure this in `onSend`.
+   *
+   * For hijacked/raw replies, it is applied when `reply.hijack()` is called so
+   * `reply.getHeaders()` includes it before a
+   * subsequent raw `writeHead(...)`. Access logging measures when the response
+   * finishes, so raw/hijacked responses can report different timings there.
+   *
+   * @default false
+   */
+  responseTimeHeader?: boolean | ResponseTimeHeaderOptions;
+  /**
    * Array of plugins to register with the server
    * Plugins get access to a controlled Fastify instance with full wildcard support
    */
@@ -1309,10 +1353,23 @@ export interface StaticWebServerOptions {
 
   /**
    * Response compression for static pages/assets and generated web responses.
+   * Negotiates `Accept-Encoding` and skips range or already-encoded replies.
    *
    * @default true
    */
   responseCompression?: boolean | ResponseCompressionOptions;
+  /**
+   * Optional response-time header emitted on completed responses.
+   * Normal Fastify-managed replies apply and measure this in `onSend`.
+   *
+   * For hijacked/raw replies, it is applied when `reply.hijack()` is called so
+   * `reply.getHeaders()` includes it before a
+   * subsequent raw `writeHead(...)`. Access logging measures when the response
+   * finishes, so raw/hijacked responses can report different timings there.
+   *
+   * @default false
+   */
+  responseTimeHeader?: boolean | ResponseTimeHeaderOptions;
 
   /**
    * Whether to automatically log errors via the server logger
@@ -1841,5 +1898,21 @@ declare module 'fastify' {
      * the request lifecycle via `request.serverLabel`.
      */
     serverLabel: string;
+    /**
+     * Optional request-scoped helper installed by the built-in CORS plugin.
+     *
+     * Raw/hijacked response paths can call this before `writeHead(...)` to
+     * apply the same actual-response CORS/security headers that normal
+     * Fastify-managed responses receive.
+     */
+    applyCORSHeaders?: (reply: FastifyReply) => void | Promise<void>;
+    /**
+     * Internal request-start timestamp captured by the framework.
+     *
+     * Used by framework features that need a stable "request received" time,
+     * including API/page envelope timestamps and fallback response-time
+     * calculation when Fastify's built-in elapsedTime is unavailable.
+     */
+    receivedAt?: number;
   }
 }

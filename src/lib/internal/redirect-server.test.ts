@@ -100,6 +100,26 @@ describe('RedirectServer', () => {
       expect(response.status).toBe(301);
       expect(response.headers.get('location')).toBe('https://localhost/');
     });
+
+    it('emits response-time header when enabled', async () => {
+      await server.stop();
+
+      server = new RedirectServer({
+        targetProtocol: 'https',
+        statusCode: 301,
+        responseTimeHeader: true,
+        accessLog: { events: 'none' },
+      });
+
+      await server.listen(testPort, 'localhost');
+
+      const response = await fetch(`http://localhost:${testPort}/test/path`, {
+        redirect: 'manual',
+      });
+
+      expect(response.status).toBe(301);
+      expect(response.headers.get('x-response-time')).toMatch(/^\d+\.\d{2}ms$/);
+    });
   });
 
   describe('Status Codes', () => {

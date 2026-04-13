@@ -8,6 +8,10 @@ import type {
   AccessLogReplyInfo,
   UnirendLoggerLevel,
 } from '../types';
+import {
+  formatRoundedResponseTime,
+  getResponseTimeMS,
+} from './response-time-header';
 
 const DEFAULT_REQUEST_TEMPLATE =
   '[{{serverLabel}}] Request started {{method}} {{url}}';
@@ -171,10 +175,12 @@ function buildResponseContext(
   finishType: 'completed' | 'aborted',
   serverLabel: string,
 ): AccessLogResponseContext {
+  const responseTimeMS = getResponseTimeMS(reply);
+
   return {
     ...buildRequestContext(request, serverLabel),
     statusCode: reply.statusCode,
-    responseTime: Math.round(reply.elapsedTime),
+    responseTime: formatRoundedResponseTime(responseTimeMS),
     finishType,
     replyInfo: buildReplyInfo(reply),
   };

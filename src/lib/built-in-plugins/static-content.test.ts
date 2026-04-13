@@ -4,7 +4,9 @@ import type { StaticContentRouterOptions } from './static-content';
 import type { PluginHostInstance, PluginOptions } from '../types';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import fs from 'fs';
-import { Readable } from 'stream';
+import { Readable, Writable } from 'stream';
+
+type MockReplyHeaders = ReturnType<FastifyReply['getHeaders']>;
 
 interface MockPluginHost extends PluginHostInstance {
   _hooks?: Array<{ name: string; handler: unknown }>;
@@ -82,12 +84,14 @@ const createMockReply = (): {
     code?: number;
     headers: Record<string, string>;
     body?: unknown;
-  } = { headers: {} };
+  } = { headers: {}, code: 200 };
 
   const reply: Partial<FastifyReply> = {
     sent: false,
+    statusCode: 200,
     code: mock((code: number) => {
       sentData.code = code;
+      (reply as { statusCode: number }).statusCode = code;
       return reply as FastifyReply;
     }),
     header: mock((name: string, value: string) => {
@@ -98,15 +102,64 @@ const createMockReply = (): {
       sentData.headers['Content-Type'] = contentType;
       return reply as FastifyReply;
     }),
+    getHeader: mock((name: string) => sentData.headers[name]),
+    getHeaders: mock(() => ({ ...sentData.headers }) as MockReplyHeaders),
+    hasHeader: mock((name: string) => name in sentData.headers),
+    removeHeader: mock((name: string) => {
+      delete sentData.headers[name];
+      return reply as FastifyReply;
+    }),
+    hijack: mock(() => {
+      (reply as { sent: boolean }).sent = true;
+      return reply as FastifyReply;
+    }),
     send: mock((body?: unknown) => {
       sentData.body = body;
       // Default to 200 if no code was explicitly set
       if (sentData.code === undefined) {
         sentData.code = 200;
       }
-      (reply as FastifyReply).sent = true;
+      (reply as { sent: boolean }).sent = true;
       return reply as unknown as FastifyReply;
     }),
+    raw: (() => {
+      const rawChunks: Buffer[] = [];
+      const rawWritable = new Writable({
+        write(chunk: Buffer, _encoding: BufferEncoding, callback: () => void) {
+          rawChunks.push(Buffer.from(chunk));
+          callback();
+        },
+      });
+      (rawWritable as unknown as { writeHead: unknown }).writeHead = mock(
+        (statusCode: number, headers?: Record<string, unknown>) => {
+          sentData.code = statusCode;
+          (reply as { statusCode: number }).statusCode = statusCode;
+          if (headers) {
+            for (const [k, v] of Object.entries(headers)) {
+              if (v !== undefined) {
+                sentData.headers[k] = Array.isArray(v)
+                  ? v.join(', ')
+                  : typeof v === 'string' || typeof v === 'number'
+                    ? String(v)
+                    : JSON.stringify(v);
+              }
+            }
+          }
+        },
+      );
+      const originalEnd = rawWritable.end.bind(rawWritable);
+      (rawWritable as unknown as { end: unknown }).end = mock(
+        (body?: unknown) => {
+          if (body !== undefined) {
+            sentData.body = body;
+          } else if (rawChunks.length > 0) {
+            sentData.body = Buffer.concat(rawChunks);
+          }
+          return originalEnd(body as Buffer);
+        },
+      );
+      return rawWritable;
+    })() as unknown as FastifyReply['raw'],
   };
 
   return { reply, sentData };
@@ -177,6 +230,9 @@ describe('staticContent plugin', () => {
     mockFs.stat.mockReset();
     mockFs.readFile.mockReset();
     mockFs.createReadStream.mockReset();
+    // Restore a default so streaming paths get a valid (empty) readable instead
+    // of undefined, which would cause pipeline() to throw ERR_INVALID_ARG_TYPE.
+    mockFs.createReadStream.mockImplementation(() => Readable.from([]));
 
     // Mock fs operations
     (fs.promises as { stat: unknown }).stat = mockFs.stat;

@@ -67,6 +67,10 @@ import {
 import { resolveFastifyLoggerConfig } from './logger-config-utils';
 import { getDevMode } from 'lifecycleion/dev-mode';
 import { registerResponseCompression } from './response-compression';
+import {
+  registerResponseTimeHeader,
+  registerResponseTimeHijackPatch,
+} from './response-time-header';
 
 type SSRServerConfigDev = {
   mode: 'development';
@@ -572,11 +576,11 @@ export class SSRServer extends BaseServer {
       // updateAccessLoggingConfig() changes take effect without a restart.
       this._accessLog.register(this.fastifyInstance);
 
-      // Register response compression for non-streaming SSR/API responses.
-      // Static file compression is handled separately in the static content layer.
-      registerResponseCompression(
+      // Patch reply.hijack() early so all subsequently registered routes
+      // inherit the wrapper, including user/plugin routes that bypass onSend.
+      registerResponseTimeHijackPatch(
         this.fastifyInstance,
-        this.sharedOptions.responseCompression,
+        this.sharedOptions.responseTimeHeader,
       );
 
       // --- Setup Global Error Handling ---
@@ -586,7 +590,7 @@ export class SSRServer extends BaseServer {
       this.fastifyInstance.setErrorHandler(
         async (error: Error, request: FastifyRequest, reply: FastifyReply) => {
           // Avoid double-send if a previous step already wrote the response
-          if (reply.sent) {
+          if (reply.sent || reply.raw.headersSent) {
             return;
           }
 
@@ -602,11 +606,8 @@ export class SSRServer extends BaseServer {
               `[${this.serverLabel}] No app config found for error handling`,
             );
 
-            reply
-              .code(500)
-              .header('Content-Type', 'text/plain')
-              .send('Internal Server Error');
-            return;
+            reply.code(500).header('Content-Type', 'text/plain');
+            return 'Internal Server Error';
           }
 
           // In development, fix Vite stack traces for all errors so source locations are accurate.
@@ -621,7 +622,7 @@ export class SSRServer extends BaseServer {
           }
 
           // If the response hasn't been sent, determine response type
-          if (!reply.sent) {
+          if (!reply.sent && !reply.raw.headersSent) {
             // Check if this is an API request
             // classifyRequest handles false prefix internally (returns isAPI: false)
             const { isAPI } = classifyRequest(
@@ -649,11 +650,16 @@ export class SSRServer extends BaseServer {
                 );
               }
 
-              // Handle API error with JSON response
-              await this.handleAPIError(request, reply, error);
+              // Return the envelope so wrapThenable makes exactly one reply.send() call.
+              return await this.handleAPIError(request, reply, error);
             } else {
-              // Handle SSR error via handleSSRError (Vite stack fix + logs + generates 500 page)
-              await this.handleSSRError(request, reply, error, appConfig);
+              // Return the HTML from handleSSRError so wrapThenable makes one reply.send() call.
+              return await this.handleSSRError(
+                request,
+                reply,
+                error,
+                appConfig,
+              );
             }
           }
         },
@@ -1047,7 +1053,7 @@ export class SSRServer extends BaseServer {
           // Attach SSRHelper for server-only access in loaders
           const SSRHelpers: SSRHelpers = {
             fastifyRequest: request,
-            controlledReply: createControlledReply(reply),
+            controlledReply: createControlledReply(request, reply),
             handlers: this.pageDataHandlers,
           } as const;
 
@@ -1133,9 +1139,12 @@ export class SSRServer extends BaseServer {
                   renderResult.errorDetails ||
                   new Error('Internal Server Error');
 
-                await this.handleSSRError(request, reply, error, appConfig);
-
-                return;
+                return await this.handleSSRError(
+                  request,
+                  reply,
+                  error,
+                  appConfig,
+                );
               }
 
               // --- Prepare head data for injection ---
@@ -1173,12 +1182,14 @@ export class SSRServer extends BaseServer {
                 reply.header('Cache-Control', 'no-store');
               }
 
-              reply
-                .code(statusCode)
-                .header('Content-Type', 'text/html')
-                .send(finalHTML);
-
-              return; // Stop further processing
+              // Return the HTML string instead of calling reply.send() directly.
+              // In Fastify 5, async handlers that call reply.send() and return undefined
+              // trigger wrapThenable to call reply.send(undefined) a second time
+              // while any async onSend hook is still pending (reply.sent stays false
+              // until headers are actually written). Returning the payload here lets
+              // wrapThenable make exactly one reply.send() call.
+              reply.code(statusCode).header('Content-Type', 'text/html');
+              return finalHTML;
             } else if (renderResult.resultType === 'response') {
               // If React Router returned a Response (redirect/error as a response), handle it
               // Forward status and headers
@@ -1215,34 +1226,38 @@ export class SSRServer extends BaseServer {
                 }
               }
 
-              // Check if body exists before sending
+              // Return the body (or undefined for an intentionally empty
+              // response) so wrapThenable makes exactly one reply.send() call.
+              // See the page path above for why.
               try {
                 const body = await renderResult.response.text();
-
-                if (body) {
-                  reply.send(body);
-                } else {
-                  reply.send();
-                }
+                return body || undefined;
               } catch (bodyError) {
                 request.log.error(
                   { err: bodyError, method: request.method, url: request.url },
                   `[${this.serverLabel}] Error reading response body`,
                 );
-                reply.send(); // End response even if body reading fails
-              }
 
-              return; // Stop further processing
+                // If we cannot read the body from a returned Response, treat it
+                // as an internal server failure rather than silently ending the
+                // request with an empty body under the original status code.
+                return await this.handleSSRError(
+                  request,
+                  reply,
+                  bodyError instanceof Error
+                    ? bodyError
+                    : new Error('Failed to read response body'),
+                  appConfig,
+                );
+              }
             } else if (renderResult.resultType === 'render-error') {
               // Handle render errors
-              await this.handleSSRError(
+              return await this.handleSSRError(
                 request,
                 reply,
                 renderResult.error,
                 appConfig,
               );
-
-              return; // Stop further processing
             } else {
               // Handle unexpected result types (this should never happen with proper typing)
               // TypeScript knows this is never, but we handle it for runtime safety
@@ -1253,28 +1268,24 @@ export class SSRServer extends BaseServer {
                 `Unexpected render result type: ${resultType}`,
               );
 
-              await this.handleSSRError(
+              return await this.handleSSRError(
                 request,
                 reply,
                 unexpectedError,
                 appConfig,
               );
-
-              return;
             }
           } catch (error) {
-            await this.handleSSRError(
+            return await this.handleSSRError(
               request,
               reply,
               error as Error,
               appConfig,
             );
-
-            return;
           }
 
           // Safety check - if we somehow reach here without sending a response
-          if (!reply.sent) {
+          if (!reply.sent && !reply.raw.headersSent) {
             this.fastifyInstance?.log.warn(
               'No response was sent, sending 500 error',
             );
@@ -1286,15 +1297,12 @@ export class SSRServer extends BaseServer {
 
             if (!fallbackAppConfig) {
               // Ultimate fallback if even default app is missing
-              reply
-                .code(500)
-                .header('Content-Type', 'text/plain')
-                .send('Internal Server Error');
-              return;
+              reply.code(500).header('Content-Type', 'text/plain');
+              return 'Internal Server Error';
             }
 
             // TypeScript doesn't narrow the type properly here, but we've verified it exists above
-            await this.handleSSRError(
+            return await this.handleSSRError(
               request,
               reply,
               new Error('No response was generated'),
@@ -1302,6 +1310,21 @@ export class SSRServer extends BaseServer {
             );
           }
         },
+      );
+
+      // Register response compression for non-streaming SSR/API responses.
+      // Static file compression is handled separately in the static content layer.
+      registerResponseCompression(
+        this.fastifyInstance,
+        this.sharedOptions.responseCompression,
+      );
+
+      // Register the response-time header hook after plugins and routes so
+      // third-party onSend hooks run first. Normal Fastify-managed replies
+      // measure the header here, while access logging measures on completion.
+      registerResponseTimeHeader(
+        this.fastifyInstance,
+        this.sharedOptions.responseTimeHeader,
       );
 
       // Start the server
@@ -1748,12 +1771,12 @@ export class SSRServer extends BaseServer {
     reply: FastifyReply,
     error: Error,
     appConfig: SSRInternalAppConfig,
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     // This method is invoked both by the global Fastify error handler and
     // by our route-level try/catch around the render call. If a response
     // was already sent, bail out to prevent double-sending.
-    if (reply.sent) {
-      return;
+    if (reply.sent || reply.raw.headersSent) {
+      return undefined;
     }
 
     // If an error is caught, let Vite fix the stack trace so it maps back
@@ -1781,7 +1804,9 @@ export class SSRServer extends BaseServer {
       );
     }
 
-    // Generate and send error page (handles dev vs prod internally)
+    // Generate error page HTML (handles dev vs prod internally).
+    // Callers inside async Fastify route handlers should `return await handleSSRError(...)`
+    // so that wrapThenable makes exactly one reply.send() call with the returned HTML.
     const errorPage = await this.generate500ErrorPage(
       request,
       error,
@@ -1791,8 +1816,9 @@ export class SSRServer extends BaseServer {
     reply
       .code(500)
       .header('Content-Type', 'text/html')
-      .header('Cache-Control', 'no-store')
-      .send(errorPage);
+      .header('Cache-Control', 'no-store');
+
+    return errorPage;
   }
 
   /**
@@ -1843,7 +1869,7 @@ export class SSRServer extends BaseServer {
     request: FastifyRequest,
     reply: FastifyReply,
     error: Error,
-  ): Promise<void> {
+  ): Promise<unknown> {
     const isDevelopment = (
       request as FastifyRequest & { isDevelopment: boolean }
     ).isDevelopment;
@@ -1870,7 +1896,9 @@ export class SSRServer extends BaseServer {
         const statusCode = customResponse.status_code || 500;
         reply.code(statusCode).header('Cache-Control', 'no-store');
 
-        return reply.send(customResponse);
+        // Return the envelope instead of calling reply.send() directly.
+        // The caller returns this value so wrapThenable makes exactly one reply.send() call.
+        return customResponse;
       } catch (handlerError) {
         // If custom handler fails, fall back to default
         request.log.error(
@@ -1894,10 +1922,9 @@ export class SSRServer extends BaseServer {
     const statusCode =
       (response as { status_code?: number }).status_code || 500;
 
-    return reply
-      .code(statusCode)
-      .header('Cache-Control', 'no-store')
-      .send(response);
+    reply.code(statusCode).header('Cache-Control', 'no-store');
+
+    return response;
   }
 
   /**
@@ -1909,7 +1936,7 @@ export class SSRServer extends BaseServer {
   private async handleAPINotFound(
     request: FastifyRequest,
     reply: FastifyReply,
-  ): Promise<void> {
+  ): Promise<unknown> {
     const { isPageData } = classifyRequest(
       request.url,
       this.normalizedAPIPrefix,
@@ -1927,7 +1954,9 @@ export class SSRServer extends BaseServer {
         const statusCode = customResponse.status_code || 404;
         reply.code(statusCode).header('Cache-Control', 'no-store');
 
-        return reply.send(customResponse);
+        // Return the envelope instead of calling reply.send() directly.
+        // The caller returns this value so wrapThenable makes exactly one reply.send() call.
+        return customResponse;
       } catch (handlerError) {
         // If custom handler fails, fall back to default
         request.log.error(
@@ -1949,9 +1978,8 @@ export class SSRServer extends BaseServer {
     const statusCode =
       (response as { status_code?: number }).status_code || 404;
 
-    return reply
-      .code(statusCode)
-      .header('Cache-Control', 'no-store')
-      .send(response);
+    reply.code(statusCode).header('Cache-Control', 'no-store');
+
+    return response;
   }
 }

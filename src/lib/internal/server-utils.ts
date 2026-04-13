@@ -18,6 +18,7 @@ import type {
 import type { CookieSerializeOptions } from '@fastify/cookie';
 import { DEFAULT_API_PREFIX, DEFAULT_PAGE_DATA_ENDPOINT } from './consts';
 import { parseHostHeader, getDomain } from 'lifecycleion/domain-utils';
+import { sendRawErrorEnvelopeResponse } from './error-envelope-send';
 
 /**
  * Normalize an API prefix to ensure it has a leading slash and no trailing slash.
@@ -304,6 +305,125 @@ export function createDefaultAPINotFoundResponse(
   });
 }
 
+const DEFERRED_REPLY_ACTION_SENTINEL = Symbol('unirend.deferred-reply-action');
+
+/**
+ * Wrap a route handler to throw a helpful error if reply.send() is called.
+ *
+ * Async route handlers must return the payload directly instead of calling
+ * reply.send(). In Fastify 5, returning a value from an async handler causes
+ * wrapThenable to call reply.send(payload) exactly once. If the handler also
+ * calls reply.send() manually, wrapThenable fires a second send while the
+ * async onSend pipeline is still pending — causing an ERR_HTTP_HEADERS_SENT
+ * crash or silent response corruption.
+ *
+ * Correct pattern:
+ *   reply.code(201).header('X-Foo', 'bar');
+ *   return { your: 'data' };  // ✓
+ *
+ * Forbidden pattern:
+ *   return reply.send({ your: 'data' });  // ✗ — double-send race
+ *
+ * Special case:
+ *   return reply.redirect('/login');  // ✓ — redirect is normalized to headers
+ *   and status only so Fastify still performs the single final send itself
+ *
+ *   return reply.callNotFound();  // ✓ — delegates the remainder of the request
+ *   to Fastify's not-found pipeline, which owns the final send
+ */
+function guardRouteHandler(handler: RouteHandler): RouteHandler {
+  return async function guardedHandler(
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<unknown> {
+    // Temporarily replace reply.send so any call from inside the handler body
+    // throws immediately with a helpful message. We restore it in `finally` so
+    // that wrapThenable can still call reply.send(returnValue) after the handler
+    // resolves — that single wrapThenable-driven send is the correct path.
+    const originalSend = (
+      reply as unknown as { send: (...args: unknown[]) => unknown }
+    ).send.bind(reply);
+    const originalRedirect = reply.redirect.bind(reply);
+    const originalCallNotFound = reply.callNotFound.bind(reply);
+    let deferredActionKind: 'redirect' | 'callNotFound' | null = null;
+    let deferredRedirectURL: string | undefined;
+    let deferredRedirectCode: number | undefined;
+    let handlerResult: unknown;
+
+    (reply as unknown as { send: unknown }).send = function (
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      ...args: unknown[]
+    ) {
+      throw new Error(
+        'Do not call reply.send() inside a unirend plugin route handler.\n' +
+          'Set status and headers with reply.code() / reply.header(), then return the payload:\n' +
+          '  ✓  reply.code(201); return { ok: true };\n' +
+          '  ✗  return reply.send({ ok: true });  // causes double-send race in Fastify 5\n\n' +
+          'reply.send() is only safe inside Fastify lifecycle hooks (addHook), not in route handlers.',
+      );
+    };
+
+    reply.redirect = ((url: string, code?: number) => {
+      // Record the redirect intent but defer the real Fastify redirect call
+      // until after this wrapper restores the original reply methods.
+      deferredActionKind = 'redirect';
+      deferredRedirectURL = url;
+      deferredRedirectCode = code;
+      return DEFERRED_REPLY_ACTION_SENTINEL as unknown as FastifyReply;
+    }) as typeof reply.redirect;
+
+    reply.callNotFound = (() => {
+      // Record the delegation intent but defer the real Fastify helper until
+      // after this wrapper restores the original reply methods.
+      deferredActionKind = 'callNotFound';
+      return DEFERRED_REPLY_ACTION_SENTINEL as unknown as FastifyReply;
+    }) as typeof reply.callNotFound;
+
+    try {
+      handlerResult = await (
+        handler as (
+          this: unknown,
+          req: FastifyRequest,
+          reply: FastifyReply,
+        ) => unknown
+      ).call(this, request, reply);
+    } finally {
+      // Restore so wrapThenable's reply.send(returnedPayload) works normally.
+      (reply as unknown as { send: unknown }).send = originalSend;
+      reply.redirect = originalRedirect;
+      reply.callNotFound = originalCallNotFound;
+    }
+
+    const actionKind = deferredActionKind;
+
+    if (actionKind) {
+      if (handlerResult !== DEFERRED_REPLY_ACTION_SENTINEL) {
+        const delegatedHelper =
+          actionKind === 'redirect'
+            ? 'reply.redirect()'
+            : 'reply.callNotFound()';
+
+        throw new Error(
+          `When using ${delegatedHelper} inside a unirend plugin route handler, return it immediately.\n` +
+            'Do not continue execution or return a payload after delegating the response.',
+        );
+      }
+
+      switch (actionKind) {
+        case 'redirect':
+          return originalRedirect(
+            deferredRedirectURL as string,
+            deferredRedirectCode,
+          );
+        case 'callNotFound':
+          return originalCallNotFound();
+      }
+    }
+
+    return handlerResult;
+  };
+}
+
 /**
  * Creates a controlled wrapper around the Fastify instance
  * This prevents plugins from accessing dangerous methods
@@ -378,9 +498,10 @@ export function createControlledInstance(
       }
       // Note: SafeRouteOptions may not perfectly match Fastify's RouteOptions interface.
       // This cast ensures compatibility with Fastify's internal route registration.
-      return fastifyInstance.route(
-        opts as Parameters<typeof fastifyInstance.route>[0],
-      );
+      return fastifyInstance.route({
+        ...(opts as Parameters<typeof fastifyInstance.route>[0]),
+        handler: guardRouteHandler(opts.handler),
+      });
     },
     get: (path: string, handler: RouteHandler) => {
       if (shouldDisableRootWildcard && (path === '*' || path === '/*')) {
@@ -388,16 +509,17 @@ export function createControlledInstance(
           'Plugins cannot register root wildcard GET routes that would conflict with SSR rendering',
         );
       }
-      return fastifyInstance.get(path, handler);
+
+      return fastifyInstance.get(path, guardRouteHandler(handler));
     },
     post: (path: string, handler: RouteHandler) =>
-      fastifyInstance.post(path, handler),
+      fastifyInstance.post(path, guardRouteHandler(handler)),
     put: (path: string, handler: RouteHandler) =>
-      fastifyInstance.put(path, handler),
+      fastifyInstance.put(path, guardRouteHandler(handler)),
     delete: (path: string, handler: RouteHandler) =>
-      fastifyInstance.delete(path, handler),
+      fastifyInstance.delete(path, guardRouteHandler(handler)),
     patch: (path: string, handler: RouteHandler) =>
-      fastifyInstance.patch(path, handler),
+      fastifyInstance.patch(path, guardRouteHandler(handler)),
     log: fastifyInstance.log,
     api: apiShortcuts,
     pageDataHandler: pageDataHandlerShortcuts,
@@ -407,7 +529,10 @@ export function createControlledInstance(
 /**
  * Wrap Fastify's reply object with a constrained, safe surface for handlers.
  */
-export function createControlledReply(reply: FastifyReply): ControlledReply {
+export function createControlledReply(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): ControlledReply {
   return {
     header: (name: string, value: string) => {
       reply.header(name, value);
@@ -430,6 +555,18 @@ export function createControlledReply(reply: FastifyReply): ControlledReply {
       get destroyed() {
         return reply.raw.destroyed;
       },
+    },
+    _sendErrorEnvelope: async (statusCode, errorEnvelope) => {
+      // ControlledReply does not expose reply.send()/raw writes to handlers,
+      // but framework-owned helpers still need one sanctioned way to send an
+      // early error envelope. Keep that capability internal here so handlers
+      // cannot treat ControlledReply like a full FastifyReply.
+      await sendRawErrorEnvelopeResponse(
+        request,
+        reply,
+        statusCode,
+        errorEnvelope,
+      );
     },
     setCookie:
       typeof (reply as unknown as { setCookie?: unknown }).setCookie ===
@@ -490,9 +627,6 @@ export function createControlledReply(reply: FastifyReply): ControlledReply {
             }
           ).signCookie
         : undefined,
-    _sendErrorEnvelope: (statusCode, errorEnvelope) => {
-      reply.code(statusCode).send(errorEnvelope);
-    },
   };
 }
 

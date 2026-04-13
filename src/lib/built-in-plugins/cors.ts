@@ -183,6 +183,19 @@ const MAX_ALLOWED_HEADERS = 100;
 // Limit the length of each reflected header name to avoid pathological values
 const MAX_HEADER_LEN = 256;
 
+type ResolvedCORSConfig = Required<
+  Omit<CORSConfig, 'credentials' | 'origin'>
+> & {
+  origin: CORSOrigin;
+  credentials:
+    | boolean
+    | string[]
+    | ((
+        origin: string | undefined,
+        request: FastifyRequest,
+      ) => boolean | Promise<boolean>);
+};
+
 /**
  * Validate credentials origins using centralized validateConfigEntry
  */
@@ -283,6 +296,91 @@ async function areCredentialsAllowed(
   }
 
   return false;
+}
+
+function applyCORSSecurityHeaders(
+  reply: FastifyReply,
+  resolvedConfig: ResolvedCORSConfig,
+): void {
+  // These headers are not negotiated per-origin. They are safe to apply even
+  // on requests that will ultimately receive no Access-Control-Allow-Origin
+  // header, so we keep them separate from the origin-dependent CORS logic.
+
+  // Set Vary: Origin unconditionally so CDN caches don't serve a cached
+  // non-CORS response (which lacks Access-Control-Allow-Origin) to a
+  // later CORS request for the same URL.
+  addToVaryHeader(reply, 'Origin');
+
+  // Security headers (applied for all requests early in lifecycle)
+  if (resolvedConfig.xFrameOptions) {
+    reply.header('X-Frame-Options', resolvedConfig.xFrameOptions);
+  }
+
+  if (resolvedConfig.hsts) {
+    const parts = [`max-age=${Math.floor(resolvedConfig.hsts.maxAge)}`];
+
+    if (resolvedConfig.hsts.includeSubDomains) {
+      parts.push('includeSubDomains');
+    }
+
+    if (resolvedConfig.hsts.preload) {
+      parts.push('preload');
+    }
+
+    reply.header('Strict-Transport-Security', parts.join('; '));
+  }
+}
+
+async function applyCORSActualResponseHeaders(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  resolvedConfig: ResolvedCORSConfig,
+  isOriginAllowedResult?: boolean,
+): Promise<void> {
+  const origin = request.headers.origin;
+  const isAllowed =
+    isOriginAllowedResult ??
+    (await isOriginAllowed(origin, resolvedConfig.origin, request));
+
+  // Apply the unconditional security/Vary headers first, then layer the
+  // origin-negotiated CORS headers on top if this request is allowed.
+  applyCORSSecurityHeaders(reply, resolvedConfig);
+
+  // For non-preflight requests, let them proceed without CORS headers if the
+  // origin is not allowed. Same-origin requests still work; browsers enforce
+  // the cross-origin failure client-side.
+  if (!isAllowed && origin) {
+    return;
+  }
+
+  if (origin && isAllowed) {
+    // For allowed cross-origin requests we echo the specific origin rather than
+    // using '*' so credentials/exposed-headers semantics stay correct.
+    reply.header('Access-Control-Allow-Origin', origin);
+
+    const isCredentialsAllowed = await areCredentialsAllowed(
+      origin,
+      resolvedConfig.credentials,
+      request,
+      resolvedConfig.credentialsAllowWildcardSubdomains,
+    );
+
+    // Never send credentials for the special 'null' origin
+    if (isCredentialsAllowed && origin !== 'null') {
+      reply.header('Access-Control-Allow-Credentials', 'true');
+    }
+
+    if (resolvedConfig.exposedHeaders.length > 0) {
+      reply.header(
+        'Access-Control-Expose-Headers',
+        resolvedConfig.exposedHeaders.join(', '),
+      );
+    }
+  } else if (!origin && resolvedConfig.origin === '*') {
+    // Requests without an Origin header are non-browser/same-origin style
+    // traffic. When policy is fully wildcard, keep the public wildcard signal.
+    reply.header('Access-Control-Allow-Origin', '*');
+  }
 }
 
 /**
@@ -572,6 +670,25 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
   }
 
   return async (fastify: PluginHostInstance) => {
+    fastify.decorateRequest(
+      'applyCORSHeaders',
+      async function applyCORSHeaders(
+        this: FastifyRequest,
+        reply: FastifyReply,
+      ) {
+        const isOriginAllowedCached = (
+          this as FastifyRequest & { corsOriginAllowed?: boolean }
+        ).corsOriginAllowed;
+
+        await applyCORSActualResponseHeaders(
+          this,
+          reply,
+          resolvedConfig,
+          isOriginAllowedCached,
+        );
+      },
+    );
+
     // Handle preflight OPTIONS requests
     fastify.addHook(
       'onRequest',
@@ -581,29 +698,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
         const origin = request.headers.origin;
         const method = request.method;
 
-        // Set Vary: Origin unconditionally so CDN caches don't serve a cached
-        // non-CORS response (which lacks Access-Control-Allow-Origin) to a
-        // later CORS request for the same URL.
-        addToVaryHeader(reply, 'Origin');
-
-        // Security headers (applied for all requests early in lifecycle)
-        if (resolvedConfig.xFrameOptions) {
-          reply.header('X-Frame-Options', resolvedConfig.xFrameOptions);
-        }
-
-        if (resolvedConfig.hsts) {
-          const parts = [`max-age=${Math.floor(resolvedConfig.hsts.maxAge)}`];
-
-          if (resolvedConfig.hsts.includeSubDomains) {
-            parts.push('includeSubDomains');
-          }
-
-          if (resolvedConfig.hsts.preload) {
-            parts.push('preload');
-          }
-
-          reply.header('Strict-Transport-Security', parts.join('; '));
-        }
+        applyCORSSecurityHeaders(reply, resolvedConfig);
 
         // Check if origin is allowed and cache result on request
         const isOriginAllowedResult = await isOriginAllowed(
@@ -771,110 +866,36 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
 
           if (resolvedConfig.preflightContinue) {
             // Continue to route handler but set CORS headers first
-            if (origin && isOriginAllowedResult) {
-              reply.header('Access-Control-Allow-Origin', origin);
-              const isCredentialsAllowed = await areCredentialsAllowed(
-                origin,
-                resolvedConfig.credentials,
-                request,
-                resolvedConfig.credentialsAllowWildcardSubdomains,
-              );
+            await applyCORSActualResponseHeaders(
+              request,
+              reply,
+              resolvedConfig,
+              isOriginAllowedResult,
+            );
 
-              if (isCredentialsAllowed) {
-                // Never send credentials for the special 'null' origin
-                if (origin !== 'null') {
-                  reply.header('Access-Control-Allow-Credentials', 'true');
-                }
-              }
-            } else if (!origin && resolvedConfig.origin === '*') {
-              reply.header('Access-Control-Allow-Origin', '*');
-            }
             return;
           } else {
             // Handle preflight completely here
-            if (origin && isOriginAllowedResult) {
-              reply.header('Access-Control-Allow-Origin', origin);
-              const isCredentialsAllowed = await areCredentialsAllowed(
-                origin,
-                resolvedConfig.credentials,
-                request,
-                resolvedConfig.credentialsAllowWildcardSubdomains,
-              );
-
-              if (isCredentialsAllowed) {
-                // Never send credentials for the special 'null' origin
-                if (origin !== 'null') {
-                  reply.header('Access-Control-Allow-Credentials', 'true');
-                }
-              }
-            } else if (!origin && resolvedConfig.origin === '*') {
-              reply.header('Access-Control-Allow-Origin', '*');
-            }
+            await applyCORSActualResponseHeaders(
+              request,
+              reply,
+              resolvedConfig,
+              isOriginAllowedResult,
+            );
 
             reply.code(resolvedConfig.optionsSuccessStatus);
             return reply.send();
           }
         }
 
-        // For non-preflight requests, let them proceed without CORS headers if origin not allowed
-        // This allows same-origin requests to work while cross-origin fails in the browser
-        if (!isOriginAllowedResult && origin) {
-          // Don't set CORS headers, let browser handle the CORS failure
-          return;
-        }
-
-        // Set Access-Control-Allow-Origin header for actual requests
-        if (origin && isOriginAllowedResult) {
-          // Echo the specific origin that was validated (not the full list)
-          reply.header('Access-Control-Allow-Origin', origin);
-
-          // Only set credentials when origin is present and allowed
-          const isCredentialsAllowed = await areCredentialsAllowed(
-            origin,
-            resolvedConfig.credentials,
-            request,
-            resolvedConfig.credentialsAllowWildcardSubdomains,
-          );
-
-          if (isCredentialsAllowed) {
-            // Never send credentials for the special 'null' origin
-            if (origin !== 'null') {
-              reply.header('Access-Control-Allow-Credentials', 'true');
-            }
-          }
-        } else if (!origin && resolvedConfig.origin === '*') {
-          // No origin header and wildcard allowed - set * but never credentials
-          reply.header('Access-Control-Allow-Origin', '*');
-          // Never set credentials with * origin
-        }
+        await applyCORSActualResponseHeaders(
+          request,
+          reply,
+          resolvedConfig,
+          isOriginAllowedResult,
+        );
       },
     );
-
-    // Add exposed headers to actual responses
-    if (resolvedConfig.exposedHeaders.length > 0) {
-      fastify.addHook(
-        'onSend',
-        async (request: FastifyRequest, reply: FastifyReply) => {
-          const origin = request.headers.origin;
-          // Use cached result from onRequest hook to avoid recomputing
-          const isOriginAllowedResult =
-            (request as FastifyRequest & { corsOriginAllowed?: boolean })
-              .corsOriginAllowed ??
-            (await isOriginAllowed(origin, resolvedConfig.origin, request));
-
-          // Only add exposed headers if origin is allowed and present
-          if (origin && isOriginAllowedResult) {
-            // Ensure Vary: Origin is set for non-preflight responses too
-            addToVaryHeader(reply, 'Origin');
-
-            reply.header(
-              'Access-Control-Expose-Headers',
-              resolvedConfig.exposedHeaders.join(', '),
-            );
-          }
-        },
-      );
-    }
 
     return Promise.resolve();
   };

@@ -319,11 +319,13 @@ describe('response compression', () => {
       expect(reply.getHeader('Content-Encoding')).toBeUndefined();
     });
 
-    it('skips when disabled or when compression is explicitly bypassed', async () => {
+    it('skips when disabled via config', async () => {
+      // Passing `false` (or `{ enabled: false }`) as the compression option
+      // disables compression entirely — the payload is returned unchanged even
+      // when the client advertises gzip support.
       const payload = JSON.stringify({ value: 'x'.repeat(3000) });
 
-      // Disabled via config
-      const disabledResult = await compressReplyPayload(
+      const result = await compressReplyPayload(
         createMockRequest({
           'accept-encoding': 'gzip',
         }) as FastifyRequest,
@@ -331,31 +333,32 @@ describe('response compression', () => {
           'Content-Type': 'application/json',
         }),
         payload,
-        false,
+        false, // compression disabled
       );
 
-      expect(disabledResult).toBe(payload);
+      expect(result).toBe(payload);
+    });
 
-      // Disabled for this request because another path already chose the
-      // response representation.
-      const skippedRequest = createMockRequest(
-        {
-          'accept-encoding': 'gzip',
-        },
+    it('skips when reply is already sent (e.g. hijacked by static content)', async () => {
+      // Static content uses reply.hijack() + reply.raw, bypassing onSend entirely.
+      // This guard catches the edge case where the hook fires anyway.
+      const payload = JSON.stringify({ value: 'x'.repeat(3000) });
+      const request = createMockRequest(
+        { 'accept-encoding': 'gzip' },
         'GET',
-      ) as FastifyRequest & { _unirendSkipCompression?: boolean };
-      skippedRequest._unirendSkipCompression = true;
+      ) as FastifyRequest;
 
-      const skippedResult = await compressReplyPayload(
-        skippedRequest,
-        createMockReply(200, {
-          'Content-Type': 'application/json',
-        }),
-        payload,
-        true,
-      );
+      const reply = createMockReply(200, {
+        'Content-Type': 'application/json',
+      });
 
-      expect(skippedResult).toBe(payload);
+      // Simulate a hijacked reply (reply.sent returns true)
+      (reply as unknown as { sent: boolean }).sent = true;
+
+      // Will return the result without modifying the reply
+      const result = await compressReplyPayload(request, reply, payload, true);
+
+      expect(result).toBe(payload);
     });
 
     it('negotiates compression headers for HEAD responses', async () => {
@@ -579,10 +582,8 @@ describe('response compression', () => {
       const payload = JSON.stringify({ value: 'x'.repeat(3000) });
       const testPlugin: ServerPlugin = (pluginHost) => {
         pluginHost.get('/api/compression-check', async (_request, reply) => {
-          return reply
-            .type('application/json')
-            .header('ETag', '"dynamic-etag"')
-            .send(payload);
+          reply.type('application/json').header('ETag', '"dynamic-etag"');
+          return payload;
         });
       };
 
@@ -630,10 +631,8 @@ describe('response compression', () => {
       const payload = JSON.stringify({ value: 'x'.repeat(3000) });
       const testPlugin: ServerPlugin = (pluginHost) => {
         pluginHost.get('/api/compression-304', async (_request, reply) => {
-          return reply
-            .type('application/json')
-            .header('ETag', '"dynamic-304"')
-            .send(payload);
+          reply.type('application/json').header('ETag', '"dynamic-304"');
+          return payload;
         });
       };
 

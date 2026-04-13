@@ -269,12 +269,10 @@ export async function compressReplyPayload(
     return payload;
   }
 
-  // Representation-aware paths (for example static content) can set this to
-  // signal that they already selected the final encoding/ETag themselves and
-  // must bypass the generic onSend compression hook.
-  if (
-    (request as { _unirendSkipCompression?: boolean })._unirendSkipCompression
-  ) {
+  // Safety guard: if headers are already written (e.g. hijacked reply or a
+  // race in edge cases), adding compression headers would be a no-op at best
+  // and would corrupt the response at worst. Bail out early.
+  if (reply.sent || reply.raw?.headersSent) {
     return payload;
   }
 
@@ -396,6 +394,19 @@ export async function compressReplyPayload(
  *
  * Static file serving uses its own representation-selection path so it can keep
  * ETags, range requests, and cache invalidation tied to concrete file variants.
+ *
+ * This hook uses an async buffer approach (brotli/gzip in memory) rather than a
+ * streaming Transform. The async approach preserves Content-Length, ETag
+ * representation variants, and If-None-Match 304 responses.
+ *
+ * Safety note: async onSend hooks interact with Fastify 5's wrapThenable mechanism.
+ * When an async route handler calls reply.send() and returns undefined,
+ * wrapThenable can fire a second reply.send(undefined) while the async onSend
+ * hook is still pending (reply.sent may remain false until headers are written).
+ *
+ * To avoid this race, Unirend async route handlers return the payload directly
+ * instead of calling reply.send() manually. That lets wrapThenable make exactly
+ * one reply.send() call.
  */
 export function registerResponseCompression(
   fastifyInstance: FastifyInstance,
@@ -408,6 +419,16 @@ export function registerResponseCompression(
   }
 
   fastifyInstance.addHook('onSend', async (request, reply, payload) => {
-    return compressReplyPayload(request, reply, payload, normalized);
+    try {
+      return await compressReplyPayload(request, reply, payload, normalized);
+    } catch (error) {
+      // Compression failure must not take down the server — fall back to the
+      // uncompressed payload so the request still completes.
+      request.log.error(
+        { error },
+        'Response compression failed; sending uncompressed',
+      );
+      return payload;
+    }
   });
 }

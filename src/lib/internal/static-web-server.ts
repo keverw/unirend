@@ -285,6 +285,7 @@ export class StaticWebServer {
       accessLog: this.options.accessLog,
       getClientIP: this.options.getClientIP,
       responseCompression: this.options.responseCompression,
+      responseTimeHeader: this.options.responseTimeHeader,
       // Disable API handling entirely (pure web server mode)
       apiEndpoints: {
         apiEndpointPrefix: false,

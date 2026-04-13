@@ -54,7 +54,7 @@ export interface PageDataHandlerParams {
  * adds overhead and may not preserve all metadata as intended.
  *
  * **Return false** when you've sent a custom response (e.g., using
- * APIResponseHelpers.sendErrorResponse() or validation helpers like ensureJSONBody).
+ * APIResponseHelpers.sendErrorEnvelope() or validation helpers like ensureJSONBody).
  * This signals that the handler has already sent the response and the framework
  * should not attempt to send anything.
  */
@@ -266,27 +266,27 @@ export class DataLoaderServerHandlerHelpers {
             }
 
             if (invalidFields.length > 0) {
-              // Client error: malformed request body - return proper API error envelope
+              // Client error: malformed request body - return proper API error envelope.
+              // Return the envelope directly so wrapThenable makes exactly one reply.send() call.
               const helpersClass = getAPIResponseHelpersClass(request);
-              reply.code(400).send(
-                helpersClass.createAPIErrorResponse({
-                  request,
-                  statusCode: 400,
-                  errorCode: 'invalid_page_data_body_fields',
-                  errorMessage:
-                    'Request body has invalid field types for page data loader',
-                  errorDetails: {
-                    invalid_fields: invalidFields,
-                    received_body: requestBody,
-                  },
-                }),
-              );
-              return;
+              reply.code(400);
+
+              return helpersClass.createAPIErrorResponse({
+                request,
+                statusCode: 400,
+                errorCode: 'invalid_page_data_body_fields',
+                errorMessage:
+                  'Request body has invalid field types for page data loader',
+                errorDetails: {
+                  invalid_fields: invalidFields,
+                  received_body: requestBody,
+                },
+              });
             }
 
             const result = await handler(
               request,
-              createControlledReply(reply),
+              createControlledReply(request, reply),
               {
                 pageType,
                 version,
@@ -306,12 +306,12 @@ export class DataLoaderServerHandlerHelpers {
             // (e.g., via reply.sendErrorEnvelope() in a validation helper)
             if (result === false) {
               // Verify that the response was actually sent by the handler
-              if (!reply.sent) {
+              if (!reply.sent && !reply.raw.headersSent) {
                 // Handler bug: returned false without sending a response
                 // This is a programming error in the user's handler code
                 const error = new Error(
                   `Handler for page type "${pageType}" returned false but did not send a response. ` +
-                    `When returning false, you must send a response first using APIResponseHelpers.sendErrorResponse().`,
+                    `When returning false, you must send a response first using APIResponseHelpers.sendErrorEnvelope().`,
                 );
                 (error as unknown as { pageType: string }).pageType = pageType;
                 (error as unknown as { version: number }).version = version;
@@ -319,6 +319,7 @@ export class DataLoaderServerHandlerHelpers {
                   'handler_returned_false_without_sending';
                 throw error;
               }
+
               return; // Response was sent by handler, do not send anything more
             }
 

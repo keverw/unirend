@@ -2,14 +2,49 @@ import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { StaticContentCache } from './static-content-cache';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import fs from 'fs';
-import { Readable } from 'stream';
+import { Readable, Writable } from 'stream';
 import { gunzipSync } from 'node:zlib';
+
+type MockReplyHeaders = ReturnType<FastifyReply['getHeaders']>;
 
 // Mock fs operations
 const mockFs = {
   stat: mock((_path: string) => Promise.resolve({} as fs.Stats)),
   readFile: mock((_path: string) => Promise.resolve(Buffer.from(''))),
   createReadStream: mock((_path: string, _options?: unknown) => new Readable()),
+};
+
+const createMockFSReadStream = (
+  chunks: Array<string | Buffer> = [],
+  errorBeforeOpen?: Error,
+): fs.ReadStream => {
+  let index = 0;
+  const stream = new Readable({
+    read() {
+      while (index < chunks.length) {
+        if (!this.push(chunks[index++])) {
+          return;
+        }
+      }
+
+      this.push(null);
+    },
+  }) as fs.ReadStream & { pending?: boolean; fd?: number };
+
+  stream.pending = true;
+
+  queueMicrotask(() => {
+    if (errorBeforeOpen) {
+      stream.emit('error', errorBeforeOpen);
+      return;
+    }
+
+    stream.pending = false;
+    stream.fd = 1;
+    stream.emit('open', 1);
+  });
+
+  return stream as fs.ReadStream;
 };
 
 // Helper to create mock request
@@ -33,12 +68,14 @@ const createMockReply = (): {
     code?: number;
     headers: Record<string, string>;
     body?: unknown;
-  } = { headers: {} };
+  } = { headers: {}, code: 200 };
 
   const reply: Partial<FastifyReply> = {
     sent: false,
+    statusCode: 200,
     code: mock((code: number) => {
       sentData.code = code;
+      (reply as { statusCode: number }).statusCode = code;
       return reply as FastifyReply;
     }),
     header: mock((name: string, value: string) => {
@@ -50,16 +87,65 @@ const createMockReply = (): {
       return reply as FastifyReply;
     }),
     getHeader: mock((name: string) => sentData.headers[name]),
+    getHeaders: mock(() => ({ ...sentData.headers }) as MockReplyHeaders),
     hasHeader: mock((name: string) => name in sentData.headers),
     removeHeader: mock((name: string) => {
       delete sentData.headers[name];
       return reply as FastifyReply;
     }),
-    send: mock((body?: unknown) => {
-      sentData.body = body;
-      (reply as FastifyReply).sent = true;
-      return reply as unknown as FastifyReply;
+    hijack: mock(() => {
+      (reply as { sent: boolean }).sent = true;
+      return reply as FastifyReply;
     }),
+    raw: (() => {
+      // Use a real Writable so pipeline() can pipe chunks into it correctly.
+      // writeHead and end are overridden to capture state for test assertions
+      // while still letting the base class emit 'finish' so pipeline() resolves.
+      const rawChunks: Buffer[] = [];
+      const rawWritable = new Writable({
+        write(chunk: Buffer, _encoding: BufferEncoding, callback: () => void) {
+          rawChunks.push(Buffer.from(chunk));
+          callback();
+        },
+      });
+
+      // Override writeHead to capture status + headers into sentData
+      (rawWritable as unknown as { writeHead: unknown }).writeHead = mock(
+        (statusCode: number, headers?: Record<string, unknown>) => {
+          sentData.code = statusCode;
+          (reply as { statusCode: number }).statusCode = statusCode;
+          if (headers) {
+            for (const [k, v] of Object.entries(headers)) {
+              if (v !== undefined) {
+                sentData.headers[k] = Array.isArray(v)
+                  ? v.join(', ')
+                  : typeof v === 'string' || typeof v === 'number'
+                    ? String(v)
+                    : JSON.stringify(v);
+              }
+            }
+          }
+        },
+      );
+
+      // Override end() to capture non-streaming bodies, then delegate to the
+      // base class so the 'finish' event fires and pipeline() resolves cleanly.
+      const originalEnd = rawWritable.end.bind(rawWritable);
+      (rawWritable as unknown as { end: unknown }).end = mock(
+        (body?: unknown) => {
+          if (body !== undefined) {
+            // Non-streaming path: body is passed directly to end()
+            sentData.body = body;
+          } else if (rawChunks.length > 0) {
+            // Streaming path: accumulate all piped chunks
+            sentData.body = Buffer.concat(rawChunks);
+          }
+          return originalEnd(body as Buffer);
+        },
+      );
+
+      return rawWritable;
+    })() as unknown as FastifyReply['raw'],
   };
 
   return { reply, sentData };
@@ -76,6 +162,7 @@ describe('StaticContentCache', () => {
     mockFs.stat.mockReset();
     mockFs.readFile.mockReset();
     mockFs.createReadStream.mockReset();
+    mockFs.createReadStream.mockImplementation(() => createMockFSReadStream());
 
     // Mock fs operations
     (fs.promises as { stat: unknown }).stat = mockFs.stat;
@@ -434,6 +521,77 @@ describe('StaticContentCache', () => {
         fileContent.toString(),
       );
       expect(cache.getCacheStats().compressedVariants.items).toBe(1);
+    });
+
+    it('sets Content-Length for buffered GET responses on the raw send path', async () => {
+      const cache = new StaticContentCache({});
+      const req = createMockRequest('/test.txt');
+      const { reply, sentData } = createMockReply();
+      const fileContent = Buffer.from('test content');
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      const result = await cache.serveFile(
+        req as FastifyRequest,
+        reply as FastifyReply,
+        '/path/to/file.txt',
+      );
+
+      expect(result.served).toBe(true);
+
+      if (result.served) {
+        expect(result.statusCode).toBe(200);
+      }
+
+      expect(sentData.headers['Content-Length']).toBe(
+        fileContent.length.toString(),
+      );
+    });
+
+    it('does not hijack full-file streams before the file stream opens', () => {
+      const cache = new StaticContentCache({
+        smallFileMaxSize: 10,
+      });
+      const req = createMockRequest('/test.txt');
+      const { reply } = createMockReply();
+      const openError = new Error('ENOENT during stream open');
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: 1000,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.createReadStream.mockImplementation(() =>
+        createMockFSReadStream([], openError),
+      );
+
+      expect(
+        cache.serveFile(
+          req as FastifyRequest,
+          reply as FastifyReply,
+          '/path/to/file.txt',
+        ),
+      ).rejects.toThrow('ENOENT during stream open');
+
+      expect((reply as { sent: boolean }).sent).toBe(false);
+      expect(
+        (reply as { hijack: ReturnType<typeof mock> }).hijack,
+      ).not.toHaveBeenCalled();
+      expect(
+        (reply.raw as unknown as { writeHead: ReturnType<typeof mock> })
+          .writeHead,
+      ).not.toHaveBeenCalled();
     });
 
     it('reports compressed Content-Length for HEAD requests on compressible files', async () => {
@@ -1531,6 +1689,47 @@ describe('StaticContentCache', () => {
       expect(sentData.headers['Content-Range']).toBe('bytes 0-99/1000');
     });
 
+    it('does not hijack range streams before the file stream opens', () => {
+      const cache = new StaticContentCache({
+        smallFileMaxSize: 10,
+      });
+
+      const req = createMockRequest('/test.txt', 'GET', {
+        range: 'bytes=0-99',
+      });
+      const { reply } = createMockReply();
+      const openError = new Error('range stream open failed');
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: 1000,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.createReadStream.mockImplementation(() =>
+        createMockFSReadStream([], openError),
+      );
+
+      expect(
+        cache.serveFile(
+          req as FastifyRequest,
+          reply as FastifyReply,
+          '/path/to/test.txt',
+        ),
+      ).rejects.toThrow('range stream open failed');
+
+      expect((reply as { sent: boolean }).sent).toBe(false);
+      expect(
+        (reply as { hijack: ReturnType<typeof mock> }).hijack,
+      ).not.toHaveBeenCalled();
+      expect(
+        (reply.raw as unknown as { writeHead: ReturnType<typeof mock> })
+          .writeHead,
+      ).not.toHaveBeenCalled();
+    });
+
     it('returns 400 for malformed range header', async () => {
       const cache = new StaticContentCache({
         smallFileMaxSize: 10,
@@ -1557,6 +1756,35 @@ describe('StaticContentCache', () => {
       );
 
       expect(sentData.code).toBe(400);
+    });
+
+    it('does not write a body for HEAD malformed range errors', async () => {
+      const cache = new StaticContentCache({
+        smallFileMaxSize: 10,
+      });
+
+      const req = createMockRequest('/test.txt', 'HEAD', {
+        range: 'invalid-range',
+      });
+      const { reply, sentData } = createMockReply();
+      const fileContent = Buffer.from('a'.repeat(1000));
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      await cache.serveFile(
+        req as FastifyRequest,
+        reply as FastifyReply,
+        '/path/to/test.txt',
+      );
+
+      expect(sentData.code).toBe(400);
+      expect(sentData.body).toBeUndefined();
     });
 
     it('returns 416 for unsatisfiable range', async () => {
@@ -1586,6 +1814,35 @@ describe('StaticContentCache', () => {
 
       expect(sentData.code).toBe(416);
       expect(sentData.headers['Content-Range']).toBe('bytes */100');
+    });
+
+    it('does not write a body for HEAD unsatisfiable range errors', async () => {
+      const cache = new StaticContentCache({
+        smallFileMaxSize: 10,
+      });
+
+      const req = createMockRequest('/test.txt', 'HEAD', {
+        range: 'bytes=2000-2999',
+      });
+      const { reply, sentData } = createMockReply();
+      const fileContent = Buffer.from('a'.repeat(100));
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      await cache.serveFile(
+        req as FastifyRequest,
+        reply as FastifyReply,
+        '/path/to/test.txt',
+      );
+
+      expect(sentData.code).toBe(416);
+      expect(sentData.body).toBeUndefined();
     });
 
     it('advertises Accept-Ranges for large files', async () => {

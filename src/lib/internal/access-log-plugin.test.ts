@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { AccessLogPlugin, resolveAccessLogLevel } from './access-log-plugin';
 import { serveAPI } from '../api';
 import type { APIServer } from './api-server';
-import type { AccessLogConfig, AccessLogResponseContext } from '../types';
+import type {
+  AccessLogConfig,
+  AccessLogResponseContext,
+  ServerPlugin,
+} from '../types';
 import getPort from 'get-port';
 
 // ─── resolveAccessLogLevel ────────────────────────────────────────────────────
@@ -468,6 +472,43 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
 
     const accessLogs = logs.filter((log) =>
       log.message.includes('GET ??? 404'),
+    );
+
+    expect(accessLogs.length).toBeGreaterThan(0);
+  });
+
+  it('fires onResponse even when reply.hijack() is used to write directly to reply.raw', async () => {
+    // reply.hijack() bypasses Fastify's reply.send() pipeline, but Fastify's
+    // setupResponseListeners attaches to reply.raw.on('finish', ...) before any
+    // hooks run, so onResponse hooks still fire when the raw socket ends.
+    const hijackPlugin: ServerPlugin = (pluginHost) => {
+      pluginHost.get('/api/hijack-test', async (_request, reply) => {
+        reply.code(200).header('Content-Type', 'application/json');
+
+        reply.hijack();
+        reply.raw.writeHead(200, reply.getHeaders() as Record<string, string>);
+        reply.raw.end(JSON.stringify({ hijacked: true }));
+
+        // Return undefined — wrapThenable exits early because kReplyHijacked is true
+      });
+    };
+
+    server = serveAPI({
+      logging: makeMockLoggingConfig(),
+      accessLog: {
+        responseTemplate: '{{method}} {{url}} {{statusCode}}',
+      },
+      plugins: [hijackPlugin],
+    });
+
+    await server.listen(port, 'localhost');
+
+    const response = await fetch(`http://localhost:${port}/api/hijack-test`);
+    await response.text();
+
+    // onResponse must fire so the access log captures the finish event
+    const accessLogs = logs.filter((log) =>
+      log.message.includes('GET /api/hijack-test 200'),
     );
 
     expect(accessLogs.length).toBeGreaterThan(0);

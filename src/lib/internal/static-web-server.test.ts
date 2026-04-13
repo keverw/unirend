@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { StaticWebServer } from './static-web-server';
 import { StaticContentCache } from './static-content-cache';
+import { cors } from '../built-in-plugins/cors';
 import { overrideDevMode } from 'lifecycleion/dev-mode';
 import fs from 'fs';
 import getPort from 'get-port';
@@ -720,6 +721,62 @@ describe('StaticWebServer', () => {
   // ─── HTTP response behavior ─────────────────────────────────────────────────
 
   describe('HTTP response behavior', () => {
+    it('passes responseTimeHeader through to the underlying APIServer', async () => {
+      setReadFileMock({
+        'page-map.json': VALID_PAGE_MAP,
+        'index.html': '<!doctype html><html><body>home</body></html>',
+      });
+
+      server = makeServer({
+        responseTimeHeader: true,
+        accessLog: { events: 'none' },
+      });
+
+      await server.listen(testPort);
+
+      const response = await fetch(`http://localhost:${testPort}/`);
+      await response.text();
+
+      expect(response.headers.get('x-response-time')).toMatch(/^\d+\.\d{2}ms$/);
+    });
+
+    it('applies CORS headers to hijacked static file responses', async () => {
+      setReadFileMock({
+        'page-map.json': VALID_PAGE_MAP,
+        'index.html': '<!doctype html><html><body>home</body></html>',
+      });
+
+      server = makeServer({
+        plugins: [
+          cors({
+            origin: ['https://app.example.com'],
+            exposedHeaders: ['X-Response-Time'],
+            xFrameOptions: 'SAMEORIGIN',
+          }),
+        ],
+        accessLog: { events: 'none' },
+      });
+
+      await server.listen(testPort);
+
+      const response = await fetch(`http://localhost:${testPort}/`, {
+        headers: {
+          Origin: 'https://app.example.com',
+        },
+      });
+
+      await response.text();
+
+      expect(response.headers.get('access-control-allow-origin')).toBe(
+        'https://app.example.com',
+      );
+      expect(response.headers.get('access-control-expose-headers')).toBe(
+        'X-Response-Time',
+      );
+      expect(response.headers.get('x-frame-options')).toBe('SAMEORIGIN');
+      expect(response.headers.get('vary')).toContain('Origin');
+    });
+
     it('returns default 404 HTML for unmatched routes', async () => {
       setReadFileMock({ 'page-map.json': VALID_PAGE_MAP });
       server = makeServer({ logErrors: false });

@@ -796,10 +796,11 @@ For convenience, Unirend provides helper functions to construct and validate env
   - `APIResponseHelpers.createPageSuccessResponse({ request, data, pageMetadata, statusCode?, meta? })`
   - `APIResponseHelpers.createPageErrorResponse({ request, statusCode, errorCode, errorMessage, pageMetadata, errorDetails?, meta? })`
   - `APIResponseHelpers.createPageRedirectResponse({ request, redirectInfo, pageMetadata, meta? })`
+  - `await APIResponseHelpers.sendErrorEnvelope(request, reply, statusCode, errorEnvelope)` - Sends an error envelope immediately using the raw/hijacked response path. This applies shared CORS headers first when the built-in `cors` plugin is present, then writes JSON directly to the socket. Because it uses the raw hijack path, normal Fastify `onSend` hooks do not run for that response.
 - Validate input (Useful for pre-validation before schema validation):
-  - `APIResponseHelpers.ensureJSONBody(request, reply)` - For JSON payloads (POST/PUT/PATCH/DELETE)
-  - `APIResponseHelpers.ensureURLEncodedBody(request, reply)` - For URL-encoded form data (POST/PUT/PATCH)
-  - `APIResponseHelpers.ensureMultipartBody(request, reply)` - For file uploads with multipart/form-data (POST/PUT/PATCH). Note: `processFileUpload()` validates Content-Type automatically, so `ensureMultipartBody` is typically only needed for advanced use cases (e.g., early validation before multipart parsing).
+  - `await APIResponseHelpers.ensureJSONBody(request, reply)` - For JSON payloads (POST/PUT/PATCH/DELETE). Returns `true` when valid, otherwise sends an error envelope and returns `false`. On failure it uses the same raw/hijacked termination path as `sendErrorEnvelope()`, so normal Fastify `onSend` hooks do not run.
+  - `await APIResponseHelpers.ensureURLEncodedBody(request, reply)` - For URL-encoded form data (POST/PUT/PATCH). Returns `true` when valid, otherwise sends an error envelope and returns `false`. On failure it uses the same raw/hijacked termination path as `sendErrorEnvelope()`, so normal Fastify `onSend` hooks do not run.
+  - `await APIResponseHelpers.ensureMultipartBody(request, reply)` - For file uploads with multipart/form-data (POST/PUT/PATCH). Returns `true` when valid, otherwise sends an error envelope and returns `false`. On failure it uses the same raw/hijacked termination path as `sendErrorEnvelope()`, so normal Fastify `onSend` hooks do not run. Note: `processFileUpload()` validates Content-Type automatically, so `ensureMultipartBody` is typically only needed for advanced use cases (e.g., early validation before multipart parsing).
 - Type guards: `isSuccessResponse`, `isErrorResponse`, `isRedirectResponse`, `isPageResponse`, `isValidEnvelope`
 
 These helpers assume you set `request.requestID` via a plugin as described above, otherwise `request_id` defaults to `"unknown"`.
@@ -809,6 +810,8 @@ These helpers assume you set `request.requestID` via a plugin as described above
 All helper creators are generic over the data payload (T) and meta (M extends BaseMeta), so you can supply your own meta shape per call, or centralize defaults by subclassing the helpers.
 
 > Static by design: `APIResponseHelpers` are intentionally implemented as a static utility. This keeps them side‑effect free, easy to test/re‑export, and lets your request handlers live in separate files without passing instances around. For app‑specific defaults (e.g., build info, account, locale), decorate the Fastify `request` in a plugin and merge those values via the `meta` parameter when calling the static helpers.
+
+> Customization boundary: the envelope creation helpers (`createAPISuccessResponse`, `createAPIErrorResponse`, `createPageSuccessResponse`, etc.) are the normal customization points for changing default meta or wrapping response construction. `sendErrorEnvelope()` is also publicly usable, but it is infrastructure: it applies framework-managed headers, performs the hijack/raw write path, and terminates the response immediately. If you override it in a custom helpers subclass, preserve that contract.
 
 #### Decorate request via plugin
 

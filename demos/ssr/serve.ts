@@ -178,6 +178,7 @@ class DemoResponseHelpers extends APIResponseHelpers {
 function createSharedConfig() {
   // Shared API handling configuration
   const APIHandling = {
+    responseTimeHeader: true,
     errorHandler: (
       request: FastifyRequest,
       error: Error,

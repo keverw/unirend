@@ -1,4 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
+import fastify from 'fastify';
 import type { FastifyReply, FastifyRequest, FastifyInstance } from 'fastify';
 import {
   createControlledReply,
@@ -175,7 +176,7 @@ const createMockReply = (isDestroyed = false) => {
 describe('createControlledReply', () => {
   it('maps header helpers and exposes sent flag', () => {
     const mockReply = createMockReply();
-    const cr = createControlledReply(mockReply);
+    const cr = createControlledReply({} as FastifyRequest, mockReply);
 
     cr.header('X-Test', '1');
     expect(cr.getHeader('X-Test')).toBe('1');
@@ -188,7 +189,7 @@ describe('createControlledReply', () => {
 
   it('maps cookie helpers when available', () => {
     const mockReply = createMockReply() as unknown as Record<string, unknown>;
-    const cr = createControlledReply(mockReply as any);
+    const cr = createControlledReply({} as FastifyRequest, mockReply as any);
 
     cr.setCookie?.('a', '1', { path: '/' });
     cr.cookie?.('b', '2', { path: '/' });
@@ -207,7 +208,7 @@ describe('createControlledReply', () => {
 
   it('maps signCookie/unsignCookie when available', () => {
     const mockReply = createMockReply() as unknown as Record<string, unknown>;
-    const cr = createControlledReply(mockReply as any);
+    const cr = createControlledReply({} as FastifyRequest, mockReply as any);
 
     const signed = cr.signCookie?.('abc');
     expect(signed).toBe('signed:abc');
@@ -227,7 +228,7 @@ describe('createControlledReply', () => {
     delete base.signCookie;
     delete base.unsignCookie;
 
-    const cr = createControlledReply(base as any);
+    const cr = createControlledReply({} as FastifyRequest, base as any);
     expect(cr.setCookie).toBeUndefined();
     expect(cr.cookie).toBeUndefined();
     expect(cr.clearCookie).toBeUndefined();
@@ -237,11 +238,19 @@ describe('createControlledReply', () => {
 
   it('exposes raw.destroyed property', () => {
     const mockReplyNotDestroyed = createMockReply(false);
-    const crNotDestroyed = createControlledReply(mockReplyNotDestroyed);
+    const crNotDestroyed = createControlledReply(
+      {} as FastifyRequest,
+      mockReplyNotDestroyed,
+    );
+
     expect(crNotDestroyed.raw.destroyed).toBe(false);
 
     const mockReplyDestroyed = createMockReply(true);
-    const crDestroyed = createControlledReply(mockReplyDestroyed);
+    const crDestroyed = createControlledReply(
+      {} as FastifyRequest,
+      mockReplyDestroyed,
+    );
+
     expect(crDestroyed.raw.destroyed).toBe(true);
   });
 });
@@ -690,6 +699,152 @@ describe('createControlledInstance', () => {
     host.route({ method: 'GET', url: '/api/users', handler: () => {} });
     host.route({ method: 'POST', url: '/api/users/:id', handler: () => {} });
     expect((f as any).route).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves Fastify route-handler context when wrapping handlers', async () => {
+    const app = fastify();
+    app.decorate('foo', 'bar');
+
+    const host = createControlledInstance(app, false, {}, {});
+
+    host.get('/context', function (this: { foo: string }) {
+      return Promise.resolve({
+        foo: this.foo,
+      });
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/context',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body: { foo: string } = response.json();
+    expect(body).toEqual({ foo: 'bar' });
+
+    await app.close();
+  });
+
+  it('lets plugin routes return reply.redirect() without calling send() directly', async () => {
+    const app = fastify();
+    const host = createControlledInstance(app, false, {}, {});
+
+    host.get('/', async (_request, reply) => {
+      return reply.redirect('/dest');
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/',
+    });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe('/dest');
+    expect(response.body).toBe('');
+
+    await app.close();
+  });
+
+  it('lets plugin routes return reply.callNotFound() without calling send() directly', async () => {
+    const app = fastify();
+    const host = createControlledInstance(app, false, {}, {});
+
+    app.setNotFoundHandler(async (_request, reply) => {
+      reply.code(404);
+      return { notFound: true };
+    });
+
+    host.get('/missing', async (_request, reply) => {
+      return reply.callNotFound();
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/missing',
+    });
+
+    expect(response.statusCode).toBe(404);
+    const body: { notFound: boolean } = response.json();
+    expect(body).toEqual({ notFound: true });
+
+    await app.close();
+  });
+
+  it('throws when redirect delegation is not returned immediately', async () => {
+    const app = fastify();
+    const host = createControlledInstance(app, false, {}, {});
+
+    host.get('/bad-redirect', async (_request, reply) => {
+      reply.redirect('/dest');
+      return { ok: true };
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/bad-redirect',
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json().message).toContain(
+      'When using reply.redirect() inside a unirend plugin route handler, return it immediately.',
+    );
+
+    await app.close();
+  });
+
+  it('throws when callNotFound delegation is not returned immediately', async () => {
+    const app = fastify();
+    const host = createControlledInstance(app, false, {}, {});
+
+    app.setNotFoundHandler(async (_request, reply) => {
+      reply.code(404);
+      return { notFound: true };
+    });
+
+    host.get('/bad-not-found', async (_request, reply) => {
+      reply.callNotFound();
+      return { ok: true };
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/bad-not-found',
+    });
+
+    expect(response.statusCode).toBe(500);
+    const body: { message: string } = response.json();
+    expect(body.message).toBe(
+      'When using reply.callNotFound() inside a unirend plugin route handler, return it immediately.\n' +
+        'Do not continue execution or return a payload after delegating the response.',
+    );
+
+    await app.close();
+  });
+
+  it('throws when plugin routes call reply.send() directly', async () => {
+    const app = fastify();
+    const host = createControlledInstance(app, false, {}, {});
+
+    host.get('/send', async (_request, reply) => {
+      return reply.send({ ok: true });
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/send',
+    });
+
+    expect(response.statusCode).toBe(500);
+    const body: { message: string } = response.json();
+    expect(body.message).toBe(
+      'Do not call reply.send() inside a unirend plugin route handler.\n' +
+        'Set status and headers with reply.code() / reply.header(), then return the payload:\n' +
+        '  ✓  reply.code(201); return { ok: true };\n' +
+        '  ✗  return reply.send({ ok: true });  // causes double-send race in Fastify 5\n\n' +
+        'reply.send() is only safe inside Fastify lifecycle hooks (addHook), not in route handlers.',
+    );
+
+    await app.close();
   });
 });
 

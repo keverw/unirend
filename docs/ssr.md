@@ -140,15 +140,36 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - If `getClientIP` throws, the error propagates as a 500 - there is no silent fallback to `request.ip`.
   - See [Access Logging](#access-logging) for proxy and external reverse proxy examples.
 - `responseCompression?: boolean | ResponseCompressionOptions`
-  - Enables built-in response compression for non-streaming SSR HTML and API responses (default: `true`).
-  - Negotiates `Accept-Encoding`, honors client `q` weights, uses `preferBrotli` to break ties when gzip and Brotli are equally preferred, and skips very small responses.
+  - Enables built-in response compression for SSR HTML and API responses (default: `true`).
+  - Negotiates `Accept-Encoding`, honors client `q` weights, uses `preferBrotli` to break ties when gzip and Brotli are equally preferred, and skips range responses and very small responses.
   - Use the object form to tune behavior:
     - `enabled?: boolean` - Enable/disable compression explicitly
     - `threshold?: number` - Minimum payload size in bytes before compression is attempted (default: `1024`)
     - `preferBrotli?: boolean` - Prefer Brotli over gzip when the client supports both equally (same `q` value) (default: `true`)
     - `brotliQuality?: number` - Brotli compression quality passed to Node.js zlib (default: `4`)
     - `gzipLevel?: number` - gzip compression level passed to Node.js zlib (default: `6`)
-  - Static assets served by `staticContentRouter` inherit this setting by default and handle compression in the static file layer so `ETag`, `Vary`, and `Range` behavior stay correct.
+  - Static assets served by `staticContentRouter` inherit this setting by default and handle compression in the static file layer, caching compressed variants in memory for repeated requests, so `ETag`, `Vary`, and `Range` behavior stay correct.
+- `responseTimeHeader?: boolean | ResponseTimeHeaderOptions`
+  - Optional response-time header for completed responses (default: `false`).
+  - For normal Fastify-managed replies, the header is measured in `onSend`.
+  - Boolean form:
+    - `true` enables the header with defaults
+    - `false` or omitted disables it
+  - Object form:
+    - `enabled?: boolean` - Enable/disable explicitly (default: `true` when object form is used)
+    - `headerName?: string` - Header name to emit (default: `'X-Response-Time'`). Must use only letters, numbers, and dashes.
+    - `digits?: number` - Number of fractional digits in the emitted time (default: `2`)
+  - If timing cannot be measured in an unusual edge case, the emitted/logged value falls back to `-1` as an explicit "unavailable" sentinel.
+  - Works with normal Fastify-managed responses and hijacked/raw responses used by static/range serving. On hijacked/raw responses, the header is measured when `reply.hijack()` runs, while access logging measures when the response finishes.
+  - Example:
+    ```ts
+    const server = serveAPI({
+      responseTimeHeader: {
+        headerName: 'X-Response-Time',
+        digits: 2,
+      },
+    });
+    ```
 - `logErrors?: boolean`
   - Whether to automatically log request errors (default: `true`). `method`, `url`, `err`, and `requestID` (if available) are included as structured fields in the log entry alongside the `[Label] Request error` message.
   - Exactly one log entry is emitted per error - no double-logging. All SSR errors (whether caught at route level or by the global error handler) are logged before the 500 page is generated, so the log fires whether you use a custom `get500ErrorPage` or not. API errors are logged in the global error handler.

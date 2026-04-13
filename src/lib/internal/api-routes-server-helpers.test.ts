@@ -62,7 +62,14 @@ const createMockReply = () => {
       (reply as any)._headers[name] = value;
       return reply;
     }),
+    hijack: mock(() => {
+      (reply as any).sent = true;
+      (reply as any).raw.headersSent = true;
+    }),
     sent: false,
+    raw: {
+      headersSent: false,
+    },
     _statusCode: 200,
     _sent: null,
     _headers: {},

@@ -63,6 +63,9 @@ const createMockPluginHost = (): MockPluginHost => {
   }> = [];
 
   const mockHost = {
+    decorateRequest: mock(
+      (_name: string, _value: (...args: any[]) => Promise<void>) => undefined,
+    ),
     addHook: mock(
       (event: string, handler: (...args: any[]) => Promise<void>) => {
         hooks.push({ event, handler });
@@ -95,15 +98,20 @@ describe('cors', () => {
 
       await plugin(pluginHost, options);
 
+      expect(pluginHost.decorateRequest).toHaveBeenCalledWith(
+        'applyCORSHeaders',
+        expect.any(Function),
+      );
+
       expect(pluginHost.addHook).toHaveBeenCalledWith(
         'onRequest',
         expect.any(Function),
       );
-      // onSend hook is only registered when exposedHeaders are configured
+      // CORS actual-response headers are now applied from onRequest/raw helpers.
       expect(pluginHost.addHook).toHaveBeenCalledTimes(1);
     });
 
-    it('should register onSend hook when exposedHeaders are configured', async () => {
+    it('should keep registration the same when exposedHeaders are configured', async () => {
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const plugin = cors({
@@ -113,15 +121,15 @@ describe('cors', () => {
 
       await plugin(pluginHost, options);
 
+      expect(pluginHost.decorateRequest).toHaveBeenCalledWith(
+        'applyCORSHeaders',
+        expect.any(Function),
+      );
       expect(pluginHost.addHook).toHaveBeenCalledWith(
         'onRequest',
         expect.any(Function),
       );
-      expect(pluginHost.addHook).toHaveBeenCalledWith(
-        'onSend',
-        expect.any(Function),
-      );
-      expect(pluginHost.addHook).toHaveBeenCalledTimes(2);
+      expect(pluginHost.addHook).toHaveBeenCalledTimes(1);
     });
 
     it("should throw when '*' is included in an origin array with other entries", () => {
@@ -766,10 +774,10 @@ describe('cors', () => {
       const plugin = cors(config);
       await plugin(pluginHost, options);
 
-      const onSendHook = pluginHost
+      const onRequestHook = pluginHost
         .getHooks()
-        .find((h) => h.event === 'onSend');
-      await onSendHook?.handler(request, reply);
+        .find((h) => h.event === 'onRequest');
+      await onRequestHook?.handler(request, reply);
 
       expect(reply.header).toHaveBeenCalledWith(
         'Access-Control-Expose-Headers',

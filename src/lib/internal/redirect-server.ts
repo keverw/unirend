@@ -10,6 +10,7 @@ import type {
   UnirendLoggingOptions,
   FastifyServerOptions,
   AccessLogConfig,
+  ResponseTimeHeaderOptions,
 } from '../types';
 
 /**
@@ -113,6 +114,13 @@ export interface RedirectServerOptions {
   accessLog?: AccessLogConfig;
 
   /**
+   * Optional response-time header emitted on completed responses.
+   * Passed through to the underlying APIServer.
+   * @default false
+   */
+  responseTimeHeader?: boolean | ResponseTimeHeaderOptions;
+
+  /**
    * Custom client IP resolver.
    * When set, called once per request to populate `request.clientIP` — available
    * throughout the entire request lifecycle (plugins, hooks, page data loader
@@ -214,6 +222,7 @@ export class RedirectServer {
       logging: options.logging, // Pass through logging config
       fastifyOptions: options.fastifyOptions, // Pass through Fastify options
       accessLog: options.accessLog, // Pass through access log config
+      responseTimeHeader: options.responseTimeHeader, // Pass through response-time header config
       getClientIP: options.getClientIP, // Pass through client IP resolver
       plugins: [
         (pluginHost) => {

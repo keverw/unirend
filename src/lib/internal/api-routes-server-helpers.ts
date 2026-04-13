@@ -23,7 +23,7 @@ export type HTTPMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
  * will result in a runtime error being thrown during request handling.
  *
  * **Return false** when you've sent a custom response (e.g., using
- * APIResponseHelpers.sendErrorResponse() or validation helpers like ensureJSONBody).
+ * APIResponseHelpers.sendErrorEnvelope() or validation helpers like ensureJSONBody).
  * This signals that the handler has already sent the response and the framework
  * should not attempt to send anything.
  */
@@ -300,7 +300,7 @@ export class APIRoutesServerHelpers<
 
             const envelope = await handler(
               request,
-              createControlledReply(reply),
+              createControlledReply(request, reply),
               {
                 method,
                 endpoint,
@@ -317,12 +317,12 @@ export class APIRoutesServerHelpers<
             // (e.g., via reply.sendErrorEnvelope() in a validation helper)
             if (envelope === false) {
               // Verify that the response was actually sent by the handler
-              if (!reply.sent) {
+              if (!reply.sent && !reply.raw.headersSent) {
                 // Handler bug: returned false without sending a response
                 // This is a programming error in the user's handler code
                 const error = new Error(
                   `API route ${method} ${fullPath} returned false but did not send a response. ` +
-                    `When returning false, you must send a response first using APIResponseHelpers.sendErrorResponse().`,
+                    `When returning false, you must send a response first using APIResponseHelpers.sendErrorEnvelope().`,
                 );
                 (error as unknown as { errorCode: string }).errorCode =
                   'handler_returned_false_without_sending';
@@ -330,6 +330,7 @@ export class APIRoutesServerHelpers<
                   `${method} ${fullPath}`;
                 throw error;
               }
+
               return; // Response was sent by handler, do not send anything more
             }
 

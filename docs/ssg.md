@@ -414,12 +414,44 @@ Dev mode (stack traces in built-in 500 page, not custom error page provided) is 
 - `https` - HTTPS/SSL configuration with key, cert, and optional SNI callback
 - `logging` - Framework-level logging options (Unirend logger abstraction)
 - `fastifyOptions` - Fastify server options (logger, trustProxy, bodyLimit, keepAliveTimeout, etc.)
-- `responseCompression` - Compress non-streaming responses by default and static files when possible; negotiates `Accept-Encoding`, skips range responses, and caches static compressed variants in memory for repeated requests
-  - `enabled?: boolean` - Enable/disable compression explicitly
-  - `threshold?: number` - Minimum payload size in bytes before compression is attempted (default: `1024`)
-  - `preferBrotli?: boolean` - Prefer Brotli over gzip when the client supports both equally (same `q` value) (default: `true`)
-  - `brotliQuality?: number` - Brotli compression quality passed to Node.js zlib (default: `4`)
-  - `gzipLevel?: number` - gzip compression level passed to Node.js zlib (default: `6`)
+- `serverLabel?: string`
+  - Label for this server instance, used in error log messages and access log templates (default: `'Static'`).
+  - Useful for distinguishing log output when running multiple server instances in the same process.
+  - Appears in error log messages as `[Static] Request error` (brackets are added automatically).
+  - Also available as `{{serverLabel}}` in access log templates and as `request.serverLabel` in hooks and handlers. The raw label value is exposed (no brackets), so templates can use it as `[{{serverLabel}}]` if desired.
+- `accessLog` - First-party access logging for the underlying server. Use `{ events: 'none' }` to disable, or provide config to customize.
+- `responseCompression?: boolean | ResponseCompressionOptions`
+  - Enables built-in response compression for static files and pages (default: `true`).
+  - Negotiates `Accept-Encoding`, honors client `q` weights, uses `preferBrotli` to break ties when gzip and Brotli are equally preferred, and skips range responses and very small responses.
+  - Use the object form to tune behavior:
+    - `enabled?: boolean` - Enable/disable compression explicitly
+    - `threshold?: number` - Minimum payload size in bytes before compression is attempted (default: `1024`)
+    - `preferBrotli?: boolean` - Prefer Brotli over gzip when the client supports both equally (same `q` value) (default: `true`)
+    - `brotliQuality?: number` - Brotli compression quality passed to Node.js zlib (default: `4`)
+    - `gzipLevel?: number` - gzip compression level passed to Node.js zlib (default: `6`)
+  - Static files handle compression in the static file layer, caching compressed variants in memory for repeated requests, so `ETag`, `Vary`, and `Range` behavior stay correct.
+- `responseTimeHeader?: boolean | ResponseTimeHeaderOptions`
+  - Optional response-time header for completed responses (default: `false`).
+  - For normal Fastify-managed replies, the header is measured in `onSend`.
+  - Boolean form:
+    - `true` enables the header with defaults
+    - `false` or omitted disables it
+  - Object form:
+    - `enabled?: boolean` - Enable/disable explicitly (default: `true` when object form is used)
+    - `headerName?: string` - Header name to emit (default: `'X-Response-Time'`). Must use only letters, numbers, and dashes.
+    - `digits?: number` - Number of fractional digits in the emitted time (default: `2`)
+  - If timing cannot be measured in an unusual edge case, the emitted/logged value falls back to `-1` as an explicit "unavailable" sentinel.
+  - Works with normal Fastify-managed responses and hijacked/raw responses used by static/range serving. On hijacked/raw responses, the header is measured when `reply.hijack()` runs, while access logging measures when the response finishes.
+  - Example:
+    ```ts
+    const server = new StaticWebServer({
+      buildDir: './build/client',
+      responseTimeHeader: {
+        headerName: 'X-Response-Time',
+        digits: 2,
+      },
+    });
+    ```
 
 ##### Error Pages
 

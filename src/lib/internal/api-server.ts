@@ -39,6 +39,10 @@ import { APIResponseHelpers } from '../../api-envelope';
 import type { WebSocket, WebSocketServer } from 'ws';
 import { getDevMode } from 'lifecycleion/dev-mode';
 import { registerResponseCompression } from './response-compression';
+import {
+  registerResponseTimeHeader,
+  registerResponseTimeHijackPatch,
+} from './response-time-header';
 
 /**
  * API Server class for creating JSON API servers with plugin support
@@ -241,11 +245,11 @@ export class APIServer extends BaseServer {
       // updateAccessLoggingConfig() changes take effect without a restart.
       this._accessLog.register(this.fastifyInstance);
 
-      // Register response compression for non-streaming API/web responses.
-      // Static file compression is handled separately in the static content layer.
-      registerResponseCompression(
+      // Patch reply.hijack() early so all subsequently registered routes
+      // inherit the wrapper, including user/plugin routes that bypass onSend.
+      registerResponseTimeHijackPatch(
         this.fastifyInstance,
-        this.options.responseCompression,
+        this.options.responseTimeHeader,
       );
 
       // Register global error handler
@@ -311,6 +315,21 @@ export class APIServer extends BaseServer {
       if (this.webSocketHelpers) {
         this.webSocketHelpers.registerRoutes(this.fastifyInstance);
       }
+
+      // Register response compression for non-streaming API/web responses.
+      // Static file compression is handled separately in the static content layer.
+      registerResponseCompression(
+        this.fastifyInstance,
+        this.options.responseCompression,
+      );
+
+      // Register the response-time header hook after plugins and routes so
+      // third-party onSend hooks run first. Normal Fastify-managed replies
+      // measure the header here, while access logging measures on completion.
+      registerResponseTimeHeader(
+        this.fastifyInstance,
+        this.options.responseTimeHeader,
+      );
 
       // Start the server
       await this.fastifyInstance.listen({
@@ -466,17 +485,21 @@ export class APIServer extends BaseServer {
     reply: FastifyReply,
     response: WebErrorResponse,
     defaultStatusCode: number,
-  ): FastifyReply {
+  ): unknown {
     const statusCode = response.statusCode ?? defaultStatusCode;
     reply.code(statusCode).header('Cache-Control', 'no-store');
 
+    // Set Content-Type but do NOT call reply.send() here.
+    // The caller returns the content so wrapThenable makes exactly one reply.send() call.
     if (response.contentType === 'json') {
-      return reply.type('application/json').send(response.content);
+      reply.type('application/json');
     } else if (response.contentType === 'html') {
-      return reply.type('text/html').send(response.content);
+      reply.type('text/html');
     } else {
-      return reply.type('text/plain').send(response.content);
+      reply.type('text/plain');
     }
+
+    return response.content;
   }
 
   /**
@@ -490,7 +513,7 @@ export class APIServer extends BaseServer {
 
     this.fastifyInstance.setErrorHandler(async (error, request, reply) => {
       // If a handler already sent a response and then threw, avoid double-send
-      if (reply.sent) {
+      if (reply.sent || reply.raw.headersSent) {
         return;
       }
 
@@ -550,7 +573,7 @@ export class APIServer extends BaseServer {
                 reply.header('Cache-Control', 'no-store');
               }
 
-              return reply.send(errorResponse);
+              return errorResponse;
             } else if (!isAPI && splitHandler.web) {
               // Use web handler
               const webResponse = await Promise.resolve(
@@ -580,7 +603,7 @@ export class APIServer extends BaseServer {
               reply.header('Cache-Control', 'no-store');
             }
 
-            return reply.send(errorResponse);
+            return errorResponse;
           }
         } catch (handlerError) {
           // If custom handler fails, fall back to default
@@ -605,10 +628,9 @@ export class APIServer extends BaseServer {
       const statusCode =
         (response as { status_code?: number }).status_code || 500;
 
-      return reply
-        .code(statusCode)
-        .header('Cache-Control', 'no-store')
-        .send(response);
+      reply.code(statusCode).header('Cache-Control', 'no-store');
+
+      return response;
     });
   }
 
@@ -649,7 +671,7 @@ export class APIServer extends BaseServer {
               const statusCode = apiResponse.status_code || 404;
               reply.code(statusCode).header('Cache-Control', 'no-store');
 
-              return reply.send(apiResponse);
+              return apiResponse;
             } else if (!isAPI && splitHandler.web) {
               // Use web handler
               const webResponse = await Promise.resolve(
@@ -670,7 +692,7 @@ export class APIServer extends BaseServer {
             const statusCode = custom.status_code || 404;
             reply.code(statusCode).header('Cache-Control', 'no-store');
 
-            return reply.send(custom);
+            return custom;
           }
         } catch (handlerError) {
           // If custom handler fails, fall back to default
@@ -693,10 +715,9 @@ export class APIServer extends BaseServer {
       const statusCode =
         (response as { status_code?: number }).status_code || 404;
 
-      return reply
-        .code(statusCode)
-        .header('Cache-Control', 'no-store')
-        .send(response);
+      reply.code(statusCode).header('Cache-Control', 'no-store');
+
+      return response;
     });
   }
 

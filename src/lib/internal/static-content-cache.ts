@@ -1,7 +1,9 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { OutgoingHttpHeaders } from 'node:http';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'node:crypto';
+import { pipeline } from 'node:stream/promises';
 import { LRUCache, type LRUCacheChangeEvent } from 'lifecycleion/lru-cache';
 import type { StaticContentRouterOptions, FolderConfig } from '../types';
 import { addToVaryHeader } from './http-header-utils';
@@ -77,7 +79,15 @@ export interface CreateStreamOptions {
 export type ServeFileResult =
   | { served: false; reason: 'not-found' }
   | { served: false; reason: 'error'; error: Error }
-  | { served: true; statusCode: 200 | 206 | 304 }; // 200: full file served, 206: partial content, 304: not modified
+  | {
+      served: true;
+      statusCode:
+        | 200 // Full file served
+        | 206 // Partial content served
+        | 304 // Not modified
+        | 400 // Invalid range request
+        | 416; // Range not satisfiable
+    };
 
 /**
  * File content discriminated union - either buffered in memory or needs streaming
@@ -156,6 +166,35 @@ export interface FileFoundResult {
   varyByAcceptEncoding: boolean;
   /** Whether this file appears to be fingerprinted/immutable (for aggressive caching) */
   isImmutableAsset: boolean;
+}
+
+function waitForReadStreamOpen(stream: fs.ReadStream): Promise<void> {
+  if (
+    stream.pending === false ||
+    typeof (stream as fs.ReadStream & { fd?: number }).fd === 'number'
+  ) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const onOpen = () => {
+      cleanup();
+      resolve();
+    };
+
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+
+    const cleanup = () => {
+      stream.off('open', onOpen);
+      stream.off('error', onError);
+    };
+
+    stream.once('open', onOpen);
+    stream.once('error', onError);
+  });
 }
 
 /**
@@ -747,6 +786,13 @@ export class StaticContentCache {
     resolvedPath: string,
     options?: GetFileOptions,
   ): Promise<ServeFileResult> {
+    // Raw static responses use reply.hijack() + writeHead(), which bypasses
+    // Fastify's normal onSend pipeline. Built-in CORS exposes a request-scoped
+    // helper so hijacked paths can still apply the same actual-response headers
+    // before we snapshot reply.getHeaders(). Keep this ahead of hijack so a
+    // CORS/config failure still propagates through normal Fastify error
+    // handling instead of failing after raw ownership has been taken.
+
     // Get file with all metadata and caching
     const result = await this.getFile(resolvedPath, {
       ...options,
@@ -765,15 +811,14 @@ export class StaticContentCache {
       // Unexpected error occurred, return error info
       return { served: false, reason: 'error', error: result.error };
     } else if (result.status === 'not-modified') {
-      // Client's cache is still valid, send 304
+      // Client's cache is still valid, send 304.
       // Return HTTP 304 Not Modified response (no body). This saves bandwidth
       // because the client reuses its cached representation.
       //
-      // Static content already chose the final representation for this
-      // response (identity/gzip/br), so the generic onSend hook must not try
-      // to compress it again.
-      (req as { _unirendSkipCompression?: boolean })._unirendSkipCompression =
-        true;
+      // reply.hijack() bypasses Fastify's onSend pipeline (including the generic
+      // response-compression hook), so we write directly to the raw socket.
+      // onResponse hooks still fire because setupResponseListeners attaches to
+      // reply.raw.on('finish', ...) before any hooks run.
 
       // Representation selection depends on Accept-Encoding, so advertise that
       // caches must keep separate variants when compression is in play.
@@ -787,27 +832,31 @@ export class StaticContentCache {
         reply.header('Content-Encoding', result.contentEncoding);
       }
 
-      await reply
+      reply
         .code(304)
         .header('ETag', result.etag)
-        .header('Last-Modified', result.lastModified)
-        .send();
+        .header('Last-Modified', result.lastModified);
+
+      await req.applyCORSHeaders?.(reply);
+      reply.hijack();
+      reply.raw.writeHead(304, reply.getHeaders() as OutgoingHttpHeaders);
+      reply.raw.end();
 
       return { served: true, statusCode: 304 };
     }
 
-    // File found (status === 'ok'), proceed with serving
+    // File found (status === 'ok'), proceed with serving.
+    //
+    // reply.hijack() bypasses Fastify's onSend pipeline entirely, preventing
+    // the generic response-compression hook from re-processing a response whose
+    // representation (identity/gzip/br) and ETag were already finalized by
+    // getFile(). Without hijack(), the compression hook could re-compress an
+    // identity response and mutate the ETag the client already validated against.
 
     // Determine Cache-Control header based on immutability
     const headerCacheControl = result.isImmutableAsset
       ? this.immutableCacheControl
       : this.cacheControl;
-
-    // Static content already chose the final representation for this response
-    // (including ETag semantics), so the generic onSend hook must stand down
-    // before headers/body are written for either buffered or streamed output.
-    (req as { _unirendSkipCompression?: boolean })._unirendSkipCompression =
-      true;
 
     // Representation selection depends on Accept-Encoding, so advertise that
     // caches must keep separate variants when compression is in play.
@@ -843,20 +892,38 @@ export class StaticContentCache {
       const range = parseRange(rangeHeader, result.stat.size);
 
       if (range === 'malformed') {
-        return reply
-          .code(400) // Bad Request — syntactically invalid Range header
+        // Bad Request — syntactically invalid Range header
+        const body = JSON.stringify({ error: 'Invalid Range header' });
+        reply
+          .code(400)
           .header('Cache-Control', 'no-store')
-          .send({ error: 'Invalid Range header' });
+          .type('application/json')
+          .header('Content-Length', String(Buffer.byteLength(body)));
+        await req.applyCORSHeaders?.(reply);
+        reply.hijack();
+        reply.raw.writeHead(400, reply.getHeaders() as OutgoingHttpHeaders);
+        reply.raw.end(req.method === 'HEAD' ? undefined : body);
+        return { served: true, statusCode: 400 };
       } else if (range === 'unsatisfiable') {
-        return reply
-          .code(416) // Range Not Satisfiable
+        const body = JSON.stringify({ error: 'Range not satisfiable' });
+        reply
+          .code(416)
           .header('Cache-Control', 'no-store')
+          .type('application/json')
           .header('Content-Range', `bytes */${result.stat.size}`)
-          .send({ error: 'Range not satisfiable' });
+          .header('Content-Length', String(Buffer.byteLength(body)));
+        await req.applyCORSHeaders?.(reply);
+        reply.hijack();
+        reply.raw.writeHead(416, reply.getHeaders() as OutgoingHttpHeaders);
+        reply.raw.end(req.method === 'HEAD' ? undefined : body);
+        return { served: true, statusCode: 416 };
       }
 
       const [start, end] = range;
       const chunkSize = end - start + 1;
+      const rangeStream = result.content.createStream({ start, end });
+
+      await waitForReadStreamOpen(rangeStream);
 
       // Set headers for partial content response
       reply
@@ -864,18 +931,22 @@ export class StaticContentCache {
         .header('Content-Range', `bytes ${start}-${end}/${result.stat.size}`)
         .header('Content-Length', chunkSize.toString());
 
+      await req.applyCORSHeaders?.(reply);
+      reply.hijack();
+      reply.raw.writeHead(206, reply.getHeaders() as OutgoingHttpHeaders);
+
       // HEAD — headers are set; skip stream creation entirely (no fd opened, no disk I/O)
       if (req.method === 'HEAD') {
-        await reply.send();
+        reply.raw.end();
         return { served: true, statusCode: 206 };
       }
 
       // Stream the requested range using factory function with range options
-      await reply.send(result.content.createStream({ start, end }));
+      await pipeline(rangeStream, reply.raw);
       return { served: true, statusCode: 206 };
     }
 
-    // HEAD — set Content-Length from stat, then send empty body without touching file content
+    // HEAD — set Content-Length from stat, then end without a body
     if (req.method === 'HEAD') {
       // When the response would be compressed, report the compressed size so
       // the Content-Length matches what a GET would actually transfer.
@@ -885,23 +956,43 @@ export class StaticContentCache {
           ? result.content.data.length
           : result.stat.size;
       reply.header('Content-Length', headContentLength.toString());
-      await reply.send();
+      await req.applyCORSHeaders?.(reply);
+      reply.hijack();
+      reply.raw.writeHead(
+        reply.statusCode,
+        reply.getHeaders() as OutgoingHttpHeaders,
+      );
+      reply.raw.end();
       return { served: true, statusCode: 200 };
     }
 
     // Serve full file based on whether streaming is needed
+    const fullFileStream = result.content.shouldStream
+      ? result.content.createStream()
+      : null;
+
+    if (fullFileStream) {
+      await waitForReadStreamOpen(fullFileStream);
+    }
+
+    await req.applyCORSHeaders?.(reply);
+
+    if (!result.content.shouldStream) {
+      // reply.raw.end(buffer) does not get Fastify's normal Content-Length
+      // inference, so buffered 200 responses must set it explicitly here.
+      reply.header('Content-Length', result.content.data.length.toString());
+    }
+
+    reply.hijack();
+    reply.raw.writeHead(200, reply.getHeaders() as OutgoingHttpHeaders);
+
     if (result.content.shouldStream) {
-      // Large file - stream from disk using factory function
-      await reply.send(result.content.createStream());
+      // Large file — stream from disk directly to the socket.
+      // pipeline() propagates backpressure and destroys the stream on error.
+      await pipeline(fullFileStream as fs.ReadStream, reply.raw);
     } else {
-      // Small file - send buffered data directly
-      // This avoids redundant filesystem operations
-
-      if (result.contentEncoding) {
-        reply.header('Content-Length', result.content.data.length.toString());
-      }
-
-      await reply.send(result.content.data);
+      // Small file — send the buffered bytes in a single write.
+      reply.raw.end(result.content.data);
     }
 
     return { served: true, statusCode: 200 };

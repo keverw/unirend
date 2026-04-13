@@ -13,6 +13,8 @@ Unirend provides a collection of built-in plugins that handle common server func
 
 > Note: This page lists the ready-to-use, maintained plugins that ship with Unirend. If you want to build your own plugin or learn how the plugin system works, see the server plugin system guide: [docs/server-plugins.md](./server-plugins.md).
 
+Some built-in plugins also cooperate with Unirend's internal hijacked/raw response paths. For example, the built-in `cors` plugin shares its header application logic so static-content responses that use `reply.hijack()` still receive the expected CORS/security headers.
+
 ## Catalog
 
 - [cors](built-in-plugins/cors.md)

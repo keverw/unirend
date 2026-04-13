@@ -359,5 +359,13 @@ type FileContent =
 type ServeFileResult =
   | { served: false; reason: 'not-found' }
   | { served: false; reason: 'error'; error: Error }
-  | { served: true; statusCode: 200 | 206 | 304 };
+  | {
+      served: true;
+      statusCode:
+        | 200 // Full file served
+        | 206 // Partial content served
+        | 304 // Not modified
+        | 400 // Invalid range request
+        | 416; // Range not satisfiable
+    };
 ```

@@ -24,10 +24,28 @@ const createMockReply = () => {
       (reply as any)._statusCode = statusCode;
       return reply;
     }),
+    type: mock((_contentType: string) => reply),
+    hijack: mock(() => {
+      (reply as any)._hijacked = true;
+    }),
     send: mock((data: unknown) => {
       (reply as any)._sent = data;
       return reply;
     }),
+    header: mock((name: string, value: string) => {
+      (reply as any)._headers[name] = value;
+      return reply;
+    }),
+    getHeaders: mock(() => (reply as any)._headers || {}),
+    raw: {
+      destroyed: false,
+      writeHead: mock((_statusCode: number, _headers: unknown) => undefined),
+      end: mock((body?: string | Buffer) => {
+        (reply as any)._sent = body;
+      }),
+    },
+    _headers: {},
+    _hijacked: false,
     _statusCode: 200,
     _sent: null,
   };
@@ -37,10 +55,33 @@ const createMockReply = () => {
 // Helper to create a mock ControlledReply
 const createMockControlledReply = () => {
   const reply = {
-    _sendErrorEnvelope: mock((statusCode: number, errorEnvelope: unknown) => {
+    code: mock((statusCode: number) => {
       (reply as any)._statusCode = statusCode;
-      (reply as any)._sent = errorEnvelope;
+      return reply;
     }),
+    type: mock((_contentType: string) => reply),
+    hijack: mock(() => {
+      (reply as any)._hijacked = true;
+    }),
+    getHeaders: mock(() => (reply as any)._headers || {}),
+    raw: {
+      destroyed: false,
+      writeHead: mock((_statusCode: number, _headers: unknown) => undefined),
+      end: mock((body?: string | Buffer) => {
+        (reply as any)._sent = body;
+      }),
+    },
+    _headers: {},
+    _hijacked: false,
+    header: mock((name: string, value: string) => {
+      (reply as any)._headers[name] = value;
+    }),
+    getHeader: mock((name: string) => (reply as any)._headers[name]),
+    removeHeader: mock((name: string) => {
+      delete (reply as any)._headers[name];
+    }),
+    hasHeader: mock((name: string) => name in (reply as any)._headers),
+    sent: false,
     _statusCode: 200,
     _sent: null,
   };
@@ -462,8 +503,36 @@ describe('APIResponseHelpers', () => {
     });
   });
 
-  describe('sendErrorResponse', () => {
-    it('sends error response using ControlledReply._sendErrorEnvelope', () => {
+  describe('sendErrorEnvelope', () => {
+    it('uses ControlledReply._sendErrorEnvelope when available', async () => {
+      const request = createMockRequest();
+      const errorResponse = APIResponseHelpers.createAPIErrorResponse({
+        request,
+        statusCode: 400,
+        errorCode: 'bad_request',
+        errorMessage: 'Bad request',
+      });
+      const controlledReply = {
+        _sendErrorEnvelope: mock(
+          // eslint-disable-next-line @typescript-eslint/require-await
+          async (_statusCode: number, _errorEnvelope: unknown) => undefined,
+        ),
+      } as unknown as ControlledReply;
+
+      await APIResponseHelpers.sendErrorEnvelope(
+        request,
+        controlledReply,
+        400,
+        errorResponse,
+      );
+
+      expect((controlledReply as any)._sendErrorEnvelope).toHaveBeenCalledWith(
+        400,
+        errorResponse,
+      );
+    });
+
+    it('sends error envelope using ControlledReply raw path', async () => {
       const request = createMockRequest();
       const controlledReply = createMockControlledReply();
       const errorResponse = APIResponseHelpers.createAPIErrorResponse({
@@ -473,15 +542,25 @@ describe('APIResponseHelpers', () => {
         errorMessage: 'Bad request',
       });
 
-      APIResponseHelpers.sendErrorResponse(controlledReply, 400, errorResponse);
-
-      expect(controlledReply._sendErrorEnvelope).toHaveBeenCalledWith(
+      await APIResponseHelpers.sendErrorEnvelope(
+        request,
+        controlledReply,
         400,
         errorResponse,
       );
+
+      expect((controlledReply as any).code).toHaveBeenCalledWith(400);
+      expect((controlledReply as any).type).toHaveBeenCalledWith(
+        'application/json; charset=utf-8',
+      );
+      expect((controlledReply as any).hijack).toHaveBeenCalled();
+      expect((controlledReply as any).raw.writeHead).toHaveBeenCalled();
+      expect((controlledReply as any).raw.end).toHaveBeenCalledWith(
+        JSON.stringify(errorResponse),
+      );
     });
 
-    it('sends error response using FastifyReply.code().send()', () => {
+    it('sends error envelope using FastifyReply raw path too', async () => {
       const request = createMockRequest();
       const fastifyReply = createMockReply();
       const errorResponse = APIResponseHelpers.createAPIErrorResponse({
@@ -491,156 +570,202 @@ describe('APIResponseHelpers', () => {
         errorMessage: 'Not found',
       });
 
-      APIResponseHelpers.sendErrorResponse(fastifyReply, 404, errorResponse);
+      await APIResponseHelpers.sendErrorEnvelope(
+        request,
+        fastifyReply,
+        404,
+        errorResponse,
+      );
 
       expect((fastifyReply as any).code).toHaveBeenCalledWith(404);
-      expect((fastifyReply as any).send).toHaveBeenCalledWith(errorResponse);
+      expect((fastifyReply as any).type).toHaveBeenCalledWith(
+        'application/json; charset=utf-8',
+      );
+      expect((fastifyReply as any).hijack).toHaveBeenCalled();
+      expect((fastifyReply as any).raw.writeHead).toHaveBeenCalled();
+      expect((fastifyReply as any).raw.end).toHaveBeenCalledWith(
+        JSON.stringify(errorResponse),
+      );
+    });
+
+    it('does not write a body for HEAD error envelopes', async () => {
+      const request = createMockRequest({
+        method: 'HEAD',
+      });
+      const fastifyReply = createMockReply();
+      const errorResponse = APIResponseHelpers.createAPIErrorResponse({
+        request,
+        statusCode: 404,
+        errorCode: 'not_found',
+        errorMessage: 'Not found',
+      });
+
+      await APIResponseHelpers.sendErrorEnvelope(
+        request,
+        fastifyReply,
+        404,
+        errorResponse,
+      );
+
+      expect((fastifyReply as any).raw.end).toHaveBeenCalledWith(undefined);
     });
   });
 
   describe('ensureJSONBody', () => {
-    it('returns true when Content-Type is application/json and body is valid', () => {
+    it('returns true when Content-Type is application/json and body is valid', async () => {
       const request = createMockRequest({
         headers: { 'content-type': 'application/json' },
         body: { test: 'data' },
       });
       const reply = createMockReply();
 
-      const isValidJSONBody = APIResponseHelpers.ensureJSONBody(request, reply);
+      const isValidJSONBody = await APIResponseHelpers.ensureJSONBody(
+        request,
+        reply,
+      );
 
       expect(isValidJSONBody).toBe(true);
       expect((reply as any).code).not.toHaveBeenCalled();
     });
 
-    it('returns false and sends 415 when Content-Type is missing', () => {
+    it('returns false and sends 415 when Content-Type is missing', async () => {
       const request = createMockRequest({
         headers: {},
         body: { test: 'data' },
       });
       const reply = createMockReply();
 
-      const isValidJSONBody = APIResponseHelpers.ensureJSONBody(request, reply);
+      const isValidJSONBody = await APIResponseHelpers.ensureJSONBody(
+        request,
+        reply,
+      );
 
       expect(isValidJSONBody).toBe(false);
       expect((reply as any).code).toHaveBeenCalledWith(415);
     });
 
-    it('returns false and sends 415 when Content-Type is not application/json', () => {
+    it('returns false and sends 415 when Content-Type is not application/json', async () => {
       const request = createMockRequest({
         headers: { 'content-type': 'text/plain' },
         body: { test: 'data' },
       });
       const reply = createMockReply();
 
-      const isValidJSONBody = APIResponseHelpers.ensureJSONBody(request, reply);
+      const isValidJSONBody = await APIResponseHelpers.ensureJSONBody(
+        request,
+        reply,
+      );
 
       expect(isValidJSONBody).toBe(false);
       expect((reply as any).code).toHaveBeenCalledWith(415);
-      expect((reply as any)._sent.error.code).toBe('invalid_content_type');
+      expect(JSON.parse((reply as any)._sent).error.code).toBe(
+        'invalid_content_type',
+      );
     });
 
-    it('returns false and sends 400 when body is null', () => {
+    it('returns false and sends 400 when body is null', async () => {
       const request = createMockRequest({
         headers: { 'content-type': 'application/json' },
         body: null,
       });
       const reply = createMockReply();
 
-      const isValidJSONBody = APIResponseHelpers.ensureJSONBody(request, reply);
+      const isValidJSONBody = await APIResponseHelpers.ensureJSONBody(
+        request,
+        reply,
+      );
 
       expect(isValidJSONBody).toBe(false);
       expect((reply as any).code).toHaveBeenCalledWith(400);
-      expect((reply as any)._sent.error.code).toBe(
+      expect(JSON.parse((reply as any)._sent).error.code).toBe(
         'invalid_request_body_format',
       );
     });
 
-    it('returns false and sends 400 when body is not an object', () => {
+    it('returns false and sends 400 when body is not an object', async () => {
       const request = createMockRequest({
         headers: { 'content-type': 'application/json' },
         body: 'string body',
       });
       const reply = createMockReply();
 
-      const isValidJSONBody = APIResponseHelpers.ensureJSONBody(request, reply);
+      const isValidJSONBody = await APIResponseHelpers.ensureJSONBody(
+        request,
+        reply,
+      );
 
       expect(isValidJSONBody).toBe(false);
       expect((reply as any).code).toHaveBeenCalledWith(400);
     });
 
-    it('accepts Content-Type with charset parameter', () => {
+    it('accepts Content-Type with charset parameter', async () => {
       const request = createMockRequest({
         headers: { 'content-type': 'application/json; charset=utf-8' },
         body: { test: 'data' },
       });
       const reply = createMockReply();
 
-      const isValidJSONBody = APIResponseHelpers.ensureJSONBody(request, reply);
+      const isValidJSONBody = await APIResponseHelpers.ensureJSONBody(
+        request,
+        reply,
+      );
 
       expect(isValidJSONBody).toBe(true);
     });
   });
 
   describe('ensureURLEncodedBody', () => {
-    it('returns true when Content-Type is application/x-www-form-urlencoded', () => {
+    it('returns true when Content-Type is application/x-www-form-urlencoded', async () => {
       const request = createMockRequest({
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: { field: 'value' },
       });
       const reply = createMockReply();
 
-      const isValidURLEncodedBody = APIResponseHelpers.ensureURLEncodedBody(
-        request,
-        reply,
-      );
+      const isValidURLEncodedBody =
+        await APIResponseHelpers.ensureURLEncodedBody(request, reply);
 
       expect(isValidURLEncodedBody).toBe(true);
       expect((reply as any).code).not.toHaveBeenCalled();
     });
 
-    it('returns false and sends 415 when Content-Type is missing', () => {
+    it('returns false and sends 415 when Content-Type is missing', async () => {
       const request = createMockRequest({
         headers: {},
         body: { field: 'value' },
       });
       const reply = createMockReply();
 
-      const isValidURLEncodedBody = APIResponseHelpers.ensureURLEncodedBody(
-        request,
-        reply,
-      );
+      const isValidURLEncodedBody =
+        await APIResponseHelpers.ensureURLEncodedBody(request, reply);
 
       expect(isValidURLEncodedBody).toBe(false);
       expect((reply as any).code).toHaveBeenCalledWith(415);
     });
 
-    it('returns false and sends 415 when Content-Type is not form-urlencoded', () => {
+    it('returns false and sends 415 when Content-Type is not form-urlencoded', async () => {
       const request = createMockRequest({
         headers: { 'content-type': 'application/json' },
         body: { field: 'value' },
       });
       const reply = createMockReply();
 
-      const isValidURLEncodedBody = APIResponseHelpers.ensureURLEncodedBody(
-        request,
-        reply,
-      );
+      const isValidURLEncodedBody =
+        await APIResponseHelpers.ensureURLEncodedBody(request, reply);
 
       expect(isValidURLEncodedBody).toBe(false);
       expect((reply as any).code).toHaveBeenCalledWith(415);
     });
 
-    it('returns false and sends 400 when body is not an object', () => {
+    it('returns false and sends 400 when body is not an object', async () => {
       const request = createMockRequest({
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: null,
       });
       const reply = createMockReply();
 
-      const isValidURLEncodedBody = APIResponseHelpers.ensureURLEncodedBody(
-        request,
-        reply,
-      );
+      const isValidURLEncodedBody =
+        await APIResponseHelpers.ensureURLEncodedBody(request, reply);
 
       expect(isValidURLEncodedBody).toBe(false);
       expect((reply as any).code).toHaveBeenCalledWith(400);
@@ -648,13 +773,13 @@ describe('APIResponseHelpers', () => {
   });
 
   describe('ensureMultipartBody', () => {
-    it('returns true when Content-Type is multipart/form-data', () => {
+    it('returns true when Content-Type is multipart/form-data', async () => {
       const request = createMockRequest({
         headers: { 'content-type': 'multipart/form-data; boundary=----123' },
       });
       const reply = createMockReply();
 
-      const isValidMultipartBody = APIResponseHelpers.ensureMultipartBody(
+      const isValidMultipartBody = await APIResponseHelpers.ensureMultipartBody(
         request,
         reply,
       );
@@ -663,13 +788,13 @@ describe('APIResponseHelpers', () => {
       expect((reply as any).code).not.toHaveBeenCalled();
     });
 
-    it('returns false and sends 415 when Content-Type is missing', () => {
+    it('returns false and sends 415 when Content-Type is missing', async () => {
       const request = createMockRequest({
         headers: {},
       });
       const reply = createMockReply();
 
-      const isValidMultipartBody = APIResponseHelpers.ensureMultipartBody(
+      const isValidMultipartBody = await APIResponseHelpers.ensureMultipartBody(
         request,
         reply,
       );
@@ -678,13 +803,13 @@ describe('APIResponseHelpers', () => {
       expect((reply as any).code).toHaveBeenCalledWith(415);
     });
 
-    it('returns false and sends 415 when Content-Type is not multipart', () => {
+    it('returns false and sends 415 when Content-Type is not multipart', async () => {
       const request = createMockRequest({
         headers: { 'content-type': 'application/json' },
       });
       const reply = createMockReply();
 
-      const isValidMultipartBody = APIResponseHelpers.ensureMultipartBody(
+      const isValidMultipartBody = await APIResponseHelpers.ensureMultipartBody(
         request,
         reply,
       );

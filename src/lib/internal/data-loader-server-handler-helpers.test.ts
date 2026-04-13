@@ -60,7 +60,14 @@ const createMockReply = () => {
       (reply as any)._headers[name] = value;
       return reply;
     }),
+    hijack: mock(() => {
+      (reply as any).sent = true;
+      (reply as any).raw.headersSent = true;
+    }),
     sent: false,
+    raw: {
+      headersSent: false,
+    },
     _statusCode: 200,
     _sent: null,
     _headers: {},
@@ -779,12 +786,13 @@ describe('DataLoaderServerHandlerHelpers', () => {
       const reply = createMockReply();
 
       const handler = (fastify as any)._routes[0]?.handler;
+
       if (handler) {
-        await handler(request, reply);
+        const result = await handler(request, reply);
         expect((reply as any).code).toHaveBeenCalledWith(400);
-        expect((reply as any)._sent.error.code).toBe(
-          'invalid_page_data_body_fields',
-        );
+
+        // Handler returns the error envelope directly (not via reply.send)
+        expect(result.error.code).toBe('invalid_page_data_body_fields');
       }
     });
 
