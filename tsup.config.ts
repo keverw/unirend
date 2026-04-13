@@ -1,6 +1,8 @@
 import { defineConfig } from 'tsup';
+import type { Options } from 'tsup';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import type { Plugin } from 'esbuild';
 
 // Read package.json to get all dependencies
 const packageJSON = JSON.parse(
@@ -35,119 +37,90 @@ const getAllDependencies = () => {
   return Array.from(deps).sort();
 };
 
-const allExternals = getAllDependencies();
+const allExternals = [...getAllDependencies(), 'unirend/context'];
+
+// Plugin that redirects ./context imports from UnirendContext/ and UnirendHead/
+// to the shared `unirend/context` subpath so both client and server bundles
+// reference the same createContext() call at runtime instead of each bundling
+// their own copy.
+const sharedContextPlugin: Plugin = {
+  name: 'externalize-shared-contexts',
+  setup(build) {
+    build.onResolve({ filter: /^\.\/context$/ }, (args) => {
+      const resolveDir = args.resolveDir.replaceAll('\\', '/');
+
+      if (
+        resolveDir.endsWith('/UnirendContext') ||
+        resolveDir.endsWith('/UnirendHead')
+      ) {
+        return { path: 'unirend/context', external: true };
+      }
+    });
+  },
+};
 
 // NOTE: This configuration externalizes ALL dependencies for NPM distribution
 // By default, tsup only excludes "dependencies" and "peerDependencies" but bundles "devDependencies"
 // For a library published to NPM, we want EVERYTHING external so users install their own deps
 // This approach automatically stays in sync with package.json changes
+const baseConfig: Options = {
+  format: ['cjs', 'esm'],
+  dts: true,
+  splitting: false,
+  sourcemap: true,
+  clean: true,
+  external: allExternals,
+  esbuildPlugins: [sharedContextPlugin],
+};
 
 export default defineConfig([
+  // Shared context objects — must be its own entry so client and server can
+  // reference it as an external, ensuring a single createContext() instance
+  // when both are imported in the same SSR bundle.
+  { ...baseConfig, entry: ['src/context.ts'], outDir: 'dist/context' },
+
   // Client-only entry point
-  {
-    entry: ['src/client.ts'],
-    outDir: 'dist/client',
-    format: ['cjs', 'esm'],
-    dts: true,
-    splitting: false,
-    sourcemap: true,
-    clean: true, // Safe to clean since it's in its own subdirectory
-    external: allExternals,
-  },
+  { ...baseConfig, entry: ['src/client.ts'], outDir: 'dist/client' },
 
   // Server-only entry point
-  {
-    entry: ['src/server.ts'],
-    outDir: 'dist/server',
-    format: ['cjs', 'esm'],
-    dts: true,
-    splitting: false,
-    sourcemap: true,
-    clean: true, // Safe to clean since it's in its own subdirectory
-    external: allExternals,
-  },
+  { ...baseConfig, entry: ['src/server.ts'], outDir: 'dist/server' },
 
   // Shared router utilities (client + server)
   {
+    ...baseConfig,
     entry: ['src/router-utils.ts'],
     outDir: 'dist/router-utils',
-    format: ['cjs', 'esm'],
-    dts: true,
-    splitting: false,
-    sourcemap: true,
-    clean: true, // Safe to clean since it's in its own subdirectory
-    external: allExternals,
   },
 
   // Public plugins (server-side)
-  {
-    entry: ['src/plugins.ts'],
-    outDir: 'dist/plugins',
-    format: ['cjs', 'esm'],
-    dts: true,
-    splitting: false,
-    sourcemap: true,
-    clean: true, // Safe to clean since it's in its own subdirectory
-    external: allExternals,
-  },
+  { ...baseConfig, entry: ['src/plugins.ts'], outDir: 'dist/plugins' },
 
   // API envelope types and helpers (universal)
   {
+    ...baseConfig,
     entry: ['src/api-envelope.ts'],
     outDir: 'dist/api-envelope',
-    format: ['cjs', 'esm'],
-    dts: true,
-    splitting: false,
-    sourcemap: true,
-    clean: true, // Safe to clean since it's in its own subdirectory
-    external: allExternals, // Externalize everything for NPM distribution
   },
 
   // Starter templates (project generation)
   {
+    ...baseConfig,
     entry: ['src/starter-templates.ts'],
     outDir: 'dist/starter-templates',
-    format: ['cjs', 'esm'],
-    dts: true,
-    splitting: false,
-    sourcemap: true,
-    clean: true, // Safe to clean since it's in its own subdirectory
-    external: allExternals,
   },
 
   // Build info (server-side)
-  {
-    entry: ['src/build-info.ts'],
-    outDir: 'dist/build-info',
-    format: ['cjs', 'esm'],
-    dts: true,
-    splitting: false,
-    sourcemap: true,
-    clean: true, // Safe to clean since it's in its own subdirectory
-    external: allExternals,
-  },
+  { ...baseConfig, entry: ['src/build-info.ts'], outDir: 'dist/build-info' },
 
   // CLI entry point (no shebang - run with bun/node)
   {
+    ...baseConfig,
     entry: ['src/cli.ts'],
     outDir: 'dist/cli',
     format: ['esm'], // CLI only needs ESM since package.json has "type": "module"
-    dts: false, // CLI doesn't need type definitions
-    splitting: false,
-    sourcemap: false, // CLI doesn't need sourcemaps
-    clean: true,
-    external: allExternals,
+    dts: false, // CLI is not consumed as a library so type definitions aren't needed
   },
 
   // Public utilities (StaticContentCache, HTML helpers)
-  {
-    entry: ['src/utils.ts'],
-    outDir: 'dist/utils',
-    format: ['cjs', 'esm'],
-    dts: true,
-    splitting: false,
-    sourcemap: true,
-    clean: true,
-    external: allExternals,
-  },
+  { ...baseConfig, entry: ['src/utils.ts'], outDir: 'dist/utils' },
 ]);

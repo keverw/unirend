@@ -4,6 +4,11 @@
   "type": "module",
   "description": "A lightweight toolkit for working with both SSG (Static Site Generation) and SSR (Server-Side Rendering) in your Vite + React projects.",
   "exports": {
+    "./context": {
+      "types": "./dist/context/context.d.ts",
+      "import": "./dist/context/context.js",
+      "require": "./dist/context/context.cjs"
+    },
     "./client": {
       "types": "./dist/client/client.d.ts",
       "import": "./dist/client/client.js",
