@@ -3,6 +3,7 @@
 <!-- toc -->
 
 - [Creating Generation Script](#creating-generation-script)
+  - [SPA Pages](#spa-pages)
   - [Request Context Injection](#request-context-injection)
   - [Template Caching Info](#template-caching-info)
   - [Page Map Output](#page-map-output)
@@ -150,6 +151,10 @@ async function main() {
 main().catch(console.error);
 ```
 
+### SPA Pages
+
+An `spa` page stamps a copy of the Vite `index.html` template with an empty root div (no server render), injects any `title`/`description`/`meta` you specify into `<head>`, and writes the result as a standalone HTML file. The client JS bundle mounts fresh into the empty root and takes full control, just like a traditional SPA. This is useful for routes that are always client-rendered (dashboards, auth-gated pages) but need their own pre-configured metadata or request context baked in at generation time.
+
 ### Request Context Injection
 
 Both SSG and SPA pages support injecting request context data that will be available on the client.
@@ -172,18 +177,18 @@ Both SSG and SPA pages support injecting request context data that will be avail
 
 **React Components (Server & Client):**
 
-- Components can read or update the context during the generation process (for SSG pages) and on the client after hydration
+- Components can read or update the context during the generation process (for SSG pages), which is then available to the client when it mounts
 - The context acts as a key-value store initially populated during page generation that components can take over on the frontend
 - See [Unirend Context documentation](./unirend-context.md) for details on accessing this data in your React components
 
 ### Template Caching Info
 
-Unirend automatically caches the processed HTML template in `.unirend-ssg.json` within your client build directory. This serves two important purposes:
+Unirend automatically caches the processed HTML template in `.unirend-ssg.json` within your client build directory. Both `ssg` and `spa` pages use this cached template as their HTML shell. This serves two important purposes:
 
 1. **Performance**: Avoids re-processing the template on subsequent generation runs
 2. **Template preservation**: Keeps a copy of the original `index.html` in case you overwrite it with a generated index page
 
-- **First run**: Processes the HTML template (formatting and preparation) and creates the cache file
+- **First run**: Cache file is absent, so `generateSSG` reads `index.html` directly and assumes it is the original Vite output — processes it, then writes the cache file
 - **Subsequent runs**: Uses the cached processed template, preserving your source `index.html`
 
 **Important:** Vite's default behavior is to clean the output directory on each build (`build.emptyOutDir: true`). This means:
