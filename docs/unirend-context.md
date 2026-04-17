@@ -509,21 +509,33 @@ const server = serveSSRProd({
 
 ##### Flash Prevention (`index.html`)
 
-Add to `<head>` to apply the correct class before JS loads. Unirend injects `__FRONTEND_REQUEST_CONTEXT__` into `<head>` before your scripts so the preference is already available. For `'auto'`, `matchMedia` resolves the OS preference immediately:
+Add to `<head>` to apply the correct class before JS loads. The cookie is preferred over `__FRONTEND_REQUEST_CONTEXT__` — it reflects the user's last explicit choice and is always current. The context value is baked at build time for SSG, or read at request time for SSR (a change in another tab mid-request would still leave them out of sync). Falls back to the OS preference via `matchMedia` when neither is set.
+
+> **Place this script after all `<meta>` tags** Some scrapers and link-preview services stop parsing at the first `<script>` tag regardless of its length, so any meta tags after it won't appear in social previews.
 
 ```html
 <script>
   (function () {
-    var pref = window.__FRONTEND_REQUEST_CONTEXT__?.themePreference || 'auto';
+    const valid = ['light', 'dark', 'auto'];
+    const cookieMatch = document.cookie.match(
+      /(?:^|;\s*)themePreference=([^;]+)/,
+    );
 
-    var theme =
-      pref === 'auto'
-        ? window.matchMedia('(prefers-color-scheme: dark)').matches
-          ? 'dark'
-          : 'light'
-        : pref;
+    const cookiePref = valid.includes(cookieMatch?.[1]) ? cookieMatch[1] : null;
 
-    document.documentElement.className = 'theme-' + theme;
+    const pref =
+      cookiePref ||
+      window.__FRONTEND_REQUEST_CONTEXT__?.themePreference ||
+      'auto';
+
+    const systemPrefersDark =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    const theme =
+      pref === 'auto' ? (systemPrefersDark ? 'dark' : 'light') : pref;
+
+    if (theme === 'dark') document.documentElement.classList.add('dark');
   })();
 </script>
 ```
@@ -568,10 +580,17 @@ import {
 
 const CYCLE: ThemePreference[] = ['auto', 'dark', 'light'];
 
+// Evaluated once when the module loads on the client; null on the server (no window)
+const darkMQ =
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-color-scheme: dark)')
+    : null;
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  // preference is server-seeded from cookie via the theme plugin (see server plugin above)
+  // preference is seeded from requestContext (SSG build-time or SSR middleware)
   const [preference, setContextPref] =
     useRequestContextValue<ThemePreference>('themePreference');
+  // ref is shared between cycleTheme (sender) and the BroadcastChannel effect (receiver)
   const channelRef = useRef<BroadcastChannel | null>(null);
 
   // useDomainInfo() gives us the root domain for subdomain-spanning cookies.
@@ -580,39 +599,52 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const domainInfo = useDomainInfo();
 
   // systemTheme always defaults to 'light' on the server (window.matchMedia isn't available
-  // during SSR). The useEffect below updates it on the client after hydration.
+  // during SSR/SSG). The client reads matchMedia immediately via the lazy initializer.
+  // We don't render conditional JSX based on resolvedTheme, so the server/client
+  // difference doesn't cause a hydration mismatch — the effect only toggles a class.
+  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() =>
+    darkMQ?.matches ? 'dark' : 'light',
+  );
 
-  // This is why we don't recommend conditional JSX based on resolvedTheme — when preference
-  // is 'auto', the server resolves to 'light' but the client may resolve to 'dark', causing
-  // a hydration mismatch. Use the 'dark' class on <html> with Tailwind dark: or CSS selectors instead.
-  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>('light');
-
+  // On mount, reconcile cookie with the server-seeded context value. The cookie is always
+  // the most up-to-date source — SSG bakes the context at build time, and even SSR reads
+  // it at request time so a change in another tab mid-request can leave them out of sync.
   useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    setSystemTheme(mq.matches ? 'dark' : 'light');
+    const match = document.cookie.match(/(?:^|;\s*)themePreference=([^;]+)/);
+    const val = match?.[1] as ThemePreference | undefined;
+    const valid: ThemePreference[] = ['light', 'dark', 'auto'];
+
+    if (val && valid.includes(val) && val !== preference) {
+      setContextPref(val);
+    }
+  }, [preference, setContextPref]);
+
+  // Subscribe to OS-level dark/light preference changes (e.g. user switches system theme)
+  useEffect(() => {
+    if (!darkMQ) {
+      return;
+    }
 
     function handler(e: MediaQueryListEvent) {
       setSystemTheme(e.matches ? 'dark' : 'light');
     }
 
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
+    darkMQ.addEventListener('change', handler);
+    return () => darkMQ.removeEventListener('change', handler);
   }, []);
 
+  // Missing or 'auto' preferences follow the OS theme.
   const resolvedTheme: ResolvedTheme =
-    preference === 'auto' ? systemTheme : (preference ?? 'light');
+    preference && preference !== 'auto' ? preference : systemTheme;
 
-  // Single place that updates <html> — Tailwind dark: classes and CSS selectors key off this
+  // Single place that updates <html> — CSS dark: selectors key off this class
   useEffect(() => {
     document.documentElement.classList.toggle('dark', resolvedTheme === 'dark');
   }, [resolvedTheme]);
 
   const cycleTheme = () => {
     const next =
-      CYCLE[
-        (CYCLE.indexOf((preference ?? 'auto') as ThemePreference) + 1) %
-          CYCLE.length
-      ];
+      CYCLE[(CYCLE.indexOf(preference ?? 'auto') + 1) % CYCLE.length];
 
     document.cookie = [
       `themePreference=${next}`,
@@ -628,38 +660,52 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setContextPref(next);
   };
 
-  // Single BroadcastChannel instance — used for both sending (cycleTheme) and receiving
+  // Single BroadcastChannel instance for cross-tab sync
   useEffect(() => {
+    if (typeof BroadcastChannel !== 'function') {
+      return;
+    }
+
     const channel = new BroadcastChannel('theme');
     channelRef.current = channel;
 
     channel.onmessage = (
       e: MessageEvent<{ themePreference?: ThemePreference }>,
     ) => {
-      if (e.data?.themePreference) setContextPref(e.data.themePreference);
+      if (e.data?.themePreference) {
+        setContextPref(e.data.themePreference);
+      }
     };
 
     return () => {
       channel.close();
       channelRef.current = null;
     };
-  }, []);
+  }, [setContextPref]);
 
-  // Re-read cookie when tab becomes visible — catches changes from other tabs or subdomains
+  // Re-read cookie when tab becomes visible — catches changes made in other tabs or
+  // subdomains while this tab was in the background. Intentionally does NOT broadcast
+  // so we don't loop back to tabs that already made the change.
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.visibilityState !== 'visible') return;
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+
       const match = document.cookie.match(/(?:^|;\s*)themePreference=([^;]+)/);
       const val = match?.[1] as ThemePreference | undefined;
       const valid: ThemePreference[] = ['light', 'dark', 'auto'];
-      if (val && valid.includes(val)) setContextPref(val);
+
+      if (val && valid.includes(val)) {
+        setContextPref(val);
+      }
     };
 
     document.addEventListener('visibilitychange', handleVisibility);
 
     return () =>
       document.removeEventListener('visibilitychange', handleVisibility);
-  }, []);
+  }, [setContextPref]);
 
   return (
     <ThemeContext.Provider
@@ -699,16 +745,16 @@ export function AppLayout({ children }) {
 **`ThemeToggle.tsx`** — can live anywhere inside `ThemeProvider`:
 
 ```tsx
-import { useTheme } from './theme/context';
+import { useTheme } from './context';
+
+const labels: Record<string, string> = {
+  auto: 'Auto',
+  dark: 'Dark',
+  light: 'Light',
+};
 
 export function ThemeToggle() {
   const { preference, cycleTheme } = useTheme();
-
-  const labels: Record<string, string> = {
-    auto: 'Auto',
-    dark: 'Dark',
-    light: 'Light',
-  };
 
   return <button onClick={cycleTheme}>Theme: {labels[preference]}</button>;
 }
