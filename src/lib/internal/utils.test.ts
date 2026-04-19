@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'bun:test';
-import { deepFreeze } from './utils';
+import {
+  assertSupportedRuntime,
+  deepFreeze,
+  getRuntimeSupportInfo,
+  isSupportedRuntime,
+  MINIMUM_SUPPORTED_NODE_MAJOR,
+} from './utils';
 
 describe('deepFreeze', () => {
   it('freezes a flat object', () => {
@@ -39,5 +45,68 @@ describe('deepFreeze', () => {
     const obj = { arr: [1, 2, 3] };
     deepFreeze(obj);
     expect(Object.isFrozen(obj.arr)).toBe(true);
+  });
+});
+
+describe('runtime support utilities', () => {
+  it('treats Bun as supported even when Bun reports an older Node version', () => {
+    const result = getRuntimeSupportInfo(MINIMUM_SUPPORTED_NODE_MAJOR, {
+      Bun: {},
+      process: {
+        versions: {
+          bun: '1.3.2',
+          node: '24.3.0',
+        },
+      },
+    });
+
+    expect(result.runtime).toBe('bun');
+    expect(result.isSupported).toBe(true);
+    expect(result.nodeVersion).toBe('24.3.0');
+    expect(result.bunVersion).toBe('1.3.2');
+  });
+
+  it('accepts Node when the major version meets the minimum', () => {
+    expect(
+      isSupportedRuntime(MINIMUM_SUPPORTED_NODE_MAJOR, {
+        process: {
+          versions: {
+            node: '25.0.0',
+          },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it('rejects Node when the major version is below the minimum', () => {
+    const result = getRuntimeSupportInfo(MINIMUM_SUPPORTED_NODE_MAJOR, {
+      process: {
+        versions: {
+          node: '24.9.0',
+        },
+      },
+    });
+
+    expect(result.runtime).toBe('node');
+    expect(result.isSupported).toBe(false);
+  });
+
+  it('rejects unknown runtimes', () => {
+    const result = getRuntimeSupportInfo(MINIMUM_SUPPORTED_NODE_MAJOR, {});
+
+    expect(result.runtime).toBe('unknown');
+    expect(result.isSupported).toBe(false);
+  });
+
+  it('throws a descriptive error for unsupported runtimes', () => {
+    expect(() =>
+      assertSupportedRuntime(MINIMUM_SUPPORTED_NODE_MAJOR, {
+        process: {
+          versions: {
+            node: '24.0.0',
+          },
+        },
+      }),
+    ).toThrow('Unirend requires Node >= 25 or Bun.');
   });
 });

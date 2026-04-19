@@ -538,13 +538,19 @@ See [docs/build-info.md](docs/build-info.md) for generating and loading build me
 
 ## Utilities
 
-Unirend exposes utilities for static file caching and HTML escaping. While used internally by unirend, they can also be used standalone in any project:
+Unirend exposes public utilities for static file caching, HTML escaping, and runtime requirement checks. Some are used internally by unirend, while others are intended for use in your own server or build scripts:
 
 - **StaticContentCache**: A caching layer for static file serving with ETag support and LRU caching
 - **escapeHTML / escapeHTMLAttr**: Safe HTML escaping for server-side HTML generation (e.g. custom error pages, `dangerouslySetInnerHTML`)
+- **getRuntimeSupportInfo / isSupportedRuntime / assertSupportedRuntime**: Check for `Node >= 25` unless the current runtime is Bun
 
 ```typescript
-import { StaticContentCache, escapeHTML, escapeHTMLAttr } from 'unirend/utils';
+import {
+  StaticContentCache,
+  escapeHTML,
+  escapeHTMLAttr,
+  getRuntimeSupportInfo,
+} from 'unirend/utils';
 ```
 
 See [docs/utilities.md](docs/utilities.md) for full API documentation.

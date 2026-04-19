@@ -1,6 +1,6 @@
 # Utilities
 
-Unirend exposes utilities for static file caching and HTML escaping. While used internally by unirend, they can also be used standalone in any project.
+Unirend exposes public utilities for static file caching, HTML escaping, and runtime requirement checks. Some are used internally by unirend, while others are intended for use in your own server or build scripts.
 
 ```typescript
 import { ... } from 'unirend/utils';
@@ -8,6 +8,11 @@ import { ... } from 'unirend/utils';
 
 <!-- toc -->
 
+- [Runtime Utilities](#runtime-utilities)
+  - [`MINIMUM_SUPPORTED_NODE_MAJOR`](#minimum_supported_node_major)
+  - [`getRuntimeSupportInfo(minimumNodeMajor?): RuntimeSupportInfo`](#getruntimesupportinfominimumnodemajor-runtimesupportinfo)
+  - [`isSupportedRuntime(minimumNodeMajor?): boolean`](#issupportedruntimeminimumnodemajor-boolean)
+  - [`assertSupportedRuntime(minimumNodeMajor?): void`](#assertsupportedruntimeminimumnodemajor-void)
 - [HTML Utilities](#html-utilities)
   - [`escapeHTML(str: string): string`](#escapehtmlstr-string-string)
   - [`escapeHTMLAttr(str: string): string`](#escapehtmlattrstr-string-string)
@@ -27,6 +32,70 @@ import { ... } from 'unirend/utils';
   - [Types](#types)
 
 <!-- tocstop -->
+
+## Runtime Utilities
+
+### `MINIMUM_SUPPORTED_NODE_MAJOR`
+
+The default Node major version required by Unirend when the runtime is Node.
+
+```typescript
+import { MINIMUM_SUPPORTED_NODE_MAJOR } from 'unirend/utils';
+
+console.log(MINIMUM_SUPPORTED_NODE_MAJOR); // 25
+```
+
+### `getRuntimeSupportInfo(minimumNodeMajor?): RuntimeSupportInfo`
+
+Detects the current runtime and reports whether it satisfies Unirend's runtime requirement.
+
+Important: Bun is treated as supported even if `process.versions.node` reports an older compatibility version.
+
+```typescript
+import { getRuntimeSupportInfo } from 'unirend/utils';
+
+const runtime = getRuntimeSupportInfo();
+
+if (!runtime.isSupported) {
+  console.error(
+    `Need Node >= ${runtime.minimumNodeMajor} or Bun. Detected ${runtime.runtime}.`,
+  );
+}
+```
+
+Returned shape:
+
+```typescript
+interface RuntimeSupportInfo {
+  runtime: 'bun' | 'node' | 'unknown';
+  isSupported: boolean;
+  minimumNodeMajor: number;
+  nodeVersion?: string;
+  bunVersion?: string;
+}
+```
+
+### `isSupportedRuntime(minimumNodeMajor?): boolean`
+
+Convenience boolean wrapper around `getRuntimeSupportInfo()`.
+
+```typescript
+import { isSupportedRuntime } from 'unirend/utils';
+
+if (!isSupportedRuntime()) {
+  process.exitCode = 1;
+}
+```
+
+### `assertSupportedRuntime(minimumNodeMajor?): void`
+
+Throws when the current runtime does not satisfy Unirend's runtime requirement.
+
+```typescript
+import { assertSupportedRuntime } from 'unirend/utils';
+
+assertSupportedRuntime();
+```
 
 ## HTML Utilities
 

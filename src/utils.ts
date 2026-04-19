@@ -1,8 +1,9 @@
 /**
  * Public utilities exported from unirend/utils
  *
- * This module exposes utilities for static file caching and HTML escaping.
- * While these are used internally by unirend, they can also be used standalone in any project.
+ * This module exposes public utilities for static file caching, HTML escaping,
+ * and runtime checks. Some are used internally by unirend, while others are
+ * intended for use in consumer scripts.
  *
  * - StaticContentCache: Caching layer for static file serving with ETag support and LRU caching
  * - escapeHTML / escapeHTMLAttr: Safe HTML escaping for server-side HTML generation
@@ -37,3 +38,13 @@ export type { FolderConfig } from './lib/types';
 // Utility functions for safely handling HTML content
 
 export { escapeHTML, escapeHTMLAttr } from './lib/internal/html-utils/escape';
+
+// Runtime detection helpers
+export {
+  MINIMUM_SUPPORTED_NODE_MAJOR,
+  getRuntimeSupportInfo,
+  isSupportedRuntime,
+  assertSupportedRuntime,
+} from './lib/internal/utils';
+
+export type { RuntimeName, RuntimeSupportInfo } from './lib/internal/utils';
