@@ -130,7 +130,7 @@
     "eslint-plugin-unicorn": "^62.0.0",
     "fastify-tsconfig": "^3.0.0",
     "get-port": "^7.1.0",
-    "lifecycleion": "^0.0.12",
+    "lifecycleion": "^0.0.13",
     "markdown-toc-gen": "^1.2.0",
     "prettier": "^3.5.3",
     "react": "^19.0.0",
@@ -143,7 +143,7 @@
     "vite": "^8.0.0"
   },
   "peerDependencies": {
-    "lifecycleion": "^0.0.12",
+    "lifecycleion": "^0.0.13",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router": "^7.0.0",
