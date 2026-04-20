@@ -562,7 +562,7 @@ async function main() {
   const buildDir = path.resolve(__dirname, 'build');
 
   const server = serveSSRProd(buildDir, {
-    // Optional: Custom server entry name (default: "entry-server" - looks for entry-server.js in server manifest)
+    // Optional: Custom server entry name (default: "entry-ssr" - looks for entry-ssr.js in server manifest)
     // serverEntry: "custom-entry",
 
     // Optional: Custom HTML template path relative to buildDir (default: "client/index.html")
@@ -675,7 +675,7 @@ async function main() {
   const server = serveSSRDev(
     {
       // Required: paths for development mode (no defaults, must be specified)
-      serverEntry: './src/entry-server.tsx', // Your server entry file
+      serverEntry: './src/entry-ssr.tsx', // Your server entry file
       template: './index.html', // HTML template file
       viteConfig: './vite.config.ts', // Vite config file
     },
@@ -800,7 +800,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
 ### Options (prod-only)
 
 - `serverEntry?: string`
-  - Name of the server entry in manifest (default `"entry-server"`).
+  - Name of the server entry in manifest (default `"entry-ssr"`).
 - `template?: string`
   - Custom HTML template path relative to `buildDir` (default: `"client/index.html"`).
   - Example: `template: "dist/app.html"` loads from `buildDir/dist/app.html`.
@@ -1379,7 +1379,7 @@ server.registerProdApp('marketing', './build-marketing', {
   // App-specific frontend config (injected into client)
   frontendAppConfig: { api_endpoint: 'https://marketing-api.example.com' },
 
-  // Optional: Custom server entry (default: "entry-server")
+  // Optional: Custom server entry (default: "entry-ssr")
   // serverEntry: 'custom-entry',
 
   // Optional: Custom HTML template (default: "client/index.html")
@@ -1431,7 +1431,7 @@ import { serveSSRDev } from 'unirend/server';
 
 const server = serveSSRDev(
   {
-    serverEntry: './src/entry-server.tsx',
+    serverEntry: './src/entry-ssr.tsx',
     template: './index.html',
     viteConfig: './vite.config.ts',
   },
@@ -1444,7 +1444,7 @@ const server = serveSSRDev(
 server.registerDevApp(
   'marketing',
   {
-    serverEntry: './src/marketing/entry-server.tsx',
+    serverEntry: './src/marketing/entry-ssr.tsx',
     template: './src/marketing/index.html',
     viteConfig: './vite.marketing.config.ts',
   },

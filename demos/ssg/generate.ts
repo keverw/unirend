@@ -88,7 +88,7 @@ async function main() {
   // Optional configuration
   const options = {
     // serverEntry: "entry-ssg", // Default for SSG, can be customized
-    // serverEntry: "entry-server", // Use this if you want to share with SSR
+    // serverEntry: "entry-ssr", // Use this if you want to share with SSR
     frontendAppConfig: {
       // Any config you want to inject into the frontend
       api_endpoint: 'https://api.example.com',

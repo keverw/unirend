@@ -194,7 +194,7 @@ SSG note: Static Site Generation invokes your server entry at build time to rend
 Create a server entry file that exports a render function:
 
 - **For SSG**: Create `entry-ssg.tsx`
-- **For SSR**: Create `entry-server.tsx`
+- **For SSR**: Create `entry-ssr.tsx`
 
 ```typescript
 import { unirendBaseRender } from 'unirend/server';
@@ -223,7 +223,7 @@ vite build --outDir build/client --base=/ --ssrManifest
 # For SSG:
 vite build --outDir build/server --ssr src/entry-ssg.tsx
 # For SSR:
-vite build --outDir build/server --ssr src/entry-server.tsx
+vite build --outDir build/server --ssr src/entry-ssr.tsx
 ```
 
 #### 3. Package.json Scripts
@@ -247,7 +247,7 @@ Add these scripts to your `package.json` for both SSG and SSR workflows. We reco
     "build-and-serve": "bun run build-and-generate && bun run serve:prod",
 
     // For SSR:
-    "build:server:ssr": "vite build --outDir build/server --ssr src/entry-server.tsx",
+    "build:server:ssr": "vite build --outDir build/server --ssr src/entry-ssr.tsx",
     "build:ssr": "bun run build:client && bun run build:server:ssr",
     "serve-dev": "bun run serve.ts dev", // SSR dev mode with HMR
     "serve-prod": "bun run serve.ts prod", // SSR prod mode (requires build:ssr first)

@@ -292,7 +292,7 @@ async function runWebSocketDemo() {
 
     ssrServer = serveSSRDev(
       {
-        serverEntry: './demos/ssr/src/entry-server.tsx',
+        serverEntry: './demos/ssr/src/entry-ssr.tsx',
         template: './demos/ssr/index.html',
         viteConfig: './demos/ssr/vite.config.ts',
       },

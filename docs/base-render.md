@@ -18,7 +18,7 @@
 
 The `unirendBaseRender` function is a helper function that handles React Router/Data Loaders, UnirendProvider, UnirendHeadProvider, renderToString, and error parsing for both SSR and SSG scenarios.
 
-When setting up your `entry-ssg.tsx` or `entry-server.tsx`, you export a `render` function that accepts an `RenderRequest` and uses `unirendBaseRender` to handle the rendering of your app. This will return structured data that will be used to generate the HTML for your page or serve as the response for SSR.
+When setting up your `entry-ssg.tsx` or `entry-ssr.tsx`, you export a `render` function that accepts an `RenderRequest` and uses `unirendBaseRender` to handle the rendering of your app. This will return structured data that will be used to generate the HTML for your page or serve as the response for SSR.
 
 ```typescript
 import { unirendBaseRender } from 'unirend/server';

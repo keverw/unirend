@@ -988,7 +988,7 @@ async function startServer() {
       const server = serveSSRDev(
         {
           // Required paths for development
-          serverEntry: './src/entry-server.tsx',
+          serverEntry: './src/entry-ssr.tsx',
           template: './index.html',
           viteConfig: './vite.config.ts',
         },
@@ -1071,7 +1071,7 @@ async function startServer() {
         // Production options
         ...createSharedConfig(),
         plugins: SHARED_PLUGINS,
-        serverEntry: 'entry-server', // Look for entry-server in manifest
+        serverEntry: 'entry-ssr', // Look for entry-ssr in manifest
         // Custom Fastify configuration
         fastifyOptions: {
           logger: {

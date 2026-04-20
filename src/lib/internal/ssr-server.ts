@@ -223,7 +223,7 @@ export class SSRServer extends BaseServer {
    * @example
    * ```ts
    * const mainPaths = {
-   *   serverEntry: './src/entry-server.tsx',
+   *   serverEntry: './src/entry-ssr.tsx',
    *   template: './index.html',
    *   viteConfig: './vite.config.ts'
    * };
@@ -231,7 +231,7 @@ export class SSRServer extends BaseServer {
    *
    * // Same parameters as above - easy to copy/paste
    * server.registerDevApp('marketing', {
-   *   serverEntry: './src/marketing/entry-server.tsx',
+   *   serverEntry: './src/marketing/entry-ssr.tsx',
    *   template: './src/marketing/index.html',
    *   viteConfig: './vite.marketing.config.ts'
    * }, {
@@ -1612,7 +1612,7 @@ export class SSRServer extends BaseServer {
       );
     }
 
-    const serverEntry = appConfig.serverEntry || 'entry-server';
+    const serverEntry = appConfig.serverEntry || 'entry-ssr';
     const serverBuildDir = path.join(
       appConfig.buildDir,
       appConfig.serverFolderName || 'server',

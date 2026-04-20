@@ -34,7 +34,7 @@ import { cookies } from 'unirend/plugins';
 
 const server = serveSSRDev(
   {
-    serverEntry: './src/entry-server.tsx',
+    serverEntry: './src/entry-ssr.tsx',
     template: './index.html',
     viteConfig: './vite.config.ts',
   },

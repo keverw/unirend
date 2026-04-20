@@ -72,7 +72,7 @@ export async function checkAndLoadManifest(
 export function getServerEntryFromManifest(
   manifest: Record<string, unknown>,
   serverBuildDir: string,
-  serverEntry: string = 'entry-server',
+  serverEntry: string = 'entry-ssr',
 ): ServerEntryResult {
   // Find the entry in the manifest
   for (const [key, value] of Object.entries(manifest)) {

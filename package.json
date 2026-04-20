@@ -78,7 +78,7 @@
     "ssg-serve-prod": "cd demos/ssg && bun run serve.ts prod",
     "ssr-dev-spa": "cd demos/ssr && vite",
     "ssr-build-client": "cd demos/ssr && vite build --outDir build/client --base=/ --ssrManifest",
-    "ssr-build-server": "cd demos/ssr && vite build --outDir build/server --ssr src/entry-server.tsx",
+    "ssr-build-server": "cd demos/ssr && vite build --outDir build/server --ssr src/entry-ssr.tsx",
     "ssr-build": "bun run ssr-build-client && bun run ssr-build-server",
     "ssr-serve-dev": "cd demos/ssr && bun run serve.ts dev",
     "ssr-serve-prod": "cd demos/ssr && bun run serve.ts prod",

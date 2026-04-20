@@ -12,7 +12,7 @@
  *
  * // Development
  * const devServer = serveSSRDev({
- *   serverEntry: './src/entry-server.tsx',
+ *   serverEntry: './src/entry-ssr.tsx',
  *   template: './index.html',
  *   viteConfig: './vite.config.ts'
  * });
