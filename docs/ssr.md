@@ -38,6 +38,7 @@
   - [Param Source Parity (Data Loader vs API Routes):](#param-source-parity-data-loader-vs-api-routes)
   - [Request Context Injection](#request-context-injection)
 - [Multi-App SSR Support](#multi-app-ssr-support)
+  - [Monorepo Structure Tip](#monorepo-structure-tip)
   - [Usage Example](#usage-example)
     - [Production Mode](#production-mode)
     - [Development Mode](#development-mode)
@@ -1361,6 +1362,10 @@ A single `SSRServer` instance can serve **multiple distinct React applications**
 - **Mode enforcement**: Dev server = dev apps only, prod server = prod apps only
 - **Per-app configuration**: Each app gets its own `frontendAppConfig`, templates, static assets, and error pages
 - **Shared resources**: API handlers, plugins, and cookie policies are shared across all apps
+
+### Monorepo Structure Tip
+
+A common pattern is to give each app its own source folder with its `entry-ssr`, `entry-client`, components, assets, and Vite config — with `serve.ts` living alongside the default app's source. Build `serve.ts` to `dist/` and each app into its own sub-folder within it, then register the additional apps via `registerProdApp()` (or `registerDevApp()` for dev).
 
 ### Usage Example
 
