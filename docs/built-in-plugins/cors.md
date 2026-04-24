@@ -108,7 +108,7 @@ const server = serveSSRProd(buildDir, {
   - Protocol-specific wildcards: `https://*`, `http://*`, `https://*.example.com`
   - Apex domains do not match wildcard patterns, include the apex explicitly alongside subdomain patterns.
 - **Punycode Normalization**: Handles international domains (IDN) safely with punycode conversion
-- **Origin Normalization**: Case-robust matching; scheme and port are considered for origin comparisons (`https://app.com/` vs `https://app.com`)
+- **Origin Normalization**: Case-robust matching, scheme and port are considered for origin comparisons (`https://app.com/` vs `https://app.com`)
 - **Secure Credentials**: Raw wildcard tokens (`*`, `https://*`, `http://*`) are NOT allowed in credentials arrays. Subdomain wildcards (like `*.example.com`) are supported only when `credentialsAllowWildcardSubdomains: true`
   - The string literal `"null"` origin is never allowed in `credentials` arrays and will be rejected.
   - Even when using a credentials function, the literal `"null"` origin will never receive `Access-Control-Allow-Credentials: true`.

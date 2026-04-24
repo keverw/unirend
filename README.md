@@ -52,7 +52,9 @@ Unirend includes Fastify as a regular dependency powering its built-in servers (
 
 Recommendation: We recommend Bun as the default toolchain. Bun can run TypeScript directly in development and can bundle your server to a single JavaScript file for production. The unirend library itself avoids Bun-specific APIs, so your server can be bundled to run under Node as well — just pass `--target node` when building (see the optional scripts in the SSR section below). Pure Node tooling setups (e.g., `ts-node`, `tsc`, `esbuild`, `rollup`) or vanilla JavaScript are possible, but not the focus of this guide, the CLI, or the starter template utility functions.
 
-CLI note: The Unirend project generator (CLI) requires Bun for a simple, out‑of‑the‑box experience. Generated projects use Bun for development and build tooling, but can target Node at bundle time (`bun build --target node`). As Node tooling continues to improve, we may add first-class Node CLI support in the future.
+Note: Always include `--external vite` when bundling your server entry with `bun build`. Vite lazily imports `esbuild` at runtime, which Bun's bundler cannot statically resolve; keeping Vite external avoids a build error.
+
+CLI note: The Unirend project generator (CLI) requires Bun for a simple, out‑of‑the‑box experience. Generated projects use Bun for development and build tooling, but can target Node at bundle time (`bun build --target node --external vite`). As Node tooling continues to improve, we may add first-class Node CLI support in the future.
 
 Repo auto‑init: The CLI sets up a repository structure that supports multiple projects in one workspace. You can initialize it explicitly with `init-repo`, but if it’s missing when you run `create`, Unirend will set it up automatically with a sensible default.
 
@@ -259,18 +261,18 @@ Add these scripts to your `package.json` for both SSG and SSR workflows. We reco
     "build-and-serve-prod": "bun run build:ssr && bun run serve-prod",
 
     // For SSR Production Build (Bun):
-    "build:prod": "bun build serve.ts --outdir ./dist",
+    "build:prod": "bun build serve.ts --outdir ./dist --external vite",
     "start": "bun dist/serve.js prod"
 
     // Optional: Run SSR Production Build under Node runtime using a Bun-built bundle:
     // (use if dealing with Bun compatibility issues)
-    // "build:prod": "bun build serve.ts --outdir ./dist --target=node",
+    // "build:prod": "bun build serve.ts --outdir ./dist --target=node --external vite",
     // "start": "node dist/serve.js prod"
   }
 }
 ```
 
-Tip: When you plan to run the Bun-built bundle under Node, include the `--target node` flag in `bun build` so the output targets Node’s runtime.
+Tip: When you plan to run the Bun-built bundle under Node, include the `--target node` flag in `bun build` so the output targets Node's runtime. Keep `--external vite` in both Bun-runtime and Node-runtime bundles.
 
 Note: If you prefer a pure-Node toolchain without Bun, explore compiling or bundling your server with tools like `tsc`, `esbuild`, `rollup`, or `tsup`, or use vanilla JavaScript, then run with `node`. These alternatives are not covered in depth here to keep the setup simple and easy out of the box.
 

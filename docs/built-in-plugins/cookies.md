@@ -109,9 +109,9 @@ Security notes:
 
 Array secrets enable rotation, but changes are applied on server startup. Recommended phased rollout:
 
-1. Verify-only (optional): `secret: [oldKey, newKey]` — continue signing with `oldKey` (first), allow `newKey` to verify.
-2. Flip signer: `secret: [newKey, oldKey]` — start signing with `newKey`, both keys verify.
-3. Cleanup: `secret: [newKey]` — after old cookies naturally expire.
+1. Verify-only (optional): `secret: [oldKey, newKey]`, continue signing with `oldKey` (first), allow `newKey` to verify.
+2. Flip signer: `secret: [newKey, oldKey]`, start signing with `newKey`, both keys verify.
+3. Cleanup: `secret: [newKey]`, after old cookies naturally expire.
 
 Notes:
 
@@ -294,8 +294,8 @@ const factoryResult = factorySigner.unsign(factorySigned);
 
 Types exported for convenience:
 
-- `CookieSerializeOptions` — options type for `reply.setCookie/clearCookie`
-- `CookieUnsignResult` — return type of `reply.unsignCookie`/`cookieUtils.unsign`
+- `CookieSerializeOptions`, options type for `reply.setCookie/clearCookie`
+- `CookieUnsignResult`, return type of `reply.unsignCookie`/`cookieUtils.unsign`
 
 For example, If you set `hook: false`, `request.cookies` will NOT be populated automatically, and you must parse cookies manually using the exported cookieUtils:
 

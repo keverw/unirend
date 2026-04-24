@@ -136,7 +136,7 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - See [Access Logging](#access-logging) for template examples, level config, DB tracing patterns, and runtime updates.
 - `getClientIP?: (request: FastifyRequest) => string | Promise<string>`
   - Custom resolver for the real client IP when behind a reverse proxy or external hosted proxy.
-  - Called once per request; the result is stored as `request.clientIP` and is available throughout the entire request lifecycle - plugins, hooks, page data loader handlers, API route handlers, and access log templates/hooks.
+  - Called once per request, the result is stored as `request.clientIP` and is available throughout the entire request lifecycle - plugins, hooks, page data loader handlers, API route handlers, and access log templates/hooks.
   - When not set, `request.clientIP` falls back to `request.ip` (which reflects Fastify proxy handling when `fastifyOptions.trustProxy` is configured).
   - If `getClientIP` throws, the error propagates as a 500 - there is no silent fallback to `request.ip`.
   - See [Access Logging](#access-logging) for proxy and external reverse proxy examples.
@@ -755,9 +755,11 @@ Since your project will most likely use both `serveSSRDev` and `serveSSRProd`, c
 - Single entry script that switches on an env/arg (dev vs prod) and calls `serveSSRDev` or `serveSSRProd`.
 - Separate scripts (e.g., `serve-dev.ts` and `serve-prod.ts`).
 - For production binaries, you can bundle your server script with a tool like Bun:
-  - `bun build server.ts --outdir ./dist` and `bun run dist/server.js`
+  - `bun build server.ts --outdir ./dist --external vite` and `bun run dist/server.js`
   - To run the Bun bundle under Node, add the target flag and start with Node:
-    - `bun build server.ts --outdir ./dist --target node` then `node dist/server.js`
+    - `bun build server.ts --outdir ./dist --target node --external vite` then `node dist/server.js`
+
+Always include `--external vite` when bundling your server entry with `bun build`. Vite lazily imports `esbuild` at runtime, which Bun's bundler cannot statically resolve; keeping Vite external avoids a build error.
 
 See a complete example with plugins and data handler registration in `demos/ssr/serve.ts`.
 

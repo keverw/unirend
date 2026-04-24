@@ -51,11 +51,11 @@ request.clientInfo; // { requestID, correlationID, isFromSSRServerAPICall, IPAdd
 
 ## Configuration
 
-- `requestIDGenerator?: () => string` — Custom generator (default: ULID)
-- `requestIDValidator?: (id: string) => boolean` — Validator for forwarded IDs (default: ULID validation)
-- `setResponseHeaders?: boolean` — Send `X-Request-ID` and `X-Correlation-ID` (default: `true`)
-- `trustForwardedHeaders?: (request: FastifyRequest) => boolean` — Callback that determines whether to accept forwarded client-info headers (default: returns `true` when `request.clientIP` is private. Otherwise forwarded headers are ignored and direct request values are used)
-- `logging?: boolean | { requestReceived?: boolean; forwardedClientInfo?: boolean; rejectedForwardedHeaders?: boolean }` —
+- `requestIDGenerator?: () => string`, Custom generator (default: ULID)
+- `requestIDValidator?: (id: string) => boolean`, Validator for forwarded IDs (default: ULID validation)
+- `setResponseHeaders?: boolean`, Send `X-Request-ID` and `X-Correlation-ID` (default: `true`)
+- `trustForwardedHeaders?: (request: FastifyRequest) => boolean`, Callback that determines whether to accept forwarded client-info headers (default: returns `true` when `request.clientIP` is private. Otherwise forwarded headers are ignored and direct request values are used)
+- `logging?: boolean | { requestReceived?: boolean; forwardedClientInfo?: boolean; rejectedForwardedHeaders?: boolean }` ,
   - `true`: enable all logs (request received, forwarded client info, rejected forwarded headers)
   - `false` or `undefined`: disable all logs (default)
 
@@ -102,10 +102,10 @@ clientInfo({ logging: false });
 
 When `trustForwardedHeaders` returns `true`, the plugin will honor these request headers if present:
 
-- `X-SSR-Request: "true"` — Marks the request as originating from SSR (`isFromSSRServerAPICall: true`)
-- `X-SSR-Original-IP: <client-ip>` — Source IP from the browser/client
-- `X-SSR-Forwarded-User-Agent: <ua>` — Original client user agent
-- `X-Correlation-ID: <id>` — Correlation ID for tracing (validated via `requestIDValidator`)
+- `X-SSR-Request: "true"`, Marks the request as originating from SSR (`isFromSSRServerAPICall: true`)
+- `X-SSR-Original-IP: <client-ip>`, Source IP from the browser/client
+- `X-SSR-Forwarded-User-Agent: <ua>`, Original client user agent
+- `X-Correlation-ID: <id>`, Correlation ID for tracing (validated via `requestIDValidator`)
 
 This lets your SSR server forward the user's client details to your API so both hops share the same correlation ID. See also: `docs/ssr.md`.
 
@@ -150,5 +150,5 @@ clientInfo({
 
 By default, the plugin adds these to every response (configurable via `setResponseHeaders`):
 
-- `X-Request-ID` — Unique ID for this request
-- `X-Correlation-ID` — Correlation ID for the overall action (defaults to the request ID if not provided/valid)
+- `X-Request-ID`, Unique ID for this request
+- `X-Correlation-ID`, Correlation ID for the overall action (defaults to the request ID if not provided/valid)

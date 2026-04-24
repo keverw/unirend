@@ -57,9 +57,9 @@ Both patterns use standardized response envelope structures as defined in the ne
 
 ## Response Envelopes
 
-The application uses two envelope types — `api` and `page` — each with success, error, and (for page) redirect variants. These are the standardized response envelopes for both the framework and applications built with it.
+The application uses two envelope types, `api` and `page`, each with success, error, and (for page) redirect variants. These are the standardized response envelopes for both the framework and applications built with it.
 
-> **Note:** As a general rule, always check `Content-Type: application/json` before attempting to parse any HTTP response as JSON — regardless of status code. Infrastructure layers (proxies, WAFs, CDNs, load balancers) and middleware performing their own checks (domain validation, file upload policies, rate limiting, etc.) can intercept requests at any point and return HTML or plain text with any status code, including 200. Parse defensively: verify the content type first, then the envelope structure.
+> **Note:** As a general rule, always check `Content-Type: application/json` before attempting to parse any HTTP response as JSON, regardless of status code. Infrastructure layers (proxies, WAFs, CDNs, load balancers) and middleware performing their own checks (domain validation, file upload policies, rate limiting, etc.) can intercept requests at any point and return HTML or plain text with any status code, including 200. Parse defensively: verify the content type first, then the envelope structure.
 
 ### Common Response Properties
 

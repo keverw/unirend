@@ -155,7 +155,7 @@ function MyComponent() {
 
 ### `useFrontendAppConfig()`
 
-Returns the frontend application configuration object. During server rendering (SSR/SSG) this is a deep-frozen clone — mutations are blocked for the duration of the render. On the client it is a plain clone of the injected config, isolated to the current page session but not frozen.
+Returns the frontend application configuration object. During server rendering (SSR/SSG) this is a deep-frozen clone, mutations are blocked for the duration of the render. On the client it is a plain clone of the injected config, isolated to the current page session but not frozen.
 
 ```tsx
 function MyComponent() {
@@ -177,11 +177,11 @@ function MyComponent() {
 
 **Returns:** `Record<string, unknown> | undefined`
 
-**Note:** The config is deep-cloned and deep-frozen on each request — all nested objects are immutable for the duration of the request. Unlike other context values like `renderMode` or `fetchRequest`, the `frontendAppConfig` is **safe to display directly in your UI** because it remains identical between server rendering and client hydration. The server injects it into the HTML, and the client reads it back from the same source, preventing hydration mismatches.
+**Note:** The config is deep-cloned and deep-frozen on each request, all nested objects are immutable for the duration of the request. Unlike other context values like `renderMode` or `fetchRequest`, the `frontendAppConfig` is **safe to display directly in your UI** because it remains identical between server rendering and client hydration. The server injects it into the HTML, and the client reads it back from the same source, preventing hydration mismatches.
 
 ### `useCDNBaseURL()`
 
-Returns the effective CDN base URL for the current request. Available on both server (SSR resolves the per-request or app-level CDN URL before rendering) and client (reads from `window.__CDN_BASE_URL__` injected by the server). Always returns a `string` — empty string when no CDN is configured.
+Returns the effective CDN base URL for the current request. Available on both server (SSR resolves the per-request or app-level CDN URL before rendering) and client (reads from `window.__CDN_BASE_URL__` injected by the server). Always returns a `string`, empty string when no CDN is configured.
 
 ```tsx
 function AssetImage({ path }: { path: string }) {
@@ -191,11 +191,11 @@ function AssetImage({ path }: { path: string }) {
 }
 ```
 
-**Returns:** `string` — empty string when no CDN is configured (including when running Vite directly without the unirend server)
+**Returns:** `string`, empty string when no CDN is configured (including when running Vite directly without the unirend server)
 
 ### `useDomainInfo()`
 
-Returns domain information computed server-side from the request hostname. Available during SSR (always) and SSG (when a `hostname` option is provided at build time). Returns `null` when the hostname is not known — SSG without hostname configured, or pure SPA.
+Returns domain information computed server-side from the request hostname. Available during SSR (always) and SSG (when a `hostname` option is provided at build time). Returns `null` when the hostname is not known, SSG without hostname configured, or pure SPA.
 
 ```tsx
 import { useDomainInfo } from 'unirend/client';
@@ -226,10 +226,10 @@ function ThemeToggle() {
 
 **Returns:** `DomainInfo | null`
 
-- `hostname` — the bare requested hostname with port stripped (e.g. `'app.example.com'`)
-- `rootDomain` — the apex domain without a leading dot (e.g. `'example.com'`), or empty string for localhost / IP addresses. Prepend `.` when using as a cookie `domain` attribute to span subdomains (e.g. `domain=.example.com`).
+- `hostname`, the bare requested hostname with port stripped (e.g. `'app.example.com'`)
+- `rootDomain`, the apex domain without a leading dot (e.g. `'example.com'`), or empty string for localhost / IP addresses. Prepend `.` when using as a cookie `domain` attribute to span subdomains (e.g. `domain=.example.com`).
 
-**Dynamic Updates:** Since the config is cloned from the source at request time, you can update values between requests by holding a reference to the object (or a sub-object within it) that you passed in. For example, you could keep a `const timeConfig = { year: 2025 }` sub-object, pass it inside your config, and update `timeConfig.year` at midnight — all requests after that point will pick up the new value. Updates are global (all subsequent requests, not a specific user), and in-flight requests are unaffected since their clone is already isolated. Use `requestContext` instead if you need per-request or per-user values.
+**Dynamic Updates:** Since the config is cloned from the source at request time, you can update values between requests by holding a reference to the object (or a sub-object within it) that you passed in. For example, you could keep a `const timeConfig = { year: 2025 }` sub-object, pass it inside your config, and update `timeConfig.year` at midnight, all requests after that point will pick up the new value. Updates are global (all subsequent requests, not a specific user), and in-flight requests are unaffected since their clone is already isolated. Use `requestContext` instead if you need per-request or per-user values.
 
 ## Request Context Management
 
@@ -425,7 +425,7 @@ function DebugPanel() {
 
 - Components can read or update the context using the functions above
 - Changes persist in memory for the current page session
-- For non-component code (data loaders, utilities, module-level functions), all three framework globals are available directly on the client. These only exist in the browser — guard with `typeof window !== 'undefined'` and provide a server-side fallback:
+- For non-component code (data loaders, utilities, module-level functions), all three framework globals are available directly on the client. These only exist in the browser, guard with `typeof window !== 'undefined'` and provide a server-side fallback:
 
 ```typescript
 // window globals for use outside of React components (e.g. data loaders)
@@ -457,12 +457,12 @@ For more details on populating request context on the server, see:
 
 Handle theme preferences ('light', 'dark', 'auto') without hydration mismatches or flash.
 
-Drive all theming via the `dark` class on `<html>` — use Tailwind `dark:` classes or CSS selectors rather than conditional JSX based on theme. Conditional rendering based on theme can cause hydration errors since the server and client may resolve `auto` differently.
+Drive all theming via the `dark` class on `<html>`, use Tailwind `dark:` classes or CSS selectors rather than conditional JSX based on theme. Conditional rendering based on theme can cause hydration errors since the server and client may resolve `auto` differently.
 
 Two separate concerns:
 
-- **`themePreference`** — what the user chose ('light'/'dark'/'auto'), stored in request context and persisted to a cookie
-- **`resolvedTheme`** — the actual 'light' or 'dark' applied to `<html>`, derived from preference + system `matchMedia`
+- **`themePreference`**, what the user chose ('light'/'dark'/'auto'), stored in request context and persisted to a cookie
+- **`resolvedTheme`**, the actual 'light' or 'dark' applied to `<html>`, derived from preference + system `matchMedia`
 
 ##### Server Plugin
 
@@ -509,7 +509,7 @@ const server = serveSSRProd({
 
 ##### Flash Prevention (`index.html`)
 
-Add to `<head>` to apply the correct class before JS loads. The cookie is preferred over `__FRONTEND_REQUEST_CONTEXT__` — it reflects the user's last explicit choice and is always current. The context value is baked at build time for SSG, or read at request time for SSR (a change in another tab mid-request would still leave them out of sync). Falls back to the OS preference via `matchMedia` when neither is set.
+Add to `<head>` to apply the correct class before JS loads. The cookie is preferred over `__FRONTEND_REQUEST_CONTEXT__`, it reflects the user's last explicit choice and is always current. The context value is baked at build time for SSG, or read at request time for SSR (a change in another tab mid-request would still leave them out of sync). Falls back to the OS preference via `matchMedia` when neither is set.
 
 > **Place this script after all `<meta>` tags** Some scrapers and link-preview services stop parsing at the first `<script>` tag regardless of its length, so any meta tags after it won't appear in social previews.
 
@@ -542,7 +542,7 @@ Add to `<head>` to apply the correct class before JS loads. The cookie is prefer
 
 ##### React Context & Hook
 
-**`theme/context.ts`** — types and context object:
+**`theme/context.ts`**, types and context object:
 
 ```typescript
 import { createContext, useContext } from 'react';
@@ -567,7 +567,7 @@ export function useTheme() {
 }
 ```
 
-**`theme/ThemeProvider.tsx`** — single instance owns resolution, system tracking, and `<html>` class:
+**`theme/ThemeProvider.tsx`**, single instance owns resolution, system tracking, and `<html>` class:
 
 ```tsx
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -724,7 +724,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
 ##### Usage
 
-**`AppLayout.tsx`** — wrap your app with `ThemeProvider`:
+**`AppLayout.tsx`**, wrap your app with `ThemeProvider`:
 
 ```tsx
 import { ThemeProvider } from './theme/ThemeProvider';
@@ -742,7 +742,7 @@ export function AppLayout({ children }) {
 }
 ```
 
-**`ThemeToggle.tsx`** — can live anywhere inside `ThemeProvider`:
+**`ThemeToggle.tsx`**, can live anywhere inside `ThemeProvider`:
 
 ```tsx
 import { useTheme } from './context';
@@ -762,7 +762,7 @@ export function ThemeToggle() {
 
 ##### Theme-Aware Images
 
-When you need different images per theme, avoid two `<img>` tags with CSS `display: none` — browsers load both regardless. Instead, use `background-image` via CSS (only the matching rule's image loads) combined with `role="img"` and `aria-label` to restore accessibility:
+When you need different images per theme, avoid two `<img>` tags with CSS `display: none`, browsers load both regardless. Instead, use `background-image` via CSS (only the matching rule's image loads) combined with `role="img"` and `aria-label` to restore accessibility:
 
 ```css
 /* Only the active theme's image is requested by the browser */
@@ -792,7 +792,7 @@ html:not(.dark) .theme-illustration {
 />
 ```
 
-`role="img"` + `aria-label` gives screen readers the same information a real `<img alt="...">` would. This works automatically with the `dark` class toggle on `<html>` — no JavaScript needed.
+`role="img"` + `aria-label` gives screen readers the same information a real `<img alt="...">` would. This works automatically with the `dark` class toggle on `<html>`, no JavaScript needed.
 
 **Vite asset handling:** Use relative paths in your CSS file so Vite fingerprints the images for long-term caching. Absolute `/` paths work too but won't be hashed:
 
@@ -994,7 +994,7 @@ When mounting on the client with `mountApp()`, the context is populated from inj
 }
 ```
 
-**Note:** The `frontendAppConfig` is automatically read from `window.__FRONTEND_APP_CONFIG__` which is injected into the HTML by the server during SSR/SSG. In pure SPA mode (no server rendering), this will be `undefined`. `window.__CDN_BASE_URL__` is also injected by the server — as an empty string when no CDN URL is configured, or `undefined` if running Vite directly without the unirend server.
+**Note:** The `frontendAppConfig` is automatically read from `window.__FRONTEND_APP_CONFIG__` which is injected into the HTML by the server during SSR/SSG. In pure SPA mode (no server rendering), this will be `undefined`. `window.__CDN_BASE_URL__` is also injected by the server, as an empty string when no CDN URL is configured, or `undefined` if running Vite directly without the unirend server.
 
 ## Use Cases
 
@@ -1135,7 +1135,7 @@ import type { UnirendRenderMode, RequestContextManager } from 'unirend/client';
 7. **Debugging values only**: Most context values are primarily useful for debugging and controlling behavior - avoid displaying them directly in your UI
 8. **Frontend app config best practices**:
    - **Safe to display**: Unlike other context values, `frontendAppConfig` is **safe to render directly** because it's identical on server and client (injected into HTML and read back)
-   - **Read-only by convention**: The config is deep-frozen during server rendering (SSR/SSG) to prevent accidental mutations mid-render. On the client it is a plain clone — technically mutable, but treat it as read-only since it represents static configuration
+   - **Read-only by convention**: The config is deep-frozen during server rendering (SSR/SSG) to prevent accidental mutations mid-render. On the client it is a plain clone, technically mutable, but treat it as read-only since it represents static configuration
    - **Type assertions**: Use type assertions for better TypeScript support (e.g., `config?.api_endpoint as string`)
 
 ## Related Documentation

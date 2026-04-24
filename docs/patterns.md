@@ -48,10 +48,10 @@ onSetup():
   // Save retryTimer so you can clearInterval(retryTimer) on shutdown
 ```
 
-This pattern applies anywhere you can't afford to lose data on write failure — access logs, audit trails, analytics events, etc. For Lifecycleion logger adaptor users, the natural place to implement this is a custom sink.
+This pattern applies anywhere you can't afford to lose data on write failure, such as access logs, audit trails, analytics events, etc. For Lifecycleion logger adaptor users, the natural place to implement this is a custom sink.
 
 ## Dark Mode with Cookie Persistence
 
-Store the user's theme preference ('light', 'dark', or 'auto') in a cookie so it's available on the first render. A server plugin reads the cookie in an `onRequest` hook and seeds it into request context. A small inline `<head>` script reads the preference from `window.__FRONTEND_REQUEST_CONTEXT__` and applies the correct `theme-light` / `theme-dark` class to `<html>` immediately — before any JS loads, eliminating flash. For 'auto', the script resolves the OS preference via `matchMedia` right away. Tailwind `dark:` classes or CSS selectors on the `<html>` class handle all theming, keeping components free of conditional theme logic. The client keeps the cookie in sync as the user changes their preference.
+Store the user's theme preference ('light', 'dark', or 'auto') in a cookie so it's available on the first render. A server plugin reads the cookie in an `onRequest` hook and seeds it into request context. A small inline `<head>` script reads the preference from `window.__FRONTEND_REQUEST_CONTEXT__` and applies the correct `theme-light` / `theme-dark` class to `<html>` immediately, before any JS loads, eliminating flash. For 'auto', the script resolves the OS preference via `matchMedia` right away. Tailwind `dark:` classes or CSS selectors on the `<html>` class handle all theming, keeping components free of conditional theme logic. The client keeps the cookie in sync as the user changes their preference.
 
 See [Theme Management (Hydration-Safe)](./unirend-context.md#theme-management-hydration-safe) in the context docs for a full walkthrough including the plugin, SSR component, and client-side cookie update.

@@ -170,7 +170,7 @@ Both SSG and SPA pages support injecting request context data that will be avail
 
 **SSG Pages (Server-Rendered):**
 
-- Request context can be seeded before rendering via the `requestContext` property on the page definition — values are merged into `SSGHelpers.requestContext` before `render()` is called
+- Request context can be seeded before rendering via the `requestContext` property on the page definition, values are merged into `SSGHelpers.requestContext` before `render()` is called
 - Components can also populate or override context values dynamically during the rendering process
 - Useful for injecting page-specific defaults (e.g., theme, locale) that components can then read or further update during render
 
@@ -192,7 +192,7 @@ Unirend automatically caches the processed HTML template in `.unirend-ssg.json` 
 1. **Performance**: Avoids re-processing the template on subsequent generation runs
 2. **Template preservation**: Keeps a copy of the original `index.html` in case you overwrite it with a generated index page
 
-- **First run**: Cache file is absent, so `generateSSG` reads `index.html` directly and assumes it is the original Vite output — processes it, then writes the cache file
+- **First run**: Cache file is absent, so `generateSSG` reads `index.html` directly and assumes it is the original Vite output, processes it, then writes the cache file
 - **Subsequent runs**: Uses the cached processed template, preserving your source `index.html`
 
 **Important:** Vite's default behavior is to clean the output directory on each build (`build.emptyOutDir: true`). This means:
@@ -205,7 +205,7 @@ If you've disabled `emptyOutDir` in your Vite config, the cache will persist bet
 
 ### Page Map Output
 
-The `pageMapOutput` option generates a JSON file mapping URL paths to their corresponding HTML filenames. This is primarily useful to avoid **React hydration mismatches** — if your server serves `/about` but the pre-rendered file is `about.html`, React will see a different document than expected and warn about hydration errors. The page map lets static servers know exactly which file to serve for each clean URL.
+The `pageMapOutput` option generates a JSON file mapping URL paths to their corresponding HTML filenames. This is primarily useful to avoid **React hydration mismatches**, if your server serves `/about` but the pre-rendered file is `about.html`, React will see a different document than expected and warn about hydration errors. The page map lets static servers know exactly which file to serve for each clean URL.
 
 ```typescript
 const options = {
@@ -234,19 +234,19 @@ const result = await generateSSG(buildDir, pages, options);
 
 **Usage with static content servers:**
 
-The page map is consumed automatically by `StaticWebServer` (Node.js) and `unirend/php-static-server` (PHP/shared hosting) — both default to `'page-map.json'` relative to `buildDir`. See [Using StaticWebServer (Recommended)](#using-staticwebserver-recommended) and [PHP Shared Hosting](#php-shared-hosting-unirendphp-static-server) below.
+The page map is consumed automatically by `StaticWebServer` (Node.js) and `unirend/php-static-server` (PHP/shared hosting), both default to `'page-map.json'` relative to `buildDir`. See [Using StaticWebServer (Recommended)](#using-staticwebserver-recommended) and [PHP Shared Hosting](#php-shared-hosting-unirendphp-static-server) below.
 
 ### 5xx Error Handling
 
 There are four distinct SSG outcomes that are easy to confuse:
 
-**Component-level throws** (a component throws during render) are not caught by React Router's `errorElement` during SSG and result in a `render-error` internally. These are always treated as generation errors and the file is never written — `failOn5xx` has no effect on them. Unlike SSR — which serves live requests and provides `get500ErrorPage` to gracefully handle 500 responses at runtime — SSG has no equivalent, so a component throw is a build-time failure you fix before generating.
+**Component-level throws** (a component throws during render) are not caught by React Router's `errorElement` during SSG and result in a `render-error` internally. These are always treated as generation errors and the file is never written, `failOn5xx` has no effect on them. Unlike SSR, which serves live requests and provides `get500ErrorPage` to gracefully handle 500 responses at runtime, SSG has no equivalent, so a component throw is a build-time failure you fix before generating.
 
-Why: React Router does set up a React error boundary for `errorElement`, and on the **client** it will catch component-level render errors. But SSG uses React's synchronous `renderToString`, which does not support error boundary recovery — if a component throws inside `renderToString`, the error propagates straight out regardless of any error boundaries in the tree.
+Why: React Router does set up a React error boundary for `errorElement`, and on the **client** it will catch component-level render errors. But SSG uses React's synchronous `renderToString`, which does not support error boundary recovery, if a component throws inside `renderToString`, the error propagates straight out regardless of any error boundaries in the tree.
 
 **Local data loader throws converted to page envelopes** are different. In the common Unirend pattern, a local page data loader throw is converted by `createPageDataLoader()` into a rendered page error envelope with `status_code: 500`. That page still renders, the HTML file is written to disk, and `failOn5xx` determines whether the generation report marks it as an error. This path is typically surfaced in the app via `useDataLoaderEnvelopeError`, not by relying on React Router `errorElement`. HTTP-backed loaders can also render error pages, but the exact behavior depends on whether the failure is normalized into a page response before render or handled by the router error path.
 
-**Route-level 404s and React Router error routes** are still a separate case. A route miss without a matching wildcard handler, or a thrown route error that React Router resolves through `errorElement`, renders as a normal page and is written to disk. A 404 remains a normal SSG outcome and is reported as `not_found`; `failOn5xx` does not apply to it. If React Router resolves a thrown route error into a rendered 5xx error page, that page follows the normal rendered-5xx rules below.
+**Route-level 404s and React Router error routes** are still a separate case. A route miss without a matching wildcard handler, or a thrown route error that React Router resolves through `errorElement`, renders as a normal page and is written to disk. A 404 remains a normal SSG outcome and is reported as `not_found`, `failOn5xx` does not apply to it. If React Router resolves a thrown route error into a rendered 5xx error page, that page follows the normal rendered-5xx rules below.
 
 **Explicit rendered 5xx page envelopes** are also successful renders from SSG's perspective. If a loader returns a page envelope with `status_code: 500` or `status_code: 503`, the page is rendered and written to disk. By default, `failOn5xx: true` marks those pages as errors in the report and sets `generationFailed` to `true`, but `outputPath` is still included so you can inspect the generated file.
 
@@ -265,7 +265,7 @@ const result = await generateSSG(buildDir, pages, {
 });
 ```
 
-**Custom 500 error page:** The recommended approach is to generate a plain SSG page styled as a generic error — no need to render with a 5xx status at all. Since the static server never injects the actual error into the page, a static design is all you need:
+**Custom 500 error page:** The recommended approach is to generate a plain SSG page styled as a generic error, no need to render with a 5xx status at all. Since the static server never injects the actual error into the page, a static design is all you need:
 
 ```typescript
 const pages = [
@@ -284,7 +284,7 @@ const options = {
 };
 ```
 
-> **Note:** 404 pages are always written regardless of this setting — they have their own `not_found` status in the report and are a normal part of SSG workflows.
+> **Note:** 404 pages are always written regardless of this setting, they have their own `not_found` status in the report and are a normal part of SSG workflows.
 
 ### Logging
 
@@ -402,7 +402,7 @@ await server.reload();
 - `buildDir` (required) - Directory containing the built client files
 - `pageMapPath` (optional, default: `'page-map.json'`) - Path to page-map.json file (relative to buildDir)
 - `assetFolders` - Map of URL prefixes to filesystem directories for serving static assets
-- `singleAssets` - Map individual files (favicon, robots.txt, etc.) — merged with page map, takes precedence on conflicts with page map and asset folders
+- `singleAssets` - Map individual files (favicon, robots.txt, etc.), merged with page map, takes precedence on conflicts with page map and asset folders
 
 **Error Handling:**
 
@@ -410,7 +410,7 @@ await server.reload();
 - `errorPage` - Custom 500 error page path (relative to buildDir)
 - `logErrors` - Automatically log errors to server logger (default: `true`)
 
-Dev mode (stack traces in built-in 500 page, not custom error page provided) is controlled via the Lifecycleion dev mode convention — call `initDevMode()` at startup. See [Dev Mode](./dev-mode.md).
+Dev mode (stack traces in built-in 500 page, not custom error page provided) is controlled via the Lifecycleion dev mode convention, call `initDevMode()` at startup. See [Dev Mode](./dev-mode.md).
 
 **Caching:**
 
@@ -721,7 +721,7 @@ app.get('*', (req, res) => {
 
 ### PHP Shared Hosting (unirend/php-static-server)
 
-The PHP companion package `unirend/php-static-server` is the recommended approach for deploying Unirend SSG output on shared hosting (such as cPanel based providers using the LAMP stack - Linux, Apache, MySQL, PHP). It mirrors `StaticWebServer` from this package — reads the same `page-map.json`, serves clean URLs, handles 404/500 error pages with correct status codes, range requests, and custom routes.
+The PHP companion package `unirend/php-static-server` is the recommended approach for deploying Unirend SSG output on shared hosting (such as cPanel based providers using the LAMP stack - Linux, Apache, MySQL, PHP). It mirrors `StaticWebServer` from this package, reads the same `page-map.json`, serves clean URLs, handles 404/500 error pages with correct status codes, range requests, and custom routes.
 
 **Installation:**
 
@@ -760,7 +760,7 @@ $server->addRoute('POST', '/api/contact', function (
 $server->serve();
 ```
 
-**`.htaccess`** (required — routes all requests through `index.php`):
+**`.htaccess`** (required, routes all requests through `index.php`):
 
 ```apache
 RewriteEngine On
@@ -770,6 +770,6 @@ RewriteRule ^ index.php [L]
 
 > **Note:** There is no `!-f` condition. This means `.html` files are never served directly by Apache, preventing React hydration mismatches if a user visits `/about.html` instead of `/about`.
 
-> **Error pages:** Generate `/404` and `/500` as SSG pages — they are automatically detected from `page-map.json` and served with the correct status codes. They are also removed from normal routes so they can never be served with a `200` status.
+> **Error pages:** Generate `/404` and `/500` as SSG pages, they are automatically detected from `page-map.json` and served with the correct status codes. They are also removed from normal routes so they can never be served with a `200` status.
 
 See the [unirend/php-static-server README](../unirend-php/README.md) for the full options reference and local development tips.

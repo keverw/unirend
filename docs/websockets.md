@@ -127,8 +127,8 @@ server.registerWebSocketHandler({
 
 It can return one of:
 
-- `{ action: "upgrade", data?: Record<string, unknown> }` — allow the upgrade, `data` is passed to your handler
-- `{ action: "reject", envelope: APIResponseEnvelope }` — send the JSON envelope (with your status code) and do not upgrade the connection
+- `{ action: "upgrade", data?: Record<string, unknown> }`, allow the upgrade, `data` is passed to your handler
+- `{ action: "reject", envelope: APIResponseEnvelope }`, send the JSON envelope (with your status code) and do not upgrade the connection
 
 If `preValidate` throws, a standardized 500 envelope is sent.
 
@@ -156,19 +156,19 @@ Parameters:
 
 The `socket` is a `ws.WebSocket` instance. Common events:
 
-- **`'message'`** — incoming data from the client
-- **`'close'`** — connection closed (receives `code` and `reason`)
-- **`'error'`** — socket error (network issues, protocol violations, etc.)
+- **`'message'`**, incoming data from the client
+- **`'close'`**, connection closed (receives `code` and `reason`)
+- **`'error'`**, socket error (network issues, protocol violations, etc.)
 
-When an error occurs, the socket closes automatically — you'll receive `'error'` first, then `'close'`. Always handle both: use `'error'` for logging/debugging and `'close'` for cleanup (see the handler example above).
+When an error occurs, the socket closes automatically, you'll receive `'error'` first, then `'close'`. Always handle both: use `'error'` for logging/debugging and `'close'` for cleanup (see the handler example above).
 
 ## Options
 
 `webSocketOptions` (for both servers):
 
-- `perMessageDeflate?: boolean` — enable permessage‑deflate (default `false`)
-- `maxPayload?: number` — max message size in bytes (default `100MB`)
-- `preClose?: (clients: Set<unknown>) => Promise<void>` — called on server shutdown so you can broadcast and close connections gracefully
+- `perMessageDeflate?: boolean`, enable permessage‑deflate (default `false`)
+- `maxPayload?: number`, max message size in bytes (default `100MB`)
+- `preClose?: (clients: Set<unknown>) => Promise<void>`, called on server shutdown so you can broadcast and close connections gracefully
 
 Example graceful shutdown:
 
@@ -255,7 +255,7 @@ bun run demos/ws-server-demo.ts
 
 ### TypeScript language server warning (`fastify-tsconfig` not found)
 
-If you see a TS language server warning about `fastify-tsconfig` not found (from `@fastify/websocket`'s tsconfig), add it as a dev dependency to silence it — it has no runtime or build impact:
+If you see a TS language server warning about `fastify-tsconfig` not found (from `@fastify/websocket`'s tsconfig), add it as a dev dependency to silence it, it has no runtime or build impact:
 
 ```sh
 bun add -d fastify-tsconfig
@@ -281,7 +281,7 @@ Recommendation:
 
 Bundling note (Bun Build):
 
-- When bundling with Bun, you may need to externalize `vite` to avoid transitive resolution errors (e.g., lightningcss). Example:
+- Always include `--external vite` when bundling your server entry with `bun build`. Vite lazily imports `esbuild` at runtime, which Bun's bundler cannot statically resolve, keeping Vite external avoids a build error. Example:
 
 ```bash
 bun build ./demos/ws-server-demo.ts \

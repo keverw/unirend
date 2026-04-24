@@ -41,13 +41,13 @@ function HomePage() {
 }
 ```
 
-You can use `UnirendHead` in any component — layouts, pages, error boundaries. Child component tags take precedence over parent ones (see [Last-write-wins for title](#last-write-wins-for-title)).
+You can use `UnirendHead` in any component, layouts, pages, error boundaries. Child component tags take precedence over parent ones (see [Last-write-wins for title](#last-write-wins-for-title)).
 
 ## Hardcoded vs loader-driven titles
 
 There are two common patterns for setting head tags:
 
-**1. Hardcoded** — works for SSG or any page with a fixed title:
+**1. Hardcoded**, works for SSG or any page with a fixed title:
 
 ```tsx
 <UnirendHead>
@@ -56,9 +56,9 @@ There are two common patterns for setting head tags:
 </UnirendHead>
 ```
 
-**2. Dynamic from loader data** — for SSR pages where the server provides the title per-request:
+**2. Dynamic from loader data**, for SSR pages where the server provides the title per-request:
 
-`meta.page` is always present on page-type success envelopes (enforced by the response helpers and `isValidEnvelope`), and a page component only renders when its loader succeeds — so direct destructuring is safe. Note: not-found and error page components / error boundaries (custom 404, generic error, application error) receive `data?: PageErrorResponse | null` as props rather than from `useLoaderData()` — use optional chaining there (`data?.meta?.page?.title`) with a hardcoded fallback, since `data` can be `null` when React Router itself throws the error before any loader runs.
+`meta.page` is always present on page-type success envelopes (enforced by the response helpers and `isValidEnvelope`), and a page component only renders when its loader succeeds, so direct destructuring is safe. Note: not-found and error page components / error boundaries (custom 404, generic error, application error) receive `data?: PageErrorResponse | null` as props rather than from `useLoaderData()`, use optional chaining there (`data?.meta?.page?.title`) with a hardcoded fallback, since `data` can be `null` when React Router itself throws the error before any loader runs.
 
 ```tsx
 import { UnirendHead } from 'unirend/client';
@@ -113,7 +113,7 @@ import { UnirendHead } from 'unirend/client';
 </UnirendHead>;
 ```
 
-**Props on child elements** map directly to HTML attributes — pass any valid attribute you would use on the native HTML tag.
+**Props on child elements** map directly to HTML attributes, pass any valid attribute you would use on the native HTML tag.
 
 ### Supported tags
 
@@ -127,9 +127,9 @@ Other child elements are silently ignored on the server (not collected). On the 
 
 ### Last-write-wins for title
 
-If multiple `<UnirendHead>` components in the same render tree each set a `<title>`, the last one encountered during rendering wins. Since React renders parent components before children, a child page component's title always overrides a layout component's title — the expected behavior. (Using more than one `<UnirendHead>` in the same single page or error page component is valid but an anti-pattern — prefer one per component.)
+If multiple `<UnirendHead>` components in the same render tree each set a `<title>`, the last one encountered during rendering wins. Since React renders parent components before children, a child page component's title always overrides a layout component's title, the expected behavior. (Using more than one `<UnirendHead>` in the same single page or error page component is valid but an anti-pattern, prefer one per component.)
 
-`<meta>` and `<link>` entries **accumulate** — all entries from all `<UnirendHead>` instances in the tree are collected and injected. For example, a layout can add a `<link rel="canonical">` while a page component adds its own `<meta name="description">`.
+`<meta>` and `<link>` entries **accumulate**, all entries from all `<UnirendHead>` instances in the tree are collected and injected. For example, a layout can add a `<link rel="canonical">` while a page component adds its own `<meta name="description">`.
 
 ## How it works
 
@@ -137,8 +137,8 @@ If multiple `<UnirendHead>` components in the same render tree each set a `<titl
 
 During `renderToString`, `UnirendHead` reads a collector object from React context (provided by `UnirendHeadProvider`, which Unirend wraps your app with automatically). Each `<UnirendHead>` instance pushes its tags into the collector synchronously. After rendering, the collected data is serialized to HTML strings and injected into the `<!--ss-head-->` slot in the HTML template.
 
-`UnirendHead` renders `null` on the server — the tags never appear in the rendered body HTML, only in `<head>` via the injection.
+`UnirendHead` renders `null` on the server, the tags never appear in the rendered body HTML, only in `<head>` via the injection.
 
 ### Client-side
 
-On the client the context collector is `null`, so `UnirendHead` renders its children as real DOM elements. React 19 automatically hoists `<title>`, `<meta>`, and `<link>` tags to `<head>` when rendered inside components — no portal or effect needed.
+On the client the context collector is `null`, so `UnirendHead` renders its children as real DOM elements. React 19 automatically hoists `<title>`, `<meta>`, and `<link>` tags to `<head>` when rendered inside components, no portal or effect needed.

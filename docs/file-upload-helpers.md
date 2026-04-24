@@ -34,7 +34,7 @@ Unirend provides a unified API for handling multipart uploads with streaming lim
 - **Streaming processing**: files processed one at a time (no memory buffering of multiple files)
 - **Automatic cleanup**: `context.onCleanup()` handlers execute automatically on abort (after processor completes to avoid race conditions)
 - **Fail-fast batch behavior**: first failure aborts the whole batch and runs all registered cleanup handlers
-- **Consistent error handling**: check `result.success` — if false, just `return result.errorEnvelope`. If true, use `result.files` to build your response
+- **Consistent error handling**: check `result.success`, if false, just `return result.errorEnvelope`. If true, use `result.files` to build your response
 
 ## Quickstart
 
@@ -133,7 +133,7 @@ const server = serveSSRDev(paths, {
 
 **Configuration notes:**
 
-- **`bodyLimit` does not apply to multipart**: `fastifyOptions.bodyLimit` (a server-level option, see [Shared Server Configuration](./ssr.md#shared-server-configuration)) controls non-multipart request bodies (JSON, text, URL-encoded forms). It does not apply to file uploads — the multipart plugin registers its own streaming content-type parser, bypassing `bodyLimit`. File upload size is controlled entirely by `fileUploads.limits.fileSize`.
+- **`bodyLimit` does not apply to multipart**: `fastifyOptions.bodyLimit` (a server-level option, see [Shared Server Configuration](./ssr.md#shared-server-configuration)) controls non-multipart request bodies (JSON, text, URL-encoded forms). It does not apply to file uploads, the multipart plugin registers its own streaming content-type parser, bypassing `bodyLimit`. File upload size is controlled entirely by `fileUploads.limits.fileSize`.
 - **Global limits**: Set default limits for all upload routes via `fileUploads.limits`
 - **Per-route overrides**: `processFileUpload()` can override these per route (see [Configuration options](#configuration-options))
 - **Pre-validation with `allowedRoutes`**: Automatically rejects multipart requests to non-allowed routes before parsing (prevents bandwidth waste and DoS attacks)
@@ -549,7 +549,7 @@ curl -X POST http://localhost:3000/api/upload/gallery \
 - **Limit sizes and counts**: set `maxSizePerFile`/`maxFiles` and consider rate limiting to reduce abuse/DoS risk.
 - **Scan if needed**: for untrusted uploads, consider virus/malware scanning as part of your ingestion pipeline.
 - **Store outside web root**: don't directly serve uploaded files from the upload directory.
-- **Generate your own filenames/IDs**: avoid path traversal and collisions; don't use the client filename as a path.
+- **Generate your own filenames/IDs**: avoid path traversal and collisions, don't use the client filename as a path.
 - **Harden permissions**: ensure uploaded files are not executable and are stored with restrictive permissions.
 - **Isolate storage**: consider separate buckets/prefixes/domains for user uploads vs application assets.
 

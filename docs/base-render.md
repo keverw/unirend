@@ -43,8 +43,8 @@ This supports React Router Data Loaders following the standardized envelope patt
 
 ### Options
 
-- `strictMode?: boolean` — Wrap with React.StrictMode (default: `true`)
-- `wrapProviders?: React.ComponentType<{ children: React.ReactNode }>` — Custom wrapper for additional providers (pure context providers only — no HTML rendering to avoid hydration issues)
+- `strictMode?: boolean`, Wrap with React.StrictMode (default: `true`)
+- `wrapProviders?: React.ComponentType<{ children: React.ReactNode }>`, Custom wrapper for additional providers (pure context providers only, no HTML rendering to avoid hydration issues)
 
 ### Benefits
 

@@ -72,7 +72,7 @@ While preventing dangerous operations that could break SSR:
 
 Use plugins to register routes, hooks, decorators, and third-party integrations. For example, add hooks with `pluginHost.addHook("onRequest", ...)` inside a plugin.
 
-**When to use a plugin:** You don't need a plugin just to add API routes or page data handlers — those have dedicated helpers (`server.api.*` and `server.pageDataHandler`). Plugins are for cross-cutting concerns that need to apply across all requests: authentication and session management (decorating `request.user`, protecting routes), request decoration, third-party Fastify integrations, and global middleware. See the [Authentication Plugin](#authentication-plugin) example for a typical real-world use case.
+**When to use a plugin:** You don't need a plugin just to add API routes or page data handlers, those have dedicated helpers (`server.api.*` and `server.pageDataHandler`). Plugins are for cross-cutting concerns that need to apply across all requests: authentication and session management (decorating `request.user`, protecting routes), request decoration, third-party Fastify integrations, and global middleware. See the [Authentication Plugin](#authentication-plugin) example for a typical real-world use case.
 
 ## Basic Usage
 
@@ -233,7 +233,7 @@ If your plugin uses `reply.hijack()` and writes directly to `reply.raw`, note th
 Most plugins do not need to care about this. It becomes relevant when you take
 over the raw response path yourself with `reply.hijack()`.
 
-Request-level values attached in `onRequest` — like `requestID`, `clientIP`, `isDevelopment`, and `serverLabel` — are set on the request object before any hijacking occurs, so they are always available regardless of which response path is taken.
+Request-level values attached in `onRequest`, like `requestID`, `clientIP`, `isDevelopment`, and `serverLabel`, are set on the request object before any hijacking occurs, so they are always available regardless of which response path is taken.
 
 The built-in framework features that need final headers in this path are already handled:
 
@@ -242,7 +242,7 @@ The built-in framework features that need final headers in this path are already
 
 If you write your own plugin that sets headers in an `onSend` hook and also uses `reply.hijack()` in the same response path, those headers won't be applied automatically. The pattern is the same: apply the headers explicitly before `writeHead(...)` instead of expecting `onSend` to run.
 
-If you need a header on every response including hijacked ones, the simpler approach is to set it in `onRequest` or `preHandler` via `reply.header()` — those are attached to the reply object early and flow through `reply.getHeaders()` naturally, no special hijack handling needed.
+If you need a header on every response including hijacked ones, the simpler approach is to set it in `onRequest` or `preHandler` via `reply.header()`, those are attached to the reply object early and flow through `reply.getHeaders()` naturally, no special hijack handling needed.
 
 #### Server-Level Logging
 
@@ -624,7 +624,7 @@ pluginHost.post('/api/data', async (request, reply) => {
 });
 ```
 
-Tip: The `pluginHost.api.*` helpers, page data loader handlers, and framework error handlers all automatically set `Cache-Control: no-store` for responses with `status_code >= 400`. In raw `pluginHost.get/post/...` route handlers you are responsible for cache control on all responses — both error and success — since the framework has no visibility into what the response represents.
+Tip: The `pluginHost.api.*` helpers, page data loader handlers, and framework error handlers all automatically set `Cache-Control: no-store` for responses with `status_code >= 400`. In raw `pluginHost.get/post/...` route handlers you are responsible for cache control on all responses, both error and success, since the framework has no visibility into what the response represents.
 
 ### 4. Use Environment-Specific Logic
 
@@ -726,11 +726,11 @@ const uploadPlugin: ServerPlugin = async (pluginHost, options) => {
 
 ### Async route handler pattern (return payload, don't call reply.send)
 
-In async route handlers registered with `pluginHost.get/post/put/delete/patch`, always **return the payload** and let Fastify send it — never call `reply.send()` yourself.
+In async route handlers registered with `pluginHost.get/post/put/delete/patch`, always **return the payload** and let Fastify send it, never call `reply.send()` yourself.
 
 > **Enforced at runtime:** calling `reply.send()` inside a route handler registered through `pluginHost` throws an error immediately with a helpful message pointing here.
 
-❌ **Wrong — throws at runtime:**
+❌ **Wrong, throws at runtime:**
 
 ```typescript
 pluginHost.get('/api/hello', async (request, reply) => {
@@ -739,7 +739,7 @@ pluginHost.get('/api/hello', async (request, reply) => {
 });
 ```
 
-✅ **Correct — set headers, return the payload:**
+✅ **Correct, set headers, return the payload:**
 
 ```typescript
 pluginHost.get('/api/hello', async (request, reply) => {
@@ -748,7 +748,7 @@ pluginHost.get('/api/hello', async (request, reply) => {
 });
 ```
 
-✅ **Supported delegated helpers — return them immediately:**
+✅ **Supported delegated helpers, return them immediately:**
 
 ```typescript
 pluginHost.get('/login', async (_request, reply) => {
@@ -764,17 +764,17 @@ These are the only built-in route-helper exceptions. The framework defers the re
 
 This guard applies to route handlers registered through `pluginHost.get/post/put/delete/patch/route`. It does **not** apply to plugins registered through `pluginHost.register(...)`, which intentionally behaves like normal Fastify plugin registration and serves as the advanced escape hatch when you need raw Fastify semantics.
 
-**Why:** `reply.send()` returns the `reply` object itself. So `return reply.send(data)` resolves the async handler with `reply` as the return value. Fastify's `wrapThenable` then sees a non-undefined return value and calls `reply.send(reply)` — now racing the first send and trying to serialize the reply object as response data. Under response compression this race causes a crash rather than the normal warn-and-discard behavior Fastify uses for simpler double-send cases.
+**Why:** `reply.send()` returns the `reply` object itself. So `return reply.send(data)` resolves the async handler with `reply` as the return value. Fastify's `wrapThenable` then sees a non-undefined return value and calls `reply.send(reply)`, now racing the first send and trying to serialize the reply object as response data. Under response compression this race causes a crash rather than the normal warn-and-discard behavior Fastify uses for simpler double-send cases.
 
 `reply.send()` is still fine in **hooks** (`onRequest`, `preHandler`, `onSend`, etc.) because hooks use a different completion mechanism and don't go through `wrapThenable`.
 
 `reply.redirect()` and `reply.callNotFound()` are supported in `pluginHost` route handlers as special cases. They must be returned immediately. Do not call one of them and then continue running logic or return a payload afterward.
 
-The `pluginHost.api.*` handlers and `pluginHost.pageDataHandler.register(...)` handlers are not affected — they return envelopes directly and are handled correctly by the framework.
+The `pluginHost.api.*` handlers and `pluginHost.pageDataHandler.register(...)` handlers are not affected, they return envelopes directly and are handled correctly by the framework.
 
 ### Streaming responses from route handlers
 
-When you need to stream binary data, files, or other non-buffered responses from a raw route handler, use `reply.hijack()` to take full ownership of the response, then pipe directly to `reply.raw`. This bypasses Fastify's send pipeline entirely — no `wrapThenable`, no compression hook interference.
+When you need to stream binary data, files, or other non-buffered responses from a raw route handler, use `reply.hijack()` to take full ownership of the response, then pipe directly to `reply.raw`. This bypasses Fastify's send pipeline entirely, no `wrapThenable`, no compression hook interference.
 
 ```typescript
 import { pipeline } from 'node:stream/promises';
@@ -799,7 +799,7 @@ pluginHost.get('/download/:file', async (request, reply) => {
 });
 ```
 
-`reply.hijack()` signals to Fastify that you own the raw socket from this point on. Error handling and connection cleanup are your responsibility. Fastify's `onResponse` hooks (including access logging) still fire because they are attached to `reply.raw`'s `'finish'` event — they fire whenever the socket ends, regardless of whether `reply.send()` or `reply.raw` was used.
+`reply.hijack()` signals to Fastify that you own the raw socket from this point on. Error handling and connection cleanup are your responsibility. Fastify's `onResponse` hooks (including access logging) still fire because they are attached to `reply.raw`'s `'finish'` event, they fire whenever the socket ends, regardless of whether `reply.send()` or `reply.raw` was used.
 
 ### Setting Headers in onSend Hook
 

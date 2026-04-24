@@ -48,7 +48,8 @@ async function setupTmpDir(): Promise<void> {
  * Using --format cjs with .cjs extension avoids ESM/CommonJS interop issues
  * that occur when building ESM for Node.js with "type": "module" in package.json
  *
- * Only externalize specific deps we don't want bundled (vite), instead of all.
+ * Keep Vite external because it lazily imports esbuild at runtime, which Bun's
+ * bundler cannot statically resolve.
  */
 async function buildDemo(): Promise<void> {
   console.log('🔨 Building WebSocket demo for Node.js...');

@@ -77,13 +77,14 @@ Add to your package.json scripts (run before your prod build as you could import
     "build:server:ssr": "vite build --outDir build/server --ssr src/entry-ssr.tsx",
     "build:generate-info": "bun run scripts/generate-build-info.ts",
     "build:ssr": "bun run build:client && bun run build:server:ssr",
-    "build:prod": "bun run build:generate-info && bun run build:ssr && bun build server.ts --outdir ./dist"
+    "build:prod": "bun run build:generate-info && bun run build:ssr && bun build server.ts --outdir ./dist --external vite"
   }
 }
 ```
 
 Notes:
 
+- Always include `--external vite` when bundling your server entry with `bun build`. Vite lazily imports `esbuild` at runtime, which Bun's bundler cannot statically resolve, keeping Vite external avoids a build error.
 - You can also save JSON via `await generator.saveJSON("current-build-info.json")` if you prefer.
 - Custom properties are allowed and preserved. The following core keys are reserved and cannot be overridden: `build_timestamp`, `version`, `git_hash`, `git_branch`. To include additional metadata, add your own keys via `customProperties` (e.g., from env vars or CLI args) rather than attempting to override the reserved keys.
 

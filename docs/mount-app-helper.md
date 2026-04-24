@@ -22,7 +22,7 @@ If the container has existing child elements (SSR/SSG content), it hydrates. If 
 
 ### Usage
 
-Opinionated & type-safe: pass your routes directly — unirend handles creating the router, RouterProvider, UnirendProvider, UnirendHeadProvider, StrictMode, and any custom providers you need.
+Opinionated & type-safe: pass your routes directly, unirend handles creating the router, RouterProvider, UnirendProvider, UnirendHeadProvider, StrictMode, and any custom providers you need.
 
 ```typescript
 import { mountApp } from 'unirend/client';

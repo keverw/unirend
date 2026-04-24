@@ -18,7 +18,7 @@
  *
  *   Rationale: Bun can run TypeScript directly and bundle to a single JS file,
  *   which keeps the generator simple and easy out of the box. Generated projects
- *   can still run under Node when bundled (e.g., `bun build --target node`).
+ *   can still run under Node when bundled (e.g., `bun build --target node --external vite`).
  *
  *   Note: While other tooling (ts-node, tsc + node, esbuild/rollup) can work,
  *   we standardize on Bun to maximize value for the least effort and keep
@@ -115,7 +115,7 @@ if (!isBun) {
     '❌ Unirend CLI requires Bun.\n' +
       '\n' +
       'Why: Bun runs TypeScript directly and bundles to a single JS file, keeping the CLI simple and easy out of the box.\n' +
-      'Note: Generated projects can still run under Node when bundled (e.g., `bun build --target node`).\n' +
+      'Note: Generated projects can still run under Node when bundled (e.g., `bun build --target node --external vite`).\n' +
       '\n' +
       'Install Bun: https://bun.sh\n' +
       'Run with:\n' +
