@@ -658,7 +658,7 @@ server.fastifyInstance.addHook('onRequest', async (request, reply) => {
 });
 ```
 
-The effective CDN URL for each request is also available to frontend code — use `useCDNBaseURL()` in components (works on both server and client, see [Unirend Context](../docs/unirend-context.md)), or `window.__CDN_BASE_URL__` in non-component code (guard with `typeof window !== 'undefined'` since `window` is not available during SSR).
+The effective CDN URL for each request is also available to frontend code. Use `useCDNBaseURL()` in components (works on both server and client, see [Unirend Context](../docs/unirend-context.md)), or `window.__CDN_BASE_URL__` in non-component code (guard with `typeof window !== 'undefined'` since `window` is not available during SSR).
 
 HTML Template:
 
@@ -728,12 +728,12 @@ Notes:
 - HMR is available. Stack traces are mapped for easier debugging.
 - `frontendAppConfig` is injected in both development and production when using `serveSSRDev` or `serveSSRProd`.
 - All context globals (`window.__FRONTEND_APP_CONFIG__`, `window.__FRONTEND_REQUEST_CONTEXT__`, `window.__CDN_BASE_URL__`, `window.__DOMAIN_INFO__`) are injected into `<head>` before any of your app scripts, so they are available to inline `<head>` scripts, body scripts, and all module code that runs after page load.
-- `window.__DOMAIN_INFO__` contains `{ hostname, rootDomain }` computed from the request hostname server-side — access it in components via `useDomainInfo()` (see [Unirend Context](../docs/unirend-context.md)). Useful for setting cookies that span subdomains without hardcoding the domain.
+- `window.__DOMAIN_INFO__` contains `{ hostname, rootDomain }` computed from the request hostname server-side. Access it in components via `useDomainInfo()` (see [Unirend Context](../docs/unirend-context.md)). Useful for setting cookies that span subdomains without hardcoding the domain.
 - **HTML Template**: The `template` path in development mode is fully customizable. Specify any HTML file path (e.g., `./index.html`, `./src/app.html`, etc.). The template is read fresh on each request and transformed by Vite for HMR support.
 
 ### Asset Serving vs Runtime Behavior
 
-`serveSSRDev` and `serveSSRProd` control the **asset serving strategy** — how your code is loaded and served:
+`serveSSRDev` and `serveSSRProd` control the **asset serving strategy**, which is how your code is loaded and served:
 
 - **`serveSSRDev`**: Uses Vite middleware with HMR. Source files are transformed on-the-fly, and changes are hot-reloaded in the browser. Server entry is loaded via `vite.ssrLoadModule`.
 - **`serveSSRProd`**: Serves pre-built assets from disk. Server entry is loaded from the Vite server manifest. Fingerprinted assets (e.g. `main.CTpDmzGw.js`) get immutable cache headers, other static files do not.
@@ -742,7 +742,7 @@ This is separate from **runtime behavior** controlled by `initDevMode()` / `getD
 
 - **Runtime behavior**: Whether detailed error messages (stack traces, error details) are shown to users, using debug logging, etc.
 
-These two concepts are **orthogonal**. You _in theory_ could run `serveSSRProd` (serving built assets) while `initDevMode(true)` shows verbose errors — useful for staging environments. Or run `serveSSRDev` (with HMR) while treating errors as production-safe.
+These two concepts are **orthogonal**. You _in theory_ could run `serveSSRProd` (serving built assets) while `initDevMode(true)` shows verbose errors, which is useful for staging environments. Or run `serveSSRDev` (with HMR) while treating errors as production-safe.
 
 In practice, you'll usually pair them: dev asset serving with dev runtime, and prod asset serving with prod runtime. But the separation lets you mix and match when needed.
 
@@ -759,7 +759,7 @@ Since your project will most likely use both `serveSSRDev` and `serveSSRProd`, c
   - To run the Bun bundle under Node, add the target flag and start with Node:
     - `bun build server.ts --outdir ./dist --target node --external vite` then `node dist/server.js`
 
-Always include `--external vite` when bundling your server entry with `bun build`. Vite lazily imports `esbuild` at runtime, which Bun's bundler cannot statically resolve; keeping Vite external avoids a build error.
+Always include `--external vite` when bundling your server entry with `bun build`. Vite lazily imports `esbuild` at runtime, which Bun's bundler cannot statically resolve. Keeping Vite external avoids a build error.
 
 See a complete example with plugins and data handler registration in `demos/ssr/serve.ts`.
 
@@ -789,7 +789,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
 - `frontendAppConfig?: Record<string, unknown>`
   - Optional configuration object available via the `useFrontendAppConfig()` hook on both server (during SSR/SSG rendering) and client (after HTML injection) in both dev and prod modes.
   - Use for runtime configuration (API URLs, feature flags, build info, etc.). See [Frontend App Config Pattern](../README.md#frontend-app-config-pattern) for usage in components vs loaders.
-  - Within a request, read the config via `useFrontendAppConfig()` in components (available on both server and client). Each request receives a deep-cloned, deep-frozen snapshot — mutations inside a request are isolated and do not affect other requests. If you hold a reference to the object (or a sub-object within it) that you passed here, you can mutate it between requests and the next clone will pick up the change. Updates are global (all subsequent requests, not a specific user) — use `requestContext` for per-user or per-request values.
+  - Within a request, read the config via `useFrontendAppConfig()` in components (available on both server and client). Each request receives a deep-cloned, deep-frozen snapshot, so mutations inside a request are isolated and do not affect other requests. If you hold a reference to the object (or a sub-object within it) that you passed here, you can mutate it between requests and the next clone will pick up the change. Updates are global (all subsequent requests, not a specific user). Use `requestContext` for per-user or per-request values.
 - `containerID?: string`
   - Client container element ID (default `"root"`).
 - `ssrRenderTimeout?: number`
@@ -822,7 +822,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
     - **App-level default**: Falls back to the `CDNBaseURL` option configured in `serveSSRProd()` or `registerProdApp()`
     - **No CDN**: If neither is set, original `/assets/...` paths are preserved
   - The effective CDN URL is also available to frontend code:
-    - **In components**: use `useCDNBaseURL()` — works on both server and client. See [Unirend Context](../docs/unirend-context.md).
+    - **In components**: use `useCDNBaseURL()`, which works on both server and client. See [Unirend Context](../docs/unirend-context.md).
     - **In non-component code** (data loaders, utilities): use `window.__CDN_BASE_URL__` with a `typeof window !== 'undefined'` guard, since `window` is not available during SSR:
       ```typescript
       const cdnBase =
@@ -1007,7 +1007,7 @@ Handler signature and return type:
     - `version`: version number used for this invocation
     - `invocationOrigin`: `"http" | "internal"`
     - `routeParams`: dynamic route params
-    - `queryParams`: URL query params (`Record<string, unknown>`, parsed with qs — supports nested objects and arrays)
+    - `queryParams`: URL query params (`Record<string, unknown>`, parsed with qs and supports nested objects and arrays)
     - `requestPath`: resolved request path used by the loader
     - `originalURL`: full original URL
 
@@ -1158,7 +1158,7 @@ When using versioned page data handlers (see [Page Data Loader Handlers and Vers
 Both architectures have full cookie access - there's no capability difference:
 
 - **Short-circuit (SSR initial load)**: Handler accesses `request.cookies` directly (same Fastify request from browser)
-- **HTTP fetch (client navigation OR separate API server)**: Cookies automatically forwarded via `Cookie` header; responses forwarded back via `Set-Cookie`
+- **HTTP fetch (client navigation OR separate API server)**: Cookies automatically forwarded via `Cookie` header, with responses forwarded back via `Set-Cookie`
 
 To use cookies, register the `cookies` plugin (see [cookies plugin docs](./built-in-plugins/cookies.md)):
 
@@ -1242,7 +1242,7 @@ Notes:
     - `version`: numeric version used
     - `fullPath`: full registered path
     - `routeParams`: dynamic route params
-    - `queryParams`: URL query params (`Record<string, unknown>`, parsed with qs — supports nested objects and arrays)
+    - `queryParams`: URL query params (`Record<string, unknown>`, parsed with qs and supports nested objects and arrays)
     - `requestPath`: path without query
     - `originalURL`: full original URL
 
@@ -1261,7 +1261,7 @@ SSR supports injecting per-request context data that will be available on the cl
 **Request Context vs Frontend App Config:**
 
 - **Request Context**: Per-page data that can vary between requests and be mutated on the client (e.g., page-specific state, user preferences, theme)
-- **Frontend App Config**: Global configuration shared across all pages (e.g., API URLs, feature flags, build info). Read within a request via `useFrontendAppConfig()` in components. Each request gets a deep-frozen clone — immutable within the request. You can mutate the source between requests to update values globally (e.g., rotating an API endpoint, updating a year), but those changes apply to all subsequent requests, not a specific user.
+- **Frontend App Config**: Global configuration shared across all pages (e.g., API URLs, feature flags, build info). Read within a request via `useFrontendAppConfig()` in components. Each request gets a deep-frozen clone that is immutable within the request. You can mutate the source between requests to update values globally (e.g., rotating an API endpoint, updating a year), but those changes apply to all subsequent requests, not a specific user.
 
 **Design Philosophy:**
 
@@ -1371,7 +1371,7 @@ A single `SSRServer` instance can serve **multiple distinct React applications**
 
 ### Monorepo Structure Tip
 
-A common pattern is to give each app its own source folder with its `entry-ssr`, `entry-client`, components, assets, and Vite config — with `serve.ts` living alongside the default app's source. Build `serve.ts` to `dist/` and each app into its own sub-folder within it, then register the additional apps via `registerProdApp()` (or `registerDevApp()` for dev).
+A common pattern is to give each app its own source folder with its `entry-ssr`, `entry-client`, components, assets, and Vite config, with `serve.ts` living alongside the default app's source. Build `serve.ts` to `dist/` and each app into its own sub-folder within it, then register the additional apps via `registerProdApp()` (or `registerDevApp()` for dev).
 
 ### Usage Example
 

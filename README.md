@@ -52,7 +52,7 @@ Unirend includes Fastify as a regular dependency powering its built-in servers (
 
 Recommendation: We recommend Bun as the default toolchain. Bun can run TypeScript directly in development and can bundle your server to a single JavaScript file for production. The unirend library itself avoids Bun-specific APIs, so your server can be bundled to run under Node as well — just pass `--target node` when building (see the optional scripts in the SSR section below). Pure Node tooling setups (e.g., `ts-node`, `tsc`, `esbuild`, `rollup`) or vanilla JavaScript are possible, but not the focus of this guide, the CLI, or the starter template utility functions.
 
-Note: Always include `--external vite` when bundling your server entry with `bun build`. Vite lazily imports `esbuild` at runtime, which Bun's bundler cannot statically resolve; keeping Vite external avoids a build error.
+Note: Always include `--external vite` when bundling your server entry with `bun build`. Vite lazily imports `esbuild` at runtime, which Bun's bundler cannot statically resolve. Keeping Vite external avoids a build error.
 
 CLI note: The Unirend project generator (CLI) requires Bun for a simple, out‑of‑the‑box experience. Generated projects use Bun for development and build tooling, but can target Node at bundle time (`bun build --target node --external vite`). As Node tooling continues to improve, we may add first-class Node CLI support in the future.
 
@@ -166,7 +166,7 @@ Note on React Router Import:
 
 ### Prepare Vite Config and Entry Points
 
-**Vite Configuration:** We recommend wrapping your Vite config with `withUnirendViteConfig()` so dev/build flows use one React/React Router instance:
+**Vite Configuration:** In your `vite.config.ts`, wrap your Vite config with `withUnirendViteConfig()` so dev/build flows use one React/React Router instance:
 
 ```typescript
 import { defineConfig } from 'vite';
