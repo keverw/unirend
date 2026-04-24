@@ -36,6 +36,10 @@
 
 **Static Site Generation (SSG)** allows you to pre-render your React pages at build time, creating static HTML files that can be served by any web server.
 
+Vite config:
+
+Use the Vite config setup shown in the main [README](../README.md#prepare-vite-config-and-entry-points), including `withUnirendViteConfig()`, which adds the Vite dedupe settings needed so SSR/SSG rendering uses the same React/React Router package instances. This prevents split React Router contexts. Without it, router hooks like `useLocation()` can fail because they read a different context than the provider created.
+
 ## Creating Generation Script
 
 Create a script to generate your static pages using the `generateSSG` function:

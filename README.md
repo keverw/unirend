@@ -164,19 +164,24 @@ Note on React Router Import:
 
 ### Prepare Vite Config and Entry Points
 
-**Vite Configuration:** Make sure your `vite.config.ts` includes `manifest: true` to ensure both builds generate manifests:
+**Vite Configuration:** We recommend wrapping your Vite config with `withUnirendViteConfig()` so dev/build flows use one React/React Router instance:
 
 ```typescript
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { withUnirendViteConfig } from 'unirend/config-vite';
 
-export default defineConfig({
-  plugins: [react()],
-  build: {
-    manifest: true, // Required for unirend to locate built files
-  },
-});
+export default defineConfig(
+  withUnirendViteConfig({
+    plugins: [react()],
+    build: {
+      manifest: true, // Required for unirend to locate built files
+    },
+  }),
+);
 ```
+
+`withUnirendViteConfig()` merges with your existing Vite config, so settings like `resolve.alias` are preserved, and adds Vite dedupe settings for `react`, `react-dom`, and `react-router` so SSR/SSG rendering uses one shared React/React Router instance. This prevents split React Router contexts. Without it, router hooks like `useLocation()` can fail because they read a different context than the provider created.
 
 **Build Structure:** Both SSG and SSR require building client and server separately:
 

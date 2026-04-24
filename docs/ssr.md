@@ -550,6 +550,10 @@ See the full HTTPS Configuration guide: [https.md](./https.md)
 
 ## Create SSR Server
 
+Vite config:
+
+Use the Vite config setup shown in the main [README](../README.md#prepare-vite-config-and-entry-points), including `withUnirendViteConfig()`, which adds the Vite dedupe settings needed so SSR/SSG rendering uses the same React/React Router package instances. This prevents split React Router contexts. Without it, router hooks like `useLocation()` can fail because they read a different context than the provider created.
+
 ### Create Production SSR Server
 
 Create a server file that uses the `serveSSRProd` function:

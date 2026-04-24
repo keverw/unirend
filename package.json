@@ -39,6 +39,11 @@
       "import": "./dist/starter-templates/starter-templates.js",
       "require": "./dist/starter-templates/starter-templates.cjs"
     },
+    "./config-vite": {
+      "types": "./dist/config-vite/config-vite.d.ts",
+      "import": "./dist/config-vite/config-vite.js",
+      "require": "./dist/config-vite/config-vite.cjs"
+    },
     "./utils": {
       "types": "./dist/utils/utils.d.ts",
       "import": "./dist/utils/utils.js",

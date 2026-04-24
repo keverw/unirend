@@ -112,6 +112,13 @@ export default defineConfig([
   // Build info (server-side)
   { ...baseConfig, entry: ['src/build-info.ts'], outDir: 'dist/build-info' },
 
+  // Vite config helpers
+  {
+    ...baseConfig,
+    entry: ['src/config-vite/config-vite.ts'],
+    outDir: 'dist/config-vite',
+  },
+
   // CLI entry point (no shebang - run with bun/node)
   {
     ...baseConfig,
