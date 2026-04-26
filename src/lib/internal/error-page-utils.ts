@@ -1,6 +1,77 @@
 import type { FastifyRequest } from 'fastify';
 import { escapeHTML } from './html-utils/escape';
 
+type ErrorPageStyleRules = Record<string, Record<string, string>>;
+
+const DEFAULT_ERROR_PAGE_STYLE_RULES = {
+  'html, body': {
+    height: '100%',
+    margin: '0',
+    padding: '0',
+    background: '#fff',
+  },
+  body: {
+    'min-height': '100vh',
+    display: 'flex',
+    'align-items': 'center',
+    'justify-content': 'center',
+    'font-family': 'system-ui, Arial, sans-serif',
+    background: '#f7f7f8',
+  },
+  '.ep-card': {
+    background: '#fff',
+    'border-radius': '14px',
+    'box-shadow': '0 2px 16px rgba(0,0,0,0.08)',
+    'max-width': '440px',
+    width: '100%',
+    margin: '32px',
+    padding: '32px 28px 24px 28px',
+    'text-align': 'center',
+  },
+  '.ep-title': {
+    'font-size': '2rem',
+    'font-weight': '600',
+    'margin-bottom': '12px',
+  },
+  '.ep-sub': {
+    'font-size': '1.1rem',
+    'font-weight': '500',
+    'margin-bottom': '24px',
+    color: '#222',
+  },
+  '.ep-panel': {
+    background: '#f1f1f3',
+    'border-radius': '6px',
+    padding: '12px 14px',
+    'font-size': '0.98rem',
+    color: '#222',
+  },
+} satisfies ErrorPageStyleRules;
+
+function generateErrorPageStyles(overrides: ErrorPageStyleRules): string {
+  const rules: ErrorPageStyleRules = {};
+
+  for (const [selector, declarations] of Object.entries(
+    DEFAULT_ERROR_PAGE_STYLE_RULES,
+  )) {
+    rules[selector] = { ...declarations };
+  }
+
+  for (const [selector, declarations] of Object.entries(overrides)) {
+    rules[selector] = { ...rules[selector], ...declarations };
+  }
+
+  return Object.entries(rules)
+    .map(
+      ([selector, declarations]) => `    ${selector} {
+${Object.entries(declarations)
+  .map(([property, value]) => `      ${property}: ${value};`)
+  .join('\n')}
+    }`,
+    )
+    .join('\n');
+}
+
 /**
  * Generates a default 500 error page.
  * @param request The Fastify request object
@@ -39,87 +110,57 @@ export function generateDefault500ErrorPage(
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>500 - Internal Server Error</title>
   <style>
-    html, body { height: 100%; margin: 0; padding: 0; background: #fff; }
-    body {
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: system-ui, Arial, sans-serif;
-      background: #f7f7f8;
-    }
-    .ep-card {
-      background: #fff;
-      border-radius: 14px;
-      box-shadow: 0 2px 16px rgba(0,0,0,0.08);
-      max-width: 440px;
-      width: 100%;
-      margin: 32px;
-      padding: 32px 28px 24px 28px;
-      text-align: center;
-    }
-    .ep-title {
-      color: #e53935;
-      font-size: 2rem;
-      font-weight: 600;
-      margin-bottom: 12px;
-      letter-spacing: 0.01em;
-    }
-    .ep-sub {
-      font-size: 1.1rem;
-      font-weight: 500;
-      margin-bottom: 24px;
-      color: #222;
-    }
-    .ep-section {
-      margin-bottom: 18px;
-      text-align: left;
-    }
-    .ep-label {
-      font-size: 1rem;
-      font-weight: 600;
-      color: #444;
-      margin-bottom: 2px;
-    }
-    .ep-panel {
-      background: #f1f1f3;
-      border-radius: 6px;
-      padding: 12px 14px;
-      font-size: 0.98rem;
-      color: #222;
-      word-break: break-all;
-      overflow-x: auto;
-    }
-    .ep-stack {
-      font-size: 0.92rem;
-      white-space: pre-wrap;
-      font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
-      max-height: 300px;
-      overflow-y: auto;
-    }
-    .ep-note {
-      margin-top: 30px;
-      font-size: 0.97rem;
-      color: #888;
-    }
-    .ep-btn {
-      margin: 18px auto 0 auto;
-      display: block;
-      background: #2563eb;
-      color: #fff;
-      border: none;
-      border-radius: 6px;
-      padding: 10px 22px;
-      font-size: 1rem;
-      font-weight: 500;
-      cursor: pointer;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-      transition: background 0.15s;
-    }
-    .ep-btn:hover, .ep-btn:focus {
-      background: #1d4ed8;
-      outline: none;
-    }
+${generateErrorPageStyles({
+  '.ep-title': {
+    color: '#e53935',
+    'letter-spacing': '0.01em',
+  },
+  '.ep-section': {
+    'margin-bottom': '18px',
+    'text-align': 'left',
+  },
+  '.ep-label': {
+    'font-size': '1rem',
+    'font-weight': '600',
+    color: '#444',
+    'margin-bottom': '2px',
+  },
+  '.ep-panel': {
+    'word-break': 'break-all',
+    'overflow-x': 'auto',
+  },
+  '.ep-stack': {
+    'font-size': '0.92rem',
+    'white-space': 'pre-wrap',
+    'font-family':
+      'ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace',
+    'max-height': '300px',
+    'overflow-y': 'auto',
+  },
+  '.ep-note': {
+    'margin-top': '30px',
+    'font-size': '0.97rem',
+    color: '#888',
+  },
+  '.ep-btn': {
+    margin: '18px auto 0 auto',
+    display: 'block',
+    background: '#2563eb',
+    color: '#fff',
+    border: 'none',
+    'border-radius': '6px',
+    padding: '10px 22px',
+    'font-size': '1rem',
+    'font-weight': '500',
+    cursor: 'pointer',
+    'box-shadow': '0 1px 3px rgba(0,0,0,0.1)',
+    transition: 'background 0.15s',
+  },
+  '.ep-btn:hover, .ep-btn:focus': {
+    background: '#1d4ed8',
+    outline: 'none',
+  },
+})}
   </style>
 </head>
 <body>
@@ -139,6 +180,35 @@ export function generateDefault500ErrorPage(
         ? '<div class="ep-note"><b>Note:</b> Detailed error information is only shown in development mode.</div>'
         : ''
     }
+  </main>
+</body>
+</html>`;
+}
+
+/**
+ * Generates a default 503 page for requests received while the server is closing.
+ * @returns HTML string for the shutdown page
+ */
+export function generateDefault503ClosingPage(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>503 - Service Unavailable</title>
+  <style>
+${generateErrorPageStyles({
+  '.ep-title': {
+    color: '#374151',
+  },
+})}
+  </style>
+</head>
+<body>
+  <main class="ep-card">
+    <div class="ep-title">503 - Service Unavailable</div>
+    <div class="ep-sub">Server is shutting down</div>
+    <div class="ep-panel">Please try again shortly.</div>
   </main>
 </body>
 </html>`;

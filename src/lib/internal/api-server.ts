@@ -1,7 +1,7 @@
 import fastify from 'fastify';
 import qs from 'qs';
 import formbody from '@fastify/formbody';
-import type { FastifyServerOptions, FastifyError, FastifyReply } from 'fastify';
+import type { FastifyServerOptions, FastifyError } from 'fastify';
 import {
   createControlledInstance,
   classifyRequest,
@@ -9,6 +9,9 @@ import {
   normalizePageDataEndpoint,
   createDefaultAPIErrorResponse,
   createDefaultAPINotFoundResponse,
+  registerClosingResponseHook,
+  isSplitHandler,
+  prepareWebResponse,
   validateAndRegisterPlugin,
   validateNoHandlersWhenAPIDisabled,
   buildFastifyHTTPSOptions,
@@ -19,7 +22,6 @@ import type {
   PluginMetadata,
   APIResponseHelpersClass,
   PluginOptions,
-  WebErrorResponse,
   SplitErrorHandler,
   SplitNotFoundHandler,
   AccessLogConfig,
@@ -126,6 +128,7 @@ export class APIServer extends BaseServer {
     }
 
     this._isStarting = true;
+    this._isStopping = false;
 
     // Clear plugin tracking state on startup (handles restart scenarios)
     this.registeredPlugins = [];
@@ -188,6 +191,11 @@ export class APIServer extends BaseServer {
         fastifyOptions.https = buildFastifyHTTPSOptions(this.options.https);
       }
 
+      // Framework-owned Fastify behavior. These are intentionally not exposed
+      // through fastifyOptions because Unirend depends on them for consistent
+      // routing and shutdown responses across server types.
+      fastifyOptions.return503OnClosing = false;
+
       fastifyOptions.routerOptions = {
         // Ignore trailing slashes for flexible routing (matches Express behavior)
         ignoreTrailingSlash: true,
@@ -244,6 +252,22 @@ export class APIServer extends BaseServer {
       // Register access logging hooks. Config is read per request so
       // updateAccessLoggingConfig() changes take effect without a restart.
       this._accessLog.register(this.fastifyInstance);
+
+      registerClosingResponseHook(
+        this.fastifyInstance,
+        () => this._isStopping,
+        {
+          handler: this.options.closingHandler,
+          // APIServer function form is API-first. Split form can still
+          // customize web requests when APIServer is used as a mixed or
+          // plain web server.
+          functionHandlerType: 'api',
+          serverLabel: this.serverLabel,
+          HelpersClass: this.APIResponseHelpersClass,
+          apiPrefix: this.normalizedAPIPrefix,
+          pageDataEndpoint: this.normalizedPageDataEndpoint,
+        },
+      );
 
       // Patch reply.hijack() early so all subsequently registered routes
       // inherit the wrapper, including user/plugin routes that bypass onSend.
@@ -378,9 +402,15 @@ export class APIServer extends BaseServer {
    */
   public async stop(): Promise<void> {
     if (this.fastifyInstance && this._isListening) {
-      await this.fastifyInstance.close();
-      this._isListening = false;
-      this.fastifyInstance = null;
+      this._isStopping = true;
+
+      try {
+        await this.fastifyInstance.close();
+        this._isListening = false;
+        this.fastifyInstance = null;
+      } finally {
+        this._isStopping = false;
+      }
 
       // Clear plugin tracking state
       this.registeredPlugins = [];
@@ -457,52 +487,6 @@ export class APIServer extends BaseServer {
   }
 
   /**
-   * Helper to check if handler is the split form (object with api and/or web)
-   * Either handler can be optional - missing handlers fall through to default
-   * @private
-   */
-  private isSplitHandler<T extends { api?: unknown; web?: unknown }>(
-    handler: unknown,
-  ): handler is T {
-    if (handler === null || typeof handler !== 'object') {
-      return false;
-    }
-
-    // It's split form if it has at least one of api/web as a function
-    const obj = handler as Record<string, unknown>;
-
-    const hasAPIHandler = 'api' in obj && typeof obj.api === 'function';
-    const hasWebHandler = 'web' in obj && typeof obj.web === 'function';
-
-    return hasAPIHandler || hasWebHandler;
-  }
-
-  /**
-   * Helper to send a WebErrorResponse
-   * @private
-   */
-  private sendWebErrorResponse(
-    reply: FastifyReply,
-    response: WebErrorResponse,
-    defaultStatusCode: number,
-  ): unknown {
-    const statusCode = response.statusCode ?? defaultStatusCode;
-    reply.code(statusCode).header('Cache-Control', 'no-store');
-
-    // Set Content-Type but do NOT call reply.send() here.
-    // The caller returns the content so wrapThenable makes exactly one reply.send() call.
-    if (response.contentType === 'json') {
-      reply.type('application/json');
-    } else if (response.contentType === 'html') {
-      reply.type('text/html');
-    } else {
-      reply.type('text/plain');
-    }
-
-    return response.content;
-  }
-
-  /**
    * Setup global error handler for unhandled errors
    * @private
    */
@@ -548,7 +532,7 @@ export class APIServer extends BaseServer {
         try {
           // Check if it's the split form (object with api and/or web handlers)
           if (
-            this.isSplitHandler<Partial<SplitErrorHandler>>(
+            isSplitHandler<Partial<SplitErrorHandler>>(
               this.options.errorHandler,
             )
           ) {
@@ -580,7 +564,7 @@ export class APIServer extends BaseServer {
                 splitHandler.web(request, error as FastifyError, isDev),
               );
 
-              return this.sendWebErrorResponse(reply, webResponse, 500);
+              return prepareWebResponse(reply, webResponse, 500);
             }
 
             // Missing handler for this case - fall through to default
@@ -655,7 +639,7 @@ export class APIServer extends BaseServer {
         try {
           // Check if it's the split form (object with api and/or web handlers)
           if (
-            this.isSplitHandler<Partial<SplitNotFoundHandler>>(
+            isSplitHandler<Partial<SplitNotFoundHandler>>(
               this.options.notFoundHandler,
             )
           ) {
@@ -678,7 +662,7 @@ export class APIServer extends BaseServer {
                 splitHandler.web(request),
               );
 
-              return this.sendWebErrorResponse(reply, webResponse, 404);
+              return prepareWebResponse(reply, webResponse, 404);
             }
 
             // Missing handler for this case - fall through to default

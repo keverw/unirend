@@ -177,6 +177,7 @@ console.log('HTTP redirect server running on port 80');
 - `logErrors` - Whether to automatically log errors (default: `true`)
 - `logging` - Framework-level logging options (same as APIServer/SSRServer)
 - `fastifyOptions` - Fastify server options (logger, trustProxy, etc.)
+- `closingHandler` - Custom `WebResponse` for requests received while `stop()` is closing the redirect server. If omitted, Unirend returns a default 503 HTML page.
 
 **Domain Validation:**
 The `allowedDomains` option supports wildcard patterns:

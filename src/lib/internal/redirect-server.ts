@@ -11,6 +11,7 @@ import type {
   FastifyServerOptions,
   AccessLogConfig,
   ResponseTimeHeaderOptions,
+  WebClosingHandlerFn,
 } from '../types';
 
 /**
@@ -135,6 +136,12 @@ export interface RedirectServerOptions {
   getClientIP?: (request: FastifyRequest) => string | Promise<string>;
 
   /**
+   * Custom handler for requests that arrive while the redirect server is shutting down.
+   * If omitted, Unirend returns a default 503 HTML page.
+   */
+  closingHandler?: WebClosingHandlerFn;
+
+  /**
    * HTTPS server configuration for the redirect server itself
    * Typically not needed (redirect servers usually run on HTTP port 80)
    */
@@ -223,6 +230,9 @@ export class RedirectServer {
       fastifyOptions: options.fastifyOptions, // Pass through Fastify options
       accessLog: options.accessLog, // Pass through access log config
       responseTimeHeader: options.responseTimeHeader, // Pass through response-time header config
+      closingHandler: options.closingHandler
+        ? { web: options.closingHandler }
+        : undefined,
       getClientIP: options.getClientIP, // Pass through client IP resolver
       plugins: [
         (pluginHost) => {

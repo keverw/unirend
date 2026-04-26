@@ -475,6 +475,37 @@ describe('StaticWebServer', () => {
       expect(server.isListening()).toBe(false);
     });
 
+    it('passes closingHandler to the underlying web server', async () => {
+      setReadFileMock({ 'page-map.json': VALID_PAGE_MAP });
+      server = makeServer({
+        closingHandler: () => ({
+          contentType: 'text',
+          content: 'Static server is closing',
+          statusCode: 503,
+        }),
+      });
+
+      await server.listen(testPort);
+
+      const apiServer = (server as unknown as { server: unknown }).server as {
+        _isStopping: boolean;
+      };
+      apiServer._isStopping = true;
+
+      try {
+        const response = await makeRawRequest({
+          port: testPort,
+          path: '/',
+        });
+
+        expect(response.statusCode).toBe(503);
+        expect(response.headers['content-type']).toContain('text/plain');
+        expect(response.body.toString()).toBe('Static server is closing');
+      } finally {
+        apiServer._isStopping = false;
+      }
+    });
+
     it('clears the internal cache reference after stop', async () => {
       setReadFileMock({ 'page-map.json': VALID_PAGE_MAP });
       server = makeServer();

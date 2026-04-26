@@ -92,7 +92,8 @@
     "api-static-demo": "bun run demos/api-static-content-demo.ts",
     "ws-demo": "bun run demos/ws-server-demo.ts",
     "run-dist-cli": "bun ./dist/cli/cli.js",
-    "run-dev-cli": "bun run src/cli.ts"
+    "run-dev-cli": "bun run src/cli.ts",
+    "dump-error-pages": "bun run scripts/dump-error-pages.ts"
   },
   "keywords": [
     "ssg",

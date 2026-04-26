@@ -429,6 +429,7 @@ Dev mode (stack traces in built-in 500 page, not custom error page provided) is 
   - Appears in error log messages as `[Static] Request error` (brackets are added automatically).
   - Also available as `{{serverLabel}}` in access log templates and as `request.serverLabel` in hooks and handlers. The raw label value is exposed (no brackets), so templates can use it as `[{{serverLabel}}]` if desired.
 - `accessLog` - First-party access logging for the underlying server. Use `{ events: 'none' }` to disable, or provide config to customize.
+- `closingHandler` - Custom `WebResponse` for requests received while `stop()` is closing the server. If omitted, Unirend returns a default 503 HTML page.
 - `responseCompression?: boolean | ResponseCompressionOptions`
   - Enables built-in response compression for static files and pages (default: `true`).
   - Negotiates `Accept-Encoding`, honors client `q` weights, uses `preferBrotli` to break ties when gzip and Brotli are equally preferred, and skips range responses and very small responses.

@@ -14,9 +14,15 @@ import type {
   ControlledReply,
   APIResponseHelpersClass,
   HTTPSOptions,
+  WebResponse,
+  APIClosingHandlerFn,
+  WebClosingHandlerFn,
+  SplitClosingHandler,
 } from '../types';
+import type { BaseMeta } from '../api-envelope/api-envelope-types';
 import type { CookieSerializeOptions } from '@fastify/cookie';
 import { DEFAULT_API_PREFIX, DEFAULT_PAGE_DATA_ENDPOINT } from './consts';
+import { generateDefault503ClosingPage } from './error-page-utils';
 import { parseHostHeader, getDomain } from 'lifecycleion/domain-utils';
 import { sendRawErrorEnvelopeResponse } from './error-envelope-send';
 
@@ -303,6 +309,250 @@ export function createDefaultAPINotFoundResponse(
     errorCode: 'not_found',
     errorMessage: 'Resource Not Found',
   });
+}
+
+/**
+ * Creates a default JSON 503 shutdown response using the envelope pattern.
+ * Used by both APIServer and SSRServer for requests that arrive while closing.
+ * @param request - The Fastify request object
+ * @param isPageData - Whether the request targets the page-data endpoint
+ * @returns JSON 503 response object
+ */
+export function createDefaultAPIClosingResponse(
+  HelpersClass: APIResponseHelpersClass,
+  request: FastifyRequest,
+  isPageData: boolean,
+): unknown {
+  const statusCode = 503;
+  const errorCode = 'service_unavailable';
+  const errorMessage = 'Server is shutting down';
+
+  if (isPageData) {
+    return HelpersClass.createPageErrorResponse({
+      request,
+      statusCode,
+      errorCode,
+      errorMessage,
+      pageMetadata: {
+        title: 'Service Unavailable',
+        description: 'The server is shutting down. Please try again shortly.',
+      },
+    });
+  }
+
+  return HelpersClass.createAPIErrorResponse({
+    request,
+    statusCode,
+    errorCode,
+    errorMessage,
+  });
+}
+
+/**
+ * Creates the default web 503 shutdown response.
+ * Used by API, SSR, static, and redirect servers for web requests while closing.
+ */
+export function createDefaultWebClosingResponse(): WebResponse {
+  return {
+    contentType: 'html',
+    content: generateDefault503ClosingPage(),
+    statusCode: 503,
+  };
+}
+
+type ClosingFunctionHandlerType = 'api' | 'web';
+
+type ClosingHandler<M extends BaseMeta = BaseMeta> =
+  | APIClosingHandlerFn<M>
+  | WebClosingHandlerFn
+  | SplitClosingHandler<M>;
+
+interface ClosingResponseConfig<M extends BaseMeta = BaseMeta> {
+  handler?: ClosingHandler<M>;
+  functionHandlerType: ClosingFunctionHandlerType;
+  serverLabel: string;
+  HelpersClass: APIResponseHelpersClass;
+  apiPrefix: string | false;
+  pageDataEndpoint: string;
+}
+
+interface ClosingResponseContext<
+  M extends BaseMeta = BaseMeta,
+> extends ClosingResponseConfig<M> {
+  request: FastifyRequest;
+  reply: FastifyReply;
+}
+
+/**
+ * Resolves the payload sent by registerClosingResponseHook when the server is
+ * stopping. The resolver sets status/cache/content headers on the reply and
+ * returns the body that the hook will pass to sendClosingPayload().
+ */
+export async function resolveClosingResponse<M extends BaseMeta = BaseMeta>({
+  request,
+  reply,
+  handler,
+  functionHandlerType,
+  serverLabel,
+  HelpersClass,
+  apiPrefix,
+  pageDataEndpoint,
+}: ClosingResponseContext<M>): Promise<unknown> {
+  // Closing responses need the same API/page-data classification as normal
+  // errors so defaults and split handlers return the expected response shape.
+  const { isAPI, isPageData } = classifyRequest(
+    request.url,
+    apiPrefix,
+    pageDataEndpoint,
+  );
+
+  if (handler) {
+    try {
+      if (isSplitHandler<Partial<SplitClosingHandler<M>>>(handler)) {
+        // Split form lets mixed API + web servers customize each handler
+        // independently. Missing handlers fall through to Unirend defaults.
+        if (isAPI && handler.api) {
+          const apiResponse = await Promise.resolve(
+            handler.api(request, isPageData),
+          );
+
+          const statusCode = apiResponse.status_code || 503;
+          reply.code(statusCode).header('Cache-Control', 'no-store');
+          return apiResponse;
+        }
+
+        if (!isAPI && handler.web) {
+          const webResponse = await Promise.resolve(handler.web(request));
+
+          return prepareWebResponse(reply, webResponse, 503);
+        }
+      } else if (functionHandlerType === 'api' && isAPI) {
+        // Function form follows the server's primary response type. APIServer
+        // uses API envelopes, while non-API web requests fall through to the
+        // default web response unless split form provides a web handler.
+        const apiHandler = handler as APIClosingHandlerFn<M>;
+        const apiResponse = await Promise.resolve(
+          apiHandler(request, isPageData),
+        );
+
+        const statusCode = apiResponse.status_code || 503;
+        reply.code(statusCode).header('Cache-Control', 'no-store');
+        return apiResponse;
+      } else if (functionHandlerType === 'web' && !isAPI) {
+        // SSR/static/redirect servers use web responses for function form.
+        // API/page-data requests fall through to the default API envelope unless
+        // split form provides an API handler.
+        const webHandler = handler as WebClosingHandlerFn;
+        const webResponse = await Promise.resolve(webHandler(request));
+
+        return prepareWebResponse(reply, webResponse, 503);
+      }
+    } catch (handlerError) {
+      request.log.error(
+        { err: handlerError, method: request.method, url: request.url },
+        `[${serverLabel}] Custom closing handler failed`,
+      );
+    }
+  }
+
+  // No custom handler matched, or the matched handler failed. API and page-data
+  // requests fall back to the standard error envelope so clients see the same
+  // shape as other API failures.
+  if (isAPI && apiPrefix) {
+    const response = createDefaultAPIClosingResponse(
+      HelpersClass,
+      request,
+      isPageData,
+    );
+
+    const statusCode =
+      (response as { status_code?: number }).status_code || 503;
+
+    reply.code(statusCode).header('Cache-Control', 'no-store');
+
+    return response;
+  }
+
+  // Web requests fall back to the built-in HTML 503 page. This also covers
+  // servers with API handling disabled because classifyRequest reports them as
+  // non-API requests.
+  return prepareWebResponse(reply, createDefaultWebClosingResponse(), 503);
+}
+
+export function sendClosingPayload(
+  reply: FastifyReply,
+  payload: unknown,
+): FastifyReply {
+  if (
+    payload !== null &&
+    typeof payload === 'object' &&
+    !Buffer.isBuffer(payload)
+  ) {
+    return reply.type('application/json').send(JSON.stringify(payload));
+  }
+
+  return reply.send(payload);
+}
+
+export function registerClosingResponseHook(
+  fastify: FastifyInstance,
+  isStopping: () => boolean,
+  responseConfig: ClosingResponseConfig,
+): void {
+  fastify.addHook('onRequest', (request, reply, done) => {
+    if (!isStopping()) {
+      done();
+      return;
+    }
+
+    Promise.resolve(
+      resolveClosingResponse({ ...responseConfig, request, reply }),
+    )
+      .then((payload) => {
+        sendClosingPayload(reply, payload);
+      })
+      .catch(done);
+  });
+}
+
+/**
+ * Check if a handler is the split form (object with api and/or web).
+ * Either handler can be optional - missing handlers fall through to defaults.
+ */
+export function isSplitHandler<T extends { api?: unknown; web?: unknown }>(
+  handler: unknown,
+): handler is T {
+  if (handler === null || typeof handler !== 'object') {
+    return false;
+  }
+
+  // It's split form if it has at least one of api/web as a function
+  const obj = handler as Record<string, unknown>;
+  const hasAPIHandler = 'api' in obj && typeof obj.api === 'function';
+  const hasWebHandler = 'web' in obj && typeof obj.web === 'function';
+
+  return hasAPIHandler || hasWebHandler;
+}
+
+export function prepareWebResponse(
+  reply: FastifyReply,
+  response: WebResponse,
+  defaultStatusCode: number,
+): unknown {
+  const statusCode = response.statusCode ?? defaultStatusCode;
+  reply.code(statusCode).header('Cache-Control', 'no-store');
+
+  // Set Content-Type but do NOT call reply.send() here.
+  // The callers returns the content so wrapThenable makes exactly one reply.send() call.
+  if (response.contentType === 'json') {
+    reply.type('application/json');
+  } else if (response.contentType === 'html') {
+    reply.type('text/html');
+  } else {
+    reply.type('text/plain');
+  }
+
+  return response.content;
 }
 
 const DEFERRED_REPLY_ACTION_SENTINEL = Symbol('unirend.deferred-reply-action');

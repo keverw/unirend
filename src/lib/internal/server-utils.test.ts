@@ -8,15 +8,23 @@ import {
   normalizePageDataEndpoint,
   createDefaultAPIErrorResponse,
   createDefaultAPINotFoundResponse,
+  createDefaultAPIClosingResponse,
+  createDefaultWebClosingResponse,
   createControlledInstance,
   validateAndRegisterPlugin,
   validateNoHandlersWhenAPIDisabled,
   buildFastifyHTTPSOptions,
   registerClientIPDecoration,
+  registerClosingResponseHook,
+  resolveClosingResponse,
+  sendClosingPayload,
+  isSplitHandler,
+  prepareWebResponse,
   normalizeCDNBaseURL,
   computeDomainInfo,
 } from './server-utils';
 import type { HTTPSOptions } from '../types';
+import { APIResponseHelpers } from '../../api-envelope';
 
 // cspell:ignore regs apix datax falsey
 
@@ -252,6 +260,43 @@ describe('createControlledReply', () => {
     );
 
     expect(crDestroyed.raw.destroyed).toBe(true);
+  });
+
+  it('sends an internal error envelope through the raw response path', async () => {
+    const app = fastify();
+
+    app.get('/controlled-error', async (request, reply) => {
+      const controlledReply = createControlledReply(request, reply);
+      await controlledReply._sendErrorEnvelope(
+        418,
+        APIResponseHelpers.createAPIErrorResponse({
+          request,
+          statusCode: 418,
+          errorCode: 'teapot',
+          errorMessage: 'Short and stout',
+        }),
+      );
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/controlled-error',
+    });
+
+    expect(response.statusCode).toBe(418);
+    expect(response.headers['content-type']).toContain('application/json');
+    expect(response.headers['content-length']).toBe(
+      String(Buffer.byteLength(response.body)),
+    );
+    expect(response.json()).toMatchObject({
+      status_code: 418,
+      error: {
+        code: 'teapot',
+        message: 'Short and stout',
+      },
+    });
+
+    await app.close();
   });
 });
 
@@ -556,6 +601,36 @@ describe('default envelope helpers', () => {
     expect(api404.kind).toBe('api');
     expect(api404.statusCode).toBe(404);
     expect(api404.errorCode).toBe('not_found');
+  });
+
+  it('createDefaultAPIClosingResponse: returns API and page-data 503 envelopes', () => {
+    const makeReq = (url: string) => ({ url }) as unknown as FastifyRequest;
+
+    const pageClosing = createDefaultAPIClosingResponse(
+      HelpersStub as unknown as any,
+      makeReq('/api/v1/page_data/home'),
+      true,
+    ) as any;
+
+    expect(pageClosing.kind).toBe('page');
+    expect(pageClosing.statusCode).toBe(503);
+    expect(pageClosing.errorCode).toBe('service_unavailable');
+    expect(pageClosing.errorMessage).toBe('Server is shutting down');
+    expect(pageClosing.pageMetadata).toEqual({
+      title: 'Service Unavailable',
+      description: 'The server is shutting down. Please try again shortly.',
+    });
+
+    const apiClosing = createDefaultAPIClosingResponse(
+      HelpersStub as unknown as any,
+      makeReq('/api/users'),
+      false,
+    ) as any;
+
+    expect(apiClosing.kind).toBe('api');
+    expect(apiClosing.statusCode).toBe(503);
+    expect(apiClosing.errorCode).toBe('service_unavailable');
+    expect(apiClosing.errorMessage).toBe('Server is shutting down');
   });
 });
 
@@ -1246,6 +1321,495 @@ describe('registerClientIPDecoration', () => {
 
     expect(handler(req, {})).rejects.toThrow('async lookup failed');
     expect((req as any).clientIP).toBe('1.2.3.4');
+  });
+});
+
+describe('sendClosingPayload', () => {
+  it('JSON-stringifies object payloads before sending from lifecycle hooks', async () => {
+    const app = fastify();
+
+    app.addHook('onRequest', (_request, reply, _done) => {
+      sendClosingPayload(reply, { ok: false, statusCode: 503 });
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('application/json');
+    expect(JSON.parse(response.body)).toEqual({
+      ok: false,
+      statusCode: 503,
+    });
+
+    await app.close();
+  });
+
+  it('sends string payloads unchanged', async () => {
+    const app = fastify();
+
+    app.addHook('onRequest', (_request, reply, _done) => {
+      reply.type('text/plain');
+      sendClosingPayload(reply, 'closing');
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('text/plain');
+    expect(response.body).toBe('closing');
+
+    await app.close();
+  });
+});
+
+describe('registerClosingResponseHook', () => {
+  it('continues to routes when the server is not stopping', async () => {
+    const app = fastify();
+    let didResolve = false;
+
+    registerClosingResponseHook(app, () => false, {
+      handler: (request: FastifyRequest) =>
+        Promise.resolve().then(() => {
+          didResolve = true;
+          return APIResponseHelpers.createAPIErrorResponse({
+            request,
+            statusCode: 503,
+            errorCode: 'service_unavailable',
+            errorMessage: 'Closing',
+          });
+        }),
+      functionHandlerType: 'api',
+      serverLabel: 'TestServer',
+      HelpersClass: APIResponseHelpers,
+      apiPrefix: '/api',
+      pageDataEndpoint: 'page_data',
+    });
+
+    app.get('/status', () => ({ ok: true }));
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/status',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({ ok: true });
+    expect(didResolve).toBe(false);
+
+    await app.close();
+  });
+
+  it('sends the resolved closing response and skips routes when stopping', async () => {
+    const app = fastify();
+    let didReachRoute = false;
+
+    registerClosingResponseHook(app, () => true, {
+      handler: (request: FastifyRequest) =>
+        APIResponseHelpers.createAPIErrorResponse({
+          request,
+          statusCode: 503,
+          errorCode: 'service_unavailable',
+          errorMessage: 'Closing',
+        }),
+      functionHandlerType: 'api',
+      serverLabel: 'TestServer',
+      HelpersClass: APIResponseHelpers,
+      apiPrefix: '/api',
+      pageDataEndpoint: 'page_data',
+    });
+
+    app.get('/status', () => {
+      didReachRoute = true;
+      return { ok: true };
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/status',
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(JSON.parse(response.body)).toMatchObject({
+      status_code: 503,
+      error: {
+        code: 'service_unavailable',
+        message: 'Closing',
+      },
+    });
+    expect(didReachRoute).toBe(false);
+
+    await app.close();
+  });
+
+  it('routes internal resolver failures through Fastify error handling', async () => {
+    const app = fastify();
+    class ThrowingAPIResponseHelpers extends APIResponseHelpers {
+      public static override createAPIErrorResponse(): never {
+        throw new Error('closing resolver failed');
+      }
+    }
+
+    registerClosingResponseHook(app, () => true, {
+      functionHandlerType: 'api',
+      serverLabel: 'TestServer',
+      HelpersClass: ThrowingAPIResponseHelpers,
+      apiPrefix: '/api',
+      pageDataEndpoint: 'page_data',
+    });
+
+    app.setErrorHandler((error: Error, _request, reply) => {
+      reply.code(599).send({ message: error.message });
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/status',
+    });
+
+    expect(response.statusCode).toBe(599);
+    expect(JSON.parse(response.body)).toEqual({
+      message: 'closing resolver failed',
+    });
+
+    await app.close();
+  });
+});
+
+describe('isSplitHandler', () => {
+  it('returns true when api or web is a function', () => {
+    expect(isSplitHandler({ api: () => {} })).toBe(true);
+    expect(isSplitHandler({ web: () => {} })).toBe(true);
+    expect(isSplitHandler({ api: () => {}, web: () => {} })).toBe(true);
+  });
+
+  it('returns false for non-objects or objects without api/web functions', () => {
+    expect(isSplitHandler(null)).toBe(false);
+    expect(isSplitHandler(undefined)).toBe(false);
+    expect(isSplitHandler(() => {})).toBe(false);
+    expect(isSplitHandler({})).toBe(false);
+    expect(isSplitHandler({ api: true })).toBe(false);
+    expect(isSplitHandler({ web: 'handler' })).toBe(false);
+  });
+});
+
+describe('prepareWebResponse', () => {
+  const createReply = () => {
+    const state = {
+      statusCode: 0,
+      headers: {} as Record<string, string>,
+      contentType: '',
+    };
+
+    const reply = {
+      code: (statusCode: number) => {
+        state.statusCode = statusCode;
+        return reply;
+      },
+      header: (name: string, value: string) => {
+        state.headers[name.toLowerCase()] = value;
+        return reply;
+      },
+      type: (contentType: string) => {
+        state.contentType = contentType;
+        return reply;
+      },
+    } as unknown as FastifyReply;
+
+    return { reply, state };
+  };
+
+  it('sets status, no-store cache, html content type, and returns content', () => {
+    const { reply, state } = createReply();
+    const content = prepareWebResponse(
+      reply,
+      {
+        contentType: 'html',
+        content: '<h1>Unavailable</h1>',
+        statusCode: 503,
+      },
+      500,
+    );
+
+    expect(content).toBe('<h1>Unavailable</h1>');
+    expect(state.statusCode).toBe(503);
+    expect(state.headers['cache-control']).toBe('no-store');
+    expect(state.contentType).toBe('text/html');
+  });
+
+  it('uses the default status code and supports json/text content types', () => {
+    const jsonReply = createReply();
+    const jsonContent = prepareWebResponse(
+      jsonReply.reply,
+      {
+        contentType: 'json',
+        content: { ok: false },
+      },
+      502,
+    );
+
+    const textReply = createReply();
+    const textContent = prepareWebResponse(
+      textReply.reply,
+      {
+        contentType: 'text',
+        content: 'Unavailable',
+      },
+      503,
+    );
+
+    expect(jsonContent).toEqual({ ok: false });
+    expect(jsonReply.state.statusCode).toBe(502);
+    expect(jsonReply.state.contentType).toBe('application/json');
+    expect(textContent).toBe('Unavailable');
+    expect(textReply.state.statusCode).toBe(503);
+    expect(textReply.state.contentType).toBe('text/plain');
+  });
+});
+
+describe('createDefaultWebClosingResponse', () => {
+  it('returns the default HTML 503 closing response', () => {
+    const response = createDefaultWebClosingResponse();
+
+    expect(response.contentType).toBe('html');
+    expect(response.statusCode).toBe(503);
+    expect(response.content).toContain('Service Unavailable');
+  });
+});
+
+describe('resolveClosingResponse', () => {
+  const createReply = () => {
+    const state = {
+      statusCode: 0,
+      headers: {} as Record<string, string>,
+      contentType: '',
+    };
+
+    const reply = {
+      code: (statusCode: number) => {
+        state.statusCode = statusCode;
+        return reply;
+      },
+      header: (name: string, value: string) => {
+        state.headers[name.toLowerCase()] = value;
+        return reply;
+      },
+      type: (contentType: string) => {
+        state.contentType = contentType;
+        return reply;
+      },
+    } as unknown as FastifyReply;
+
+    return { reply, state };
+  };
+
+  const createRequest = (url: string) =>
+    ({
+      url,
+      method: 'GET',
+      log: {
+        error: mock(),
+      },
+    }) as unknown as FastifyRequest;
+
+  it('applies API function form only to API requests', async () => {
+    const { reply, state } = createReply();
+    const request = createRequest('/api/v1/users');
+
+    const payload = await resolveClosingResponse({
+      request,
+      reply,
+      handler: () =>
+        APIResponseHelpers.createAPIErrorResponse({
+          request,
+          statusCode: 503,
+          errorCode: 'service_unavailable',
+          errorMessage: 'Closing',
+        }),
+      functionHandlerType: 'api',
+      serverLabel: 'TestServer',
+      HelpersClass: APIResponseHelpers,
+      apiPrefix: '/api',
+      pageDataEndpoint: 'page_data',
+    });
+
+    expect(payload).toMatchObject({
+      status_code: 503,
+      error: {
+        code: 'service_unavailable',
+        message: 'Closing',
+      },
+    });
+    expect(state.statusCode).toBe(503);
+    expect(state.headers['cache-control']).toBe('no-store');
+  });
+
+  it('applies web function form only to web requests', async () => {
+    const { reply, state } = createReply();
+    const request = createRequest('/about');
+
+    const payload = await resolveClosingResponse({
+      request,
+      reply,
+      handler: () => ({
+        contentType: 'text' as const,
+        content: 'Closing',
+      }),
+      functionHandlerType: 'web',
+      serverLabel: 'TestServer',
+      HelpersClass: APIResponseHelpers,
+      apiPrefix: '/api',
+      pageDataEndpoint: 'page_data',
+    });
+
+    expect(payload).toBe('Closing');
+    expect(state.statusCode).toBe(503);
+    expect(state.headers['cache-control']).toBe('no-store');
+    expect(state.contentType).toBe('text/plain');
+  });
+
+  it('uses split API and web closing handlers when present', async () => {
+    const closingHandler = {
+      api: (request: FastifyRequest) =>
+        APIResponseHelpers.createAPIErrorResponse({
+          request,
+          statusCode: 451,
+          errorCode: 'custom_api_closing',
+          errorMessage: 'API closing',
+        }),
+      web: () => ({
+        contentType: 'text' as const,
+        content: 'Web closing',
+        statusCode: 452,
+      }),
+    };
+    const apiReply = createReply();
+    const apiRequest = createRequest('/api/users');
+
+    const apiPayload = await resolveClosingResponse({
+      request: apiRequest,
+      reply: apiReply.reply,
+      handler: closingHandler,
+      functionHandlerType: 'web',
+      serverLabel: 'TestServer',
+      HelpersClass: APIResponseHelpers,
+      apiPrefix: '/api',
+      pageDataEndpoint: 'page_data',
+    });
+
+    expect(apiPayload).toMatchObject({
+      status_code: 451,
+      error: {
+        code: 'custom_api_closing',
+        message: 'API closing',
+      },
+    });
+    expect(apiReply.state.statusCode).toBe(451);
+
+    const webReply = createReply();
+    const webRequest = createRequest('/about');
+
+    const webPayload = await resolveClosingResponse({
+      request: webRequest,
+      reply: webReply.reply,
+      handler: closingHandler,
+      functionHandlerType: 'api',
+      serverLabel: 'TestServer',
+      HelpersClass: APIResponseHelpers,
+      apiPrefix: '/api',
+      pageDataEndpoint: 'page_data',
+    });
+
+    expect(webPayload).toBe('Web closing');
+    expect(webReply.state.statusCode).toBe(452);
+    expect(webReply.state.contentType).toBe('text/plain');
+  });
+
+  it('falls back to default API closing response when no handler matches', async () => {
+    const { reply, state } = createReply();
+    const request = createRequest('/api/users');
+
+    const payload = await resolveClosingResponse({
+      request,
+      reply,
+      functionHandlerType: 'web',
+      serverLabel: 'TestServer',
+      HelpersClass: APIResponseHelpers,
+      apiPrefix: '/api',
+      pageDataEndpoint: 'page_data',
+    });
+
+    expect(payload).toMatchObject({
+      status_code: 503,
+      error: {
+        code: 'service_unavailable',
+        message: 'Server is shutting down',
+      },
+    });
+    expect(state.statusCode).toBe(503);
+    expect(state.headers['cache-control']).toBe('no-store');
+  });
+
+  it('logs handler failures and falls back to default API response', async () => {
+    const { reply, state } = createReply();
+    const request = createRequest('/api/users');
+
+    const payload = await resolveClosingResponse({
+      request,
+      reply,
+      handler: () => {
+        throw new Error('handler failed');
+      },
+      functionHandlerType: 'api',
+      serverLabel: 'TestServer',
+      HelpersClass: APIResponseHelpers,
+      apiPrefix: '/api',
+      pageDataEndpoint: 'page_data',
+    });
+
+    expect(payload).toMatchObject({
+      status_code: 503,
+      error: {
+        code: 'service_unavailable',
+      },
+    });
+    expect(state.statusCode).toBe(503);
+    expect(
+      (request.log.error as ReturnType<typeof mock>).mock.calls[0],
+    ).toEqual([
+      {
+        err: expect.any(Error),
+        method: 'GET',
+        url: '/api/users',
+      },
+      '[TestServer] Custom closing handler failed',
+    ]);
+  });
+
+  it('falls back to default web closing response when API handling is disabled', async () => {
+    const { reply, state } = createReply();
+    const request = createRequest('/api/users');
+
+    const payload = await resolveClosingResponse({
+      request,
+      reply,
+      functionHandlerType: 'api',
+      serverLabel: 'TestServer',
+      HelpersClass: APIResponseHelpers,
+      apiPrefix: false,
+      pageDataEndpoint: 'page_data',
+    });
+
+    expect(payload).toContain('Service Unavailable');
+    expect(state.statusCode).toBe(503);
+    expect(state.headers['cache-control']).toBe('no-store');
+    expect(state.contentType).toBe('text/html');
   });
 });
 

@@ -8,6 +8,7 @@ export abstract class BaseServer {
   protected fastifyInstance: FastifyInstance | null = null;
   protected _isListening: boolean = false;
   protected _isStarting: boolean = false;
+  protected _isStopping: boolean = false;
 
   /**
    * Start the server listening on the specified port and host

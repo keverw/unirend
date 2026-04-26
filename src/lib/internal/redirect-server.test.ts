@@ -485,6 +485,36 @@ describe('RedirectServer', () => {
       await server.stop();
       expect(server.isListening()).toBe(false);
     });
+
+    it('passes closingHandler to the underlying web server', async () => {
+      server = new RedirectServer({
+        closingHandler: () => ({
+          contentType: 'text',
+          content: 'Redirect server is closing',
+          statusCode: 503,
+        }),
+      });
+
+      await server.listen(testPort, 'localhost');
+
+      const apiServer = (server as unknown as { apiServer: unknown })
+        .apiServer as {
+        _isStopping: boolean;
+      };
+      apiServer._isStopping = true;
+
+      try {
+        const response = await fetch(`http://localhost:${testPort}/`, {
+          redirect: 'manual',
+        });
+
+        expect(response.status).toBe(503);
+        expect(response.headers.get('content-type')).toContain('text/plain');
+        expect(await response.text()).toBe('Redirect server is closing');
+      } finally {
+        apiServer._isStopping = false;
+      }
+    });
   });
 
   describe('Security', () => {

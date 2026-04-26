@@ -171,6 +171,12 @@ The following options are accepted by both `SSRServer` and `APIServer`:
       },
     });
     ```
+- `closingHandler?: Function | { api?, web? }`
+  - Custom 503 response for requests that arrive while `stop()` is closing the server.
+  - If omitted, Unirend returns a default API/Page envelope for API requests and a default HTML 503 page for web requests.
+  - Function form returns `WebResponse` on SSR/Static/Redirect servers and an API/Page envelope on APIServer.
+  - Split form (`{ api, web }`) customizes API and web handlers for mixed servers. Either handler can be omitted - omitted handlers use Unirend's default 503 response.
+  - Fastify's built-in closing 503 JSON response is disabled internally so shutdown responses use Unirend's handler/defaults consistently.
 - `logErrors?: boolean`
   - Whether to automatically log request errors (default: `true`). `method`, `url`, `err`, and `requestID` (if available) are included as structured fields in the log entry alongside the `[Label] Request error` message.
   - Exactly one log entry is emitted per error - no double-logging. All SSR errors (whether caught at route level or by the global error handler) are logged before the 500 page is generated, so the log fires whether you use a custom `get500ErrorPage` or not. API errors are logged in the global error handler.
@@ -1679,6 +1685,10 @@ In addition to the [shared server configuration](#shared-server-configuration), 
 - `notFoundHandler?: Function | { api?, web? }`
   - Function form: Returns JSON envelope (see [JSON-Only](#json-only-ssr-compatible))
   - Object form: Split handlers for mixed API + web servers (see [Split Handlers](#split-handlers-mixed-api--web-server)). Either handler can be omitted - missing handlers fall through to default behavior.
+- `closingHandler?: Function | { api?, web? }`
+  - Custom 503 response for requests received while `stop()` is closing the server.
+  - Function form: Returns JSON envelope for API requests.
+  - Object form: Split handlers for mixed API + web servers (see [Split Handlers](#split-handlers-mixed-api--web-server)). Either handler can be omitted - omitted handlers use Unirend's default 503 response.
 
 Note: Unlike SSR servers, the API server allows full wildcard routes (including root wildcards) in plugins.
 
@@ -1687,7 +1697,7 @@ Note: Unlike SSR servers, the API server allows full wildcard routes (including 
 Both `errorHandler` and `notFoundHandler` support two forms: a simple function or an object with split handlers. Choose based on your server type:
 
 - **API-only server** (JSON responses): Use function form returning API envelopes
-- **Web-only server** (`apiEndpointPrefix: false`): Use function form returning `WebErrorResponse` (HTML/text)
+- **Web-only server** (`apiEndpointPrefix: false`): Use function form returning `WebResponse` (HTML/text)
 - **Mixed API + web server**: Use split form with separate `api` and `web` handlers
 
 #### JSON-Only (SSR Compatible)
@@ -1729,7 +1739,7 @@ This is the same signature used by SSR server's `APIHandling` options (see [Opti
 
 #### Web-Only (Plain Web Server)
 
-When using APIServer as a plain web server (`apiEndpointPrefix: false`), use the function form returning `WebErrorResponse`:
+When using APIServer as a plain web server (`apiEndpointPrefix: false`), use the function form returning `WebResponse`:
 
 ```typescript
 import { serveAPI } from 'unirend/server';
@@ -1853,10 +1863,10 @@ const server = serveAPI({
 });
 ```
 
-The `WebErrorResponse` type for web handlers:
+The `WebResponse` type for web handlers:
 
 ```typescript
-interface WebErrorResponse {
+interface WebResponse {
   contentType: 'html' | 'text' | 'json';
   content: string | object;
   statusCode?: number; // defaults to 500 for errors, 404 for not found
@@ -1923,6 +1933,7 @@ Notes:
 - `SIGINT` is sent when you press Ctrl+C in the terminal
 - `SIGTERM` is the standard signal sent by process managers and orchestrators for graceful termination
 - The `stop()` method closes all active connections and stops accepting new requests
+- Requests that arrive during shutdown receive a Unirend-managed `503 Service Unavailable` response. API/page-data requests get a JSON envelope by default, and web requests get a small HTML page by default. Use `closingHandler` to customize either handler.
 - Calling `stop()` multiple times is safe - it checks if the server is listening and returns early if already stopped
 - In your process signal handlers, check `server && server.isListening()` before calling `stop()` to ensure the server exists and is running
 - When WebSockets are enabled, the `preClose` hook is called before closing connections (see [WebSockets](./websockets.md))

@@ -787,6 +787,14 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
     notFoundHandler?: APINotFoundHandlerFn<M>;
   };
   /**
+   * Custom handler for web requests that arrive while the server is shutting down.
+   *
+   * Function form handles web requests. Object form can split API and web
+   * behavior for mixed SSR + API servers. Missing handlers fall back to
+   * Unirend's default 503 response.
+   */
+  closingHandler?: WebClosingHandlerFn | SplitClosingHandler<M>;
+  /**
    * Enable WebSocket support on the server
    * @default false
    */
@@ -1029,15 +1037,15 @@ export type RegisterProdAppOptions<M extends BaseMeta = BaseMeta> = Pick<
 // ============================================================================
 
 /**
- * Response type for web (non-API) error handlers
- * Similar to InvalidDomainResponse from domainValidation plugin
+ * Response type for web (non-API) handlers.
+ * Similar to InvalidDomainResponse from domainValidation plugin.
  */
-export interface WebErrorResponse {
+export interface WebResponse {
   /** Content type for the response */
   contentType: 'html' | 'text' | 'json';
   /** Response content - string for html/text, object for json */
   content: string | object;
-  /** HTTP status code (defaults to 500 for errors, 404 for not found) */
+  /** HTTP status code. Defaults depend on the handler that uses this response. */
   statusCode?: number;
 }
 
@@ -1061,7 +1069,7 @@ export type WebErrorHandlerFn = (
   request: FastifyRequest,
   error: Error,
   isDevelopment: boolean,
-) => WebErrorResponse | Promise<WebErrorResponse>;
+) => WebResponse | Promise<WebResponse>;
 
 /**
  * Not found handler function type for API/page requests
@@ -1079,7 +1087,7 @@ export type APINotFoundHandlerFn<M extends BaseMeta = BaseMeta> = (
  */
 export type WebNotFoundHandlerFn = (
   request: FastifyRequest,
-) => WebErrorResponse | Promise<WebErrorResponse>;
+) => WebResponse | Promise<WebResponse>;
 
 /**
  * Split error handler with separate API and web handlers
@@ -1107,6 +1115,40 @@ export interface SplitNotFoundHandler<M extends BaseMeta = BaseMeta> {
   api?: APINotFoundHandlerFn<M>;
   /** Handler for web requests (non-API paths). If missing or throws, logs error and falls back to default. */
   web?: WebNotFoundHandlerFn;
+}
+
+/**
+ * Closing handler function type for API/page requests.
+ * Called for requests that arrive while the server is shutting down.
+ */
+export type APIClosingHandlerFn<M extends BaseMeta = BaseMeta> = (
+  request: FastifyRequest,
+  isPageData?: boolean,
+) =>
+  | APIErrorResponse<M>
+  | PageErrorResponse<M>
+  | Promise<APIErrorResponse<M> | PageErrorResponse<M>>;
+
+/**
+ * Closing handler function type for web (non-API) requests.
+ * Called for requests that arrive while the server is shutting down.
+ */
+export type WebClosingHandlerFn = (
+  request: FastifyRequest,
+) => WebResponse | Promise<WebResponse>;
+
+/**
+ * Split closing handler with separate API and web handlers.
+ * Both handlers are optional - if a handler is missing or throws an error,
+ * the error is logged to the Fastify logger and the server falls back to the default 503 response.
+ *
+ * @template M Custom meta type extending BaseMeta for API handlers
+ */
+export interface SplitClosingHandler<M extends BaseMeta = BaseMeta> {
+  /** Handler for API requests (paths matching apiEndpointPrefix). If missing or throws, falls back to default. */
+  api?: APIClosingHandlerFn<M>;
+  /** Handler for web requests (non-API paths). If missing or throws, falls back to default. */
+  web?: WebClosingHandlerFn;
 }
 
 /**
@@ -1187,7 +1229,7 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    *   - request: The Fastify request object
    *   - error: The error that occurred
    *   - isDevelopment: Whether running in development mode
-   *   Required WebErrorResponse return fields:
+   *   Required WebResponse return fields:
    *   - contentType: 'html' | 'text' | 'json'
    *   - content: string for html/text, object for json
    *   - statusCode?: HTTP status code (defaults to 500)
@@ -1231,7 +1273,7 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    * - `web`: Handles non-API requests
    *   Params: (request)
    *   - request: The Fastify request object
-   *   Required WebErrorResponse return fields:
+   *   Required WebResponse return fields:
    *   - contentType: 'html' | 'text' | 'json'
    *   - content: string for html/text, object for json
    *   - statusCode?: HTTP status code (defaults to 404)
@@ -1247,6 +1289,16 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    * }
    */
   notFoundHandler?: APINotFoundHandlerFn<M> | SplitNotFoundHandler<M>;
+  /**
+   * Custom handler for requests that arrive while the server is shutting down.
+   *
+   * Can be either:
+   * 1. A function (handles API requests the same way - JSON envelope)
+   * 2. An object with separate `api` and `web` handlers for split behavior
+   *
+   * Missing handlers fall back to Unirend's default 503 response.
+   */
+  closingHandler?: APIClosingHandlerFn<M> | SplitClosingHandler<M>;
   /**
    * Whether to automatically log errors via the server logger
    * When enabled, all errors are logged before custom error handlers run
@@ -1506,6 +1558,12 @@ export interface StaticWebServerOptions {
    * real client IP in a custom header.
    */
   getClientIP?: (request: FastifyRequest) => string | Promise<string>;
+
+  /**
+   * Custom handler for requests that arrive while the static server is shutting down.
+   * If omitted, Unirend returns a default 503 HTML page.
+   */
+  closingHandler?: WebClosingHandlerFn;
 
   /**
    * Additional plugins to register

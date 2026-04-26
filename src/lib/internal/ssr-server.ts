@@ -40,6 +40,7 @@ import {
   computeDomainInfo,
   createDefaultAPIErrorResponse,
   createDefaultAPINotFoundResponse,
+  registerClosingResponseHook,
   createControlledReply,
   validateAndRegisterPlugin,
   validateNoHandlersWhenAPIDisabled,
@@ -370,6 +371,7 @@ export class SSRServer extends BaseServer {
     }
 
     this._isStarting = true;
+    this._isStopping = false;
 
     // Clear plugin tracking state on startup (handles restart scenarios)
     this.registeredPlugins = [];
@@ -508,6 +510,11 @@ export class SSRServer extends BaseServer {
         );
       }
 
+      // Framework-owned Fastify behavior. These are intentionally not exposed
+      // through fastifyOptions because Unirend depends on them for consistent
+      // routing and shutdown responses across server types.
+      fastifyOptions.return503OnClosing = false;
+
       fastifyOptions.routerOptions = {
         // Ignore trailing slashes for flexible routing (matches Express behavior)
         ignoreTrailingSlash: true,
@@ -575,6 +582,21 @@ export class SSRServer extends BaseServer {
       // Register access logging hooks. Config is read per request so
       // updateAccessLoggingConfig() changes take effect without a restart.
       this._accessLog.register(this.fastifyInstance);
+
+      registerClosingResponseHook(
+        this.fastifyInstance,
+        () => this._isStopping,
+        {
+          handler: this.sharedOptions.closingHandler,
+          // SSR function form is web-first. Split form can still customize
+          // API and page-data requests when API handling is enabled.
+          functionHandlerType: 'web',
+          serverLabel: this.serverLabel,
+          HelpersClass: this.APIResponseHelpersClass,
+          apiPrefix: this.normalizedAPIPrefix,
+          pageDataEndpoint: this.normalizedPageDataEndpoint,
+        },
+      );
 
       // Patch reply.hijack() early so all subsequently registered routes
       // inherit the wrapper, including user/plugin routes that bypass onSend.
@@ -1396,12 +1418,16 @@ export class SSRServer extends BaseServer {
 
     // Close Fastify server if it exists
     if (this.fastifyInstance) {
+      this._isStopping = true;
+
       try {
         await this.fastifyInstance.close();
       } catch (closeError) {
         cleanupErrors.push(
           `Fastify close failed: ${closeError instanceof Error ? closeError.message : String(closeError)}`,
         );
+      } finally {
+        this._isStopping = false;
       }
 
       this.fastifyInstance = null;
