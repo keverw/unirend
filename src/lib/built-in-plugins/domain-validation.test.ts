@@ -292,6 +292,115 @@ describe('domainValidation', () => {
       expect(reply.redirect).not.toHaveBeenCalled();
     });
 
+    it('should support function-based domain validation', async () => {
+      const validator = mock((domain: string, _request: unknown) => {
+        return domain === 'dynamic.example.com';
+      });
+
+      const config: DomainValidationConfig = {
+        validProductionDomains: validator,
+      };
+
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        headers: { host: 'dynamic.example.com' },
+      });
+
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(validator).toHaveBeenCalledWith('dynamic.example.com', request);
+      expect(reply.code).not.toHaveBeenCalled();
+      expect(reply.redirect).not.toHaveBeenCalled();
+    });
+
+    it('should support async function-based domain validation', async () => {
+      const config: DomainValidationConfig = {
+        validProductionDomains: async (domain) => {
+          await Promise.resolve();
+          return domain === 'async.example.com';
+        },
+      };
+
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        headers: { host: 'async.example.com' },
+      });
+
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.code).not.toHaveBeenCalled();
+      expect(reply.redirect).not.toHaveBeenCalled();
+    });
+
+    it('should block domains when function-based validation returns false', async () => {
+      const config: DomainValidationConfig = {
+        validProductionDomains: (domain) => domain === 'allowed.example.com',
+      };
+
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        headers: { host: 'blocked.example.com' },
+      });
+
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.code).toHaveBeenCalledWith(403);
+      expect(reply.type).toHaveBeenCalledWith('text/plain');
+      expect(reply.send).toHaveBeenCalledWith(
+        'Access denied: Domain "blocked.example.com" is not authorized',
+      );
+    });
+
+    it('should propagate function-based validation errors', async () => {
+      const error = new Error('validator failed');
+      const config: DomainValidationConfig = {
+        validProductionDomains: () => {
+          throw error;
+        },
+      };
+
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({ headers: { host: 'example.com' } });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+
+      try {
+        await hook.handler(request, reply);
+        throw new Error('Expected domain validator to throw');
+      } catch (error_) {
+        expect(error_).toBe(error);
+      }
+
+      expect(reply.code).not.toHaveBeenCalled();
+      expect(reply.send).not.toHaveBeenCalled();
+    });
+
     it('should support wildcard subdomains', async () => {
       const config: DomainValidationConfig = {
         validProductionDomains: ['*.example.com'],

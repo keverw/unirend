@@ -22,13 +22,22 @@ export interface InvalidDomainResponse {
 }
 
 /**
+ * Domain validation configuration - can be a string, array, or function
+ */
+export type ValidProductionDomains =
+  | string
+  | string[]
+  | ((domain: string, request: FastifyRequest) => boolean | Promise<boolean>);
+
+/**
  * Configuration options for the domainValidation plugin
  */
 export interface DomainValidationConfig {
   /**
    * Valid production domains that are allowed to access this server
    *
-   * Can be a single domain string or array of domain strings (without protocol)
+   * Can be a single domain string, array of domain strings (without protocol),
+   * or a function for request-aware domain validation.
    * Wildcard patterns supported:
    * - "example.com" - allows exact match only
    * - "*.example.com" - allows direct subdomains only (api.example.com ✅, app.api.example.com ❌)
@@ -42,7 +51,7 @@ export interface DomainValidationConfig {
    * Note: Domain validation is protocol-agnostic (ignores http/https)
    * If not specified, domain validation is skipped
    */
-  validProductionDomains?: string | string[];
+  validProductionDomains?: ValidProductionDomains;
 
   /**
    * Optional canonical domain to redirect to if the request domain doesn't match
@@ -193,7 +202,10 @@ function getHost(
 export function domainValidation(config: DomainValidationConfig): ServerPlugin {
   return async (pluginHost: PluginHostInstance, options: PluginOptions) => {
     // Early config validation for validProductionDomains using centralized validator
-    if (config.validProductionDomains) {
+    if (
+      config.validProductionDomains &&
+      typeof config.validProductionDomains !== 'function'
+    ) {
       const entries = Array.isArray(config.validProductionDomains)
         ? config.validProductionDomains
         : [config.validProductionDomains];
@@ -264,13 +276,24 @@ export function domainValidation(config: DomainValidationConfig): ServerPlugin {
 
       // Domain validation check (only if validProductionDomains is configured)
       if (config.validProductionDomains) {
-        // Normalize validProductionDomains to array
-        const validDomains = Array.isArray(config.validProductionDomains)
-          ? config.validProductionDomains
-          : [config.validProductionDomains];
+        let isAllowedDomain: boolean;
 
-        // Validate domain using secure check
-        const isAllowedDomain = matchesDomainList(domain, validDomains);
+        if (typeof config.validProductionDomains === 'function') {
+          // Let callers make request-aware validation decisions, matching the
+          // function-based CORS API style.
+          isAllowedDomain = await config.validProductionDomains(
+            domain,
+            request,
+          );
+        } else {
+          // Normalize validProductionDomains to array
+          const validDomains = Array.isArray(config.validProductionDomains)
+            ? config.validProductionDomains
+            : [config.validProductionDomains];
+
+          // Validate domain using secure check
+          isAllowedDomain = matchesDomainList(domain, validDomains);
+        }
 
         if (!isAllowedDomain) {
           // Use custom handler if provided, otherwise use default response

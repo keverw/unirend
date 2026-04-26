@@ -18,6 +18,7 @@ export {
 export {
   type InvalidDomainResponse,
   type DomainValidationConfig,
+  type ValidProductionDomains,
   domainValidation,
 } from './lib/built-in-plugins/domain-validation';
 

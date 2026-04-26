@@ -18,7 +18,7 @@ The `domainValidation` plugin provides comprehensive domain security and normali
 
 ## Features
 
-- **Domain validation**: Validates requests against allowed production domains with wildcard support
+- **Domain validation**: Validates requests against allowed production domains with wildcard support or request-aware custom logic
 - **Canonical domain redirects**: Redirects to the preferred domain when multiple domains are configured
 - **HTTPS enforcement**: Automatically redirects HTTP requests to HTTPS with proxy header support
 - **WWW prefix handling**: Add or remove WWW prefix with smart apex domain detection (no changes to subdomains)
@@ -50,10 +50,11 @@ const server = serveSSRProd(buildDir, {
 
 ## Configuration
 
-- `validProductionDomains` (optional): String when a single domain, or array of allowed domains with wildcard support:
+- `validProductionDomains` (optional): String when a single domain, array of allowed domains with wildcard support, or function for request-aware domain validation:
   - `"example.com"`: Exact match only
   - `"*.example.com"`: Direct subdomains only (`api.example.com` ✅, `app.api.example.com` ❌)
   - `"**.example.com"`: All subdomains including nested (`api.example.com` ✅, `app.api.example.com` ✅)
+  - `function`: Dynamic validation `(domain, request) => boolean | Promise<boolean>`, where `domain` is normalized and `request` is the Fastify request
   - Note: Domain validation is protocol-agnostic (ignores http/https)
   - Apex domains never match wildcard entries, include the apex explicitly alongside subdomain patterns.
   - If not provided, domain validation is skipped. Use this to protect against unexpected domains pointing at your server (e.g., DNS misconfiguration or hostile `Host` headers). Requests from non-allowed hosts are always blocked, `invalidDomainHandler` only customizes the error response.
@@ -103,6 +104,18 @@ domainValidation({
 domainValidation({
   validProductionDomains: ['example.com', '*.example.com'], // Explicit apex + direct subdomains only
   wwwHandling: 'remove',
+});
+
+// Dynamic domain validation based on request context
+domainValidation({
+  validProductionDomains: async (domain, request) => {
+    // Read headers, cookies, or values attached by earlier hooks/middleware.
+    if (domain.endsWith('.preview.example.com')) {
+      return request.headers['x-preview-token'] === process.env.PREVIEW_TOKEN;
+    }
+
+    return domain === 'example.com';
+  },
 });
 
 // Custom error handling
