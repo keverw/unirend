@@ -263,9 +263,7 @@ const ContextDemo: React.FC = () => {
                         color: '#fff',
                       }}
                     >
-                      {contextSnapshot?.domainInfo
-                        ? `{ hostname: "${contextSnapshot.domainInfo.hostname}", rootDomain: "${contextSnapshot.domainInfo.rootDomain || '(localhost/IP)'}" }`
-                        : 'null (no hostname configured)'}
+                      {JSON.stringify(contextSnapshot?.domainInfo ?? null)}
                     </code>
                   </div>
                   <div>
