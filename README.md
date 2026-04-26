@@ -183,7 +183,7 @@ export default defineConfig(
 );
 ```
 
-`withUnirendViteConfig()` merges with your existing Vite config, so settings like `resolve.alias` are preserved, and adds Vite dedupe settings for `react`, `react-dom`, and `react-router` so SSR/SSG rendering uses one shared React/React Router instance. This prevents split React Router contexts. Without it, router hooks like `useLocation()` can fail because they read a different context than the provider created.
+`withUnirendViteConfig()` merges with your existing Vite config, so settings like `resolve.alias` and `ssr.noExternal` are preserved. It configures Vite to avoid externalizing `unirend` during SSR and dedupes `react`, `react-dom`, and `react-router` so SSR/SSG rendering uses the same React/React Router package instances. This prevents split React Router contexts. Without it, router hooks like `useLocation()` can fail because they read a different context than the provider created.
 
 **Build Structure:** Both SSG and SSR require building client and server separately:
 

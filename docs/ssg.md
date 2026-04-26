@@ -38,7 +38,7 @@
 
 Vite config:
 
-Use the Vite config setup shown in the main [README](../README.md#prepare-vite-config-and-entry-points), including `withUnirendViteConfig()`, which adds the Vite dedupe settings needed so SSR/SSG rendering uses the same React/React Router package instances. This prevents split React Router contexts. Without it, router hooks like `useLocation()` can fail because they read a different context than the provider created.
+Use the Vite config setup shown in the main [README](../README.md#prepare-vite-config-and-entry-points), including `withUnirendViteConfig()`, which configures Vite to avoid externalizing `unirend` during SSR and dedupes `react`, `react-dom`, and `react-router` so SSR/SSG rendering uses the same React/React Router package instances. This prevents split React Router contexts. Without it, router hooks like `useLocation()` can fail because they read a different context than the provider created.
 
 ## Creating Generation Script
 
