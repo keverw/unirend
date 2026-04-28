@@ -1436,13 +1436,58 @@ export class SSRServer extends BaseServer {
     for (const [appKey, appConfig] of this.apps) {
       // Close Vite dev server if present
       if ('viteDevServer' in appConfig && appConfig.viteDevServer) {
+        const viteDevServer = appConfig.viteDevServer;
+
+        const viteCleanupWarnings: string[] = [];
+
+        // Unref the watcher so the process can exit even if Bun doesn't
+        // fully release the underlying fs handle after close().
+        viteDevServer.watcher?.unref?.();
+
+        // Close the file watcher explicitly first so Bun handles the fs
+        // handle release as a discrete step rather than racing it against
+        // HMR teardown inside Vite's internal close().
         try {
-          await appConfig.viteDevServer.close();
-          // Only clear reference if close succeeded
+          await viteDevServer.watcher?.close();
+        } catch (closeError) {
+          viteCleanupWarnings.push(
+            `watcher.close() failed: ${closeError instanceof Error ? closeError.message : String(closeError)}`,
+          );
+        }
+
+        // Start ws.close() first — its Promise executor runs synchronously,
+        // so the server stops accepting new connections immediately.
+        try {
+          const wsClosePromise = viteDevServer.ws.close();
+
+          // Terminate any connected clients. terminate() forcefully closes the
+          // socket and its underlying TCP connection so the HMR HTTP server has
+          // no remaining connections when wsHttpServer.close() fires.
+          for (const client of viteDevServer.ws.clients) {
+            client.socket.terminate();
+          }
+
+          await wsClosePromise;
+        } catch (closeError) {
+          viteCleanupWarnings.push(
+            `ws.close() failed: ${closeError instanceof Error ? closeError.message : String(closeError)}`,
+          );
+        }
+
+        // Always run Vite's full close path so watcher/HMR failures do not
+        // skip environment, HTTP server, or SSR runner cleanup.
+        try {
+          await viteDevServer.close();
+
+          // Only clear reference if Vite reports that its full close path finished.
           appConfig.viteDevServer = undefined;
         } catch (closeError) {
+          const errorDetails = [
+            ...viteCleanupWarnings,
+            `viteDevServer.close() failed: ${closeError instanceof Error ? closeError.message : String(closeError)}`,
+          ];
           cleanupErrors.push(
-            `Failed to close Vite dev server for app "${appKey}": ${closeError instanceof Error ? closeError.message : String(closeError)}`,
+            `Failed to close Vite dev server for app "${appKey}": ${errorDetails.join('; ')}`,
           );
           // Don't clear viteDevServer reference - it might still be running
         }
@@ -1470,6 +1515,23 @@ export class SSRServer extends BaseServer {
 
     // Clear plugin tracking state
     this.registeredPlugins = [];
+  }
+
+  /**
+   * Force-close all open connections, including Fastify WebSockets and Vite HMR
+   * sockets in development mode. Unlike stop(), this does not wait for
+   * in-flight requests to complete.
+   */
+  public override closeAllConnections(): void {
+    for (const appConfig of this.apps.values()) {
+      if ('viteDevServer' in appConfig && appConfig.viteDevServer) {
+        for (const client of appConfig.viteDevServer.ws.clients) {
+          client.socket.terminate();
+        }
+      }
+    }
+
+    super.closeAllConnections();
   }
 
   /**

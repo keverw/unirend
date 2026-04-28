@@ -61,6 +61,7 @@
     - [Web-Only (Plain Web Server)](#web-only-plain-web-server)
     - [Split Handlers (Mixed API + Web Server)](#split-handlers-mixed-api--web-server)
 - [Graceful Shutdown](#graceful-shutdown)
+  - [Force shutdown](#force-shutdown)
 - [WebSockets](#websockets)
 
 <!-- tocstop -->
@@ -87,7 +88,8 @@ See the plugin docs: [server-plugins.md](./server-plugins.md) for an overview of
 Both server classes expose the same operational methods:
 
 - `listen(port?: number, host?: string): Promise<void>` - Start the server
-- `stop(): Promise<void>` - Stop the server
+- `stop(): Promise<void>` - Gracefully stop the server (waits for in-flight requests, then closes)
+- `closeAllConnections(): void` - Immediately terminate current HTTP/WebSocket/HMR connections without stopping the listening server by itself. Use as a low-level escalation helper during shutdown. Also available on `StaticWebServer` and `RedirectServer`.
 - `pageDataHandler.register(pageType, handler)` and `pageDataHandler.register(pageType, version, handler)` - Register backend page data loader handlers used by the frontend page data loaders
 - `registerWebSocketHandler(config)` - Register a WebSocket handler (when `enableWebSockets` is true)
 - `getWebSocketClients(): Set<unknown>` - Get the connected WebSocket clients (empty set when not supported/not started)
@@ -1932,7 +1934,7 @@ Notes:
 
 - `SIGINT` is sent when you press Ctrl+C in the terminal
 - `SIGTERM` is the standard signal sent by process managers and orchestrators for graceful termination
-- The `stop()` method closes all active connections and stops accepting new requests
+- The `stop()` method gracefully stops the server, waits for in-flight requests to complete, then closes the server
 - Requests that arrive during shutdown receive a Unirend-managed `503 Service Unavailable` response. API/page-data requests get a JSON envelope by default, and web requests get a small HTML page by default. Use `closingHandler` to customize either handler.
 - Calling `stop()` multiple times is safe - it checks if the server is listening and returns early if already stopped
 - In your process signal handlers, check `server && server.isListening()` before calling `stop()` to ensure the server exists and is running
@@ -1940,6 +1942,38 @@ Notes:
 - Set the server reference to `null` after shutdown to release resources and prevent accidental reuse
 - Declare the server variable (`let server: SSRServer | null = null`) before defining the shutdown handler so it's in scope. Before creating a new server instance, check for an existing one, and handle it appropriately (eg. stop it first, and then create new one)
 - If you dynamically create or reassign server instances, consider using a factory function that returns a fresh server, see [Lifecycle and Persistence](./server-plugins.md#lifecycle-and-persistence) for details on how routes and handlers persist across `stop()`/`listen()` cycles
+
+### Force shutdown
+
+All server types (`SSRServer`, `APIServer`, `StaticWebServer`, `RedirectServer`) expose a `closeAllConnections()` method that immediately terminates the current HTTP connections, tracked Fastify WebSocket clients, and Vite HMR client connections in SSR development mode. Unlike `stop()`, it does not wait for in-flight requests to finish, preserve graceful shutdown responses, stop the listening server, or complete shutdown cleanup.
+
+Use it as an escalation helper only after `stop()` has started or right before a forced process exit:
+
+```typescript
+const shutdown = async (signal: string) => {
+  try {
+    if (server && server.isListening()) {
+      await server.stop();
+    }
+  } catch (err) {
+    console.error('Graceful shutdown failed:', err);
+  } finally {
+    process.exit(0);
+  }
+};
+
+process.on('SIGINT', () => {
+  setTimeout(() => server?.closeAllConnections(), 5000);
+  void shutdown('SIGINT');
+});
+
+process.on('SIGTERM', () => {
+  setTimeout(() => server?.closeAllConnections(), 5000);
+  void shutdown('SIGTERM');
+});
+```
+
+`closeAllConnections()` is a no-op if the server is not started.
 
 ## WebSockets
 

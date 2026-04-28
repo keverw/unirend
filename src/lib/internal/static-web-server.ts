@@ -396,6 +396,14 @@ export class StaticWebServer {
   }
 
   /**
+   * Force-close all open connections, including those actively serving requests.
+   * See BaseServer.closeAllConnections() for full details.
+   */
+  public closeAllConnections(): void {
+    this.server?.closeAllConnections();
+  }
+
+  /**
    * Merges the provided keys into the current access log config at runtime.
    * Access logging is on by default (finish events, default template). Use
    * `events: 'none'` to disable logging while keeping hooks active.

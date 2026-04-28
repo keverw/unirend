@@ -32,6 +32,42 @@ export abstract class BaseServer {
     return this._isListening;
   }
 
+  /**
+   * Force-close all open connections, including those actively serving requests.
+   * Unlike stop(), this does not wait for in-flight requests to complete.
+   * This also terminates upgraded WebSocket connections tracked by the server.
+   * Intended as an escalation path when stop() has not resolved within an
+   * acceptable window. No-op if the server is not started.
+   */
+  public closeAllConnections(): void {
+    this.terminateTrackedWebSocketClients();
+    this.closeRawHTTPConnections();
+  }
+
+  /**
+   * Best-effort termination of tracked Fastify WebSocket clients.
+   */
+  protected terminateTrackedWebSocketClients(): void {
+    for (const client of this.getWebSocketClients() as Set<{
+      terminate?: () => void;
+    }>) {
+      client.terminate?.();
+    }
+  }
+
+  /**
+   * Best-effort termination of raw HTTP/HTTPS server connections.
+   */
+  protected closeRawHTTPConnections(): void {
+    const rawServer = this.fastifyInstance?.server as
+      | {
+          closeAllConnections?: () => void;
+        }
+      | undefined;
+
+    rawServer?.closeAllConnections?.();
+  }
+
   // ---------------------------------------------------------------------------
   // WebSocket support
   // ---------------------------------------------------------------------------
