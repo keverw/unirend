@@ -200,7 +200,7 @@ describe('SSRServer.stop()', () => {
       }
     ).apps = new Map([['__default__', appConfig]]);
 
-    await expect(server.stop()).resolves.toBeUndefined();
+    await server.stop();
 
     expect(fastifyClose).toHaveBeenCalledTimes(1);
     expect(watcherUnref).toHaveBeenCalledTimes(1);

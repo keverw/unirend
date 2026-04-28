@@ -44,30 +44,6 @@ export abstract class BaseServer {
     this.closeRawHTTPConnections();
   }
 
-  /**
-   * Best-effort termination of tracked Fastify WebSocket clients.
-   */
-  protected terminateTrackedWebSocketClients(): void {
-    for (const client of this.getWebSocketClients() as Set<{
-      terminate?: () => void;
-    }>) {
-      client.terminate?.();
-    }
-  }
-
-  /**
-   * Best-effort termination of raw HTTP/HTTPS server connections.
-   */
-  protected closeRawHTTPConnections(): void {
-    const rawServer = this.fastifyInstance?.server as
-      | {
-          closeAllConnections?: () => void;
-        }
-      | undefined;
-
-    rawServer?.closeAllConnections?.();
-  }
-
   // ---------------------------------------------------------------------------
   // WebSocket support
   // ---------------------------------------------------------------------------
@@ -117,5 +93,29 @@ export abstract class BaseServer {
     }
 
     return instance[property] as T | undefined;
+  }
+
+  /**
+   * Best-effort termination of tracked Fastify WebSocket clients.
+   */
+  protected terminateTrackedWebSocketClients(): void {
+    for (const client of this.getWebSocketClients() as Set<{
+      terminate?: () => void;
+    }>) {
+      client.terminate?.();
+    }
+  }
+
+  /**
+   * Best-effort termination of raw HTTP/HTTPS server connections.
+   */
+  protected closeRawHTTPConnections(): void {
+    const rawServer = this.fastifyInstance?.server as
+      | {
+          closeAllConnections?: () => void;
+        }
+      | undefined;
+
+    rawServer?.closeAllConnections?.();
   }
 }
