@@ -192,6 +192,37 @@ describe('RedirectServer', () => {
         `https://localhost:${testPort}/`,
       );
     });
+
+    it('uses targetPort override in redirect URL', async () => {
+      const httpsPort = 8443;
+      server = new RedirectServer({ targetPort: httpsPort });
+      await server.listen(testPort, 'localhost');
+
+      const response = await fetch(`http://localhost:${testPort}/some/path`, {
+        redirect: 'manual',
+      });
+
+      expect(response.headers.get('location')).toBe(
+        `https://localhost:${httpsPort}/some/path`,
+      );
+    });
+
+    it('targetPort takes precedence over preservePort', async () => {
+      const httpsPort = 8443;
+      server = new RedirectServer({
+        targetPort: httpsPort,
+        preservePort: true,
+      });
+      await server.listen(testPort, 'localhost');
+
+      const response = await fetch(`http://localhost:${testPort}/`, {
+        redirect: 'manual',
+      });
+
+      expect(response.headers.get('location')).toBe(
+        `https://localhost:${httpsPort}/`,
+      );
+    });
   });
 
   describe('Domain Validation', () => {

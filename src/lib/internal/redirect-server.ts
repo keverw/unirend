@@ -65,9 +65,18 @@ export interface RedirectServerOptions {
    * Whether to preserve port numbers in redirects
    * - true: example.com:8080 → https://example.com:8080
    * - false: example.com:8080 → https://example.com (strip port)
+   * Ignored if targetPort is set.
    * @default false
    */
   preservePort?: boolean;
+
+  /**
+   * Override the port in the redirect URL
+   * Useful when HTTP and HTTPS servers run on different non-standard ports
+   * - example: targetPort: 8443 → http://host:8080 redirects to https://host:8443
+   * Takes precedence over preservePort when set.
+   */
+  targetPort?: number;
 
   /**
    * Custom handler for invalid domain responses
@@ -185,6 +194,7 @@ export class RedirectServer {
     statusCode: 301 | 302 | 307 | 308;
     allowedDomains?: string | string[];
     preservePort: boolean;
+    targetPort?: number;
     invalidDomainHandler?: (
       request: FastifyRequest,
       domain: string,
@@ -198,6 +208,7 @@ export class RedirectServer {
       statusCode: options.statusCode || 301,
       allowedDomains: options.allowedDomains,
       preservePort: options.preservePort ?? false,
+      targetPort: options.targetPort,
       invalidDomainHandler: options.invalidDomainHandler,
     };
 
@@ -364,8 +375,13 @@ export class RedirectServer {
       targetHost = `[${targetHost}]`;
     }
 
-    // Add port if preservePort is enabled
-    const portPart = this.config.preservePort && port ? `:${port}` : '';
+    // Add port: targetPort overrides, then preservePort, then strip
+    const portPart =
+      this.config.targetPort != null
+        ? `:${this.config.targetPort}`
+        : this.config.preservePort && port
+          ? `:${port}`
+          : '';
 
     // Build final redirect URL
     const redirectURL = `${protocol}://${targetHost}${portPart}${request.url}`;
