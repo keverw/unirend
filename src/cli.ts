@@ -144,7 +144,7 @@ function showHelp(errorMessage?: string) {
         `- <type>: Project template (${availableTemplates.join(', ')})`,
         '- <name>: Project name',
         '- [path]: Repo path (optional, defaults to current directory)',
-        '- [--target bun|node]: Target runtime for server bundle/scripts (default: bun)',
+        '- [--target bun|node]: Target runtime for server bundle/scripts (default: node)',
         '- Auto-init: If the repo is not initialized here, it will be created automatically with a default name',
       ],
     },
@@ -271,7 +271,7 @@ async function main() {
       projectName: parsed.projectName,
       repoRoot,
       logger: colorPrint,
-      serverBuildTarget: (parsed.target as ServerBuildTarget) ?? 'bun',
+      serverBuildTarget: (parsed.target as ServerBuildTarget) ?? 'node',
     });
 
     if (!result.success) {

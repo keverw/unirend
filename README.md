@@ -56,7 +56,7 @@ Note: Always include `--external vite` when bundling your server entry with `bun
 
 Note: Running the SSR dev server under Bun may stall graceful shutdown. The Vite HMR WebSocket server can fail to close cleanly under Bun, compared to Node. The same style of issue is described in [docs/websockets.md](docs/websockets.md), along with the Node-based workaround covered in [docs/ssr.md](docs/ssr.md).
 
-CLI note: The Unirend project generator (CLI) requires Bun for a simple, out‑of‑the‑box experience. Generated projects use Bun for development and build tooling, but can target Node at bundle time (`bun build --target node --external vite`). As Node tooling continues to improve, we may add first-class Node CLI support in the future.
+CLI note: The Unirend project generator (CLI) requires Bun for a simple, out‑of‑the‑box experience. Generated projects use Bun for development and build tooling, and target Node by default at bundle time (`bun build --target node --external vite`). As Node tooling continues to improve, we may add first-class Node CLI support in the future.
 
 Repo auto‑init: The CLI sets up a repository structure that supports multiple projects in one workspace. You can initialize it explicitly with `init-repo`, but if it’s missing when you run `create`, Unirend will set it up automatically with a sensible default.
 
@@ -237,7 +237,7 @@ vite build --outDir build/server --ssr src/entry-ssr.tsx
 
 #### 3. Package.json Scripts
 
-Add these scripts to your `package.json` for both SSG and SSR workflows. We recommend Bun for simplicity, but you can also run the Bun‑built bundle with Node (example shown below).
+Add these scripts to your `package.json` for both SSG and SSR workflows. The examples below are illustrative and your actual scripts may vary. If you use the CLI to generate your project, the scripts are wired up automatically.
 
 ```json
 {
@@ -258,23 +258,22 @@ Add these scripts to your `package.json` for both SSG and SSR workflows. We reco
     // For SSR:
     "build:server:ssr": "vite build --outDir build/server --ssr src/entry-ssr.tsx",
     "build:ssr": "bun run build:client && bun run build:server:ssr",
-    "serve-dev": "bun run serve.ts dev", // SSR dev mode with HMR
+    "serve-dev": "bun run serve.ts dev", // SSR dev mode with HMR (runs under Bun directly — see docs/ssr.md if you hit graceful shutdown issues)
     "serve-prod": "bun run serve.ts prod", // SSR prod mode (requires build:ssr first)
     "build-and-serve-prod": "bun run build:ssr && bun run serve-prod",
 
-    // For SSR Production Build (Bun):
-    "build:prod": "bun build serve.ts --outdir ./dist --external vite",
-    "start": "bun dist/serve.js prod"
+    // For SSR Production Build (Node runtime — recommended):
+    "build:prod": "bun build serve.ts --outdir ./dist --target=node --external vite",
+    "start": "node dist/serve.js prod"
 
-    // Optional: Run SSR Production Build under Node runtime using a Bun-built bundle:
-    // (use if dealing with Bun compatibility issues)
-    // "build:prod": "bun build serve.ts --outdir ./dist --target=node --external vite",
-    // "start": "node dist/serve.js prod"
+    // Alternative: Run directly under Bun runtime:
+    // "build:prod": "bun build serve.ts --outdir ./dist --external vite",
+    // "start": "bun dist/serve.js prod"
   }
 }
 ```
 
-Tip: When you plan to run the Bun-built bundle under Node, include the `--target node` flag in `bun build` so the output targets Node's runtime. Keep `--external vite` in both Bun-runtime and Node-runtime bundles.
+Tip: Always include `--target node` and `--external vite` when building for the Node runtime. To run under Bun instead, omit `--target node` and replace `node` with `bun` in the start script.
 
 Note: If you prefer a pure-Node toolchain without Bun, explore compiling or bundling your server with tools like `tsc`, `esbuild`, `rollup`, or `tsup`, or use vanilla JavaScript, then run with `node`. These alternatives are not covered in depth here to keep the setup simple and easy out of the box.
 
