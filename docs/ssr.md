@@ -773,6 +773,15 @@ See a complete example with plugins and data handler registration in `demos/ssr/
 
 Recommendation: Use Bun for simplicity (dev runs TypeScript directly, prod bundles to JS that can run under Bun or Node). Pure Node alternatives (e.g., `tsc`, `esbuild`, `rollup`, `ts-node`) or vanilla JavaScript are possible but not covered in depth here to keep the setup simple and easy out of the box.
 
+Note: Running `serveSSRDev` under Bun may stall graceful shutdown. The Vite HMR WebSocket server can fail to close cleanly under Bun, compared to Node (related: [oven-sh/bun#5951](https://github.com/oven-sh/bun/issues/5951)). The same style of issue is described in [websockets.md](./websockets.md). If you hit this, bundle targeting Node and run with Node:
+
+```bash
+bun build serve.ts --outfile ./dist/serve-hmr.js --target=node --external vite
+SSR_SRC_DIR=$(pwd)/src node ./dist/serve-hmr.js dev
+```
+
+When bundling this way, `__dirname` resolves to the build output directory, not your source tree. Pass your source directory via an env var and read it in your serve script (`const SRC_DIR = process.env.SSR_SRC_DIR ?? path.resolve(__dirname, '..')`), then use `SRC_DIR` to resolve your `serverEntry`, `template`, and `viteConfig` paths. Vite handles HMR and source transforms as normal.
+
 ### SSRServer Class
 
 The `SSRServer` class powers both dev and prod servers created via `serveSSRDev` (dev) or `serveSSRProd` (prod), which passes the proper configuration.
