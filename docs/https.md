@@ -173,7 +173,7 @@ console.log('HTTP redirect server running on port 80');
   - `308` - Permanent redirect (preserves method)
 - `allowedDomains` - Optional domain validation (prevents Host header attacks)
 - `preservePort` - Whether to preserve port numbers in redirects (default: `false`)
-- `targetPort` - Override the port in the redirect URL (e.g., redirect `http://host:8080` → `https://host:8443`). Takes precedence over `preservePort` when set.
+- `targetPort` - Override the port in the redirect URL (e.g., redirect `http://host:8080` → `https://host:8443`). Takes precedence over `preservePort` when set. Port `443` is automatically omitted from the URL since it's the HTTPS default.
 - `invalidDomainHandler` - Custom error response for blocked domains
 - `logErrors` - Whether to automatically log errors (default: `true`)
 - `logging` - Framework-level logging options (same as APIServer/SSRServer)

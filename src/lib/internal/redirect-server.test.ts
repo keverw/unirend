@@ -207,6 +207,17 @@ describe('RedirectServer', () => {
       );
     });
 
+    it('omits port from URL when targetPort is 443', async () => {
+      server = new RedirectServer({ targetPort: 443 });
+      await server.listen(testPort, 'localhost');
+
+      const response = await fetch(`http://localhost:${testPort}/`, {
+        redirect: 'manual',
+      });
+
+      expect(response.headers.get('location')).toBe('https://localhost/');
+    });
+
     it('targetPort takes precedence over preservePort', async () => {
       const httpsPort = 8443;
       server = new RedirectServer({
