@@ -521,6 +521,8 @@ export type AccessLogLevelConfig =
  * Context passed to onRequest access log hook (request start).
  */
 export interface AccessLogRequestContext {
+  /** Stable source identifier for access log entries and hooks. */
+  logSource: 'unirend.accessLog';
   reqID: string | number;
   method: string;
   url: string;
@@ -569,13 +571,13 @@ export interface AccessLogConfig {
   events?: 'start' | 'finish' | 'both' | 'none';
   /**
    * Template for finish/response log lines. Supports {{variable}} placeholders.
-   * Available variables: method, url, statusCode, responseTime, finishType, reqID, ip, userAgent
+   * Available variables: logSource, method, url, statusCode, responseTime, finishType, reqID, ip, userAgent
    * @default 'Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'
    */
   responseTemplate?: string;
   /**
    * Template for start/request log lines. Supports {{variable}} placeholders.
-   * Available variables: method, url, reqID, ip, userAgent
+   * Available variables: logSource, method, url, reqID, ip, userAgent
    * @default 'Request started {{method}} {{url}}'
    */
   requestTemplate?: string;

@@ -130,8 +130,8 @@ The following options are accepted by both `SSRServer` and `APIServer`:
 - `accessLog?: AccessLogConfig`
   - First-party access logging - on by default. Use `{ events: 'none' }` to disable, or provide config to customize.
   - `events?: 'start' | 'finish' | 'both' | 'none'` - Which lifecycle events to print a log line for (default: `'finish'`).
-  - `responseTemplate?: string` - Template for finish/response events. Default: `'[{{serverLabel}}] Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'`. Available variables: `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `ip`, `userAgent`, `serverLabel`.
-  - `requestTemplate?: string` - Template for start/request events. Default: `'[{{serverLabel}}] Request started {{method}} {{url}}'`. Available variables: `method`, `url`, `reqID`, `ip`, `userAgent`, `serverLabel`.
+  - `responseTemplate?: string` - Template for finish/response events. Default: `'[{{serverLabel}}] Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'`. Available variables: `logSource`, `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `ip`, `userAgent`, `serverLabel`.
+  - `requestTemplate?: string` - Template for start/request events. Default: `'[{{serverLabel}}] Request started {{method}} {{url}}'`. Available variables: `logSource`, `method`, `url`, `reqID`, `ip`, `userAgent`, `serverLabel`.
   - `level?: UnirendLoggerLevel | { success?, clientError?, serverError? }` - Log level. Default: `info` for 2xx/3xx, `warn` for 4xx, `error` for 5xx.
   - `onRequest?: (context: AccessLogRequestContext) => void | Promise<void>` - Custom hook fired at request start when provided. It is awaited before request handling continues. If you intentionally start fire-and-forget work inside it, handle errors explicitly. Fires regardless of the `events` setting.
   - `onResponse?: (context: AccessLogResponseContext) => void | Promise<void>` - Custom hook fired on response completion when provided (both normal and client-aborted). It is awaited after the response finishes or aborts. If you intentionally start fire-and-forget work inside it, handle errors explicitly. `context.finishType` is `'completed'` or `'aborted'`. Fires regardless of the `events` setting.
@@ -309,9 +309,9 @@ const server = serveSSRProd('./build', {
 
 ##### Template Variables
 
-- Response/finish events: `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `ip`, `userAgent`, `serverLabel`
+- Response/finish events: `logSource`, `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `ip`, `userAgent`, `serverLabel`
   - Also supports dot notation for nested fields: `replyInfo.statusCode`, `replyInfo.headers['content-type']`
-- Request/start events: `method`, `url`, `reqID`, `ip`, `userAgent`, `serverLabel`
+- Request/start events: `logSource`, `method`, `url`, `reqID`, `ip`, `userAgent`, `serverLabel`
 - `serverLabel` exposes the raw label value (no brackets) - use `[{{serverLabel}}]` if you want brackets in your template output.
 - Dot notation is supported for nested properties (e.g. `{{replyInfo.headers['x-request-id']}}`).
 - Unknown variables are substituted as `???`.
@@ -321,6 +321,7 @@ const server = serveSSRProd('./build', {
 
 Beyond the template string, access logs include additional structured metadata in the log output. This is valuable because structured logging systems can store and index this metadata separately from the human-readable message, enabling powerful filtering, querying, and aggregation.
 
+- **`logSource`**: Always `'unirend.accessLog'` for entries emitted by the access logging plugin. This gives structured logging pipelines a stable discriminator for filtering or routing access log entries.
 - **`event`**: Either `'start'` (for request events) or `'finish'` (for response events). This helps distinguish log entries when using `events: 'both'`.
 - **All template variables**: The same variables available in the template (`method`, `url`, `statusCode`, etc.) are also included as structured fields in the log metadata, making them available for log aggregation and filtering even if not included in the template string.
 
@@ -330,6 +331,7 @@ Example log output structure:
 // Request start event
 request.log.info(
   {
+    logSource: 'unirend.accessLog',
     method: 'GET',
     url: '/page',
     reqID: '123',
@@ -344,6 +346,7 @@ request.log.info(
 // Response finish event (normal completion)
 request.log.info(
   {
+    logSource: 'unirend.accessLog',
     method: 'GET',
     url: '/page',
     statusCode: 200,
@@ -361,6 +364,7 @@ request.log.info(
 // Response finish event (client aborted - disconnected before response finished)
 request.log.info(
   {
+    logSource: 'unirend.accessLog',
     method: 'GET',
     url: '/page',
     statusCode: 0,
@@ -377,6 +381,8 @@ request.log.info(
 ```
 
 When using structured logging (e.g., JSON format with pino or other logging adapters), this metadata is stored as separate fields alongside the message. This enables powerful capabilities for log aggregation systems, such as filtering by status code ranges, grouping by URL patterns, calculating response time percentiles, or tracking client abort rates. Since the metadata is separate from the template string, you can include detailed information in the structured fields that you might not want in plain text logs, and different logging sinks (console, database, external services) can selectively use the fields they need.
+
+If you persist request history yourself, prefer the `accessLog.onRequest` and `accessLog.onResponse` hooks for DB writes. These hooks run regardless of the `events` setting, including `events: 'none'`, so you can disable template logging while still recording request starts/completions. If your central logger also writes to the same DB or external sink, filter out entries where `context.logSource === 'unirend.accessLog'` (or route them to a separate sink) to avoid double-writing the same access event.
 
 ##### IP Behind A Reverse Proxy
 

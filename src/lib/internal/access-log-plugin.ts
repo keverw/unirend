@@ -144,6 +144,7 @@ function buildRequestContext(
   serverLabel: string,
 ): AccessLogRequestContext {
   return {
+    logSource: 'unirend.accessLog',
     reqID: request.id,
     method: request.method,
     url: request.url,

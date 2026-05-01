@@ -93,17 +93,27 @@ describe('resolveAccessLogLevel', () => {
 describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
   let server: APIServer | null = null;
   let port: number;
-  let logs: Array<{ level: string; message: string }>;
+  let logs: Array<{
+    level: string;
+    message: string;
+    context?: Record<string, unknown>;
+  }>;
 
   function makeMockLoggingConfig() {
     return {
       logger: {
-        trace: (msg: string) => logs.push({ level: 'trace', message: msg }),
-        debug: (msg: string) => logs.push({ level: 'debug', message: msg }),
-        info: (msg: string) => logs.push({ level: 'info', message: msg }),
-        warn: (msg: string) => logs.push({ level: 'warn', message: msg }),
-        error: (msg: string) => logs.push({ level: 'error', message: msg }),
-        fatal: (msg: string) => logs.push({ level: 'fatal', message: msg }),
+        trace: (msg: string, context?: Record<string, unknown>) =>
+          logs.push({ level: 'trace', message: msg, context }),
+        debug: (msg: string, context?: Record<string, unknown>) =>
+          logs.push({ level: 'debug', message: msg, context }),
+        info: (msg: string, context?: Record<string, unknown>) =>
+          logs.push({ level: 'info', message: msg, context }),
+        warn: (msg: string, context?: Record<string, unknown>) =>
+          logs.push({ level: 'warn', message: msg, context }),
+        error: (msg: string, context?: Record<string, unknown>) =>
+          logs.push({ level: 'error', message: msg, context }),
+        fatal: (msg: string, context?: Record<string, unknown>) =>
+          logs.push({ level: 'fatal', message: msg, context }),
       },
     };
   }
@@ -303,6 +313,28 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
     expect(finishLogs.length).toBeGreaterThan(0);
   });
 
+  it('includes access log source in structured logger metadata', async () => {
+    server = serveAPI({
+      logging: makeMockLoggingConfig(),
+      accessLog: {
+        events: 'both',
+        requestTemplate: 'START {{method}} {{url}}',
+        responseTemplate: 'FINISH {{method}} {{url}} {{statusCode}}',
+      },
+    });
+
+    await server.listen(port, 'localhost');
+
+    const response = await fetch(`http://localhost:${port}/api/nonexistent`);
+    await response.text();
+
+    const startLog = logs.find((log) => log.context?.event === 'start');
+    const finishLog = logs.find((log) => log.context?.event === 'finish');
+
+    expect(startLog?.context?.logSource).toBe('unirend.accessLog');
+    expect(finishLog?.context?.logSource).toBe('unirend.accessLog');
+  });
+
   it('calls onResponse hook with correct context', async () => {
     const captured: AccessLogResponseContext[] = [];
 
@@ -321,6 +353,7 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
 
     expect(captured.length).toBeGreaterThan(0);
     const ctx = captured[0];
+    expect(ctx.logSource).toBe('unirend.accessLog');
     expect(ctx.method).toBe('GET');
     expect(ctx.url).toBe('/api/nonexistent');
     expect(ctx.statusCode).toBe(404);
