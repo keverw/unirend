@@ -938,11 +938,11 @@ const info = server.getDecoration<{
 Within your request handlers (including page data loader handlers), you can check a boolean environment flag on the request to tailor behavior:
 
 ```ts
-server.pageDataHandler.register('example', (request, params) => {
+server.pageDataHandler.register('example', (request, reply, params) => {
   const isDev = (request as FastifyRequest & { isDevelopment?: boolean })
     .isDevelopment;
 
-  return APIResponseHelpers.createPageSuccessResponse({
+  return params.APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { environment: isDev ? 'development' : 'production' },
     pageMetadata: { title: 'Env', description: 'Env demo' },
@@ -957,7 +957,7 @@ Notes:
 The resolved client IP and server label are also available as `request.clientIP` and `request.serverLabel` in any handler or hook:
 
 ```ts
-server.pageDataHandler.register('example', (request, params) => {
+server.pageDataHandler.register('example', (request, reply, params) => {
   const ip = (request as FastifyRequest & { clientIP?: string }).clientIP;
   // Resolved once per request — reflects getClientIP or trustProxy fallback
 
@@ -1044,18 +1044,19 @@ Guidance:
 
 Recommendation:
 
-- Prefer using `APIResponseHelpers` (see [API Envelope Structure](./api-envelope-structure.md)) to construct envelopes. These helpers also auto-populate `request_id` from `request.requestID` that your request registered middleware/plugins may populate.
-- For custom meta defaults (account/workspace/locale/build), prefer extending `APIResponseHelpers` in a small subclass and reading decorated values from the request within that subclass. This applies to both page data loaders/handlers and custom API route handlers. See: [Extending helpers and custom meta](./api-envelope-structure.md#extending-helpers-and-custom-meta).
+- Use `params.APIResponseHelpers` inside handlers (page data loader handlers and API route handlers) to construct envelopes. This is always the class configured on the server — no separate import needed, and if you've provided a custom subclass via `APIResponseHelpersClass`, handlers automatically use it without any extra wiring.
+
+These helpers also auto-populate `request_id` from `request.requestID` that your request registered middleware/plugins may populate. See: [API Envelope Structure](./api-envelope-structure.md).
+
+- For custom meta defaults (account/workspace/locale/build), prefer extending `APIResponseHelpers` in a small subclass and passing it as `APIResponseHelpersClass` in your server options. Handlers then receive your subclass automatically via `params.APIResponseHelpers`. See: [Extending helpers and custom meta](./api-envelope-structure.md#extending-helpers-and-custom-meta).
   - Rationale: centralizes conventions and avoids repeating per-handler generics/typing. Just ensure your meta type extends `BaseMeta`.
 
 Examples:
 
 ```ts
-import { APIResponseHelpers } from 'unirend/api-envelope';
-
 // Unversioned handler (defaults to version 1)
-server.pageDataHandler.register('test', function (request, params) {
-  return APIResponseHelpers.createPageSuccessResponse({
+server.pageDataHandler.register('test', function (request, reply, params) {
+  return params.APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { message: 'version 1', version: params.version },
     pageMetadata: { title: 'Test', description: 'Version 1' },
@@ -1063,16 +1064,16 @@ server.pageDataHandler.register('test', function (request, params) {
 });
 
 // Explicit versioned handlers
-server.pageDataHandler.register('test', 2, function (request, params) {
-  return APIResponseHelpers.createPageSuccessResponse({
+server.pageDataHandler.register('test', 2, function (request, reply, params) {
+  return params.APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { message: 'v2', version: params.version },
     pageMetadata: { title: 'Test v2', description: 'Version 2' },
   });
 });
 
-server.pageDataHandler.register('test', 3, function (request, params) {
-  return APIResponseHelpers.createPageSuccessResponse({
+server.pageDataHandler.register('test', 3, function (request, reply, params) {
+  return params.APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { message: 'v3', version: params.version },
     pageMetadata: { title: 'Test v3', description: 'Version 3' },
@@ -1115,20 +1116,23 @@ Page data loader handlers can return redirect responses using `APIResponseHelper
 
 ```ts
 // Example: Redirect after checking permissions
-server.pageDataHandler.register('protected-page', async (request) => {
-  const { isAuthorized } = await checkUserPermissions(request);
+server.pageDataHandler.register(
+  'protected-page',
+  async (request, reply, params) => {
+    const { isAuthorized } = await checkUserPermissions(request);
 
-  if (!isAuthorized) {
-    return APIResponseHelpers.createPageRedirectResponse({
-      request,
-      target: '/login',
-      permanent: false,
-      preserve_query: true, // Keeps ?returnTo=/protected-page
-    });
-  }
+    if (!isAuthorized) {
+      return params.APIResponseHelpers.createPageRedirectResponse({
+        request,
+        target: '/login',
+        permanent: false,
+        preserve_query: true, // Keeps ?returnTo=/protected-page
+      });
+    }
 
-  // ... return page data
-});
+    // ... return page data
+  },
+);
 ```
 
 **Important:** HTTP-level redirects (301/302 status codes) are **blocked** by the page data loader using `redirect: 'manual'`. This prevents security issues from following untrusted redirects. Always use the envelope redirect format shown above. See [API Envelope Structure docs](./api-envelope-structure.md#redirects-in-api-responses) for details.
@@ -1217,15 +1221,13 @@ You can register versioned custom API routes using the server's `.api` shortcuts
 **Endpoint Convention:** Endpoints should be specified as path segments WITHOUT leading slashes (e.g., `'demo/echo/:id'` not `'/demo/echo/:id'`). Leading slashes are allowed but will be stripped during normalization. This treats endpoints as segments appended to the API prefix and version, rather than as absolute paths.
 
 ```ts
-import { APIResponseHelpers } from 'unirend/api-envelope';
-
 // Register a simple GET endpoint at /api/v1/demo/echo/:id (with defaults)
-server.api.get('demo/echo/:id', async (request) => {
-  return APIResponseHelpers.createAPISuccessResponse({
+server.api.get('demo/echo/:id', async (request, reply, params) => {
+  return params.APIResponseHelpers.createAPISuccessResponse({
     request,
     data: {
       message: 'Hello from API shortcuts',
-      id: (request.params as Record<string, unknown>).id,
+      id: params.routeParams.id,
       query: request.query,
     },
     statusCode: 200,
@@ -1233,9 +1235,9 @@ server.api.get('demo/echo/:id', async (request) => {
 });
 
 // Versioned registration example (explicit version 2)
-server.api.post('demo/items', 2, async (request) => {
+server.api.post('demo/items', 2, async (request, reply, params) => {
   const body = request.body as Record<string, unknown>;
-  return APIResponseHelpers.createAPISuccessResponse({
+  return params.APIResponseHelpers.createAPISuccessResponse({
     request,
     data: { created: true, version: 2, body },
     statusCode: 201,
@@ -1268,6 +1270,7 @@ Notes:
     - `queryParams`: URL query params (`Record<string, unknown>`, parsed with qs and supports nested objects and arrays)
     - `requestPath`: path without query
     - `originalURL`: full original URL
+    - `APIResponseHelpers`: the helpers class configured on this server — use this instead of importing directly, so custom subclasses are respected
 
 ### Param Source Parity (Data Loader vs API Routes):
 

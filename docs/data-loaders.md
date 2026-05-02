@@ -46,10 +46,8 @@ On the server, register a backend page data loader handler for the same `pageTyp
 
 ```ts
 // On your SSR server instance
-import { APIResponseHelpers } from 'unirend/api-envelope';
-
-server.pageDataHandler.register('home', (request, params) => {
-  return APIResponseHelpers.createPageSuccessResponse({
+server.pageDataHandler.register('home', (request, reply, params) => {
+  return params.APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { message: 'Hello from server', route: params.routeParams },
     pageMetadata: { title: 'Home', description: 'Home page' },
@@ -204,7 +202,7 @@ server.pageDataHandler.register('products', (request, reply, params) => {
   const { filters } = params.queryParams as {
     filters?: { status?: string; tags?: string[] };
   };
-  // ...
+  // params.APIResponseHelpers is available here too
 });
 ```
 

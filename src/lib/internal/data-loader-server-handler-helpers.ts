@@ -5,7 +5,7 @@ import type {
   BaseMeta,
 } from '../api-envelope/api-envelope-types';
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
-import type { ControlledReply } from '../types';
+import type { APIResponseHelpersClass, ControlledReply } from '../types';
 import { createControlledReply } from './server-utils';
 import { getAPIResponseHelpersClass } from './api-response-helpers-utils';
 import {
@@ -40,6 +40,8 @@ export interface PageDataHandlerParams {
   requestPath: string;
   /** Original URL (from React Router via POST body) */
   originalURL: string;
+  /** The APIResponseHelpers class configured on this server (use this instead of importing directly) */
+  APIResponseHelpers: APIResponseHelpersClass;
 }
 
 /**
@@ -232,6 +234,8 @@ export class DataLoaderServerHandlerHelpers {
             const requestPath = requestBody.request_path;
             const originalURL = requestBody.original_url;
 
+            const helpersClass = getAPIResponseHelpersClass(request);
+
             // Validate that routing fields have correct types
             const invalidFields = [];
 
@@ -268,7 +272,6 @@ export class DataLoaderServerHandlerHelpers {
             if (invalidFields.length > 0) {
               // Client error: malformed request body - return proper API error envelope.
               // Return the envelope directly so wrapThenable makes exactly one reply.send() call.
-              const helpersClass = getAPIResponseHelpersClass(request);
               reply.code(400);
 
               return helpersClass.createAPIErrorResponse({
@@ -299,6 +302,7 @@ export class DataLoaderServerHandlerHelpers {
                   (queryParams as Record<string, unknown> | undefined) || {},
                 requestPath: requestPath as string,
                 originalURL: originalURL as string,
+                APIResponseHelpers: helpersClass,
               },
             );
 
@@ -448,6 +452,7 @@ export class DataLoaderServerHandlerHelpers {
       queryParams,
       requestPath,
       originalURL,
+      APIResponseHelpers: getAPIResponseHelpersClass(originalRequest),
     };
 
     // Defer invocation to the microtask queue and normalize to a Promise.

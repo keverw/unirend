@@ -687,6 +687,7 @@ export function createControlledInstance(
   shouldDisableRootWildcard: boolean,
   apiShortcuts: unknown,
   pageDataHandlerShortcuts: unknown,
+  apiResponseHelpersClass: APIResponseHelpersClass,
 ): PluginHostInstance {
   return {
     register: <Options extends Record<string, unknown> = Record<string, never>>(
@@ -773,6 +774,7 @@ export function createControlledInstance(
     log: fastifyInstance.log,
     api: apiShortcuts,
     pageDataHandler: pageDataHandlerShortcuts,
+    APIResponseHelpers: apiResponseHelpersClass,
   };
 }
 

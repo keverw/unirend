@@ -721,6 +721,7 @@ export class APIServer extends BaseServer {
       false,
       this.apiRoutes.apiMethod,
       this.pageDataHandlers.pageDataHandlerMethod,
+      this.APIResponseHelpersClass,
     );
 
     // Plugin options to pass to each plugin

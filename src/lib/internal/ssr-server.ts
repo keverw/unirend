@@ -1648,6 +1648,7 @@ export class SSRServer extends BaseServer {
       true,
       this.apiRoutes.apiMethod,
       this.pageDataHandlers.pageDataHandlerMethod,
+      this.APIResponseHelpersClass,
     );
 
     // Plugin options to pass to each plugin

@@ -668,6 +668,7 @@ describe('createControlledInstance', () => {
       true,
       { api: true },
       { page: true },
+      APIResponseHelpers,
     );
 
     // register forwards
@@ -752,6 +753,7 @@ describe('createControlledInstance', () => {
       false, // shouldDisableRootWildcard = false
       { api: true },
       { page: true },
+      APIResponseHelpers,
     );
 
     // Wildcards should be allowed when shouldDisableRootWildcard is false
@@ -768,6 +770,7 @@ describe('createControlledInstance', () => {
       true, // shouldDisableRootWildcard = true
       { api: true },
       { page: true },
+      APIResponseHelpers,
     );
 
     // Valid routes without wildcards should work
@@ -780,7 +783,13 @@ describe('createControlledInstance', () => {
     const app = fastify();
     app.decorate('foo', 'bar');
 
-    const host = createControlledInstance(app, false, {}, {});
+    const host = createControlledInstance(
+      app,
+      false,
+      {},
+      {},
+      APIResponseHelpers,
+    );
 
     host.get('/context', function (this: { foo: string }) {
       return Promise.resolve({
@@ -802,7 +811,13 @@ describe('createControlledInstance', () => {
 
   it('lets plugin routes return reply.redirect() without calling send() directly', async () => {
     const app = fastify();
-    const host = createControlledInstance(app, false, {}, {});
+    const host = createControlledInstance(
+      app,
+      false,
+      {},
+      {},
+      APIResponseHelpers,
+    );
 
     host.get('/', async (_request, reply) => {
       return reply.redirect('/dest');
@@ -822,7 +837,13 @@ describe('createControlledInstance', () => {
 
   it('lets plugin routes return reply.callNotFound() without calling send() directly', async () => {
     const app = fastify();
-    const host = createControlledInstance(app, false, {}, {});
+    const host = createControlledInstance(
+      app,
+      false,
+      {},
+      {},
+      APIResponseHelpers,
+    );
 
     app.setNotFoundHandler(async (_request, reply) => {
       reply.code(404);
@@ -847,7 +868,13 @@ describe('createControlledInstance', () => {
 
   it('throws when redirect delegation is not returned immediately', async () => {
     const app = fastify();
-    const host = createControlledInstance(app, false, {}, {});
+    const host = createControlledInstance(
+      app,
+      false,
+      {},
+      {},
+      APIResponseHelpers,
+    );
 
     host.get('/bad-redirect', async (_request, reply) => {
       reply.redirect('/dest');
@@ -869,7 +896,13 @@ describe('createControlledInstance', () => {
 
   it('throws when callNotFound delegation is not returned immediately', async () => {
     const app = fastify();
-    const host = createControlledInstance(app, false, {}, {});
+    const host = createControlledInstance(
+      app,
+      false,
+      {},
+      {},
+      APIResponseHelpers,
+    );
 
     app.setNotFoundHandler(async (_request, reply) => {
       reply.code(404);
@@ -898,7 +931,13 @@ describe('createControlledInstance', () => {
 
   it('throws when plugin routes call reply.send() directly', async () => {
     const app = fastify();
-    const host = createControlledInstance(app, false, {}, {});
+    const host = createControlledInstance(
+      app,
+      false,
+      {},
+      {},
+      APIResponseHelpers,
+    );
 
     host.get('/send', async (_request, reply) => {
       return reply.send({ ok: true });

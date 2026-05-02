@@ -14,6 +14,7 @@
     - [Server-Level Logging](#server-level-logging)
     - [Decorators](#decorators)
     - [Reading server decorations](#reading-server-decorations)
+    - [APIResponseHelpers](#apiresponsehelpers)
     - [API Shortcuts (Envelope Helpers)](#api-shortcuts-envelope-helpers)
     - [Page Data Loader Handler Registration](#page-data-loader-handler-registration)
 - [Example Plugins](#example-plugins)
@@ -82,8 +83,8 @@ import type { ServerPlugin } from 'unirend/server';
 // Define a plugin
 const myPlugin: ServerPlugin = async (pluginHost, options) => {
   // Add custom routes (use envelope pattern via API shortcuts method when possible)
-  pluginHost.api.get('status', async (request) => {
-    return APIResponseHelpers.createAPISuccessResponse({
+  pluginHost.api.get('status', async (request, reply, params) => {
+    return pluginHost.APIResponseHelpers.createAPISuccessResponse({
       request,
       data: { healthy: true, mode: options.mode },
       statusCode: 200,
@@ -293,20 +294,36 @@ if (cookieInfo?.signingSecretProvided) {
 }
 ```
 
+#### APIResponseHelpers
+
+`pluginHost.APIResponseHelpers` is the helpers class configured on the server instance. Use it to build envelopes inside your plugin instead of importing from `unirend/api-envelope` directly — this ensures a custom subclass provided via `APIResponseHelpersClass` is automatically used without any extra wiring.
+
+```typescript
+const myPlugin: ServerPlugin = async (pluginHost) => {
+  pluginHost.api.get('status', async (request, reply, params) => {
+    return pluginHost.APIResponseHelpers.createAPISuccessResponse({
+      request,
+      data: { ok: true },
+      statusCode: 200,
+    });
+  });
+};
+```
+
+For `pluginHost.pageDataHandler.register(...)` handlers, use `params.APIResponseHelpers` instead — the same class, but available directly on the handler params alongside the routing context.
+
 #### API Shortcuts (Envelope Helpers)
 
 ```typescript
 // Register versioned API endpoints that must return the standardized envelopes
 // Available helpers: pluginHost.api.get | post | put | delete | patch
 
-import { APIResponseHelpers } from 'unirend/api-envelope';
-
 pluginHost.api.get('demo/echo/:id', async (request, reply, params) => {
   // Build and return an API envelope, status taken from status_code
-  return APIResponseHelpers.createAPISuccessResponse({
+  return pluginHost.APIResponseHelpers.createAPISuccessResponse({
     request,
     data: {
-      id: (request.params as Record<string, unknown>).id,
+      id: params.routeParams.id,
       query: request.query,
       endpoint: params.endpoint,
       version: params.version,
@@ -318,7 +335,8 @@ pluginHost.api.get('demo/echo/:id', async (request, reply, params) => {
 // Explicit version example
 pluginHost.api.post('demo/items', 2, async (request, reply, params) => {
   const body = request.body as Record<string, unknown>;
-  return APIResponseHelpers.createAPISuccessResponse({
+
+  return pluginHost.APIResponseHelpers.createAPISuccessResponse({
     request,
     data: { created: true, body, version: params.version },
     statusCode: 201,
@@ -334,7 +352,7 @@ Notes:
 - For the full `params` shape passed to `pluginHost.api.*` handlers, see Custom API Routes in `docs/ssr.md`.
 - Duplicate registrations for the API same method + endpoint + version: last registration wins. Prefer centralizing your API shortcut registrations to avoid surprises, use distinct versions when you need multiple version handlers.
 - Handlers use the signature `(request, reply, params)`, `reply` is a controlled surface that allows setting headers and cookies.
-- Validation helpers such as `await APIResponseHelpers.ensureJSONBody(request, reply)` are async. If they return `false`, the helper already sent an error envelope and your handler should immediately `return false`.
+- Validation helpers such as `await pluginHost.APIResponseHelpers.ensureJSONBody(request, reply)` are async. If they return `false`, the helper already sent an error envelope and your handler should immediately `return false`.
 - Endpoints are mounted under `apiEndpoints.apiEndpointPrefix` and, when `versioned` is true, under `/v{n}`.
 - Status is taken from `status_code` in the returned API envelope.
 
@@ -345,7 +363,7 @@ Register backend page data loader handlers from a plugin. Last registration wins
 ```typescript
 // Handler without explicit version (defaults to version 1)
 pluginHost.pageDataHandler.register('home', (request, reply, params) => {
-  return APIResponseHelpers.createPageSuccessResponse({
+  return params.APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { message: 'home', version: params.version },
     pageMetadata: { title: 'Home' },
@@ -354,7 +372,7 @@ pluginHost.pageDataHandler.register('home', (request, reply, params) => {
 
 // Handler with explicit version
 pluginHost.pageDataHandler.register('home', 2, (request, reply, params) => {
-  return APIResponseHelpers.createPageSuccessResponse({
+  return params.APIResponseHelpers.createPageSuccessResponse({
     request,
     data: { message: 'home v2', version: params.version },
     pageMetadata: { title: 'Home v2' },
@@ -371,8 +389,8 @@ For controlled API/page-data handlers, helper-sent error envelopes now use the s
 ```typescript
 const apiRoutesPlugin: ServerPlugin = async (pluginHost, options) => {
   // Health check endpoint (envelope)
-  pluginHost.api.get('health', async (request) => {
-    return APIResponseHelpers.createAPISuccessResponse({
+  pluginHost.api.get('health', async (request, reply, params) => {
+    return pluginHost.APIResponseHelpers.createAPISuccessResponse({
       request,
       data: {
         healthy: true,

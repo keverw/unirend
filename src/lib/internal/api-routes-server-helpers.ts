@@ -4,12 +4,13 @@ import type {
   BaseMeta,
 } from '../api-envelope/api-envelope-types';
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
-import type { ControlledReply } from '../types';
+import type { APIResponseHelpersClass, ControlledReply } from '../types';
 import { createControlledReply } from './server-utils';
 import {
   validateVersion,
   validateSingleVersionWhenDisabled,
 } from './version-helpers';
+import { getAPIResponseHelpersClass } from './api-response-helpers-utils';
 
 /**
  * Supported HTTP methods for API routes
@@ -47,6 +48,8 @@ export type APIRouteHandler<T = unknown, M extends BaseMeta = BaseMeta> = (
     requestPath: string;
     /** Original URL including query string */
     originalURL: string;
+    /** The APIResponseHelpers class configured on this server (use this instead of importing directly) */
+    APIResponseHelpers: APIResponseHelpersClass;
   },
   // Allow either sync or async returns, including false for early-exit cases
 ) =>
@@ -310,6 +313,7 @@ export class APIRoutesServerHelpers<
                 queryParams,
                 requestPath,
                 originalURL,
+                APIResponseHelpers: getAPIResponseHelpersClass(request),
               },
             );
 

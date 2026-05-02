@@ -183,6 +183,8 @@ export interface PluginHostInstance {
   api?: unknown;
   /** Page data loader handler registration method for page data endpoints */
   pageDataHandler?: unknown;
+  /** The APIResponseHelpers class configured on this server — use this to build envelopes so custom subclasses are respected */
+  APIResponseHelpers: APIResponseHelpersClass;
 }
 
 /**
