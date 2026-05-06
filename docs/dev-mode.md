@@ -135,7 +135,7 @@ If you need dev mode in a pure SPA, call `initDevMode()` in your entry file befo
 
 ```typescript
 import { initDevMode } from 'lifecycleion/dev-mode';
-import { mountApp } from 'unirend';
+import { mountApp } from 'unirend/client';
 import { routes } from './routes';
 
 // For pure SPA: set explicitly, or use Vite's build-time constant

@@ -324,6 +324,8 @@ export async function createProject(
           templateScripts: templateConfig.scripts,
           templateDependencies: templateConfig.dependencies,
           templateDevDependencies: templateConfig.devDependencies,
+          templateGitignoreSectionHeader: templateConfig.gitignoreSectionHeader,
+          templateGitignoreEntries: templateConfig.gitignoreEntries,
         },
       );
     } catch (error) {

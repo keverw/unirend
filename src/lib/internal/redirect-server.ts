@@ -378,7 +378,9 @@ export class RedirectServer {
     // Add port: targetPort overrides, then preservePort, then strip
     // Skip port 443 — it's the default for HTTPS and shouldn't appear in the URL
     const portPart =
-      this.config.targetPort != null && this.config.targetPort !== 443
+      this.config.targetPort !== null &&
+      this.config.targetPort !== undefined &&
+      this.config.targetPort !== 443
         ? `:${this.config.targetPort}`
         : this.config.preservePort && port
           ? `:${port}`

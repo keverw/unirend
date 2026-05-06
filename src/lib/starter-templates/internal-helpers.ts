@@ -49,13 +49,20 @@ export function addProjectToRepo(
 
 /**
  * Options for ensureBaseFiles function
- * Currently inherits all options from EnsurePackageJSONOptions:
+ * Inherits package.json options, plus template-specific .gitignore entries:
  * - log: Logger function
  * - templateScripts: Template-specific scripts
  * - templateDependencies: Template-specific dependencies
  * - templateDevDependencies: Template-specific devDependencies
+ * - templateGitignoreSectionHeader: Header for template-specific .gitignore entries
+ * - templateGitignoreEntries: Template-specific .gitignore entries
  */
-export type EnsureBaseFilesOptions = EnsurePackageJSONOptions;
+export type EnsureBaseFilesOptions = EnsurePackageJSONOptions & {
+  /** Header for template-specific .gitignore entries */
+  templateGitignoreSectionHeader?: string;
+  /** Template-specific .gitignore entries to append if missing */
+  templateGitignoreEntries?: string[];
+};
 
 /**
  * Ensure base repo files exist at the workspace root.
@@ -72,7 +79,11 @@ export async function ensureBaseFiles(
   // Each separate helper function will throw on error, allowing errors to propagate to the caller
 
   // Ensure .gitignore exists first (only creates if missing)
-  await ensureGitignore(repoRoot, options?.log);
+  await ensureGitignore(repoRoot, {
+    log: options?.log,
+    templateSectionHeader: options?.templateGitignoreSectionHeader,
+    templateEntries: options?.templateGitignoreEntries,
+  });
 
   // Ensure standard directories have .gitkeep if empty (scripts, src/apps and src/libs)
   await ensureGitkeep(
@@ -131,6 +142,10 @@ export interface TemplateConfig {
   dependencies?: Record<string, string>;
   /** Template-specific devDependencies */
   devDependencies?: Record<string, string>;
+  /** Template-specific .gitignore entries */
+  gitignoreEntries?: string[];
+  /** Header for template-specific .gitignore entries */
+  gitignoreSectionHeader?: string;
 }
 
 /**
