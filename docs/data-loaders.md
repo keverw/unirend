@@ -103,7 +103,7 @@ Notes:
 - Short-circuiting only happens on SSR when handlers are registered on the same `SSRServer`
   - When using versioned handlers, short-circuit automatically selects the highest version registered. See: [Short-Circuit Versioning Behavior](./ssr.md#short-circuit-data-handlers) for details on version consistency between SSR and client-side navigation.
 
-- HTTP‑based loaders can forward selected request information from SSR to your API, including cookies, user agent, client IP, correlation ID, and non-empty `request.requestContext`. SSR removes untrusted headers and sets trusted ones before forwarding. See: [SSR header and cookies forwarding](./ssr.md#header-and-cookies-forwarding) and [Request Context Injection](./ssr.md#request-context-injection)
+- HTTP‑based data loaders can forward selected request information from SSR to your API, including cookies, user agent, client IP, correlation ID, and non-empty `request.requestContext`. SSR removes untrusted headers and sets trusted ones before forwarding. See: [SSR header and cookies forwarding](./ssr.md#header-and-cookies-forwarding) and [Request Context Injection](./ssr.md#request-context-injection)
   - Cookie forwarding is controlled by `cookieForwarding` on the SSR server
     - If both `allowCookieNames` and `blockCookieNames` are unset or empty, all cookies are forwarded
     - `allowCookieNames` forwards only the listed cookie names
