@@ -93,7 +93,7 @@ function createSSGReport({
  *
  * @param buildDir Directory containing built assets (HTML template, static files, manifest, etc.)
  * @param pages Array of pages to generate, each with a path and output filename
- * @param options Additional options for the SSG process, including frontendAppConfig and serverEntry (defaults to "entry-ssg")
+ * @param options Additional options for the SSG process, including publicAppConfig and serverEntry (defaults to "entry-ssg")
  * @returns Promise that resolves to a detailed report of the generation process
  */
 
@@ -336,9 +336,9 @@ export async function generateSSG(
       // Create a simulated fetch request for the current page
       const fetchRequest = new Request(`http://localhost${page.path}`);
 
-      // Clone frontendAppConfig to ensure it stays immutable for the entire request
-      const frontendAppConfig = options.frontendAppConfig
-        ? deepFreeze(structuredClone(options.frontendAppConfig))
+      // Clone publicAppConfig to ensure it stays immutable for the entire page render
+      const publicAppConfig = options.publicAppConfig
+        ? deepFreeze(structuredClone(options.publicAppConfig))
         : undefined;
 
       // Create SSGHelpers with requestContext that can be populated during render
@@ -358,7 +358,7 @@ export async function generateSSG(
           renderMode: 'ssg',
           isDevelopment,
           fetchRequest: fetchRequest, // Fetch request available in SSG
-          frontendAppConfig,
+          publicAppConfig,
           cdnBaseURL: normalizeCDNBaseURL(options.CDNBaseURL),
           domainInfo, // Computed from options.hostname if provided, null otherwise
           requestContextRevision: '0-0', // Initial revision for this page
@@ -386,7 +386,7 @@ export async function generateSSG(
           headInject,
           renderResult.html,
           {
-            app: frontendAppConfig,
+            app: publicAppConfig,
             request: requestContext,
           },
           options.CDNBaseURL,
@@ -518,13 +518,17 @@ export async function generateSSG(
         }
       }
 
+      const publicAppConfig = options.publicAppConfig
+        ? deepFreeze(structuredClone(options.publicAppConfig))
+        : undefined;
+
       // For SPA pages, use empty body content (client will render)
       const htmlToWrite = injectContent(
         htmlTemplate,
         headInject.trim(),
         '', // Empty body content for SPA
         {
-          app: options.frontendAppConfig, // Inject app config for SPA pages if provided from options
+          app: publicAppConfig, // Inject app config for SPA pages if provided from options
           request: page.requestContext, // Inject request context for SPA pages that was manually provided for the specific page
         },
         options.CDNBaseURL,

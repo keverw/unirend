@@ -120,6 +120,11 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - Provide a custom helpers class for constructing API/Page envelopes. Useful to inject default metadata (e.g., account/site info) across responses.
   - If omitted, the built-in `APIResponseHelpers` is used.
   - Note: Validation helpers like `isValidEnvelope` use the base helpers and are not overridden by this option.
+- `publicAppConfig?: Record<string, unknown>`
+  - Safe-to-share application config cloned and frozen per request as `request.publicAppConfig`.
+  - On SSR, the same request snapshot is available through `usePublicAppConfig()` and injected as `window.__PUBLIC_APP_CONFIG__`.
+  - On API servers, it is request-local only. It is not injected into HTML and is not bridged or merged between SSR and API servers.
+  - If your separated SSR and API servers both will need these values, pass the same source object or shared imported config to both servers. Mutating that source by reference between requests updates future request clones globally.
 - `logging?: { logger; level? }`
   - Framework-level logger object adapted to Fastify under the hood.
   - Use this for a simpler, framework-consistent logger API (works for both SSR and standalone API server).
@@ -590,11 +595,11 @@ async function main() {
     // Optional: CDN base URL for asset URL rewriting (rewrites <script src> and <link href> at runtime)
     // CDNBaseURL: process.env.CDN_BASE_URL,  // e.g., 'https://cdn.example.com'
 
-    // Optional configuration object to be injected into the frontend app.
-    // Serialized and injected as window.__FRONTEND_APP_CONFIG__ during SSR.
-    // Available via useFrontendAppConfig() hook on both server and client.
+    // Optional safe-to-share configuration object.
+    // Serialized and injected as window.__PUBLIC_APP_CONFIG__ during SSR.
+    // Available via usePublicAppConfig() hook on both server and client.
     // Tip: Keep this minimal and non-sensitive, it will be passed to the client.
-    frontendAppConfig: {
+    publicAppConfig: {
       api_endpoint: process.env.API_URL || 'https://api.example.com',
       environment: 'production',
       // Optionally include selected build info for troubleshooting/version display.
@@ -645,8 +650,8 @@ main().catch(console.error);
 
 Notes:
 
-- `frontendAppConfig` is passed to the Unirend context and available via the `useFrontendAppConfig()` hook on both server (during rendering) and client (after HTML injection).
-- For accessing config in components vs non-component code (loaders), fallback patterns, and SPA-only dev mode considerations, see: [Frontend App Config Pattern](../README.md#frontend-app-config-pattern).
+- `publicAppConfig` is passed to the Unirend context and available via the `usePublicAppConfig()` hook on both server (during rendering) and client (after HTML injection).
+- For accessing config in components vs non-component code (loaders), fallback patterns, and SPA-only dev mode considerations, see: [Public App Config Pattern](../README.md#public-app-config-pattern).
 
 **Per-Request CDN Override Example:**
 
@@ -672,7 +677,7 @@ server.fastifyInstance.addHook('onRequest', async (request, reply) => {
 });
 ```
 
-The effective CDN URL for each request is also available to frontend code. Use `useCDNBaseURL()` in components (works on both server and client, see [Unirend Context](../docs/unirend-context.md)), or `window.__CDN_BASE_URL__` in non-component code (guard with `typeof window !== 'undefined'` since `window` is not available during SSR).
+The effective CDN URL for each SSR request is also available as `request.CDNBaseURL` after `onRequest` hooks have run. Use `useCDNBaseURL()` in components (works on both server and client, see [Unirend Context](../docs/unirend-context.md)), or `window.__CDN_BASE_URL__` in non-component code. Guard with `typeof window !== 'undefined'` since `window` is not available during SSR.
 
 HTML Template:
 
@@ -699,11 +704,11 @@ async function main() {
       viteConfig: './vite.config.ts', // Vite config file
     },
     {
-      // Optional configuration object to be injected into the frontend app.
-      // Serialized and injected as window.__FRONTEND_APP_CONFIG__ during SSR.
-      // Available via useFrontendAppConfig() hook on both server and client.
+      // Optional safe-to-share configuration object.
+      // Serialized and injected as window.__PUBLIC_APP_CONFIG__ during SSR.
+      // Available via usePublicAppConfig() hook on both server and client.
       // Tip: Keep this minimal and non-sensitive, it will be passed to the client.
-      frontendAppConfig: {
+      publicAppConfig: {
         api_endpoint: process.env.API_URL || 'http://localhost:3001',
         environment: 'development',
       },
@@ -740,8 +745,8 @@ Notes:
 
 - In dev, Vite serves client assets with middleware and `vite.ssrLoadModule` is used for the server entry.
 - HMR is available. Stack traces are mapped for easier debugging.
-- `frontendAppConfig` is injected in both development and production when using `serveSSRDev` or `serveSSRProd`.
-- All context globals (`window.__FRONTEND_APP_CONFIG__`, `window.__FRONTEND_REQUEST_CONTEXT__`, `window.__CDN_BASE_URL__`, `window.__DOMAIN_INFO__`) are injected into `<head>` before any of your app scripts, so they are available to inline `<head>` scripts, body scripts, and all module code that runs after page load.
+- `publicAppConfig` is injected in both development and production when using `serveSSRDev` or `serveSSRProd`.
+- All context globals (`window.__PUBLIC_APP_CONFIG__`, `window.__FRONTEND_REQUEST_CONTEXT__`, `window.__CDN_BASE_URL__`, `window.__DOMAIN_INFO__`) are injected into `<head>` before any of your app scripts, so they are available to inline `<head>` scripts, body scripts, and all module code that runs after page load.
 - `window.__DOMAIN_INFO__` contains `{ hostname, rootDomain }` computed from the request hostname server-side. Access it in components via `useDomainInfo()` (see [Unirend Context](../docs/unirend-context.md)). Useful for setting cookies that span subdomains without hardcoding the domain.
 - **HTML Template**: The `template` path in development mode is fully customizable. Specify any HTML file path (e.g., `./index.html`, `./src/app.html`, etc.). The template is read fresh on each request and transformed by Vite for HMR support.
 
@@ -809,10 +814,10 @@ In addition to the [shared server configuration](#shared-server-configuration), 
   - Both handlers receive an `isPageData` parameter to distinguish between different types of API requests:
     - **Page data requests** (`isPageData=true`): Requests to the page data endpoint (e.g., `/api/v1/page_data/home`) used by data loaders to fetch page data with metadata (title, description). These return Page Response Envelopes.
     - **Regular API requests** (`isPageData=false`): Standard API endpoints (e.g., `/api/v1/users`, `/api/v1/account/create`) for operations like creating accounts, updating data, etc. These return API Response Envelopes.
-- `frontendAppConfig?: Record<string, unknown>`
-  - Optional configuration object available via the `useFrontendAppConfig()` hook on both server (during SSR/SSG rendering) and client (after HTML injection) in both dev and prod modes.
-  - Use for runtime configuration (API URLs, feature flags, build info, etc.). See [Frontend App Config Pattern](../README.md#frontend-app-config-pattern) for usage in components vs loaders.
-  - Within a request, read the config via `useFrontendAppConfig()` in components (available on both server and client). Each request receives a deep-cloned, deep-frozen snapshot, so mutations inside a request are isolated and do not affect other requests. If you hold a reference to the object (or a sub-object within it) that you passed here, you can mutate it between requests and the next clone will pick up the change. Updates are global (all subsequent requests, not a specific user). Use `requestContext` for per-user or per-request values.
+- `publicAppConfig?: Record<string, unknown>`
+  - Optional configuration object available via the `usePublicAppConfig()` hook on both server (during SSR/SSG rendering) and client (after HTML injection) in both dev and prod modes.
+  - Use for runtime configuration (API URLs, feature flags, build info, etc.). See [Public App Config Pattern](../README.md#public-app-config-pattern) for usage in components vs loaders.
+  - Within a request, read the config via `usePublicAppConfig()` in components (available on both server and client). Each request receives a deep-cloned, deep-frozen snapshot, so mutations inside a request are isolated and do not affect other requests. If you hold a reference to the object (or a sub-object within it) that you passed here, you can mutate it between requests and the next clone will pick up the change. Updates are global (all subsequent requests, not a specific user). Use `requestContext` for per-user or per-request values.
 - `containerID?: string`
   - Client container element ID (default `"root"`).
 - `ssrRenderTimeout?: number`
@@ -845,6 +850,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
     - **Per-request override**: Set `request.CDNBaseURL` in middleware to override the CDN URL for specific requests (e.g., region-specific CDNs)
     - **App-level default**: Falls back to the `CDNBaseURL` option configured in `serveSSRProd()` or `registerProdApp()`
     - **No CDN**: If neither is set, original `/assets/...` paths are preserved
+  - The resolved value is available as `request.CDNBaseURL` before SSR `preHandler` hooks, route handlers, SSR render, and custom 500 pages run. API servers do not set this field.
   - The effective CDN URL is also available to frontend code:
     - **In components**: use `useCDNBaseURL()`, which works on both server and client. See [Unirend Context](../docs/unirend-context.md).
     - **In non-component code** (data loaders, utilities): use `window.__CDN_BASE_URL__` with a `typeof window !== 'undefined'` guard, since `window` is not available during SSR:
@@ -988,7 +994,7 @@ server.pageDataHandler.register('accounts/dashboard', handler);
 server.pageDataHandler.register('accounts/settings', handler);
 ```
 
-Frontend loaders use the same grouped page types:
+Frontend data loaders use the same grouped page types:
 
 ```typescript
 // marketing/routes.tsx
@@ -1286,10 +1292,10 @@ Notes:
 
 SSR supports injecting per-request context data that will be available on the client.
 
-**Request Context vs Frontend App Config:**
+**Request Context vs Public App Config:**
 
 - **Request Context**: Per-page data that can vary between requests and be mutated on the client (e.g., page-specific state, user preferences, theme)
-- **Frontend App Config**: Global configuration shared across all pages (e.g., API URLs, feature flags, build info). Read within a request via `useFrontendAppConfig()` in components. Each request gets a deep-frozen clone that is immutable within the request. You can mutate the source between requests to update values globally (e.g., rotating an API endpoint, updating a year), but those changes apply to all subsequent requests, not a specific user.
+- **Public App Config**: Safe-to-share configuration shared across all pages (e.g., API URLs, feature flags, build info). Read within a request via `request.publicAppConfig` on SSR/API servers and `usePublicAppConfig()` in components. Each request gets a deep-frozen clone that is immutable within the request. You can mutate the source between requests to update values globally (e.g., rotating an API endpoint, updating a year), but those changes apply to all subsequent requests, not a specific user. Unlike `request.requestContext`, public app config is not forwarded, merged back, or injected by an API server.
 
 **Design Philosophy:**
 
@@ -1379,13 +1385,15 @@ When your SSR server and API server are separate instances, request context is a
 
 This forwarding and merge-back are automatic for SSR data loader requests when the API server accepts the forwarded context and the page response includes `ssr_request_context`. Handlers work the same whether co-located or separated. The merge in step 7 uses `Object.assign()`, so if both SSR middleware and the API page data handler set the same key, the API handler's value wins since it runs later in the request flow.
 
-Use this boundary to decide where cookie-backed values should be read. In separated deployments, data/session checks usually belong in API page data loaders because both SSR data-loader requests and post-hydration browser requests go through the API server. Additionally, SSR middleware too when a value must affect the initial HTML or a custom SSR 500 page. For example, Theme is a common example of something you may read in both places.
+Use this boundary to decide where cookie-backed values should be read. In separated deployments, data/session checks usually belong in API page data loaders because both SSR data-loader requests and post-hydration browser requests go through the API server. Also seed values in SSR middleware when they must affect the initial HTML or a custom SSR 500 page without relying on `request.requestContext` merged back from an API data loader. Theme is a common example of something you may read in both places.
 
 For example, session information can live primarily in API page data loaders even when the initial HTML is rendered by a separate SSR server. The SSR server receives those values through the data loader bridge when the API responds normally. If the API server is unavailable, the request times out, or the API data loader returns a 500 because it cannot check the session (for example, the database is down), the SSR loader receives a standardized 500 Page envelope instead. During SSR, a 500 data loader envelope triggers the SSR server's 500 handling the same way it would if the data loader were hosted locally, including `get500ErrorPage` when configured. Seed only the values that your SSR shell or custom 500 page must know without a successful API response on the SSR server itself.
 
 **Security Note:** For separated architecture, the API server **must** use the `clientInfo` plugin to validate that `ssr_request_context` comes from a trusted SSR server (private IP by default). Without this plugin, `ssr_request_context` in the request body will be ignored to prevent spoofing from untrusted clients.
 
 **Regular `server.api.*` Routes:** The bridge above is meant for page data loaders. Manual/raw API requests to routes registered with `server.api.get()`, `server.api.post()`, etc. are treated as normal API requests. They still receive `request.requestContext` for consistency with plugins and page data handlers, but they do not participate in the SSR data loader bridge.
+
+**Public App Config:** `publicAppConfig` is not part of this bridge. SSR and API servers each clone their own configured source onto `request.publicAppConfig`. Use the same shared source object when both servers should expose the same public config.
 
 **Common Use Cases:**
 
@@ -1403,7 +1411,7 @@ A single `SSRServer` instance can serve **multiple distinct React applications**
 **Key Features:**
 
 - **Mode enforcement**: Dev server = dev apps only, prod server = prod apps only
-- **Per-app configuration**: Each app gets its own `frontendAppConfig`, templates, static assets, and error pages
+- **Per-app configuration**: Each app gets its own `publicAppConfig`, templates, static assets, and error pages
 - **Shared resources**: API handlers, plugins, and cookie policies are shared across all apps
 
 ### Monorepo Structure Tip
@@ -1419,13 +1427,13 @@ import { serveSSRProd } from 'unirend/server';
 
 // Create server with default app
 const server = serveSSRProd('./build-main', {
-  frontendAppConfig: { api_endpoint: 'https://api.example.com' },
+  publicAppConfig: { api_endpoint: 'https://api.example.com' },
 });
 
 // Register additional apps - each supports the same options as serveSSRProd()
 server.registerProdApp('marketing', './build-marketing', {
   // App-specific frontend config (injected into client)
-  frontendAppConfig: { api_endpoint: 'https://marketing-api.example.com' },
+  publicAppConfig: { api_endpoint: 'https://marketing-api.example.com' },
 
   // Optional: Custom server entry (default: "entry-ssr")
   // serverEntry: 'custom-entry',
@@ -1484,7 +1492,7 @@ const server = serveSSRDev(
     viteConfig: './vite.config.ts',
   },
   {
-    frontendAppConfig: { api_endpoint: 'http://localhost:3001' },
+    publicAppConfig: { api_endpoint: 'http://localhost:3001' },
   },
 );
 
@@ -1498,7 +1506,7 @@ server.registerDevApp(
   },
   {
     // App-specific frontend config (injected into client)
-    frontendAppConfig: { api_endpoint: 'http://localhost:3002' },
+    publicAppConfig: { api_endpoint: 'http://localhost:3002' },
 
     // Optional: Custom folder names (default: 'client' and 'server')
     // clientFolderName: 'dist-client',
@@ -1532,7 +1540,7 @@ Register an additional production-mode app. Must be called **before** `listen()`
 
 - `appKey`: Unique identifier (used in `request.activeSSRApp`). Cannot be `"__default__"` or contain path separators.
 - `buildDir`: Path to the app's build directory
-- `options`: Same options as `serveSSRProd()` (e.g., `frontendAppConfig`, `staticContentRouter`, etc.)
+- `options`: Same options as `serveSSRProd()` (e.g., `publicAppConfig`, `staticContentRouter`, etc.)
 
 **registerDevApp(appKey, paths, options?)**
 
@@ -1540,7 +1548,7 @@ Register an additional development-mode app. Must be called **before** `listen()
 
 - `appKey`: Unique identifier (used in `request.activeSSRApp`). Cannot be `"__default__"` or contain path separators.
 - `paths`: Dev paths object (same as `serveSSRDev()`)
-- `options`: Same options as `serveSSRDev()` (e.g., `frontendAppConfig`, etc.)
+- `options`: Same options as `serveSSRDev()` (e.g., `publicAppConfig`, etc.)
 
 **Static Content Defaults (Production Only)**
 
@@ -1643,7 +1651,7 @@ These resources are configured independently for each app:
 - **CDN configuration**: `CDNBaseURL` is per-app. Each app can use its own CDN base URL for asset delivery
 - **Static content**: Each app serves its own static assets from its `buildDir` and `clientFolderName`, or provide a custom `staticContentRouter` configuration (production only)
 - **HTML template**: Each app uses its own HTML template from its build directory
-- **Frontend app config**: Each app can have its own `frontendAppConfig` injected as `window.__FRONTEND_APP_CONFIG__`
+- **Public app config**: Each app can have its own `publicAppConfig` injected as `window.__PUBLIC_APP_CONFIG__`
 
 #### Resource Considerations
 
@@ -1710,6 +1718,10 @@ main().catch(console.error);
 
 In addition to the [shared server configuration](#shared-server-configuration), the API server accepts:
 
+- `publicAppConfig?: Record<string, unknown>`
+  - Safe-to-share config cloned and frozen on each API request as `request.publicAppConfig`.
+  - API servers do not inject this into HTML. Include selected values in your own envelope `meta`, payload, or custom response handlers when a client should receive them.
+  - `CDNBaseURL` is an SSR/SSG HTML rewriting and injection feature. API servers do not populate `request.CDNBaseURL`, even when used as a plain web/static server. Use `publicAppConfig` or your own plugin decoration if API-side handlers need a public CDN URL.
 - `errorHandler?: Function | { api?, web? }`
   - Function form: Returns JSON envelope (see [JSON-Only](#json-only-ssr-compatible))
   - Object form: Split handlers for mixed API + web servers (see [Split Handlers](#split-handlers-mixed-api--web-server)). Either handler can be omitted - missing handlers fall through to default behavior.

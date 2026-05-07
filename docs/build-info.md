@@ -7,7 +7,7 @@ This guide covers generating and loading build information (version, git hash/br
 - [What's Included?](#whats-included)
 - [Generate Build Info (pre-build)](#generate-build-info-pre-build)
 - [Load Build Info (runtime)](#load-build-info-runtime)
-  - [Complete Example: SSR Server + Plugin Example + Frontend Config](#complete-example-ssr-server--plugin-example--frontend-config)
+  - [Complete Example: SSR Server + Plugin Example + Public Config](#complete-example-ssr-server--plugin-example--public-config)
 
 <!-- tocstop -->
 
@@ -125,7 +125,7 @@ const { info } = await loadBuildInfo(
 }
 ```
 
-### Complete Example: SSR Server + Plugin Example + Frontend Config
+### Complete Example: SSR Server + Plugin Example + Public Config
 
 Load build info once at startup, pass selected fields to frontend, and decorate requests for server-side helpers:
 
@@ -149,7 +149,7 @@ async function main(mode: Mode) {
   );
 
   const sharedConfig = {
-    frontendAppConfig: {
+    publicAppConfig: {
       api_endpoint: process.env.API_URL || 'https://api.example.com',
       build: {
         version: buildResult.info.version,
@@ -180,7 +180,7 @@ async function main(mode: Mode) {
 This example shows how to:
 
 - Load build info once at server startup
-- Pass selected fields (version, git hash, git branch) to the frontend via `frontendAppConfig` (available in both `serveSSRDev` and `serveSSRProd`)
+- Pass selected fields (version, git hash, git branch) to the frontend via `publicAppConfig` (available in both `serveSSRDev` and `serveSSRProd`)
 - Use a plugin to make full build info available to all server-side handlers
 - Configure custom response helpers for automatic build info in error responses
 

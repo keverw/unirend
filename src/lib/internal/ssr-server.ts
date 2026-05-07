@@ -87,6 +87,11 @@ type SSRServerConfigProd = {
 
 type SSRServerConfig = SSRServerConfigDev | SSRServerConfigProd;
 
+type SSRRequestInternalState = FastifyRequest & {
+  initialActiveSSRApp?: string;
+  initialCDNBaseURL?: string;
+};
+
 /**
  * Internal server class for handling SSR rendering
  * Not intended to be used directly by library consumers
@@ -145,7 +150,7 @@ export class SSRServer extends BaseServer {
         ? {
             // Dev mode - has paths
             paths: config.paths,
-            frontendAppConfig: config.options.frontendAppConfig,
+            publicAppConfig: config.options.publicAppConfig,
             clientFolderName: config.options.clientFolderName || 'client',
             serverFolderName: config.options.serverFolderName || 'server',
             containerID: config.options.containerID,
@@ -158,7 +163,7 @@ export class SSRServer extends BaseServer {
             template: config.options.template,
             CDNBaseURL: config.options.CDNBaseURL,
             staticContentRouter: config.options.staticContentRouter,
-            frontendAppConfig: config.options.frontendAppConfig,
+            publicAppConfig: config.options.publicAppConfig,
             clientFolderName: config.options.clientFolderName || 'client',
             serverFolderName: config.options.serverFolderName || 'server',
             containerID: config.options.containerID,
@@ -236,7 +241,7 @@ export class SSRServer extends BaseServer {
    *   template: './src/marketing/index.html',
    *   viteConfig: './vite.marketing.config.ts'
    * }, {
-   *   frontendAppConfig: { api_endpoint: 'http://localhost:3002' }
+   *   publicAppConfig: { api_endpoint: 'http://localhost:3002' }
    * });
    *
    * await server.listen(3000);
@@ -270,7 +275,7 @@ export class SSRServer extends BaseServer {
     const opts = options || {};
     const appConfig: SSRInternalAppConfigDev = {
       paths,
-      frontendAppConfig: opts.frontendAppConfig,
+      publicAppConfig: opts.publicAppConfig,
       clientFolderName: opts.clientFolderName || 'client',
       serverFolderName: opts.serverFolderName || 'server',
       containerID: opts.containerID,
@@ -299,7 +304,7 @@ export class SSRServer extends BaseServer {
    *
    * // Same parameters as above - easy to copy/paste
    * server.registerProdApp('marketing', './build-marketing', {
-   *   frontendAppConfig: { api_endpoint: 'https://marketing.example.com' }
+   *   publicAppConfig: { api_endpoint: 'https://marketing.example.com' }
    * });
    *
    * await server.listen(3000);
@@ -337,7 +342,7 @@ export class SSRServer extends BaseServer {
       template: opts.template,
       CDNBaseURL: opts.CDNBaseURL,
       staticContentRouter: opts.staticContentRouter,
-      frontendAppConfig: opts.frontendAppConfig,
+      publicAppConfig: opts.publicAppConfig,
       clientFolderName: opts.clientFolderName || 'client',
       serverFolderName: opts.serverFolderName || 'server',
       containerID: opts.containerID,
@@ -543,8 +548,10 @@ export class SSRServer extends BaseServer {
       this.fastifyInstance.decorateRequest('isDevelopment', false);
       this.fastifyInstance.decorateRequest('serverLabel', this.serverLabel);
 
-      // Decorate requests with activeSSRApp for multi-app routing (defaults to '__default__')
+      // Decorate active app routing (defaults to '__default__') and app-derived request values.
       this.fastifyInstance.decorateRequest('activeSSRApp', '__default__');
+      this.fastifyInstance.decorateRequest('publicAppConfig', undefined);
+      this.fastifyInstance.decorateRequest('CDNBaseURL', undefined);
 
       // Decorate requests with APIResponseHelpersClass for file upload helpers
       this.fastifyInstance.decorateRequest(
@@ -571,6 +578,24 @@ export class SSRServer extends BaseServer {
             requestContext?: Record<string, unknown>;
           }
         ).requestContext = {};
+
+        const defaultAppConfig = this.apps.get('__default__');
+        const publicAppConfig = defaultAppConfig?.publicAppConfig;
+
+        (request as SSRRequestInternalState).initialActiveSSRApp =
+          '__default__';
+        request.publicAppConfig = publicAppConfig
+          ? deepFreeze(structuredClone(publicAppConfig))
+          : undefined;
+
+        if (defaultAppConfig && 'CDNBaseURL' in defaultAppConfig) {
+          // Seed the default app CDN early so user hooks can read a value.
+          // Keep a private copy so the later active-app refresh can tell this
+          // framework default apart from a user middleware override.
+          request.CDNBaseURL = defaultAppConfig.CDNBaseURL;
+          (request as SSRRequestInternalState).initialCDNBaseURL =
+            defaultAppConfig.CDNBaseURL;
+        }
       });
 
       // Set request.clientIP once per request — available to plugins, hooks, and access logs.
@@ -691,6 +716,39 @@ export class SSRServer extends BaseServer {
       if (this.sharedOptions.plugins && this.sharedOptions.plugins.length > 0) {
         await this.registerPlugins();
       }
+
+      // Refresh app-derived request values after user onRequest hooks have had
+      // a chance to choose request.activeSSRApp, but before preHandler hooks,
+      // routes, API handlers, and SSR render run.
+      this.fastifyInstance.addHook('onRequest', async (request, _reply) => {
+        const appKey = request.activeSSRApp || '__default__';
+        const activeAppConfig = this.apps.get(appKey);
+
+        // publicAppConfig is framework-managed app config. Reuse the early
+        // default clone on the common path, and only clone again when user
+        // onRequest hooks selected a different active app.
+        if (
+          appKey !== (request as SSRRequestInternalState).initialActiveSSRApp
+        ) {
+          request.publicAppConfig = activeAppConfig?.publicAppConfig
+            ? deepFreeze(structuredClone(activeAppConfig.publicAppConfig))
+            : undefined;
+        }
+
+        // User onRequest hooks may select a different active app or override
+        // request.CDNBaseURL. Replace only the missing/framework-seeded value,
+        // and preserve a user-provided CDN override.
+        if (
+          request.CDNBaseURL === undefined ||
+          request.CDNBaseURL ===
+            (request as SSRRequestInternalState).initialCDNBaseURL
+        ) {
+          request.CDNBaseURL =
+            activeAppConfig && 'CDNBaseURL' in activeAppConfig
+              ? activeAppConfig.CDNBaseURL
+              : undefined;
+        }
+      });
 
       // Register file upload hooks and plugin after user plugins
       // This ensures user plugin hooks (auth, etc.) run before upload validation
@@ -1095,21 +1153,12 @@ export class SSRServer extends BaseServer {
 
           // --- Render the App ---
           try {
-            // Clone app-specific frontendAppConfig to ensure it stays immutable for the entire request
-            const frontendAppConfig = appConfig.frontendAppConfig
-              ? deepFreeze(structuredClone(appConfig.frontendAppConfig))
-              : undefined;
-
             // Resolve CDN URL before render so it's available via useCDNBaseURL() in components
-            // Check for per-request CDN URL override, fallback to app config.
+            // and the HTML global. request.CDNBaseURL was populated before preHandler.
             // Use ?? so that an explicit empty-string override (disabling CDN for this request)
             // is honoured rather than silently falling through to the app-level default.
             const CDNBaseURL =
-              (
-                request as FastifyRequest & {
-                  CDNBaseURL?: string;
-                }
-              ).CDNBaseURL ??
+              request.CDNBaseURL ??
               ('CDNBaseURL' in appConfig ? appConfig.CDNBaseURL : undefined);
 
             // computeDomainInfo handles empty/missing hostname gracefully:
@@ -1125,7 +1174,7 @@ export class SSRServer extends BaseServer {
                   request as FastifyRequest & { isDevelopment: boolean }
                 ).isDevelopment,
                 fetchRequest: fetchRequest,
-                frontendAppConfig,
+                publicAppConfig: request.publicAppConfig,
                 cdnBaseURL: normalizeCDNBaseURL(CDNBaseURL),
                 domainInfo,
                 requestContextRevision: '0-0', // Initial revision for this request
@@ -1192,7 +1241,7 @@ export class SSRServer extends BaseServer {
                 headInject,
                 renderResult.html,
                 {
-                  app: frontendAppConfig,
+                  app: request.publicAppConfig,
                   request: requestContext,
                 },
                 CDNBaseURL,

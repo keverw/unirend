@@ -141,16 +141,16 @@ export function useIsServer(): boolean {
 }
 
 /**
- * Hook to access the frontend application configuration
+ * Hook to access public application configuration
  * This is a frozen (immutable) copy of the config passed to the server
  * Available on both server and client
  *
- * @returns The frontend app config object, or undefined if not provided
+ * @returns The public app config object, or undefined if not provided
  *
  * @example
  * ```tsx
  * function MyComponent() {
- *   const config = useFrontendAppConfig();
+ *   const config = usePublicAppConfig();
  *
  *   if (!config) {
  *     return <div>No config available</div>;
@@ -165,9 +165,9 @@ export function useIsServer(): boolean {
  * }
  * ```
  */
-export function useFrontendAppConfig(): Record<string, unknown> | undefined {
-  const { frontendAppConfig } = useContext(UnirendContext);
-  return frontendAppConfig;
+export function usePublicAppConfig(): Record<string, unknown> | undefined {
+  const { publicAppConfig } = useContext(UnirendContext);
+  return publicAppConfig;
 }
 
 /**

@@ -100,7 +100,7 @@ async function main() {
 
   const options = {
     serverEntry: 'entry-ssg', // Default for SSG, customize if needed
-    frontendAppConfig: {
+    publicAppConfig: {
       api_endpoint: 'https://api.example.com',
     },
     // Optional: CDN base URL — baked into generated HTML at generation time (not per-request).
@@ -163,10 +163,10 @@ An `spa` page stamps a copy of the Vite `index.html` template with an empty root
 
 Both SSG and SPA pages support injecting request context data that will be available on the client.
 
-**Request Context vs Frontend App Config:**
+**Request Context vs Public App Config:**
 
 - **Request Context**: Per-page data that can vary between pages and be mutated on the client (e.g., page-specific state, user preferences, theme)
-- **Frontend App Config**: Global, immutable configuration shared across all pages (e.g., API URLs, feature flags, build info)
+- **Public App Config**: Global, immutable configuration shared across all pages (e.g., API URLs, feature flags, build info)
 
 **SSG Pages (Server-Rendered):**
 

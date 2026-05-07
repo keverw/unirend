@@ -5,9 +5,9 @@
  * Pure utility with no dependencies — safe to import in both server and
  * client code.
  *
- * Used to freeze frontendAppConfig clones (so they cannot be mutated within
- * a request, even on nested sub-objects) and debug context snapshots returned
- * by useRequestContextObjectRaw(). The source object is never affected.
+ * Used to freeze public app config clones (so they cannot be mutated
+ * within a request, even on nested sub-objects) and debug context snapshots
+ * returned by useRequestContextObjectRaw(). The source object is never affected.
  */
 export function deepFreeze<T>(obj: T): T {
   if (obj === null || typeof obj !== 'object') {

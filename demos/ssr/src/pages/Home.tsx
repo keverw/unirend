@@ -1,10 +1,10 @@
 import React from 'react';
 import { UnirendHead } from '../../../../src/client';
 import { Link } from 'react-router';
-import { useFrontendAppConfig } from '../../../../src/client';
+import { usePublicAppConfig } from '../../../../src/client';
 
 const Home: React.FC = () => {
-  const frontendAppConfig = useFrontendAppConfig();
+  const publicAppConfig = usePublicAppConfig();
 
   return (
     <>
@@ -45,12 +45,12 @@ const Home: React.FC = () => {
         </div>
 
         <div className="card">
-          <h2>⚙️ Frontend App Config</h2>
+          <h2>⚙️ Public App Config</h2>
           <p>
-            This demonstrates <code>frontendAppConfig</code> working in both dev
+            This demonstrates <code>publicAppConfig</code> working in both dev
             and prod modes:
           </p>
-          {frontendAppConfig ? (
+          {publicAppConfig ? (
             <pre
               style={{
                 backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -62,7 +62,7 @@ const Home: React.FC = () => {
                 marginTop: '1rem',
               }}
             >
-              {JSON.stringify(frontendAppConfig, null, 2)}
+              {JSON.stringify(publicAppConfig, null, 2)}
             </pre>
           ) : (
             <p style={{ color: 'rgba(255, 255, 255, 0.7)', marginTop: '1rem' }}>

@@ -988,30 +988,52 @@ The direct Fastify-style methods are tied to the underlying Fastify instance:
 
 ```typescript
 import { initDevMode } from 'lifecycleion/dev-mode';
-import { serveSSRProd } from 'unirend/server';
+import { serveSSRDev, serveSSRProd } from 'unirend/server';
 import type { SSRServer } from 'unirend/server';
 
 // Set dev mode once at startup (see docs/dev-mode.md)
 initDevMode({ detect: 'cmd', strict: true });
 
+type Mode = 'built' | 'hmr';
+
 interface CreateServerOptions {
-  frontendAppConfig?: Record<string, unknown>;
+  mode: Mode;
+  publicAppConfig?: Record<string, unknown>;
 }
 
 function createServer(options: CreateServerOptions): SSRServer {
-  return serveSSRProd('./build', {
-    frontendAppConfig: options.frontendAppConfig,
+  const sharedConfig = {
+    publicAppConfig: options.publicAppConfig,
     // Compute other SSRServerOptions based on your params
-  });
+  };
+
+  return options.mode === 'hmr'
+    ? serveSSRDev(
+        {
+          serverEntry: './src/entry-ssr.tsx',
+          template: './src/index.html',
+          viteConfig: './vite.config.ts',
+        },
+        sharedConfig,
+      )
+    : serveSSRProd('./build', sharedConfig);
 }
 
 // Create initial server
-let server = createServer({ frontendAppConfig: { version: '1.0' } });
+let server = createServer({
+  mode: 'built',
+  publicAppConfig: { version: '1.0' },
+});
+
 await server.listen(3000, 'localhost');
 
 // Later, if you need a fresh server with different config:
 await server.stop();
-server = createServer({ frontendAppConfig: { version: '2.0' } });
+server = createServer({
+  mode: 'built',
+  publicAppConfig: { version: '2.0' },
+});
+
 await server.listen(3000, 'localhost');
 ```
 

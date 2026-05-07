@@ -45,6 +45,7 @@ import {
   registerResponseTimeHeader,
   registerResponseTimeHijackPatch,
 } from './response-time-header';
+import { deepFreeze } from './utils';
 
 /**
  * API Server class for creating JSON API servers with plugin support
@@ -221,6 +222,7 @@ export class APIServer extends BaseServer {
       // The default here is just a shape hint for Fastify; the live value is set per-request in the onRequest hook below.
       this.fastifyInstance.decorateRequest('isDevelopment', false);
       this.fastifyInstance.decorateRequest('serverLabel', this.serverLabel);
+      this.fastifyInstance.decorateRequest('publicAppConfig', undefined);
 
       // Decorate requests with APIResponseHelpersClass for file upload helpers
       this.fastifyInstance.decorateRequest(
@@ -241,6 +243,10 @@ export class APIServer extends BaseServer {
         (
           request as { requestContext?: Record<string, unknown> }
         ).requestContext = {};
+
+        request.publicAppConfig = this.options.publicAppConfig
+          ? deepFreeze(structuredClone(this.options.publicAppConfig))
+          : undefined;
       });
 
       // Set request.clientIP once per request — available to plugins, hooks, and access logs.

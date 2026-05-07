@@ -71,7 +71,7 @@ Repo auto‑init: The CLI sets up a repository structure that supports multiple 
     - [1. Create Server Entry Point](#1-create-server-entry-point)
     - [2. Build Commands](#2-build-commands)
     - [3. Package.json Scripts](#3-packagejson-scripts)
-- [Frontend App Config Pattern](#frontend-app-config-pattern)
+- [Public App Config Pattern](#public-app-config-pattern)
 - [SSG (Static Site Generation)](#ssg-static-site-generation)
 - [SSR (Server-Side Rendering)](#ssr-server-side-rendering)
 - [Demos](#demos)
@@ -277,17 +277,17 @@ Tip: Always include `--target node` and `--external vite` when building for the 
 
 Note: If you prefer a pure-Node toolchain without Bun, explore compiling or bundling your server with tools like `tsc`, `esbuild`, `rollup`, or `tsup`, or use vanilla JavaScript, then run with `node`. These alternatives are not covered in depth here to keep the setup simple and easy out of the box.
 
-## Frontend App Config Pattern
+## Public App Config Pattern
 
-You can inject configuration into your frontend app via the `frontendAppConfig` option. This works in both SSG and SSR modes (both dev and prod) when using `generateSSG`, `serveSSRDev`, or `serveSSRProd`.
+You can provide safe-to-share app configuration via the `publicAppConfig` option. In SSR and SSG, Unirend injects this config into the frontend so components can read it with `usePublicAppConfig()`. This works in both SSG and SSR modes (both dev and prod) when using `generateSSG`, `serveSSRDev`, or `serveSSRProd`.
 
-**In React Components** - use the `useFrontendAppConfig()` hook:
+**In React Components** - use the `usePublicAppConfig()` hook:
 
 ```typescript
-import { useFrontendAppConfig } from 'unirend/client';
+import { usePublicAppConfig } from 'unirend/client';
 
 function MyComponent() {
-  const config = useFrontendAppConfig();
+  const config = usePublicAppConfig();
 
   // Access config values with fallbacks
   const api_endpoint = (config?.api_endpoint as string) || "http://localhost:3001";
@@ -297,9 +297,9 @@ function MyComponent() {
 }
 ```
 
-**Inside React components**, use the hooks `useFrontendAppConfig()`, `useRequestContext()`, `useCDNBaseURL()`, and `useDomainInfo()` — they work on both server and client. See [Unirend Context](docs/unirend-context.md) for full hook documentation.
+**Inside React components**, use the hooks `usePublicAppConfig()`, `useRequestContext()`, `useCDNBaseURL()`, and `useDomainInfo()` — they work on both server and client. See [Unirend Context](docs/unirend-context.md) for full hook documentation.
 
-**In Non-Component Code** (loaders, utilities, module-level) - access `window.__FRONTEND_APP_CONFIG__`, `window.__FRONTEND_REQUEST_CONTEXT__`, `window.__CDN_BASE_URL__`, and `window.__DOMAIN_INFO__` directly:
+**In Non-Component Code** (loaders, utilities, module-level) - access `window.__PUBLIC_APP_CONFIG__`, `window.__FRONTEND_REQUEST_CONTEXT__`, `window.__CDN_BASE_URL__`, and `window.__DOMAIN_INFO__` directly:
 
 ```typescript
 // Non-component code runs outside React component tree, so use direct window access. For example in a data loader.
@@ -309,7 +309,7 @@ function MyComponent() {
 // guard with `typeof window !== 'undefined'` and provide a server-side fallback.
 const APIBaseURL =
   typeof window !== 'undefined'
-    ? (window.__FRONTEND_APP_CONFIG__?.api_endpoint as string) ||
+    ? (window.__PUBLIC_APP_CONFIG__?.api_endpoint as string) ||
       'http://localhost:3001'
     : process.env.INTERNAL_API_URL || 'http://api-internal:3001'; // Internal endpoint or service URL
 
@@ -383,7 +383,7 @@ bun run ssg-serve-prod
 
 Notes:
 
-- `generate.ts` calls `generateSSG` with a mix of SSG and SPA pages and can inject `frontendAppConfig`.
+- `generate.ts` calls `generateSSG` with a mix of SSG and SPA pages and can inject `publicAppConfig`.
 - `serve.ts` serves the contents of `build/client` with basic caching and a 404 page.
 - See [docs/ssg.md](docs/ssg.md) for concepts behind the workflow.
 

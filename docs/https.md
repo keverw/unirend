@@ -351,7 +351,7 @@ async function main() {
         // See docs/built-in-plugins/cors.md for configuration
       ],
 
-      frontendAppConfig: {
+      publicAppConfig: {
         api_endpoint: 'https://api.example.com',
       },
     });

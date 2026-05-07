@@ -232,11 +232,11 @@ export interface UnirendContextValue {
   fetchRequest?: Request;
 
   /**
-   * Frontend application configuration
+   * Public application configuration
    * This is a frozen (immutable) copy of the config passed to the server
    * Available on both server and client (injected into HTML during SSR/SSG)
    */
-  frontendAppConfig?: Record<string, unknown>;
+  publicAppConfig?: Record<string, unknown>;
 
   /**
    * CDN base URL for asset serving (e.g. 'https://cdn.example.com')
@@ -268,7 +268,7 @@ export interface UnirendContextValue {
  *
  * In practice, this default is rarely used because:
  * - Server (SSR/SSG): Provides proper context values during rendering
- * - Client: mountApp() reads window.__FRONTEND_APP_CONFIG__ and provides proper values
+ * - Client: mountApp() reads window.__PUBLIC_APP_CONFIG__ and provides proper values
  *
  * This default only applies if context is accessed outside of proper providers,
  * which shouldn't happen in normal usage.
@@ -277,7 +277,7 @@ const defaultContextValue: UnirendContextValue = {
   renderMode: 'client', // Default to client-only (SSR/SSG override this)
   isDevelopment: false, // Default to production
   fetchRequest: undefined,
-  frontendAppConfig: undefined, // mountApp() reads from window.__FRONTEND_APP_CONFIG__
+  publicAppConfig: undefined, // mountApp() reads from window.__PUBLIC_APP_CONFIG__
   requestContextRevision: '0-0', // Initial revision
 };
 

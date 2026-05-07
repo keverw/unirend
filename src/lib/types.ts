@@ -655,16 +655,13 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    */
   containerID?: string;
   /**
-   * Optional configuration object to be injected into the frontend app.
-   * Serialized and injected as window.__FRONTEND_APP_CONFIG__ during SSR.
-   * Available via useFrontendAppConfig() hook on both server and client.
+   * Optional safe-to-share app configuration object.
+   * Cloned and frozen per request. On SSR, exposed to React via
+   * usePublicAppConfig() and injected as window.__PUBLIC_APP_CONFIG__.
    *
-   * Keep this minimal and non-sensitive; it will be passed to the client.
-   *
-   * See README section "Frontend App Config Pattern" for usage in components,
-   * loaders, fallback patterns, and SPA-only dev mode considerations.
+   * Keep this minimal and non-sensitive; it can be passed to the client.
    */
-  frontendAppConfig?: Record<string, unknown>;
+  publicAppConfig?: Record<string, unknown>;
   /**
    * Cookie forwarding controls for SSR
    *
@@ -949,8 +946,8 @@ export interface ServeSSRProdOptions<
  * Shared app configuration options (common to both dev and prod modes)
  */
 interface SSRInternalAppConfigBase {
-  /** Configuration object injected into the client bundle */
-  frontendAppConfig?: Record<string, unknown>;
+  /** Safe-to-share app configuration object */
+  publicAppConfig?: Record<string, unknown>;
   /** Client folder name within build directory (default: "client") */
   clientFolderName?: string;
   /** Server folder name within build directory (default: "server") */
@@ -1012,7 +1009,7 @@ export type SSRInternalAppConfig =
  */
 export type RegisterDevAppOptions<M extends BaseMeta = BaseMeta> = Pick<
   ServeSSRDevOptions<M>,
-  | 'frontendAppConfig'
+  | 'publicAppConfig'
   | 'containerID'
   | 'get500ErrorPage'
   | 'clientFolderName'
@@ -1025,7 +1022,7 @@ export type RegisterDevAppOptions<M extends BaseMeta = BaseMeta> = Pick<
  */
 export type RegisterProdAppOptions<M extends BaseMeta = BaseMeta> = Pick<
   ServeSSRProdOptions<M>,
-  | 'frontendAppConfig'
+  | 'publicAppConfig'
   | 'containerID'
   | 'get500ErrorPage'
   | 'clientFolderName'
@@ -1160,6 +1157,14 @@ export interface SplitClosingHandler<M extends BaseMeta = BaseMeta> {
  * @template M Custom meta type extending BaseMeta for error/notFound handlers
  */
 export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
+  /**
+   * Optional safe-to-share app configuration object.
+   * Cloned and frozen per request as `request.publicAppConfig`.
+   *
+   * API servers do not inject this into HTML. Include it in response metadata
+   * yourself when clients should receive it.
+   */
+  publicAppConfig?: Record<string, unknown>;
   /**
    * Response compression for non-streaming API and web responses.
    * Negotiates `Accept-Encoding` and skips range or already-encoded replies.
@@ -1608,16 +1613,13 @@ export const SSGConsoleLogger: SSGLogger = {
  */
 export interface SSGOptions {
   /**
-   * Optional configuration object to be injected into the frontend app.
-   * Serialized and injected as window.__FRONTEND_APP_CONFIG__ during SSG.
-   * Available via useFrontendAppConfig() hook on both server and client.
+   * Optional safe-to-share app configuration object.
+   * Cloned and frozen per page. Exposed to React via usePublicAppConfig() and
+   * injected as window.__PUBLIC_APP_CONFIG__.
    *
    * Keep this minimal and non-sensitive; it will be passed to the client.
-   *
-   * See README section "Frontend App Config Pattern" for usage in components,
-   * loaders, fallback patterns, and SPA-only dev mode considerations.
    */
-  frontendAppConfig?: Record<string, unknown>;
+  publicAppConfig?: Record<string, unknown>;
   /**
    * CDN base URL for rewriting asset URLs in the generated HTML
    * (e.g., `'https://cdn.example.com'`).
@@ -1960,6 +1962,25 @@ declare module 'fastify' {
      * the request lifecycle via `request.serverLabel`.
      */
     serverLabel: string;
+    /**
+     * Safe-to-share app configuration cloned and frozen for this request.
+     *
+     * Available to plugins, handlers, and helpers on SSR and API servers.
+     * SSR also exposes it to React and injects it into HTML. API servers only
+     * send it to clients if your response includes selected values.
+     */
+    publicAppConfig?: Record<string, unknown>;
+    /**
+     * Effective CDN base URL for this SSR request.
+     *
+     * SSR middleware can set this as a per-request override. If it remains
+     * unset, the SSR server populates it from the active app's `CDNBaseURL`
+     * before preHandler hooks, route handlers, SSR render, and custom 500
+     * pages run.
+     *
+     * API servers do not set this field.
+     */
+    CDNBaseURL?: string;
     /**
      * Optional request-scoped helper installed by the built-in CORS plugin.
      *

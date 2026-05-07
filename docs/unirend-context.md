@@ -12,7 +12,7 @@ The Unirend Context system provides React hooks to access render mode, developme
   - [`useRenderMode()`](#userendermode)
   - [`useIsDevelopment()`](#useisdevelopment)
   - [`useIsServer()`](#useisserver)
-  - [`useFrontendAppConfig()`](#usefrontendappconfig)
+  - [`usePublicAppConfig()`](#usepublicappconfig)
   - [`useCDNBaseURL()`](#usecdnbaseurl)
   - [`useDomainInfo()`](#usedomaininfo)
 - [Request Context Management](#request-context-management)
@@ -35,7 +35,7 @@ The Unirend Context system provides React hooks to access render mode, developme
   - [Client-Side](#client-side)
 - [Use Cases](#use-cases)
   - [1. Analytics and Logging](#1-analytics-and-logging)
-  - [2. Accessing Frontend Configuration](#2-accessing-frontend-configuration)
+  - [2. Accessing Public Configuration](#2-accessing-public-configuration)
   - [3. Environment-Specific Features](#3-environment-specific-features)
 - [TypeScript Types](#typescript-types)
 - [Best Practices](#best-practices)
@@ -49,7 +49,7 @@ The context is automatically provided by Unirend during server-side rendering, s
 
 - **Render Mode**: Whether the app is SSR (Server-Side Rendering), SSG (Static Site Generation), or Client (SPA or after hydration)
 - **Development Status**: Whether running in development or production mode
-- **Frontend App Config**: Read-only configuration object passed from the server (frozen during server rendering, available as a plain clone on the client)
+- **Public App Config**: Read-only configuration object passed from the server (frozen during server rendering, available as a plain clone on the client)
 - **CDN Base URL**: The effective CDN URL for asset serving (available on both server and client via `useCDNBaseURL()`)
 - **Request Context**: Per-request key-value store for managing mutable state across the request lifecycle
 
@@ -65,7 +65,7 @@ import {
   useRenderMode,
   useIsDevelopment,
   useIsServer,
-  useFrontendAppConfig,
+  usePublicAppConfig,
   useCDNBaseURL,
   useRequestContext,
   useRequestContextValue,
@@ -153,13 +153,13 @@ function MyComponent() {
 }
 ```
 
-### `useFrontendAppConfig()`
+### `usePublicAppConfig()`
 
-Returns the frontend application configuration object. During server rendering (SSR/SSG) this is a deep-frozen clone, mutations are blocked for the duration of the render. On the client it is a plain clone of the injected config, isolated to the current page session but not frozen.
+Returns the public application configuration object. During server rendering (SSR/SSG) this is a deep-frozen clone, mutations are blocked for the duration of the render. On the client it is a plain clone of the injected config, isolated to the current page session but not frozen.
 
 ```tsx
 function MyComponent() {
-  const config = useFrontendAppConfig();
+  const config = usePublicAppConfig();
 
   if (!config) {
     return <div>No config available</div>;
@@ -177,7 +177,9 @@ function MyComponent() {
 
 **Returns:** `Record<string, unknown> | undefined`
 
-**Note:** The config is deep-cloned and deep-frozen on each request, all nested objects are immutable for the duration of the request. Unlike other context values like `renderMode` or `fetchRequest`, the `frontendAppConfig` is **safe to display directly in your UI** because it remains identical between server rendering and client hydration. The server injects it into the HTML, and the client reads it back from the same source, preventing hydration mismatches.
+**Note:** The config is deep-cloned and deep-frozen on each request, all nested objects are immutable for the duration of the request. Unlike other context values like `renderMode` or `fetchRequest`, the `publicAppConfig` is **safe to display directly in your UI** because it remains identical between server rendering and client hydration. The server injects it into the HTML, and the client reads it back from the same source, preventing hydration mismatches.
+
+**Dynamic update pattern:** Since the config is cloned from the source at request time, you can update values between requests by holding a reference to the object (or a sub-object within it) that you passed in. For example, you could keep a `const timeConfig = { year: 2025 }` sub-object, pass it inside your config, and update `timeConfig.year` at midnight. All requests after that point will pick up the new value. Updates are global, not specific to a user, and in-flight requests are unaffected since their clone is already isolated. Use `requestContext` instead if you need per-request or per-user values.
 
 ### `useCDNBaseURL()`
 
@@ -229,16 +231,14 @@ function ThemeToggle() {
 - `hostname`, the bare requested hostname with port stripped (e.g. `'app.example.com'`)
 - `rootDomain`, the apex domain without a leading dot (e.g. `'example.com'`), or empty string for localhost / IP addresses. Prepend `.` when using as a cookie `domain` attribute to span subdomains (e.g. `domain=.example.com`).
 
-**Dynamic Updates:** Since the config is cloned from the source at request time, you can update values between requests by holding a reference to the object (or a sub-object within it) that you passed in. For example, you could keep a `const timeConfig = { year: 2025 }` sub-object, pass it inside your config, and update `timeConfig.year` at midnight, all requests after that point will pick up the new value. Updates are global (all subsequent requests, not a specific user), and in-flight requests are unaffected since their clone is already isolated. Use `requestContext` instead if you need per-request or per-user values.
-
 ## Request Context Management
 
-Unirend provides a key-value store for managing per-request context data that can be populated on the server and mutated on the client. This is separate from `frontendAppConfig`, which is intended to be read-only.
+Unirend provides a key-value store for managing per-request context data that can be populated on the server and mutated on the client. This is separate from `publicAppConfig`, which is intended to be read-only.
 
-**Request Context vs Frontend App Config:**
+**Request Context vs Public App Config:**
 
-- **Request Context**: Per-page/per-request mutable key-value store (e.g., user session data, theme preferences, page-specific state)
-- **Frontend App Config**: Global, read-only configuration shared across all pages (e.g., API URLs, feature flags, build info)
+- **Request Context**: Per-page/per-request mutable key-value store (e.g., user session data, theme preferences, page-specific state). In separated SSR/API deployments, SSR data loaders can bridge it to trusted API page data requests and merge returned values back.
+- **Public App Config**: Global, read-only configuration shared across all pages (e.g., API URLs, feature flags, build info). Each server clones its configured source onto `request.publicAppConfig`. In separated SSR/API deployments, it is not bridged or merged between servers.
 
 ### `useRequestContext()`
 
@@ -436,7 +436,7 @@ function DebugPanel() {
 
 ```typescript
 // window globals for use outside of React components (e.g. data loaders)
-// In components, use the hooks instead: useRequestContext(), useFrontendAppConfig(), useCDNBaseURL()
+// In components, use the hooks instead: useRequestContext(), usePublicAppConfig(), useCDNBaseURL()
 
 // Per-request context (set by SSR middleware or SSG page definitions)
 const requestCtx =
@@ -444,9 +444,9 @@ const requestCtx =
     ? window.__FRONTEND_REQUEST_CONTEXT__
     : undefined; // server fallback: not available outside of components on the server
 
-// App-wide config (set via frontendAppConfig option in serveSSRProd/serveSSGProd)
+// App-wide config (set via publicAppConfig option in serveSSRDev, serveSSRProd, or generateSSG)
 const appConfig =
-  typeof window !== 'undefined' ? window.__FRONTEND_APP_CONFIG__ : undefined; // server fallback: use process.env or your config source directly
+  typeof window !== 'undefined' ? window.__PUBLIC_APP_CONFIG__ : undefined; // server fallback: use process.env or your config source directly
 
 // CDN base URL (set via CDNBaseURL option or per-request middleware override)
 const cdnBase =
@@ -971,7 +971,7 @@ The SSRServer automatically populates the context when rendering:
   renderMode: "ssr",
   isDevelopment: true, // or false based on server mode
   fetchRequest: request, // Fetch API Request object with SSRHelper attached
-  frontendAppConfig: Object.freeze(structuredClone(config)), // Cloned and frozen config
+  publicAppConfig: Object.freeze(structuredClone(config)), // Cloned and frozen config
 }
 ```
 
@@ -984,7 +984,7 @@ The SSG generator populates the context during build:
   renderMode: "ssg",
   isDevelopment: false, // SSG is always production
   fetchRequest: request, // Fetch API Request object (no SSRHelper)
-  frontendAppConfig: Object.freeze(structuredClone(config)), // Cloned and frozen config
+  publicAppConfig: Object.freeze(structuredClone(config)), // Cloned and frozen config
 }
 ```
 
@@ -997,11 +997,11 @@ When mounting on the client with `mountApp()`, the context is populated from inj
   renderMode: "client", // Default for pure SPA (SSR/SSG override this during hydration)
   isDevelopment: getDevMode(), // Reads from globalThis.__lifecycleion_is_dev__ (injected by server, see docs/dev-mode.md)
   fetchRequest: undefined, // No server request on client
-  frontendAppConfig: window.__FRONTEND_APP_CONFIG__, // Read from injected global (SSR/SSG) or undefined (pure SPA)
+  publicAppConfig: window.__PUBLIC_APP_CONFIG__, // Read from injected global (SSR/SSG) or undefined (pure SPA)
 }
 ```
 
-**Note:** The `frontendAppConfig` is automatically read from `window.__FRONTEND_APP_CONFIG__` which is injected into the HTML by the server during SSR/SSG. In pure SPA mode (no server rendering), this will be `undefined`. `window.__CDN_BASE_URL__` is also injected by the server, as an empty string when no CDN URL is configured, or `undefined` if running Vite directly without the unirend server.
+**Note:** The `publicAppConfig` is automatically read from `window.__PUBLIC_APP_CONFIG__` which is injected into the HTML by the server during SSR/SSG. In pure SPA mode (no server rendering), this will be `undefined`. `window.__CDN_BASE_URL__` is also injected by the server, as an empty string when no CDN URL is configured, or `undefined` if running Vite directly without the unirend server.
 
 ## Use Cases
 
@@ -1048,11 +1048,11 @@ function MyPage() {
 }
 ```
 
-### 2. Accessing Frontend Configuration
+### 2. Accessing Public Configuration
 
 ```tsx
 function APIClient() {
-  const config = useFrontendAppConfig();
+  const config = usePublicAppConfig();
 
   // Access public API configuration
   const api_endpoint =
@@ -1070,7 +1070,7 @@ function APIClient() {
 }
 
 function FeatureFlags() {
-  const config = useFrontendAppConfig();
+  const config = usePublicAppConfig();
   const features = (config?.features as Record<string, boolean>) || {};
 
   return (
@@ -1140,8 +1140,8 @@ import type { UnirendRenderMode, RequestContextManager } from 'unirend/client';
 5. **SSR vs SSG**: Use `useIsServer()` to detect true SSR server vs SSG build-time rendering
 6. **Avoid hydration mismatches**: Don't directly render context values that differ between server and client (like `renderMode`, `isDevelopment`) - use them for logic/behavior control, not for displayed content
 7. **Debugging values only**: Most context values are primarily useful for debugging and controlling behavior - avoid displaying them directly in your UI
-8. **Frontend app config best practices**:
-   - **Safe to display**: Unlike other context values, `frontendAppConfig` is **safe to render directly** because it's identical on server and client (injected into HTML and read back)
+8. **Public app config best practices**:
+   - **Safe to display**: Unlike other context values, `publicAppConfig` is **safe to render directly** because it's identical on server and client (injected into HTML and read back)
    - **Read-only by convention**: The config is deep-frozen during server rendering (SSR/SSG) to prevent accidental mutations mid-render. On the client it is a plain clone, technically mutable, but treat it as read-only since it represents static configuration
    - **Type assertions**: Use type assertions for better TypeScript support (e.g., `config?.api_endpoint as string`)
 

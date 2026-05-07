@@ -38,7 +38,7 @@ export {
   useRenderMode,
   useIsDevelopment,
   useIsServer,
-  useFrontendAppConfig,
+  usePublicAppConfig,
   useCDNBaseURL,
   useDomainInfo,
   useRequestContext,

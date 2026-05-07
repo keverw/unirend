@@ -93,20 +93,20 @@ export function mountApp(
   // Create browser router from routes
   const router = createBrowserRouter(routes);
 
-  // Read frontend app config from injected global (if available)
-  // The server injects this via window.__FRONTEND_APP_CONFIG__ during SSR/SSG
+  // Read public app config from injected global (if available)
+  // The server injects this via window.__PUBLIC_APP_CONFIG__ during SSR/SSG
   // Clone it to prevent mutations from affecting the global or other consumers
   const globalConfig =
     typeof window !== 'undefined'
       ? (
           window as unknown as {
             // eslint-disable-next-line @typescript-eslint/naming-convention
-            __FRONTEND_APP_CONFIG__?: Record<string, unknown>;
+            __PUBLIC_APP_CONFIG__?: Record<string, unknown>;
           }
-        ).__FRONTEND_APP_CONFIG__
+        ).__PUBLIC_APP_CONFIG__
       : undefined;
 
-  const frontendAppConfig = globalConfig
+  const publicAppConfig = globalConfig
     ? structuredClone(globalConfig)
     : undefined;
 
@@ -137,7 +137,7 @@ export function mountApp(
     renderMode: 'client', // Pure client-side (server overrides to "ssr" or "ssg" during server rendering)
     isDevelopment: getDevMode(), // false if global not set (safe production default)
     fetchRequest: undefined, // No server request on client
-    frontendAppConfig, // Config injected by server (SSR/SSG) or undefined (pure SPA)
+    publicAppConfig, // Config injected by server (SSR/SSG) or undefined (pure SPA)
     cdnBaseURL, // CDN base URL injected by server (SSR/SSG) or empty string if not configured
     domainInfo, // Domain info injected by server (SSR, or SSG when hostname is configured) or null
     requestContextRevision: '0-0', // Initial revision for client-side

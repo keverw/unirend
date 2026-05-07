@@ -8,7 +8,7 @@ import {
   useRenderMode,
   useIsDevelopment,
   useIsServer,
-  useFrontendAppConfig,
+  usePublicAppConfig,
   useCDNBaseURL,
   useDomainInfo,
   useRequestContext,
@@ -25,7 +25,7 @@ const ContextDemo: React.FC = () => {
     renderMode: string;
     isDevelopment: boolean;
     isServer: boolean;
-    hasFrontendConfig: boolean;
+    hasPublicConfig: boolean;
     cdnBaseURL: string;
     domainInfo: { hostname: string; rootDomain: string } | null;
   } | null>(null);
@@ -37,7 +37,7 @@ const ContextDemo: React.FC = () => {
   const renderMode = useRenderMode();
   const isDevelopment = useIsDevelopment();
   const isServer = useIsServer();
-  const frontendAppConfig = useFrontendAppConfig();
+  const publicAppConfig = usePublicAppConfig();
   const cdnBaseURL = useCDNBaseURL();
   const domainInfo = useDomainInfo();
   const requestContext = useRequestContext();
@@ -60,7 +60,7 @@ const ContextDemo: React.FC = () => {
       renderMode,
       isDevelopment,
       isServer,
-      hasFrontendConfig: !!frontendAppConfig,
+      hasPublicConfig: !!publicAppConfig,
       cdnBaseURL,
       domainInfo,
     });
@@ -68,7 +68,7 @@ const ContextDemo: React.FC = () => {
     renderMode,
     isDevelopment,
     isServer,
-    frontendAppConfig,
+    publicAppConfig,
     cdnBaseURL,
     domainInfo,
   ]);
@@ -224,7 +224,7 @@ const ContextDemo: React.FC = () => {
                     </code>
                   </div>
                   <div>
-                    <strong>useFrontendAppConfig():</strong>{' '}
+                    <strong>usePublicAppConfig():</strong>{' '}
                     <code
                       style={{
                         backgroundColor: 'rgba(0, 0, 0, 0.3)',
@@ -233,7 +233,7 @@ const ContextDemo: React.FC = () => {
                         color: '#fff',
                       }}
                     >
-                      {contextSnapshot?.hasFrontendConfig
+                      {contextSnapshot?.hasPublicConfig
                         ? 'Populated'
                         : 'undefined'}
                     </code>
@@ -444,7 +444,7 @@ const ContextDemo: React.FC = () => {
         </div>
 
         <div className="card">
-          <h2>⚙️ Frontend App Config</h2>
+          <h2>⚙️ Public App Config</h2>
           {!isHydrated ? (
             <div
               style={{
@@ -462,11 +462,11 @@ const ContextDemo: React.FC = () => {
           ) : (
             <>
               <p>
-                The frontend app config is passed from the server and available
-                via the <code>useFrontendAppConfig()</code> hook. It's cloned
-                and frozen to ensure immutability.
+                The public app config is passed from the server and available
+                via the <code>usePublicAppConfig()</code> hook. It's cloned and
+                frozen to ensure immutability.
               </p>
-              {frontendAppConfig ? (
+              {publicAppConfig ? (
                 <pre
                   style={{
                     backgroundColor: 'rgba(0, 0, 0, 0.3)',
@@ -479,11 +479,11 @@ const ContextDemo: React.FC = () => {
                     textAlign: 'left',
                   }}
                 >
-                  {JSON.stringify(frontendAppConfig, null, 2)}
+                  {JSON.stringify(publicAppConfig, null, 2)}
                 </pre>
               ) : (
                 <p style={{ marginTop: '1rem', fontStyle: 'italic' }}>
-                  No frontend config was provided to the server.
+                  No public config was provided to the server.
                 </p>
               )}
             </>
@@ -648,11 +648,11 @@ const ContextDemo: React.FC = () => {
                   color: '#fff',
                 }}
               >
-                useFrontendAppConfig()
+                usePublicAppConfig()
               </code>
               <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
-                Returns the frontend application configuration object (frozen
-                and immutable).
+                Returns the public application configuration object (frozen and
+                immutable).
               </p>
             </div>
             <div>
