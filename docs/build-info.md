@@ -28,7 +28,7 @@ Core `BuildInfo` fields:
 
 ## Generate Build Info (pre-build)
 
-Create a small script to generate a `current-build-info.ts` file during your build pipeline. The generator auto‑detects version from `package.json` when not provided. Custom propertietes can be provided, prefer environment variables for additional, build‑machine/CI traceability data that can be read and inserted into the customProperties object during the build process.
+Create a small script to generate a `current-build-info.ts` file during your build pipeline. The generator auto‑detects version from `package.json` when not provided. Custom properties can be provided via `customProperties`. Prefer environment variables for build‑machine/CI traceability data that can be read and inserted during the build process.
 
 ```ts
 // scripts/generate-build-info.ts
@@ -61,7 +61,7 @@ main().catch((error) => {
 });
 ```
 
-Add to `.gitignore` (recommended), since this file is meant to be auto-generated during the build process and should includes the current Git hash/branch
+Add to `.gitignore` (recommended), since this file is meant to be auto-generated during the build process and should include the current Git hash/branch
 
 ```gitignore
 # Build info for the current build (auto-generated)
@@ -90,14 +90,18 @@ Notes:
 
 ## Load Build Info (runtime)
 
-Use the loader to safely read the generated TypeScript module (`current-build-info.ts`) in production, and a default in development:
+Use the loader to safely read the generated TypeScript module (`current-build-info.ts`) when running from a built artifact, and a default in development:
 
 ```ts
 import { loadBuildInfo } from 'unirend/build-info';
-import { getDevMode } from 'lifecycleion/dev-mode';
+
+// Use whatever signal tracks whether you ran the build (e.g. a mode enum, CLI arg,
+// or env var). Do NOT use a runtime dev-mode flag — you can serve a built artifact
+// in dev mode, and HMR mode never generates current-build-info.ts regardless.
+const isBuilt = mode === 'built'; // 'built' | 'hmr'
 
 const { info } = await loadBuildInfo(
-  !getDevMode(), // true in production
+  isBuilt,
   () => import('./current-build-info.ts'),
 );
 
@@ -106,11 +110,11 @@ const { info } = await loadBuildInfo(
 
 **Load Statuses:**
 
-- `DEFAULT_NOT_PRODUCTION`: dev mode, returns a default build info object
+- `DEFAULT_NOT_BUILT`: `isBuilt` was false (e.g. HMR mode), returns a default build info object
 - `LOADED_SUCCESSFULLY`: production load from module succeeded
 - `MODULE_MISSING_DATA` | `MODULE_INVALID_DATA` | `IMPORT_ERROR`: load failed, default is returned
 
-**Defaults:** In development (or when loading fails in production), the loader returns `DEFAULT_BUILD_INFO`:
+**Defaults:** When not built (or when loading fails in production), the loader returns `DEFAULT_BUILD_INFO`:
 
 ```json
 {
@@ -127,30 +131,47 @@ Load build info once at startup, pass selected fields to frontend, and decorate 
 
 ```ts
 // server.ts
-import { serveSSRProd } from 'unirend/server';
+import { serveSSRDev, serveSSRProd } from 'unirend/server';
 import { loadBuildInfo } from 'unirend/build-info';
 import { BuildInfoPlugin } from './plugins/BuildInfoPlugin';
 import { AppResponseHelpers } from './helpers/AppResponseHelpers';
 
-async function main() {
-  // Load once at startup
+// 'built' | 'hmr' — passed in from your CLI arg, env var, or startup script
+type Mode = 'built' | 'hmr';
+
+async function main(mode: Mode) {
+  // Load build info before branching so it can feed shared config.
+  // In HMR mode current-build-info.ts doesn't exist; loadBuildInfo skips the
+  // import and returns DEFAULT_BUILD_INFO.
   const buildResult = await loadBuildInfo(
-    !getDevMode(), // true in production
+    mode === 'built',
     () => import('./current-build-info.ts'),
   );
 
-  const server = serveSSRProd('./build', {
+  const sharedConfig = {
     frontendAppConfig: {
       api_endpoint: process.env.API_URL || 'https://api.example.com',
-      environment: buildResult.isDefault ? 'development' : 'production',
       build: {
         version: buildResult.info.version,
-        isDev: buildResult.isDefault, // simple boolean check!
+        git_hash: buildResult.info.git_hash,
+        git_branch: buildResult.info.git_branch,
       },
     },
     plugins: [BuildInfoPlugin(buildResult.info)], // pass full info to plugin
     APIResponseHelpersClass: AppResponseHelpers, // use custom helpers for error responses
-  });
+  };
+
+  const server =
+    mode === 'hmr'
+      ? serveSSRDev(
+          {
+            serverEntry: './src/entry-ssr.tsx',
+            template: './src/index.html',
+            viteConfig: './vite.config.ts',
+          },
+          sharedConfig,
+        )
+      : serveSSRProd('./build', sharedConfig);
 
   await server.listen(3000, 'localhost');
 }
@@ -159,7 +180,7 @@ async function main() {
 This example shows how to:
 
 - Load build info once at server startup
-- Pass selected fields (version, dev flag) to the frontend via `frontendAppConfig` (available in both `serveSSRDev` and `serveSSRProd`)
+- Pass selected fields (version, git hash, git branch) to the frontend via `frontendAppConfig` (available in both `serveSSRDev` and `serveSSRProd`)
 - Use a plugin to make full build info available to all server-side handlers
 - Configure custom response helpers for automatic build info in error responses
 
@@ -274,6 +295,6 @@ Benefits:
 
 - Load build info once at startup (no repeated imports)
 - Frontend gets selected fields for display/troubleshooting
-- Server handlers get full build info via decorated request that they may access as relevant
+- Server handlers get full build info via the decorated request
 - Custom helpers auto-merge selected fields into response meta
 - Built-in Unirend framework error handlers automatically include build info when using custom response helpers

@@ -2,7 +2,7 @@
  * Build Info Utilities
  *
  * This module provides utilities for accessing build information
- * in a way that works with both development and production environments,
+ * in a way that works with both HMR and built environments,
  * and is compatible with various bundlers.
  */
 
@@ -37,25 +37,25 @@ function isValidBuildInfo(value: unknown): value is BuildInfo {
 /**
  * Load build information
  *
- * @param isProduction Whether the app is running in production mode
+ * @param isBuilt Whether the app is running from a built artifact (true = load the file, false = return default)
  * @param importPromise A promise that imports the build info module (passed as a function to avoid bundler issues)
  * @returns A promise that resolves to the build info result containing both the info and status
  */
 export async function loadBuildInfo(
-  isProduction: boolean,
+  isBuilt: boolean,
   importPromise: () => Promise<unknown>,
 ): Promise<LoadResult> {
-  // In development, just return the default build info
-  if (!isProduction) {
+  // Not built (e.g. HMR mode) — return default without attempting the import
+  if (!isBuilt) {
     return {
-      status: 'DEFAULT_NOT_PRODUCTION',
+      status: 'DEFAULT_NOT_BUILT',
       isDefault: true,
       info: DEFAULT_BUILD_INFO,
     };
   }
 
   try {
-    // In production, try to load the build info from the generated file
+    // Built mode — try to load the build info from the generated file
     const buildInfoModule = await importPromise();
 
     if (

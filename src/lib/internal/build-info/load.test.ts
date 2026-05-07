@@ -23,23 +23,23 @@ describe('build-info load', () => {
   });
 
   describe('loadBuildInfo', () => {
-    it('should return default build info in development mode', async () => {
-      // Test development mode (isProduction = false)
+    it('should return default build info when not built', async () => {
+      // Test not-built mode (isBuilt = false, e.g. HMR)
       const result = await loadBuildInfo(false, async () => {
         return await Promise.reject(
-          new Error('This should not be called in development mode'),
+          new Error('This should not be called when not built'),
         );
       });
 
       // Should return default build info with correct status
       expect(result).toEqual({
-        status: 'DEFAULT_NOT_PRODUCTION',
+        status: 'DEFAULT_NOT_BUILT',
         isDefault: true,
         info: DEFAULT_BUILD_INFO,
       });
     });
 
-    it('should load build info in production mode', async () => {
+    it('should load build info when built', async () => {
       // Mock successful import
       const mockBuildInfo: BuildInfo = {
         version: '1.2.3',
@@ -49,7 +49,7 @@ describe('build-info load', () => {
       };
 
       const result = await loadBuildInfo(
-        true, // isProduction = true
+        true, // isBuilt = true
         async () => Promise.resolve({ BUILD_INFO: mockBuildInfo }),
       );
 
@@ -89,7 +89,7 @@ describe('build-info load', () => {
     it('should handle missing BUILD_INFO in module', async () => {
       // Mock import that returns a module without BUILD_INFO
       const result = await loadBuildInfo(
-        true, // isProduction = true
+        true, // isBuilt = true
         async () => await Promise.resolve({ someOtherProperty: 'value' }),
       );
 
@@ -126,7 +126,7 @@ describe('build-info load', () => {
     it('should handle import errors', async () => {
       // Mock import that throws an error
       const result = await loadBuildInfo(
-        true, // isProduction = true
+        true, // isBuilt = true
         async () => {
           return await Promise.reject(new Error('Failed to import build info'));
         },
@@ -143,7 +143,7 @@ describe('build-info load', () => {
     it('should handle null or undefined module', async () => {
       // Mock import that returns null
       const resultNull = await loadBuildInfo(
-        true, // isProduction = true
+        true, // isBuilt = true
         async () => await Promise.resolve(null as unknown),
       );
 
@@ -156,7 +156,7 @@ describe('build-info load', () => {
 
       // Mock import that returns undefined
       const resultUndefined = await loadBuildInfo(
-        true, // isProduction = true
+        true, // isBuilt = true
         async () => await Promise.resolve(undefined as unknown),
       );
 
@@ -197,7 +197,7 @@ describe('build-info load', () => {
 
       // Test with the actual mock file
       const result = await loadBuildInfo(
-        true, // isProduction = true
+        true, // isBuilt = true
         () => import(mockFilePath),
       );
 
@@ -310,21 +310,21 @@ describe('build-info load', () => {
 
   describe('isDefault flag', () => {
     it('should be true when using default build info', async () => {
-      // Test development mode
+      // Test not-built mode (e.g. HMR)
       const devResult = await loadBuildInfo(false, async () => {
         return await Promise.reject(new Error('Should not be called'));
       });
 
       expect(devResult.isDefault).toBe(true);
 
-      // Test production with import error
+      // Test built mode with import error
       const errorResult = await loadBuildInfo(true, async () => {
         return await Promise.reject(new Error('Import failed'));
       });
 
       expect(errorResult.isDefault).toBe(true);
 
-      // Test production with invalid data
+      // Test built mode with invalid data
       const invalidResult = await loadBuildInfo(true, async () => {
         return await Promise.resolve({
           BUILD_INFO: 'invalid',
@@ -364,11 +364,11 @@ describe('build-info load', () => {
         expect(result.info.version).toBe('1.0.0');
         expect(result.info.git_hash).toBe('dev');
       } else {
-        // Using actual build info from production build
+        // Using actual build info from built artifact
         // Can display real version, git hash, etc.
       }
 
-      expect(result.isDefault).toBe(true); // This test runs in dev mode
+      expect(result.isDefault).toBe(true); // isBuilt = false, so falls back to default
     });
   });
 });

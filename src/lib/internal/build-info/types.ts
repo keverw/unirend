@@ -46,7 +46,7 @@ export interface SaveResult {
  * Status codes for build info loading
  */
 export type BuildInfoStatus =
-  | 'DEFAULT_NOT_PRODUCTION'
+  | 'DEFAULT_NOT_BUILT'
   | 'LOADED_SUCCESSFULLY'
   | 'MODULE_MISSING_DATA'
   | 'MODULE_INVALID_DATA'
