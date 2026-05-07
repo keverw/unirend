@@ -103,14 +103,15 @@ Notes:
 - Short-circuiting only happens on SSR when handlers are registered on the same `SSRServer`
   - When using versioned handlers, short-circuit automatically selects the highest version registered. See: [Short-Circuit Versioning Behavior](./ssr.md#short-circuit-data-handlers) for details on version consistency between SSR and client-side navigation.
 
-- HTTP‑based loader can forward selected request information from SSR to your API, including cookies, user agent, client IP, request ID, and correlation ID. SSR removes untrusted headers and sets trusted ones before forwarding. See: [SSR header and cookies forwarding](./ssr.md#header-and-cookies-forwarding)
+- HTTP‑based loaders can forward selected request information from SSR to your API, including cookies, user agent, client IP, correlation ID, and non-empty `request.requestContext`. SSR removes untrusted headers and sets trusted ones before forwarding. See: [SSR header and cookies forwarding](./ssr.md#header-and-cookies-forwarding) and [Request Context Injection](./ssr.md#request-context-injection)
   - Cookie forwarding is controlled by `cookieForwarding` on the SSR server
     - If both `allowCookieNames` and `blockCookieNames` are unset or empty, all cookies are forwarded
     - `allowCookieNames` forwards only the listed cookie names
     - `blockCookieNames` blocks the listed names, or set to `true` to block all cookies
     - The block list takes precedence over the allow list
     - The policy applies to cookies forwarded on SSR fetches and `Set-Cookie` headers returned to the browser
-  - Request and correlation IDs and client details are handled by the built‑in `clientInfo` plugin. It reads trusted `X‑SSR-*` headers when allowed and otherwise uses the real request IP and user agent. Works for both short‑circuit handlers and HTTP‑forwarded API requests, whether hosted on the same server or a separate API server. For cookies, including reading and setting, see the dedicated cookies plugin doc. Cookie handling works the same for both loader types. See: [clientInfo](./built-in-plugins/clientInfo.md) and [cookies](./built-in-plugins/cookies.md)
+  - Request tracing is handled by the built‑in `clientInfo` plugin. Forwarded SSR loader requests share a correlation ID across the SSR and API hops, while each server request keeps its own request ID. `clientInfo` also reads trusted forwarded client details when allowed and otherwise uses the real request IP and user agent. Works for both short‑circuit handlers and HTTP‑forwarded API requests, whether hosted on the same server or a separate API server. For cookies, including reading and setting, see the dedicated cookies plugin doc. Cookie handling works the same for both loader types. See: [clientInfo](./built-in-plugins/clientInfo.md) and [cookies](./built-in-plugins/cookies.md)
+  - If both SSR middleware and the API page data handler set the same `request.requestContext` key during SSR, the API value wins because it is merged back later in the request flow
 
 - Prefer `APIResponseHelpers` on the server to build envelopes and auto-populate `request_id` from the request object when set
 - The `pageType` you pass here must match what you register on the server via `server.pageDataHandler.register(pageType, ...)`. See `docs/ssr.md` "Page Data Loader Handlers and Versioning".

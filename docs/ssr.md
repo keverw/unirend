@@ -822,6 +822,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
   - Controls which cookies are forwarded on SSR fetches and which `Set-Cookie` headers are returned to the browser.
 - `get500ErrorPage?: (request, error, isDevelopment) => string | Promise<string>`
   - Provide custom HTML for SSR 500 responses.
+  - The `request` argument is the Fastify request and includes the current `request.requestContext`. Depending on where rendering failed, data loaders may not have run or may not have returned context yet, so values required by the custom 500 page should be seeded by SSR middleware. The returned HTML is sent directly outside the React hydration and context injection flow, so inject any context-derived values yourself if your custom 500 page needs them.
   - The error is logged by `logErrors` before this function is called. If you handle logging inside `get500ErrorPage` yourself, set `logErrors: false` to avoid double-logging.
   - **Security Note**: When including dynamic values (error messages, URLs, etc.) in your HTML, always escape them using `escapeHTML` from `unirend/utils` to prevent XSS attacks. React automatically escapes content, but raw HTML generation requires manual escaping.
 - `clientFolderName?: string`, `serverFolderName?: string`
@@ -1186,6 +1187,7 @@ Both architectures have full cookie access - there's no capability difference:
 
 - **Short-circuit (SSR initial load)**: Handler accesses `request.cookies` directly (same Fastify request from browser)
 - **HTTP fetch (client navigation OR separate API server)**: Cookies automatically forwarded via `Cookie` header, with responses forwarded back via `Set-Cookie`
+- **Middleware boundary**: SSR middleware runs before HTML render, so seed cookie-backed values there when they must affect the initial page, including SSR error pages. After hydration, browser data-loader and API calls go directly to the API server. If a cookie is only needed for those later requests, reading it in the API data loader may be enough. If it affects both the first render and later API work, read it in both places.
 
 To use cookies, register the `cookies` plugin (see [cookies plugin docs](./built-in-plugins/cookies.md)):
 
@@ -1297,6 +1299,8 @@ Both `SSRServer` and `APIServer` automatically initialize `request.requestContex
 - Code written for SSR can run on a standalone API server with consistent behavior
 - Plugins and middleware can safely write to `requestContext` without initialization checks
 
+The important boundary is that each server owns its own HTTP request lifecycle, while SSR data loaders can bridge context between them. `APIServer` has `request.requestContext` so API-side plugins and handlers can use the same convention as SSR. Values that must affect the initial HTML should be seeded on the SSR server first. API-side values can flow back into SSR only through the data loader bridge described in [Separated SSR/API Architecture](#separated-ssrapi-architecture).
+
 **How It Works:**
 
 The request context is shared across the entire request lifecycle and injected into the client HTML:
@@ -1362,19 +1366,24 @@ This ensures context stays in sync with server auth state, even after session ex
 
 **Separated SSR/API Architecture:**
 
-When your SSR server and API server are separate instances, request context is automatically forwarded:
+When your SSR server and API server are separate instances, request context is automatically forwarded during SSR data loader requests:
 
-1. **SSR Server** populates `request.requestContext` in plugins/hooks
-2. **Page Data Loader** sends `ssr_request_context` in POST body to external API server
-3. **API Server** receives and populates `request.requestContext` from incoming `ssr_request_context`
-4. **API Handler** can read/modify `request.requestContext` normally
-5. **API Envelope Response Helpers** automatically include `request.requestContext` in the `ssr_request_context` field of page response envelopes
-6. **Page Data Loader** merges `ssr_request_context` from response back into SSR request (API values overwrite SSR values for conflicting keys, if set by prior middleware)
-7. **SSR Render** injects final merged context into HTML for client hydration
+1. **SSR server receives the browser request** and runs registered middleware/plugin hooks, which can populate `request.requestContext`
+2. **SSR render starts** and React Router runs the page data loader
+3. **Page data loader** sends `ssr_request_context` in the POST body to the external API server
+4. **API server** receives and populates its own `request.requestContext` from incoming `ssr_request_context`
+5. **API page data loader** can read/modify `request.requestContext` normally
+6. **API envelope response helpers** automatically include `request.requestContext` in the `ssr_request_context` field of page response envelopes
+7. **SSR page data loader** merges `ssr_request_context` from the response back into the SSR request
+8. **SSR render finishes** and injects final merged context into HTML for client hydration
 
-This forwarding is automatic and transparent - handlers work the same whether co-located or separated. The merge in step 6 uses `Object.assign()`, so if both SSR middleware and the API handler set the same key, the API handler's value wins since it runs later in the request flow.
+This forwarding and merge-back are automatic for SSR data loader requests when the API server accepts the forwarded context and the page response includes `ssr_request_context`. Handlers work the same whether co-located or separated. The merge in step 7 uses `Object.assign()`, so if both SSR middleware and the API page data handler set the same key, the API handler's value wins since it runs later in the request flow.
+
+This means some values, such as session information, can live primarily in API page data loaders even when the initial HTML is rendered by a separate SSR server. The SSR server receives those values through the data loader bridge when the API responds normally. If the API server is unavailable, the request times out, or the API data loader returns a 500 because it cannot check the session (for example, the database is down), the SSR loader receives a standardized 500 Page envelope instead. During SSR, a 500 data loader envelope triggers the SSR server's 500 handling the same way it would if the data loader were hosted locally, including `get500ErrorPage` when configured. Seed only the values that your SSR shell or custom 500 page must know without a successful API response on the SSR server itself.
 
 **Security Note:** For separated architecture, the API server **must** use the `clientInfo` plugin to validate that `ssr_request_context` comes from a trusted SSR server (private IP by default). Without this plugin, `ssr_request_context` in the request body will be ignored to prevent spoofing from untrusted clients.
+
+**Regular `server.api.*` Routes:** The bridge above is meant for page data loaders. Manual/raw API requests to routes registered with `server.api.get()`, `server.api.post()`, etc. are treated as normal API requests. They still receive `request.requestContext` for consistency with plugins and page data handlers, but they do not participate in the SSR data loader bridge.
 
 **Common Use Cases:**
 

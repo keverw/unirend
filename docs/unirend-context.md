@@ -415,6 +415,13 @@ function DebugPanel() {
 - Components can read or update the context during server-side rendering
 - The context is shared across the entire request lifecycle and injected into the client HTML
 
+**Standalone API Server:**
+
+- `APIServer` also initializes `request.requestContext` for every request
+- This keeps plugins, middleware, page data handlers, and regular `server.api.*` routes consistent across SSR and standalone API servers
+- During SSR page data loader requests to a separate API server, Unirend forwards the current SSR `requestContext` to the API handler. With the page data handlers built into the standalone Unirend API server, returned request context is included automatically. If you use a custom non-Unirend API server, it must return `ssr_request_context` itself for Unirend to merge that context back into the SSR request before HTML injection
+- API request context is not injected into HTML by itself, because the API server is not rendering the page. The automatic forward-and-merge-back behavior applies to SSR-originated page data loader requests, not regular `server.api.*` calls. See [Separated SSR/API Architecture](./ssr.md#request-context-injection)
+
 **Build-Time (SSG):**
 
 - SSG pages: Context can be seeded before rendering via the `requestContext` property on the page definition, and components can also populate or override values during the generation process
@@ -466,7 +473,7 @@ Two separate concerns:
 
 ##### Server Plugin
 
-Seeds `themePreference` into request context from the cookie on each request (`theme-plugin.ts`):
+Seeds `themePreference` into request context from the cookie on each SSR request (`theme-plugin.ts`). Register this on the SSR server when the value must affect the generated HTML or the flash-prevention script. Even when SSR data loaders point to a separate API server, Unirend forwards the SSR request context to trusted page data loader requests and merges page response context back automatically, so the SSR plugin is often enough. Add the same cookie parsing/theme seeding logic to the API server only when API-only or browser-originated API requests need to derive the theme without going through the SSR data loader bridge.
 
 ```typescript
 import type { ServerPlugin } from 'unirend/server';
