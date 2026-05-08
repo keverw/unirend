@@ -237,8 +237,9 @@ export default [
         'error',
         {
           caseSensitive: true,
-          // Ignore runtime-provided built-in modules
-          ignore: ['^bun:', '^electron$'],
+          // Ignore runtime-provided built-in modules and generated files that
+          // may not exist on a fresh checkout (e.g. current-build-info.ts).
+          ignore: ['^bun:', '^electron$', 'current-build-info'],
         },
       ],
       // Forbid importing deprecated modules/exports
