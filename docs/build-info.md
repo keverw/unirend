@@ -7,7 +7,8 @@ This guide covers generating and loading build information (version, git hash/br
 - [What's Included?](#whats-included)
 - [Generate Build Info (pre-build)](#generate-build-info-pre-build)
 - [Load Build Info (runtime)](#load-build-info-runtime)
-  - [Complete Example: SSR Server + Plugin Example + Public Config](#complete-example-ssr-server--plugin-example--public-config)
+  - [Complete Example: SSR Server + publicAppConfig](#complete-example-ssr-server--publicappconfig)
+  - [Plugin Pattern: For Non-Public Server State](#plugin-pattern-for-non-public-server-state)
 
 <!-- tocstop -->
 
@@ -125,16 +126,14 @@ const { info } = await loadBuildInfo(
 }
 ```
 
-### Complete Example: SSR Server + Plugin Example + Public Config
+### Complete Example: SSR Server + publicAppConfig
 
-Load build info once at startup, pass selected fields to frontend, and decorate requests for server-side helpers:
+Load build info once at startup and pass selected fields to both the frontend and server-side handlers via `publicAppConfig`:
 
 ```ts
 // server.ts
 import { serveSSRDev, serveSSRProd } from 'unirend/server';
 import { loadBuildInfo } from 'unirend/build-info';
-import { BuildInfoPlugin } from './plugins/BuildInfoPlugin';
-import { AppResponseHelpers } from './helpers/AppResponseHelpers';
 
 // 'built' | 'hmr' — passed in from your CLI arg, env var, or startup script
 type Mode = 'built' | 'hmr';
@@ -157,8 +156,7 @@ async function main(mode: Mode) {
         git_branch: buildResult.info.git_branch,
       },
     },
-    plugins: [BuildInfoPlugin(buildResult.info)], // pass full info to plugin
-    APIResponseHelpersClass: AppResponseHelpers, // use custom helpers for error responses
+    plugins: [],
   };
 
   const server =
@@ -177,14 +175,32 @@ async function main(mode: Mode) {
 }
 ```
 
+`publicAppConfig` is deep-cloned and deep-frozen per request, so it's available in all page data loaders, API route handlers, and `APIResponseHelpersClass` methods as `request.publicAppConfig`. Since it's typed as `Record<string, unknown>`, cast to your config shape before accessing nested fields:
+
+```ts
+type PublicAppConfig = {
+  build: { version: string; git_hash: string; git_branch: string };
+};
+
+server.api.get('health', async (request) => {
+  const { build } = request.publicAppConfig as PublicAppConfig;
+
+  return APIResponseHelpers.createAPISuccessResponse({
+    request,
+    data: { ok: true, version: build.version },
+  });
+});
+```
+
 This example shows how to:
 
 - Load build info once at server startup
 - Pass selected fields (version, git hash, git branch) to the frontend via `publicAppConfig` (available in both `serveSSRDev` and `serveSSRProd`)
-- Use a plugin to make full build info available to all server-side handlers
-- Configure custom response helpers for automatic build info in error responses
+- Read those same fields in any server-side handler via `request.publicAppConfig`
 
-The plugin approach is useful when you want server-side handlers to access build info for logging, debugging, or API responses. Here's how you could implement such a plugin:
+### Plugin Pattern: For Non-Public Server State
+
+Use the `decorateRequest` + `addHook` plugin pattern when you need server-side-only state in handlers that **shouldn't** be in `publicAppConfig` — any value that must not be serialized into the page. Build info itself is a good example: you might expose only a few fields publicly while making the full `BuildInfo` object (including internal custom properties like CI run IDs) available to handlers for logging or diagnostics:
 
 ```ts
 // plugins/BuildInfoPlugin.ts
@@ -204,97 +220,35 @@ export function BuildInfoPlugin(buildInfo: BuildInfo): ServerPlugin {
 }
 ```
 
-With the plugin in place, you can create custom response helpers that automatically include build info in API responses. When configured via `APIResponseHelpersClass`, these helpers are also used by the server's built-in error handlers:
+Pass it at startup alongside the selected public fields in `publicAppConfig`:
 
 ```ts
-// helpers/AppResponseHelpers.ts - Custom response helpers that auto-merge build info
-import { APIResponseHelpers } from 'unirend/api-envelope';
-import type { BaseMeta } from 'unirend/api-envelope';
-import type { FastifyRequest } from 'unirend/server';
-
-interface AppMeta extends BaseMeta {
-  build?: { version: string };
-}
-
-export class AppResponseHelpers extends APIResponseHelpers {
-  // Helper method to merge build info into meta (reduces repetition)
-  private static enhanceMetaWithBuildInfo<M extends BaseMeta>(
-    request: FastifyRequest,
-    meta?: Partial<M>,
-  ): M {
-    const buildInfo = (request as any).buildInfo;
-    const version = buildInfo?.version;
-
-    return {
-      ...(meta as Partial<M>),
-      ...(version ? { build: { version } } : {}),
-    } as M;
-  }
-
-  // Override API error response to auto-include build info
-  static createAPIErrorResponse<M extends BaseMeta = BaseMeta>(params: {
-    request: FastifyRequest;
-    statusCode: number;
-    errorCode: string;
-    errorMessage: string;
-    errorDetails?: Record<string, unknown>;
-    meta?: Partial<M>;
-  }) {
-    return super.createAPIErrorResponse<M>({
-      ...params,
-      meta: this.enhanceMetaWithBuildInfo<M>(params.request, params.meta),
-    });
-  }
-
-  // Override API success response to auto-include build info
-  static createAPISuccessResponse<T, M extends BaseMeta = BaseMeta>(params: {
-    request: FastifyRequest;
-    data: T;
-    statusCode?: number;
-    meta?: Partial<M>;
-  }) {
-    return super.createAPISuccessResponse<T, M>({
-      ...params,
-      meta: this.enhanceMetaWithBuildInfo<M>(params.request, params.meta),
-    });
-  }
-
-  // Override page error response to auto-include build info
-  static createPageErrorResponse<M extends BaseMeta = BaseMeta>(params: {
-    request: FastifyRequest;
-    statusCode: number;
-    errorCode: string;
-    errorMessage: string;
-    pageMetadata: { title: string; description: string };
-    errorDetails?: Record<string, unknown>;
-    meta?: Partial<M>;
-  }) {
-    return super.createPageErrorResponse<M>({
-      ...params,
-      meta: this.enhanceMetaWithBuildInfo<M>(params.request, params.meta),
-    });
-  }
-
-  // Override page success response to auto-include build info
-  static createPageSuccessResponse<T, M extends BaseMeta = BaseMeta>(params: {
-    request: FastifyRequest;
-    data: T;
-    pageMetadata: { title: string; description: string };
-    statusCode?: number;
-    meta?: Partial<M>;
-  }) {
-    return super.createPageSuccessResponse<T, M>({
-      ...params,
-      meta: this.enhanceMetaWithBuildInfo<M>(params.request, params.meta),
-    });
-  }
-}
+plugins: [BuildInfoPlugin(buildResult.info)],
+publicAppConfig: {
+  build: {
+    version: buildResult.info.version,
+    git_hash: buildResult.info.git_hash,
+    git_branch: buildResult.info.git_branch,
+  },
+},
 ```
 
-Benefits:
+Then handlers can access the full object for internal use:
 
-- Load build info once at startup (no repeated imports)
-- Frontend gets selected fields for display/troubleshooting
-- Server handlers get full build info via the decorated request
-- Custom helpers auto-merge selected fields into response meta
-- Built-in Unirend framework error handlers automatically include build info when using custom response helpers
+```ts
+server.api.get('health', async (request) => {
+  const buildInfo = (request as any).buildInfo as BuildInfo;
+
+  return APIResponseHelpers.createAPISuccessResponse({
+    request,
+    data: { ok: true, ci_run_id: buildInfo.ci_run_id as string },
+  });
+});
+```
+
+The same pattern applies for other private server state — database connections, internal auth context, service clients, etc.
+
+In short:
+
+- **`publicAppConfig`** — safe-to-share config for SSR/SSG projects, available via `usePublicAppConfig()` on both server (during rendering) and client (after HTML injection). Also readable server-side in handlers via `request.publicAppConfig`.
+- **Plugin decoration** — server-side-only state that must stay private (full build info with internal properties, DB handles, auth sessions, etc.).
