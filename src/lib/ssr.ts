@@ -32,7 +32,7 @@ import type {
  *
  * server.fastifyInstance.addHook('onRequest', async (request, reply) => {
  *   if (request.hostname === 'marketing.example.com') {
- *     request.activeSSRApp = 'marketing';
+ *     request.setActiveSSRApp('marketing');
  *   }
  * });
  *
@@ -79,7 +79,7 @@ export function serveSSRDev(
  *
  * server.fastifyInstance.addHook('onRequest', async (request, reply) => {
  *   if (request.url.startsWith('/marketing')) {
- *     request.activeSSRApp = 'marketing';
+ *     request.setActiveSSRApp('marketing');
  *   }
  * });
  *

@@ -87,9 +87,16 @@ type SSRServerConfigProd = {
 
 type SSRServerConfig = SSRServerConfigDev | SSRServerConfigProd;
 
+// Private per-request fields used to back the public active-app API.
+// Keeping these separate lets request.activeSSRApp stay read-only while
+// request.setActiveSSRApp() can validate and refresh app-derived values.
+type ActiveSSRAppInternalState = {
+  appKey?: string;
+  lastAppDefaultCDNBaseURL?: string;
+};
+
 type SSRRequestInternalState = FastifyRequest & {
-  initialActiveSSRApp?: string;
-  initialCDNBaseURL?: string;
+  activeSSRAppInternal?: ActiveSSRAppInternalState;
 };
 
 /**
@@ -222,7 +229,7 @@ export class SSRServer extends BaseServer {
    * Uses the same parameters as serveSSRDev for consistency - you can copy/paste
    * configuration between the default app and additional apps.
    *
-   * @param appKey - Unique identifier for this app (used in request.activeSSRApp)
+   * @param appKey - Unique identifier for this app (selected with request.setActiveSSRApp)
    * @param paths - Dev-specific paths (same as serveSSRDev)
    * @param options - Dev options (same as serveSSRDev)
    *
@@ -294,7 +301,7 @@ export class SSRServer extends BaseServer {
    * Uses the same parameters as serveSSRProd for consistency - you can copy/paste
    * configuration between the default app and additional apps.
    *
-   * @param appKey - Unique identifier for this app (used in request.activeSSRApp)
+   * @param appKey - Unique identifier for this app (selected with request.setActiveSSRApp)
    * @param buildDir - Build directory path (same as serveSSRProd)
    * @param options - Prod options (same as serveSSRProd)
    *
@@ -549,7 +556,28 @@ export class SSRServer extends BaseServer {
       this.fastifyInstance.decorateRequest('serverLabel', this.serverLabel);
 
       // Decorate active app routing (defaults to '__default__') and app-derived request values.
-      this.fastifyInstance.decorateRequest('activeSSRApp', '__default__');
+      // activeSSRApp is intentionally read-only so plugins cannot change the
+      // selected app without also refreshing publicAppConfig/CDNBaseURL.
+      this.fastifyInstance.decorateRequest('activeSSRAppInternal', undefined);
+      this.fastifyInstance.decorateRequest('activeSSRApp', {
+        getter(this: FastifyRequest) {
+          return (
+            (this as SSRRequestInternalState).activeSSRAppInternal?.appKey ||
+            '__default__'
+          );
+        },
+        setter() {
+          throw new Error(
+            'request.activeSSRApp is read-only. Use request.setActiveSSRApp(appKey) to choose an SSR app.',
+          );
+        },
+      });
+
+      this.fastifyInstance.decorateRequest('setActiveSSRApp', () => {
+        throw new Error(
+          'request.setActiveSSRApp() is not initialized for this request.',
+        );
+      });
       this.fastifyInstance.decorateRequest('publicAppConfig', undefined);
       this.fastifyInstance.decorateRequest('CDNBaseURL', undefined);
 
@@ -579,23 +607,75 @@ export class SSRServer extends BaseServer {
           }
         ).requestContext = {};
 
-        const defaultAppConfig = this.apps.get('__default__');
-        const publicAppConfig = defaultAppConfig?.publicAppConfig;
+        const activeSSRAppInternal: ActiveSSRAppInternalState = {};
+        request.setDecorator<ActiveSSRAppInternalState>(
+          'activeSSRAppInternal',
+          activeSSRAppInternal,
+        );
 
-        (request as SSRRequestInternalState).initialActiveSSRApp =
-          '__default__';
-        request.publicAppConfig = publicAppConfig
-          ? deepFreeze(structuredClone(publicAppConfig))
-          : undefined;
+        // Use one path for every app selection, including the default app
+        // below. That keeps validation, config cloning, and CDN state updates
+        // identical for the initial request and later middleware changes.
+        const applyActiveApp = (appKey: string): void => {
+          const trimmedAppKey = appKey.trim();
 
-        if (defaultAppConfig && 'CDNBaseURL' in defaultAppConfig) {
-          // Seed the default app CDN early so user hooks can read a value.
-          // Keep a private copy so the later active-app refresh can tell this
-          // framework default apart from a user middleware override.
-          request.CDNBaseURL = defaultAppConfig.CDNBaseURL;
-          (request as SSRRequestInternalState).initialCDNBaseURL =
-            defaultAppConfig.CDNBaseURL;
-        }
+          if (!trimmedAppKey) {
+            throw new Error('Active app key must be a non-empty string');
+          }
+
+          const activeAppConfig = this.apps.get(trimmedAppKey);
+
+          if (!activeAppConfig) {
+            const availableApps = Array.from(this.apps.keys()).join(', ');
+
+            throw new Error(
+              `Active app "${trimmedAppKey}" not found. Available apps: ${availableApps}`,
+            );
+          }
+
+          if (trimmedAppKey !== activeSSRAppInternal.appKey) {
+            // Keep one immutable public config snapshot per active app choice.
+            // Re-selecting the same app leaves the current request snapshot alone.
+            request.publicAppConfig = activeAppConfig.publicAppConfig
+              ? deepFreeze(structuredClone(activeAppConfig.publicAppConfig))
+              : undefined;
+          }
+
+          // App config provides the default CDN URL, but SSR middleware may set
+          // request.CDNBaseURL for request-specific routing such as regional
+          // CDNs. Replace only a missing value or the last value we applied
+          // from app config. If middleware changed request.CDNBaseURL, it will
+          // no longer match lastAppDefaultCDNBaseURL, so preserve it.
+          if (
+            request.CDNBaseURL === undefined ||
+            request.CDNBaseURL === activeSSRAppInternal.lastAppDefaultCDNBaseURL
+          ) {
+            const appCDNBaseURL =
+              'CDNBaseURL' in activeAppConfig
+                ? activeAppConfig.CDNBaseURL
+                : undefined;
+
+            request.CDNBaseURL = appCDNBaseURL;
+            activeSSRAppInternal.lastAppDefaultCDNBaseURL = appCDNBaseURL;
+          }
+
+          // Store this last so a failed refresh cannot leave the request
+          // pointing at an app whose derived values were not applied.
+          activeSSRAppInternal.appKey = trimmedAppKey;
+        };
+
+        // Expose the public setter after its per-request closure exists. User
+        // onRequest hooks registered later can call this immediately.
+        request.setDecorator<(appKey: string) => void>(
+          'setActiveSSRApp',
+          (appKey: string): void => {
+            applyActiveApp(appKey);
+          },
+        );
+
+        // Seed the request with the default app through the same code path that
+        // middleware uses for multi-app routing.
+        applyActiveApp('__default__');
       });
 
       // Set request.clientIP once per request — available to plugins, hooks, and access logs.
@@ -641,7 +721,8 @@ export class SSRServer extends BaseServer {
             return;
           }
 
-          // Get active app config for error handling (fall back to default if active app not found)
+          // Get active app config for error handling. setActiveSSRApp validates
+          // app keys, so the fallback is defensive for unexpected internal state.
           const appKey = request.activeSSRApp || '__default__';
           const appConfig =
             this.apps.get(appKey) || this.apps.get('__default__');
@@ -716,39 +797,6 @@ export class SSRServer extends BaseServer {
       if (this.sharedOptions.plugins && this.sharedOptions.plugins.length > 0) {
         await this.registerPlugins();
       }
-
-      // Refresh app-derived request values after user onRequest hooks have had
-      // a chance to choose request.activeSSRApp, but before preHandler hooks,
-      // routes, API handlers, and SSR render run.
-      this.fastifyInstance.addHook('onRequest', async (request, _reply) => {
-        const appKey = request.activeSSRApp || '__default__';
-        const activeAppConfig = this.apps.get(appKey);
-
-        // publicAppConfig is framework-managed app config. Reuse the early
-        // default clone on the common path, and only clone again when user
-        // onRequest hooks selected a different active app.
-        if (
-          appKey !== (request as SSRRequestInternalState).initialActiveSSRApp
-        ) {
-          request.publicAppConfig = activeAppConfig?.publicAppConfig
-            ? deepFreeze(structuredClone(activeAppConfig.publicAppConfig))
-            : undefined;
-        }
-
-        // User onRequest hooks may select a different active app or override
-        // request.CDNBaseURL. Replace only the missing/framework-seeded value,
-        // and preserve a user-provided CDN override.
-        if (
-          request.CDNBaseURL === undefined ||
-          request.CDNBaseURL ===
-            (request as SSRRequestInternalState).initialCDNBaseURL
-        ) {
-          request.CDNBaseURL =
-            activeAppConfig && 'CDNBaseURL' in activeAppConfig
-              ? activeAppConfig.CDNBaseURL
-              : undefined;
-        }
-      });
 
       // Register file upload hooks and plugin after user plugins
       // This ensures user plugin hooks (auth, etc.) run before upload validation
@@ -845,7 +893,7 @@ export class SSRServer extends BaseServer {
 
           // Dispatch Vite dev middleware via a Fastify onRequest hook.
           // We use onRequest instead of @fastify/middie because we need this to run
-          // AFTER user plugin hooks (which set activeSSRApp, auth, etc.) so that
+          // AFTER user plugin hooks (which can call setActiveSSRApp and run auth) so that
           // multi-app routing works correctly. The .use() approach from @fastify/middie
           // runs at the raw Node layer before Fastify decorations are available.
           // Vite's Connect-style middleware is wrapped in a Promise to integrate

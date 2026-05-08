@@ -1937,11 +1937,21 @@ export interface ResponseCompressionOptions {
 declare module 'fastify' {
   interface FastifyRequest {
     /**
-     * Active SSR app key for multi-app routing
-     * Set by user middleware to determine which app to render
-     * Defaults to '__default__' if not set
+     * Active SSR app key for multi-app routing.
+     *
+     * Read-only request value. Defaults to `'__default__'`.
+     * Use `request.setActiveSSRApp(appKey)` in SSR middleware to select a
+     * registered app and refresh app-derived request values.
      */
-    activeSSRApp?: string;
+    readonly activeSSRApp: string;
+    /**
+     * Select the active SSR app for this request.
+     *
+     * Validates that the app exists, updates `request.activeSSRApp`, refreshes
+     * `request.publicAppConfig`, and updates the app-level CDN default unless
+     * middleware already overrode `request.CDNBaseURL`.
+     */
+    setActiveSSRApp: (appKey: string) => void;
     /**
      * Resolved client IP address.
      *

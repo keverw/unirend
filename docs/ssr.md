@@ -669,9 +669,9 @@ server.fastifyInstance.addHook('onRequest', async (request, reply) => {
   const region = detectRegion(request);
 
   if (region === 'EU') {
-    (request as any).CDNBaseURL = 'https://eu-cdn.example.com';
+    request.CDNBaseURL = 'https://eu-cdn.example.com';
   } else if (region === 'APAC') {
-    (request as any).CDNBaseURL = 'https://apac-cdn.example.com';
+    request.CDNBaseURL = 'https://apac-cdn.example.com';
   }
   // Falls back to default CDNBaseURL if not overridden
 });
@@ -1470,9 +1470,9 @@ server.fastifyInstance.addHook('onRequest', async (request, reply) => {
   const subdomain = request.hostname.split('.')[0];
 
   if (subdomain === 'marketing') {
-    request.activeSSRApp = 'marketing';
+    request.setActiveSSRApp('marketing');
   } else if (subdomain === 'admin') {
-    request.activeSSRApp = 'admin';
+    request.setActiveSSRApp('admin');
   }
   // Falls back to '__default__' (main app) if not set
 });
@@ -1525,7 +1525,7 @@ server.registerDevApp(
 // Routing middleware (same as production)
 server.fastifyInstance.addHook('onRequest', async (request, reply) => {
   if (request.url.startsWith('/marketing')) {
-    request.activeSSRApp = 'marketing';
+    request.setActiveSSRApp('marketing');
   }
 });
 
@@ -1538,7 +1538,7 @@ await server.listen(3000);
 
 Register an additional production-mode app. Must be called **before** `listen()`.
 
-- `appKey`: Unique identifier (used in `request.activeSSRApp`). Cannot be `"__default__"` or contain path separators.
+- `appKey`: Unique identifier selected per request with `request.setActiveSSRApp(appKey)` and readable from `request.activeSSRApp`. Cannot be `"__default__"` or contain path separators.
 - `buildDir`: Path to the app's build directory
 - `options`: Same options as `serveSSRProd()` (e.g., `publicAppConfig`, `staticContentRouter`, etc.)
 
@@ -1546,7 +1546,7 @@ Register an additional production-mode app. Must be called **before** `listen()`
 
 Register an additional development-mode app. Must be called **before** `listen()`.
 
-- `appKey`: Unique identifier (used in `request.activeSSRApp`). Cannot be `"__default__"` or contain path separators.
+- `appKey`: Unique identifier selected per request with `request.setActiveSSRApp(appKey)` and readable from `request.activeSSRApp`. Cannot be `"__default__"` or contain path separators.
 - `paths`: Dev paths object (same as `serveSSRDev()`)
 - `options`: Same options as `serveSSRDev()` (e.g., `publicAppConfig`, etc.)
 
@@ -1563,6 +1563,8 @@ Each registered app gets its own independent static content configuration based 
 
 ### Routing Strategies
 
+Use `request.setActiveSSRApp(appKey)` in early SSR middleware to select a registered app for the current request. The method validates that the app exists, refreshes app-derived request values like `request.publicAppConfig`, and updates the app-level CDN default unless middleware already overrode `request.CDNBaseURL`. `request.activeSSRApp` is read-only.
+
 #### 1. Subdomain-Based Routing
 
 ```typescript
@@ -1571,10 +1573,10 @@ server.fastifyInstance.addHook('onRequest', async (request, reply) => {
 
   switch (subdomain) {
     case 'marketing':
-      request.activeSSRApp = 'marketing';
+      request.setActiveSSRApp('marketing');
       break;
     case 'app':
-      request.activeSSRApp = 'app';
+      request.setActiveSSRApp('app');
       break;
     // Falls back to '__default__' for main domain
   }
@@ -1586,9 +1588,9 @@ server.fastifyInstance.addHook('onRequest', async (request, reply) => {
 ```typescript
 server.fastifyInstance.addHook('onRequest', async (request, reply) => {
   if (request.url.startsWith('/marketing')) {
-    request.activeSSRApp = 'marketing';
+    request.setActiveSSRApp('marketing');
   } else if (request.url.startsWith('/admin')) {
-    request.activeSSRApp = 'admin';
+    request.setActiveSSRApp('admin');
   }
 });
 ```
@@ -1617,7 +1619,7 @@ server.fastifyInstance.addHook('onRequest', async (request, reply) => {
 
   // Route based on variant
   if (variant === 'b') {
-    request.activeSSRApp = 'variant-b';
+    request.setActiveSSRApp('variant-b');
   }
   // Falls back to '__default__' for variant A
 });
