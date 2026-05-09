@@ -84,6 +84,7 @@ Repo auto‑init: The CLI sets up a repository structure that supports multiple 
 - [File Upload Helpers](#file-upload-helpers)
 - [UX Suggestions](#ux-suggestions)
 - [Development](#development)
+  - [Parking Lot](#parking-lot)
 - [Build Info Utilities](#build-info-utilities)
 - [Utilities](#utilities)
 
@@ -539,6 +540,10 @@ bun publish
 ```
 
 After publishing, commit the generated file changes back to Git. The build updates `src/version.ts`, the README title, and the TOCs.
+
+### Parking Lot
+
+- Possible future PWA helpers: installability, service worker registration, app shell/static asset caching, optional offline page data handlers, and standard offline page envelopes. Notes are collected in [docs/pwa.md](docs/pwa.md).
 
 ## Build Info Utilities
 
