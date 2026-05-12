@@ -12,6 +12,7 @@ Unirend does not currently provide first-class PWA helpers. This document is a p
 - [Vite Integration](#vite-integration)
 - [Basic PWA Layer](#basic-pwa-layer)
 - [Offline Page Data Layer](#offline-page-data-layer)
+- [Debugging and Operations Ideas](#debugging-and-operations-ideas)
 - [Possible Package Exports](#possible-package-exports)
 - [Envelope Behavior](#envelope-behavior)
 
@@ -144,6 +145,27 @@ Design boundaries:
 - Unirend page data is read-oriented loader data, even if the framework endpoint uses `POST` internally.
 - Mutations, form submissions, login, uploads, and other custom writes stay outside the PWA page-data helper layer.
 - Application code is the source of truth for actual offline behavior.
+
+## Debugging and Operations Ideas
+
+The service worker layer would benefit from explicit debugging and operational hooks:
+
+- A service worker debugger route, such as `/_tools/sw-debugger`, that can inspect service worker state without relying on browser devtools alone.
+- A service-worker-safe logger that persists recent logs in IndexedDB and can stream new log entries to controlled clients.
+- Message-based controls for common actions, including update checks, forced shell asset refreshes, log streaming toggles, log reads/clears, and fetch bypass toggles.
+- A fetch bypass mode for debugging broken caches, with an emergency query parameter to turn bypass back off when offline tooling needs to load.
+- Initialization state reporting so the UI can distinguish unsupported browsers, uncontrolled pages, normal startup, and startup timeouts.
+- A shell asset manifest with build timestamp, ETags, critical app assets, debugger assets, and fallback HTML.
+- Critical asset verification before serving the cached shell. If required shell assets are missing, serve an app-not-downloaded fallback or offline envelope instead of a broken app shell.
+- Update checks with throttling and an in-progress lock so multiple fetches or clients do not trigger concurrent cache refreshes.
+- Concurrency-limited asset downloads with retry behavior.
+- Cache cleanup based on the current shell asset manifest.
+- Client notifications when the latest build is available.
+- Configurable request strategies for API and custom write paths, including network-only handling where appropriate.
+- Cross-origin requests should usually pass through to `fetch(...)`.
+- A final unhandled rejection/error path that logs service worker crashes.
+
+These are optional helper ideas, not requirements for a first implementation. The most valuable reusable pieces are likely the logger, debugger UI conventions, bypass mode, forced update flow, and shell asset manifest validation.
 
 ## Possible Package Exports
 
