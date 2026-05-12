@@ -16,16 +16,20 @@ import qs from 'qs';
  * ```tsx
  * import { useQueryParams } from 'unirend/client';
  *
+ * interface ProductsQueryParams {
+ *   filters?: { status?: string; tags?: string[] };
+ * }
+ *
  * function ProductsPage() {
- *   const { filters } = useQueryParams() as { filters: { status: string } };
+ *   const { filters } = useQueryParams<ProductsQueryParams>();
  *   return <div>Status: {filters?.status}</div>;
  * }
  * ```
  */
-export function useQueryParams(): Record<string, unknown> {
+export function useQueryParams<T = Record<string, unknown>>(): T {
   const { search } = useLocation();
 
-  return useMemo(() => qs.parse(search, { ignoreQueryPrefix: true }), [search]);
+  return useMemo(() => qs.parse(search, { ignoreQueryPrefix: true }), [search]) as unknown as T;
 }
 
 /**

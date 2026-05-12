@@ -2,16 +2,11 @@
 
 Unirend centralizes route data fetching through a single loader system. Define loaders per route using helpers, and return standardized envelopes. See `docs/api-envelope-structure.md` for the canonical envelope specs.
 
-- Create config: use `createDefaultPageDataLoaderConfig(APIBaseURL, overrides?)` for HTTP-backed loaders or `createDefaultLocalPageDataLoaderConfig(overrides?)` for local loaders, or manually provide a config object that matches the expected loader config shape
-- Define loaders: `createPageDataLoader(config, pageType)` or `createPageDataLoader(localConfig, localHandler)`
-- Errors/redirects: handled uniformly via envelopes, but in practice they usually surface in three ways.
-  - Router error path: set React Router's `errorElement` to Unirend's `RouteErrorBoundary` helper component for router-level 404s and thrown route or loader errors.
-  - Rendered page error envelope path: use `useDataLoaderEnvelopeError` in your app layout when a loader returns a page error envelope directly, or when the framework converts a loader failure into one.
-  - Environment-specific final behavior: the same loader concepts can surface a little differently in SSR, SSG, and hydrated client navigation. See: [Error Handling (README)](../README.md#error-handling), [docs/error-handling.md](./error-handling.md), and [docs/ssg.md](./ssg.md#5xx-error-handling).
-
 <!-- toc -->
 
 - [Quick Start](#quick-start)
+  - [HTTP‑based Loader](#httpbased-loader)
+  - [Local Loader](#local-loader)
 - [Which loader should I use](#which-loader-should-i-use)
 - [Page Type Handler (Fetch/Short-Circuit) Data Loader](#page-type-handler-fetchshort-circuit-data-loader)
 - [Local Data Loader](#local-data-loader)
@@ -28,7 +23,16 @@ Unirend centralizes route data fetching through a single loader system. Define l
 
 ## Quick Start
 
-HTTP‑based Loader
+To access loader data in a component, see [Using Loaders in React Router](#using-loaders-in-react-router-applies-to-both-types).
+
+- Create config: use `createDefaultPageDataLoaderConfig(APIBaseURL, overrides?)` for HTTP-backed loaders or `createDefaultLocalPageDataLoaderConfig(overrides?)` for local loaders, or manually provide a config object that matches the expected loader config shape
+- Define loaders: `createPageDataLoader(config, pageType)` or `createPageDataLoader(localConfig, localHandler)`
+- Errors/redirects: handled uniformly via envelopes, but in practice they usually surface in three ways.
+  - Router error path: set React Router's `errorElement` to Unirend's `RouteErrorBoundary` helper component for router-level 404s and thrown route or loader errors.
+  - Rendered page error envelope path: use `useDataLoaderEnvelopeError` in your app layout when a loader returns a page error envelope directly, or when the framework converts a loader failure into one.
+  - Environment-specific final behavior: the same loader concepts can surface a little differently in SSR, SSG, and hydrated client navigation. See: [Error Handling (README)](../README.md#error-handling), [docs/error-handling.md](./error-handling.md), and [docs/ssg.md](./ssg.md#5xx-error-handling).
+
+### HTTP‑based Loader
 
 ```ts
 import {
@@ -55,7 +59,7 @@ server.pageDataHandler.register('home', (request, reply, params) => {
 });
 ```
 
-Local Loader
+### Local Loader
 
 ```ts
 import {
@@ -167,15 +171,19 @@ Local loader notes:
 
 Configuration (Local Loader):
 
-- Shared config used by the local loader: `errorDefaults`, `connectionErrorMessages`, `loginURL`, `returnToParam`, `timeoutMS`, `generateFallbackRequestID`, `allowedRedirectOrigins`, `transformErrorMeta`
+- Shared config used by the local loader: `errorDefaults`, `connectionErrorMessages`, `loginURL`, `returnToParam`, `timeoutMS`, `allowedRedirectOrigins`, `transformErrorMeta`
+- `generateFallbackRequestID?: (context: 'error' | 'redirect') => string` — override the default fallback `request_id` generator used when a response is missing one. Defaults to `${context}_${Date.now()}`.
 
 ## Using Loaders in React Router (Applies to Both Types)
 
+Register the loader on the route, then read the envelope in the component with `useLoaderData()`:
+
 ```ts
+// routes.tsx
 import type { RouteObject } from "react-router";
+import { createPageDataLoader, createDefaultPageDataLoaderConfig } from "unirend/router-utils";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
-import { createPageDataLoader, createDefaultPageDataLoaderConfig } from "unirend/router-utils";
 
 const config = createDefaultPageDataLoaderConfig("http://localhost:3001");
 
@@ -185,7 +193,26 @@ export const routes: RouteObject[] = [
 ];
 ```
 
-Access loader data in components via `useLoaderData()`. The `pageMetadata` you return from your handler or local loader is available as `loaderData.meta.page`. Pass it to `UnirendHead` for dynamic page titles. See [UnirendHead - Hardcoded vs loader-driven titles](./unirendhead.md#hardcoded-vs-loader-driven-titles).
+```ts
+// pages/Home.tsx
+import { useLoaderData } from 'react-router';
+
+interface HomeLoaderEnvelope {
+  data: { message: string; route: unknown };
+  meta: { page: { title: string; description: string } };
+}
+
+function Home() {
+  const { data, meta } = useLoaderData<HomeLoaderEnvelope>();
+  // data.message ✓  meta.page.title ✓
+}
+```
+
+Pass the envelope interface as a type parameter to `useLoaderData<T>()`. Declare only the fields you need. The full envelope also includes `status`, `status_code`, `request_id`, `type`, and `error`.
+
+Note: type `T` for the success shape. Error envelopes may still appear in route data (especially rendered page error envelopes), so handle them with `RouteErrorBoundary` and `useDataLoaderEnvelopeError` before assuming the success shape. See [Error Handling (README)](../README.md#error-handling).
+
+`meta.page` comes from the `pageMetadata` returned by your handler or local loader. Pass it to `UnirendHead` for dynamic page titles. See [UnirendHead - Hardcoded vs loader-driven titles](./unirendhead.md#hardcoded-vs-loader-driven-titles).
 
 ## Query Parameters
 
@@ -207,15 +234,19 @@ server.pageDataHandler.register('products', (request, reply, params) => {
 });
 ```
 
+Server page data loader handlers narrow with `as` because `params.queryParams` is typed as `Record<string, unknown>`. Client components use the `<T>` generic instead.
+
 **In a component** use `useQueryParams()` for the same parsed structure:
 
 ```ts
 import { useQueryParams } from 'unirend/client';
 
+interface ProductsQueryParams {
+  filters?: { status?: string; tags?: string[] };
+}
+
 function ProductsPage() {
-  const { filters } = useQueryParams() as {
-    filters?: { status?: string; tags?: string[] };
-  };
+  const { filters } = useQueryParams<ProductsQueryParams>();
 }
 ```
 
@@ -295,19 +326,45 @@ When API responses don’t follow the Page Envelope, the loader converts them us
 
 ### `transformErrorMeta(params)`
 
-- Preserve/extend metadata when converting API errors to Page errors
+Called when the loader converts an API error into a Page error envelope. Use it to preserve or extend the `meta` object with app-specific fields.
+
+Signature:
+
+```ts
+transformErrorMeta?: (params: {
+  baseMeta: { page: { title: string; description: string } };
+  statusCode: number;
+  errorCode: string;
+  originalMetadata?: { title?: string; description?: string; [key: string]: unknown };
+}) => Record<string, unknown>
+```
+
+Example:
+
+```ts
+transformErrorMeta: ({ baseMeta, statusCode, errorCode, originalMetadata }) => ({
+  ...baseMeta,
+  site_info: originalMetadata?.site_info,
+  analytics: { errorCode, statusCode },
+}),
+```
 
 ### `statusCodeHandlers`
 
 - Customize handling per HTTP status
-  - Match order: exact code (number or string) first. If none matches, wildcard "`*`" applies
-  - Return a PageResponseEnvelope to override. Return null/undefined to fall back to defaults
+  - Match order: exact code (number or string) first. If none matches, wildcard `'*'` applies
+  - Return a `PageResponseEnvelope` to override. Return `null`/`undefined` to fall back to defaults
   - For redirects, return a Page envelope with `status: "redirect"` and `status_code: 200`. In server/API handlers, prefer using `APIResponseHelpers.createPageRedirectResponse`.
   - The loader automatically decorates Page envelopes with SSR-only data (e.g., cookies) where applicable
-- HTTP redirects from API endpoints are not followed. They become redirectNotFollowed errors with original status/location preserved
-- Fallback request_id: if missing, a generated ID is used via generateFallbackRequestID (or a default generator)
-  - contexts: "error" or "redirect"
-  - default format: `${context}_${Date.now()}` (e.g., `error_1712868472000`)
+- HTTP redirects from API endpoints are not followed. They become `redirectNotFollowed` errors with original status/location preserved
+- If the envelope returned by a handler is missing `request_id`, the loader fills it in automatically. Override the generator with `generateFallbackRequestID: (context: 'error' | 'redirect') => string` in config. Built-in default: `${context}_${Date.now()}` (e.g., `error_1712868472000`)
+
+```ts
+statusCodeHandlers: {
+  403: (statusCode, responseData, config, isDevelopment) => ({ /* return PageResponseEnvelope */ }),
+  '*': (statusCode, responseData, config, isDevelopment) => null, // fall back to defaults
+}
+```
 
 ### Additional configuration options
 
