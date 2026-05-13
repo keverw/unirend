@@ -298,7 +298,7 @@ function MyComponent() {
 }
 ```
 
-**Inside React components**, use the hooks `usePublicAppConfig()`, `useRequestContext()`, `useCDNBaseURL()`, and `useDomainInfo()` — they work on both server and client. See [Unirend Context](docs/unirend-context.md) for full hook documentation.
+All four context hooks — `usePublicAppConfig()`, `useRequestContext()`, `useCDNBaseURL()`, and `useDomainInfo()` — work on both server and client. See [Unirend Context](docs/unirend-context.md) for full hook documentation.
 
 **In Non-Component Code** (loaders, utilities, module-level) - access `window.__PUBLIC_APP_CONFIG__`, `window.__FRONTEND_REQUEST_CONTEXT__`, `window.__CDN_BASE_URL__`, and `window.__DOMAIN_INFO__` directly:
 
@@ -315,15 +315,13 @@ function MyComponent() {
 // separate server pools where the internal hostname differs from the public URL.
 // Falls back to a localhost URL as a best-effort default for the co-located case.
 // In co-located setups the handler short-circuits on the same instance anyway, so
-// the exact fallback URL rarely matters. Set INTERNAL_API_ENDPOINT to be explicit.
-// If you use a server factory pattern, replace process.env.PORT with the variable
-// or env var that holds your server's port.
+// the exact fallback URL rarely matters. Update the port to match your API server,
+// or set INTERNAL_API_ENDPOINT to an explicit URL for separate-server deployments.
 const APIBaseURL =
   typeof window !== 'undefined'
     ? (window.__PUBLIC_APP_CONFIG__?.api_endpoint as string) ||
       window.location.origin
-    : (process.env.INTERNAL_API_ENDPOINT ??
-      `http://localhost:${Number(process.env.PORT || 3000)}`);
+    : (process.env.INTERNAL_API_ENDPOINT ?? 'http://localhost:3000');
 
 const config = createDefaultPageDataLoaderConfig(APIBaseURL);
 export const homeLoader = createPageDataLoader(config, 'home');
@@ -336,8 +334,7 @@ const theme =
     : undefined;
 
 // The CDN base URL is always injected by the framework (empty string when not configured):
-const cdnBase =
-  typeof window !== 'undefined' ? window.__CDN_BASE_URL__ : undefined;
+const cdnBase = typeof window !== 'undefined' ? window.__CDN_BASE_URL__ : '';
 
 // Domain info (hostname + rootDomain, useful for subdomain-spanning cookies) — SSR/SSG with hostname configured:
 const domainInfo =
