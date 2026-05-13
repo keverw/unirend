@@ -1728,12 +1728,35 @@ export interface SPAPageType extends GeneratorPageBase {
   meta?: Record<string, string>;
   /** Optional request context to inject into the page (available as window.__FRONTEND_REQUEST_CONTEXT__) */
   requestContext?: Record<string, unknown>;
+  /** URL path for page map entry — derived from filename if not provided */
+  path?: string;
 }
+
+/**
+ * HTML page - raw HTML written directly to the dist folder, no React render pipeline.
+ * Use for self-contained pages that must not depend on the JS/CSS bundle (e.g. 500.html, 403.html, etc).
+ * Exactly one of `html` or `source` must be provided.
+ */
+export type HTMLPageType = GeneratorPageBase & {
+  /** Type of page generation */
+  type: 'html';
+  /** URL path for the page map entry — derived from filename if not provided */
+  path?: string;
+} & (
+    | {
+        /** Inline HTML string to write directly */ html: string;
+        source?: never;
+      }
+    | {
+        /** Absolute path to a source HTML file to copy */ source: string;
+        html?: never;
+      }
+  );
 
 /**
  * Union type for all page types
  */
-export type PageTypeWanted = SSGPageType | SPAPageType;
+export type PageTypeWanted = SSGPageType | SPAPageType | HTMLPageType;
 
 /**
  * Status code for a generated page

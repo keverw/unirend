@@ -567,6 +567,104 @@ export async function generateSSG(
           `✗ Failed to write SPA ${page.filename}: ${writeResult.error}`,
         );
       }
+    } else if (page.type === 'html') {
+      // Generate HTML page by writing a raw HTML string or source file directly to
+      // the client directory — no React render, no Vite template, no JS bundle injected.
+      // Use for self-contained pages (e.g. 500.html) that must not depend on external
+      // assets loading successfully.
+      const pageEndedAt = Date.now();
+      const timeMS = pageEndedAt - pageStartedAt;
+
+      const htmlFilename = page.filename;
+
+      let htmlContent: string;
+
+      if (page.html !== undefined) {
+        // Inline HTML string provided — use it directly
+        htmlContent = page.html;
+      } else if (page.source !== undefined) {
+        // Source file path provided — read the file
+        const sourceResult = await readHTMLFile(page.source);
+
+        if (!sourceResult.exists) {
+          // Source file not found — treat as error, skip this page
+          errorCount++;
+
+          pageReports.push({
+            page,
+            status: 'error',
+            errorDetails: `Source file not found: ${page.source}`,
+            timeMS,
+          });
+
+          logger.error(
+            `✗ Source file not found for ${htmlFilename}: ${page.source} (${timeMS}ms)`,
+          );
+
+          continue;
+        }
+
+        if (sourceResult.error || sourceResult.content === undefined) {
+          // File exists but could not be read — treat as error
+          errorCount++;
+
+          pageReports.push({
+            page,
+            status: 'error',
+            errorDetails: `Failed to read source file: ${sourceResult.error}`,
+            timeMS,
+          });
+
+          logger.error(
+            `✗ Failed to read source for ${htmlFilename}: ${sourceResult.error} (${timeMS}ms)`,
+          );
+
+          continue;
+        }
+
+        htmlContent = sourceResult.content;
+      } else {
+        // Neither html nor source provided — TypeScript enforces this at compile time
+        // via the never trick, but guard at runtime to produce a clear error message
+        errorCount++;
+        pageReports.push({
+          page,
+          status: 'error',
+          errorDetails:
+            'html page type requires either html or source to be provided',
+          timeMS,
+        });
+        logger.error(
+          `✗ ${htmlFilename}: html page type requires either html or source`,
+        );
+        continue;
+      }
+
+      // Write the HTML file to the client directory (where assets are)
+      const clientBuildDir = path.join(buildDir, clientFolderName);
+      const outputPath = path.join(clientBuildDir, page.filename);
+      const writeResult = await writeHTMLFile(outputPath, htmlContent);
+
+      if (writeResult.success) {
+        // Success - increment count and add to reports
+        successCount++;
+
+        pageReports.push({ page, status: 'success', outputPath, timeMS });
+
+        logger.info(`✓ Generated HTML ${htmlFilename} (${timeMS}ms)`);
+      } else {
+        // Write failed - treat as error
+        errorCount++;
+
+        pageReports.push({
+          page,
+          status: 'error',
+          errorDetails: writeResult.error,
+          timeMS,
+        });
+
+        logger.error(`✗ Failed to write ${htmlFilename}: ${writeResult.error}`);
+      }
     } else {
       // Handle unknown page type
       const pageEndedAt = Date.now();
@@ -597,11 +695,14 @@ export async function generateSSG(
       if (report.status === 'success' || report.status === 'not_found') {
         let urlPath: string;
 
-        // For SSG pages, use the path; for SPA pages, derive path from filename
+        // SSG pages use their explicit path; SPA and HTML pages use explicit path
+        // if provided, otherwise derive from filename
         if (report.page.type === 'ssg') {
           urlPath = normalizeURLPath(report.page.path);
+        } else if (report.page.path) {
+          urlPath = normalizeURLPath(report.page.path);
         } else {
-          // SPA pages don't have a path, derive from filename
+          // SPA/HTML pages without explicit path: derive from filename
           // e.g., "dashboard.html" -> "/dashboard", "index.html" -> "/"
           const basename = report.page.filename.replace(/\.html$/, '');
           urlPath = basename === 'index' ? '/' : `/${basename}`;

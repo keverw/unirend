@@ -1051,7 +1051,7 @@ Guidance:
 
 Recommendation:
 
-- Use `params.APIResponseHelpers` inside handlers (page data loader handlers and API route handlers) to construct envelopes. This is always the class configured on the server — no separate import needed, and if you've provided a custom subclass via `APIResponseHelpersClass`, handlers automatically use it without any extra wiring.
+- Use `params.APIResponseHelpers` inside handlers (page data loader handlers and API route handlers) to construct envelopes. This is always the class configured on the server, with no separate import needed. If you've provided a custom subclass via `APIResponseHelpersClass`, handlers automatically use it without any extra wiring.
 
 These helpers also auto-populate `request_id` from `request.requestID` that your request registered middleware/plugins may populate. See: [API Envelope Structure](./api-envelope-structure.md).
 

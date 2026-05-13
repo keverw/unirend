@@ -105,8 +105,8 @@ export const homeLoader = createPageDataLoader(config, 'home');
 Notes:
 
 - Short-circuiting only happens on SSR when handlers are registered on the same `SSRServer`
-  - If a handler is registered on the SSR server with the same `pageType` name as one on an external API server, the SSR server will short-circuit to its own handler and never make an HTTP request to the external API — even if `APIBaseURL` points elsewhere
-  - In a multi-process or clustered deployment, each instance only short-circuits to its own registered handlers — handlers on other instances are not visible and will fall back to HTTP
+  - If a handler is registered on the SSR server with the same `pageType` name as one on an external API server, the SSR server will short-circuit to its own handler and never make an HTTP request to the external API, even if `APIBaseURL` points elsewhere
+  - In a multi-process or clustered deployment, each instance only short-circuits to its own registered handlers. Handlers on other instances are not visible and will fall back to HTTP
   - When using versioned handlers, short-circuit automatically selects the highest version registered. See: [Short-Circuit Versioning Behavior](./ssr.md#short-circuit-data-handlers) for details on version consistency between SSR and client-side navigation.
 
 - HTTP‑based data loaders can forward selected request information from SSR to your API, including cookies, user agent, client IP, correlation ID, and non-empty `request.requestContext`. SSR removes untrusted headers and sets trusted ones before forwarding. See: [SSR header and cookies forwarding](./ssr.md#header-and-cookies-forwarding) and [Request Context Injection](./ssr.md#request-context-injection)
@@ -174,7 +174,7 @@ Local loader notes:
 Configuration (Local Loader):
 
 - Shared config used by the local loader: `errorDefaults`, `connectionErrorMessages`, `loginURL`, `returnToParam`, `timeoutMS`, `allowedRedirectOrigins`, `transformErrorMeta`
-- `generateFallbackRequestID?: (context: 'error' | 'redirect') => string` — override the default fallback `request_id` generator used when a response is missing one. Defaults to `${context}_${Date.now()}`.
+- `generateFallbackRequestID?: (context: 'error' | 'redirect') => string`: override the default fallback `request_id` generator used when a response is missing one. Defaults to `${context}_${Date.now()}`.
 
 ## Using Loaders in React Router (Applies to Both Types)
 

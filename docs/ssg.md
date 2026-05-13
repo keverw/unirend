@@ -4,6 +4,7 @@
 
 - [Creating Generation Script](#creating-generation-script)
   - [SPA Pages](#spa-pages)
+  - [HTML Pages](#html-pages)
   - [Request Context Injection](#request-context-injection)
   - [Template Caching Info](#template-caching-info)
   - [Page Map Output](#page-map-output)
@@ -15,7 +16,7 @@
 - [Serving Static Files](#serving-static-files)
   - [URL Mismatch Considerations](#url-mismatch-considerations)
   - [404 Pages Suggestion](#404-pages-suggestion)
-  - [Using StaticWebServer (Recommended)](#using-staticwebserver-recommended)
+  - [Using StaticWebServer (Recommended for Node.js/Bun)](#using-staticwebserver-recommended-for-nodejsbun)
     - [Reloading After a New Build](#reloading-after-a-new-build)
     - [Configuration Options](#configuration-options)
       - [Error Pages](#error-pages)
@@ -159,6 +160,59 @@ main().catch(console.error);
 
 An `spa` page stamps a copy of the Vite `index.html` template with an empty root div (no server render), injects any `title`/`description`/`meta` you specify into `<head>`, and writes the result as a standalone HTML file. The client JS bundle mounts fresh into the empty root and takes full control, just like a traditional SPA. This is useful for routes that are always client-rendered (dashboards, auth-gated pages) but need their own pre-configured metadata or request context baked in at generation time.
 
+The optional `path` property overrides the page map URL when it needs to differ from the filename (e.g. `filename: 'app.html', path: '/app/dashboard'`). If omitted, the path is derived from the filename (`dashboard.html` → `/dashboard`).
+
+### HTML Pages
+
+An `html` page writes a raw HTML string (or an HTML source file) directly to the dist folder and adds it to the page map. There is no React render, no Vite template, and no JS bundle. Use it for self-contained pages that must not depend on external assets loading successfully.
+
+**Why not use `{ type: 'ssg' }` for error pages?**
+
+A `ssg` page embeds your full JS/CSS bundle. That's fine for a 404, since the server is working, the app is healthy, and the React shell is appropriate. A 500 is different: when your server is having problems the CSS, JS, and font files hosted on that same server may also be failing. A 500 page that depends on `/assets/index-BGz3GlRg.css` loading successfully is a bad bet.
+
+`html` pages match how SSR already handles this. `get500ErrorPage` returns plain HTML outside the React render pipeline for the same reason. When something is fundamentally broken, you want a page that has no external dependencies. Inline styles, no scripts, no React. Client-side errors that happen _after_ the page has loaded are a separate concern. `RouteErrorBoundary` handles those, and it can use the full app shell because the assets are already in memory.
+
+**Usage:**
+
+```typescript
+const pages = [
+  // Inline HTML string — self-contained, no external deps
+  {
+    type: 'html',
+    filename: '500.html',
+    html: `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Server Error</title>
+</head>
+<body style="font-family:sans-serif;text-align:center;padding:4rem">
+  <h1>500</h1>
+  <p>Something went wrong on our end.</p>
+  <a href="/">Go home</a>
+</body>
+</html>`,
+  },
+
+  // Source file — useful when you maintain the error page separately
+  // Use path.resolve(__dirname, ...) just like buildDir
+  {
+    type: 'html',
+    filename: '403.html',
+    source: path.resolve(__dirname, './static/403.html'),
+  },
+];
+```
+
+The `path` property is optional. If omitted, the URL path is derived from the filename the same way SPA pages derive theirs (`500.html` → `/500`). Provide `path` explicitly if you need a different URL:
+
+```typescript
+{ type: 'html', filename: '500.html', html: '...', path: '/error' }
+```
+
+`StaticWebServer` automatically detects `500.html` and `404.html` by filename from the page map and serves them with the correct status codes. No extra configuration is needed (see [Error Pages](#error-pages)).
+
 ### Request Context Injection
 
 Both SSG and SPA pages support injecting request context data that will be available on the client.
@@ -230,11 +284,13 @@ const result = await generateSSG(buildDir, pages, options);
 **How paths are determined:**
 
 - **SSG pages**: Uses the `path` property directly (e.g., `{ type: "ssg", path: "/about", filename: "about.html" }`)
-- **SPA pages**: Derives path from filename (e.g., `dashboard.html` → `/dashboard`, `index.html` → `/`)
+- **SPA and HTML pages**: Uses the explicit `path` property if provided. Otherwise derives path from filename (e.g., `dashboard.html` → `/dashboard`, `index.html` → `/`, `500.html` → `/500`)
+
+**Path conflicts:** If two pages of any type resolve to the same URL, `generateSSG` returns a fatal error listing all conflicts. Fix by renaming filenames or providing explicit `path` overrides.
 
 **Usage with static content servers:**
 
-The page map is consumed automatically by `StaticWebServer` (Node.js) and `unirend/php-static-server` (PHP/shared hosting), both default to `'page-map.json'` relative to `buildDir`. See [Using StaticWebServer (Recommended)](#using-staticwebserver-recommended) and [PHP Shared Hosting](#php-shared-hosting-unirendphp-static-server) below.
+The page map is consumed automatically by `StaticWebServer` (Node.js) and `unirend/php-static-server` (PHP/shared hosting), both default to `'page-map.json'` relative to `buildDir`. See [Using StaticWebServer](#using-staticwebserver-recommended-for-nodejsbun) and [PHP Shared Hosting](#php-shared-hosting-unirendphp-static-server) below.
 
 ### 5xx Error Handling
 
@@ -265,16 +321,32 @@ const result = await generateSSG(buildDir, pages, {
 });
 ```
 
-**Custom 500 error page:** The recommended approach is to generate a plain SSG page styled as a generic error, no need to render with a 5xx status at all. Since the static server never injects the actual error into the page, a static design is all you need:
+**Custom 500 error page:** Use `{ type: 'html' }` rather than `{ type: 'ssg' }` for server error pages. A `ssg` page embeds the React bundle. If `500.html` is served at an unexpected URL (e.g. `/about`), `hydrateRoot` fires, React Router sees `/about`, and the error page silently re-renders into the wrong page. Beyond the hydration problem, a 500 means something is wrong with the server itself, which means the JS/CSS bundle hosted on that same server may also be failing to load. An `html` page is written as-is. Unirend adds no bundle, no template, and no context scripts. For error pages, keep it self-contained with inline styles and no external scripts so it survives partial server failure.
 
 ```typescript
 const pages = [
-  // Generate a generic 500 error page as a normal SSG page
-  { type: 'ssg', path: '/500', filename: '500.html' },
+  {
+    type: 'html',
+    filename: '500.html',
+    html: `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Server Error</title>
+</head>
+<body style="font-family:sans-serif;text-align:center;padding:4rem">
+  <h1>500</h1>
+  <p>Something went wrong on our end.</p>
+  <a href="/">Go home</a>
+</body>
+</html>`,
+  },
 ];
 ```
 
 `StaticWebServer` will automatically detect and serve `500.html` with the correct status code (see [Error Pages](#error-pages)).
+
+**404 pages** are fine as normal `{ type: 'ssg' }` pages. A 404 means the server is healthy and the app shell, nav, and styles are all appropriate. Only server error pages (500, 503, 403) benefit from the self-contained `html` approach.
 
 If you do have a legitimate reason to render a page that returns a 5xx status and want it written without being flagged as an error, set `failOn5xx: false`:
 
@@ -354,7 +426,7 @@ After generating your SSG files, you'll need to configure your web server to ser
   - Nginx: `try_files /404.html =404;`
   - Node/Express: `res.status(404).sendFile(path.join(__dirname, "build/client/404.html"))`
 
-### Using StaticWebServer (Recommended)
+### Using StaticWebServer (Recommended for Node.js/Bun)
 
 Unirend provides a built-in `StaticWebServer` class that automatically consumes the page map and serves your static site with proper status codes, caching, and HTTPS support.
 
@@ -382,7 +454,7 @@ console.log('Static server running at http://localhost:3000');
 
 > **Note:** All file paths (`pageMapPath`, `notFoundPage`, `errorPage`, `singleAssets` values, `assetFolders` values) are resolved relative to `buildDir`.
 
-> **💡 Tip:** If you generate `/404` or `/500` pages as SSG pages (e.g., `{ type: 'ssg', path: '/404', filename: '404.html' }`), they'll be automatically detected and served with proper 404/500 status codes. This is the recommended approach for custom error pages.
+> **💡 Tip:** Error pages are automatically detected from the page map by filename and served with proper status codes. Use `{ type: 'ssg', path: '/404', filename: '404.html' }` for 404 pages (server is healthy, React shell is fine) and `{ type: 'html', filename: '500.html' }` for server error pages (self-contained, no external deps, no React bundle). See [HTML Pages](#html-pages) and [Error Pages](#error-pages).
 
 > **🐳 Container Deployment:** When deploying in containers, bind to `0.0.0.0` to make the server accessible from outside the container: `await server.listen(3000, '0.0.0.0')`. For local development, the default binding is fine.
 
@@ -465,7 +537,7 @@ Dev mode (stack traces in built-in 500 page, not custom error page provided) is 
 
 ##### Error Pages
 
-**Recommended approach:** Generate 404 and 500 error pages as SSG pages (e.g., `{ type: 'ssg', path: '/404', filename: '404.html' }`). They'll be automatically detected from the page map and served with proper status codes.
+**Recommended approach:** Generate error pages via `generateSSG` and let `StaticWebServer` detect them from the page map. Use `{ type: 'ssg', path: '/404', filename: '404.html' }` for 404 pages and `{ type: 'html', filename: '500.html' }` for server error pages (see [HTML Pages](#html-pages)). Both are automatically detected by filename and served with the correct status codes.
 
 **Advanced configuration:** For custom error page paths (separate from generated pages), use the `notFoundPage` and `errorPage` options:
 
@@ -771,6 +843,6 @@ RewriteRule ^ index.php [L]
 
 > **Note:** There is no `!-f` condition. This means `.html` files are never served directly by Apache, preventing React hydration mismatches if a user visits `/about.html` instead of `/about`.
 
-> **Error pages:** Generate `/404` and `/500` as SSG pages, they are automatically detected from `page-map.json` and served with the correct status codes. They are also removed from normal routes so they can never be served with a `200` status.
+> **Error pages:** Generate `/404` as a `{ type: 'ssg' }` page and `/500` as a `{ type: 'html' }` page (see [HTML Pages](#html-pages)). Both are automatically detected from `page-map.json` and served with the correct status codes, removed from normal routes so they are never served with a `200` status.
 
 See the [unirend/php-static-server README](../unirend-php/README.md) for the full options reference and local development tips.

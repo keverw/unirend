@@ -200,7 +200,7 @@ This example shows how to:
 
 ### Plugin Pattern: For Non-Public Server State
 
-Use the `decorateRequest` + `addHook` plugin pattern when you need server-side-only state in handlers that **shouldn't** be in `publicAppConfig` — any value that must not be serialized into the page. Build info itself is a good example: you might expose only a few fields publicly while making the full `BuildInfo` object (including internal custom properties like CI run IDs) available to handlers for logging or diagnostics:
+Use the `decorateRequest` + `addHook` plugin pattern when you need server-side-only state in handlers that **shouldn't** be in `publicAppConfig`, meaning any value that must not be serialized into the page. Build info itself is a good example: you might expose only a few fields publicly while making the full `BuildInfo` object (including internal custom properties like CI run IDs) available to handlers for logging or diagnostics:
 
 ```ts
 // plugins/BuildInfoPlugin.ts
@@ -246,9 +246,9 @@ server.api.get('health', async (request) => {
 });
 ```
 
-The same pattern applies for other private server state — database connections, internal auth context, service clients, etc.
+The same pattern applies for other private server state, including database connections, internal auth context, service clients, etc.
 
 In short:
 
-- **`publicAppConfig`** — safe-to-share config for SSR/SSG projects, available via `usePublicAppConfig()` on both server (during rendering) and client (after HTML injection). Also readable server-side in handlers via `request.publicAppConfig`.
-- **Plugin decoration** — server-side-only state that must stay private (full build info with internal properties, DB handles, auth sessions, etc.).
+- **`publicAppConfig`**: safe-to-share config for SSR/SSG projects, available via `usePublicAppConfig()` on both server (during rendering) and client (after HTML injection). Also readable server-side in handlers via `request.publicAppConfig`.
+- **Plugin decoration**: server-side-only state that must stay private (full build info with internal properties, DB handles, auth sessions, etc.).

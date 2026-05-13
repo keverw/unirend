@@ -296,7 +296,7 @@ if (cookieInfo?.signingSecretProvided) {
 
 #### APIResponseHelpers
 
-`pluginHost.APIResponseHelpers` is the helpers class configured on the server instance. Use it to build envelopes inside your plugin instead of importing from `unirend/api-envelope` directly — this ensures a custom subclass provided via `APIResponseHelpersClass` is automatically used without any extra wiring.
+`pluginHost.APIResponseHelpers` is the helpers class configured on the server instance. Use it to build envelopes inside your plugin instead of importing from `unirend/api-envelope` directly. This ensures a custom subclass provided via `APIResponseHelpersClass` is automatically used without any extra wiring.
 
 ```typescript
 const myPlugin: ServerPlugin = async (pluginHost) => {
@@ -310,7 +310,7 @@ const myPlugin: ServerPlugin = async (pluginHost) => {
 };
 ```
 
-For `pluginHost.pageDataHandler.register(...)` handlers, use `params.APIResponseHelpers` instead — the same class, but available directly on the handler params alongside the routing context.
+For `pluginHost.pageDataHandler.register(...)` handlers, use `params.APIResponseHelpers` instead. It is the same class, but available directly on the handler params alongside the routing context.
 
 #### API Shortcuts (Envelope Helpers)
 
