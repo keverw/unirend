@@ -243,7 +243,7 @@ Add these scripts to your `package.json` for both SSG and SSR workflows. The exa
 ```json
 {
   "scripts": {
-    "dev-spa": "vite", // SPA-only dev mode (no SSR)
+    "dev-spa": "vite", // SPA-only dev mode: no SSR server, frontend calls to server-registered page data/API handlers will 404 because they do not exist on Vite's HMR dev server
     "build:client": "vite build --outDir build/client --base=/ --ssrManifest",
 
     // For SSG:
