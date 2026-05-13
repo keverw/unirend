@@ -304,15 +304,26 @@ function MyComponent() {
 
 ```typescript
 // Non-component code runs outside React component tree, so use direct window access. For example in a data loader.
-// On client: Use public API URL from injected config
-// On server (SSR): Use internal endpoints (same network/datacenter) when not using the Fetch/Short-Circuit functionality
 // Note: these globals only exist in the browser — `window` is not available during SSR, so always
 // guard with `typeof window !== 'undefined'` and provide a server-side fallback.
+
+// Client: reads api_endpoint from publicAppConfig when set (e.g. when the API runs on
+// a separate server). Falls back to window.location.origin for same-server setups —
+// no config needed. Set api_endpoint in publicAppConfig to override.
+//
+// Server: uses INTERNAL_API_ENDPOINT when set — useful when running SSR and API in
+// separate server pools where the internal hostname differs from the public URL.
+// Falls back to a localhost URL as a best-effort default for the co-located case.
+// In co-located setups the handler short-circuits on the same instance anyway, so
+// the exact fallback URL rarely matters. Set INTERNAL_API_ENDPOINT to be explicit.
+// If you use a server factory pattern, replace process.env.PORT with the variable
+// or env var that holds your server's port.
 const APIBaseURL =
   typeof window !== 'undefined'
     ? (window.__PUBLIC_APP_CONFIG__?.api_endpoint as string) ||
-      'http://localhost:3001'
-    : process.env.INTERNAL_API_URL || 'http://api-internal:3001'; // Internal endpoint or service URL
+      window.location.origin
+    : (process.env.INTERNAL_API_ENDPOINT ??
+      `http://localhost:${Number(process.env.PORT || 3000)}`);
 
 const config = createDefaultPageDataLoaderConfig(APIBaseURL);
 export const homeLoader = createPageDataLoader(config, 'home');
