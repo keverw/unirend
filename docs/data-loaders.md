@@ -117,7 +117,7 @@ Notes:
   - Request tracing is handled by the built‑in `clientInfo` plugin. Forwarded SSR loader requests share a correlation ID across the SSR and API hops, while each server request keeps its own request ID. `clientInfo` also reads trusted forwarded client details when allowed and otherwise uses the real request IP and user agent. Works for both short‑circuit handlers and HTTP‑forwarded API requests, whether hosted on the same server or a separate API server. For cookies, including reading and setting, see the dedicated cookies plugin doc. Cookie handling works the same for both loader types. See: [clientInfo](./built-in-plugins/clientInfo.md) and [cookies](./built-in-plugins/cookies.md)
   - If both SSR middleware and the API page data handler set the same `request.requestContext` key during SSR, the API value wins because it is merged back later in the request flow
 
-- Prefer `APIResponseHelpers` on the server to build envelopes and auto-populate `request_id` from the request object when set
+- Use `params.APIResponseHelpers` in handlers to build envelopes. It auto-populates `request_id` from the request object and is always the class configured on the server, so any custom subclass set via `APIResponseHelpersClass` is automatically used. See [Helper utilities](./api-envelope-structure.md#helper-utilities)
 - The `pageType` you pass here must match what you register on the server via `server.pageDataHandler.register(pageType, ...)`. See `docs/ssr.md` "Page Data Loader Handlers and Versioning".
 
 Tip:

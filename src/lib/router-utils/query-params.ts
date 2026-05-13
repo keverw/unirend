@@ -29,7 +29,10 @@ import qs from 'qs';
 export function useQueryParams<T = Record<string, unknown>>(): T {
   const { search } = useLocation();
 
-  return useMemo(() => qs.parse(search, { ignoreQueryPrefix: true }), [search]) as unknown as T;
+  return useMemo(
+    () => qs.parse(search, { ignoreQueryPrefix: true }),
+    [search],
+  ) as unknown as T;
 }
 
 /**
