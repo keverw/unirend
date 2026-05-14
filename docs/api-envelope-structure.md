@@ -794,7 +794,7 @@ For convenience, Unirend provides helper functions to construct and validate env
   - `APIResponseHelpers.createAPISuccessResponse({ request, data, statusCode?, meta? })`
   - `APIResponseHelpers.createAPIErrorResponse({ request, statusCode, errorCode, errorMessage, errorDetails?, meta? })`
   - `APIResponseHelpers.createPageSuccessResponse({ request, data, pageMetadata, statusCode?, meta? })`
-  - `APIResponseHelpers.createPageErrorResponse({ request, statusCode, errorCode, errorMessage, pageMetadata, errorDetails?, meta? })`
+  - `APIResponseHelpers.createPageErrorResponse({ request, statusCode, errorCode, errorMessage, errorDetails?, pageMetadata, meta? })`
   - `APIResponseHelpers.createPageRedirectResponse({ request, redirectInfo, pageMetadata, meta? })`
   - `await APIResponseHelpers.sendErrorEnvelope(request, reply, statusCode, errorEnvelope)` - Sends an error envelope immediately using the raw/hijacked response path. This applies shared CORS headers first when the built-in `cors` plugin is present, then writes JSON directly to the socket. Because it uses the raw hijack path, normal Fastify `onSend` hooks do not run for that response.
 - Validate input (Useful for pre-validation before schema validation):

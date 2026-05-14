@@ -224,7 +224,7 @@ export class APIResponseHelpers {
    *   Allows consumers to add application specific meta keys
    *   (e.g. `account`, `pagination`, etc.).
    * @param params - Object containing request, statusCode, errorCode, errorMessage,
-   *   pageMetadata, optional errorDetails, and optional meta.
+   *   optional errorDetails, pageMetadata, and optional meta.
    * @returns A PageErrorResponse envelope with merged meta and a request_id.
    */
 
@@ -233,8 +233,8 @@ export class APIResponseHelpers {
     statusCode: number;
     errorCode: string;
     errorMessage: string;
-    pageMetadata: PageMetadata;
     errorDetails?: ErrorDetailsValue;
+    pageMetadata: PageMetadata;
     meta?: Partial<M>;
   }): PageErrorResponse<M> {
     const {
