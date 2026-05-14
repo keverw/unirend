@@ -139,7 +139,9 @@ async function main() {
         const pageInfo =
           page.page.type === 'ssg'
             ? `${page.page.path} → ${page.page.filename}`
-            : `SPA → ${page.page.filename}`;
+            : page.page.type === 'html'
+              ? `HTML → ${page.page.filename}`
+              : `SPA → ${page.page.filename}`;
 
         if (page.status === 'success') {
           logger.success('  ✅ {{pageInfo}} ({{time}}ms)', {
