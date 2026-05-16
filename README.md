@@ -2,9 +2,11 @@
 
 [![npm version](https://badge.fury.io/js/unirend.svg)](https://badge.fury.io/js/unirend)
 
-**Unirend** is a lightweight toolkit for working with both **SSG (Static Site Generation)** and **SSR (Server-Side Rendering)** in your **Vite + React projects**. The name is a blend of “unified” and “render,” reflecting its goal to unify your build-time and runtime rendering workflows in a single, clean API.
+**Unirend** is a lightweight **SSR (Server-Side Rendering)**, **SSG (Static Site Generation)**, and server toolkit for **Vite + React Router projects**. The name is a blend of “unified” and “render,” reflecting its goal to unify your build-time and runtime rendering workflows in a single, clean API.
 
-Unirend helps you ship SEO-friendly pages and accurate social sharing previews by rendering content at build-time or server-time where needed. You can take a standard Vite + React project and, by changing a few files, convert over to an SSG or SSR project with minimal configuration. The focus is on small, focused building blocks rather than a heavyweight, all-in-one framework.
+Unirend helps you ship SEO-friendly pages and accurate social sharing previews by rendering content at build-time or server-time where needed. You can take a standard Vite + React Router project and, by changing a few files, convert it into an SSG or SSR project with minimal configuration.
+
+The focus is on small, focused building blocks rather than a heavyweight, all-in-one framework. Unirend keeps routing in React Router, builds on Vite, and gives you explicit server utilities for API routes, page data loaders, plugins, uploads, redirects, static serving, and production runtime behavior when your app needs them.
 
 > ⚠️ **Note:** This package is currently in active development and **not yet ready for production use.**
 

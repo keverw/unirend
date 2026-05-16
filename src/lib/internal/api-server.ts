@@ -240,9 +240,7 @@ export class APIServer extends BaseServer {
         (request as { receivedAt?: number }).receivedAt = Date.now();
 
         // Initialize per-request context object (always present, never undefined)
-        (
-          request as { requestContext?: Record<string, unknown> }
-        ).requestContext = {};
+        request.requestContext = {};
 
         request.publicAppConfig = this.options.publicAppConfig
           ? deepFreeze(structuredClone(this.options.publicAppConfig))

@@ -212,17 +212,9 @@ export class DataLoaderServerHandlerHelpers {
               >;
 
               // Only merge if there's actual data to merge (optimization: skip empty objects)
+              // requestContext is always initialized as {} by SSRServer/APIServer before hooks run
               if (Object.keys(contextToMerge).length > 0) {
-                const reqWithContext = request as {
-                  requestContext?: Record<string, unknown>;
-                };
-
-                // Merge into existing requestContext (APIServer/SSRServer initialize it as empty object)
-                if (!reqWithContext.requestContext) {
-                  reqWithContext.requestContext = {};
-                }
-
-                Object.assign(reqWithContext.requestContext, contextToMerge);
+                Object.assign(request.requestContext, contextToMerge);
               }
             }
 

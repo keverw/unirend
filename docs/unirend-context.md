@@ -483,6 +483,7 @@ import type { ServerPlugin } from 'unirend/server';
 export function themePlugin(): ServerPlugin {
   return async (pluginHost) => {
     pluginHost.addHook('onRequest', async (request, reply) => {
+      // request.cookies is provided by the cookies plugin (dependsOn: ['cookies']).
       const cookie = request.cookies.themePreference;
       const validPreferences = ['light', 'dark', 'auto'] as const;
 
@@ -505,7 +506,7 @@ export function themePlugin(): ServerPlugin {
 
 ```typescript
 import { serveSSRProd } from 'unirend/server';
-import { cookies } from '@fastify/cookie';
+import { cookies } from 'unirend/plugins';
 import { themePlugin } from './theme-plugin';
 
 const server = serveSSRProd({

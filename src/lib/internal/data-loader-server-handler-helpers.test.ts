@@ -40,6 +40,7 @@ const createMockRequest = (overrides?: Partial<FastifyRequest>) => {
     clientInfo: {
       isFromSSRServerAPICall: false,
     },
+    requestContext: {},
     ...overrides,
   } as unknown as FastifyRequest;
 };
@@ -904,7 +905,7 @@ describe('DataLoaderServerHandlerHelpers', () => {
       const fastify = createMockFastify();
 
       const handlerSpy = mock((req: any) => {
-        expect(req.requestContext).toBeUndefined();
+        expect(req.requestContext).toEqual({});
         return APIResponseHelpers.createPageSuccessResponse({
           request: req,
           data: {},

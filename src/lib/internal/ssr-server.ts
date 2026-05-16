@@ -593,7 +593,6 @@ export class SSRServer extends BaseServer {
         (
           request as FastifyRequest & {
             isDevelopment?: boolean;
-            requestContext?: Record<string, unknown>;
           }
         ).isDevelopment = getDevMode();
 
@@ -601,11 +600,7 @@ export class SSRServer extends BaseServer {
         (request as { receivedAt?: number }).receivedAt = Date.now();
 
         // Initialize per-request context object (always present, never undefined)
-        (
-          request as FastifyRequest & {
-            requestContext?: Record<string, unknown>;
-          }
-        ).requestContext = {};
+        request.requestContext = {};
 
         const activeSSRAppInternal: ActiveSSRAppInternalState = {};
         request.setDecorator<ActiveSSRAppInternalState>(
@@ -1276,21 +1271,14 @@ export class SSRServer extends BaseServer {
 
               const headInject = headParts.join('\n');
 
-              // Get app-specific config and request context for injection
-              const requestContext =
-                (
-                  request as FastifyRequest & {
-                    requestContext?: Record<string, unknown>;
-                  }
-                ).requestContext || {};
-
               const finalHTML = injectContent(
                 template,
                 headInject,
                 renderResult.html,
                 {
                   app: request.publicAppConfig,
-                  request: requestContext,
+                  // inject per-request context so client-side React hydrates with the same values
+                  request: request.requestContext,
                 },
                 CDNBaseURL,
                 domainInfo,

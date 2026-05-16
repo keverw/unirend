@@ -2030,5 +2030,20 @@ declare module 'fastify' {
      * calculation when Fastify's built-in elapsedTime is unavailable.
      */
     receivedAt?: number;
+    /**
+     * Per-request mutable key-value store initialized by both SSRServer and APIServer
+     * before any plugins or hooks run.
+     *
+     * Use this to pass data between middleware, hooks, and handlers — for example,
+     * seeding user session info, theme preferences, or CSRF tokens from an onRequest
+     * hook so that page data loader handlers and API handlers can read them.
+     *
+     * During SSR, the server injects the final context into the rendered HTML so
+     * client-side React can hydrate with the same values via `useRequestContext()`.
+     *
+     * In separated SSR/API deployments the SSR layer forwards this context to trusted
+     * API page data requests and merges returned context back automatically.
+     */
+    requestContext: Record<string, unknown>;
   }
 }
