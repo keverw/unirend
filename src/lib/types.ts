@@ -19,8 +19,19 @@ import type {
   BaseMeta,
 } from './api-envelope/api-envelope-types';
 import type { UnirendContextValue } from './internal/UnirendContext';
-// Reference type for pluggable API response helpers class
-import type { APIResponseHelpers } from '../api-envelope';
+// NOTE: APIResponseHelpers uses a package-name import — do not change to a relative path.
+// `typeof APIResponseHelpers` captures the class constructor type, which has predicate methods
+// (isSuccessResponse, etc.). The `typeof` is the key: TypeScript 5.5 switched from structural
+// to nominal checking for types referenced inside predicates on constructor types — unlike
+// plain interfaces which use duck typing, two independently inlined copies of this class
+// are treated as incompatible.
+//
+// A relative import would cause rollup-plugin-dts to inline duplicate declarations across
+// bundles, breaking cross-bundle ServerPlugin compatibility.
+// tsconfig.json `paths` maps 'unirend/api-envelope' → ./src/api-envelope.ts so tsc can
+// resolve this when type-checking from source or running demos directly (the package
+// isn't in its own node_modules).
+import type { APIResponseHelpers } from 'unirend/api-envelope';
 
 export type RenderType = 'ssg' | 'ssr';
 export type APIResponseHelpersClass = typeof APIResponseHelpers;

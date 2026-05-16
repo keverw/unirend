@@ -10,7 +10,10 @@
     "lib": ["ES2022", "DOM"],
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "paths": {
+      "unirend/api-envelope": ["./src/api-envelope.ts"]
+    }
   },
   "include": ["src/**/*", "scripts/**/*"],
   "exclude": ["node_modules", "dist"]

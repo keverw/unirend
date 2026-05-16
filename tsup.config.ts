@@ -37,12 +37,25 @@ const getAllDependencies = () => {
   return Array.from(deps).sort();
 };
 
-const allExternals = [...getAllDependencies(), 'unirend/context'];
+// 'unirend/api-envelope' is listed alongside 'unirend/context' so that rollup-plugin-dts
+// emits a cross-reference in server.d.ts / plugins.d.ts instead of inlining independent
+// copies. Unlike plain interfaces which duck type fine, independent copies of a class with
+// predicate methods have different nominal identities and break TypeScript 5.5 strict
+// predicate checking for APIResponseHelpers (via PluginHostInstance → ServerPlugin).
+const allExternals = [
+  ...getAllDependencies(),
+  'unirend/context',
+  'unirend/api-envelope',
+];
 
 // Plugin that redirects ./context imports from UnirendContext/ and UnirendHead/
 // to the shared `unirend/context` subpath so both client and server bundles
 // reference the same createContext() call at runtime instead of each bundling
 // their own copy.
+//
+// NOTE: this is a runtime JS singleton concern (esbuild), not a type declaration concern.
+// For the type declaration equivalent (nominal identity across bundles), see the
+// 'unirend/api-envelope' entry in allExternals and the import comment in src/lib/types.ts.
 const sharedContextPlugin: Plugin = {
   name: 'externalize-shared-contexts',
   setup(build) {
