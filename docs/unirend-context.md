@@ -488,11 +488,11 @@ export function themePlugin(): ServerPlugin {
       const validPreferences = ['light', 'dark', 'auto'] as const;
 
       // Validate — reject tampered or missing values, fall back to 'auto'
-      const preference = validPreferences.includes(
-        cookie as (typeof validPreferences)[number],
-      )
-        ? cookie
-        : 'auto'; // fallback to OS preference if missing or tampered
+      const preference =
+        cookie &&
+        validPreferences.includes(cookie as (typeof validPreferences)[number])
+          ? cookie
+          : 'auto'; // fallback to OS preference if missing or tampered
 
       // Seed into request context so components read the correct value during SSR
       request.requestContext.themePreference = preference;
