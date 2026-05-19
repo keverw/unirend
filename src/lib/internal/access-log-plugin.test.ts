@@ -493,13 +493,16 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
   it('exposes isStaticAsset to finish templates and hook context', async () => {
     const captured: AccessLogResponseContext[] = [];
     const markStaticAssetPlugin: ServerPlugin = (pluginHost) => {
-      pluginHost.addHook('preHandler', async (request) => {
+      pluginHost.addHook('preHandler', (request) => {
         request.isStaticAsset = true;
+        return Promise.resolve();
       });
 
-      pluginHost.get('/api/static-marker-test', async () => ({
-        ok: true,
-      }));
+      pluginHost.get('/api/static-marker-test', () =>
+        Promise.resolve({
+          ok: true,
+        }),
+      );
     };
 
     server = serveAPI({
@@ -513,6 +516,7 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
       },
       plugins: [markStaticAssetPlugin],
     });
+
     await server.listen(port, 'localhost');
 
     const response = await fetch(
