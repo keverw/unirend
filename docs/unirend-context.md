@@ -507,7 +507,9 @@ export function themePlugin(): ServerPlugin {
     pluginHost.addHook('onSend', async (request, reply) => {
       // Defensive guard — onSend is already bypassed for static assets via
       // reply.hijack(), but guard explicitly in case that ever changes.
-      if (request.isStaticAsset) return;
+      if (request.isStaticAsset) {
+        return;
+      }
 
       // Only renew when the cookie was already present — avoids writing a cookie
       // on behalf of users who never explicitly chose a preference.
