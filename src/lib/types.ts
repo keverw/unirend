@@ -544,6 +544,8 @@ export interface AccessLogRequestContext {
   userAgent: string | undefined;
   /** Server label string (e.g. `'SSR'`, `'API'`). Set via the `serverLabel` server option. */
   serverLabel: string;
+  /** Whether the request is being handled as a static asset response. */
+  isStaticAsset: boolean;
   /** Raw Fastify request — same access pattern as data loaders. */
   request: FastifyRequest;
 }
@@ -585,13 +587,13 @@ export interface AccessLogConfig {
   events?: 'start' | 'finish' | 'both' | 'none';
   /**
    * Template for finish/response log lines. Supports {{variable}} placeholders.
-   * Available variables: logSource, method, url, statusCode, responseTime, finishType, reqID, ip, userAgent
+   * Available variables: logSource, method, url, statusCode, responseTime, finishType, reqID, ip, userAgent, serverLabel, isStaticAsset
    * @default 'Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'
    */
   responseTemplate?: string;
   /**
    * Template for start/request log lines. Supports {{variable}} placeholders.
-   * Available variables: logSource, method, url, reqID, ip, userAgent
+   * Available variables: logSource, method, url, reqID, ip, userAgent, serverLabel, isStaticAsset
    * @default 'Request started {{method}} {{url}}'
    */
   requestTemplate?: string;
@@ -2070,5 +2072,19 @@ declare module 'fastify' {
      * client-side `cycleTheme()` helper uses.
      */
     domainInfo: DomainInfo;
+    /**
+     * Set to `true` when the request is handled by the built-in static content
+     * handler (fingerprinted assets, public files, etc.), regardless of which
+     * server type is serving the file.
+     *
+     * Initialized to `false` for every request. The static content handler sets
+     * it to `true` before calling `reply.hijack()`, so it is observable in
+     * `onResponse` hooks and access log templates even though `onSend` is bypassed.
+     *
+     * Use this to skip work that is inappropriate for static asset responses —
+     * for example, cookie renewal should only happen on document/API responses,
+     * not on every `.js` or `.css` file request.
+     */
+    isStaticAsset: boolean;
   }
 }

@@ -31,6 +31,10 @@
   - [Header and Cookies Forwarding](#header-and-cookies-forwarding)
   - [Reading server decorations](#reading-server-decorations)
   - [Environment flag in handlers](#environment-flag-in-handlers)
+    - [isDevelopment](#isdevelopment)
+    - [clientIP and serverLabel](#clientip-and-serverlabel)
+    - [domainInfo](#domaininfo)
+    - [isStaticAsset](#isstaticasset)
   - [Page Data Loader Handlers and Versioning](#page-data-loader-handlers-and-versioning)
   - [Short-Circuit Data Handlers](#short-circuit-data-handlers)
   - [Custom API Routes](#custom-api-routes)
@@ -135,8 +139,8 @@ The following options are accepted by both `SSRServer` and `APIServer`:
 - `accessLog?: AccessLogConfig`
   - First-party access logging - on by default. Use `{ events: 'none' }` to disable, or provide config to customize.
   - `events?: 'start' | 'finish' | 'both' | 'none'` - Which lifecycle events to print a log line for (default: `'finish'`).
-  - `responseTemplate?: string` - Template for finish/response events. Default: `'[{{serverLabel}}] Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'`. Available variables: `logSource`, `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `ip`, `userAgent`, `serverLabel`.
-  - `requestTemplate?: string` - Template for start/request events. Default: `'[{{serverLabel}}] Request started {{method}} {{url}}'`. Available variables: `logSource`, `method`, `url`, `reqID`, `ip`, `userAgent`, `serverLabel`.
+  - `responseTemplate?: string` - Template for finish/response events. Default: `'[{{serverLabel}}] Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'`. Available variables: `logSource`, `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`.
+  - `requestTemplate?: string` - Template for start/request events. Default: `'[{{serverLabel}}] Request started {{method}} {{url}}'`. Available variables: `logSource`, `method`, `url`, `reqID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`.
   - `level?: UnirendLoggerLevel | { success?, clientError?, serverError? }` - Log level. Default: `info` for 2xx/3xx, `warn` for 4xx, `error` for 5xx.
   - `onRequest?: (context: AccessLogRequestContext) => void | Promise<void>` - Custom hook fired at request start when provided. It is awaited before request handling continues. If you intentionally start fire-and-forget work inside it, handle errors explicitly. Fires regardless of the `events` setting.
   - `onResponse?: (context: AccessLogResponseContext) => void | Promise<void>` - Custom hook fired on response completion when provided (both normal and client-aborted). It is awaited after the response finishes or aborts. If you intentionally start fire-and-forget work inside it, handle errors explicitly. `context.finishType` is `'completed'` or `'aborted'`. Fires regardless of the `events` setting.
@@ -314,9 +318,10 @@ const server = serveSSRProd('./build', {
 
 ##### Template Variables
 
-- Response/finish events: `logSource`, `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `ip`, `userAgent`, `serverLabel`
+- Response/finish events: `logSource`, `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`
   - Also supports dot notation for nested fields: `replyInfo.statusCode`, `replyInfo.headers['content-type']`
-- Request/start events: `logSource`, `method`, `url`, `reqID`, `ip`, `userAgent`, `serverLabel`
+- Request/start events: `logSource`, `method`, `url`, `reqID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`
+- `isStaticAsset` is most useful in response/finish templates. Static serving marks it after the access-log start event, so request/start templates always see `false`.
 - `serverLabel` exposes the raw label value (no brackets) - use `[{{serverLabel}}]` if you want brackets in your template output.
 - Dot notation is supported for nested properties (e.g. `{{replyInfo.headers['x-request-id']}}`).
 - Unknown variables are substituted as `???`.
@@ -343,6 +348,7 @@ request.log.info(
     ip: '127.0.0.1',
     userAgent: '...',
     serverLabel: 'SSR',
+    isStaticAsset: false,
     event: 'start',
   },
   '[SSR] Request started GET /page',
@@ -361,6 +367,7 @@ request.log.info(
     ip: '127.0.0.1',
     userAgent: '...',
     serverLabel: 'SSR',
+    isStaticAsset: false,
     event: 'finish',
   },
   '[SSR] Request finished GET /page 200 (45ms)',
@@ -379,6 +386,7 @@ request.log.info(
     ip: '127.0.0.1',
     userAgent: '...',
     serverLabel: 'SSR',
+    isStaticAsset: false,
     event: 'finish',
   },
   '[SSR] Request finished GET /page 0 (0ms)',
@@ -942,7 +950,11 @@ const info = server.getDecoration<{
 
 ### Environment flag in handlers
 
-Within your request handlers (including page data loader handlers), you can check a boolean environment flag on the request to tailor behavior:
+Both `SSRServer` and `APIServer` populate several per-request properties on the Fastify request object. These are available in any handler, hook, or plugin.
+
+#### isDevelopment
+
+A boolean flag you can check to tailor behavior between dev and prod:
 
 ```ts
 server.pageDataHandler.register('example', (request, reply, params) => {
@@ -957,11 +969,11 @@ server.pageDataHandler.register('example', (request, reply, params) => {
 });
 ```
 
-Notes:
+Reflects the current value of `getDevMode()` from `lifecycleion/dev-mode`, set per-request. Call `initDevMode()` at startup to control this value.
 
-- Reflects the current value of `getDevMode()` from `lifecycleion/dev-mode`, set per-request. Call `initDevMode()` at startup to control this value.
+#### clientIP and serverLabel
 
-The resolved client IP and server label are also available as `request.clientIP` and `request.serverLabel` in any handler or hook:
+The resolved client IP and a label identifying which server handled the request:
 
 ```ts
 server.pageDataHandler.register('example', (request, reply, params) => {
@@ -974,7 +986,9 @@ server.pageDataHandler.register('example', (request, reply, params) => {
 });
 ```
 
-Both `SSRServer` and `APIServer` also compute `request.domainInfo` once per request from `request.hostname`, using the public suffix list. It exposes `hostname` (port-stripped, IPv6-safe) and `rootDomain` (the apex domain without a leading dot, e.g. `'example.com'`, with an empty string for localhost and raw IPs).
+#### domainInfo
+
+Computed once per request from `request.hostname` using the public suffix list. Exposes `hostname` (port-stripped, IPv6-safe) and `rootDomain` (the apex domain without a leading dot, e.g. `'example.com'`, with an empty string for localhost and raw IPs).
 
 `request.domainInfo` is always a `DomainInfo` object on the server, never `null`. (The `null` case only exists in the React `useDomainInfo()` hook, which returns `null` during SSG without a configured hostname or in a pure SPA where there is no server request.) `rootDomain` may still be an empty string for localhost and raw IPs, so always guard against that when building the `domain` attribute.
 
@@ -991,6 +1005,14 @@ reply.setCookie('session', token, {
 ```
 
 See the [themePlugin example in unirend-context.md](./unirend-context.md#server-plugin) for a real-world usage of both the server-side `reply.setCookie()` pattern and the client-side `document.cookie` equivalent.
+
+#### isStaticAsset
+
+Set to `true` before any response is sent for a static file. Defaults to `false` for all other requests. This applies to both the SSR server's built-in `staticContentRouter` (the `/assets` serving) and the `staticContent` plugin. They share the same internal serving path, so the marker, `onSend` bypass behavior, and hook ordering all work identically regardless of which one is active.
+
+`isStaticAsset` is also available as an access-log field. Use `{{isStaticAsset}}` in finish/response templates, or read `ctx.isStaticAsset` in `accessLog.onResponse`. Request/start access logs run before static content has marked the request, so they always see `false`.
+
+See [Hook Ordering and Cookie Renewal](./built-in-plugins/staticContent.md#hook-ordering-and-cookie-renewal) in the `staticContent` plugin docs for full details on `onSend` vs `onResponse` patterns and the `isStaticAsset` guard.
 
 ### Page Data Loader Handlers and Versioning
 
@@ -1296,7 +1318,7 @@ Notes:
     - `queryParams`: URL query params (`Record<string, unknown>`, parsed with qs and supports nested objects and arrays)
     - `requestPath`: path without query
     - `originalURL`: full original URL
-    - `APIResponseHelpers`: the helpers class configured on this server — use this instead of importing directly, so custom subclasses are respected
+    - `APIResponseHelpers`: the helpers class configured on this server. Use this instead of importing directly, so custom subclasses are respected
 
 ### Param Source Parity (Data Loader vs API Routes):
 

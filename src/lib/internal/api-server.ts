@@ -249,6 +249,10 @@ export class APIServer extends BaseServer {
         // parseHostHeader('') → { domain: '', port: '' }, rootDomain falls back to ''.
         request.domainInfo = computeDomainInfo(request.hostname);
 
+        // Default false — set true by the static content handler if a static file is served
+        // (e.g. via the staticContent plugin from unirend/plugins).
+        (request as { isStaticAsset?: boolean }).isStaticAsset = false;
+
         request.publicAppConfig = this.options.publicAppConfig
           ? deepFreeze(structuredClone(this.options.publicAppConfig))
           : undefined;

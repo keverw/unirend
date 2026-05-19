@@ -608,6 +608,11 @@ export class SSRServer extends BaseServer {
         // parseHostHeader('') → { domain: '', port: '' }, rootDomain falls back to ''.
         request.domainInfo = computeDomainInfo(request.hostname);
 
+        // Default false — set true by the static content handler before hijacking,
+        // whether that's the built-in /assets serving or a staticContent plugin
+        // registered by the app. Lets onResponse hooks detect static asset requests.
+        (request as { isStaticAsset?: boolean }).isStaticAsset = false;
+
         const activeSSRAppInternal: ActiveSSRAppInternalState = {};
         request.setDecorator<ActiveSSRAppInternalState>(
           'activeSSRAppInternal',

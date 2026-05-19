@@ -810,7 +810,16 @@ export class StaticContentCache {
     } else if (result.status === 'error') {
       // Unexpected error occurred, return error info
       return { served: false, reason: 'error', error: result.error };
-    } else if (result.status === 'not-modified') {
+    }
+
+    // Mark only when static content is about to take ownership of the response.
+    // This keeps onResponse/access-log consumers from seeing failed pre-hijack
+    // stream opens as static asset responses.
+    const markStaticAsset = () => {
+      (req as { isStaticAsset?: boolean }).isStaticAsset = true;
+    };
+
+    if (result.status === 'not-modified') {
       // Client's cache is still valid, send 304.
       // Return HTTP 304 Not Modified response (no body). This saves bandwidth
       // because the client reuses its cached representation.
@@ -838,6 +847,7 @@ export class StaticContentCache {
         .header('Last-Modified', result.lastModified);
 
       await req.applyCORSHeaders?.(reply);
+      markStaticAsset();
       reply.hijack();
       reply.raw.writeHead(304, reply.getHeaders() as OutgoingHttpHeaders);
       reply.raw.end();
@@ -900,6 +910,7 @@ export class StaticContentCache {
           .type('application/json')
           .header('Content-Length', String(Buffer.byteLength(body)));
         await req.applyCORSHeaders?.(reply);
+        markStaticAsset();
         reply.hijack();
         reply.raw.writeHead(400, reply.getHeaders() as OutgoingHttpHeaders);
         reply.raw.end(req.method === 'HEAD' ? undefined : body);
@@ -913,6 +924,7 @@ export class StaticContentCache {
           .header('Content-Range', `bytes */${result.stat.size}`)
           .header('Content-Length', String(Buffer.byteLength(body)));
         await req.applyCORSHeaders?.(reply);
+        markStaticAsset();
         reply.hijack();
         reply.raw.writeHead(416, reply.getHeaders() as OutgoingHttpHeaders);
         reply.raw.end(req.method === 'HEAD' ? undefined : body);
@@ -932,6 +944,7 @@ export class StaticContentCache {
         .header('Content-Length', chunkSize.toString());
 
       await req.applyCORSHeaders?.(reply);
+      markStaticAsset();
       reply.hijack();
       reply.raw.writeHead(206, reply.getHeaders() as OutgoingHttpHeaders);
 
@@ -957,6 +970,7 @@ export class StaticContentCache {
           : result.stat.size;
       reply.header('Content-Length', headContentLength.toString());
       await req.applyCORSHeaders?.(reply);
+      markStaticAsset();
       reply.hijack();
       reply.raw.writeHead(
         reply.statusCode,
@@ -983,6 +997,7 @@ export class StaticContentCache {
       reply.header('Content-Length', result.content.data.length.toString());
     }
 
+    markStaticAsset();
     reply.hijack();
     reply.raw.writeHead(200, reply.getHeaders() as OutgoingHttpHeaders);
 

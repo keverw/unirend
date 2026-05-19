@@ -490,6 +490,44 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
     expect(accessLogs.length).toBeGreaterThan(0);
   });
 
+  it('exposes isStaticAsset to finish templates and hook context', async () => {
+    const captured: AccessLogResponseContext[] = [];
+    const markStaticAssetPlugin: ServerPlugin = (pluginHost) => {
+      pluginHost.addHook('preHandler', async (request) => {
+        request.isStaticAsset = true;
+      });
+
+      pluginHost.get('/api/static-marker-test', async () => ({
+        ok: true,
+      }));
+    };
+
+    server = serveAPI({
+      logging: makeMockLoggingConfig(),
+      accessLog: {
+        responseTemplate:
+          '{{method}} {{url}} static={{isStaticAsset}} {{statusCode}}',
+        onResponse: (ctx) => {
+          captured.push(ctx);
+        },
+      },
+      plugins: [markStaticAssetPlugin],
+    });
+    await server.listen(port, 'localhost');
+
+    const response = await fetch(
+      `http://localhost:${port}/api/static-marker-test`,
+    );
+    await response.text();
+
+    const accessLogs = logs.filter((log) =>
+      log.message.includes('GET /api/static-marker-test static=true 200'),
+    );
+
+    expect(accessLogs.length).toBeGreaterThan(0);
+    expect(captured[0].isStaticAsset).toBe(true);
+  });
+
   it('template substitutes unknown nested dot path as ???', async () => {
     server = serveAPI({
       logging: makeMockLoggingConfig(),

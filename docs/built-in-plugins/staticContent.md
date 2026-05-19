@@ -20,6 +20,7 @@
   - [Range Requests](#range-requests)
   - [Immutable Asset Detection](#immutable-asset-detection)
 - [SSR Server Default Behavior](#ssr-server-default-behavior)
+- [Hook Ordering and Cookie Renewal](#hook-ordering-and-cookie-renewal)
 - [Best Practices](#best-practices)
   - [1. Use Immutable Caching for Build Assets](#1-use-immutable-caching-for-build-assets)
   - [2. Separate User Uploads from Build Assets](#2-separate-user-uploads-from-build-assets)
@@ -467,6 +468,61 @@ The `staticContent` plugin works alongside the default `/assets` serving without
 - ✅ Default `/assets` + plugin `/uploads` → No conflict
 - ✅ Default `/assets` + plugin `/static` → No conflict
 - ❌ Default `/assets` + plugin `/assets` → Conflict (first registered wins)
+
+## Hook Ordering and Cookie Renewal
+
+Everything in this section applies to both ways Unirend serves static files:
+
+- The `staticContent` plugin you register yourself.
+- The SSR server's built-in `staticContentRouter` (`/assets` serving), which uses the same internal static serving path.
+
+In both cases, static responses use `reply.hijack()`, bypass `onSend`, and set `request.isStaticAsset` before taking ownership of the response. Hook ordering still follows Fastify registration order.
+
+Static file serving uses `reply.hijack()` internally, which bypasses Fastify's `onSend` pipeline entirely. This has two practical consequences for plugins that register hooks alongside `staticContent`:
+
+**`onRequest` hooks run in registration order**. Static content handling is installed as an `onRequest` hook:
+
+- For the `staticContent` plugin, hooks registered before the plugin run first. Hooks registered after it may not run for matching static assets because `staticContent` can hijack the response. Register plugins that need to read cookies, seed `requestContext`, or gate static asset access before `staticContent`.
+- For the SSR server's built-in `staticContentRouter`, app plugins are registered first, so app plugin `onRequest` hooks run before built-in `/assets` serving.
+
+**`onSend` is never called for static asset responses** because `reply.hijack()` skips the hook pipeline. If you use `onSend` to set or renew a cookie, it will naturally not fire for `.js`, `.css`, image, and other static file responses. This is almost always the correct behavior:
+
+```ts
+pluginHost.addHook('onSend', (request, reply, _payload, done) => {
+  // onSend is naturally skipped for static assets via reply.hijack(), but we
+  // guard on isStaticAsset too as a defensive check in case that ever changes.
+  if (!request.isStaticAsset) {
+    const existingCookie = request.cookies.sessionToken;
+
+    // Simplified renewal example — a real session system would also validate
+    // the token, handle rotation, check expiry, etc.
+    if (existingCookie) {
+      reply.setCookie?.('sessionToken', existingCookie, {
+        path: '/',
+        maxAge: 60 * 60 * 24 * 7,
+        sameSite: 'lax',
+        domain: request.domainInfo?.rootDomain
+          ? `.${request.domainInfo.rootDomain}`
+          : undefined,
+      });
+    }
+  }
+
+  done();
+});
+```
+
+**`onResponse` still fires for all requests**, including static assets, because it runs after the response is fully sent rather than in the send pipeline. Use `request.isStaticAsset` (set to `true` immediately before static content takes ownership of the response) to skip work that shouldn't apply to asset requests:
+
+```ts
+pluginHost.addHook('onResponse', (request, reply, done) => {
+  if (!request.isStaticAsset) {
+    // e.g. page view logging, analytics, metrics
+  }
+
+  done();
+});
+```
 
 ## Best Practices
 

@@ -151,6 +151,7 @@ function buildRequestContext(
     ip: request.clientIP,
     userAgent: request.headers['user-agent'],
     serverLabel,
+    isStaticAsset: request.isStaticAsset ?? false,
     request,
   };
 }

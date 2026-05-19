@@ -441,6 +441,7 @@ describe('StaticContentCache', () => {
         expect(result.statusCode).toBe(200);
       }
       expect(sentData.headers['Content-Type']).toBe('text/plain');
+      expect((req as { isStaticAsset?: boolean }).isStaticAsset).toBe(true);
     });
 
     it('returns 304 for matching ETags', async () => {
@@ -561,6 +562,7 @@ describe('StaticContentCache', () => {
         smallFileMaxSize: 10,
       });
       const req = createMockRequest('/test.txt');
+      (req as { isStaticAsset?: boolean }).isStaticAsset = false;
       const { reply } = createMockReply();
       const openError = new Error('ENOENT during stream open');
 
@@ -592,6 +594,7 @@ describe('StaticContentCache', () => {
         (reply.raw as unknown as { writeHead: ReturnType<typeof mock> })
           .writeHead,
       ).not.toHaveBeenCalled();
+      expect((req as { isStaticAsset?: boolean }).isStaticAsset).toBe(false);
     });
 
     it('reports compressed Content-Length for HEAD requests on compressible files', async () => {
@@ -1697,6 +1700,7 @@ describe('StaticContentCache', () => {
       const req = createMockRequest('/test.txt', 'GET', {
         range: 'bytes=0-99',
       });
+      (req as { isStaticAsset?: boolean }).isStaticAsset = false;
       const { reply } = createMockReply();
       const openError = new Error('range stream open failed');
 
@@ -1728,6 +1732,7 @@ describe('StaticContentCache', () => {
         (reply.raw as unknown as { writeHead: ReturnType<typeof mock> })
           .writeHead,
       ).not.toHaveBeenCalled();
+      expect((req as { isStaticAsset?: boolean }).isStaticAsset).toBe(false);
     });
 
     it('returns 400 for malformed range header', async () => {
