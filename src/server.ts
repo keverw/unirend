@@ -76,6 +76,7 @@ export { serveRedirect, RedirectServer } from './lib/redirect';
 
 // Re-export Fastify request/reply types to avoid forcing consumers to import 'fastify'
 export type { FastifyRequest, FastifyReply } from 'fastify';
+export type { DomainInfo } from './lib/internal/domain-info';
 export type {
   FastifyRequest as ServerRequest,
   FastifyReply as ServerReply,

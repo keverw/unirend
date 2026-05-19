@@ -3,8 +3,9 @@ export type {
   UnirendContextValue,
   UnirendProviderProps,
   RequestContextManager,
-  DomainInfo,
 } from './context';
+
+export type { DomainInfo } from '../domain-info';
 
 export { UnirendProvider } from './UnirendProvider';
 

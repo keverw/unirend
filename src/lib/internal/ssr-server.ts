@@ -602,6 +602,12 @@ export class SSRServer extends BaseServer {
         // Initialize per-request context object (always present, never undefined)
         request.requestContext = {};
 
+        // Compute domain info once per request so plugins/hooks can read rootDomain
+        // (e.g. to set domain=.rootDomain on cookies) without re-parsing the hostname.
+        // computeDomainInfo handles empty/missing hostnames gracefully:
+        // parseHostHeader('') → { domain: '', port: '' }, rootDomain falls back to ''.
+        request.domainInfo = computeDomainInfo(request.hostname);
+
         const activeSSRAppInternal: ActiveSSRAppInternalState = {};
         request.setDecorator<ActiveSSRAppInternalState>(
           'activeSSRAppInternal',
@@ -1204,10 +1210,6 @@ export class SSRServer extends BaseServer {
               request.CDNBaseURL ??
               ('CDNBaseURL' in appConfig ? appConfig.CDNBaseURL : undefined);
 
-            // computeDomainInfo handles empty/missing hostname gracefully:
-            // parseHostHeader('') → { domain: '', port: '' }, rootDomain falls back to ''.
-            const domainInfo = computeDomainInfo(request.hostname);
-
             const renderResult = await render({
               type: 'ssr',
               fetchRequest,
@@ -1219,7 +1221,7 @@ export class SSRServer extends BaseServer {
                 fetchRequest: fetchRequest,
                 publicAppConfig: request.publicAppConfig,
                 cdnBaseURL: normalizeCDNBaseURL(CDNBaseURL),
-                domainInfo,
+                domainInfo: request.domainInfo,
                 requestContextRevision: '0-0', // Initial revision for this request
               },
             });
@@ -1281,7 +1283,7 @@ export class SSRServer extends BaseServer {
                   request: request.requestContext,
                 },
                 CDNBaseURL,
-                domainInfo,
+                request.domainInfo,
               );
 
               // ---> Send response with the extracted status code

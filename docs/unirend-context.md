@@ -473,7 +473,7 @@ Two separate concerns:
 
 ##### Server Plugin
 
-Seeds `themePreference` into request context from the cookie on each SSR request (`theme-plugin.ts`). Register this on the SSR server when the value must affect the generated HTML or the flash-prevention script. The flash script and this plugin solve different problems — the flash script prevents the visual white flash before JS loads, while this plugin ensures components that render based on the preference value (e.g. `ThemeToggle` showing "Theme: Dark") match between the server render and client hydration. Without it, `ThemeProvider` reconciles via its on-mount cookie effect, but that runs after hydration and would produce a React hydration warning for any component rendering the preference label. Even when SSR data loaders point to a separate API server, Unirend forwards the SSR request context to trusted page data loader requests and merges page response context back automatically, so the SSR plugin is often enough. Add the same cookie parsing/theme seeding logic to the API server only when API-only or browser-originated API requests need to derive the theme without going through the SSR data loader bridge.
+Seeds `themePreference` into request context from the cookie on each SSR request (`theme-plugin.ts`). Register this on the SSR server when the value must affect the generated HTML or the flash-prevention script. The flash script and this plugin solve different problems. The flash script prevents the visual white flash before JS loads, while this plugin ensures components that render based on the preference value (e.g. `ThemeToggle` showing "Theme: Dark") match between the server render and client hydration. Without it, `ThemeProvider` reconciles via its on-mount cookie effect, but that runs after hydration and would produce a React hydration warning for any component rendering the preference label. Even when SSR data loaders point to a separate API server, Unirend forwards the SSR request context to trusted page data loader requests and merges page response context back automatically, so the SSR plugin is often enough. Add the same cookie parsing/theme seeding logic to the API server only when API-only or browser-originated API requests need to derive the theme without going through the SSR data loader bridge.
 
 ```typescript
 import type { ServerPlugin } from 'unirend/server';
@@ -481,17 +481,39 @@ import type { ServerPlugin } from 'unirend/server';
 // Seed theme preference from cookie. Store the raw preference — the server never
 // resolves 'auto' since OS preference isn't available server-side.
 export function themePlugin(): ServerPlugin {
-  return async (pluginHost) => {
-    pluginHost.addHook('onRequest', async (request, reply) => {
+  return (pluginHost) => {
+    pluginHost.addHook('onRequest', (request, reply) => {
       // request.cookies is provided by the cookies plugin (dependsOn: ['cookies']).
       const cookie = request.cookies.themePreference;
       const validPreferences = ['light', 'dark', 'auto'] as const;
 
-      request.requestContext.themePreference = validPreferences.includes(
+      // Validate — reject tampered or missing values, fall back to 'auto'
+      const preference = validPreferences.includes(
         cookie as (typeof validPreferences)[number],
       )
         ? cookie
         : 'auto'; // fallback to OS preference if missing or tampered
+
+      // Seed into request context so components read the correct value during SSR
+      request.requestContext.themePreference = preference;
+
+      // Optional: renew the cookie server-side on each request (rolling expiry).
+      // Only renew when the cookie was already present — avoids writing a cookie on
+      // behalf of users who never explicitly chose a preference.
+      // Pass undefined for domain when rootDomain is empty — Fastify omits the
+      // attribute, giving a host-only cookie (correct for localhost and raw IPs,
+      // since domain=.localhost is invalid per RFC 6265). Matches what cycleTheme()
+      // writes client-side via useDomainInfo().
+      if (cookie) {
+        reply.setCookie('themePreference', preference, {
+          path: '/',
+          maxAge: 60 * 60 * 24 * 365,
+          sameSite: 'lax',
+          domain: request.domainInfo?.rootDomain
+            ? `.${request.domainInfo.rootDomain}`
+            : undefined,
+        });
+      }
     });
 
     return {

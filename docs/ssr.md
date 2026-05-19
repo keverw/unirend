@@ -974,6 +974,24 @@ server.pageDataHandler.register('example', (request, reply, params) => {
 });
 ```
 
+Both `SSRServer` and `APIServer` also compute `request.domainInfo` once per request from `request.hostname`, using the public suffix list. It exposes `hostname` (port-stripped, IPv6-safe) and `rootDomain` (the apex domain without a leading dot, e.g. `'example.com'`, with an empty string for localhost and raw IPs).
+
+`request.domainInfo` is always a `DomainInfo` object on the server, never `null`. (The `null` case only exists in the React `useDomainInfo()` hook, which returns `null` during SSG without a configured hostname or in a pure SPA where there is no server request.) `rootDomain` may still be an empty string for localhost and raw IPs, so always guard against that when building the `domain` attribute.
+
+When setting a cookie in a plugin or hook, use `rootDomain` for the `domain` attribute. Pass `undefined` when `rootDomain` is empty. Fastify omits the attribute entirely, giving you a host-only cookie (the correct behavior for localhost and raw IPs, since `domain=.localhost` is invalid):
+
+```ts
+reply.setCookie('session', token, {
+  path: '/',
+  maxAge: 86400,
+  domain: request.domainInfo?.rootDomain
+    ? `.${request.domainInfo.rootDomain}`
+    : undefined,
+});
+```
+
+See the [themePlugin example in unirend-context.md](./unirend-context.md#server-plugin) for a real-world usage of both the server-side `reply.setCookie()` pattern and the client-side `document.cookie` equivalent.
+
 ### Page Data Loader Handlers and Versioning
 
 The server can automatically expose versioned and non‑versioned page data endpoints based on your `apiEndpoints` configuration:
@@ -1724,6 +1742,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
   - Safe-to-share config cloned and frozen on each API request as `request.publicAppConfig`.
   - API servers do not inject this into HTML. Include selected values in your own envelope `meta`, payload, or custom response handlers when a client should receive them.
   - `CDNBaseURL` is an SSR/SSG HTML rewriting and injection feature. API servers do not populate `request.CDNBaseURL`, even when used as a plain web/static server. Use `publicAppConfig` or your own plugin decoration if API-side handlers need a public CDN URL.
+  - Like SSRServer, APIServer sets `request.domainInfo` on every request (see [Environment flag in handlers](#environment-flag-in-handlers)).
 - `errorHandler?: Function | { api?, web? }`
   - Function form: Returns JSON envelope (see [JSON-Only](#json-only-ssr-compatible))
   - Object form: Split handlers for mixed API + web servers (see [Split Handlers](#split-handlers-mixed-api--web-server)). Either handler can be omitted - missing handlers fall through to default behavior.

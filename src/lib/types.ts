@@ -19,6 +19,7 @@ import type {
   BaseMeta,
 } from './api-envelope/api-envelope-types';
 import type { UnirendContextValue } from './internal/UnirendContext';
+import type { DomainInfo } from './internal/domain-info';
 // NOTE: APIResponseHelpers uses a package-name import — do not change to a relative path.
 // `typeof APIResponseHelpers` captures the class constructor type, which has predicate methods
 // (isSuccessResponse, etc.). The `typeof` is the key: TypeScript 5.5 switched from structural
@@ -2056,5 +2057,18 @@ declare module 'fastify' {
      * API page data requests and merges returned context back automatically.
      */
     requestContext: Record<string, unknown>;
+    /**
+     * Parsed domain information for this request, computed once per request from
+     * `request.hostname` by both SSRServer and APIServer.
+     *
+     * - `hostname`: bare hostname with port stripped (IPv6-safe)
+     * - `rootDomain`: apex domain without a leading dot (e.g. `'example.com'`);
+     *   empty string for localhost and raw IP addresses
+     *
+     * Use `rootDomain` to set subdomain-spanning cookies by prepending a dot:
+     * `domain=.${request.domainInfo.rootDomain}` — the same value that the
+     * client-side `cycleTheme()` helper uses.
+     */
+    domainInfo: DomainInfo;
   }
 }

@@ -25,6 +25,7 @@ import { DEFAULT_API_PREFIX, DEFAULT_PAGE_DATA_ENDPOINT } from './consts';
 import { generateDefault503ClosingPage } from './error-page-utils';
 import { parseHostHeader, getDomain } from 'lifecycleion/domain-utils';
 import { sendRawErrorEnvelopeResponse } from './error-envelope-send';
+import type { DomainInfo } from './domain-info';
 
 /**
  * Normalize an API prefix to ensure it has a leading slash and no trailing slash.
@@ -1062,10 +1063,7 @@ export function normalizeCDNBaseURL(url: string | undefined): string {
  * - `rootDomain`: the apex domain without a leading dot (e.g. `'example.com'`),
  *   or empty string for localhost / IP addresses where no root domain can be resolved.
  */
-export function computeDomainInfo(hostname: string): {
-  hostname: string;
-  rootDomain: string;
-} {
+export function computeDomainInfo(hostname: string): DomainInfo {
   // Use parseHostHeader for correct IPv6 bracket handling
   // e.g. '[::1]:3000' → '::1', 'localhost:3000' → 'localhost'
   const { domain: host } = parseHostHeader(hostname);

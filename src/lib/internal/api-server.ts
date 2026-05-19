@@ -16,6 +16,7 @@ import {
   validateNoHandlersWhenAPIDisabled,
   buildFastifyHTTPSOptions,
   registerClientIPDecoration,
+  computeDomainInfo,
 } from './server-utils';
 import type {
   APIServerOptions,
@@ -241,6 +242,12 @@ export class APIServer extends BaseServer {
 
         // Initialize per-request context object (always present, never undefined)
         request.requestContext = {};
+
+        // Compute domain info once per request so plugins/hooks can read rootDomain
+        // (e.g. to set domain=.rootDomain on cookies) without re-parsing the hostname.
+        // computeDomainInfo handles empty/missing hostnames gracefully:
+        // parseHostHeader('') → { domain: '', port: '' }, rootDomain falls back to ''.
+        request.domainInfo = computeDomainInfo(request.hostname);
 
         request.publicAppConfig = this.options.publicAppConfig
           ? deepFreeze(structuredClone(this.options.publicAppConfig))
