@@ -93,9 +93,10 @@
     "ssr:serve:hmr": "cd demos/ssr && bun run serve-dev.ts dev",
     "ssr:serve:prod": "cd demos/ssr && bun run serve-built.ts prod",
     "ssr:build-and-serve:prod": "bun run ssr:build && bun run ssr:serve:prod",
-    "api-demo": "bun run demos/api-server-demo.ts",
-    "api-static-demo": "bun run demos/api-static-content-demo.ts",
-    "ws-demo": "bun run demos/ws-server-demo.ts",
+    "api-demo": "bun run demos/api-server-demo.ts dev",
+    "api-static-demo": "bun run demos/api-static-content-demo.ts dev",
+    "ws-demo": "bun run demos/ws-server-demo.ts dev",
+    "ws-test": "bun run scripts/test-ws-build.ts",
     "run-dist-cli": "bun ./dist/cli/cli.js",
     "run-dev-cli": "bun run src/cli.ts",
     "dump-error-pages": "bun run scripts/dump-error-pages.ts"

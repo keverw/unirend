@@ -104,7 +104,7 @@ describe('APIResponseHelpers', () => {
       expect(response.request_id).toBe('test-request-id-123');
       expect(response.type).toBe('api');
       expect(response.data).toEqual(data);
-      expect(response.error).toBeNull();
+      expect(response).not.toHaveProperty('error');
       expect(response.meta).toEqual({});
     });
 
@@ -285,7 +285,7 @@ describe('APIResponseHelpers', () => {
       expect(response.request_id).toBe('test-request-id-123');
       expect(response.type).toBe('page');
       expect(response.data).toEqual(data);
-      expect(response.error).toBeNull();
+      expect(response).not.toHaveProperty('error');
       expect(response.meta.page).toEqual(pageMetadata);
     });
 
@@ -390,7 +390,7 @@ describe('APIResponseHelpers', () => {
       expect(response.request_id).toBe('test-request-id-123');
       expect(response.type).toBe('page');
       expect(response.data).toBeNull();
-      expect(response.error).toBeNull();
+      expect(response).not.toHaveProperty('error');
       expect(response.redirect).toEqual(redirectInfo);
       expect(response.meta.page).toEqual(pageMetadata);
     });

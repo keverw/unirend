@@ -1,8 +1,18 @@
 import { useState, useEffect } from 'react';
 
+interface DashboardData {
+  user: string;
+  stats: {
+    views: number;
+    sales: number;
+    revenue: string;
+  };
+  lastLogin: string;
+}
+
 function Dashboard() {
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     // Simulate API call for dynamic data
@@ -16,7 +26,7 @@ function Dashboard() {
         },
         lastLogin: new Date().toLocaleString(),
       });
-      setLoading(false);
+      setIsLoading(false);
     }, 1000);
 
     return () => clearTimeout(timer);
@@ -33,7 +43,7 @@ function Dashboard() {
 
         <div className="card">
           <h2>User Analytics</h2>
-          {loading ? (
+          {isLoading ? (
             <div style={{ textAlign: 'center', padding: '2rem' }}>
               <div
                 style={{
@@ -45,7 +55,7 @@ function Dashboard() {
               </div>
               <p>Loading dashboard data...</p>
             </div>
-          ) : (
+          ) : data ? (
             <div>
               <div
                 style={{
@@ -114,7 +124,7 @@ function Dashboard() {
                 </p>
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       </main>
     </>

@@ -1,5 +1,4 @@
-import { RouteObject, useLoaderData, useParams } from 'react-router';
-import { UnirendHead } from '../../../src/client';
+import type { RouteObject } from 'react-router';
 import RouteErrorBoundary from '../../../src/lib/router-utils/RouteErrorBoundary';
 import {
   createPageDataLoader,
@@ -12,72 +11,7 @@ import ContextDemo from './pages/ContextDemo';
 import AppLayout from './components/AppLayout';
 import CustomNotFound from './components/CustomNotFound';
 import CustomApplicationError from './components/CustomApplicationError';
-
-// Component to display page data JSON with proper layout and SEO
-const PageDataDisplay = () => {
-  const data = useLoaderData();
-  const params = useParams();
-
-  // Extract meta information for document title
-  const title = data?.meta?.page?.title || 'Test Page Data';
-  const description =
-    data?.meta?.page?.description || 'Test page response data';
-
-  return (
-    <>
-      <UnirendHead>
-        <title>{title}</title>
-        <meta name="description" content={description} />
-      </UnirendHead>
-
-      <main className="main-content">
-        <h1 className="hero-title">
-          {params.id ? `Test Page Data (ID: ${params.id})` : 'Test Page Data'}
-        </h1>
-        <p className="hero-subtitle">
-          Debug page showing page data loader request and response details
-        </p>
-
-        <div className="card">
-          <h2>📋 Page Metadata</h2>
-          <p>
-            <strong>Title:</strong> {title}
-          </p>
-          <p>
-            <strong>Description:</strong> {description}
-          </p>
-        </div>
-
-        <div className="card">
-          <h2>🧭 Environment</h2>
-          <p>
-            <strong>Mode:</strong> {data?.meta?.app?.environment || 'unknown'}
-          </p>
-        </div>
-
-        <div className="card">
-          <h2>🔍 Full Response Data</h2>
-          <pre
-            style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.1)',
-              padding: '1rem',
-              borderRadius: '0.5rem',
-              fontSize: '0.875rem',
-              overflow: 'auto',
-              textAlign: 'left',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-              maxHeight: '70vh',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-            }}
-          >
-            {JSON.stringify(data, null, 2)}
-          </pre>
-        </div>
-      </main>
-    </>
-  );
-};
+import PageDataDisplay from './components/PageDataDisplay';
 
 // Shared page data loader config
 const pageDataLoaderConfig = {
@@ -116,7 +50,7 @@ export const routes: RouteObject[] = [
       {
         path: 'test-local-loader',
         element: <PageDataDisplay />,
-        loader: createPageDataLoader(pageDataLoaderConfig, async (params) => {
+        loader: createPageDataLoader(pageDataLoaderConfig, (params) => {
           // Simple local-only loader example
           return {
             status: 'success' as const,
@@ -148,7 +82,7 @@ export const routes: RouteObject[] = [
       {
         path: 'test-local-loader-throws',
         element: <PageDataDisplay />,
-        loader: createPageDataLoader(pageDataLoaderConfig, async (_params) => {
+        loader: createPageDataLoader(pageDataLoaderConfig, (_params) => {
           // Simulated error thrown from a local-only loader
           throw new Error(
             'Simulated error thrown from local page data loader (no HTTP)',
@@ -158,7 +92,7 @@ export const routes: RouteObject[] = [
       {
         path: 'test-local-nonstd',
         element: <PageDataDisplay />,
-        loader: createPageDataLoader(pageDataLoaderConfig, async () => {
+        loader: createPageDataLoader(pageDataLoaderConfig, () => {
           // Local-only loader returning a non-standard HTTP status code.
           // Note: Cookies cannot be set from local loaders since there is no HTTP response;
           // use the HTTP-backed loader (API fetch) if you need to set cookies via Set-Cookie.
@@ -194,7 +128,7 @@ export const routes: RouteObject[] = [
       {
         path: 'test-error-thrown',
         element: null,
-        loader: async () => {
+        loader: () => {
           throw new Error(
             'Simulated error thrown from test-error-thrown loader',
           );

@@ -1,5 +1,5 @@
 import { UnirendHead } from '../../../../src/client';
-import { PageErrorResponse } from '../../../../src/lib/api-envelope/api-envelope-types';
+import type { PageErrorResponse } from '../../../../src/lib/api-envelope/api-envelope-types';
 
 interface CustomNotFoundProps {
   error?: unknown;
@@ -80,11 +80,11 @@ export default function CustomNotFound({
                 border: '1px solid rgba(255, 255, 255, 0.3)',
                 transition: 'all 0.3s ease',
               }}
-              onMouseOver={(e) => {
+              onMouseEnter={(e) => {
                 e.currentTarget.style.background = 'rgba(255, 255, 255, 0.3)';
                 e.currentTarget.style.transform = 'translateY(-2px)';
               }}
-              onMouseOut={(e) => {
+              onMouseLeave={(e) => {
                 e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
                 e.currentTarget.style.transform = 'translateY(0)';
               }}
@@ -105,11 +105,11 @@ export default function CustomNotFound({
                 border: '1px solid rgba(255, 255, 255, 0.3)',
                 transition: 'all 0.3s ease',
               }}
-              onMouseOver={(e) => {
+              onMouseEnter={(e) => {
                 e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
                 e.currentTarget.style.color = '#ffffff';
               }}
-              onMouseOut={(e) => {
+              onMouseLeave={(e) => {
                 e.currentTarget.style.background = 'transparent';
                 e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
               }}
@@ -130,11 +130,11 @@ export default function CustomNotFound({
                 border: '1px solid rgba(255, 255, 255, 0.3)',
                 transition: 'all 0.3s ease',
               }}
-              onMouseOver={(e) => {
+              onMouseEnter={(e) => {
                 e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
                 e.currentTarget.style.color = '#ffffff';
               }}
-              onMouseOut={(e) => {
+              onMouseLeave={(e) => {
                 e.currentTarget.style.background = 'transparent';
                 e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
               }}

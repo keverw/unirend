@@ -61,13 +61,94 @@ interface DemoMeta extends BaseMeta {
 // to reduce duplication in handlers.
 
 class DemoResponseHelpers extends APIResponseHelpers {
+  public static createAPISuccessResponse<
+    T,
+    M extends BaseMeta = BaseMeta,
+  >(params: {
+    request: FastifyRequest;
+    data: T;
+    statusCode?: number;
+    meta?: Partial<M>;
+  }) {
+    const meta = this.mergeMeta<M>(params.request, params.meta);
+    return APIResponseHelpers.createAPISuccessResponse<T, M>({
+      ...params,
+      meta,
+    });
+  }
+
+  public static createAPIErrorResponse<M extends BaseMeta = BaseMeta>(params: {
+    request: FastifyRequest;
+    statusCode: number;
+    errorCode: string;
+    errorMessage: string;
+    errorDetails?: Record<string, unknown>;
+    meta?: Partial<M>;
+  }) {
+    const meta = this.mergeMeta<M>(params.request, params.meta);
+    return APIResponseHelpers.createAPIErrorResponse<M>({ ...params, meta });
+  }
+
+  public static createPageSuccessResponse<
+    T,
+    M extends BaseMeta = BaseMeta,
+  >(params: {
+    request: FastifyRequest;
+    data: T;
+    pageMetadata: Parameters<
+      typeof APIResponseHelpers.createPageSuccessResponse
+    >[0]['pageMetadata'];
+    statusCode?: number;
+    meta?: Partial<M>;
+  }) {
+    const meta = this.mergeMeta<M>(params.request, params.meta);
+    return APIResponseHelpers.createPageSuccessResponse<T, M>({
+      ...params,
+      meta,
+    });
+  }
+
+  public static createPageRedirectResponse<
+    M extends BaseMeta = BaseMeta,
+  >(params: {
+    request: FastifyRequest;
+    redirectInfo: Parameters<
+      typeof APIResponseHelpers.createPageRedirectResponse
+    >[0]['redirectInfo'];
+    pageMetadata: Parameters<
+      typeof APIResponseHelpers.createPageRedirectResponse
+    >[0]['pageMetadata'];
+    meta?: Partial<M>;
+  }) {
+    const meta = this.mergeMeta<M>(params.request, params.meta);
+    return APIResponseHelpers.createPageRedirectResponse<M>({
+      ...params,
+      meta,
+    });
+  }
+
+  public static createPageErrorResponse<M extends BaseMeta = BaseMeta>(params: {
+    request: FastifyRequest;
+    statusCode: number;
+    errorCode: string;
+    errorMessage: string;
+    pageMetadata: Parameters<
+      typeof APIResponseHelpers.createPageErrorResponse
+    >[0]['pageMetadata'];
+    errorDetails?: Record<string, unknown>;
+    meta?: Partial<M>;
+  }) {
+    const meta = this.mergeMeta<M>(params.request, params.meta);
+    return APIResponseHelpers.createPageErrorResponse<M>({ ...params, meta });
+  }
+
   private static buildDefaultMeta(request: FastifyRequest): Partial<DemoMeta> {
     const isDev = Boolean(
       (request as FastifyRequest & { isDevelopment?: boolean }).isDevelopment,
     );
 
     return {
-      // In a real app this could come from headers, cookies, or an auth plugin decoration.
+      // In a real app this meta could come from headers, cookies, or an auth plugin decoration.
       account: {
         isAuthenticated: false,
       },
@@ -87,90 +168,19 @@ class DemoResponseHelpers extends APIResponseHelpers {
     const provided = (meta as unknown as Record<string, unknown>) || {};
     return { ...defaults, ...provided } as unknown as M;
   }
-
-  static createAPISuccessResponse<T, M extends BaseMeta = BaseMeta>(params: {
-    request: FastifyRequest;
-    data: T;
-    statusCode?: number;
-    meta?: Partial<M>;
-  }) {
-    const meta = this.mergeMeta<M>(params.request, params.meta);
-    return APIResponseHelpers.createAPISuccessResponse<T, M>({
-      ...params,
-      meta,
-    });
-  }
-
-  static createAPIErrorResponse<M extends BaseMeta = BaseMeta>(params: {
-    request: FastifyRequest;
-    statusCode: number;
-    errorCode: string;
-    errorMessage: string;
-    errorDetails?: Record<string, unknown>;
-    meta?: Partial<M>;
-  }) {
-    const meta = this.mergeMeta<M>(params.request, params.meta);
-    return APIResponseHelpers.createAPIErrorResponse<M>({ ...params, meta });
-  }
-
-  static createPageSuccessResponse<T, M extends BaseMeta = BaseMeta>(params: {
-    request: FastifyRequest;
-    data: T;
-    pageMetadata: Parameters<
-      typeof APIResponseHelpers.createPageSuccessResponse
-    >[0]['pageMetadata'];
-    statusCode?: number;
-    meta?: Partial<M>;
-  }) {
-    const meta = this.mergeMeta<M>(params.request, params.meta);
-    return APIResponseHelpers.createPageSuccessResponse<T, M>({
-      ...params,
-      meta,
-    });
-  }
-
-  static createPageRedirectResponse<M extends BaseMeta = BaseMeta>(params: {
-    request: FastifyRequest;
-    redirectInfo: Parameters<
-      typeof APIResponseHelpers.createPageRedirectResponse
-    >[0]['redirectInfo'];
-    pageMetadata: Parameters<
-      typeof APIResponseHelpers.createPageRedirectResponse
-    >[0]['pageMetadata'];
-    meta?: Partial<M>;
-  }) {
-    const meta = this.mergeMeta<M>(params.request, params.meta);
-    return APIResponseHelpers.createPageRedirectResponse<M>({
-      ...params,
-      meta,
-    });
-  }
-
-  static createPageErrorResponse<M extends BaseMeta = BaseMeta>(params: {
-    request: FastifyRequest;
-    statusCode: number;
-    errorCode: string;
-    errorMessage: string;
-    pageMetadata: Parameters<
-      typeof APIResponseHelpers.createPageErrorResponse
-    >[0]['pageMetadata'];
-    errorDetails?: Record<string, unknown>;
-    meta?: Partial<M>;
-  }) {
-    const meta = this.mergeMeta<M>(params.request, params.meta);
-    return APIResponseHelpers.createPageErrorResponse<M>({ ...params, meta });
-  }
 }
 
 // ─── Plugins ──────────────────────────────────────────────────────────────────
 
-const apiRoutesPlugin: ServerPlugin = async (
+const apiRoutesPlugin: ServerPlugin = (
   fastify: PluginHostInstance,
   options: PluginOptions,
 ) => {
+  // eslint-disable-next-line no-console
   console.log(`🔌 Registering API routes plugin (${options.mode} mode)`);
 
   fastify.addHook('onRequest', async (request, reply) => {
+    // eslint-disable-next-line no-console
     console.log(
       `[${new Date().toISOString()}] ${request.method} ${request.url}`,
     );
@@ -217,6 +227,7 @@ const apiRoutesPlugin: ServerPlugin = async (
 
   fastify.post('/api/contact', async (request, _reply) => {
     const body = request.body as Record<string, unknown>;
+    // eslint-disable-next-line no-console
     console.log('Contact form submission:', body);
     await new Promise((resolve) => setTimeout(resolve, 100));
     return APIResponseHelpers.createAPISuccessResponse({
@@ -236,14 +247,15 @@ const apiRoutesPlugin: ServerPlugin = async (
 function registerPageDataHandlers(server: SSRServer) {
   server.pageDataHandler.register(
     'test',
-    async (
+    (
       request: FastifyRequest,
       reply: ControlledReply,
       params: PageDataHandlerParams,
     ) => {
-      const devFlag = (request as FastifyRequest & { isDevelopment?: boolean })
-        .isDevelopment;
-      const environment = devFlag ? 'development' : 'production';
+      const isDev = Boolean(
+        (request as FastifyRequest & { isDevelopment?: boolean }).isDevelopment,
+      );
+      const environment = isDev ? 'development' : 'production';
 
       if (reply.setCookie) {
         reply.setCookie('ssr_demo', environment, {
@@ -268,7 +280,7 @@ function registerPageDataHandlers(server: SSRServer) {
           version: params.version,
           invocation_origin: params.invocationOrigin,
           timestamp: new Date().toISOString(),
-          server_isDevelopment: !!devFlag,
+          server_is_development: isDev,
           request: {
             method: request.method,
             url: request.url,
@@ -293,7 +305,7 @@ function registerPageDataHandlers(server: SSRServer) {
 
   server.pageDataHandler.register(
     'test-500',
-    async (request: FastifyRequest, _reply, params: PageDataHandlerParams) => {
+    (request: FastifyRequest, _reply, params: PageDataHandlerParams) => {
       return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
         request,
         statusCode: 500,
@@ -315,7 +327,7 @@ function registerPageDataHandlers(server: SSRServer) {
 
   server.pageDataHandler.register(
     'test-stacktrace',
-    async (request: FastifyRequest, _reply, params: PageDataHandlerParams) => {
+    (request: FastifyRequest, _reply, params: PageDataHandlerParams) => {
       let stack: string;
       try {
         throw new Error('Demo error for stack trace display');
@@ -348,7 +360,7 @@ function registerPageDataHandlers(server: SSRServer) {
 
   server.pageDataHandler.register(
     'test-generic-error',
-    async (request: FastifyRequest, _reply, params: PageDataHandlerParams) => {
+    (request: FastifyRequest, _reply, params: PageDataHandlerParams) => {
       return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
         request,
         statusCode: 400,
@@ -372,7 +384,7 @@ function registerPageDataHandlers(server: SSRServer) {
   // custom account/app meta along with the not-found envelope.
   server.pageDataHandler.register(
     'not-found',
-    async (request: FastifyRequest, _reply, params: PageDataHandlerParams) => {
+    (request: FastifyRequest, _reply, params: PageDataHandlerParams) => {
       return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
         request,
         statusCode: 404,
@@ -399,9 +411,10 @@ function registerPageDataHandlers(server: SSRServer) {
 // See docs/file-upload-helpers.md for more security guidance.
 
 function registerFileUploadRoutes(server: SSRServer) {
+  // eslint-disable-next-line no-console
   console.log('📁 Registering file upload routes');
 
-  server.api.get('upload', async (request) => {
+  server.api.get('upload', (request) => {
     return APIResponseHelpers.createAPISuccessResponse({
       request,
       data: {
@@ -474,7 +487,9 @@ function registerFileUploadRoutes(server: SSRServer) {
         context.onCleanup(async () => {
           try {
             await unlink(tempPath);
-          } catch {}
+          } catch {
+            // Best-effort cleanup for temporary demo uploads.
+          }
         });
         await pipeline(fileStream, createWriteStream(tempPath));
         return {
@@ -485,7 +500,11 @@ function registerFileUploadRoutes(server: SSRServer) {
         };
       },
     });
-    if (!result.success) return result.errorEnvelope;
+
+    if (!result.success) {
+      return result.errorEnvelope;
+    }
+
     return APIResponseHelpers.createAPISuccessResponse({
       request,
       data: result.files[0].data,
@@ -511,7 +530,9 @@ function registerFileUploadRoutes(server: SSRServer) {
         context.onCleanup(async () => {
           try {
             await unlink(tempPath);
-          } catch {}
+          } catch {
+            // Best-effort cleanup for temporary demo uploads.
+          }
         });
         await pipeline(fileStream, createWriteStream(tempPath));
         return {
@@ -522,7 +543,11 @@ function registerFileUploadRoutes(server: SSRServer) {
         };
       },
     });
-    if (!result.success) return result.errorEnvelope;
+
+    if (!result.success) {
+      return result.errorEnvelope;
+    }
+
     return APIResponseHelpers.createAPISuccessResponse({
       request,
       data: result.files[0].data,
@@ -556,7 +581,9 @@ function registerFileUploadRoutes(server: SSRServer) {
         context.onCleanup(async () => {
           try {
             await unlink(tempPath);
-          } catch {}
+          } catch {
+            // Best-effort cleanup for temporary demo uploads.
+          }
         });
         await pipeline(fileStream, createWriteStream(tempPath));
         return {
@@ -567,7 +594,11 @@ function registerFileUploadRoutes(server: SSRServer) {
         };
       },
     });
-    if (!result.success) return result.errorEnvelope;
+
+    if (!result.success) {
+      return result.errorEnvelope;
+    }
+
     return APIResponseHelpers.createAPISuccessResponse({
       request,
       data: result.files[0].data,
@@ -588,7 +619,9 @@ function registerFileUploadRoutes(server: SSRServer) {
         context.onCleanup(async () => {
           try {
             await unlink(tempPath);
-          } catch {}
+          } catch {
+            // Best-effort cleanup for temporary demo uploads.
+          }
         });
         await pipeline(fileStream, createWriteStream(tempPath));
         return {
@@ -599,7 +632,11 @@ function registerFileUploadRoutes(server: SSRServer) {
         };
       },
     });
-    if (!result.success) return result.errorEnvelope;
+
+    if (!result.success) {
+      return result.errorEnvelope;
+    }
+
     return APIResponseHelpers.createAPISuccessResponse({
       request,
       data: result.files[0].data,
@@ -618,17 +655,23 @@ function registerFileUploadRoutes(server: SSRServer) {
         const hash = crypto.createHash('sha256');
         const chunks: Buffer[] = [];
         let totalBytes = 0;
-        context.onCleanup(async () => {
+
+        context.onCleanup(() => {
+          // eslint-disable-next-line no-console
           console.log('🧹 Cleaned up checksum upload');
         });
+
         for await (const chunk of fileStream) {
-          if (context.isAborted())
+          if (context.isAborted()) {
             throw new Error('Upload aborted during checksum calculation');
+          }
+
           const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
           totalBytes += buffer.length;
           hash.update(buffer);
           chunks.push(buffer);
         }
+
         return {
           filename: metadata.filename,
           size: totalBytes,
@@ -636,7 +679,11 @@ function registerFileUploadRoutes(server: SSRServer) {
         };
       },
     });
-    if (!result.success) return result.errorEnvelope;
+
+    if (!result.success) {
+      return result.errorEnvelope;
+    }
+
     return APIResponseHelpers.createAPISuccessResponse({
       request,
       data: result.files[0].data,
@@ -661,6 +708,7 @@ function createSharedConfig() {
       isDevelopment: boolean,
       isPageData?: boolean,
     ) => {
+      // eslint-disable-next-line no-console
       console.error('🚨 SSR API Error:', error.message);
       if (isPageData) {
         return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
@@ -697,6 +745,7 @@ function createSharedConfig() {
       });
     },
     notFoundHandler: (request: FastifyRequest, isPageData?: boolean) => {
+      // eslint-disable-next-line no-console
       console.log('🔍 SSR API 404:', request.url, 'isPageData:', isPageData);
       if (isPageData) {
         return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
@@ -1038,7 +1087,7 @@ export class SSRServerComponent extends BaseComponent {
     registerFileUploadRoutes(this.server);
 
     // Register API shortcut routes
-    this.server.api.get('demo/echo/:id', async (request) => {
+    this.server.api.get('demo/echo/:id', (request) => {
       return APIResponseHelpers.createAPISuccessResponse({
         request,
         data: {
@@ -1051,7 +1100,7 @@ export class SSRServerComponent extends BaseComponent {
     });
 
     // Intentionally invalid envelope demo for validation behavior
-    this.server.api.get('demo/bad-envelope', async (_request) => {
+    this.server.api.get('demo/bad-envelope', (_request) => {
       return { invalid: true } as unknown as ReturnType<
         typeof APIResponseHelpers.createAPISuccessResponse
       >;

@@ -283,7 +283,7 @@ export class WebSocketServerHelpers {
           reply.header('Cache-Control', 'no-store');
         }
 
-        reply.code(notFoundEnvelope.status_code).send(notFoundEnvelope);
+        await reply.code(notFoundEnvelope.status_code).send(notFoundEnvelope);
         return;
       }
 
@@ -328,7 +328,7 @@ export class WebSocketServerHelpers {
             reply.header('Cache-Control', 'no-store');
           }
 
-          reply.code(envelope.status_code).send(envelope);
+          await reply.code(envelope.status_code).send(envelope);
           return;
         }
 
@@ -349,7 +349,7 @@ export class WebSocketServerHelpers {
           reply.header('Cache-Control', 'no-store');
         }
 
-        reply.code(errorEnvelope.status_code).send(errorEnvelope);
+        await reply.code(errorEnvelope.status_code).send(errorEnvelope);
       }
     });
   }

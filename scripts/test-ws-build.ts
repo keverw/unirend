@@ -114,7 +114,7 @@ async function buildDemo(): Promise<void> {
 async function startBuiltDemo(): Promise<ChildProcess> {
   console.log('🚀 Starting built WebSocket demo...');
 
-  const serverProcess = spawn('node', [BUILD_OUTPUT], {
+  const serverProcess = spawn('node', [BUILD_OUTPUT, 'dev'], {
     stdio: ['inherit', 'pipe', 'pipe'],
     cwd: process.cwd(),
   });
@@ -132,10 +132,10 @@ async function startBuiltDemo(): Promise<ChildProcess> {
       output += chunk;
       console.log(chunk.trim());
 
-      // Check if both servers are running
+      // Check if both servers are running (matches logger.success output after template substitution)
       if (
-        output.includes('✅ SSR Server running') &&
-        output.includes('✅ API Server running')
+        output.includes('SSR WebSocket server running') &&
+        output.includes('API WebSocket server running')
       ) {
         clearTimeout(timeout);
         resolve(serverProcess);
@@ -426,7 +426,7 @@ async function testConnections(
 function printResults(
   ssrResults: TestResult[],
   apiResults: TestResult[],
-): void {
+): number {
   console.log('\n📊 Test Results Summary:');
   console.log('═'.repeat(60));
 
@@ -466,6 +466,8 @@ function printResults(
   } else {
     console.log('⚠️  Some tests failed. Check the output above for details.');
   }
+
+  return failed;
 }
 
 /**
@@ -490,7 +492,11 @@ async function runTests(): Promise<void> {
     const apiResults = await testConnections(3002, 'API');
 
     // Print results
-    printResults(ssrResults, apiResults);
+    const failed = printResults(ssrResults, apiResults);
+
+    if (failed > 0) {
+      process.exitCode = 1;
+    }
   } catch (error) {
     console.error('❌ Test execution failed:', error);
     process.exit(1);

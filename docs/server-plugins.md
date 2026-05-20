@@ -221,9 +221,11 @@ pluginHost.addHook('onRequestAbort', handler);
 // Use onRequest or preHandler for headers, not onSend
 ```
 
-> **Note:** Both sync and async handlers are supported. This differs from vanilla Fastify, where hooks must either be `async` or call a `done` callback. A plain sync function silently hangs every request. `pluginHost.addHook` is a Unirend helper that automatically wraps every handler in `async` before registering it, so you never have to think about this.
+> **Note:** Both sync and async handlers are supported. This differs from vanilla Fastify, where hooks must either be `async` or call a `done` callback. A plain sync function silently hangs every request. `pluginHost.addHook` is a Unirend helper that wraps handlers before registering them, so you never have to think about this.
 
 The done-callback style is not supported through `pluginHost.addHook`. Use `async` or a plain sync function instead. If you need raw Fastify hook semantics (including done callbacks), register a Fastify plugin via `pluginHost.register()`, which behaves like standard Fastify.
+
+For early lifecycle hooks (`onRequest`, `preValidation`, and `preHandler`), `pluginHost.addHook` also preserves responses sent from sync hooks. If your hook calls `reply.send()` or `reply.redirect()` and returns nothing, Unirend treats the already-sent reply as the hook result so the request does not fall through to normal routing. Returning the reply is still explicit and recommended.
 
 ```typescript
 // ✅ Async style — use when your hook does async work
@@ -231,9 +233,17 @@ pluginHost.addHook('onRequest', async (request, reply) => {
   request.requestContext.userID = await resolveUser(request);
 });
 
-// ✅ Sync style — works too, the framework wraps it in async for you
+// ✅ Sync style — works too, the framework wraps it for you
 pluginHost.addHook('onRequest', (request, reply) => {
   request.requestContext.userID = resolveUserSync(request);
+});
+
+// ✅ Early response style — return reply when practical; Unirend also
+// preserves already-sent early replies when a sync hook forgets to return it.
+pluginHost.addHook('preHandler', (request, reply) => {
+  if (!request.user) {
+    return reply.code(401).send({ error: 'authentication_required' });
+  }
 });
 ```
 

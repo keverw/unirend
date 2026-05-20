@@ -18,8 +18,6 @@ export default [
       '**/build/**',
       '**/coverage/**',
       '**/tmp/**',
-      // TODO: Re-enable demo linting after planned demo upgrades
-      '**/demos/**',
       // Dependencies
       '**/node_modules/**',
       // Repo-specific: Composer dependencies for the unirend-php companion package

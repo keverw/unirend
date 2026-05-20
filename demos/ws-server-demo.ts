@@ -4,11 +4,65 @@
  * This demo shows how to use unirend's WebSocket functionality with both
  * SSR and API server configurations. It demonstrates different validation
  * scenarios including always-allow, always-reject, and token-based validation.
+ *
+ * Run with: bun run ws-demo
+ *
+ * Signals:
+ *   SIGINT / Ctrl+C / ESC — graceful shutdown
+ *   SIGUSR1 / I key       — print component health
  */
 
+import { initDevMode, getDevMode } from 'lifecycleion/dev-mode';
+import {
+  LifecycleManager,
+  BaseComponent,
+} from 'lifecycleion/lifecycle-manager';
+import { Logger, ConsoleSink, LogLevel } from 'lifecycleion/logger';
+import { assertSupportedRuntime } from '../src/utils';
 import { serveSSRDev, serveAPI } from '../src/server';
-import type { SSRServer, APIServer } from '../src/server';
+import type { SSRServer, APIServer, APIRouteHandler } from '../src/server';
 import { APIResponseHelpers } from '../src/api-envelope';
+import type { RawData, WebSocket } from 'ws';
+import path from 'path';
+
+const PORT_SSR = 3001;
+const PORT_API = 3002;
+const SSR_DEMO_DIR = path.join(import.meta.dirname, 'ssr');
+
+// ─── Bootstrap ───────────────────────────────────────────────────────────────
+assertSupportedRuntime();
+initDevMode({ detect: 'cmd', strict: true });
+
+// ─── Logger ──────────────────────────────────────────────────────────────────
+const isDev = getDevMode();
+
+const logger = new Logger({
+  sinks: [
+    new ConsoleSink({
+      colors: true,
+      timestamps: true,
+      minLevel: isDev ? LogLevel.DEBUG : LogLevel.SUCCESS,
+    }),
+  ],
+});
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function webSocketMessageToString(message: RawData): string {
+  if (typeof message === 'string') {
+    return message;
+  }
+
+  if (Buffer.isBuffer(message)) {
+    return message.toString();
+  }
+
+  if (message instanceof ArrayBuffer) {
+    return Buffer.from(message).toString();
+  }
+
+  return Buffer.concat(message).toString();
+}
 
 /**
  * Helper function to create /stats endpoint handler
@@ -18,15 +72,16 @@ function createStatsEndpointHandler(
   serverName: string,
   port: number,
 ) {
-  return async (request, reply) => {
+  const handler: APIRouteHandler = (request, _reply) => {
     const clientCount = server?.getWebSocketClients().size ?? 0;
 
+    // eslint-disable-next-line no-console
     console.log(
       `📊 Stats requested: ${clientCount} WebSocket clients connected`,
     );
 
     return APIResponseHelpers.createAPISuccessResponse({
-      request: request,
+      request,
       data: {
         websocketClients: clientCount,
         timestamp: new Date().toISOString(),
@@ -40,26 +95,30 @@ function createStatsEndpointHandler(
       },
     });
   };
+
+  return handler;
 }
 
 /**
- * Helper function to create preClose hook handler
+ * Helper function to create a preClose hook handler for graceful WebSocket shutdown.
+ * Closes all connected clients with a 1001 Going Away code and waits briefly for
+ * them to acknowledge before the server proceeds with shutdown.
  */
-function createPreCloseHandler(serverType: 'ssr' | 'api', serverName: string) {
-  return async (clients: Set<any>) => {
-    console.log(
-      `🔄 ${serverName} preClose hook called with ${clients.size} clients`,
+function createPreCloseHandler(
+  serverName: string,
+  componentLogger: Pick<Logger, 'info'>,
+) {
+  return async (clients: Set<unknown>) => {
+    componentLogger.info(
+      '{{serverName}} preClose hook: closing {{count}} WebSocket clients',
+      { params: { serverName, count: clients.size } },
     );
 
-    preCloseHookStatus[serverType] = true;
-
-    // Gracefully close all WebSocket connections
     for (const client of clients) {
-      (
-        client as unknown as {
-          close: (code: number, reason: string) => void;
-        }
-      ).close(1001, `${serverName} shutting down gracefully`);
+      (client as WebSocket).close(
+        1001,
+        `${serverName} shutting down gracefully`,
+      );
     }
 
     // Wait a moment for connections to close
@@ -68,18 +127,19 @@ function createPreCloseHandler(serverType: 'ssr' | 'api', serverName: string) {
 }
 
 /**
- * Reusable function to register WebSocket handlers on any server instance
- * This allows us to use the same WebSocket endpoints on both SSR and API servers
+ * Reusable function to register WebSocket handlers on any server instance.
+ * This allows the same WebSocket endpoints to be demonstrated on both SSR and API servers.
  */
-
-// Helper function to register WebSocket handlers on a server
 function registerWebSocketHandlers(server: SSRServer | APIServer) {
   // Path 1: Always allow upgrade
   server.registerWebSocketHandler({
     path: '/ws/always-allow',
-    handler: (socket, request, params, upgradeData) => {
+    handler: (socket, _request, params, upgradeData) => {
+      // eslint-disable-next-line no-console
       console.log('✅ WebSocket connected to /ws/always-allow');
+      // eslint-disable-next-line no-console
       console.log('Params:', params);
+      // eslint-disable-next-line no-console
       console.log('Upgrade data:', upgradeData);
 
       socket.send(
@@ -91,17 +151,20 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
       );
 
       socket.on('message', (message) => {
-        console.log('Received message:', message.toString());
+        const messageText = webSocketMessageToString(message);
+        // eslint-disable-next-line no-console
+        console.log('Received message:', messageText);
         socket.send(
           JSON.stringify({
             type: 'echo',
-            original: message.toString(),
+            original: messageText,
             timestamp: new Date().toISOString(),
           }),
         );
       });
 
       socket.on('close', () => {
+        // eslint-disable-next-line no-console
         console.log('❌ WebSocket disconnected from /ws/always-allow');
       });
     },
@@ -110,7 +173,8 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
   // Path 2: Always reject upgrade
   server.registerWebSocketHandler({
     path: '/ws/always-reject',
-    preValidate: async (request, params) => {
+    preValidate: (request, params) => {
+      // eslint-disable-next-line no-console
       console.log('🚫 Rejecting WebSocket at path:', params.path);
       return {
         action: 'reject',
@@ -131,6 +195,7 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
     },
     handler: (socket, _request, params) => {
       // This handler should never be called due to preValidation rejection
+      // eslint-disable-next-line no-console
       console.log(
         '🚨 ERROR: Handler called for always-reject endpoint!',
         params,
@@ -142,7 +207,7 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
   // Path 3: Token-based validation
   server.registerWebSocketHandler({
     path: '/ws/token-validation',
-    preValidate: async (request, params) => {
+    preValidate: (request, params) => {
       const shouldUpgrade = (params.queryParams['should-upgrade'] ||
         '') as string;
 
@@ -178,8 +243,11 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
       }
     },
     handler: (socket, _request, params, upgradeData) => {
+      // eslint-disable-next-line no-console
       console.log('🔐 WebSocket connected to /ws/token-validation');
+      // eslint-disable-next-line no-console
       console.log('Params:', params);
+      // eslint-disable-next-line no-console
       console.log('Validated upgrade data:', upgradeData);
 
       socket.send(
@@ -192,11 +260,13 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
       );
 
       socket.on('message', (message) => {
-        console.log('Authenticated message:', message.toString());
+        const messageText = webSocketMessageToString(message);
+        // eslint-disable-next-line no-console
+        console.log('Authenticated message:', messageText);
         socket.send(
           JSON.stringify({
             type: 'secure-echo',
-            original: message.toString(),
+            original: messageText,
             authenticated: true,
             timestamp: new Date().toISOString(),
           }),
@@ -204,6 +274,7 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
       });
 
       socket.on('close', () => {
+        // eslint-disable-next-line no-console
         console.log('❌ Authenticated WebSocket disconnected');
       });
     },
@@ -212,7 +283,7 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
   // Path 4: Echo with query parameter message
   server.registerWebSocketHandler({
     path: '/ws/echo',
-    preValidate: async (request, params) => {
+    preValidate: (_request, params) => {
       const message = (params.queryParams['msg'] || '') as string;
 
       return {
@@ -224,8 +295,11 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
       };
     },
     handler: (socket, _request, params, upgradeData) => {
+      // eslint-disable-next-line no-console
       console.log('📢 WebSocket connected to /ws/echo');
+      // eslint-disable-next-line no-console
       console.log('Params:', params);
+      // eslint-disable-next-line no-console
       console.log('Echo upgrade data:', upgradeData);
 
       // Send the initial message from query parameter if provided
@@ -252,7 +326,8 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
       );
 
       socket.on('message', (message) => {
-        const messageText = message.toString();
+        const messageText = webSocketMessageToString(message);
+        // eslint-disable-next-line no-console
         console.log('Echo message:', messageText);
         socket.send(
           JSON.stringify({
@@ -264,37 +339,38 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
       });
 
       socket.on('close', () => {
+        // eslint-disable-next-line no-console
         console.log('❌ Echo WebSocket disconnected');
       });
     },
   });
 }
 
-// Track server instances for graceful shutdown
-let ssrServer: SSRServer | null = null;
-let apiServer: APIServer | null = null;
+// ─── SSRWebSocketDemoComponent ────────────────────────────────────────────────
 
-// Track preClose hook status for each server
-const preCloseHookStatus = {
-  ssr: false,
-  api: false,
-};
+class SSRWebSocketDemoComponent extends BaseComponent {
+  private server: SSRServer | null = null;
+  // Stored so concurrent callers (e.g. onShutdownForce) join the same
+  // in-flight promise rather than starting a second concurrent close.
+  private stopPromise: Promise<void> | null = null;
 
-// Main demo function
-async function runWebSocketDemo() {
-  console.log('🚀 Starting WebSocket Demo Servers...\n');
+  constructor(parentLogger: Logger) {
+    super(parentLogger, {
+      name: 'ssr-ws-server',
+      // 30s graceful: gives time to drain in-flight requests and active WebSocket connections.
+      shutdownGracefulTimeoutMS: 30_000,
+      // 5s force: after closeAllConnections() kicks in, stop() resolves quickly.
+      shutdownForceTimeoutMS: 5_000,
+    });
+  }
 
-  try {
-    // Start SSR server with WebSocket support on port 3001
-    console.log(
-      '📡 Starting SSR Server with WebSocket support on port 3001...',
-    );
-
-    ssrServer = serveSSRDev(
+  public async start() {
+    // Start SSR server with WebSocket support on the SSR demo port.
+    this.server = serveSSRDev(
       {
-        serverEntry: './demos/ssr/src/EntrySSR.tsx',
-        template: './demos/ssr/index.html',
-        viteConfig: './demos/ssr/vite.config.ts',
+        serverEntry: path.join(SSR_DEMO_DIR, 'src/EntrySSR.tsx'),
+        template: path.join(SSR_DEMO_DIR, 'index.html'),
+        viteConfig: path.join(SSR_DEMO_DIR, 'vite.config.ts'),
       },
       {
         fastifyOptions: {
@@ -302,7 +378,7 @@ async function runWebSocketDemo() {
         },
         enableWebSockets: true,
         webSocketOptions: {
-          preClose: createPreCloseHandler('ssr', 'SSR Server'),
+          preClose: createPreCloseHandler('SSR Server', this.logger),
         },
         apiEndpoints: {
           apiEndpointPrefix: '/api',
@@ -311,31 +387,107 @@ async function runWebSocketDemo() {
       },
     );
 
-    // Register WebSocket handlers on SSR server
-    registerWebSocketHandlers(ssrServer);
+    // Register the reusable WebSocket handlers on the SSR server.
+    registerWebSocketHandlers(this.server);
 
-    // Register /stats endpoint on SSR server
-    ssrServer.api.get(
+    // Register /stats endpoint on the SSR server.
+    this.server.api.get(
       '/stats',
-      createStatsEndpointHandler(ssrServer, 'SSR Server', 3001),
+      createStatsEndpointHandler(this.server, 'SSR Server', PORT_SSR),
     );
 
-    // Start listening on port 3001
-    await ssrServer.listen(3001, '0.0.0.0');
-    console.log('✅ SSR Server running at http://localhost:3001\n');
+    // Start listening after all handlers and API routes are registered.
+    await this.server.listen(PORT_SSR, '0.0.0.0');
 
-    // Start API server with WebSocket support on port 3002
-    console.log(
-      '🔌 Starting API Server with WebSocket support on port 3002...',
+    this.logger.success(
+      'SSR WebSocket server running at http://localhost:{{port}}',
+      {
+        params: { port: PORT_SSR },
+      },
     );
+    this.logger.info('WebSocket endpoints:');
+    this.logger.info('  ws://localhost:3001/ws/always-allow');
+    this.logger.info('  ws://localhost:3001/ws/always-reject');
+    this.logger.info(
+      '  ws://localhost:3001/ws/token-validation?should-upgrade=yes',
+    );
+    this.logger.info('  ws://localhost:3001/ws/echo?msg=Hello');
+    this.logger.info('Stats: GET http://localhost:3001/api/stats');
+    this.logger.info(
+      'Test with wscat: wscat -c "ws://localhost:3001/ws/always-allow"',
+    );
+  }
 
-    apiServer = serveAPI({
+  public async stop(): Promise<void> {
+    // Return the same promise if stop is already running, so concurrent callers
+    // (including onShutdownForce) join the in-flight operation
+    // instead of starting a second concurrent close.
+    if (this.stopPromise) {
+      return this.stopPromise;
+    }
+
+    this.stopPromise = (async () => {
+      try {
+        if (this.server?.isListening()) {
+          await this.server.stop();
+        }
+      } finally {
+        // Runs on both success and error. Without this, a thrown error would leave
+        // stopPromise pointing at a rejected promise forever.
+        this.server = null;
+        this.stopPromise = null;
+      }
+    })();
+
+    return this.stopPromise;
+  }
+
+  public async onShutdownForce(): Promise<void> {
+    // Force-close open connections so server.stop() can finish draining and resolve.
+    // This is the LifecycleManager replacement for the old manual signal handler.
+    this.server?.closeAllConnections();
+    await this.stop();
+  }
+
+  public healthCheck() {
+    const isHealthy = this.server?.isListening() ?? false;
+
+    return {
+      healthy: isHealthy,
+      message: isHealthy
+        ? `Listening on port ${PORT_SSR}`
+        : 'Server is not listening',
+    };
+  }
+}
+
+// ─── APIWebSocketDemoComponent ────────────────────────────────────────────────
+
+class APIWebSocketDemoComponent extends BaseComponent {
+  private server: APIServer | null = null;
+  // Stored so concurrent callers (e.g. onShutdownForce) join the same
+  // in-flight promise rather than starting a second concurrent close.
+  private stopPromise: Promise<void> | null = null;
+
+  constructor(parentLogger: Logger) {
+    super(parentLogger, {
+      name: 'api-ws-server',
+      // 30s graceful: gives time to drain in-flight requests and active WebSocket connections.
+      shutdownGracefulTimeoutMS: 30_000,
+      // 5s force: after closeAllConnections() kicks in, stop() resolves quickly.
+      shutdownForceTimeoutMS: 5_000,
+    });
+  }
+
+  public async start() {
+    // Start API server with WebSocket support on the API demo port.
+    this.server = serveAPI({
       fastifyOptions: {
         logger: true,
       },
       enableWebSockets: true,
       webSocketOptions: {
-        preClose: createPreCloseHandler('api', 'API Server'),
+        preClose: createPreCloseHandler('API Server', this.logger),
       },
       apiEndpoints: {
         apiEndpointPrefix: '/api',
@@ -343,117 +495,131 @@ async function runWebSocketDemo() {
       },
     });
 
-    // Register WebSocket handlers on API server
-    registerWebSocketHandlers(apiServer);
+    // Register the reusable WebSocket handlers on the API server.
+    registerWebSocketHandlers(this.server);
 
-    // Register /stats endpoint on API server
-    apiServer.api.get(
+    // Register /stats endpoint on the API server.
+    this.server.api.get(
       '/stats',
-      createStatsEndpointHandler(apiServer, 'API Server', 3002),
+      createStatsEndpointHandler(this.server, 'API Server', PORT_API),
     );
 
-    // Start listening on port 3002
-    await apiServer.listen(3002, '0.0.0.0');
-    console.log('✅ API Server running at http://localhost:3002\n');
+    // Start listening after all handlers and API routes are registered.
+    await this.server.listen(PORT_API, '0.0.0.0');
 
-    // Print connection instructions
-    console.log('🔗 WebSocket Connection Examples:');
-    console.log(
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    this.logger.success(
+      'API WebSocket server running at http://localhost:{{port}}',
+      {
+        params: { port: PORT_API },
+      },
     );
-    console.log('');
-    console.log('📍 SSR Server (port 3001):');
-    console.log('   • Always Allow:     ws://localhost:3001/ws/always-allow');
-    console.log('   • Always Reject:    ws://localhost:3001/ws/always-reject');
-    console.log(
-      '   • Token Required:   ws://localhost:3001/ws/token-validation?should-upgrade=yes',
+    this.logger.info('WebSocket endpoints:');
+    this.logger.info('  ws://localhost:3002/ws/always-allow');
+    this.logger.info('  ws://localhost:3002/ws/always-reject');
+    this.logger.info(
+      '  ws://localhost:3002/ws/token-validation?should-upgrade=yes',
     );
-    console.log(
-      '   • Token Invalid:    ws://localhost:3001/ws/token-validation?should-upgrade=no',
+    this.logger.info('  ws://localhost:3002/ws/echo?msg=Hello');
+    this.logger.info('Stats: GET http://localhost:3002/api/stats');
+    this.logger.info(
+      'Test with wscat: wscat -c "ws://localhost:3002/ws/always-allow"',
     );
-    console.log('   • Echo (no msg):    ws://localhost:3001/ws/echo');
-    console.log(
-      '   • Echo (with msg):  ws://localhost:3001/ws/echo?msg=Hello%20World',
-    );
-    console.log('');
-    console.log('📍 API Server (port 3002):');
-    console.log('   • Always Allow:     ws://localhost:3002/ws/always-allow');
-    console.log('   • Always Reject:    ws://localhost:3002/ws/always-reject');
-    console.log(
-      '   • Token Required:   ws://localhost:3002/ws/token-validation?should-upgrade=yes',
-    );
-    console.log(
-      '   • Token Invalid:    ws://localhost:3002/ws/token-validation?should-upgrade=no',
-    );
-    console.log('   • Echo (no msg):    ws://localhost:3002/ws/echo');
-    console.log(
-      '   • Echo (with msg):  ws://localhost:3002/ws/echo?msg=Hello%20World',
-    );
-    console.log('');
-    console.log('💡 Test with a WebSocket client like wscat:');
-    console.log('   npm install -g wscat or bun install -g wscat');
-    console.log("   wscat -c 'ws://localhost:3001/ws/always-allow'");
-    console.log(
-      "   wscat -c 'ws://localhost:3001/ws/token-validation?should-upgrade=yes'",
-    );
-    console.log(
-      "   wscat -c 'ws://localhost:3001/ws/token-validation?should-upgrade=no'",
-    );
-    console.log(
-      "   wscat -c 'ws://localhost:3001/ws/echo?msg=Hello%20from%20wscat'",
-    );
-    console.log("   wscat -c 'ws://localhost:3001/ws/always-allow'");
-    console.log('');
-    console.log('📊 Check WebSocket client statistics:');
-    console.log('   curl http://localhost:3001/api/stats');
-    console.log('   (Shows current WebSocket client count)');
-    console.log('');
-    console.log(
-      '🧪 To run automated tests including client count progression:',
-    );
-    console.log('   bun run scripts/test-ws-build.ts');
-    console.log('');
-    console.log(
-      '🛑 Press Ctrl+C to stop servers (will trigger preClose hooks)',
-    );
-  } catch (error) {
-    console.error('❌ Failed to start demo servers:', error);
-    process.exit(1);
+  }
+
+  public async stop(): Promise<void> {
+    // Return the same promise if stop is already running, so concurrent callers
+    // (including onShutdownForce) join the in-flight operation
+    // instead of starting a second concurrent close.
+    if (this.stopPromise) {
+      return this.stopPromise;
+    }
+
+    this.stopPromise = (async () => {
+      try {
+        if (this.server?.isListening()) {
+          await this.server.stop();
+        }
+      } finally {
+        // Runs on both success and error. Without this, a thrown error would leave
+        // stopPromise pointing at a rejected promise forever.
+        this.server = null;
+        this.stopPromise = null;
+      }
+    })();
+
+    return this.stopPromise;
+  }
+
+  public async onShutdownForce(): Promise<void> {
+    // Force-close open connections so server.stop() can finish draining and resolve.
+    // This is the LifecycleManager replacement for the old manual signal handler.
+    this.server?.closeAllConnections();
+    await this.stop();
+  }
+
+  public healthCheck() {
+    const isHealthy = this.server?.isListening() ?? false;
+
+    return {
+      healthy: isHealthy,
+      message: isHealthy
+        ? `Listening on port ${PORT_API}`
+        : 'Server is not listening',
+    };
   }
 }
 
-// Handle graceful shutdown by stopping both server instances
-const shutdown = async (signal: string) => {
-  console.log(
-    `\n🛑 Received ${signal}. Shutting down WebSocket demo servers...`,
-  );
+// ─── Lifecycle manager ───────────────────────────────────────────────────────
 
-  try {
-    if (ssrServer && ssrServer.isListening()) {
-      console.log('🛑 Stopping SSR server...');
-      await ssrServer.stop();
-      ssrServer = null;
-    }
+async function main() {
+  const manager = new LifecycleManager({
+    name: 'ws-demo',
+    logger,
+    // Attach signal handlers before startup so any signal queued during
+    // startAllComponents() is handled correctly once the event loop resumes.
+    attachSignalsBeforeStartup: true,
+    // Detach signal handlers when the last component stops, otherwise the process hangs.
+    detachSignalsOnStop: true,
+    // Stop all components gracefully before the process exits when
+    // logger.exit() fires (e.g. logger.error with exitCode).
+    enableLoggerExitHook: true,
+    // Force exit if shutdown requests keep arriving while shutdown is already running
+    // (e.g. repeated Ctrl+C). Defaults: 3 requests within 2000ms triggers onForceShutdown.
+    repeatedShutdownRequestPolicy: {
+      onForceShutdown: () => {
+        logger.warn('Multiple shutdown requests received — forcing exit');
+        process.exit(1);
+      },
+    },
+    onInfoRequested: async () => {
+      const report = await manager.checkAllHealth();
 
-    if (apiServer && apiServer.isListening()) {
-      console.log('🛑 Stopping API server...');
-      await apiServer.stop();
-      apiServer = null;
-    }
+      for (const { name, healthy: isHealthy, message } of report.components) {
+        const msg = message ?? (isHealthy ? 'healthy' : 'unhealthy');
 
-    console.log('✅ All servers stopped gracefully');
-    console.log(
-      `\n🔄 PreClose hook status: SSR ${preCloseHookStatus.ssr ? '✅ Called' : '❌ Not called'}, API ${preCloseHookStatus.api ? '✅ Called' : '❌ Not called'}`,
-    );
-  } catch (err) {
-    console.error('❌ Error during shutdown:', err);
-  } finally {
-    process.exit(0);
-  }
-};
+        if (isHealthy) {
+          logger.success('[{{name}}] {{msg}}', { params: { name, msg } });
+        } else {
+          logger.warn('[{{name}}] {{msg}}', { params: { name, msg } });
+        }
+      }
+    },
+  });
 
-process.on('SIGINT', () => void shutdown('SIGINT'));
-process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  // Register the WebSocket demo components.
+  // To add a database or other services, register additional components here
+  // before startAllComponents — they start in order, so infrastructure (DB, cache, etc.)
+  // comes up before the WebSocket servers that use it.
+  await manager.registerComponent(new SSRWebSocketDemoComponent(logger));
+  await manager.registerComponent(new APIWebSocketDemoComponent(logger));
 
-// Run the demo
-runWebSocketDemo().catch(console.error);
+  // Start all components
+  await manager.startAllComponents();
+}
+
+main().catch((error) => {
+  logger.error('Failed to start servers: {{error}}', {
+    params: { error },
+    exitCode: 1,
+  });
+});

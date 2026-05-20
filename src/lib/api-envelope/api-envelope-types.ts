@@ -84,7 +84,7 @@ export interface APISuccessResponse<T, M extends BaseMeta = BaseMeta> {
   type: 'api';
   data: T;
   meta: M;
-  error: null;
+  error?: null;
 }
 
 /**
@@ -129,7 +129,7 @@ export interface PageSuccessResponse<T, M extends BaseMeta = BaseMeta> {
   type: 'page';
   data: T;
   meta: M;
-  error: null;
+  error?: null;
   ssr_request_context?: Record<string, unknown>;
 }
 
@@ -163,7 +163,7 @@ export interface PageRedirectResponse<M extends BaseMeta = BaseMeta> {
   type: 'page';
   data: null;
   meta: M;
-  error: null;
+  error?: null;
   redirect: RedirectInfo;
   ssr_request_context?: Record<string, unknown>;
 }

@@ -79,6 +79,9 @@ Repo auto‑init: The CLI sets up a repository structure that supports multiple 
 - [Demos](#demos)
   - [SSG demo: Build and Serve](#ssg-demo-build-and-serve)
   - [SSR demo: Dev and Prod](#ssr-demo-dev-and-prod)
+  - [API server demo](#api-server-demo)
+  - [Static content demo](#static-content-demo)
+  - [WebSocket demo](#websocket-demo)
 - [Data Loaders](#data-loaders)
 - [API Envelope Structure](#api-envelope-structure)
   - [Helpers and Integration](#helpers-and-integration)
@@ -369,6 +372,9 @@ Runnable, self-contained examples live under `demos/` and are wired to root-leve
 
 - `demos/ssg`: SSG example (build, generate, serve)
 - `demos/ssr`: SSR example (dev and production)
+- `demos/api-server-demo.ts`: API-only server example
+- `demos/api-static-content-demo.ts`: API server with static file serving and split HTML/JSON handlers
+- `demos/ws-server-demo.ts`: WebSocket server example (SSR + API servers)
 
 Runtime note: Demo scripts use Bun to run TypeScript directly (e.g., `bun run ...`). You can use Node-based alternatives as well (e.g., transpile with `tsc`, use `ts-node`, or write equivalent vanilla JavaScript). Unirend’s SSG and server (SSR/API) APIs run on Node and Bun. Vite provides HMR in development and bundles the React application frontend for production.
 
@@ -425,6 +431,30 @@ What this shows:
 - Custom standalone 500 page handling via `get500ErrorPage` in `server/ssr-component.ts`.
 - `LifecycleManager` + `BaseComponent` for graceful shutdown with configurable timeouts (`serve-dev.ts` / `serve-built.ts` → `server/start.ts` → `server/ssr-component.ts`).
 - `src/components/AppLayout.tsx` owns the shared route chrome and route-change scroll-to-top behavior.
+
+### API server demo
+
+From the repo root:
+
+```bash
+bun run api-demo
+```
+
+### Static content demo
+
+From the repo root:
+
+```bash
+bun run api-static-demo
+```
+
+### WebSocket demo
+
+From the repo root:
+
+```bash
+bun run ws-demo
+```
 
 ## Data Loaders
 

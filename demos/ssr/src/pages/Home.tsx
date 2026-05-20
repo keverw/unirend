@@ -1,7 +1,6 @@
 import React from 'react';
-import { UnirendHead } from '../../../../src/client';
+import { UnirendHead, usePublicAppConfig } from '../../../../src/client';
 import { Link } from 'react-router';
-import { usePublicAppConfig } from '../../../../src/client';
 
 const Home: React.FC = () => {
   const publicAppConfig = usePublicAppConfig();

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { UnirendHead } from '../../../../src/client';
 import {
+  UnirendHead,
   useIsSSR,
   useIsSSG,
   useIsClient,
@@ -385,8 +385,9 @@ const ContextDemo: React.FC = () => {
                       }}
                     >
                       {String(
-                        requestContext.get('__debug_initialCdnBaseURL') ||
-                          '(not configured)',
+                        (requestContext.get('__debug_initialCdnBaseURL') as
+                          | string
+                          | undefined) ?? '(not configured)',
                       )}
                     </code>
                   </div>
@@ -401,8 +402,9 @@ const ContextDemo: React.FC = () => {
                       }}
                     >
                       {String(
-                        requestContext.get('__debug_initialDomainInfo') ||
-                          'null',
+                        (requestContext.get('__debug_initialDomainInfo') as
+                          | string
+                          | undefined) ?? 'null',
                       )}
                     </code>
                   </div>
@@ -811,8 +813,8 @@ const RequestContextDemo: React.FC = () => {
       setOutput('❌ Key cannot be empty');
       return;
     }
-    const exists = requestContext.has(key);
-    setOutput(`❓ Has "${key}" = ${exists}`);
+    const hasKey = requestContext.has(key);
+    setOutput(`❓ Has "${key}" = ${hasKey}`);
   };
 
   const handleDelete = () => {
@@ -820,8 +822,8 @@ const RequestContextDemo: React.FC = () => {
       setOutput('❌ Key cannot be empty');
       return;
     }
-    const existed = requestContext.delete(key);
-    setOutput(`🗑️ Delete "${key}" = ${existed ? 'deleted' : 'not found'}`);
+    const didDelete = requestContext.delete(key);
+    setOutput(`🗑️ Delete "${key}" = ${didDelete ? 'deleted' : 'not found'}`);
   };
 
   const handleClear = () => {
@@ -858,6 +860,7 @@ const RequestContextDemo: React.FC = () => {
         >
           <div>
             <label
+              htmlFor="request-context-key"
               style={{
                 display: 'block',
                 marginBottom: '0.25rem',
@@ -867,6 +870,7 @@ const RequestContextDemo: React.FC = () => {
               Key:
             </label>
             <input
+              id="request-context-key"
               type="text"
               placeholder="Key"
               value={key}
@@ -883,6 +887,7 @@ const RequestContextDemo: React.FC = () => {
           </div>
           <div>
             <label
+              htmlFor="request-context-value"
               style={{
                 display: 'block',
                 marginBottom: '0.25rem',
@@ -892,6 +897,7 @@ const RequestContextDemo: React.FC = () => {
               Value:
             </label>
             <input
+              id="request-context-value"
               type="text"
               placeholder="Value"
               value={value}
@@ -971,10 +977,14 @@ const RequestContextValueDemo: React.FC = () => {
 
       <div style={{ display: 'grid', gap: '1rem', marginTop: '1rem' }}>
         <div>
-          <label style={{ display: 'block', marginBottom: '0.5rem' }}>
+          <label
+            htmlFor="request-context-name"
+            style={{ display: 'block', marginBottom: '0.5rem' }}
+          >
             Your Name:
           </label>
           <input
+            id="request-context-name"
             type="text"
             value={name || ''}
             onChange={(e) => setName(e.target.value)}

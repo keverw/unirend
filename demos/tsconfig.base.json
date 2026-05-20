@@ -13,6 +13,9 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
+    "paths": {
+      "unirend/api-envelope": ["../src/api-envelope.ts"]
+    },
 
     /* Linting */
     "strict": true,

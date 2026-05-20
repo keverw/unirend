@@ -74,7 +74,7 @@ All response envelopes include these common properties:
 | `type`              | string  | Either "page" or "api" depending on endpoint type                                   |
 | `data`              | object  | Main payload (null if error or redirect)                                            |
 | `meta`              | object  | User-Definable Metadata about the request and context                               |
-| `error`             | object  | Error details (null if success or redirect)                                         |
+| `error`             | object  | Error details (only present for error responses)                                    |
 | `redirect`          | object  | Redirect details (only present for redirect status)                                 |
 
 ### Request ID Handling
@@ -146,7 +146,6 @@ Used for SSR routes and data loaders. Includes required page metadata for SEO.
       "description": "Page description for SEO"
     }
   },
-  "error": null,
   "ssr_request_context": {
     // OPTIONAL: SSR-only infrastructure field (page-type responses only)
     // Automatically populated from request.requestContext when using page response helpers
@@ -187,8 +186,7 @@ This is the suggested standard, the page data loader can pickup on these for aut
       "current_year": 2025
     }
     // No page metadata - not needed for API calls
-  },
-  "error": null
+  }
 }
 ```
 
@@ -411,8 +409,7 @@ Page data endpoints always use the **Page Response Envelope** format that includ
       "title": "Your App - Property Listings",
       "description": "Browse available properties"
     }
-  },
-  "error": null
+  }
 }
 ```
 
@@ -500,8 +497,7 @@ Traditional API endpoints use the **API Response Envelope** format, which does n
     "site_info": {
       "current_year": 2025
     }
-  },
-  "error": null
+  }
 }
 ```
 
@@ -672,7 +668,6 @@ When redirects are part of the application flow, use the dedicated `redirect` st
       "description": "You are being redirected to a new location."
     }
   },
-  "error": null,
   "redirect": {
     "target": "/new/location",
     "permanent": false,

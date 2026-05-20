@@ -779,6 +779,35 @@ describe('createControlledInstance', () => {
     expect((f as any).route).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps early hook responses sent by sync plugin hooks from falling through', async () => {
+    const app = fastify();
+    const host = createControlledInstance(
+      app,
+      false,
+      {},
+      {},
+      APIResponseHelpers,
+    );
+
+    host.addHook('onRequest', (_request, reply) => {
+      // Intentionally do not return the reply. This covers plugin hooks that
+      // send a response from sync code and rely on the wrapper to stop routing.
+      reply.code(418).send({ blocked: true });
+    });
+
+    app.get('/should-not-run', () => ({ blocked: false }));
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/should-not-run',
+    });
+
+    expect(response.statusCode).toBe(418);
+    expect(response.json<unknown>()).toEqual({ blocked: true });
+
+    await app.close();
+  });
+
   it('preserves Fastify route-handler context when wrapping handlers', async () => {
     const app = fastify();
     app.decorate('foo', 'bar');

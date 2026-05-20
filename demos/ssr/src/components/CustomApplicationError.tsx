@@ -144,11 +144,11 @@ export default function CustomApplicationError({
                 transition: 'all 0.3s ease',
                 border: '1px solid rgba(255, 255, 255, 0.3)',
               }}
-              onMouseOver={(e) => {
+              onMouseEnter={(e) => {
                 e.currentTarget.style.background = 'rgba(255, 255, 255, 0.3)';
                 e.currentTarget.style.transform = 'translateY(-2px)';
               }}
-              onMouseOut={(e) => {
+              onMouseLeave={(e) => {
                 e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
                 e.currentTarget.style.transform = 'translateY(0)';
               }}
@@ -169,11 +169,11 @@ export default function CustomApplicationError({
                 border: '1px solid rgba(255, 255, 255, 0.3)',
                 transition: 'all 0.3s ease',
               }}
-              onMouseOver={(e) => {
+              onMouseEnter={(e) => {
                 e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
                 e.currentTarget.style.color = '#ffffff';
               }}
-              onMouseOut={(e) => {
+              onMouseLeave={(e) => {
                 e.currentTarget.style.background = 'transparent';
                 e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
               }}
@@ -200,10 +200,10 @@ export default function CustomApplicationError({
                   color: 'rgba(255, 255, 255, 0.9)',
                   textDecoration: 'underline',
                 }}
-                onMouseOver={(e) => {
+                onMouseEnter={(e) => {
                   e.currentTarget.style.color = '#ffffff';
                 }}
-                onMouseOut={(e) => {
+                onMouseLeave={(e) => {
                   e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
                 }}
               >

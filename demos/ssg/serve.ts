@@ -224,7 +224,10 @@ async function main() {
     },
   });
 
+  // Register the static web server component
   await manager.registerComponent(new StaticWebServerComponent());
+
+  // Start all components
   await manager.startAllComponents();
 }
 

@@ -63,7 +63,6 @@ export class APIResponseHelpers {
       type: 'api',
       data,
       meta: { ...defaultMeta, ...(meta as Partial<M>) } as M,
-      error: null,
     };
   }
 
@@ -156,7 +155,6 @@ export class APIResponseHelpers {
       type: 'page',
       data,
       meta: { ...(baseMeta as M), ...(meta as Partial<M>) } as M,
-      error: null,
       ...(requestContext &&
       typeof requestContext === 'object' &&
       !Array.isArray(requestContext) &&
@@ -206,7 +204,6 @@ export class APIResponseHelpers {
       type: 'page',
       data: null,
       meta: { ...(baseMeta as M), ...(meta as Partial<M>) } as M,
-      error: null,
       redirect: redirectInfo,
       ...(requestContext &&
       typeof requestContext === 'object' &&
@@ -646,7 +643,10 @@ export class APIResponseHelpers {
 
     // Status-specific validation
     if (envelope.status === 'success') {
-      return envelope.data !== undefined && envelope.error === null;
+      return (
+        envelope.data !== undefined &&
+        (envelope.error === undefined || envelope.error === null)
+      );
     } else if (envelope.status === 'error') {
       return (
         envelope.data === null &&
@@ -656,7 +656,7 @@ export class APIResponseHelpers {
     } else if (envelope.status === 'redirect') {
       return (
         envelope.data === null &&
-        envelope.error === null &&
+        (envelope.error === undefined || envelope.error === null) &&
         envelope.redirect !== null &&
         typeof envelope.redirect === 'object'
       );

@@ -249,7 +249,7 @@ export class RedirectServer {
         (pluginHost) => {
           // Register redirect logic as an onRequest hook
           pluginHost.addHook('onRequest', (request, reply) => {
-            this.handleRedirect(request, reply);
+            return this.handleRedirect(request, reply);
           });
         },
       ],
@@ -306,7 +306,10 @@ export class RedirectServer {
    * Handle the redirect logic
    * @private
    */
-  private handleRedirect(request: FastifyRequest, reply: FastifyReply): void {
+  private handleRedirect(
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): FastifyReply {
     // Parse host header (supports IPv6 brackets)
     const host = request.headers.host || '';
     const { domain, port } = parseHostHeader(host);
@@ -316,12 +319,11 @@ export class RedirectServer {
 
     // Reject empty domains (missing/malformed Host header)
     if (!normalizedDomain) {
-      reply
+      return reply
         .code(400)
         .header('Cache-Control', 'no-store')
         .type('text/plain')
         .send('Bad Request: Missing or invalid Host header');
-      return;
     }
 
     // Domain validation if allowedDomains is configured
@@ -343,26 +345,24 @@ export class RedirectServer {
 
         // Set appropriate content type and send response (do not cache)
         if (response.contentType === 'json') {
-          reply
+          return reply
             .code(403)
             .header('Cache-Control', 'no-store')
             .type('application/json')
             .send(response.content);
         } else if (response.contentType === 'html') {
-          reply
+          return reply
             .code(403)
             .header('Cache-Control', 'no-store')
             .type('text/html')
             .send(response.content);
         } else {
-          reply
+          return reply
             .code(403)
             .header('Cache-Control', 'no-store')
             .type('text/plain')
             .send(response.content);
         }
-
-        return;
       }
     }
 
@@ -390,6 +390,6 @@ export class RedirectServer {
     const redirectURL = `${protocol}://${targetHost}${portPart}${request.url}`;
 
     // Perform redirect
-    reply.code(this.config.statusCode).redirect(redirectURL);
+    return reply.code(this.config.statusCode).redirect(redirectURL);
   }
 }

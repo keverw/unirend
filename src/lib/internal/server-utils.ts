@@ -690,6 +690,12 @@ export function createControlledInstance(
   pageDataHandlerShortcuts: unknown,
   apiResponseHelpersClass: APIResponseHelpersClass,
 ): PluginHostInstance {
+  const earlyResponseHooks = new Set<FastifyHookName>([
+    'onRequest',
+    'preValidation',
+    'preHandler',
+  ]);
+
   return {
     register: <Options extends Record<string, unknown> = Record<string, never>>(
       plugin: FastifyPluginAsync<Options> | FastifyPluginCallback<Options>,
@@ -708,7 +714,7 @@ export function createControlledInstance(
         request: FastifyRequest,
         reply: FastifyReply,
         ...args: unknown[]
-      ) => void | Promise<unknown>,
+      ) => unknown,
     ) => {
       // Prevent plugins from overriding critical hooks
       if (hookName === 'onRoute' || hookName.includes('*')) {
@@ -716,15 +722,94 @@ export function createControlledInstance(
           'Plugins cannot register catch-all route hooks that would conflict with SSR',
         );
       }
-      // Wrap every handler in async so plain sync functions work without hanging.
-      // Fastify requires hooks to either be async (return a Promise) or call done().
-      // By always registering an async wrapper, sync handlers are safe — the wrapper
-      // returns a resolved Promise automatically when the inner function returns void.
-      const wrappedHandler = async (
-        request: FastifyRequest,
-        reply: FastifyReply,
-        ...args: unknown[]
-      ) => handler(request, reply, ...args);
+      // Fastify has two incompatible hook completion styles:
+      // - async/promise hooks finish when the promise resolves
+      // - callback hooks finish when done() is called
+      //
+      // We wrap plugin hooks so plain sync handlers don't hang. For early
+      // request hooks, use callback-style wrapping because these hooks may
+      // intentionally terminate the request with reply.send()/reply.redirect().
+      // Calling done() after that would continue the lifecycle and can trigger
+      // double-send/header-sent errors, so the wrapper only calls done() when
+      // the hook did not already send a response.
+      const wrappedHandler = earlyResponseHooks.has(hookName)
+        ? (
+            request: FastifyRequest,
+            reply: FastifyReply,
+            done: (error?: Error) => void,
+          ) => {
+            // Fastify's sent/header flags can lag behind an in-progress
+            // reply.send()/reply.redirect() on the live server, so track calls
+            // made inside the hook body directly.
+            const replyWithSend = reply as unknown as {
+              send: (...args: unknown[]) => unknown;
+            };
+            const originalSend = replyWithSend.send;
+            let didSend = false;
+
+            replyWithSend.send = function (
+              this: FastifyReply,
+              ...args: unknown[]
+            ) {
+              didSend = true;
+              return originalSend.apply(this, args);
+            };
+
+            const restoreSend = () => {
+              replyWithSend.send = originalSend;
+            };
+
+            const didAlreadySend = () =>
+              didSend || reply.sent || reply.raw.headersSent;
+
+            try {
+              const result = handler(request, reply);
+
+              // Async early hooks are allowed. Wait for them and then advance
+              // only if they did not send the response while awaiting.
+              if (
+                result &&
+                typeof (result as Promise<unknown>).then === 'function'
+              ) {
+                void (result as Promise<unknown>).then(
+                  () => {
+                    restoreSend();
+                    if (!didAlreadySend()) {
+                      done();
+                    }
+                  },
+                  (error: unknown) => {
+                    restoreSend();
+                    done(
+                      error instanceof Error
+                        ? error
+                        : new Error(String(error)),
+                    );
+                  },
+                );
+                return;
+              }
+
+              // Sync early hooks that sent a response are complete. Sync early
+              // hooks that only mutated request/reply still need done().
+              restoreSend();
+              if (!didAlreadySend()) {
+                done();
+              }
+            } catch (error) {
+              restoreSend();
+              done(error instanceof Error ? error : new Error(String(error)));
+            }
+          }
+        : async (
+            request: FastifyRequest,
+            reply: FastifyReply,
+            ...args: unknown[]
+          ) => {
+            // Later hooks do not control routing continuation in the same way,
+            // so the simple async wrapper is enough to support sync handlers.
+            return handler(request, reply, ...args);
+          };
       return fastifyInstance.addHook(
         hookName as Parameters<typeof fastifyInstance.addHook>[0],
         // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument

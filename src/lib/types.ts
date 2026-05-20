@@ -173,7 +173,7 @@ export interface PluginHostInstance {
       request: FastifyRequest,
       reply: FastifyReply,
       ...args: unknown[]
-    ) => void | Promise<unknown>,
+    ) => unknown,
   ) => void;
   /** Add decorators to request/reply objects */
   decorate: (property: string, value: unknown) => void;
