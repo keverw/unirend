@@ -1,11 +1,8 @@
-import { Header } from '../components/Header';
 import { Link } from 'react-router';
 
 function NotFound() {
   return (
-    <div>
-      <Header />
-
+    <>
       <main className="main-content">
         <div
           style={{ textAlign: 'center', maxWidth: '600px', margin: '0 auto' }}
@@ -206,13 +203,7 @@ function NotFound() {
           </div>
         </div>
       </main>
-
-      <footer className="footer">
-        <div className="footer-content">
-          <p>&copy; 2024 Unirend Demo - 404 Not Found (SSG)</p>
-        </div>
-      </footer>
-    </div>
+    </>
   );
 }
 

@@ -1,6 +1,7 @@
 import { initDevMode } from 'lifecycleion/dev-mode';
 import { Logger, ConsoleSink } from 'lifecycleion/logger';
 import { generateSSG, SSGLifecycleionLogger } from '../../src/server';
+import { assertSupportedRuntime } from '../../src/utils';
 import path from 'path';
 
 /**
@@ -26,8 +27,11 @@ import path from 'path';
  * rebuild when you change your HTML template or app configuration.
  */
 
+// ─── Bootstrap ───────────────────────────────────────────────────────────────
+assertSupportedRuntime();
 initDevMode({ detect: 'cmd', strict: true });
 
+// ─── Logger ──────────────────────────────────────────────────────────────────
 const logger = new Logger({
   sinks: [new ConsoleSink({ colors: true, timestamps: true })],
 });
@@ -38,6 +42,17 @@ async function main() {
   // Define the build directory (where Vite outputs the built files)
   const buildDir = path.resolve(__dirname, 'build');
 
+  // Request context is per-request key-value data passed into the render.
+  // Access it in components via useRequestContextValue('key') (reactive, like useState)
+  // or useRequestContext() (non-reactive) from 'unirend/client'.
+  // Unlike publicAppConfig (global, immutable constants shared across all pages),
+  // request context is per-page and mutable after hydration.
+  const requestContext = {
+    // Seed the theme preference so the flash-prevention script and ThemeProvider both
+    // start in the correct mode. 'auto' defers to the OS preference at runtime.
+    themePreference: 'auto',
+  };
+
   // Define the pages to generate - mix of SSG and SPA
   const pages = [
     // SSG pages - server-rendered at build time
@@ -45,26 +60,31 @@ async function main() {
       type: 'ssg' as const,
       path: '/',
       filename: 'index.html',
+      requestContext,
     },
     {
       type: 'ssg' as const,
       path: '/about',
       filename: 'about.html',
+      requestContext,
     },
     {
       type: 'ssg' as const,
       path: '/contact',
       filename: 'contact.html',
+      requestContext,
     },
     {
       type: 'ssg' as const,
       path: '/context-demo',
       filename: 'context-demo.html',
+      requestContext,
     },
     {
       type: 'ssg' as const,
-      path: '/404', // We'll use a specific path for SSG generation
+      path: '/404', // Dedicated 404 route for SSG
       filename: '404.html',
+      requestContext,
     },
     // SPA pages - client-rendered with custom metadata
     {
@@ -76,21 +96,21 @@ async function main() {
         'og:title': 'Dashboard',
         'og:description': 'Access your personalized dashboard',
       },
+      requestContext,
     },
     {
       type: 'spa' as const,
       filename: 'app.html',
       title: 'App - My App',
       description: 'Main application interface',
+      requestContext,
     },
   ];
 
   // Optional configuration
   const options = {
     // serverEntry: "EntrySSG", // Default for SSG, can be customized
-    // serverEntry: "EntrySSR", // Use this if you want to share with SSR
     publicAppConfig: {
-      // Any config you want to inject into the frontend
       api_endpoint: 'https://api.example.com',
       version: '1.0.0',
     },
@@ -100,13 +120,7 @@ async function main() {
     pageMapOutput: 'page-map.json', // Written to build/client/page-map.json
 
     logger: SSGLifecycleionLogger(logger), // service name defaults to 'SSG'
-    // logger: SSGLifecycleionLogger(logger, 'my-site-generator'), // Custom service name
-    // logger: SSGConsoleLogger, // import { SSGConsoleLogger } from 'unirend/server' — simpler alternative, no Lifecycleion needed, prefixes each line with [SSG Info] / [SSG Warn] / [SSG Error]
-    // logger: {
-    //   info: (msg: string) => console.log(`[Custom] ${msg}`),
-    //   warn: (msg: string) => console.warn(`[Custom] ${msg}`),
-    //   error: (msg: string) => console.error(`[Custom] ${msg}`),
-    // }, // Custom logger with your own prefixes
+    // logger: SSGConsoleLogger, // import { SSGConsoleLogger } from 'unirend/server' — simpler alternative
     // logger: undefined, // Silent mode (default)
   };
 

@@ -788,15 +788,20 @@ Since your project will most likely use both `serveSSRDev` and `serveSSRProd`, c
 
 Always include `--external vite` when bundling your server entry with `bun build`. Vite lazily imports `esbuild` at runtime, which Bun's bundler cannot statically resolve. Keeping Vite external avoids a build error.
 
-See a complete example with plugins and data handler registration in `demos/ssr/serve.ts`.
+See a complete example with plugins and data handler registration in `demos/ssr/server/ssr-component.ts`. The demo uses thin entry files, `demos/ssr/serve-dev.ts` for HMR mode and `demos/ssr/serve-built.ts` for built mode, which both call into `demos/ssr/server/start.ts`.
 
 Recommendation: Use Bun for simplicity (dev runs TypeScript directly, prod bundles to JS that can run under Bun or Node). Pure Node alternatives (e.g., `tsc`, `esbuild`, `rollup`, `ts-node`) or vanilla JavaScript are possible but not covered in depth here to keep the setup simple and easy out of the box.
 
-Note: Running `serveSSRDev` under Bun may stall graceful shutdown. The Vite HMR WebSocket server can fail to close cleanly under Bun, compared to Node (related: [oven-sh/bun#5951](https://github.com/oven-sh/bun/issues/5951)). The same style of issue is described in [websockets.md](./websockets.md). If you hit this, bundle targeting Node and run with Node:
+Note: Running SSR servers directly under Bun may stall graceful shutdown in some setups. Vite's HMR WebSocket server can fail to close cleanly under Bun, compared to Node (related: [oven-sh/bun#5951](https://github.com/oven-sh/bun/issues/5951)), and similar long-lived connection behavior can affect built servers too. The same style of issue is described in [websockets.md](./websockets.md). If you hit this, bundle the entry you use targeting Node and run it with Node:
 
 ```bash
-bun build serve.ts --outfile ./dist/serve-hmr.js --target=node --external vite
-SSR_SRC_DIR=$(pwd)/src node ./dist/serve-hmr.js dev
+# HMR SSR entry
+bun build serve-dev.ts --outfile ./dist/serve-dev.js --target=node --external vite
+SSR_SRC_DIR=$(pwd) node ./dist/serve-dev.js dev
+
+# Built SSR entry
+bun build serve-built.ts --outfile ./dist/serve-built.js --target=node --external vite
+node ./dist/serve-built.js prod
 ```
 
 When bundling this way, `__dirname` resolves to the build output directory, not your source tree. Pass your source directory via an env var and read it in your serve script (`const SRC_DIR = process.env.SSR_SRC_DIR ?? path.resolve(__dirname, '..')`), then use `SRC_DIR` to resolve your `serverEntry`, `template`, and `viteConfig` paths. Vite handles HMR and source transforms as normal.

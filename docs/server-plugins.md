@@ -34,7 +34,7 @@
 - [Common Pitfalls](#common-pitfalls)
   - [Async route handler pattern (return payload, don't call reply.send)](#async-route-handler-pattern-return-payload-dont-call-replysend)
   - [Streaming responses from route handlers](#streaming-responses-from-route-handlers)
-  - [Setting Headers in onSend Hook](#setting-headers-in-onsend-hook)
+  - [Setting Global Headers in onSend Hook](#setting-global-headers-in-onsend-hook)
 - [Limitations](#limitations)
   - [Forbidden Operations](#forbidden-operations)
   - [Route Conflicts](#route-conflicts)
@@ -219,6 +219,22 @@ pluginHost.addHook('onRequestAbort', handler);
 
 // ⚠️ Important: Headers must be set before response is sent
 // Use onRequest or preHandler for headers, not onSend
+```
+
+> **Note:** Both sync and async handlers are supported. This differs from vanilla Fastify, where hooks must either be `async` or call a `done` callback. A plain sync function silently hangs every request. `pluginHost.addHook` is a Unirend helper that automatically wraps every handler in `async` before registering it, so you never have to think about this.
+
+The done-callback style is not supported through `pluginHost.addHook`. Use `async` or a plain sync function instead. If you need raw Fastify hook semantics (including done callbacks), register a Fastify plugin via `pluginHost.register()`, which behaves like standard Fastify.
+
+```typescript
+// ✅ Async style — use when your hook does async work
+pluginHost.addHook('onRequest', async (request, reply) => {
+  request.requestContext.userID = await resolveUser(request);
+});
+
+// ✅ Sync style — works too, the framework wraps it in async for you
+pluginHost.addHook('onRequest', (request, reply) => {
+  request.requestContext.userID = resolveUserSync(request);
+});
 ```
 
 Common hooks for logging:
@@ -411,22 +427,15 @@ const apiRoutesPlugin: ServerPlugin = async (pluginHost, options) => {
     return { success: true, message: 'Message received' };
   });
 
-  // Request timing
-  pluginHost.addHook('preHandler', async (request) => {
-    if (request.url.startsWith('/api/')) {
-      (request as any).startTime = Date.now();
-    }
-  });
-
-  pluginHost.addHook('onSend', async (request, reply, payload) => {
-    if (request.url.startsWith('/api/') && (request as any).startTime) {
-      const duration = Date.now() - (request as any).startTime;
-      reply.header('X-Response-Time', `${duration}ms`);
-    }
-    return payload;
+  // Request-wide concerns such as auth, rate limiting, or user decoration
+  // belong in hooks before route handlers run.
+  pluginHost.addHook('onRequest', async (request, reply) => {
+    reply.header('X-Powered-By', 'Unirend');
   });
 };
 ```
+
+For response timing, prefer the built-in `APIHandling.responseTimeHeader` option instead of mutating `request` and adding your own `onSend` timing hook.
 
 ### Plugin Configuration via Factory Functions
 
@@ -819,31 +828,33 @@ pluginHost.get('/download/:file', async (request, reply) => {
 
 `reply.hijack()` signals to Fastify that you own the raw socket from this point on. Error handling and connection cleanup are your responsibility. Fastify's `onResponse` hooks (including access logging) still fire because they are attached to `reply.raw`'s `'finish'` event, they fire whenever the socket ends, regardless of whether `reply.send()` or `reply.raw` was used.
 
-### Setting Headers in onSend Hook
+### Setting Global Headers in onSend Hook
 
-❌ **Wrong - will cause "headers already sent" errors:**
+❌ **Wrong for global headers - may be skipped or too late:**
 
 ```typescript
 pluginHost.addHook('onSend', async (request, reply, payload) => {
-  reply.header('X-Request-ID', request.id); // ❌ Too late!
+  reply.header('X-Request-ID', request.id); // Only applies to normal Fastify send flow
   return payload;
 });
 ```
 
-✅ **Correct - set headers before response is sent:**
+✅ **Preferred - set headers before routes or raw response paths take over:**
 
 ```typescript
 pluginHost.addHook('onRequest', async (request, reply) => {
-  reply.header('X-Request-ID', request.id); // ✅ Perfect timing
+  reply.header('X-Request-ID', request.id);
 });
 
 // Or in preHandler
 pluginHost.addHook('preHandler', async (request, reply) => {
-  reply.header('X-Custom-Header', 'value'); // ✅ Also works
+  reply.header('X-Custom-Header', 'value');
 });
 ```
 
-**Why this happens:** The `onSend` hook runs after headers have been sent to the client. Use `onRequest` or `preHandler` for setting headers.
+**Why this matters:** `onSend` is late in the lifecycle. It works for normal Fastify replies, but it is bypassed by `reply.hijack()` and other raw-response paths. It also cannot help responses already sent by an earlier hook or helper, which can lead to missing headers or "headers already sent" errors. Use `onRequest` or `preHandler` for headers that must be present on every response.
+
+`onSend` is still useful when you intentionally want normal-response-only behavior. For example, renewing a cookie for HTML/API responses while skipping hijacked static assets is a good `onSend` use case. See the theme cookie example in [Unirend Context](./unirend-context.md#theme-management-hydration-safe) and the `request.isStaticAsset` guidance in [staticContent](./built-in-plugins/staticContent.md#hook-ordering-and-cookie-renewal).
 
 ## Limitations
 

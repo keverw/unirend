@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { UnirendHead } from '../../../../src/client';
-import { Header } from '../components/Header';
 import {
   useIsSSR,
   useIsSSG,
@@ -93,9 +92,6 @@ const ContextDemo: React.FC = () => {
           content="Demonstration of Unirend Context hooks in SSG mode"
         />
       </UnirendHead>
-
-      <Header />
-
       <main className="main-content">
         <h1 className="hero-title">Unirend Context Hooks</h1>
         <p className="hero-subtitle">
@@ -782,12 +778,6 @@ const ContextDemo: React.FC = () => {
           )}
         </div>
       </main>
-
-      <footer className="footer">
-        <div className="footer-content">
-          <p>Unirend Context Demo - SSG Mode</p>
-        </div>
-      </footer>
     </>
   );
 };

@@ -1,6 +1,5 @@
 import React from 'react';
 import { UnirendHead } from '../../../../src/client';
-import { Header } from '../components/Header';
 
 const About: React.FC = () => {
   return (
@@ -12,9 +11,6 @@ const About: React.FC = () => {
           content="Learn about the Unirend framework and this demo"
         />
       </UnirendHead>
-
-      <Header />
-
       <main className="main-content">
         <h1 className="hero-title">About Unirend</h1>
         <p className="hero-subtitle">
@@ -54,12 +50,6 @@ const About: React.FC = () => {
           </p>
         </div>
       </main>
-
-      <footer className="footer">
-        <div className="footer-content">
-          <p>Built with ❤️ and modern web technologies</p>
-        </div>
-      </footer>
     </>
   );
 };

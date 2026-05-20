@@ -3,9 +3,50 @@
   <head>
     <meta charset="UTF-8" />
     <title>Unirend SSR Demo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      html.dark,
+      html.dark body {
+        background: #1a1a1a;
+        color: rgba(255, 255, 255, 0.87);
+        color-scheme: dark;
+      }
+    </style>
+    <!-- Flash prevention: applies the correct dark class before the page renders.
+         Cookie is preferred over __FRONTEND_REQUEST_CONTEXT__ — the cookie reflects the
+         user's last explicit choice and is more up-to-date. The context value is read at
+         request time for SSR (so a change in another tab mid-request can leave them out of sync).
+         Falls back to the OS preference via matchMedia when neither is set. -->
+    <script>
+      (function () {
+        const valid = ['light', 'dark', 'auto'];
+        const cookieMatch = document.cookie.match(
+          /(?:^|;\s*)themePreference=([^;]+)/,
+        );
+
+        const cookiePref = valid.includes(cookieMatch?.[1])
+          ? cookieMatch[1]
+          : null;
+
+        const pref =
+          cookiePref ||
+          window.__FRONTEND_REQUEST_CONTEXT__?.themePreference ||
+          'auto';
+
+        const systemPrefersDark =
+          typeof window.matchMedia === 'function' &&
+          window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+        const theme =
+          pref === 'auto' ? (systemPrefersDark ? 'dark' : 'light') : pref;
+
+        if (theme === 'dark') {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
     <!--ss-head-->
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   </head>
   <body>
     <div id="root"><!--ss-outlet--></div>

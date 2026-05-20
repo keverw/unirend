@@ -1825,8 +1825,7 @@ export class SSRServer extends BaseServer {
     let entryServer: unknown;
 
     try {
-      /* @vite-ignore */
-      entryServer = await import(entryResult.entryPath);
+      entryServer = await import(/* @vite-ignore */ entryResult.entryPath);
     } catch (error) {
       // Type assertion for error message - error could be anything
       const errorMessage =

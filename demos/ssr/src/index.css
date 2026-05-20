@@ -5,7 +5,7 @@
   line-height: 1.6;
   font-weight: 400;
 
-  /* Modern gradient background */
+  /* Modern gradient light theme — overridden when <html> has the dark class. */
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   min-height: 100vh;
   color: #ffffff;
@@ -14,6 +14,72 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Dark class applied to <html> by ThemeProvider and flash prevention script. */
+
+html.dark {
+  background: #1a1a1a !important;
+  color: rgba(255, 255, 255, 0.87) !important;
+  color-scheme: dark;
+}
+
+html.dark body {
+  background: #1a1a1a !important;
+  color: rgba(255, 255, 255, 0.87) !important;
+}
+
+html.dark .header {
+  background: #2d2d2d !important;
+  backdrop-filter: none !important;
+  border-bottom: 1px solid #404040 !important;
+}
+
+html.dark .logo {
+  color: rgba(255, 255, 255, 0.87) !important;
+}
+
+html.dark .nav a {
+  color: rgba(255, 255, 255, 0.87) !important;
+}
+
+html.dark .nav a.active {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-color: rgba(255, 255, 255, 0.4) !important;
+  color: rgba(255, 255, 255, 0.87) !important;
+}
+
+html.dark .hero-title {
+  color: rgba(255, 255, 255, 0.87) !important;
+  text-shadow: none !important;
+}
+
+html.dark .hero-subtitle {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+html.dark .card {
+  background: #2d2d2d !important;
+  backdrop-filter: none !important;
+  border: 1px solid #404040 !important;
+  color: rgba(255, 255, 255, 0.87) !important;
+}
+
+html.dark .card h2 {
+  color: rgba(255, 255, 255, 0.87) !important;
+}
+
+html.dark .card li {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+html.dark .footer {
+  background: #2d2d2d !important;
+  border-top: 1px solid #404040 !important;
+}
+
+html.dark .footer-content {
+  color: rgba(255, 255, 255, 0.7) !important;
 }
 
 * {
@@ -192,6 +258,67 @@ a {
 
 a:hover {
   color: #ff6b6b;
+}
+
+/* Buttons */
+button {
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    border-color 0.25s,
+    background-color 0.25s,
+    color 0.25s;
+  background-color: #f9f9f9;
+  color: #213547;
+}
+
+button:hover {
+  border-color: #646cff;
+  background-color: #f0f0f0;
+}
+
+html.dark button {
+  background-color: #1a1a1a;
+  color: rgba(255, 255, 255, 0.87);
+  border-color: transparent;
+}
+
+html.dark button:hover {
+  border-color: #646cff;
+  background-color: #1a1a1a;
+}
+
+button:focus,
+button:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+}
+
+.theme-toggle {
+  background-color: #646cff;
+  border-color: rgba(255, 255, 255, 0.45);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(71, 76, 180, 0.35);
+}
+
+.theme-toggle:hover {
+  background-color: #535bf2;
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+html.dark .theme-toggle {
+  background-color: #1a1a1a;
+  border-color: transparent;
+  color: rgba(255, 255, 255, 0.87);
+  box-shadow: none;
+}
+
+html.dark .theme-toggle:hover {
+  border-color: #646cff;
 }
 
 /* Demo Button Styles */

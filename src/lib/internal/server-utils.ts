@@ -716,14 +716,19 @@ export function createControlledInstance(
           'Plugins cannot register catch-all route hooks that would conflict with SSR',
         );
       }
-      // Note: Fastify's addHook has complex overloads for different hook types.
-      // These casts align our simplified interface with Fastify's internal expectations.
-      // The handler is cast to 'any' because Fastify's hook types are too complex to satisfy
-      // with our simplified generic signature, but the runtime behavior is correct.
+      // Wrap every handler in async so plain sync functions work without hanging.
+      // Fastify requires hooks to either be async (return a Promise) or call done().
+      // By always registering an async wrapper, sync handlers are safe — the wrapper
+      // returns a resolved Promise automatically when the inner function returns void.
+      const wrappedHandler = async (
+        request: FastifyRequest,
+        reply: FastifyReply,
+        ...args: unknown[]
+      ) => handler(request, reply, ...args);
       return fastifyInstance.addHook(
         hookName as Parameters<typeof fastifyInstance.addHook>[0],
         // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument
-        handler as any,
+        wrappedHandler as any,
       );
     },
     decorate: (property: string, value: unknown) =>

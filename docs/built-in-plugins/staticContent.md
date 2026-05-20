@@ -488,7 +488,7 @@ Static file serving uses `reply.hijack()` internally, which bypasses Fastify's `
 **`onSend` is never called for static asset responses** because `reply.hijack()` skips the hook pipeline. If you use `onSend` to set or renew a cookie, it will naturally not fire for `.js`, `.css`, image, and other static file responses. This is almost always the correct behavior:
 
 ```ts
-pluginHost.addHook('onSend', (request, reply, _payload, done) => {
+pluginHost.addHook('onSend', async (request, reply, _payload) => {
   // onSend is naturally skipped for static assets via reply.hijack(), but we
   // guard on isStaticAsset too as a defensive check in case that ever changes.
   if (!request.isStaticAsset) {
@@ -507,20 +507,16 @@ pluginHost.addHook('onSend', (request, reply, _payload, done) => {
       });
     }
   }
-
-  done();
 });
 ```
 
 **`onResponse` still fires for all requests**, including static assets, because it runs after the response is fully sent rather than in the send pipeline. Use `request.isStaticAsset` (set to `true` immediately before static content takes ownership of the response) to skip work that shouldn't apply to asset requests:
 
 ```ts
-pluginHost.addHook('onResponse', (request, reply, done) => {
+pluginHost.addHook('onResponse', (request, reply) => {
   if (!request.isStaticAsset) {
     // e.g. page view logging, analytics, metrics
   }
-
-  done();
 });
 ```
 

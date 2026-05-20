@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Header } from '../components/Header';
 
 function App() {
   const [todos, setTodos] = useState([
@@ -36,9 +35,7 @@ function App() {
   };
 
   return (
-    <div>
-      <Header />
-
+    <>
       <main className="main-content">
         <h1 className="hero-title">Interactive App</h1>
         <p className="hero-subtitle">
@@ -166,13 +163,7 @@ function App() {
           </div>
         </div>
       </main>
-
-      <footer className="footer">
-        <div className="footer-content">
-          <p>&copy; 2024 Unirend Demo - Interactive App (SPA)</p>
-        </div>
-      </footer>
-    </div>
+    </>
   );
 }
 

@@ -1,6 +1,5 @@
 import React from 'react';
 import { UnirendHead } from '../../../../src/client';
-import { Header } from '../components/Header';
 
 const Contact: React.FC = () => {
   return (
@@ -9,9 +8,6 @@ const Contact: React.FC = () => {
         <title>Contact - Unirend SSG Demo</title>
         <meta name="description" content="Get in touch with the Unirend team" />
       </UnirendHead>
-
-      <Header />
-
       <main className="main-content">
         <h1 className="hero-title">Get in Touch</h1>
         <p className="hero-subtitle">
@@ -56,12 +52,6 @@ const Contact: React.FC = () => {
           </p>
         </div>
       </main>
-
-      <footer className="footer">
-        <div className="footer-content">
-          <p>Built with ❤️ and modern web technologies</p>
-        </div>
-      </footer>
     </>
   );
 };

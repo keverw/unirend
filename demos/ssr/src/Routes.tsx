@@ -1,4 +1,4 @@
-import { RouteObject, Outlet, useLoaderData, useParams } from 'react-router';
+import { RouteObject, useLoaderData, useParams } from 'react-router';
 import { UnirendHead } from '../../../src/client';
 import RouteErrorBoundary from '../../../src/lib/router-utils/RouteErrorBoundary';
 import {
@@ -12,27 +12,6 @@ import ContextDemo from './pages/ContextDemo';
 import AppLayout from './components/AppLayout';
 import CustomNotFound from './components/CustomNotFound';
 import CustomApplicationError from './components/CustomApplicationError';
-import GenericError from './components/GenericError';
-import { useDataLoaderEnvelopeError } from '../../../src/lib/router-utils/use-data-loader-envelope-error-hook';
-
-// App layout component that passes Outlet to AppLayout as children
-function App() {
-  const { hasError, is404, errorResponse } = useDataLoaderEnvelopeError();
-
-  return (
-    <AppLayout>
-      {hasError ? (
-        is404 ? (
-          <CustomNotFound data={errorResponse} />
-        ) : (
-          <GenericError data={errorResponse} />
-        )
-      ) : (
-        <Outlet />
-      )}
-    </AppLayout>
-  );
-}
 
 // Component to display page data JSON with proper layout and SEO
 const PageDataDisplay = () => {
@@ -109,7 +88,7 @@ const pageDataLoaderConfig = {
 export const routes: RouteObject[] = [
   {
     path: '/',
-    element: <App />,
+    element: <AppLayout />,
     errorElement: (
       <RouteErrorBoundary
         NotFoundComponent={CustomNotFound}

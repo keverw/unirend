@@ -1,7 +1,7 @@
-import React from 'react';
 import { NavLink } from 'react-router';
+import { ThemeToggle } from './theme/ThemeToggle';
 
-const Header: React.FC = () => {
+const Header = () => {
   return (
     <header className="header">
       <div className="header-content">
@@ -45,6 +45,7 @@ const Header: React.FC = () => {
             </li>
           </ul>
         </nav>
+        <ThemeToggle />
       </div>
     </header>
   );

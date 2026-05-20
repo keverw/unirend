@@ -1,11 +1,7 @@
 import React from 'react';
 import { UnirendHead } from '../../../../src/client';
-import { useTheme } from '../providers/ThemeProvider';
-import { Header } from '../components/Header';
 
 const Home: React.FC = () => {
-  const { theme } = useTheme();
-
   return (
     <>
       <UnirendHead>
@@ -15,16 +11,12 @@ const Home: React.FC = () => {
           content="Welcome to the Unirend SSG demo homepage"
         />
       </UnirendHead>
-
-      <Header />
-
       <main className="main-content">
         <div className="hero">
           <h1>Welcome to Unirend SSG Demo</h1>
           <p className="hero-subtitle">
             This demo shows how to use custom providers with the wrapProviders
             option. Try the theme toggle in the header to see it in action!
-            Current theme: <strong>{theme}</strong>
           </p>
         </div>
 
@@ -49,12 +41,6 @@ const Home: React.FC = () => {
           </p>
         </div>
       </main>
-
-      <footer className="footer">
-        <div className="footer-content">
-          <p>Built with ❤️ and modern web technologies</p>
-        </div>
-      </footer>
     </>
   );
 };

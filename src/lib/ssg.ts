@@ -162,7 +162,7 @@ export async function generateSSG(
 
   const importFn = async (): Promise<unknown> => {
     try {
-      return await import(entryPath);
+      return await import(/* @vite-ignore */ entryPath);
     } catch (error: unknown) {
       throw new Error(
         `Failed to import server entry from ${entryPath}: ${error instanceof Error ? error.message : String(error)}`,

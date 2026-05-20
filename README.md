@@ -22,7 +22,7 @@ yarn add unirend
 
 **Peer Dependencies:** You'll also need to install these in your project:
 
-`lifecycleion` is a utility library providing lifecycle management, structured logging, retry logic, and other foundational utilities — used internally by Unirend, in generated project templates, and useful in your own server and application code as well.
+`lifecycleion` is a utility library providing lifecycle management, structured logging, retry logic, and other foundational utilities. It is used internally by Unirend, in generated project templates, and is useful in your own server and application code as well.
 
 ```bash
 npm install lifecycleion react react-dom react-router
@@ -138,7 +138,7 @@ mountApp('root', routes, {
 - `<!--ss-outlet-->`: Marks where server/SSG-rendered body content will be injected
 - These comments are preserved during processing and are required for SSR/SSG to work properly
 
-**Managing `<title>`, `<meta>`, and `<link>` tags:** Use `UnirendHead` from `unirend/client` — Unirend's built-in document head manager. It works identically in SSR, SSG, and SPA mode and injects into the `<!--ss-head-->` slot on the server.
+**Managing `<title>`, `<meta>`, and `<link>` tags:** Use `UnirendHead` from `unirend/client`, Unirend's built-in document head manager. It works identically in SSR, SSG, and SPA mode and injects into the `<!--ss-head-->` slot on the server.
 
 ```tsx
 import { UnirendHead } from 'unirend/client';
@@ -245,33 +245,33 @@ Add these scripts to your `package.json` for both SSG and SSR workflows. The exa
 ```json
 {
   "scripts": {
-    "dev-spa": "vite", // SPA-only dev mode: no SSR server, frontend calls to server-registered page data/API handlers will 404 because they do not exist on Vite's HMR dev server
+    "spa-dev": "vite", // SPA-only dev mode: no SSR server, frontend calls to server-registered page data/API handlers will 404 because they do not exist on Vite's HMR dev server
     "build:client": "vite build --outDir build/client --base=/ --ssrManifest",
 
     // For SSG:
-    "build:server:ssg": "vite build --outDir build/server --ssr src/EntrySSG.tsx",
-    "build:ssg": "bun run build:client && bun run build:server:ssg",
+    "ssg:build:server": "vite build --outDir build/server --ssr src/EntrySSG.tsx",
+    "ssg:build": "bun run build:client && bun run ssg:build:server",
     "generate:dev": "bun run generate.ts dev", // Generate with dev mode enabled
     "generate:prod": "bun run generate.ts prod", // Generate for production
-    "build-and-generate": "bun run build:ssg && bun run generate:prod",
+    "ssg:build-and-generate:prod": "bun run ssg:build && bun run generate:prod",
     "serve:dev": "bun run serve.ts dev", // Static server with dev runtime (verbose errors)
     "serve:prod": "bun run serve.ts prod", // Static server with prod runtime
-    "build-and-serve": "bun run build-and-generate && bun run serve:prod",
+    "ssg:build-generate-serve:prod": "bun run ssg:build-and-generate:prod && bun run serve:prod",
 
     // For SSR:
-    "build:server:ssr": "vite build --outDir build/server --ssr src/EntrySSR.tsx",
-    "build:ssr": "bun run build:client && bun run build:server:ssr",
-    "serve-dev": "bun run serve.ts dev", // SSR dev mode with HMR (runs under Bun directly — see docs/ssr.md if you hit graceful shutdown issues)
-    "serve-prod": "bun run serve.ts prod", // SSR prod mode (requires build:ssr first)
-    "build-and-serve-prod": "bun run build:ssr && bun run serve-prod",
+    "ssr:build:server": "vite build --outDir build/server --ssr src/EntrySSR.tsx",
+    "ssr:build": "bun run build:client && bun run ssr:build:server",
+    "ssr:serve:hmr": "bun run serve-dev.ts dev", // SSR HMR mode, serving source through Vite
+    "ssr:serve:prod": "bun run serve-built.ts prod", // SSR prod mode with built assets (requires ssr:build first)
+    "ssr:build-and-serve:prod": "bun run ssr:build && bun run ssr:serve:prod",
 
     // For SSR Production Build (Node runtime — recommended):
-    "build:prod": "bun build serve.ts --outdir ./dist --target=node --external vite",
-    "start": "node dist/serve.js prod"
+    "build:prod": "bun build serve-built.ts --outdir ./dist --target=node --external vite",
+    "start": "node dist/serve-built.js prod"
 
     // Alternative: Run directly under Bun runtime:
-    // "build:prod": "bun build serve.ts --outdir ./dist --external vite",
-    // "start": "bun dist/serve.js prod"
+    // "build:prod": "bun build serve-built.ts --outdir ./dist --external vite",
+    // "start": "bun dist/serve-built.js prod"
   }
 }
 ```
@@ -300,7 +300,7 @@ function MyComponent() {
 }
 ```
 
-All four context hooks — `usePublicAppConfig()`, `useRequestContext()`, `useCDNBaseURL()`, and `useDomainInfo()` — work on both server and client. See [Unirend Context](docs/unirend-context.md) for full hook documentation.
+All four context hooks, `usePublicAppConfig()`, `useRequestContext()`, `useCDNBaseURL()`, and `useDomainInfo()`, work on both server and client. See [Unirend Context](docs/unirend-context.md) for full hook documentation.
 
 **In Non-Component Code** (loaders, utilities, module-level) - access `window.__PUBLIC_APP_CONFIG__`, `window.__FRONTEND_REQUEST_CONTEXT__`, `window.__CDN_BASE_URL__`, and `window.__DOMAIN_INFO__` directly:
 
@@ -345,7 +345,7 @@ const domainInfo =
 
 **Note:** If you run Vite in SPA-only dev mode directly (not through the SSR dev/prod servers), the injection won't happen. All four globals will be `undefined`, so use fallback values as shown above.
 
-**Note on timing:** All four globals are injected into `<head>` by the server, before any of your app scripts (whether in `<head>` or `<body>`), so they are available everywhere — inline `<head>` scripts, body scripts, and all module code that runs after page load.
+**Note on timing:** All four globals are injected into `<head>` by the server, before any of your app scripts (whether in `<head>` or `<body>`), so they are available everywhere, including inline `<head>` scripts, body scripts, and all module code that runs after page load.
 
 For more details on the Unirend Context system, see [docs/unirend-context.md](docs/unirend-context.md).
 
@@ -361,14 +361,14 @@ After completing the Common Setup, see the dedicated guide for Server-Side Rende
 
 - [docs/ssr.md](docs/ssr.md)
 
-SSR servers support a [plugin system](docs/server-plugins.md) for extending functionality, data loader endpoints for page data handling, and can host your API endpoints for actions outside of SSR data loader handlers. You can also create a standalone API server — covered in [docs/ssr.md](docs/ssr.md) — useful when you want to separate API hosting from SSR rendering while sharing the same plugin and handler code conventions, such as API endpoints and data loaders.
+SSR servers support a [plugin system](docs/server-plugins.md) for extending functionality, data loader endpoints for page data handling, and can host your API endpoints for actions outside of SSR data loader handlers. You can also create a standalone API server covered in [docs/ssr.md](docs/ssr.md), which is useful when you want to separate API hosting from SSR rendering while sharing the same plugin and handler code conventions, such as API endpoints and data loaders.
 
 ## Demos
 
 Runnable, self-contained examples live under `demos/` and are wired to root-level scripts (no need to cd):
 
-- `demos/ssg` — SSG example (build, generate, serve)
-- `demos/ssr` — SSR example (dev and production)
+- `demos/ssg`: SSG example (build, generate, serve)
+- `demos/ssr`: SSR example (dev and production)
 
 Runtime note: Demo scripts use Bun to run TypeScript directly (e.g., `bun run ...`). You can use Node-based alternatives as well (e.g., transpile with `tsc`, use `ts-node`, or write equivalent vanilla JavaScript). Unirend’s SSG and server (SSR/API) APIs run on Node and Bun. Vite provides HMR in development and bundles the React application frontend for production.
 
@@ -379,23 +379,24 @@ Files live in `demos/ssg`.
 From the repo root (using package scripts):
 
 ```bash
-# Build client and server for SSG
-bun run ssg-build
+# Build client and server for SSG.
+bun run ssg:build
 
-# Generate static HTML files using the built server entry
-bun run ssg-generate-prod
+# Generate static HTML files using the built server entry.
+bun run ssg:generate:prod
 
-# Or do both in one step
-bun run ssg-build-and-generate-prod
+# Or do both in one step.
+bun run ssg:build-and-generate:prod
 
-# Serve the generated site (simple static file server)
-bun run ssg-serve-prod
+# Serve the generated site with production runtime behavior.
+bun run ssg:serve:prod
 ```
 
 Notes:
 
-- `generate.ts` calls `generateSSG` with a mix of SSG and SPA pages and can inject `publicAppConfig`.
-- `serve.ts` serves the contents of `build/client` with basic caching and a 404 page.
+- `generate.ts` calls `generateSSG` with a mix of SSG and SPA pages, injects `publicAppConfig`, and passes `requestContext` (used by the ThemeProvider) per page.
+- `src/components/AppLayout.tsx` owns the shared route chrome and route-change scroll-to-top behavior. Individual pages keep only their own page content and metadata.
+- `demos/ssg/serve.ts` serves the contents of `build/client` using `StaticWebServer` wrapped in a `LifecycleManager` + `BaseComponent` for graceful shutdown and signal handling.
 - See [docs/ssg.md](docs/ssg.md) for concepts behind the workflow.
 
 ### SSR demo: Dev and Prod
@@ -405,19 +406,25 @@ Files live in `demos/ssr`.
 From the repo root (using package scripts):
 
 ```bash
-# Development (Vite HMR + source entry)
-bun run ssr-serve-dev
+# Development SSR with Vite HMR + source entry.
+bun run ssr:serve:hmr
 
-# Production: build client and server, then run prod server
-bun run ssr-build
-bun run ssr-serve-prod
+# Production: build client and server, then run the built server.
+bun run ssr:build
+bun run ssr:serve:prod
+
+# Or do both in one step.
+bun run ssr:build-and-serve:prod
 ```
 
 What this shows:
 
-- Registering SSR plugins (routes, hooks, decorators).
+- Registering SSR plugins (cookies, theme, API routes, hooks).
+- Server theme plugin seeding `requestContext.themePreference` from a cookie for flash-free dark/light mode.
 - API/SSR coexistence: API routes under `/api/*` are handled first. Unmatched ones return JSON envelopes. Other GETs fall through to SSR.
-- Optional custom 500 page example (commented in `demos/ssr/serve.ts`).
+- Custom standalone 500 page handling via `get500ErrorPage` in `server/ssr-component.ts`.
+- `LifecycleManager` + `BaseComponent` for graceful shutdown with configurable timeouts (`serve-dev.ts` / `serve-built.ts` → `server/start.ts` → `server/ssr-component.ts`).
+- `src/components/AppLayout.tsx` owns the shared route chrome and route-change scroll-to-top behavior.
 
 ## Data Loaders
 

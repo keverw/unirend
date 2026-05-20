@@ -1,4 +1,4 @@
-import { RouteObject, Outlet } from 'react-router';
+import { RouteObject } from 'react-router';
 import Home from './pages/Home';
 import About from './pages/About';
 import Contact from './pages/Contact';
@@ -6,20 +6,20 @@ import Dashboard from './pages/Dashboard';
 import AppPage from './pages/App';
 import NotFound from './pages/NotFound';
 import ContextDemo from './pages/ContextDemo';
-
-// Simple Layout component - theme is handled by body class
-function Layout() {
-  return (
-    <div style={{ minHeight: '100vh' }}>
-      <Outlet />
-    </div>
-  );
-}
+import { AppLayout } from './components/AppLayout';
+import RouteErrorBoundary from '../../../src/lib/router-utils/RouteErrorBoundary';
+import CustomApplicationError from './components/CustomApplicationError';
 
 export const routes: RouteObject[] = [
   {
     path: '/',
-    element: <Layout />,
+    element: <AppLayout />,
+    errorElement: (
+      <RouteErrorBoundary
+        NotFoundComponent={NotFound}
+        ApplicationErrorComponent={CustomApplicationError}
+      />
+    ),
     children: [
       {
         index: true,

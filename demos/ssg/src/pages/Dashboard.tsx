@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { Header } from '../components/Header';
 
 function Dashboard() {
   const [data, setData] = useState<any>(null);
@@ -24,9 +23,7 @@ function Dashboard() {
   }, []);
 
   return (
-    <div>
-      <Header />
-
+    <>
       <main className="main-content">
         <h1 className="hero-title">Dashboard</h1>
         <p className="hero-subtitle">
@@ -120,13 +117,7 @@ function Dashboard() {
           )}
         </div>
       </main>
-
-      <footer className="footer">
-        <div className="footer-content">
-          <p>&copy; 2024 Unirend Demo - Dashboard (SPA)</p>
-        </div>
-      </footer>
-    </div>
+    </>
   );
 }
 
