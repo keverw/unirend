@@ -384,12 +384,14 @@ export default [
   },
   {
     // React components: enforce PascalCase for TSX files
+    // ignore: entry-point files use all-caps acronyms (EntrySSR, EntrySSG) — unicorn normalizes these to EntrySsr/EntrySsg but we prefer the full acronym form
     files: ['**/*.tsx'],
     rules: {
       'unicorn/filename-case': [
         'error',
         {
           case: 'pascalCase',
+          ignore: [/^Entry[A-Z]{2,}/],
         },
       ],
     },
