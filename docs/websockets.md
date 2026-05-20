@@ -40,7 +40,7 @@ import { serveSSRDev, serveSSRProd, serveAPI } from 'unirend/server';
 // SSR (dev)
 const ssr = serveSSRDev(
   {
-    serverEntry: './src/entry-ssr.tsx',
+    serverEntry: './src/EntrySSR.tsx',
     template: './index.html',
     viteConfig: './vite.config.ts',
   },

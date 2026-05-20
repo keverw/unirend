@@ -1010,7 +1010,7 @@ function createServer(options: CreateServerOptions): SSRServer {
   return options.mode === 'hmr'
     ? serveSSRDev(
         {
-          serverEntry: './src/entry-ssr.tsx',
+          serverEntry: './src/EntrySSR.tsx',
           template: './src/index.html',
           viteConfig: './vite.config.ts',
         },

@@ -13,7 +13,7 @@ describe('closeAllConnections()', () => {
     const server = new SSRServer({
       mode: 'development',
       paths: {
-        serverEntry: './src/entry-ssr.tsx',
+        serverEntry: './src/EntrySSR.tsx',
         template: './index.html',
         viteConfig: './vite.config.ts',
       },
@@ -56,7 +56,7 @@ describe('closeAllConnections()', () => {
     const server = new SSRServer({
       mode: 'development',
       paths: {
-        serverEntry: './src/entry-ssr.tsx',
+        serverEntry: './src/EntrySSR.tsx',
         template: './index.html',
         viteConfig: './vite.config.ts',
       },
@@ -97,7 +97,7 @@ describe('closeAllConnections()', () => {
         '__default__',
         {
           paths: {
-            serverEntry: './src/entry-ssr.tsx',
+            serverEntry: './src/EntrySSR.tsx',
             template: './index.html',
             viteConfig: './vite.config.ts',
           },
@@ -133,7 +133,7 @@ describe('SSRServer.stop()', () => {
     const server = new SSRServer({
       mode: 'development',
       paths: {
-        serverEntry: './src/entry-ssr.tsx',
+        serverEntry: './src/EntrySSR.tsx',
         template: './index.html',
         viteConfig: './vite.config.ts',
       },
@@ -167,7 +167,7 @@ describe('SSRServer.stop()', () => {
 
     const appConfig = {
       paths: {
-        serverEntry: './src/entry-ssr.tsx',
+        serverEntry: './src/EntrySSR.tsx',
         template: './index.html',
         viteConfig: './vite.config.ts',
       },

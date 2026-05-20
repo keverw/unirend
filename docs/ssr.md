@@ -594,7 +594,7 @@ async function main() {
   const buildDir = path.resolve(__dirname, 'build');
 
   const server = serveSSRProd(buildDir, {
-    // Optional: Custom server entry name (default: "entry-ssr" - looks for entry-ssr.js in server manifest)
+    // Optional: Custom server entry name (default: "EntrySSR" - looks for EntrySSR.js in server manifest)
     // serverEntry: "custom-entry",
 
     // Optional: Custom HTML template path relative to buildDir (default: "client/index.html")
@@ -707,7 +707,7 @@ async function main() {
   const server = serveSSRDev(
     {
       // Required: paths for development mode (no defaults, must be specified)
-      serverEntry: './src/entry-ssr.tsx', // Your server entry file
+      serverEntry: './src/EntrySSR.tsx', // Your server entry file
       template: './index.html', // HTML template file
       viteConfig: './vite.config.ts', // Vite config file
     },
@@ -844,7 +844,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
 ### Options (prod-only)
 
 - `serverEntry?: string`
-  - Name of the server entry in manifest (default `"entry-ssr"`).
+  - Name of the server entry in manifest (default `"EntrySSR"`).
 - `template?: string`
   - Custom HTML template path relative to `buildDir` (default: `"client/index.html"`).
   - Example: `template: "dist/app.html"` loads from `buildDir/dist/app.html`.
@@ -1456,7 +1456,7 @@ A single `SSRServer` instance can serve **multiple distinct React applications**
 
 ### Monorepo Structure Tip
 
-A common pattern is to give each app its own source folder with its `entry-ssr`, `entry-client`, components, assets, and Vite config, with `serve.ts` living alongside the default app's source. Build `serve.ts` to `dist/` and each app into its own sub-folder within it, then register the additional apps via `registerProdApp()` (or `registerDevApp()` for dev).
+A common pattern is to give each app its own source folder with its `EntrySSR`, `EntryClient`, components, assets, and Vite config, with `serve.ts` living alongside the default app's source. Build `serve.ts` to `dist/` and each app into its own sub-folder within it, then register the additional apps via `registerProdApp()` (or `registerDevApp()` for dev).
 
 ### Usage Example
 
@@ -1475,7 +1475,7 @@ server.registerProdApp('marketing', './build-marketing', {
   // App-specific frontend config (injected into client)
   publicAppConfig: { api_endpoint: 'https://marketing-api.example.com' },
 
-  // Optional: Custom server entry (default: "entry-ssr")
+  // Optional: Custom server entry (default: "EntrySSR")
   // serverEntry: 'custom-entry',
 
   // Optional: Custom HTML template (default: "client/index.html")
@@ -1527,7 +1527,7 @@ import { serveSSRDev } from 'unirend/server';
 
 const server = serveSSRDev(
   {
-    serverEntry: './src/entry-ssr.tsx',
+    serverEntry: './src/EntrySSR.tsx',
     template: './index.html',
     viteConfig: './vite.config.ts',
   },
@@ -1540,7 +1540,7 @@ const server = serveSSRDev(
 server.registerDevApp(
   'marketing',
   {
-    serverEntry: './src/marketing/entry-ssr.tsx',
+    serverEntry: './src/marketing/EntrySSR.tsx',
     template: './src/marketing/index.html',
     viteConfig: './vite.marketing.config.ts',
   },

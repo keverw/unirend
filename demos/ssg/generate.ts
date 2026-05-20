@@ -11,7 +11,7 @@ import path from 'path';
  *
  * IMPORTANT: Make sure to build both client and server:
  * vite build --outDir build/client --base=/ --ssrManifest
- * vite build --outDir build/server --ssr src/entry-ssg.tsx
+ * vite build --outDir build/server --ssr src/EntrySSG.tsx
  *
  * Note: Use different output directories for client and server (e.g., build/client and
  * build/server). Reusing the same output directory for both can cause files to overwrite each other.
@@ -87,8 +87,8 @@ async function main() {
 
   // Optional configuration
   const options = {
-    // serverEntry: "entry-ssg", // Default for SSG, can be customized
-    // serverEntry: "entry-ssr", // Use this if you want to share with SSR
+    // serverEntry: "EntrySSG", // Default for SSG, can be customized
+    // serverEntry: "EntrySSR", // Use this if you want to share with SSR
     publicAppConfig: {
       // Any config you want to inject into the frontend
       api_endpoint: 'https://api.example.com',

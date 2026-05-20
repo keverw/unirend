@@ -843,7 +843,7 @@ class AppResponseHelpers extends APIResponseHelpers {
 // SSR
 const ssr = serveSSRDev(
   {
-    serverEntry: './src/entry-ssr.tsx',
+    serverEntry: './src/EntrySSR.tsx',
     template: './index.html',
     viteConfig: './vite.config.ts',
   },

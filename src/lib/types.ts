@@ -122,7 +122,7 @@ export type RenderResult =
  * Required paths for SSR development server
  */
 export interface SSRDevPaths {
-  /** Path to the server entry file (e.g. "./src/entry-ssr.tsx") */
+  /** Path to the server entry file (e.g. "./src/EntrySSR.tsx") */
   serverEntry: string;
   /** Path to the HTML template file (e.g. "./index.html") */
   template: string;
@@ -912,7 +912,7 @@ export interface ServeSSRProdOptions<
 > extends ServeSSROptions<M> {
   /**
    * Name of the server entry file to look for in the Vite manifest
-   * Defaults to "entry-ssr" if not provided
+   * Defaults to "EntrySSR" if not provided
    */
   serverEntry?: string;
   /**
@@ -994,7 +994,7 @@ export interface SSRInternalAppConfigDev extends SSRInternalAppConfigBase {
 export interface SSRInternalAppConfigProd extends SSRInternalAppConfigBase {
   /** Prod-specific build directory */
   buildDir: string;
-  /** Server entry name in manifest (default: "entry-ssr") */
+  /** Server entry name in manifest (default: "EntrySSR") */
   serverEntry?: string;
   /** HTML template path relative to buildDir (default: "client/index.html") */
   template?: string;
@@ -1661,7 +1661,7 @@ export interface SSGOptions {
   containerID?: string;
   /**
    * Name of the server entry file to look for in the Vite manifest
-   * Defaults to "entry-ssr" if not provided
+   * Defaults to "EntrySSG" if not provided
    */
   serverEntry?: string;
   /**

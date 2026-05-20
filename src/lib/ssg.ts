@@ -93,7 +93,7 @@ function createSSGReport({
  *
  * @param buildDir Directory containing built assets (HTML template, static files, manifest, etc.)
  * @param pages Array of pages to generate, each with a path and output filename
- * @param options Additional options for the SSG process, including publicAppConfig and serverEntry (defaults to "entry-ssg")
+ * @param options Additional options for the SSG process, including publicAppConfig and serverEntry (defaults to "EntrySSG")
  * @returns Promise that resolves to a detailed report of the generation process
  */
 
@@ -119,7 +119,7 @@ export async function generateSSG(
   };
 
   // Load the server manifest and find the server entry
-  const serverEntry = options.serverEntry || 'entry-ssg';
+  const serverEntry = options.serverEntry || 'EntrySSG';
   const serverFolderName = options.serverFolderName || 'server';
   const clientFolderName = options.clientFolderName || 'client';
   const serverBuildDir = path.join(buildDir, serverFolderName);

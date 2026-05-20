@@ -75,7 +75,7 @@ Add to your package.json scripts (run before your prod build as you could import
 {
   "scripts": {
     "build:client": "vite build --outDir build/client --base=/ --ssrManifest",
-    "build:server:ssr": "vite build --outDir build/server --ssr src/entry-ssr.tsx",
+    "build:server:ssr": "vite build --outDir build/server --ssr src/EntrySSR.tsx",
     "build:generate-info": "bun run scripts/generate-build-info.ts",
     "build:ssr": "bun run build:client && bun run build:server:ssr",
     "build:prod": "bun run build:generate-info && bun run build:ssr && bun build server.ts --outdir ./dist --external vite"
@@ -163,7 +163,7 @@ async function main(mode: Mode) {
     mode === 'hmr'
       ? serveSSRDev(
           {
-            serverEntry: './src/entry-ssr.tsx',
+            serverEntry: './src/EntrySSR.tsx',
             template: './src/index.html',
             viteConfig: './vite.config.ts',
           },

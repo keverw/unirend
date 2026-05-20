@@ -100,7 +100,7 @@ async function main() {
   ];
 
   const options = {
-    serverEntry: 'entry-ssg', // Default for SSG, customize if needed
+    serverEntry: 'EntrySSG', // Default for SSG, customize if needed
     publicAppConfig: {
       api_endpoint: 'https://api.example.com',
     },

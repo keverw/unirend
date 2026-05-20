@@ -99,11 +99,11 @@ Between both SSG (Static Site Generation) and SSR (Server-Side Rendering), there
 ### Prepare Client Frontend
 
 1. Create a Vite + React project, like normal. Define your routes using React Router's `RouteObject[]` format.
-2. Rename your module in the `index.html` file to something like `entry-client` and update the reference.
+2. Rename your module in the `index.html` file to something like `EntryClient` and update the reference.
 3. In your client entry point, use `mountApp` instead of `createRoot`, passing your routes directly:
 
 ```typescript
-// entry-client.tsx
+// EntryClient.tsx
 import { mountApp } from 'unirend/client';
 import { routes } from './routes';
 
@@ -129,7 +129,7 @@ mountApp('root', routes, {
   </head>
   <body>
     <div id="root"><!--ss-outlet--></div>
-    <script type="module" src="/src/entry-client.tsx"></script>
+    <script type="module" src="/src/EntryClient.tsx"></script>
   </body>
 </html>
 ```
@@ -205,8 +205,8 @@ SSG note: Static Site Generation invokes your server entry at build time to rend
 
 Create a server entry file that exports a render function:
 
-- **For SSG**: Create `entry-ssg.tsx`
-- **For SSR**: Create `entry-ssr.tsx`
+- **For SSG**: Create `EntrySSG.tsx`
+- **For SSR**: Create `EntrySSR.tsx`
 
 ```typescript
 import { unirendBaseRender } from 'unirend/server';
@@ -233,9 +233,9 @@ vite build --outDir build/client --base=/ --ssrManifest
 
 # Build server entry (contains the rendering code)
 # For SSG:
-vite build --outDir build/server --ssr src/entry-ssg.tsx
+vite build --outDir build/server --ssr src/EntrySSG.tsx
 # For SSR:
-vite build --outDir build/server --ssr src/entry-ssr.tsx
+vite build --outDir build/server --ssr src/EntrySSR.tsx
 ```
 
 #### 3. Package.json Scripts
@@ -249,7 +249,7 @@ Add these scripts to your `package.json` for both SSG and SSR workflows. The exa
     "build:client": "vite build --outDir build/client --base=/ --ssrManifest",
 
     // For SSG:
-    "build:server:ssg": "vite build --outDir build/server --ssr src/entry-ssg.tsx",
+    "build:server:ssg": "vite build --outDir build/server --ssr src/EntrySSG.tsx",
     "build:ssg": "bun run build:client && bun run build:server:ssg",
     "generate:dev": "bun run generate.ts dev", // Generate with dev mode enabled
     "generate:prod": "bun run generate.ts prod", // Generate for production
@@ -259,7 +259,7 @@ Add these scripts to your `package.json` for both SSG and SSR workflows. The exa
     "build-and-serve": "bun run build-and-generate && bun run serve:prod",
 
     // For SSR:
-    "build:server:ssr": "vite build --outDir build/server --ssr src/entry-ssr.tsx",
+    "build:server:ssr": "vite build --outDir build/server --ssr src/EntrySSR.tsx",
     "build:ssr": "bun run build:client && bun run build:server:ssr",
     "serve-dev": "bun run serve.ts dev", // SSR dev mode with HMR (runs under Bun directly — see docs/ssr.md if you hit graceful shutdown issues)
     "serve-prod": "bun run serve.ts prod", // SSR prod mode (requires build:ssr first)
