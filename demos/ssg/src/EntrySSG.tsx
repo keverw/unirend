@@ -3,7 +3,7 @@ import type { RenderRequest } from '../../../src/server';
 import { ThemeProvider } from './providers/ThemeProvider';
 
 // Import shared routes
-import { routes } from './routes';
+import { routes } from './Routes';
 
 /**
  * SSG entry point for static site generation

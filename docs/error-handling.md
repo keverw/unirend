@@ -42,7 +42,7 @@ Behavior also depends on both the error path and when it occurs:
 
 ### Error Utilities and Recommended Setup
 
-- **Error Boundary (thrown errors)**: In your `routes.tsx`, set React Router's root `errorElement` to Unirend's `RouteErrorBoundary` helper component for router-level 404s and thrown route or loader errors.
+- **Error Boundary (thrown errors)**: In your `Routes.tsx`, set React Router's root `errorElement` to Unirend's `RouteErrorBoundary` helper component for router-level 404s and thrown route or loader errors.
   - Import: `import { RouteErrorBoundary } from 'unirend/router-utils'`
   - During SSG, component render throws may bypass boundary-style recovery and surface as render failures instead.
   - Pass your custom components: `NotFoundComponent` (404s) and `ApplicationErrorComponent` (thrown errors).
@@ -50,7 +50,7 @@ Behavior also depends on both the error path and when it occurs:
   - For SSR parity, your server's `get500ErrorPage` should visually match your `ApplicationErrorComponent`.
 
   ```ts
-  // routes.tsx
+  // Routes.tsx
   import type { RouteObject } from 'react-router'
   import { RouteErrorBoundary } from 'unirend/router-utils'
   import AppLayout from './AppLayout'
@@ -96,7 +96,7 @@ Behavior also depends on both the error path and when it occurs:
 
 - **Inline envelope errors in layout**: In your `AppLayout`, use `useDataLoaderEnvelopeError` to render inline errors when a loader returns a page error envelope directly, or when the framework converts a loader failure into one.
   - Import: `import { useDataLoaderEnvelopeError } from 'unirend/router-utils'`
-  - Typical mapping: render a `NotFound` component for 404s and a generic error component for other cases. See the SSR demo's `demos/ssr/src/routes.tsx` layout pattern.
+  - Typical mapping: render a `NotFound` component for 404s and a generic error component for other cases. See the SSR demo's `demos/ssr/src/Routes.tsx` layout pattern.
   - A dedicated not-found page data loader is recommended, but inline handling in your layout works too.
 
 ## Error Types
@@ -143,7 +143,7 @@ When a loader returns a page error envelope directly, or when the framework conv
 
 - For envelope-based errors (e.g., rendered 4xx/5xx page envelopes), use the helper hook `useDataLoaderEnvelopeError` inside your app layout to detect and render inline error UIs while keeping header/footer.
 - **SSG with Local Data Loaders**: This same pattern applies to SSG when using local data loaders. Set up `useDataLoaderEnvelopeError` in your app layout to handle envelope errors returned by local handlers.
-- Common pattern: render `CustomNotFound` for 404s, and `GenericError` for other errors. See the SSR demo's `routes.tsx` for an example layout pattern.
+- Common pattern: render `CustomNotFound` for 404s, and `GenericError` for other errors. See the SSR demo's `Routes.tsx` for an example layout pattern.
 
 ### Static Site Generation (SSG) Notes
 
@@ -165,7 +165,7 @@ When a loader returns a page error envelope directly, or when the framework conv
 
 ## Reference Implementation
 
-- See the SSR demo `routes.tsx` for a layout that:
+- See the SSR demo `Routes.tsx` for a layout that:
   - Uses `RouteErrorBoundary` for thrown errors
   - Wraps outlet content with an App layout
   - Detects envelope errors via `useDataLoaderEnvelopeError` and renders inline errors

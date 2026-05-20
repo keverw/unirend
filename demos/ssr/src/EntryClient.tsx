@@ -2,7 +2,7 @@ import { mountApp } from '../../../src/client';
 import './index.css';
 
 // Import shared routes
-import { routes } from './routes';
+import { routes } from './Routes';
 
 // Mount the app and log the result
 const result = mountApp('root', routes);

@@ -181,7 +181,7 @@ Configuration (Local Loader):
 Register the loader on the route, then read the envelope in the component with `useLoaderData()`:
 
 ```ts
-// routes.tsx
+// Routes.tsx
 import type { RouteObject } from "react-router";
 import { createPageDataLoader, createDefaultPageDataLoaderConfig } from "unirend/router-utils";
 import Home from "./pages/Home";

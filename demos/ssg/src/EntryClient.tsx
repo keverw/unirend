@@ -3,7 +3,7 @@ import { ThemeProvider } from './providers/ThemeProvider';
 import './index.css';
 
 // Import shared routes
-import { routes } from './routes';
+import { routes } from './Routes';
 
 // Mount the app with ThemeProvider
 const result = mountApp('root', routes, {

@@ -24,7 +24,7 @@ When setting up your `EntrySSG.tsx` or `EntrySSR.tsx`, you export a `render` fun
 import { unirendBaseRender } from 'unirend/server';
 import type { RenderRequest } from 'unirend/server';
 import type { RouteObject } from 'react-router';
-import { routes } from './routes';
+import { routes } from './Routes';
 
 export async function render(renderRequest: RenderRequest) {
   // Pass your routes directly - unirendBaseRender creates the static handler and router internally

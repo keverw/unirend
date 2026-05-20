@@ -105,7 +105,7 @@ Between both SSG (Static Site Generation) and SSR (Server-Side Rendering), there
 ```typescript
 // EntryClient.tsx
 import { mountApp } from 'unirend/client';
-import { routes } from './routes';
+import { routes } from './Routes';
 
 // Pass routes directly - mountApp handles creating the router
 mountApp('root', routes, {
@@ -211,7 +211,7 @@ Create a server entry file that exports a render function:
 ```typescript
 import { unirendBaseRender } from 'unirend/server';
 import type { RenderRequest } from 'unirend/server';
-import { routes } from './routes';
+import { routes } from './Routes';
 
 export async function render(renderRequest: RenderRequest) {
   // Pass routes directly - unirendBaseRender handles the rest

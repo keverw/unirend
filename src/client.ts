@@ -9,7 +9,7 @@
  *
  * ```typescript
  * import { mountApp, useIsSSR, useIsSSG, useIsClient, useIsDevelopment } from 'unirend/client';
- * import { routes } from './routes';
+ * import { routes } from './Routes';
  *
  * mountApp('root', routes);
  * ```

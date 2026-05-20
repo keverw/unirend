@@ -1,6 +1,6 @@
 import { unirendBaseRender } from '../../../src/server';
 import type { RenderRequest } from '../../../src/server';
-import { routes } from './routes';
+import { routes } from './Routes';
 
 /**
  * SSR entry point for server-side rendering

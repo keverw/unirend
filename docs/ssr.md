@@ -1037,10 +1037,10 @@ server.pageDataHandler.register('accounts/settings', handler);
 Frontend data loaders use the same grouped page types:
 
 ```typescript
-// marketing/routes.tsx
+// marketing/Routes.tsx
 export const homeLoader = createPageDataLoader(config, 'marketing/home');
 
-// accounts/routes.tsx
+// accounts/Routes.tsx
 export const dashboardLoader = createPageDataLoader(
   config,
   'accounts/dashboard',

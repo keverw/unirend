@@ -53,7 +53,7 @@ export type MountAppOptions = {
  * @example
  * ```typescript
  * import { mountApp } from 'unirend/client';
- * import { routes } from './routes';
+ * import { routes } from './Routes';
  *
  * const result = mountApp('root', routes);
  *
