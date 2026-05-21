@@ -1034,7 +1034,7 @@ export class SSRServerComponent extends BaseComponent {
     // See: https://github.com/keverw/unirend/blob/master/docs/build-info.md
     const buildResult = await loadBuildInfo(this.mode === 'built', () => {
       // When bundling the server (e.g. bun build --target=node), this is inlined at bundle time.
-      return import('../src/current-build-info.ts');
+      return import('../current-build-info.ts');
     });
 
     // This level controls the adapter's gate — what Fastify passes to the Lifecycleion
@@ -1058,7 +1058,7 @@ export class SSRServerComponent extends BaseComponent {
     if (this.mode === 'hmr') {
       this.server = serveSSRDev(
         {
-          serverEntry: path.join(SRC_DIR, 'src/EntrySSR.tsx'),
+          serverEntry: path.join(SRC_DIR, 'EntrySSR.tsx'),
           template: path.join(SRC_DIR, 'index.html'),
           viteConfig: path.join(SRC_DIR, 'vite.config.ts'),
         },

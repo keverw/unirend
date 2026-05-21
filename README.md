@@ -269,12 +269,12 @@ Add these scripts to your `package.json` for both SSG and SSR workflows. The exa
     "ssr:build-and-serve:prod": "bun run ssr:build && bun run ssr:serve:prod",
 
     // For SSR Production Build (Node runtime — recommended):
-    "build:prod": "bun build serve-built.ts --outdir ./dist --target=node --external vite",
-    "start": "node dist/serve-built.js prod"
+    "build:prod": "bun build serve-built.ts --outdir build/serve --target=node --external vite",
+    "start": "node build/serve/serve-built.js prod"
 
     // Alternative: Run directly under Bun runtime:
-    // "build:prod": "bun build serve-built.ts --outdir ./dist --external vite",
-    // "start": "bun dist/serve-built.js prod"
+    // "build:prod": "bun build serve-built.ts --outdir build/serve --external vite",
+    // "start": "bun build/serve/serve-built.js prod"
   }
 }
 ```
@@ -542,7 +542,7 @@ Includes comprehensive examples for S3 uploads, security best practices, tempora
 
 - Scroll to top on navigation
   - Add a lightweight scroll-to-top effect in a common component like your header or app layout.
-  - Example: see `demos/ssg/src/components/Header.tsx`.
+  - Example: see `demos/ssg/components/Header.tsx`.
 
   ```ts
   useEffect(() => {
@@ -552,7 +552,7 @@ Includes comprehensive examples for S3 uploads, security best practices, tempora
 
 - Scroll to top for standalone application error pages
   - When rendering a top-level application error (caught by the error boundary), include a scroll-to-top on mount so it doesn’t depend on your normal layout, as recommended.
-  - Example: see `demos/ssr/src/components/CustomApplicationError.tsx`.
+  - Example: see `demos/ssr/components/error-pages/ApplicationError.tsx`.
 
 ## Development
 

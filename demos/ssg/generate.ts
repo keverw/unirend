@@ -12,7 +12,7 @@ import path from 'path';
  *
  * IMPORTANT: Make sure to build both client and server:
  * vite build --outDir build/client --base=/ --ssrManifest
- * vite build --outDir build/server --ssr src/EntrySSG.tsx
+ * vite build --outDir build/server --ssr EntrySSG.tsx
  *
  * Note: Use different output directories for client and server (e.g., build/client and
  * build/server). Reusing the same output directory for both can cause files to overwrite each other.

@@ -3,13 +3,13 @@ import { GenerateBuildInfo } from '../../src/build-info';
 // Runs from the project root so GenerateBuildInfo picks up the version
 // from the root package.json. Invoked via ssr:generate:build-info,
 // which is called by ssr:build as part of the overall build process.
-// Output (demos/ssr/src/current-build-info.ts) is gitignored.
+// Output (demos/ssr/current-build-info.ts) is gitignored.
 
 async function main() {
   const generator = new GenerateBuildInfo();
 
   const { warnings } = await generator.saveTS(
-    'demos/ssr/src/current-build-info.ts',
+    'demos/ssr/current-build-info.ts',
   );
 
   if (warnings.length > 0) {

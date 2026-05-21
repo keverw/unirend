@@ -368,7 +368,7 @@ class SSRWebSocketDemoComponent extends BaseComponent {
     // Start SSR server with WebSocket support on the SSR demo port.
     this.server = serveSSRDev(
       {
-        serverEntry: path.join(SSR_DEMO_DIR, 'src/EntrySSR.tsx'),
+        serverEntry: path.join(SSR_DEMO_DIR, 'EntrySSR.tsx'),
         template: path.join(SSR_DEMO_DIR, 'index.html'),
         viteConfig: path.join(SSR_DEMO_DIR, 'vite.config.ts'),
       },
