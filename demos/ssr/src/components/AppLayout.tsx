@@ -3,16 +3,17 @@ import { Outlet, useLocation } from 'react-router';
 import { useDataLoaderEnvelopeError } from '../../../../src/lib/router-utils/use-data-loader-envelope-error-hook';
 import Header from './Header';
 import Footer from './Footer';
-import CustomNotFound from './CustomNotFound';
-import GenericError from './GenericError';
+import NotFound from './error-pages/NotFound';
+import GenericError from './error-pages/GenericError';
 
-export default function AppLayout() {
-  // if an error occurs, outside the error boundary since as sent by a data loader API,
-  // we must handle those too
+export function AppLayout() {
+  // RouteErrorBoundary handles thrown router errors and receives an `error` prop.
+  // Page-data loaders can also return error envelopes, which stay in loader data,
+  // so the layout renders those with a `data` prop instead.
   const { hasError, is404, errorResponse } = useDataLoaderEnvelopeError();
   const location = useLocation();
 
-  // Scroll to top when route changes
+  // Scroll to top when route changes.
   useEffect(() => {
     window.scrollTo({
       top: 0,
@@ -25,7 +26,7 @@ export default function AppLayout() {
       <Header />
       {hasError ? (
         is404 ? (
-          <CustomNotFound data={errorResponse} />
+          <NotFound data={errorResponse} />
         ) : (
           <GenericError data={errorResponse} />
         )

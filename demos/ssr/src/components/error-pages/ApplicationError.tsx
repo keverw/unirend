@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
-import { UnirendHead } from '../../../../src/client';
+import { UnirendHead } from '../../../../../src/client';
 import { getDevMode } from 'lifecycleion/dev-mode';
 
-interface CustomApplicationErrorProps {
+interface ApplicationErrorProps {
   error: unknown;
 }
 
@@ -10,9 +10,9 @@ interface CustomApplicationErrorProps {
  * Custom application error component for the SSR demo
  * This shows how to create a branded error page that's standalone (not wrapped in AppLayout)
  */
-export default function CustomApplicationError({
+export default function ApplicationError({
   error,
-}: CustomApplicationErrorProps) {
+}: ApplicationErrorProps) {
   const errorMessage =
     error instanceof Error ? error.message : 'An unexpected error occurred';
   const isDevelopment = getDevMode();

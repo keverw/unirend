@@ -4,11 +4,11 @@ import About from './pages/About';
 import Contact from './pages/Contact';
 import Dashboard from './pages/Dashboard';
 import AppPage from './pages/App';
-import NotFound from './pages/NotFound';
+import NotFound from './components/error-pages/NotFound';
 import ContextDemo from './pages/ContextDemo';
 import { AppLayout } from './components/AppLayout';
 import RouteErrorBoundary from '../../../src/lib/router-utils/RouteErrorBoundary';
-import CustomApplicationError from './components/CustomApplicationError';
+import ApplicationError from './components/error-pages/ApplicationError';
 
 export const routes: RouteObject[] = [
   {
@@ -17,7 +17,7 @@ export const routes: RouteObject[] = [
     errorElement: (
       <RouteErrorBoundary
         NotFoundComponent={NotFound}
-        ApplicationErrorComponent={CustomApplicationError}
+        ApplicationErrorComponent={ApplicationError}
       />
     ),
     children: [

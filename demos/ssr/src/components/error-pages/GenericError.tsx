@@ -1,12 +1,13 @@
-import type { PageErrorResponse } from '../../../../src/lib/api-envelope/api-envelope-types';
-import { UnirendHead } from '../../../../src/client';
+import React from 'react';
+import type { PageErrorResponse } from '../../../../../src/lib/api-envelope/api-envelope-types';
+import { UnirendHead } from '../../../../../src/client';
 
 interface GenericErrorProps {
   data: PageErrorResponse | null;
 }
 
-export default function GenericError({ data }: GenericErrorProps) {
-  const title = data?.meta?.page?.title || 'Error - Unirend SSG Demo';
+const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
+  const title = data?.meta?.page?.title || 'Error - Unirend SSR Demo';
   const description = data?.meta?.page?.description || 'An error occurred.';
   const message =
     data?.error?.message || 'Something went wrong. Please try again later.';
@@ -34,7 +35,7 @@ export default function GenericError({ data }: GenericErrorProps) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          minHeight: 'calc(100vh - 200px)',
+          minHeight: 'calc(100vh - 200px)', // Account for header/footer height
         }}
       >
         <div className="card">
@@ -214,6 +215,7 @@ export default function GenericError({ data }: GenericErrorProps) {
             </div>
           )}
 
+          {/* Display request ID inside the container */}
           {requestID && (
             <div
               style={{
@@ -229,4 +231,6 @@ export default function GenericError({ data }: GenericErrorProps) {
       </main>
     </>
   );
-}
+};
+
+export default GenericError;

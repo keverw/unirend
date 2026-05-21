@@ -8,9 +8,9 @@ import Home from './pages/Home';
 import About from './pages/About';
 import Contact from './pages/Contact';
 import ContextDemo from './pages/ContextDemo';
-import AppLayout from './components/AppLayout';
-import CustomNotFound from './components/CustomNotFound';
-import CustomApplicationError from './components/CustomApplicationError';
+import { AppLayout } from './components/AppLayout';
+import NotFound from './components/error-pages/NotFound';
+import ApplicationError from './components/error-pages/ApplicationError';
 import PageDataDisplay from './components/PageDataDisplay';
 
 // Shared page data loader config
@@ -25,8 +25,8 @@ export const routes: RouteObject[] = [
     element: <AppLayout />,
     errorElement: (
       <RouteErrorBoundary
-        NotFoundComponent={CustomNotFound}
-        ApplicationErrorComponent={CustomApplicationError}
+        NotFoundComponent={NotFound}
+        ApplicationErrorComponent={ApplicationError}
       />
     ),
     children: [

@@ -1,14 +1,14 @@
 import { useEffect } from 'react';
-import { UnirendHead } from '../../../../src/client';
+import { UnirendHead } from '../../../../../src/client';
 import { getDevMode } from 'lifecycleion/dev-mode';
 
-interface CustomApplicationErrorProps {
+interface ApplicationErrorProps {
   error: unknown;
 }
 
-export default function CustomApplicationError({
+export default function ApplicationError({
   error,
-}: CustomApplicationErrorProps) {
+}: ApplicationErrorProps) {
   const errorMessage =
     error instanceof Error ? error.message : 'An unexpected error occurred';
   const isDevelopment = getDevMode();

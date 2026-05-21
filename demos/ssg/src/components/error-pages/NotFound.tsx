@@ -1,14 +1,25 @@
 import { Link } from 'react-router';
-import type { PageErrorResponse } from '../../../../src/lib/api-envelope/api-envelope-types';
+import { UnirendHead } from '../../../../../src/client';
+import type { PageErrorResponse } from '../../../../../src/lib/api-envelope/api-envelope-types';
 
 interface NotFoundProps {
   error?: unknown;
   data?: PageErrorResponse | null;
 }
 
-function NotFound(_props: NotFoundProps = {}) {
+function NotFound({ data }: NotFoundProps = {}) {
+  const title =
+    data?.meta?.page?.title || '404 - Page Not Found - Unirend SSG Demo';
+  const description =
+    data?.meta?.page?.description ||
+    'The page you are looking for does not exist.';
+
   return (
     <>
+      <UnirendHead>
+        <title>{title}</title>
+        <meta name="description" content={description} />
+      </UnirendHead>
       <main className="main-content">
         <div
           style={{ textAlign: 'center', maxWidth: '600px', margin: '0 auto' }}

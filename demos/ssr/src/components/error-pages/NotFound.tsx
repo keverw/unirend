@@ -1,7 +1,7 @@
-import { UnirendHead } from '../../../../src/client';
-import type { PageErrorResponse } from '../../../../src/lib/api-envelope/api-envelope-types';
+import { UnirendHead } from '../../../../../src/client';
+import type { PageErrorResponse } from '../../../../../src/lib/api-envelope/api-envelope-types';
 
-interface CustomNotFoundProps {
+interface NotFoundProps {
   error?: unknown;
   data?: PageErrorResponse | null;
 }
@@ -10,10 +10,10 @@ interface CustomNotFoundProps {
  * Custom 404 component for the SSR demo
  * This shows how to create a branded NotFound component
  */
-export default function CustomNotFound({
+export default function NotFound({
   error: _error,
   data,
-}: CustomNotFoundProps) {
+}: NotFoundProps) {
   // Use envelope data if available, otherwise use defaults
   const title =
     data?.meta?.page?.title || '404 - Page Not Found - Unirend SSR Demo';
