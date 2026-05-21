@@ -114,30 +114,6 @@ export default function NotFound({ error: _error, data }: NotFoundProps) {
               About
             </a>
 
-            <a
-              href="/contact"
-              style={{
-                display: 'inline-block',
-                padding: '0.75rem 1.5rem',
-                background: 'transparent',
-                color: 'rgba(255, 255, 255, 0.9)',
-                textDecoration: 'none',
-                borderRadius: '8px',
-                fontWeight: '500',
-                border: '1px solid rgba(255, 255, 255, 0.3)',
-                transition: 'all 0.3s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                e.currentTarget.style.color = '#ffffff';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
-              }}
-            >
-              Contact
-            </a>
           </div>
         </div>
       </main>

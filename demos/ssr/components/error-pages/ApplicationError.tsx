@@ -73,8 +73,7 @@ export default function ApplicationError({ error }: ApplicationErrorProps) {
                 marginBottom: '2rem',
               }}
             >
-              We're sorry, but our app encountered an unexpected error. Our team
-              has been notified and we're working on a fix.
+              An unexpected error occurred while rendering this page.
             </p>
           </div>
 
@@ -178,36 +177,6 @@ export default function ApplicationError({ error }: ApplicationErrorProps) {
             >
               🏠 Go Home
             </a>
-          </div>
-
-          <div
-            style={{
-              marginTop: '2rem',
-              paddingTop: '1.5rem',
-              borderTop: '1px solid rgba(255, 255, 255, 0.2)',
-              textAlign: 'center',
-              fontSize: '0.9rem',
-              color: 'rgba(255, 255, 255, 0.8)',
-            }}
-          >
-            <p>
-              If this problem persists, please{' '}
-              <a
-                href="/contact"
-                style={{
-                  color: 'rgba(255, 255, 255, 0.9)',
-                  textDecoration: 'underline',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = '#ffffff';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
-                }}
-              >
-                contact our support team
-              </a>
-            </p>
           </div>
         </div>
       </div>

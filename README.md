@@ -391,11 +391,14 @@ bun run ssg:build
 # Generate static HTML files using the built server entry.
 bun run ssg:generate:prod
 
-# Or do both in one step.
+# Or build and generate in one step.
 bun run ssg:build-and-generate:prod
 
 # Serve the generated site with production runtime behavior.
 bun run ssg:serve:prod
+
+# Or do everything (build, generate, serve) in one step.
+bun run ssg:build-generate-serve:prod
 ```
 
 Notes:
@@ -455,6 +458,8 @@ From the repo root:
 ```bash
 bun run ws-demo
 ```
+
+Note: The WebSocket demo spins up its own SSR + API server on different ports than the main SSR demo. Pages that use data loaders will show a connection error, as the demo's API endpoints are not wired up. The focus here is the WebSocket functionality, not data loading.
 
 ## Data Loaders
 

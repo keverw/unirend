@@ -135,39 +135,6 @@ function NotFound({ data }: NotFoundProps = {}) {
               </Link>
 
               <Link
-                to="/contact"
-                style={{
-                  display: 'block',
-                  padding: '1rem',
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  borderRadius: '8px',
-                  textDecoration: 'none',
-                  color: 'inherit',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  transition: 'all 0.3s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }}
-              >
-                <strong>📧 Contact</strong>
-                <div
-                  style={{
-                    fontSize: '0.9rem',
-                    opacity: 0.8,
-                    marginTop: '0.5rem',
-                  }}
-                >
-                  Get in touch with us
-                </div>
-              </Link>
-
-              <Link
                 to="/dashboard"
                 style={{
                   display: 'block',

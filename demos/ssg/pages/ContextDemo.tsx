@@ -101,16 +101,8 @@ const ContextDemo: React.FC = () => {
         <div className="card">
           <h2>📦 Current Unirend Context</h2>
           {!isHydrated ? (
-            <div
-              style={{
-                backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                padding: '1.5rem',
-                borderRadius: '8px',
-                marginTop: '1rem',
-                textAlign: 'center',
-              }}
-            >
-              <p style={{ margin: 0, color: 'rgba(255, 255, 255, 0.8)' }}>
+            <div className="context-panel" style={{ textAlign: 'center' }}>
+              <p style={{ margin: 0 }}>
                 Hydrating... Context will populate on client-side.
               </p>
             </div>
@@ -124,111 +116,49 @@ const ContextDemo: React.FC = () => {
               </p>
 
               <div
-                style={{
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                  padding: '1.5rem',
-                  borderRadius: '8px',
-                  marginTop: '1rem',
-                  fontFamily: 'monospace',
-                  textAlign: 'left',
-                }}
+                className="context-panel"
+                style={{ fontFamily: 'monospace', textAlign: 'left' }}
               >
                 <div
                   style={{
                     display: 'grid',
                     gap: '0.75rem',
                     fontSize: '0.95rem',
-                    textAlign: 'left',
                   }}
                 >
                   <div>
                     <strong>useRenderMode():</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
+                    <code className="context-badge">
                       "{contextSnapshot?.renderMode}"
                     </code>
                   </div>
                   <div>
                     <strong>useIsSSR():</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
-                      {String(isSSR)}
-                    </code>
+                    <code className="context-badge">{String(isSSR)}</code>
                   </div>
                   <div>
                     <strong>useIsSSG():</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
-                      {String(isSSG)}
-                    </code>
+                    <code className="context-badge">{String(isSSG)}</code>
                   </div>
                   <div>
                     <strong>useIsClient():</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
-                      {String(isClient)}
-                    </code>
+                    <code className="context-badge">{String(isClient)}</code>
                   </div>
                   <div>
                     <strong>useIsDevelopment():</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
+                    <code className="context-badge">
                       {String(contextSnapshot?.isDevelopment)}
                     </code>
                   </div>
                   <div>
                     <strong>useIsServer():</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
+                    <code className="context-badge">
                       {String(contextSnapshot?.isServer)}
                     </code>
                   </div>
                   <div>
                     <strong>usePublicAppConfig():</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
+                    <code className="context-badge">
                       {contextSnapshot?.hasPublicConfig
                         ? 'Populated'
                         : 'undefined'}
@@ -236,14 +166,7 @@ const ContextDemo: React.FC = () => {
                   </div>
                   <div>
                     <strong>useCDNBaseURL():</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
+                    <code className="context-badge">
                       {contextSnapshot?.cdnBaseURL
                         ? `"${contextSnapshot.cdnBaseURL}"`
                         : '(not configured)'}
@@ -251,53 +174,21 @@ const ContextDemo: React.FC = () => {
                   </div>
                   <div>
                     <strong>useDomainInfo():</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
+                    <code className="context-badge">
                       {JSON.stringify(contextSnapshot?.domainInfo ?? null)}
                     </code>
                   </div>
                   <div>
                     <strong>useRequestContext():</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
-                      Available
-                    </code>
+                    <code className="context-badge">Available</code>
                   </div>
                   <div>
                     <strong>useRequestContextValue():</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
-                      Available
-                    </code>
+                    <code className="context-badge">Available</code>
                   </div>
                   <div>
                     <strong>useRequestContextObjectRaw():</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
+                    <code className="context-badge">
                       {rawRequestContext ? 'Populated' : 'undefined'}
                     </code>
                   </div>
@@ -310,16 +201,8 @@ const ContextDemo: React.FC = () => {
         <div className="card">
           <h2>🔍 Initial Render Values (Debug)</h2>
           {!isHydrated ? (
-            <div
-              style={{
-                backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                padding: '1.5rem',
-                borderRadius: '8px',
-                marginTop: '1rem',
-                textAlign: 'center',
-              }}
-            >
-              <p style={{ margin: 0, color: 'rgba(255, 255, 255, 0.8)' }}>
+            <div className="context-panel" style={{ textAlign: 'center' }}>
+              <p style={{ margin: 0 }}>
                 Hydrating... Initial values will populate on client-side.
               </p>
             </div>
@@ -332,44 +215,19 @@ const ContextDemo: React.FC = () => {
                 environment was when this page was first rendered.
               </p>
               <div
-                style={{
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                  padding: '1.5rem',
-                  borderRadius: '8px',
-                  marginTop: '1rem',
-                  fontFamily: 'monospace',
-                }}
+                className="context-panel"
+                style={{ fontFamily: 'monospace' }}
               >
-                <div
-                  style={{
-                    display: 'grid',
-                    gap: '0.75rem',
-                    fontSize: '0.95rem',
-                  }}
-                >
+                <div style={{ display: 'grid', gap: '0.75rem', fontSize: '0.95rem' }}>
                   <div>
                     <strong>Initial Render Mode:</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
+                    <code className="context-badge">
                       {String(requestContext.get('__debug_initialRenderMode'))}
                     </code>
                   </div>
                   <div>
                     <strong>Initial isDevelopment:</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
+                    <code className="context-badge">
                       {String(
                         requestContext.get('__debug_initialIsDevelopment'),
                       )}
@@ -377,14 +235,7 @@ const ContextDemo: React.FC = () => {
                   </div>
                   <div>
                     <strong>Initial CDN Base URL:</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
+                    <code className="context-badge">
                       {String(
                         (requestContext.get('__debug_initialCdnBaseURL') as
                           | string
@@ -394,14 +245,7 @@ const ContextDemo: React.FC = () => {
                   </div>
                   <div>
                     <strong>Initial Domain Info:</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
+                    <code className="context-badge">
                       {String(
                         (requestContext.get('__debug_initialDomainInfo') as
                           | string
@@ -411,27 +255,13 @@ const ContextDemo: React.FC = () => {
                   </div>
                   <div>
                     <strong>Current Render Mode:</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
+                    <code className="context-badge">
                       {String(renderMode)}
                     </code>
                   </div>
                   <div>
                     <strong>Current isDevelopment:</strong>{' '}
-                    <code
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        color: '#fff',
-                      }}
-                    >
+                    <code className="context-badge">
                       {String(isDevelopment)}
                     </code>
                   </div>
@@ -444,16 +274,8 @@ const ContextDemo: React.FC = () => {
         <div className="card">
           <h2>⚙️ Public App Config</h2>
           {!isHydrated ? (
-            <div
-              style={{
-                backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                padding: '1.5rem',
-                borderRadius: '8px',
-                marginTop: '1rem',
-                textAlign: 'center',
-              }}
-            >
-              <p style={{ margin: 0, color: 'rgba(255, 255, 255, 0.8)' }}>
+            <div className="context-panel" style={{ textAlign: 'center' }}>
+              <p style={{ margin: 0 }}>
                 Hydrating... Config will populate on client-side.
               </p>
             </div>
@@ -461,22 +283,11 @@ const ContextDemo: React.FC = () => {
             <>
               <p>
                 The public app config is passed from the server and available
-                via the <code>usePublicAppConfig()</code> hook. It's cloned and
+                via the <code className="context-badge">usePublicAppConfig()</code> hook. It's cloned and
                 frozen to ensure immutability.
               </p>
               {publicAppConfig ? (
-                <pre
-                  style={{
-                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                    padding: '1rem',
-                    borderRadius: '4px',
-                    overflow: 'auto',
-                    marginTop: '1rem',
-                    color: '#fff',
-                    fontFamily: 'monospace',
-                    textAlign: 'left',
-                  }}
-                >
+                <pre className="context-code-block">
                   {JSON.stringify(publicAppConfig, null, 2)}
                 </pre>
               ) : (
@@ -491,16 +302,8 @@ const ContextDemo: React.FC = () => {
         <div className="card">
           <h2>🔍 Raw Request Context (Debug)</h2>
           {!isHydrated ? (
-            <div
-              style={{
-                backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                padding: '1.5rem',
-                borderRadius: '8px',
-                marginTop: '1rem',
-                textAlign: 'center',
-              }}
-            >
-              <p style={{ margin: 0, color: 'rgba(255, 255, 255, 0.8)' }}>
+            <div className="context-panel" style={{ textAlign: 'center' }}>
+              <p style={{ margin: 0 }}>
                 Hydrating... Raw context will populate on client-side.
               </p>
             </div>
@@ -508,34 +311,16 @@ const ContextDemo: React.FC = () => {
             <>
               <p>
                 The raw request context object for debugging purposes via the{' '}
-                <code>useRequestContextObjectRaw()</code> hook. This returns a
+                <code className="context-badge">useRequestContextObjectRaw()</code> hook. This returns a
                 cloned, immutable copy of the entire context.
               </p>
-              <p
-                style={{
-                  marginTop: '1rem',
-                  fontStyle: 'italic',
-                  fontSize: '0.9rem',
-                }}
-              >
+              <p style={{ marginTop: '1rem', fontStyle: 'italic', fontSize: '0.9rem' }}>
                 <strong>Note:</strong> This is primarily for debugging. Use{' '}
-                <code>useRequestContextValue()</code> or{' '}
-                <code>useRequestContext()</code> for production code.
+                <code className="context-badge">useRequestContextValue()</code> or{' '}
+                <code className="context-badge">useRequestContext()</code> for production code.
               </p>
               {rawRequestContext ? (
-                <pre
-                  style={{
-                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                    padding: '1rem',
-                    borderRadius: '4px',
-                    overflow: 'auto',
-                    marginTop: '1rem',
-                    color: '#fff',
-                    fontFamily: 'monospace',
-                    textAlign: 'left',
-                    maxHeight: '300px',
-                  }}
-                >
+                <pre className="context-code-block" style={{ maxHeight: '300px' }}>
                   {JSON.stringify(rawRequestContext, null, 2)}
                 </pre>
               ) : (
@@ -551,16 +336,7 @@ const ContextDemo: React.FC = () => {
           <h2>⚠️ Hydration Safety</h2>
           <p>
             To avoid hydration mismatches, this demo uses{' '}
-            <code
-              style={{
-                backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                padding: '0.25rem 0.5rem',
-                borderRadius: '4px',
-                color: '#fff',
-              }}
-            >
-              useEffect
-            </code>{' '}
+            <code className="context-badge">useEffect</code>{' '}
             to populate context values only after the component hydrates on the
             client.
           </p>
@@ -574,162 +350,72 @@ const ContextDemo: React.FC = () => {
           <h2>🎯 Hook Reference</h2>
           <div style={{ display: 'grid', gap: '1rem' }}>
             <div>
-              <code
-                style={{
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                  padding: '0.25rem 0.5rem',
-                  borderRadius: '4px',
-                  color: '#fff',
-                }}
-              >
-                useRenderMode()
-              </code>
+              <code className="context-badge">useRenderMode()</code>
               <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Returns "ssr", "ssg", or "client" based on the current rendering
                 environment.
               </p>
             </div>
             <div>
-              <code
-                style={{
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                  padding: '0.25rem 0.5rem',
-                  borderRadius: '4px',
-                  color: '#fff',
-                }}
-              >
-                useIsSSR() / useIsSSG() / useIsClient()
-              </code>
+              <code className="context-badge">useIsSSR() / useIsSSG() / useIsClient()</code>
               <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Boolean checks for specific rendering modes. useIsSSG() returns
                 true during static site generation.
               </p>
             </div>
             <div>
-              <code
-                style={{
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                  padding: '0.25rem 0.5rem',
-                  borderRadius: '4px',
-                  color: '#fff',
-                }}
-              >
-                useIsDevelopment()
-              </code>
+              <code className="context-badge">useIsDevelopment()</code>
               <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Returns true if running in development mode. Always false during
                 SSG (build-time).
               </p>
             </div>
             <div>
-              <code
-                style={{
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                  padding: '0.25rem 0.5rem',
-                  borderRadius: '4px',
-                  color: '#fff',
-                }}
-              >
-                useIsServer()
-              </code>
+              <code className="context-badge">useIsServer()</code>
               <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Returns true if code is running on the SSR server (has
                 SSRHelpers attached to fetchRequest).
               </p>
             </div>
             <div>
-              <code
-                style={{
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                  padding: '0.25rem 0.5rem',
-                  borderRadius: '4px',
-                  color: '#fff',
-                }}
-              >
-                usePublicAppConfig()
-              </code>
+              <code className="context-badge">usePublicAppConfig()</code>
               <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Returns the public application configuration object (frozen and
                 immutable).
               </p>
             </div>
             <div>
-              <code
-                style={{
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                  padding: '0.25rem 0.5rem',
-                  borderRadius: '4px',
-                  color: '#fff',
-                }}
-              >
-                useCDNBaseURL()
-              </code>
+              <code className="context-badge">useCDNBaseURL()</code>
               <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Returns the effective CDN base URL (configured via SSG options).
                 Empty string when not configured.
               </p>
             </div>
             <div>
-              <code
-                style={{
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                  padding: '0.25rem 0.5rem',
-                  borderRadius: '4px',
-                  color: '#fff',
-                }}
-              >
-                useDomainInfo()
-              </code>
+              <code className="context-badge">useDomainInfo()</code>
               <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
-                Returns <code>{'{ hostname, rootDomain }'}</code> when a{' '}
-                <code>hostname</code> option is provided to the SSG generator.
-                <code>rootDomain</code> is empty for localhost or IP addresses.
-                Returns <code>null</code> when no hostname is configured.
+                Returns <code className="context-badge">{'{ hostname, rootDomain }'}</code> when a{' '}
+                <code className="context-badge">hostname</code> option is provided to the SSG generator.
+                <code className="context-badge">rootDomain</code> is empty for localhost or IP addresses.
+                Returns <code className="context-badge">null</code> when no hostname is configured.
               </p>
             </div>
             <div>
-              <code
-                style={{
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                  padding: '0.25rem 0.5rem',
-                  borderRadius: '4px',
-                  color: '#fff',
-                }}
-              >
-                useRequestContext()
-              </code>
+              <code className="context-badge">useRequestContext()</code>
               <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Returns a manager object with methods to get, set, has, delete,
                 clear, keys, and size for request context.
               </p>
             </div>
             <div>
-              <code
-                style={{
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                  padding: '0.25rem 0.5rem',
-                  borderRadius: '4px',
-                  color: '#fff',
-                }}
-              >
-                useRequestContextValue(key)
-              </code>
+              <code className="context-badge">useRequestContextValue(key)</code>
               <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Returns [value, setValue] tuple for a reactive value stored in
                 request context by key.
               </p>
             </div>
             <div>
-              <code
-                style={{
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                  padding: '0.25rem 0.5rem',
-                  borderRadius: '4px',
-                  color: '#fff',
-                }}
-              >
-                useRequestContextObjectRaw()
-              </code>
+              <code className="context-badge">useRequestContextObjectRaw()</code>
               <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Returns a cloned, immutable copy of the entire request context
                 object for debugging purposes.
@@ -741,16 +427,8 @@ const ContextDemo: React.FC = () => {
         <div className="card">
           <h2>🎮 Interactive Demo: useRequestContext()</h2>
           {!isHydrated ? (
-            <div
-              style={{
-                backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                padding: '1.5rem',
-                borderRadius: '8px',
-                marginTop: '1rem',
-                textAlign: 'center',
-              }}
-            >
-              <p style={{ margin: 0, color: 'rgba(255, 255, 255, 0.8)' }}>
+            <div className="context-panel" style={{ textAlign: 'center' }}>
+              <p style={{ margin: 0 }}>
                 Hydrating... Interactive demo will be available on client-side.
               </p>
             </div>
@@ -762,16 +440,8 @@ const ContextDemo: React.FC = () => {
         <div className="card">
           <h2>🎯 Interactive Demo: useRequestContextValue()</h2>
           {!isHydrated ? (
-            <div
-              style={{
-                backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                padding: '1.5rem',
-                borderRadius: '8px',
-                marginTop: '1rem',
-                textAlign: 'center',
-              }}
-            >
-              <p style={{ margin: 0, color: 'rgba(255, 255, 255, 0.8)' }}>
+            <div className="context-panel" style={{ textAlign: 'center' }}>
+              <p style={{ margin: 0 }}>
                 Hydrating... Interactive demo will be available on client-side.
               </p>
             </div>
@@ -845,7 +515,7 @@ const RequestContextDemo: React.FC = () => {
   return (
     <div style={{ marginTop: '1rem' }}>
       <p>
-        Test the <code>useRequestContext()</code> hook methods. Values persist
+        Test the <code className="context-badge">useRequestContext()</code> hook methods. Values persist
         across the entire request lifecycle.
       </p>
 
@@ -862,11 +532,7 @@ const RequestContextDemo: React.FC = () => {
           <div>
             <label
               htmlFor="request-context-key"
-              style={{
-                display: 'block',
-                marginBottom: '0.25rem',
-                fontSize: '0.9rem',
-              }}
+              style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.9rem' }}
             >
               Key:
             </label>
@@ -876,24 +542,13 @@ const RequestContextDemo: React.FC = () => {
               placeholder="Key"
               value={key}
               onChange={(e) => setKey(e.target.value)}
-              style={{
-                padding: '0.5rem',
-                borderRadius: '4px',
-                border: '1px solid rgba(0, 0, 0, 0.3)',
-                backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                color: '#333',
-                minWidth: '120px',
-              }}
+              style={{ minWidth: '120px' }}
             />
           </div>
           <div>
             <label
               htmlFor="request-context-value"
-              style={{
-                display: 'block',
-                marginBottom: '0.25rem',
-                fontSize: '0.9rem',
-              }}
+              style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.9rem' }}
             >
               Value:
             </label>
@@ -903,14 +558,7 @@ const RequestContextDemo: React.FC = () => {
               placeholder="Value"
               value={value}
               onChange={(e) => setValue(e.target.value)}
-              style={{
-                padding: '0.5rem',
-                borderRadius: '4px',
-                border: '1px solid rgba(0, 0, 0, 0.3)',
-                backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                color: '#333',
-                minWidth: '120px',
-              }}
+              style={{ minWidth: '120px' }}
             />
           </div>
         </div>
@@ -923,39 +571,17 @@ const RequestContextDemo: React.FC = () => {
             justifyContent: 'center',
           }}
         >
-          <button onClick={handleSet} style={buttonStyle}>
-            Set
-          </button>
-          <button onClick={handleGet} style={buttonStyle}>
-            Get
-          </button>
-          <button onClick={handleHas} style={buttonStyle}>
-            Has
-          </button>
-          <button onClick={handleDelete} style={buttonStyle}>
-            Delete
-          </button>
-          <button onClick={handleClear} style={buttonStyle}>
-            Clear All
-          </button>
-          <button onClick={handleKeys} style={buttonStyle}>
-            List Keys
-          </button>
-          <button onClick={handleSize} style={buttonStyle}>
-            Size
-          </button>
+          <button onClick={handleSet}>Set</button>
+          <button onClick={handleGet}>Get</button>
+          <button onClick={handleHas}>Has</button>
+          <button onClick={handleDelete}>Delete</button>
+          <button onClick={handleClear}>Clear All</button>
+          <button onClick={handleKeys}>List Keys</button>
+          <button onClick={handleSize}>Size</button>
         </div>
 
         {output && (
-          <div
-            style={{
-              backgroundColor: 'rgba(0, 0, 0, 0.3)',
-              padding: '1rem',
-              borderRadius: '4px',
-              fontFamily: 'monospace',
-              color: '#fff',
-            }}
-          >
+          <div className="context-code-block" style={{ marginTop: 0 }}>
             {output}
           </div>
         )}
@@ -972,7 +598,7 @@ const RequestContextValueDemo: React.FC = () => {
   return (
     <div style={{ marginTop: '1rem' }}>
       <p>
-        Test the <code>useRequestContextValue()</code> hook. This creates a
+        Test the <code className="context-badge">useRequestContextValue()</code> hook. This creates a
         reactive value that persists in the request context.
       </p>
 
@@ -990,59 +616,29 @@ const RequestContextValueDemo: React.FC = () => {
             value={name || ''}
             onChange={(e) => setName(e.target.value)}
             placeholder="Enter your name"
-            style={{
-              padding: '0.5rem',
-              borderRadius: '4px',
-              border: '1px solid rgba(255, 255, 255, 0.3)',
-              backgroundColor: 'rgba(0, 0, 0, 0.2)',
-              color: '#fff',
-              width: '200px',
-            }}
+            style={{ width: '200px' }}
           />
         </div>
 
-        <div
-          style={{
-            backgroundColor: 'rgba(0, 0, 0, 0.3)',
-            padding: '1rem',
-            borderRadius: '4px',
-            fontFamily: 'monospace',
-          }}
-        >
+        <div className="context-panel" style={{ fontFamily: 'monospace', textAlign: 'left' }}>
           <div>
-            <strong>Current Value:</strong> <code>"{name || ''}"</code>
+            <strong>Current Value:</strong>{' '}
+            <code className="context-badge">"{name || ''}"</code>
           </div>
-          <div style={{ marginTop: '0.5rem', fontSize: '0.9em', opacity: 0.8 }}>
+          <div style={{ marginTop: '0.5rem', fontSize: '0.9em' }}>
             This value is stored in request context with key "demo_name"
           </div>
         </div>
 
-        <div
-          style={{
-            backgroundColor: 'rgba(0, 100, 200, 0.2)',
-            padding: '1rem',
-            borderRadius: '4px',
-            border: '1px solid rgba(0, 100, 200, 0.3)',
-          }}
-        >
+        <div className="context-highlight">
           <strong>Hello, {displayName}! 👋</strong>
-          <div style={{ marginTop: '0.5rem', fontSize: '0.9em', opacity: 0.8 }}>
+          <div style={{ marginTop: '0.5rem', fontSize: '0.9em' }}>
             This greeting updates reactively as you type!
           </div>
         </div>
       </div>
     </div>
   );
-};
-
-const buttonStyle: React.CSSProperties = {
-  padding: '0.5rem 1rem',
-  borderRadius: '4px',
-  border: '1px solid rgba(255, 255, 255, 0.3)',
-  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-  color: '#fff',
-  cursor: 'pointer',
-  fontSize: '0.9rem',
 };
 
 export default ContextDemo;

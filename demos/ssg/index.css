@@ -295,8 +295,27 @@ button {
 }
 
 button:hover {
-  border-color: #646cff;
+  border-color: #adb5bd;
   background-color: #f0f0f0;
+}
+
+.theme-toggle {
+  background-color: #e9ecef;
+  border-color: #ced4da;
+  color: #213547;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.theme-toggle:hover {
+  background-color: #d4d4d8;
+  border-color: #adb5bd;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+.theme-toggle:focus,
+.theme-toggle:focus-visible {
+  outline: 2px solid rgba(0, 0, 0, 0.2);
+  outline-offset: 2px;
 }
 
 html.dark button {
@@ -305,8 +324,26 @@ html.dark button {
 }
 
 html.dark button:hover {
-  border-color: #646cff;
+  border-color: rgba(255, 255, 255, 0.2);
   background-color: #1a1a1a;
+}
+
+html.dark .theme-toggle {
+  background-color: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.87);
+  box-shadow: none;
+}
+
+html.dark .theme-toggle:hover {
+  background-color: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+html.dark .theme-toggle:focus,
+html.dark .theme-toggle:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.25);
+  outline-offset: 2px;
 }
 
 button:focus,
@@ -322,6 +359,78 @@ button:focus-visible {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Context Demo */
+.context-badge {
+  background: rgba(0, 0, 0, 0.08);
+  color: #213547;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.9em;
+}
+
+html.dark .context-badge {
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.context-panel {
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-top: 1rem;
+}
+
+html.dark .context-panel {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.context-code-block {
+  background: #1a1a2e;
+  color: rgba(255, 255, 255, 0.9);
+  border-radius: 6px;
+  padding: 1rem;
+  font-family: monospace;
+  font-size: 0.875rem;
+  overflow: auto;
+  text-align: left;
+  margin-top: 1rem;
+}
+
+html.dark .context-code-block {
+  background: #0d0d1a;
+}
+
+.context-highlight {
+  background: rgba(100, 108, 255, 0.12);
+  border: 1px solid rgba(100, 108, 255, 0.35);
+  border-radius: 6px;
+  padding: 1rem;
+}
+
+html.dark .context-highlight {
+  background: rgba(116, 123, 255, 0.18);
+  border-color: rgba(116, 123, 255, 0.4);
+}
+
+input[type='text'] {
+  padding: 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+  background-color: #fff;
+  color: #213547;
+  font-size: 1rem;
+  font-family: inherit;
+}
+
+html.dark input[type='text'] {
+  border-color: #555;
+  background-color: #2d2d2d;
+  color: rgba(255, 255, 255, 0.87);
 }
 
 /* Responsive design */

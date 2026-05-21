@@ -12,6 +12,7 @@ export function ThemeToggle() {
 
   return (
     <button
+      className="theme-toggle"
       onClick={cycleTheme}
       style={{
         fontSize: '0.9rem',

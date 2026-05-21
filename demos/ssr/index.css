@@ -299,26 +299,39 @@ button:focus-visible {
 }
 
 .theme-toggle {
-  background-color: #646cff;
-  border-color: rgba(255, 255, 255, 0.45);
+  background-color: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.35);
   color: #ffffff;
-  box-shadow: 0 4px 12px rgba(71, 76, 180, 0.35);
+  box-shadow: none;
 }
 
 .theme-toggle:hover {
-  background-color: #535bf2;
-  border-color: rgba(255, 255, 255, 0.7);
+  background-color: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.55);
 }
 
 html.dark .theme-toggle {
-  background-color: #1a1a1a;
-  border-color: transparent;
+  background-color: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
   color: rgba(255, 255, 255, 0.87);
   box-shadow: none;
 }
 
 html.dark .theme-toggle:hover {
-  border-color: #646cff;
+  background-color: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.theme-toggle:focus,
+.theme-toggle:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.35);
+  outline-offset: 2px;
+}
+
+html.dark .theme-toggle:focus,
+html.dark .theme-toggle:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.25);
+  outline-offset: 2px;
 }
 
 /* Demo Button Styles */

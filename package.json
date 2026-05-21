@@ -86,6 +86,7 @@
     "ssg:build-and-generate:prod": "bun run ssg:build && bun run ssg:generate:prod",
     "ssg:serve:dev": "cd demos/ssg && bun run serve.ts dev",
     "ssg:serve:prod": "cd demos/ssg && bun run serve.ts prod",
+    "ssg:build-generate-serve:prod": "bun run ssg:build-and-generate:prod && bun run ssg:serve:prod",
     "ssr:spa-dev": "cd demos/ssr && vite",
     "ssr:build:client": "cd demos/ssr && vite build --outDir build/client --base=/ --ssrManifest",
     "ssr:build:server": "cd demos/ssr && vite build --outDir build/server --ssr EntrySSR.tsx",
