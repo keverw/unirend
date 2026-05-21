@@ -15,7 +15,7 @@ export type WrapAppElementOptions = {
    * Applied after UnirendHeadProvider but before StrictMode (StrictMode is always outermost)
    * Must be a React component that accepts children
    */
-  wrapProviders?: ComponentType<{ children: ReactNode }>;
+  rootProviders?: ComponentType<{ children: ReactNode }>;
   /**
    * Unirend context value to provide to the app
    * Contains render mode, development status, and server request info

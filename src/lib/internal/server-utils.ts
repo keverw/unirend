@@ -781,9 +781,7 @@ export function createControlledInstance(
                   (error: unknown) => {
                     restoreSend();
                     done(
-                      error instanceof Error
-                        ? error
-                        : new Error(String(error)),
+                      error instanceof Error ? error : new Error(String(error)),
                     );
                   },
                 );

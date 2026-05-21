@@ -13,7 +13,7 @@ export function prettifyHeadTags(head: string, indent = TAB_SPACES): string {
 }
 
 // Utility to inject content, preserving React attributes
-export function injectContent(
+export async function injectContent(
   template: string,
   headContent: string,
   bodyContent: string,
@@ -23,16 +23,69 @@ export function injectContent(
   },
   CDNBaseURL?: string,
   domainInfo?: { hostname: string; rootDomain: string } | null,
-): string {
+): Promise<string> {
   // Prettify all head tags with consistent indentation
   const compactedHead = prettifyHeadTags(headContent);
+
+  // Use cheerio to find React Router's hydration script in the rendered body content.
+  // StaticRouterProvider (server) renders window.__staticRouterHydrationData as a React child,
+  // but RouterProvider (client) renders no such script — causing a hydration mismatch when any
+  // HTML wrapper sits between the framework root and the router. Moving it to <head> eliminates
+  // the mismatch; the client reads the global before React hydrates so location doesn't matter.
+  //
+  // We use cheerio only for detection/offsets, then splice the original bodyContent.
+  // This avoids any risk of cheerio re-serializing React's hydration markers/attributes.
+
+  const cheerio = await import('cheerio');
+  // Cheerio forwards this parse5 option at runtime, but its exported TypeScript
+  // type does not expose it. The option gives us original source offsets.
+  const parseOptions = {
+    sourceCodeLocationInfo: true,
+  } as unknown as Parameters<typeof cheerio.load>[1];
+  const $body = cheerio.load(bodyContent, parseOptions);
+  const routerHydrationScripts: string[] = [];
+  const removalRanges: Array<{ start: number; end: number }> = [];
+
+  $body('script').each((_, el) => {
+    if (($body(el).html() ?? '').includes('__staticRouterHydrationData')) {
+      const location = (
+        el as {
+          sourceCodeLocation?: { startOffset: number; endOffset: number };
+        }
+      ).sourceCodeLocation;
+
+      if (!location) {
+        return;
+      }
+
+      // Keep the script exactly as React Router emitted it. Do not use
+      // $body.html(el), because serializer output is not hydration-safe.
+      routerHydrationScripts.push(
+        bodyContent.slice(location.startOffset, location.endOffset),
+      );
+
+      removalRanges.push({
+        start: location.startOffset,
+        end: location.endOffset,
+      });
+    }
+  });
+
+  let cleanBodyContent = bodyContent;
+
+  // Remove from the end first so earlier offsets remain valid.
+  for (const range of [...removalRanges].sort((a, b) => b.start - a.start)) {
+    cleanBodyContent =
+      cleanBodyContent.slice(0, range.start) +
+      cleanBodyContent.slice(range.end);
+  }
 
   // Start with head and body replacement
   // The <!--ss-outlet--> marker should be directly replaced with the content
   // without any additional or changed comments/whitespace that could cause hydration issues
   let result = template
     .replace('<!--ss-head-->', compactedHead)
-    .replace('<!--ss-outlet-->', bodyContent);
+    .replace('<!--ss-outlet-->', cleanBodyContent);
 
   // Build context scripts array
   const contextScripts: string[] = [];
@@ -88,6 +141,12 @@ export function injectContent(
   contextScripts.push(
     `<script>window.__DOMAIN_INFO__=${safeDomainJSON};</script>`,
   );
+
+  // Router hydration data last — only needed once the client module runs, order relative
+  // to other head scripts doesn't matter since all head scripts run before any module script
+  for (const script of routerHydrationScripts) {
+    contextScripts.push(script);
+  }
 
   // Replace the placeholder with all context scripts (or remove if none).
   // Detect the placeholder's leading whitespace so injected scripts match indentation.

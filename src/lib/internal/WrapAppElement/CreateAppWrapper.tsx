@@ -11,7 +11,7 @@ import type { WrapAppElementOptions } from './types';
 /**
  * Core unified wrapper function that applies the standard app wrapper chain
  * This ensures EXACTLY the same wrapping order between client and server:
- * StrictMode (outermost) > UnirendProvider > UnirendHeadProvider > wrapProviders > RouterElement (innermost)
+ * StrictMode (outermost) > UnirendProvider > UnirendHeadProvider > rootProviders > RouterElement (innermost)
  *
  * The key insight is that client and server should render identically:
  * - Router type (RouterProvider vs StaticRouterProvider) - different
@@ -31,7 +31,7 @@ export function createAppWrapper(
 ): ReactElement {
   const {
     strictMode: isStrictMode = true,
-    wrapProviders,
+    rootProviders,
     unirendContext,
   } = options;
 
@@ -39,7 +39,7 @@ export function createAppWrapper(
     <ConditionalStrictMode isEnabled={isStrictMode}>
       <UnirendProvider value={unirendContext}>
         <UnirendHeadWrapper collector={headCollector}>
-          <CustomWrapper WrapComponent={wrapProviders}>
+          <CustomWrapper WrapComponent={rootProviders}>
             {routerElement}
           </CustomWrapper>
         </UnirendHeadWrapper>

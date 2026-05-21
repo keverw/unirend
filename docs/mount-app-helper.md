@@ -7,8 +7,7 @@
 - [Usage](#usage)
 - [API](#api)
 - [Options](#options)
-- [Benefits](#benefits)
-- [Important guidelines](#important-guidelines)
+- [rootProviders behavior](#rootproviders-behavior)
 
 <!-- tocstop -->
 
@@ -40,16 +39,16 @@ if (result === 'hydrated') {
   console.error('❌ Container not found');
 }
 
-// With custom providers
-const customProviders = ({ children }) => (
-  <MyThemeProvider>
-    <MyStateProvider>
-      {children}
-    </MyStateProvider>
-  </MyThemeProvider>
-);
-
-const result = mountApp('root', routes, { wrapProviders: customProviders });
+// With custom root providers
+const result = mountApp('root', routes, {
+  rootProviders: ({ children }) => (
+    <ThemeProvider>
+      <MyStateProvider>
+        {children}
+      </MyStateProvider>
+    </ThemeProvider>
+  ),
+});
 
 // Disable StrictMode if needed
 const result = mountApp('root', routes, { strictMode: false });
@@ -64,12 +63,10 @@ const result = mountApp('root', routes, { strictMode: false });
 
 - `strictMode?: boolean` - Whether to wrap with React.StrictMode (default: `true`)
 
-- `wrapProviders?: React.ComponentType<{ children: React.ReactNode }>` - Custom wrapper component for additional providers (should be pure context providers only - no HTML rendering to avoid hydration issues)
+- `rootProviders?: React.ComponentType<{ children: React.ReactNode }>` - Optional wrapper component that sits above the router. Useful for providing global context (themes, state stores, etc.) that should be available across both normal routes and the router's `errorElement`. It can render HTML too. A theme wrapper, a global modal/dialog portal, or a toast notification container are all reasonable uses. Because it sits outside the router, errors thrown inside it bypass React Router's `errorElement` and fall through to React's own error handling, so keep `rootProviders` stable and unlikely to throw. You can wrap with your own React error boundary if needed.
 
-### Benefits
+### rootProviders behavior
 
-Opinionated simplicity, type-safe routes, automatic router creation, automatic provider management, seamless SSR/SSG/SPA support.
+`rootProviders` wraps the entire router, so its context and any rendered output is available inside both your normal route tree and React Router's `errorElement`. This is useful for things like a theme that error pages also need.
 
-### Important guidelines
-
-Keep `wrapProviders` components pure (context providers only). Avoid rendering HTML elements like `<div>` or applying styles directly in these providers, as this can cause hydration mismatches between server and client. Instead, use route layouts or separate components for HTML structure and styling.
+For primary page layout and structure, a route layout component (like `AppLayout`) is usually the better fit.

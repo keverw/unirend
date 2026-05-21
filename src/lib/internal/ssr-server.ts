@@ -1278,7 +1278,7 @@ export class SSRServer extends BaseServer {
 
               const headInject = headParts.join('\n');
 
-              const finalHTML = injectContent(
+              const finalHTML = await injectContent(
                 template,
                 headInject,
                 renderResult.html,

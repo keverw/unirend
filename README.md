@@ -113,8 +113,8 @@ import { routes } from './Routes';
 // Pass routes directly - mountApp handles creating the router
 mountApp('root', routes, {
   strictMode: true,
-  // Optional: Add custom wrappers for additional providers (pure providers only — no HTML elements, to avoid hydration mismatches)
-  // wrapProviders: ({ children }) => <ThemeProvider>{children}</ThemeProvider>
+  // Optional: wrap the entire app above the router with root-level providers
+  // rootProviders: ({ children }) => <ThemeProvider>{children}</ThemeProvider>
 });
 ```
 
@@ -163,7 +163,7 @@ function HomePage() {
 
 See [docs/unirendhead.md](docs/unirendhead.md) for full API details.
 
-For more details on mounting, options, and best practices (including why providers should not render HTML), see [docs/mount-app-helper.md](docs/mount-app-helper.md).
+For more details on mounting, options, and the `rootProviders` option, see [docs/mount-app-helper.md](docs/mount-app-helper.md).
 
 Note on React Router Import:
 
@@ -221,7 +221,7 @@ export async function render(renderRequest: RenderRequest) {
   return await unirendBaseRender(renderRequest, routes, {
     strictMode: true,
     // Optional: Add custom wrappers for additional providers
-    // wrapProviders: ({ children }) => <StateProvider>{children}</StateProvider>
+    // rootProviders: ({ children }) => <StateProvider>{children}</StateProvider>
   });
 }
 ```

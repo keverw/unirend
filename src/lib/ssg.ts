@@ -381,7 +381,7 @@ export async function generateSSG(
           fetchRequest as Request & { SSGHelpers?: SSGHelpers }
         ).SSGHelpers?.requestContext;
 
-        const htmlToWrite = injectContent(
+        const htmlToWrite = await injectContent(
           htmlTemplate,
           headInject,
           renderResult.html,
@@ -523,7 +523,7 @@ export async function generateSSG(
         : undefined;
 
       // For SPA pages, use empty body content (client will render)
-      const htmlToWrite = injectContent(
+      const htmlToWrite = await injectContent(
         htmlTemplate,
         headInject.trim(),
         '', // Empty body content for SPA

@@ -1,9 +1,9 @@
 import { unirendBaseRender } from '../../../src/server';
 import type { RenderRequest } from '../../../src/server';
-import { ThemeProvider } from './components/theme/ThemeProvider';
 
 // Import shared routes
 import { routes } from './Routes';
+import { ThemeProvider } from './components/theme/ThemeProvider';
 
 /**
  * SSR entry point for server-side rendering
@@ -22,6 +22,6 @@ export async function render(renderRequest: RenderRequest) {
 
   return await unirendBaseRender(renderRequest, routes, {
     strictMode: true,
-    wrapProviders: ThemeProvider, // Wrap with ThemeProvider
+    rootProviders: ({ children }) => <ThemeProvider>{children}</ThemeProvider>,
   });
 }

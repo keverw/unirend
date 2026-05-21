@@ -6,7 +6,6 @@
 - [API](#api)
 - [Options](#options)
 - [Benefits](#benefits)
-- [Important guidelines](#important-guidelines)
 - [Loader Data Envelope Format](#loader-data-envelope-format)
   - [Server-Side-Only Data (internal)](#server-side-only-data-internal)
   - [Envelope Properties](#envelope-properties)
@@ -29,8 +28,9 @@ import { routes } from './Routes';
 export async function render(renderRequest: RenderRequest) {
   // Pass your routes directly - unirendBaseRender creates the static handler and router internally
   return await unirendBaseRender(renderRequest, routes, {
-    strictMode: true, // Optional: configure StrictMode
-    // wrapProviders: ({ children }) => <CustomProvider>{children}</CustomProvider> // Optional: custom wrapper for additional providers
+    strictMode: true,
+    // Optional: wrap the entire app above the router with root-level providers
+    // rootProviders: ({ children }) => <ThemeProvider>{children}</ThemeProvider>
   });
 }
 ```
@@ -44,7 +44,7 @@ This supports React Router Data Loaders following the standardized envelope patt
 ### Options
 
 - `strictMode?: boolean`, Wrap with React.StrictMode (default: `true`)
-- `wrapProviders?: React.ComponentType<{ children: React.ReactNode }>`, Custom wrapper for additional providers (pure context providers only, no HTML rendering to avoid hydration issues)
+- `rootProviders?: React.ComponentType<{ children: React.ReactNode }>`, Optional wrapper component that sits above the router. Useful for providing global context (themes, state stores, etc.) that should be available across both normal routes and the router's `errorElement`. It can render HTML too. A theme wrapper, a global modal/dialog portal, or a toast notification container are all reasonable uses. Because it sits outside the router, errors thrown inside it bypass React Router's `errorElement`. On SSR they surface as server-level failures handled by `get500ErrorPage`, and on SSG they fail the page render entirely. React error boundaries only work on the client, so keep `rootProviders` stable and unlikely to throw.
 
 ### Benefits
 
@@ -52,10 +52,6 @@ This supports React Router Data Loaders following the standardized envelope patt
 - Automatic static handler and router creation
 - Unified API for both SSR and SSG
 - Async support for React Router data loading
-
-### Important guidelines
-
-Keep `wrapProviders` components pure (context providers only). Avoid rendering HTML elements or applying styles directly in these providers to prevent hydration mismatches. Use route layouts for HTML structure and styling instead.
 
 ### Loader Data Envelope Format
 

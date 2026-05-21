@@ -24,7 +24,7 @@ export type BaseRenderOptions = {
    * Applied after UnirendHeadProvider but before StrictMode (StrictMode is always outermost)
    * Must be a React component that accepts children
    */
-  wrapProviders?: React.ComponentType<{ children: ReactNode }>;
+  rootProviders?: React.ComponentType<{ children: ReactNode }>;
 };
 
 /**
@@ -234,7 +234,7 @@ export async function unirendBaseRender(
     context,
     {
       strictMode: options.strictMode,
-      wrapProviders: options.wrapProviders,
+      rootProviders: options.rootProviders,
       unirendContext: renderRequest.unirendContext, // unirendContext is always provided in renderRequest by SSRServer or SSG Generation
     },
     headCollector,

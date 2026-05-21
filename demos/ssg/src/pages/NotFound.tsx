@@ -1,6 +1,12 @@
 import { Link } from 'react-router';
+import type { PageErrorResponse } from '../../../../src/lib/api-envelope/api-envelope-types';
 
-function NotFound() {
+interface NotFoundProps {
+  error?: unknown;
+  data?: PageErrorResponse | null;
+}
+
+function NotFound(_props: NotFoundProps = {}) {
   return (
     <>
       <main className="main-content">

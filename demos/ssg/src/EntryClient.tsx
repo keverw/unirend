@@ -1,16 +1,16 @@
 import { mountApp } from '../../../src/client';
-import { ThemeProvider } from './components/theme/ThemeProvider';
 
 // Import frontend styles
 import './index.css';
 
 // Import shared routes
 import { routes } from './Routes';
+import { ThemeProvider } from './components/theme/ThemeProvider';
 
 // Pass routes directly - mountApp handles creating the router
 const result = mountApp('root', routes, {
   strictMode: true,
-  wrapProviders: ThemeProvider,
+  rootProviders: ({ children }) => <ThemeProvider>{children}</ThemeProvider>,
 });
 
 if (result === 'hydrated') {

@@ -31,7 +31,7 @@ export type MountAppOptions = {
    * Applied after UnirendHeadProvider but before StrictMode (StrictMode is always outermost)
    * Must be a React component that accepts children
    */
-  wrapProviders?: React.ComponentType<{ children: React.ReactNode }>;
+  rootProviders?: React.ComponentType<{ children: React.ReactNode }>;
 };
 
 /**
