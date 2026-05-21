@@ -920,7 +920,7 @@ export function createControlledReply(
                 options?: CookieSerializeOptions,
               ) => void;
             }
-          ).setCookie
+          ).setCookie.bind(reply)
         : undefined,
     cookie:
       typeof (reply as unknown as { cookie?: unknown }).cookie === 'function'
@@ -932,7 +932,7 @@ export function createControlledReply(
                 options?: CookieSerializeOptions,
               ) => void;
             }
-          ).cookie
+          ).cookie.bind(reply)
         : undefined,
     clearCookie:
       typeof (reply as unknown as { clearCookie?: unknown }).clearCookie ===
@@ -944,7 +944,7 @@ export function createControlledReply(
                 options?: CookieSerializeOptions,
               ) => void;
             }
-          ).clearCookie
+          ).clearCookie.bind(reply)
         : undefined,
     unsignCookie:
       typeof (reply as unknown as { unsignCookie?: unknown }).unsignCookie ===
@@ -957,7 +957,7 @@ export function createControlledReply(
                 | { valid: true; renew: boolean; value: string }
                 | { valid: false; renew: false; value: null };
             }
-          ).unsignCookie
+          ).unsignCookie.bind(reply)
         : undefined,
     signCookie:
       typeof (reply as unknown as { signCookie?: unknown }).signCookie ===
@@ -966,7 +966,7 @@ export function createControlledReply(
             reply as unknown as {
               signCookie: (value: string) => string;
             }
-          ).signCookie
+          ).signCookie.bind(reply)
         : undefined,
   };
 }
