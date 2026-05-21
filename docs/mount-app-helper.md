@@ -63,7 +63,7 @@ const result = mountApp('root', routes, { strictMode: false });
 
 - `strictMode?: boolean` - Whether to wrap with React.StrictMode (default: `true`)
 
-- `rootProviders?: React.ComponentType<{ children: React.ReactNode }>` - Optional wrapper component that sits above the router. Useful for providing global context (themes, state stores, etc.) that should be available across both normal routes and the router's `errorElement`. It can render HTML too. A theme wrapper, a global modal/dialog portal, or a toast notification container are all reasonable uses. Because it sits outside the router, errors thrown inside it bypass React Router's `errorElement` and fall through to React's own error handling, so keep `rootProviders` stable and unlikely to throw. You can wrap with your own React error boundary if needed.
+- `rootProviders?: React.ComponentType<{ children: React.ReactNode }>` - Optional wrapper component that sits above the router, providing global context (themes, state stores, etc.) available across both normal routes and the router's `errorElement`. Common uses: theme providers, global modal containers, toast notification containers. Because it sits outside the router, errors thrown inside it bypass React Router's `errorElement` and fall through to React's own error handling — wrap with a React error boundary if needed. Keep `rootProviders` stable and unlikely to throw.
 
 ### rootProviders behavior
 

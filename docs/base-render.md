@@ -44,7 +44,7 @@ This supports React Router Data Loaders following the standardized envelope patt
 ### Options
 
 - `strictMode?: boolean`, Wrap with React.StrictMode (default: `true`)
-- `rootProviders?: React.ComponentType<{ children: React.ReactNode }>`, Optional wrapper component that sits above the router. Useful for providing global context (themes, state stores, etc.) that should be available across both normal routes and the router's `errorElement`. It can render HTML too. A theme wrapper, a global modal/dialog portal, or a toast notification container are all reasonable uses. Because it sits outside the router, errors thrown inside it bypass React Router's `errorElement`. On SSR they surface as server-level failures handled by `get500ErrorPage`, and on SSG they fail the page render entirely. React error boundaries only work on the client, so keep `rootProviders` stable and unlikely to throw.
+- `rootProviders?: React.ComponentType<{ children: React.ReactNode }>`, Optional wrapper component that sits above the router, providing global context (themes, state stores, etc.) available across both normal routes and the router's `errorElement`. Common uses: theme providers, global modal containers, toast notification containers. Because it sits outside the router, errors thrown inside it bypass React Router's `errorElement` — on SSR they surface as server-level failures handled by `get500ErrorPage`, and on SSG they fail the page render entirely. React error boundaries only work on the client, so keep `rootProviders` stable and unlikely to throw.
 
 ### Benefits
 

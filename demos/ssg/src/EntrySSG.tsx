@@ -3,6 +3,8 @@ import type { RenderRequest } from '../../../src/server';
 
 // Import shared routes
 import { routes } from './Routes';
+
+// Import theme provider
 import { ThemeProvider } from './components/theme/ThemeProvider';
 
 /**
@@ -22,6 +24,8 @@ export async function render(renderRequest: RenderRequest) {
 
   return await unirendBaseRender(renderRequest, routes, {
     strictMode: true,
+    // Sits above the router — good for themes, modals, toast containers, etc.
+    // Keep it stable — errors here bypass React Router's errorElement (SSR: server failure, SSG: page render fails)
     rootProviders: ({ children }) => <ThemeProvider>{children}</ThemeProvider>,
   });
 }
