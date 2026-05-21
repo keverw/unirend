@@ -218,7 +218,13 @@ const ContextDemo: React.FC = () => {
                 className="context-panel"
                 style={{ fontFamily: 'monospace' }}
               >
-                <div style={{ display: 'grid', gap: '0.75rem', fontSize: '0.95rem' }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gap: '0.75rem',
+                    fontSize: '0.95rem',
+                  }}
+                >
                   <div>
                     <strong>Initial Render Mode:</strong>{' '}
                     <code className="context-badge">
@@ -255,9 +261,7 @@ const ContextDemo: React.FC = () => {
                   </div>
                   <div>
                     <strong>Current Render Mode:</strong>{' '}
-                    <code className="context-badge">
-                      {String(renderMode)}
-                    </code>
+                    <code className="context-badge">{String(renderMode)}</code>
                   </div>
                   <div>
                     <strong>Current isDevelopment:</strong>{' '}
@@ -283,8 +287,9 @@ const ContextDemo: React.FC = () => {
             <>
               <p>
                 The public app config is passed from the server and available
-                via the <code className="context-badge">usePublicAppConfig()</code> hook. It's cloned and
-                frozen to ensure immutability.
+                via the{' '}
+                <code className="context-badge">usePublicAppConfig()</code>{' '}
+                hook. It's cloned and frozen to ensure immutability.
               </p>
               {publicAppConfig ? (
                 <pre className="context-code-block">
@@ -311,16 +316,29 @@ const ContextDemo: React.FC = () => {
             <>
               <p>
                 The raw request context object for debugging purposes via the{' '}
-                <code className="context-badge">useRequestContextObjectRaw()</code> hook. This returns a
-                cloned, immutable copy of the entire context.
+                <code className="context-badge">
+                  useRequestContextObjectRaw()
+                </code>{' '}
+                hook. This returns a cloned, immutable copy of the entire
+                context.
               </p>
-              <p style={{ marginTop: '1rem', fontStyle: 'italic', fontSize: '0.9rem' }}>
+              <p
+                style={{
+                  marginTop: '1rem',
+                  fontStyle: 'italic',
+                  fontSize: '0.9rem',
+                }}
+              >
                 <strong>Note:</strong> This is primarily for debugging. Use{' '}
-                <code className="context-badge">useRequestContextValue()</code> or{' '}
-                <code className="context-badge">useRequestContext()</code> for production code.
+                <code className="context-badge">useRequestContextValue()</code>{' '}
+                or <code className="context-badge">useRequestContext()</code>{' '}
+                for production code.
               </p>
               {rawRequestContext ? (
-                <pre className="context-code-block" style={{ maxHeight: '300px' }}>
+                <pre
+                  className="context-code-block"
+                  style={{ maxHeight: '300px' }}
+                >
                   {JSON.stringify(rawRequestContext, null, 2)}
                 </pre>
               ) : (
@@ -336,9 +354,8 @@ const ContextDemo: React.FC = () => {
           <h2>⚠️ Hydration Safety</h2>
           <p>
             To avoid hydration mismatches, this demo uses{' '}
-            <code className="context-badge">useEffect</code>{' '}
-            to populate context values only after the component hydrates on the
-            client.
+            <code className="context-badge">useEffect</code> to populate context
+            values only after the component hydrates on the client.
           </p>
           <p style={{ marginTop: '1rem' }}>
             This ensures the server-rendered HTML doesn't contain values that
@@ -357,7 +374,9 @@ const ContextDemo: React.FC = () => {
               </p>
             </div>
             <div>
-              <code className="context-badge">useIsSSR() / useIsSSG() / useIsClient()</code>
+              <code className="context-badge">
+                useIsSSR() / useIsSSG() / useIsClient()
+              </code>
               <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Boolean checks for specific rendering modes. useIsSSG() returns
                 true during static site generation.
@@ -394,10 +413,16 @@ const ContextDemo: React.FC = () => {
             <div>
               <code className="context-badge">useDomainInfo()</code>
               <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
-                Returns <code className="context-badge">{'{ hostname, rootDomain }'}</code> when a{' '}
-                <code className="context-badge">hostname</code> option is provided to the SSG generator.
-                <code className="context-badge">rootDomain</code> is empty for localhost or IP addresses.
-                Returns <code className="context-badge">null</code> when no hostname is configured.
+                Returns{' '}
+                <code className="context-badge">
+                  {'{ hostname, rootDomain }'}
+                </code>{' '}
+                when a <code className="context-badge">hostname</code> option is
+                provided to the SSG generator.
+                <code className="context-badge">rootDomain</code> is empty for
+                localhost or IP addresses. Returns{' '}
+                <code className="context-badge">null</code> when no hostname is
+                configured.
               </p>
             </div>
             <div>
@@ -415,7 +440,9 @@ const ContextDemo: React.FC = () => {
               </p>
             </div>
             <div>
-              <code className="context-badge">useRequestContextObjectRaw()</code>
+              <code className="context-badge">
+                useRequestContextObjectRaw()
+              </code>
               <p style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                 Returns a cloned, immutable copy of the entire request context
                 object for debugging purposes.
@@ -515,8 +542,8 @@ const RequestContextDemo: React.FC = () => {
   return (
     <div style={{ marginTop: '1rem' }}>
       <p>
-        Test the <code className="context-badge">useRequestContext()</code> hook methods. Values persist
-        across the entire request lifecycle.
+        Test the <code className="context-badge">useRequestContext()</code> hook
+        methods. Values persist across the entire request lifecycle.
       </p>
 
       <div style={{ display: 'grid', gap: '1rem', marginTop: '1rem' }}>
@@ -532,7 +559,11 @@ const RequestContextDemo: React.FC = () => {
           <div>
             <label
               htmlFor="request-context-key"
-              style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.9rem' }}
+              style={{
+                display: 'block',
+                marginBottom: '0.25rem',
+                fontSize: '0.9rem',
+              }}
             >
               Key:
             </label>
@@ -548,7 +579,11 @@ const RequestContextDemo: React.FC = () => {
           <div>
             <label
               htmlFor="request-context-value"
-              style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.9rem' }}
+              style={{
+                display: 'block',
+                marginBottom: '0.25rem',
+                fontSize: '0.9rem',
+              }}
             >
               Value:
             </label>
@@ -598,8 +633,9 @@ const RequestContextValueDemo: React.FC = () => {
   return (
     <div style={{ marginTop: '1rem' }}>
       <p>
-        Test the <code className="context-badge">useRequestContextValue()</code> hook. This creates a
-        reactive value that persists in the request context.
+        Test the <code className="context-badge">useRequestContextValue()</code>{' '}
+        hook. This creates a reactive value that persists in the request
+        context.
       </p>
 
       <div style={{ display: 'grid', gap: '1rem', marginTop: '1rem' }}>
@@ -620,7 +656,10 @@ const RequestContextValueDemo: React.FC = () => {
           />
         </div>
 
-        <div className="context-panel" style={{ fontFamily: 'monospace', textAlign: 'left' }}>
+        <div
+          className="context-panel"
+          style={{ fontFamily: 'monospace', textAlign: 'left' }}
+        >
           <div>
             <strong>Current Value:</strong>{' '}
             <code className="context-badge">"{name || ''}"</code>

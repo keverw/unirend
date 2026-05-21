@@ -155,7 +155,6 @@ export default function GenericError({ data }: GenericErrorProps) {
             >
               About
             </a>
-
           </div>
 
           {/* Display details (stack trace) in development mode if available */}

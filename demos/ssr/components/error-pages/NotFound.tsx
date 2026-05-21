@@ -113,7 +113,6 @@ export default function NotFound({ error: _error, data }: NotFoundProps) {
             >
               About
             </a>
-
           </div>
         </div>
       </main>

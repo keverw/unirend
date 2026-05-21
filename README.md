@@ -79,6 +79,7 @@ Repo auto‑init: The CLI sets up a repository structure that supports multiple 
 - [Demos](#demos)
   - [SSG demo: Build and Serve](#ssg-demo-build-and-serve)
   - [SSR demo: Dev and Prod](#ssr-demo-dev-and-prod)
+  - [Multi-App SSR demo](#multi-app-ssr-demo)
   - [API server demo](#api-server-demo)
   - [Static content demo](#static-content-demo)
   - [WebSocket demo](#websocket-demo)
@@ -372,6 +373,7 @@ Runnable, self-contained examples live under `demos/` and are wired to root-leve
 
 - `demos/ssg`: SSG example (build, generate, serve)
 - `demos/ssr`: SSR example (dev and production)
+- `demos/multi-app-ssr`: Multi-app SSR example (cookie-based app switching, two real apps + one intentional error case)
 - `demos/api-server-demo.ts`: API-only server example
 - `demos/api-static-content-demo.ts`: API server with static file serving and split HTML/JSON handlers
 - `demos/ws-server-demo.ts`: WebSocket server example (SSR + API servers)
@@ -434,6 +436,36 @@ What this shows:
 - Custom standalone 500 page handling via `get500ErrorPage` in `server/ssr-component.ts`.
 - `LifecycleManager` + `BaseComponent` for graceful shutdown with configurable timeouts (`serve-dev.ts` / `serve-built.ts` → `server/start.ts` → `server/ssr-component.ts`).
 - `src/components/AppLayout.tsx` owns the shared route chrome and route-change scroll-to-top behavior.
+
+### Multi-App SSR demo
+
+Files live in `demos/multi-app-ssr`. Demonstrates running two independently-built React apps (App A and App B) behind a single SSR server, with cookie-based routing to switch between them, plus App C as an intentionally non-existent app that triggers a 500 error page with a cookie-clear button.
+
+**Real-world use cases for multi-app SSR:** consolidating multiple sites on shared server infrastructure rather than running separate servers for each — for example, a SaaS product serving a marketing site and the authenticated app workspace from one process, or serving multiple customer-facing sites that share backend API handlers and plugins. Cookies, plugins, and page data handlers are shared across apps, so shared concerns (auth, analytics, rate limiting) register once. Per-app concerns (UI bundle, HTML template, CDN URL, publicAppConfig) are isolated.
+
+These demo apps are intentionally simpler than `demos/ssr` — no dark mode, no theme plugin, no page data loaders. The focus is multi-app routing. That said, apps on the same server share Unirend context, so in a real multi-app setup you can share theme cookies and other cross-app concerns consistently.
+
+From the repo root (using package scripts):
+
+```bash
+# Development SSR with Vite HMR for both apps simultaneously.
+bun run multi-ssr:serve:hmr
+
+# Production: build both app bundles, then run the built server.
+bun run multi-ssr:build
+bun run multi-ssr:serve:prod
+
+# Or do both in one step.
+bun run multi-ssr:build-and-serve:prod
+```
+
+What this shows:
+
+- Registering a second app with `registerDevApp` / `registerProdApp`.
+- Cookie-based app routing via `request.setActiveSSRApp()` in an `onRequest` hook.
+- Selecting an unregistered app key (`app-c`) triggers the caught error path, which serves a custom 500 HTML page with a "Clear App & Go Home" button that deletes the cookie and redirects.
+- Each app has its own `publicAppConfig` (app name, accent color) and its own Vite build output.
+- `AppSwitcher` component shared across both app bundles via direct source import.
 
 ### API server demo
 

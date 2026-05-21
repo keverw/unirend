@@ -156,7 +156,6 @@ const GenericError: React.FC<GenericErrorProps> = ({ data }) => {
             >
               About
             </a>
-
           </div>
 
           {/* Display details (stack trace) in development mode if available */}
