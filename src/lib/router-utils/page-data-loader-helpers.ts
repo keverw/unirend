@@ -82,7 +82,7 @@ export function processRedirectResponse(
   if (DEBUG_PAGE_LOADER) {
     // eslint-disable-next-line no-console
     console.log(
-      `Application redirect to: ${redirectTarget} (${redirectInfo.permanent ? 'permanent' : 'temporary'})`,
+      `Page-level redirect to: ${redirectTarget} (${redirectInfo.permanent ? 'permanent' : 'temporary'})`,
     );
   }
 

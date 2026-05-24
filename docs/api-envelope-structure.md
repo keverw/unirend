@@ -30,10 +30,10 @@
 - [Authentication](#authentication)
 - [Redirects in API/Page Responses](#redirects-in-apipage-responses)
   - [1. HTTP-Level Redirects (Blocked)](#1-http-level-redirects-blocked)
-  - [2. Application-Level Redirects (Recommended)](#2-application-level-redirects-recommended)
+  - [2. Page-Level Redirects (Recommended)](#2-page-level-redirects-recommended)
     - [Redirect Response Format](#redirect-response-format)
     - [Authentication Required Redirects](#authentication-required-redirects)
-    - [Benefits of Application-Level Redirects](#benefits-of-application-level-redirects)
+    - [Benefits of Page-Level Redirects](#benefits-of-page-level-redirects)
 - [Mixing Response Types: API Calls Within Data Loaders](#mixing-response-types-api-calls-within-data-loaders)
   - [Key Principles for Response Transformation](#key-principles-for-response-transformation)
   - [Implementation Pattern](#implementation-pattern)
@@ -634,11 +634,11 @@ HTTP-level redirects (status codes 301, 302, 303, 307, 308) are generally discou
 
 The page data loader uses `redirect: 'manual'` in fetch options to prevent automatic redirect following. If an API endpoint serving page data returns an HTTP redirect, the data loader will intercept it and return an error response with code `api_redirect_not_followed`.
 
-**Note:** If your API uses HTTP redirects, they should only be in pure API endpoints (not routes serving page data loaders) and should not be added by middleware before page data handler routes.
+**Note:** If your API uses HTTP redirects, they should only be used in pure API endpoints (raw Fastify routes registered directly via custom plugins, not routes serving page data loaders) and should not be added by middleware before page data handler routes. Envelope-first shortcut API routes (registered via `server.api.*` and passed a `ControlledReply`) do not support HTTP-level redirects. For standard REST/JSON API operations (such as submitting a form, resource creation, or actions that trigger redirects), the recommended practice is to return a standard API success response (e.g., `201 Created` or `200 OK`) and include the target destination URI or target URL inside the JSON payload data (for example: `data: { url: "/v1/items/123" }`). The frontend client then handles the UI navigation transition itself. This keeps the API decoupled from routing concerns.
 
-### 2. Application-Level Redirects (Recommended)
+### 2. Page-Level Redirects (Recommended)
 
-When redirects are part of the application flow, use the dedicated `redirect` status in the **page response envelope**. This is only for page-type responses (not API-type), since redirects are a page/UI concern, not a data API concern.
+When redirects are part of the application flow, use the dedicated `redirect` status in the **page response envelope**. This is only for page-type responses (used by page data loaders, not custom API routes), since redirects are a page/UI concern, not a data API concern.
 
 #### Redirect Response Format
 
@@ -725,7 +725,7 @@ Important implementation notes:
 - `error.details.return_to` is forwarded to your login route as untrusted application data. It may be relative or absolute depending on your architecture.
 - Unirend does not validate `return_to` before forwarding it. This allows patterns such as central auth for multi-tenant or subdomain-based SaaS apps, but your login page or auth callback handler must validate it before redirecting the user after login to avoid open redirect vulnerabilities.
 
-#### Benefits of Application-Level Redirects
+#### Benefits of Page-Level Redirects
 
 This approach:
 
@@ -748,7 +748,7 @@ Since the page response type is an extension of the API response pattern, data l
 2. **Preserve metadata**: Keep important data like account information when transforming
 3. **Handle specific response types consistently**:
    - Authentication Required (401): Redirect to login with return_to parameter
-   - Application-level redirects: Process using the dedicated redirect status
+   - Page-level redirects: Process using the dedicated redirect status defined in the page response envelope structure
    - System Errors: Use generic user-friendly messages instead of exposing technical details
    - Generic Errors: Convert to appropriate page errors with proper metadata
 
@@ -766,7 +766,7 @@ Unirend’s `pageDataLoader` implements a consistent, envelope-first pattern acr
 
 - Response processing
   - Custom handlers: Runs `statusCodeHandlers` (exact match first, then wildcard `"*"`). If a handler returns a Page envelope, it is used as‑is (redirects supported via `status: "redirect"`, `status_code: 200`).
-  - Application redirects: If the response is a Page redirect envelope, it is converted to a React Router redirect (preserving query if requested).
+  - Page-level redirects: If the response is a Page redirect envelope, it is converted to a React Router redirect (preserving query if requested).
   - HTTP redirects: HTTP 3xx from API responses are not followed and are converted to `redirectNotFollowed` errors, preserving `Location` in details.
   - Page vs API envelopes: Page envelopes are passed through (decorated with SSR‑only data such as cookies on the server). API error envelopes are transformed into Page error envelopes, preserving metadata and optionally extending it via `transformErrorMeta`.
   - Auth flows: 401 with `error.code === "authentication_required"` triggers a redirect to `loginURL` with an optional return parameter (`returnToParam`). `loginURL` is validated against `allowedRedirectOrigins` when configured. The forwarded `return_to` value is not validated by the framework. 403 maps to access denied, 404 to not found, other codes fall back to generic handling.
