@@ -7,8 +7,8 @@
 - [Usage](#usage)
 - [Configuration](#configuration)
 - [Examples](#examples)
-- [Proxy support](#proxy-support)
-- [Error responses](#error-responses)
+- [Proxy Support](#proxy-support)
+- [Error Responses](#error-responses)
 
 <!-- tocstop -->
 
@@ -138,14 +138,14 @@ domainValidation({
 });
 ```
 
-## Proxy support
+## Proxy Support
 
 When `trustProxyHeaders: true`, the plugin handles common proxy headers (first value used if comma-separated):
 
 - `x-forwarded-host`: Uses the forwarded host for domain validation
 - `x-forwarded-proto`: Respects the original protocol for HTTPS enforcement
 
-## Error responses
+## Error Responses
 
 - **API endpoints**: Returns JSON error responses
 - **Web requests**: Returns plain text error by default (or HTML if your custom handler returns it)

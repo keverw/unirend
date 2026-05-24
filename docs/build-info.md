@@ -5,8 +5,8 @@ This guide covers generating and loading build information (version, git hash/br
 <!-- toc -->
 
 - [What's Included?](#whats-included)
-- [Generate Build Info (pre-build)](#generate-build-info-pre-build)
-- [Load Build Info (runtime)](#load-build-info-runtime)
+- [Generate Build Info (Pre-Build)](#generate-build-info-pre-build)
+- [Load Build Info (Runtime)](#load-build-info-runtime)
   - [Complete Example: SSR Server + publicAppConfig](#complete-example-ssr-server--publicappconfig)
   - [Plugin Pattern: For Non-Public Server State](#plugin-pattern-for-non-public-server-state)
 
@@ -27,7 +27,7 @@ Core `BuildInfo` fields:
 - `git_hash: string`
 - `git_branch: string`
 
-## Generate Build Info (pre-build)
+## Generate Build Info (Pre-Build)
 
 Create a small script to generate a `current-build-info.ts` file during your build pipeline. The generator auto‑detects version from `package.json` when not provided. Custom properties can be provided via `customProperties`. Prefer environment variables for build‑machine/CI traceability data that can be read and inserted during the build process.
 
@@ -89,7 +89,7 @@ Notes:
 - You can also save JSON via `await generator.saveJSON("current-build-info.json")` if you prefer.
 - Custom properties are allowed and preserved. The following core keys are reserved and cannot be overridden: `build_timestamp`, `version`, `git_hash`, `git_branch`. To include additional metadata, add your own keys via `customProperties` (e.g., from env vars or CLI args) rather than attempting to override the reserved keys.
 
-## Load Build Info (runtime)
+## Load Build Info (Runtime)
 
 Use the loader to safely read the generated TypeScript module (`current-build-info.ts`) when running from a built artifact, and a default in development:
 

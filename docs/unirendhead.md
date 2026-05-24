@@ -4,14 +4,14 @@
 
 - [Overview](#overview)
 - [Usage](#usage)
-- [Hardcoded vs loader-driven titles](#hardcoded-vs-loader-driven-titles)
+- [Hardcoded vs Loader-Driven Titles](#hardcoded-vs-loader-driven-titles)
 - [API](#api)
   - [`<UnirendHead>`](#unirendhead)
-  - [Supported tags](#supported-tags)
-  - [Last-write-wins for title](#last-write-wins-for-title)
-- [How it works](#how-it-works)
-  - [Server-side (SSR / SSG)](#server-side-ssr--ssg)
-  - [Client-side](#client-side)
+  - [Supported Tags](#supported-tags)
+  - [Last-Write-Wins for Title](#last-write-wins-for-title)
+- [How It Works](#how-it-works)
+  - [Server-Side (SSR / SSG)](#server-side-ssr--ssg)
+  - [Client-Side](#client-side)
 
 <!-- tocstop -->
 
@@ -43,7 +43,7 @@ function HomePage() {
 
 You can use `UnirendHead` in any component, layouts, pages, error boundaries. Child component tags take precedence over parent ones (see [Last-write-wins for title](#last-write-wins-for-title)).
 
-## Hardcoded vs loader-driven titles
+## Hardcoded vs Loader-Driven Titles
 
 There are two common patterns for setting head tags:
 
@@ -115,7 +115,7 @@ import { UnirendHead } from 'unirend/client';
 
 **Props on child elements** map directly to HTML attributes, pass any valid attribute you would use on the native HTML tag.
 
-### Supported tags
+### Supported Tags
 
 | Tag       | Notes                                                           |
 | --------- | --------------------------------------------------------------- |
@@ -125,20 +125,20 @@ import { UnirendHead } from 'unirend/client';
 
 Other child elements are silently ignored on the server (not collected). On the client they render as-is.
 
-### Last-write-wins for title
+### Last-Write-Wins for Title
 
 If multiple `<UnirendHead>` components in the same render tree each set a `<title>`, the last one encountered during rendering wins. Since React renders parent components before children, a child page component's title always overrides a layout component's title, the expected behavior. (Using more than one `<UnirendHead>` in the same single page or error page component is valid but an anti-pattern, prefer one per component.)
 
 `<meta>` and `<link>` entries **accumulate**, all entries from all `<UnirendHead>` instances in the tree are collected and injected. For example, a layout can add a `<link rel="canonical">` while a page component adds its own `<meta name="description">`.
 
-## How it works
+## How It Works
 
-### Server-side (SSR / SSG)
+### Server-Side (SSR / SSG)
 
 During `renderToString`, `UnirendHead` reads a collector object from React context (provided by `UnirendHeadProvider`, which Unirend wraps your app with automatically). Each `<UnirendHead>` instance pushes its tags into the collector synchronously. After rendering, the collected data is serialized to HTML strings and injected into the `<!--ss-head-->` slot in the HTML template.
 
 `UnirendHead` renders `null` on the server, the tags never appear in the rendered body HTML, only in `<head>` via the injection.
 
-### Client-side
+### Client-Side
 
 On the client the context collector is `null`, so `UnirendHead` renders its children as real DOM elements. React 19 automatically hoists `<title>`, `<meta>`, and `<link>` tags to `<head>` when rendered inside components, no portal or effect needed.

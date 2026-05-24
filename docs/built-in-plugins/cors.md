@@ -3,16 +3,16 @@
 <!-- toc -->
 
 - [About](#about)
-- [Key features](#key-features)
+- [Key Features](#key-features)
 - [Usage](#usage)
 - [Configuration](#configuration)
-- [Advanced features](#advanced-features)
-- [Security notes](#security-notes)
-  - [Security model (at a glance)](#security-model-at-a-glance)
-- [Hijacked responses](#hijacked-responses)
-- [Advanced configuration](#advanced-configuration)
-- [Advanced use cases](#advanced-use-cases)
-- [Security benefits](#security-benefits)
+- [Advanced Features](#advanced-features)
+- [Security Notes](#security-notes)
+  - [Security Model (at a Glance)](#security-model-at-a-glance)
+- [Hijacked Responses](#hijacked-responses)
+- [Advanced Configuration](#advanced-configuration)
+- [Advanced Use Cases](#advanced-use-cases)
+- [Security Benefits](#security-benefits)
 
 <!-- tocstop -->
 
@@ -20,7 +20,7 @@
 
 The `cors` plugin provides dynamic CORS (Cross-Origin Resource Sharing) handling with advanced features not available in standard CORS libraries. Unlike `@fastify/cors`, this plugin supports dynamic credentials based on origin, allowing you to create public APIs while restricting credential access to trusted domains.
 
-## Key features
+## Key Features
 
 - **Dynamic credentials**: Allow credentials only for specific origins while optionally accepting requests from any origin
 - **Function-based validation**: Use custom logic to determine allowed origins and credential permissions
@@ -99,7 +99,7 @@ const server = serveSSRProd(buildDir, {
     - Only enable HSTS over HTTPS (typically production), this plugin does not auto-detect TLS
     - If `preload: true`, then `maxAge` must be at least `31536000` (1 year) and `includeSubDomains` must be `true` (Chrome preload list requirement)
 
-## Advanced features
+## Advanced Features
 
 - **Advanced Wildcard Support**:
   - `*.example.com` matches direct subdomains only (`api.example.com` ✅, `app.api.example.com` ❌)
@@ -196,7 +196,7 @@ cors({
 });
 ```
 
-## Security notes
+## Security Notes
 
 - **Credentials Security**: Raw wildcard patterns (`*`, `https://*`, `http://*`) are NOT allowed in `credentials` arrays and will throw an error. Only subdomain patterns like `*.example.com` are permitted when `credentialsAllowWildcardSubdomains: true`
 - **Wildcard Patterns**:
@@ -213,7 +213,7 @@ cors({
 - Credentials arrays restrictions: Raw wildcard tokens (`"*"`, `"https://*"`, `"http://*"`) are not allowed in `credentials` arrays and will throw. Use exact origins, or enable `credentialsAllowWildcardSubdomains: true` for domain wildcards like `"*.example.com"`.
 - Header reflection hardening: When `allowedHeaders: ["*"]`, only syntactically valid HTTP header names (RFC 7230 token) are reflected from `Access-Control-Request-Headers`, and reflection is capped by count (100) and token length (256 chars).
 
-### Security model (at a glance)
+### Security Model (at a Glance)
 
 - We only echo the `Access-Control-Allow-Origin` header with the request's Origin after it passes policy (list/wildcard/function). Otherwise we omit the `Access-Control-Allow-Origin` header.
 - We never combine `Access-Control-Allow-Origin: *` with `Access-Control-Allow-Credentials: true`. Configurations that attempt this are rejected.
@@ -224,7 +224,7 @@ cors({
 - Protocol wildcards (`https://*`, `http://*`) are permitted only in origin lists, not in credentials.
 - Header reflection (`allowedHeaders: ["*"]`) reflects only what the browser requested, with caps: at most 100 header names, names longer than 256 characters are ignored.
 
-## Hijacked responses
+## Hijacked Responses
 
 Most plugin authors do not need to think about this section. It matters when an
 internal feature or advanced plugin uses `reply.hijack()` /
@@ -258,7 +258,7 @@ header helper before each raw `writeHead(...)`. If you build your own internal
 hijacked response path, follow the same pattern instead of assuming the CORS
 plugin's normal hook flow will run after hijack.
 
-## Advanced configuration
+## Advanced Configuration
 
 ```typescript
 // Comprehensive production setup
@@ -309,7 +309,7 @@ cors({
 });
 ```
 
-## Advanced use cases
+## Advanced Use Cases
 
 The dynamic nature of this CORS plugin makes it perfect for:
 
@@ -324,7 +324,7 @@ The dynamic nature of this CORS plugin makes it perfect for:
 - **API versioning**: Different CORS rules for different API versions
 - **Authentication flows**: Allow credentials only for authentication endpoints
 
-## Security benefits
+## Security Benefits
 
 Unlike traditional CORS libraries that apply the same credential policy to all allowed origins, this plugin lets you:
 

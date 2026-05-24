@@ -5,7 +5,7 @@
 
 **Current version:** `0.0.2`
 
-Serve [Unirend](https://github.com/keverw/unirend) SSG output on shared hosting (cPanel, Apache). Mirrors `StaticWebServer` from the Node.js package — reads the same `page-map.json` format, serves clean URLs, handles 404/500 error pages with correct status codes, range requests, and custom API routes.
+Serve [Unirend](https://github.com/keverw/unirend) SSG output on shared hosting (cPanel, Apache). Mirrors `StaticWebServer` from the Node.js package. It reads the same `page-map.json` format, serves clean URLs, handles 404/500 error pages with correct status codes, range requests, and custom API routes.
 
 <!-- toc -->
 
@@ -23,15 +23,15 @@ Serve [Unirend](https://github.com/keverw/unirend) SSG output on shared hosting 
   - [PHP Error Log Location](#php-error-log-location)
 - [Custom Routes](#custom-routes)
   - [Route Path Normalization](#route-path-normalization)
-  - [Request body parsing](#request-body-parsing)
+  - [Request Body Parsing](#request-body-parsing)
 - [Range Requests](#range-requests)
 - [`.htaccess`](#htaccess)
 - [Local Development](#local-development)
 - [Versioning](#versioning)
 - [Contributing to unirend-php](#contributing-to-unirend-php)
-  - [Running tests](#running-tests)
-  - [Running the demo locally](#running-the-demo-locally)
-  - [Publishing a new version](#publishing-a-new-version)
+  - [Running Tests](#running-tests)
+  - [Running the Demo Locally](#running-the-demo-locally)
+  - [Publishing a New Version](#publishing-a-new-version)
 - [License](#license)
 
 <!-- tocstop -->
@@ -49,7 +49,7 @@ composer require unirend/php-static-server
 
 ## Quick Start
 
-1. Build your Unirend SSG project — this produces a `build/client/` directory with `page-map.json` inside.
+1. Build your Unirend SSG project. This produces a `build/client/` directory with `page-map.json` inside.
 
 2. Copy the templates into your hosting document root:
 
@@ -81,7 +81,7 @@ $server->serve();
 | ----------------------- | ---------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `buildDir`              | `string`         | required                                | Absolute path to your SSG build directory                                                                                                                                         |
 | `pageMapPath`           | `string`         | `'page-map.json'`                       | Path to page map, relative to `buildDir`                                                                                                                                          |
-| `singleAssets`          | `array`          | `[]`                                    | Map individual files (favicon, robots.txt, etc.) — merged with page map, takes precedence on conflicts with page map and asset folders                                            |
+| `singleAssets`          | `array`          | `[]`                                    | Map individual files (favicon, robots.txt, etc.), merged with page map, takes precedence on conflicts with page map and asset folders                                             |
 | `assetFolders`          | `array`          | `[]`                                    | URL prefix → directory mappings for asset folders                                                                                                                                 |
 | `notFoundPage`          | `string\|null`   | `null`                                  | Custom 404 page path, relative to `buildDir`                                                                                                                                      |
 | `errorPage`             | `string\|null`   | `null`                                  | Custom 500 page path, relative to `buildDir`                                                                                                                                      |
@@ -154,11 +154,11 @@ $server = new StaticServer([
 ]);
 ```
 
-If the hook itself throws, the error is silently caught and `error_log()` is used as a fallback (unless `logErrors: false`) — the 500 response is still sent correctly.
+If the hook itself throws, the error is silently caught and `error_log()` is used as a fallback (unless `logErrors: false`). The 500 response is still sent correctly.
 
 ### Disabling `error_log()` Fallback
 
-Set `logErrors: false` to disable the built-in `error_log()` fallback. A custom `onError` hook will still fire if one is provided — `logErrors` only controls whether `error_log()` is used:
+Set `logErrors: false` to disable the built-in `error_log()` fallback. A custom `onError` hook will still fire if one is provided. `logErrors` only controls whether `error_log()` is used:
 
 ```php
 $server = new StaticServer([
@@ -234,12 +234,12 @@ $server->addRoute('GET', '/api/posts/:id', function (
 $server->serve();
 ```
 
-### Request body parsing
+### Request Body Parsing
 
 The `$body` parameter in route handlers is parsed automatically based on the request's `Content-Type`:
 
-- `application/json` — decoded from the raw input stream
-- `application/x-www-form-urlencoded` — from `$_POST`
+- `application/json` is decoded from the raw input stream
+- `application/x-www-form-urlencoded` is parsed from `$_POST`
 
 ## Range Requests
 
@@ -255,7 +255,7 @@ RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ index.php [L]
 ```
 
-Note there is **no** `!-f` condition. This means raw `.html` files are never served directly by Apache — all requests go through `index.php`. This prevents React hydration mismatches that would occur if a user accessed `/about.html` instead of `/about`.
+Note there is **no** `!-f` condition. This means raw `.html` files are never served directly by Apache. All requests go through `index.php`. This prevents React hydration mismatches that would occur if a user accessed `/about.html` instead of `/about`.
 
 ## Local Development
 
@@ -267,13 +267,13 @@ php -S localhost:8080 index.php
 
 ## Versioning
 
-This package is versioned independently from the `unirend` npm package. It targets a specific use case (PHP shared hosting) and changes less frequently — version numbers will not match between the two.
+This package is versioned independently from the `unirend` npm package. It targets a specific use case (PHP shared hosting) and changes less frequently, so version numbers will not match between the two.
 
 ## Contributing to unirend-php
 
-The canonical source for this package is the [unirend monorepo](https://github.com/keverw/unirend) — open issues and PRs there. The repository at [github.com/keverw/unirend-php](https://github.com/keverw/unirend-php) is a publish-only mirror that Packagist reads from; do not commit to it directly.
+The canonical source for this package is the [unirend monorepo](https://github.com/keverw/unirend), open issues and PRs there. Changes should be made in the main Unirend repo first, then published separately to the [github.com/keverw/unirend-php](https://github.com/keverw/unirend-php) mirror that Packagist reads from. Do not commit to the mirror directly except as part of the publish process.
 
-### Running tests
+### Running Tests
 
 From the monorepo root:
 
@@ -289,11 +289,11 @@ Run tests:
 bun run php-test
 ```
 
-### Running the demo locally
+### Running the Demo Locally
 
 A minimal demo site is included in the monorepo under `unirend-php/demo/` for development and testing purposes. It exercises clean URLs, a custom 404, an immutable-cached asset, and custom routes.
 
-**Note:** The demo is not included in the published Composer package — it's only available in the [monorepo](https://github.com/keverw/unirend).
+**Note:** The demo is not included in the published Composer package. It's only available in the [monorepo](https://github.com/keverw/unirend).
 
 ```bash
 cd unirend-php
@@ -304,7 +304,7 @@ php -S localhost:8080 index.php
 
 Open [http://localhost:8080](http://localhost:8080) and explore the links listed on the home page.
 
-### Publishing a new version
+### Publishing a New Version
 
 1. Update `unirend-php/version.json` with the new version number.
 2. Run the publish script from the monorepo root:
@@ -313,7 +313,7 @@ Open [http://localhost:8080](http://localhost:8080) and explore the links listed
 bun run php-publish
 ```
 
-The script clones the mirror repo, syncs files (excluding `vendor/`, `demo/`, `version.json`, etc.), updates the version line in this README, commits `Release vX.Y.Z`, tags it, and pushes — which triggers Packagist to update automatically via webhook.
+The script clones the mirror repo, syncs files (excluding `vendor/`, `demo/`, `version.json`, etc.), updates the version line in this README, commits `Release vX.Y.Z`, tags it, and pushes. That triggers Packagist to update automatically via webhook.
 
 ## License
 

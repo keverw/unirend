@@ -7,9 +7,9 @@
 - [Options](#options)
 - [Benefits](#benefits)
 - [Loader Data Envelope Format](#loader-data-envelope-format)
-  - [Server-Side-Only Data (internal)](#server-side-only-data-internal)
+  - [Server-Side-Only Data (Internal)](#server-side-only-data-internal)
   - [Envelope Properties](#envelope-properties)
-  - [How it works](#how-it-works)
+  - [How It Works](#how-it-works)
 
 <!-- tocstop -->
 
@@ -44,7 +44,7 @@ This supports React Router Data Loaders following the standardized envelope patt
 ### Options
 
 - `strictMode?: boolean`, Wrap with React.StrictMode (default: `true`)
-- `rootProviders?: React.ComponentType<{ children: React.ReactNode }>`, Optional wrapper component that sits above the router, providing global context (themes, state stores, etc.) available across both normal routes and the router's `errorElement`. Common uses: theme providers, global modal containers, toast notification containers. Because it sits outside the router, errors thrown inside it bypass React Router's `errorElement` — on SSR they surface as server-level failures handled by `get500ErrorPage`, and on SSG they fail the page render entirely. React error boundaries only work on the client, so keep `rootProviders` stable and unlikely to throw.
+- `rootProviders?: React.ComponentType<{ children: React.ReactNode }>`, Optional wrapper component that sits above the router, providing global context (themes, state stores, etc.) available across both normal routes and the router's `errorElement`. Common uses: theme providers, global modal containers, toast notification containers. Because it sits outside the router, errors thrown inside it bypass React Router's `errorElement`. On SSR they surface as server-level failures handled by `get500ErrorPage`, and on SSG they fail the page render entirely. React error boundaries only work on the client, so keep `rootProviders` stable and unlikely to throw.
 
 ### Benefits
 
@@ -59,7 +59,7 @@ Unirend uses the standardized API/Page response envelope described in [docs/api-
 
 For end‑to‑end loader examples (server‑driven and local) and how envelopes control status codes and error propagation, see: [docs/data-loaders.md](./data-loaders.md).
 
-#### Server-Side-Only Data (internal)
+#### Server-Side-Only Data (Internal)
 
 The `__ssOnly` field is reserved for Unirend internals. It is set and consumed by the framework (page data loader and base renderer) to keep certain values on the server only. It is stripped before client hydration. App loaders generally should not set `__ssOnly` directly.
 
@@ -70,7 +70,7 @@ The `__ssOnly` field is reserved for Unirend internals. It is set and consumed b
 - `__ssOnly?: Record<string, unknown>` - Server-side-only data (internal, reserved, set by framework helpers and stripped before client hydration)
 - `...otherData` - Regular data that will be available on both server and client
 
-#### How it works
+#### How It Works
 
 1. **Status Codes**: Unirend checks for `status_code` in loader data and uses it for the HTTP response
 2. **Error Handling**: The `error.message` and `error.details.stack` are extracted for error reporting

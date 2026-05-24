@@ -5,17 +5,17 @@
 - [Overview](#overview)
 - [Enable WebSockets](#enable-websockets)
 - [Register Handlers](#register-handlers)
-  - [preValidate: upgrade vs reject](#prevalidate-upgrade-vs-reject)
-  - [Handler signature](#handler-signature)
-  - [Socket events](#socket-events)
+  - [preValidate: Upgrade vs Reject](#prevalidate-upgrade-vs-reject)
+  - [Handler Signature](#handler-signature)
+  - [Socket Events](#socket-events)
 - [Options](#options)
 - [Accessing Connected Clients](#accessing-connected-clients)
-  - [Broadcasting example](#broadcasting-example)
+  - [Broadcasting Example](#broadcasting-example)
 - [Client Example](#client-example)
 - [Demo](#demo)
-- [Behavior notes](#behavior-notes)
+- [Behavior Notes](#behavior-notes)
 - [Known Issues](#known-issues)
-  - [TypeScript language server warning (`fastify-tsconfig` not found)](#typescript-language-server-warning-fastify-tsconfig-not-found)
+  - [TypeScript Language Server Warning (`fastify-tsconfig` Not Found)](#typescript-language-server-warning-fastify-tsconfig-not-found)
   - [Bun](#bun)
 
 <!-- tocstop -->
@@ -118,7 +118,7 @@ server.registerWebSocketHandler({
 });
 ```
 
-### preValidate: upgrade vs reject
+### preValidate: Upgrade vs Reject
 
 `preValidate(request, params)` receives:
 
@@ -134,7 +134,7 @@ If `preValidate` throws, a standardized 500 envelope is sent.
 
 **Note:** Like API route handlers (and unlike page data handlers where params come from the frontend loader POST body), WebSocket `params` are extracted from the Fastify request. This provides pre-extracted routing information while keeping `request` available for transport-level data (cookies, headers, IP). Using `params` instead of extracting directly from `request` maintains consistency across handler types, making it easier to move logic between them. See [Param Source Parity](./ssr.md#param-source-parity-data-loader-vs-api-routes) for details on the differences between handler types.
 
-### Handler signature
+### Handler Signature
 
 ```ts
 type WebSocketHandler = (
@@ -152,7 +152,7 @@ Parameters:
 - `params`: Pre-extracted routing context (queryParams, routeParams, path, originalURL)
 - `upgradeData`: Whatever you returned from `preValidate` when `action === "upgrade"`
 
-### Socket events
+### Socket Events
 
 The `socket` is a `ws.WebSocket` instance. Common events:
 
@@ -195,7 +195,7 @@ const count = server.getWebSocketClients().size;
 
 Useful for stats endpoints or broadcasting.
 
-### Broadcasting example
+### Broadcasting Example
 
 ```ts
 // Broadcast a JSON message to all connected clients
@@ -244,7 +244,7 @@ Run:
 bun run demos/ws-server-demo.ts
 ```
 
-## Behavior notes
+## Behavior Notes
 
 - Paths must match exactly (no wildcards). If you register the same path multiple times, the last registration wins.
 - If no handler is registered for the requested path, the upgrade is blocked and a 404 JSON envelope is returned.
@@ -253,7 +253,7 @@ bun run demos/ws-server-demo.ts
 
 ## Known Issues
 
-### TypeScript language server warning (`fastify-tsconfig` not found)
+### TypeScript Language Server Warning (`fastify-tsconfig` Not Found)
 
 If you see a TS language server warning about `fastify-tsconfig` not found (from `@fastify/websocket`'s tsconfig), add it as a dev dependency to silence it, it has no runtime or build impact:
 

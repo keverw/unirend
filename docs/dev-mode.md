@@ -4,21 +4,21 @@ Unirend integrates with the **Lifecycleion dev mode convention** via the [`lifec
 
 <!-- toc -->
 
-- [Dev mode vs `serveSSRDev` / `serveSSRProd`](#dev-mode-vs-servessrdev--servessrprod)
+- [Dev Mode vs `serveSSRDev` / `serveSSRProd`](#dev-mode-vs-servessrdev--servessrprod)
 - [API](#api)
   - [`initDevMode(arg?)`](#initdevmodearg)
   - [`getDevMode(): boolean`](#getdevmode-boolean)
   - [`overrideDevMode(value: boolean | 'redetect')`](#overridedevmodevalue-boolean--redetect)
-- [Where dev mode is read](#where-dev-mode-is-read)
-- [How it works](#how-it-works)
-  - [Server side](#server-side)
-  - [HTML injection](#html-injection)
-  - [Client side](#client-side)
-- [Why not `import.meta.env.DEV`?](#why-not-importmetaenvdev)
+- [Where Dev Mode Is Read](#where-dev-mode-is-read)
+- [How It Works](#how-it-works)
+  - [Server Side](#server-side)
+  - [HTML Injection](#html-injection)
+  - [Client Side](#client-side)
+- [Why Not `import.meta.env.DEV`?](#why-not-importmetaenvdev)
 
 <!-- tocstop -->
 
-## Dev mode vs `serveSSRDev` / `serveSSRProd`
+## Dev Mode vs `serveSSRDev` / `serveSSRProd`
 
 These are **separate concepts**:
 
@@ -85,7 +85,7 @@ overrideDevMode('redetect'); // clear and re-run auto-detection
 
 Useful for tests, SPA debugging, or tools that need to override what HTML injection set.
 
-## Where dev mode is read
+## Where Dev Mode Is Read
 
 Internally, dev mode flows through several layers:
 
@@ -98,9 +98,9 @@ Internally, dev mode flows through several layers:
 
 Since `overrideDevMode()` is primarily a testing/debugging tool and not something toggled mid-flight in production, the per-request snapshot and the direct global read will always agree in practice.
 
-## How it works
+## How It Works
 
-### Server side
+### Server Side
 
 Call `initDevMode()` **before** starting your server or running SSG:
 
@@ -112,7 +112,7 @@ initDevMode({ detect: 'cmd' });
 // Then start your server...
 ```
 
-### HTML injection
+### HTML Injection
 
 `injectContent()` automatically adds a synchronous inline script to every rendered page:
 
@@ -124,7 +124,7 @@ initDevMode({ detect: 'cmd' });
 
 This runs before any `<script type="module">` (Vite bundles), so the global is always set before `mount-app.ts` executes.
 
-### Client side
+### Client Side
 
 `mountApp()` reads `getDevMode()` for the `isDevelopment` context value:
 
@@ -146,7 +146,7 @@ mountApp('root', routes);
 
 This is a no-op on SSR/SSG pages (the server-injected value wins via first-wins).
 
-## Why not `import.meta.env.DEV`?
+## Why Not `import.meta.env.DEV`?
 
 `import.meta.env.DEV` is **statically replaced at build/transform time** by Vite's plugin system. It is not a runtime global, you cannot override it in user code before the module runs.
 

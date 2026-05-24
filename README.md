@@ -47,12 +47,14 @@ yarn add --dev @vitejs/plugin-react
 
 Unirend includes Fastify as a regular dependency powering its built-in servers (SSR, API, redirect, and static file serving), so you don't need to install it separately.
 
-### Runtime requirements
+### Runtime Requirements
 
 - Node >= 25 (uses newer web APIs such as `fetch`, `structuredClone`, and `AbortSignal.timeout`, covers the Node 20.19.0 minimum required by Vite 8 for `require(esm)` support without a flag, and also meets the Node 25 requirement of the `lifecycleion` peer dependency, which relies on browser-style global error event APIs such as `ErrorEvent` and `reportError`)
 - Or Bun with equivalent APIs
 
-Recommendation: We recommend Bun as the default toolchain, specifically for its bundler, running helper scripts during development, and as a unit test runner. For production runtime stability, we recommend running the bundle under Node. Pass `--target node` when building with Bun (see the optional scripts in the SSR section below). Pure Node tooling setups (e.g., `ts-node`, `tsc`, `esbuild`, `rollup`) or vanilla JavaScript are possible, but not the focus of this guide, the CLI, or the starter template utility functions. This split is a pattern others have landed on as well. The Cloudflare Wrangler team, for example, [recommends](https://github.com/cloudflare/workers-sdk/pull/11172#issuecomment-3517504973) using Bun as the package manager but running under Node.
+### Toolchain Recommendation
+
+We recommend Bun as the default toolchain, specifically for its bundler, running helper scripts during development, and as a unit test runner. For production runtime stability, we recommend running the bundle under Node. Pass `--target node` when building with Bun (see the optional scripts in the SSR section below). Pure Node tooling setups (e.g., `ts-node`, `tsc`, `esbuild`, `rollup`) or vanilla JavaScript are possible, but not the focus of this guide, the CLI, or the starter template utility functions. This split is a pattern others have landed on as well. The Cloudflare Wrangler team, for example, [recommends](https://github.com/cloudflare/workers-sdk/pull/11172#issuecomment-3517504973) using Bun as the package manager but running under Node.
 
 Note: Always include `--external vite` when bundling your server entry with `bun build`. Vite lazily imports `esbuild` at runtime, which Bun's bundler cannot statically resolve. Keeping Vite external avoids a build error.
 
@@ -65,24 +67,25 @@ Repo auto‑init: The CLI sets up a repository structure that supports multiple 
 <!-- toc -->
 
 - [Installation](#installation)
-  - [Runtime requirements](#runtime-requirements)
+  - [Runtime Requirements](#runtime-requirements)
+  - [Toolchain Recommendation](#toolchain-recommendation)
 - [Common Setup for SSG (Static Site Generation) or SSR (Server-Side Rendering)](#common-setup-for-ssg-static-site-generation-or-ssr-server-side-rendering)
   - [Prepare Client Frontend](#prepare-client-frontend)
   - [Prepare Vite Config and Entry Points](#prepare-vite-config-and-entry-points)
   - [Choose Your Rendering Strategy](#choose-your-rendering-strategy)
     - [1. Create Server Entry Point](#1-create-server-entry-point)
     - [2. Build Commands](#2-build-commands)
-    - [3. Package.json Scripts](#3-packagejson-scripts)
+    - [3. package.json Scripts](#3-packagejson-scripts)
 - [Public App Config Pattern](#public-app-config-pattern)
 - [SSG (Static Site Generation)](#ssg-static-site-generation)
 - [SSR (Server-Side Rendering)](#ssr-server-side-rendering)
 - [Demos](#demos)
-  - [SSG demo: Build and Serve](#ssg-demo-build-and-serve)
-  - [SSR demo: Dev and Prod](#ssr-demo-dev-and-prod)
-  - [Multi-App SSR demo](#multi-app-ssr-demo)
-  - [API server demo](#api-server-demo)
-  - [Static content demo](#static-content-demo)
-  - [WebSocket demo](#websocket-demo)
+  - [SSG Demo: Build and Serve](#ssg-demo-build-and-serve)
+  - [SSR Demo: Dev and Prod](#ssr-demo-dev-and-prod)
+  - [Multi-App SSR Demo](#multi-app-ssr-demo)
+  - [API Server Demo](#api-server-demo)
+  - [Static Content Demo](#static-content-demo)
+  - [WebSocket Demo](#websocket-demo)
 - [Data Loaders](#data-loaders)
 - [API Envelope Structure](#api-envelope-structure)
   - [Helpers and Integration](#helpers-and-integration)
@@ -242,7 +245,7 @@ vite build --outDir build/server --ssr src/EntrySSG.tsx
 vite build --outDir build/server --ssr src/EntrySSR.tsx
 ```
 
-#### 3. Package.json Scripts
+#### 3. package.json Scripts
 
 Add these scripts to your `package.json` for both SSG and SSR workflows. The examples below are illustrative and your actual scripts may vary. If you use the CLI to generate your project, the scripts are wired up automatically.
 
@@ -380,7 +383,7 @@ Runnable, self-contained examples live under `demos/` and are wired to root-leve
 
 Runtime note: Demo scripts use Bun to run TypeScript directly (e.g., `bun run ...`). You can use Node-based alternatives as well (e.g., transpile with `tsc`, use `ts-node`, or write equivalent vanilla JavaScript). Unirend’s SSG and server (SSR/API) APIs run on Node and Bun. Vite provides HMR in development and bundles the React application frontend for production.
 
-### SSG demo: Build and Serve
+### SSG Demo: Build and Serve
 
 Files live in `demos/ssg`.
 
@@ -410,7 +413,7 @@ Notes:
 - `demos/ssg/serve.ts` serves the contents of `build/client` using `StaticWebServer` wrapped in a `LifecycleManager` + `BaseComponent` for graceful shutdown and signal handling.
 - See [docs/ssg.md](docs/ssg.md) for concepts behind the workflow.
 
-### SSR demo: Dev and Prod
+### SSR Demo: Dev and Prod
 
 Files live in `demos/ssr`.
 
@@ -437,13 +440,13 @@ What this shows:
 - `LifecycleManager` + `BaseComponent` for graceful shutdown with configurable timeouts (`serve-dev.ts` / `serve-built.ts` → `server/start.ts` → `server/ssr-component.ts`).
 - `src/components/AppLayout.tsx` owns the shared route chrome and route-change scroll-to-top behavior.
 
-### Multi-App SSR demo
+### Multi-App SSR Demo
 
 Files live in `demos/multi-app-ssr`. Demonstrates running two independently-built React apps (App A and App B) behind a single SSR server, with cookie-based routing to switch between them, plus App C as an intentionally non-existent app that triggers a 500 error page with a cookie-clear button.
 
-**Real-world use cases for multi-app SSR:** consolidating multiple sites on shared server infrastructure rather than running separate servers for each — for example, a SaaS product serving a marketing site and the authenticated app workspace from one process, or serving multiple customer-facing sites that share backend API handlers and plugins. Cookies, plugins, and page data handlers are shared across apps, so shared concerns (auth, analytics, rate limiting) register once. Per-app concerns (UI bundle, HTML template, CDN URL, publicAppConfig) are isolated.
+**Real-world use cases for multi-app SSR:** consolidating multiple sites on shared server infrastructure rather than running separate servers for each. For example, a SaaS product can serve a marketing site and the authenticated app workspace from one process, or serve multiple customer-facing sites that share backend API handlers and plugins. Cookies, plugins, and page data handlers are shared across apps, so shared concerns (auth, analytics, rate limiting) register once. Per-app concerns (UI bundle, HTML template, CDN URL, publicAppConfig) are isolated.
 
-These demo apps are intentionally simpler than `demos/ssr` — no dark mode, no theme plugin, no page data loaders. The focus is multi-app routing. That said, apps on the same server share Unirend context, so in a real multi-app setup you can share theme cookies and other cross-app concerns consistently.
+These demo apps are intentionally simpler than `demos/ssr`: no dark mode, no theme plugin, no page data loaders. The focus is multi-app routing. That said, apps on the same server share Unirend context, so in a real multi-app setup you can share theme cookies and other cross-app concerns consistently.
 
 From the repo root (using package scripts):
 
@@ -467,7 +470,7 @@ What this shows:
 - Each app has its own `publicAppConfig` (app name, accent color) and its own Vite build output.
 - `AppSwitcher` component shared across both app bundles via direct source import.
 
-### API server demo
+### API Server Demo
 
 From the repo root:
 
@@ -475,7 +478,7 @@ From the repo root:
 bun run api-demo
 ```
 
-### Static content demo
+### Static Content Demo
 
 From the repo root:
 
@@ -483,7 +486,7 @@ From the repo root:
 bun run api-static-demo
 ```
 
-### WebSocket demo
+### WebSocket Demo
 
 From the repo root:
 

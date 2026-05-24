@@ -12,9 +12,9 @@
   - [Reading and Setting Cookies](#reading-and-setting-cookies)
     - [Reading Cookies](#reading-cookies)
     - [Setting Cookies](#setting-cookies)
-    - [Verifying an incoming signed cookie](#verifying-an-incoming-signed-cookie)
+    - [Verifying an Incoming Signed Cookie](#verifying-an-incoming-signed-cookie)
   - [Serialize Options for reply.setCookie](#serialize-options-for-replysetcookie)
-  - [Manual Utilities (Re-exports)](#manual-utilities-re-exports)
+  - [Manual Utilities (Re-Exports)](#manual-utilities-re-exports)
   - [Decorations and Runtime Access](#decorations-and-runtime-access)
 - [Plugin Dependencies](#plugin-dependencies)
 
@@ -222,7 +222,7 @@ Notes:
 - Signing is server-side, clients cannot create valid signatures. If you need a JS-readable cookie, omit `signed: true` and not setting `httpOnly`.
 - For sensitive data, prefer `httpOnly: true` and avoid storing secrets in cookies altogether.
 
-#### Verifying an incoming signed cookie
+#### Verifying an Incoming Signed Cookie
 
 ```ts
 server.pageDataHandler.register('profile', (request, reply) => {
@@ -270,7 +270,7 @@ Common options you can pass to `reply.setCookie(name, value, options)`:
 - `secure`: Boolean, or `"auto"` to set Secure automatically when TLS is used.
 - `signed`: When true, the cookie value is signed using your configured secret(s).
 
-### Manual Utilities (Re-exports)
+### Manual Utilities (Re-Exports)
 
 For convenience, Unirend re-exports `@fastify/cookie` utilities via a curated `cookieUtils` object from `unirend/plugins` so you can use them without importing the upstream package directly:
 

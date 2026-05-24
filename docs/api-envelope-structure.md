@@ -34,15 +34,15 @@
     - [Redirect Response Format](#redirect-response-format)
     - [Authentication Required Redirects](#authentication-required-redirects)
     - [Benefits of Application-Level Redirects](#benefits-of-application-level-redirects)
-- [Mixing Response Types: API Calls within Data Loaders](#mixing-response-types-api-calls-within-data-loaders)
+- [Mixing Response Types: API Calls Within Data Loaders](#mixing-response-types-api-calls-within-data-loaders)
   - [Key Principles for Response Transformation](#key-principles-for-response-transformation)
   - [Implementation Pattern](#implementation-pattern)
-- [Helper utilities](#helper-utilities)
-  - [Extending helpers and custom meta](#extending-helpers-and-custom-meta)
-    - [Decorate request via plugin](#decorate-request-via-plugin)
-    - [Server-wide custom helpers class](#server-wide-custom-helpers-class)
-    - [Per-call generics](#per-call-generics)
-    - [Subclass to inject defaults from the request](#subclass-to-inject-defaults-from-the-request)
+- [Helper Utilities](#helper-utilities)
+  - [Extending Helpers and Custom Meta](#extending-helpers-and-custom-meta)
+    - [Decorate Request via Plugin](#decorate-request-via-plugin)
+    - [Server-Wide Custom Helpers Class](#server-wide-custom-helpers-class)
+    - [Per-Call Generics](#per-call-generics)
+    - [Subclass to Inject Defaults from the Request](#subclass-to-inject-defaults-from-the-request)
 
 <!-- tocstop -->
 
@@ -738,7 +738,7 @@ This approach:
 
 Data loaders handle redirect status responses by converting them to appropriate React Router redirects.
 
-## Mixing Response Types: API Calls within Data Loaders
+## Mixing Response Types: API Calls Within Data Loaders
 
 Since the page response type is an extension of the API response pattern, data loaders will sometimes encounter API-style responses when interacting with backend services. This includes data fetching and error scenarios like authentication failures, access denial, or server errors.
 
@@ -780,7 +780,7 @@ Unirend’s `pageDataLoader` implements a consistent, envelope-first pattern acr
 
 See the README section “Data Loader Error Transformation and Additional Config” for configuration fields that influence this behavior.
 
-## Helper utilities
+## Helper Utilities
 
 For convenience, Unirend provides helper functions to construct and validate envelopes in your handlers. These are optional but recommended for consistency.
 
@@ -800,7 +800,7 @@ For convenience, Unirend provides helper functions to construct and validate env
 
 These helpers assume you set `request.requestID` via a plugin as described above, otherwise `request_id` defaults to `"unknown"`.
 
-### Extending helpers and custom meta
+### Extending Helpers and Custom Meta
 
 All helper creators are generic over the data payload (T) and meta (M extends BaseMeta), so you can supply your own meta shape per call, or centralize defaults by subclassing the helpers.
 
@@ -808,13 +808,13 @@ All helper creators are generic over the data payload (T) and meta (M extends Ba
 
 > Customization boundary: the envelope creation helpers (`createAPISuccessResponse`, `createAPIErrorResponse`, `createPageSuccessResponse`, etc.) are the normal customization points for changing default meta or wrapping response construction. `sendErrorEnvelope()` is also publicly usable, but it is infrastructure: it applies framework-managed headers, performs the hijack/raw write path, and terminates the response immediately. If you override it in a custom helpers subclass, preserve that contract.
 
-#### Decorate request via plugin
+#### Decorate Request via Plugin
 
 Use a server plugin to attach defaults to each request, then merge them in your handlers. See the server plugins guide for request decoration: [Server Plugins](./server-plugins.md).
 
 For a complete example where using build info (load once at startup, decorate requests, auto-merge into response meta), see: [Build Info → Using with Unirend plugins](./build-info.md#using-with-unirend-plugins).
 
-#### Server-wide custom helpers class
+#### Server-Wide Custom Helpers Class
 
 You can configure a custom helpers class for the SSR and API servers so all server-produced envelopes (defaults, fallbacks) use your class for creation. This is useful for injecting default metadata (e.g., account/site info) or centralizing conventions.
 
@@ -855,7 +855,7 @@ const api = serveAPI({
 });
 ```
 
-#### Per-call generics
+#### Per-Call Generics
 
 ```ts
 import { APIResponseHelpers } from 'unirend/api-envelope';
@@ -879,7 +879,7 @@ return APIResponseHelpers.createPageSuccessResponse<MyData, AppMeta>({
 });
 ```
 
-#### Subclass to inject defaults from the request
+#### Subclass to Inject Defaults from the Request
 
 ```ts
 import { APIResponseHelpers } from 'unirend/api-envelope';

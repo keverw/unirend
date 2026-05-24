@@ -13,7 +13,7 @@
     - [Hooks](#hooks)
     - [Server-Level Logging](#server-level-logging)
     - [Decorators](#decorators)
-    - [Reading server decorations](#reading-server-decorations)
+    - [Reading Server Decorations](#reading-server-decorations)
     - [APIResponseHelpers](#apiresponsehelpers)
     - [API Shortcuts (Envelope Helpers)](#api-shortcuts-envelope-helpers)
     - [Page Data Loader Handler Registration](#page-data-loader-handler-registration)
@@ -32,8 +32,8 @@
   - [5. Validate Input](#5-validate-input)
 - [File Upload Helpers](#file-upload-helpers)
 - [Common Pitfalls](#common-pitfalls)
-  - [Async route handler pattern (return payload, don't call reply.send)](#async-route-handler-pattern-return-payload-dont-call-replysend)
-  - [Streaming responses from route handlers](#streaming-responses-from-route-handlers)
+  - [Async Route Handler Pattern (Return Payload, Don't Call reply.send)](#async-route-handler-pattern-return-payload-dont-call-replysend)
+  - [Streaming Responses from Route Handlers](#streaming-responses-from-route-handlers)
   - [Setting Global Headers in onSend Hook](#setting-global-headers-in-onsend-hook)
 - [Limitations](#limitations)
   - [Forbidden Operations](#forbidden-operations)
@@ -301,7 +301,7 @@ pluginHost.decorateReply('setUser', function (user) {
 pluginHost.decorate('db', databaseConnection);
 ```
 
-#### Reading server decorations
+#### Reading Server Decorations
 
 Plugins can read server-level decorations added by other plugins using read-only helpers:
 
@@ -761,7 +761,7 @@ const uploadPlugin: ServerPlugin = async (pluginHost, options) => {
 
 ## Common Pitfalls
 
-### Async route handler pattern (return payload, don't call reply.send)
+### Async Route Handler Pattern (Return Payload, Don't Call reply.send)
 
 In async route handlers registered with `pluginHost.get/post/put/delete/patch`, always **return the payload** and let Fastify send it, never call `reply.send()` yourself.
 
@@ -809,7 +809,7 @@ This guard applies to route handlers registered through `pluginHost.get/post/put
 
 The `pluginHost.api.*` handlers and `pluginHost.pageDataHandler.register(...)` handlers are not affected, they return envelopes directly and are handled correctly by the framework.
 
-### Streaming responses from route handlers
+### Streaming Responses from Route Handlers
 
 When you need to stream binary data, files, or other non-buffered responses from a raw route handler, use `reply.hijack()` to take full ownership of the response, then pipe directly to `reply.raw`. This bypasses Fastify's send pipeline entirely, no `wrapThenable`, no compression hook interference.
 

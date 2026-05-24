@@ -5,19 +5,19 @@ Unirend centralizes route data fetching through a single loader system. Define l
 <!-- toc -->
 
 - [Quick Start](#quick-start)
-  - [HTTP‑based Loader](#httpbased-loader)
+  - [HTTP‑Based Loader](#httpbased-loader)
   - [Local Loader](#local-loader)
-- [Which loader should I use](#which-loader-should-i-use)
+- [Which Loader Should I Use](#which-loader-should-i-use)
 - [Page Type Handler (Fetch/Short-Circuit) Data Loader](#page-type-handler-fetchshort-circuit-data-loader)
 - [Local Data Loader](#local-data-loader)
 - [Using Loaders in React Router (Applies to Both Types)](#using-loaders-in-react-router-applies-to-both-types)
 - [Query Parameters](#query-parameters)
 - [Data Loader Error Transformation and Additional Config](#data-loader-error-transformation-and-additional-config)
-  - [`errorDefaults` presets](#errordefaults-presets)
+  - [`errorDefaults` Presets](#errordefaults-presets)
   - [`connectionErrorMessages`](#connectionerrormessages)
   - [`transformErrorMeta(params)`](#transformerrormetaparams)
   - [`statusCodeHandlers`](#statuscodehandlers)
-  - [Additional configuration options](#additional-configuration-options)
+  - [Additional Configuration Options](#additional-configuration-options)
 
 <!-- tocstop -->
 
@@ -32,7 +32,7 @@ To access loader data in a component, see [Using Loaders in React Router](#using
   - Rendered page error envelope path: use `useDataLoaderEnvelopeError` in your app layout when a loader returns a page error envelope directly, or when the framework converts a loader failure into one.
   - Environment-specific final behavior: the same loader concepts can surface a little differently in SSR, SSG, and hydrated client navigation. See: [Error Handling (README)](../README.md#error-handling), [docs/error-handling.md](./error-handling.md), and [docs/ssg.md](./ssg.md#5xx-error-handling).
 
-### HTTP‑based Loader
+### HTTP‑Based Loader
 
 ```ts
 import {
@@ -81,7 +81,7 @@ export const localInfoLoader = createPageDataLoader(
 );
 ```
 
-## Which loader should I use
+## Which Loader Should I Use
 
 - HTTP‑based loader: you need cookies or request information forwarded, you have a separate API server, or you handle auth flows
 - Local loader: SSG or simple data needs, and you do not need cookie propagation
@@ -273,7 +273,7 @@ function Filters() {
 
 When API responses don’t follow the Page Envelope, the loader converts them using your configured strings and rules.
 
-### `errorDefaults` presets
+### `errorDefaults` Presets
 
 - Titles/descriptions/messages/codes used when building Page error envelopes
   - `notFound`
@@ -368,7 +368,7 @@ statusCodeHandlers: {
 }
 ```
 
-### Additional configuration options
+### Additional Configuration Options
 
 - `allowedRedirectOrigins`: redirect safety validation
   - undefined: validation disabled (any redirect target allowed)

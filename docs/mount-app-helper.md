@@ -3,11 +3,11 @@
 <!-- toc -->
 
 - [Overview](#overview)
-- [How it works](#how-it-works)
+- [How It Works](#how-it-works)
 - [Usage](#usage)
 - [API](#api)
 - [Options](#options)
-- [rootProviders behavior](#rootproviders-behavior)
+- [rootProviders Behavior](#rootproviders-behavior)
 
 <!-- tocstop -->
 
@@ -15,7 +15,7 @@
 
 The `mountApp` function is the primary, opinionated way to mount React Router-based client applications in unirend. It intelligently detects whether to hydrate pre-rendered content or render fresh, and automatically applies all necessary wrappers.
 
-### How it works
+### How It Works
 
 If the container has existing child elements (SSR/SSG content), it hydrates. If empty (SPA/development), it renders fresh.
 
@@ -63,9 +63,9 @@ const result = mountApp('root', routes, { strictMode: false });
 
 - `strictMode?: boolean` - Whether to wrap with React.StrictMode (default: `true`)
 
-- `rootProviders?: React.ComponentType<{ children: React.ReactNode }>` - Optional wrapper component that sits above the router, providing global context (themes, state stores, etc.) available across both normal routes and the router's `errorElement`. Common uses: theme providers, global modal containers, toast notification containers. Because it sits outside the router, errors thrown inside it bypass React Router's `errorElement` and fall through to React's own error handling — wrap with a React error boundary if needed. Keep `rootProviders` stable and unlikely to throw.
+- `rootProviders?: React.ComponentType<{ children: React.ReactNode }>` - Optional wrapper component that sits above the router, providing global context (themes, state stores, etc.) available across both normal routes and the router's `errorElement`. Common uses: theme providers, global modal containers, toast notification containers. Because it sits outside the router, errors thrown inside it bypass React Router's `errorElement` and fall through to React's own error handling. Wrap with a React error boundary if needed. Keep `rootProviders` stable and unlikely to throw.
 
-### rootProviders behavior
+### rootProviders Behavior
 
 `rootProviders` wraps the entire router, so its context and any rendered output is available inside both your normal route tree and React Router's `errorElement`. This is useful for things like a theme that error pages also need.
 

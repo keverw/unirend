@@ -4,31 +4,31 @@ Unirend provides a unified API for handling multipart uploads with streaming lim
 
 <!-- toc -->
 
-- [What you get](#what-you-get)
+- [What You Get](#what-you-get)
 - [Quickstart](#quickstart)
-- [Server configuration](#server-configuration)
+- [Server Configuration](#server-configuration)
 - [Using processFileUpload()](#using-processfileupload)
-  - [Configuration options](#configuration-options)
-  - [Single file upload](#single-file-upload)
-  - [Multiple files (batch)](#multiple-files-batch)
-  - [Cleanup on abort](#cleanup-on-abort)
-  - [Post-processing with `onComplete`](#post-processing-with-oncomplete)
-  - [Pre-validation (reject before parsing multipart)](#pre-validation-reject-before-parsing-multipart)
-  - [Custom MIME type validation with validator function](#custom-mime-type-validation-with-validator-function)
-  - [Production: tracking uploads in a database](#production-tracking-uploads-in-a-database)
-    - [Background processing (video, thumbnails, OCR, etc.)](#background-processing-video-thumbnails-ocr-etc)
-- [Errors and abort reasons](#errors-and-abort-reasons)
-  - [Abort reasons](#abort-reasons)
-  - [Timeout and connection handling](#timeout-and-connection-handling)
-  - [Common HTTP statuses / error codes](#common-http-statuses--error-codes)
+  - [Configuration Options](#configuration-options)
+  - [Single File Upload](#single-file-upload)
+  - [Multiple Files (Batch)](#multiple-files-batch)
+  - [Cleanup on Abort](#cleanup-on-abort)
+  - [Post-Processing with `onComplete`](#post-processing-with-oncomplete)
+  - [Pre-Validation (Reject Before Parsing Multipart)](#pre-validation-reject-before-parsing-multipart)
+  - [Custom MIME Type Validation with Validator Function](#custom-mime-type-validation-with-validator-function)
+  - [Production: Tracking Uploads in a Database](#production-tracking-uploads-in-a-database)
+    - [Background Processing (Video, Thumbnails, OCR, Etc.)](#background-processing-video-thumbnails-ocr-etc)
+- [Errors and Abort Reasons](#errors-and-abort-reasons)
+  - [Abort Reasons](#abort-reasons)
+  - [Timeout and Connection Handling](#timeout-and-connection-handling)
+  - [Common HTTP Statuses / Error Codes](#common-http-statuses--error-codes)
 - [Testing](#testing)
-- [Security notes](#security-notes)
-  - [Image upload workflow (common pattern)](#image-upload-workflow-common-pattern)
-- [Plugins / raw Fastify routes](#plugins--raw-fastify-routes)
+- [Security Notes](#security-notes)
+  - [Image Upload Workflow (Common Pattern)](#image-upload-workflow-common-pattern)
+- [Plugins / Raw Fastify Routes](#plugins--raw-fastify-routes)
 
 <!-- tocstop -->
 
-## What you get
+## What You Get
 
 - **Early MIME validation**: MIME types validated **before** consuming streams (prevents bandwidth waste / DoS attacks)
 - **Streaming processing**: files processed one at a time (no memory buffering of multiple files)
@@ -90,7 +90,7 @@ server.api.post('upload/avatar', async (request, reply) => {
 
 For detailed configuration and examples, see [Server configuration](#server-configuration) and [Using processFileUpload()](#using-processfileupload).
 
-## Server configuration
+## Server Configuration
 
 Enable multipart uploads in your server (works with both SSR and standalone API servers):
 
@@ -146,7 +146,7 @@ const server = serveSSRDev(paths, {
 
 ## Using processFileUpload()
 
-### Configuration options
+### Configuration Options
 
 `processFileUpload(config)` accepts the following configuration:
 
@@ -171,7 +171,7 @@ const server = serveSSRDev(paths, {
 - **Success**: `{ success: true; files: Array<{ fileIndex; filename; data }> }`
 - **Failure**: `{ success: false; errorEnvelope }` (ready to return)
 
-### Single file upload
+### Single File Upload
 
 Smallest "real" disk example:
 
@@ -218,7 +218,7 @@ server.api.post('upload/avatar', async (request, reply) => {
 });
 ```
 
-### Multiple files (batch)
+### Multiple Files (Batch)
 
 Batch uploads are **sequential** and **fail-fast**. The first failure aborts the rest and runs all registered abort cleanups.
 
@@ -246,7 +246,7 @@ server.api.post('upload/gallery', async (request, reply) => {
 });
 ```
 
-### Cleanup on abort
+### Cleanup on Abort
 
 Use `context.onCleanup(fn)` inside the processor to register cleanup. Cleanup runs automatically when uploads fail for ANY reason:
 
@@ -282,7 +282,7 @@ processor: async (fileStream, metadata, context) => {
 };
 ```
 
-### Post-processing with `onComplete`
+### Post-Processing with `onComplete`
 
 Use `onComplete` for a single step after all files finish (success or failure), like moving temp files to final location or committing a transaction.
 
@@ -327,7 +327,7 @@ const result = await processFileUpload({
 });
 ```
 
-### Pre-validation (reject before parsing multipart)
+### Pre-Validation (Reject Before Parsing Multipart)
 
 You can reject requests _before_ multipart parsing to save bandwidth and work. Use `fileUploads.allowedRoutes` + `fileUploads.preValidation` in server config.
 
@@ -368,7 +368,7 @@ const server = serveSSRDev(paths, {
 
 **Note:** Both `allowedRoutes` rejections and `preValidation` rejections are automatically wrapped in proper API envelopes (with `status`, `status_code`, `request_id`, etc.) using your server's `APIResponseHelpersClass` if provided, or the default `APIResponseHelpers`.
 
-### Custom MIME type validation with validator function
+### Custom MIME Type Validation with Validator Function
 
 Use a validator function when you need custom rules and/or a custom rejection reason:
 
@@ -383,7 +383,7 @@ allowedMimeTypes: (mime) => {
 };
 ```
 
-### Production: tracking uploads in a database
+### Production: Tracking Uploads in a Database
 
 This is commonly called a **staging upload** (or **temp-then-finalize**) pattern.
 
@@ -396,7 +396,7 @@ If you want "automatic" consistency, treat uploads like a state machine:
 
 This keeps storage and your DB in sync and makes retries/cleanup straightforward.
 
-#### Background processing (video, thumbnails, OCR, etc.)
+#### Background Processing (Video, Thumbnails, OCR, Etc.)
 
 For heavy work (video transcoding into multiple resolutions, thumbnail generation, OCR, malware scanning), prefer:
 
@@ -446,11 +446,11 @@ const result = await processFileUpload({
 
 **Cleanup job pattern:** periodically delete/expire `status='pending'` uploads older than 24–48 hours (these usually indicate failed uploads that weren't cleaned up, e.g. due to process crashes).
 
-## Errors and abort reasons
+## Errors and Abort Reasons
 
 On failure, `processFileUpload()` returns `{ success: false, errorEnvelope }`. In `server.api.*` routes you typically just `return result.errorEnvelope;`.
 
-### Abort reasons
+### Abort Reasons
 
 When uploads fail, cleanup handlers receive an `AbortReason` explaining why:
 
@@ -463,7 +463,7 @@ When uploads fail, cleanup handlers receive an `AbortReason` explaining why:
 - `'files_limit_exceeded'` - Too many files uploaded
 - `'no_files_provided'` - No files in request
 
-### Timeout and connection handling
+### Timeout and Connection Handling
 
 If you set `timeoutMS`, uploads automatically abort when time expires. The framework destroys the stream, your processor receives an error, and cleanup runs automatically. Same behavior for client disconnections.
 
@@ -508,7 +508,7 @@ processor: async (fileStream, metadata, context) => {
 };
 ```
 
-### Common HTTP statuses / error codes
+### Common HTTP Statuses / Error Codes
 
 This is the "at a glance" mapping clients usually care about:
 
@@ -541,7 +541,7 @@ curl -X POST http://localhost:3000/api/upload/gallery \
   -F "file=@photo2.jpg"
 ```
 
-## Security notes
+## Security Notes
 
 - **Early MIME validation prevents bandwidth DoS**: MIME types are validated **before** consuming file streams. This means an attacker can't upload 5GB of valid files followed by an invalid file to waste your bandwidth - the invalid file is rejected immediately without downloading.
 - **Size limit truncation behavior**: Due to how the multipart parser works with streaming, file size truncation is detected **after** the stream has been consumed. This means if a file exceeds `maxSizePerFile`, the processor will upload/process the truncated file before the framework detects it and triggers cleanup. The partial file is deleted by cleanup handlers, but bandwidth has already been consumed. This is a known limitation of streaming multipart parsing - the framework cannot know the total file size until the stream completes.
@@ -553,10 +553,10 @@ curl -X POST http://localhost:3000/api/upload/gallery \
 - **Harden permissions**: ensure uploaded files are not executable and are stored with restrictive permissions.
 - **Isolate storage**: consider separate buckets/prefixes/domains for user uploads vs application assets.
 
-### Image upload workflow (common pattern)
+### Image Upload Workflow (Common Pattern)
 
 For image uploads, it's common to store the original file and enqueue background work to generate derived versions (thumbnails, multiple resolutions, format conversion/optimization) for efficient delivery.
 
-## Plugins / raw Fastify routes
+## Plugins / Raw Fastify Routes
 
 If you need to use file upload helpers in custom Fastify routes (non-envelope API routes), see the [File Upload Helpers section in the Server Plugins documentation](./server-plugins.md#file-upload-helpers). That section explains how to handle the envelope-to-Fastify conversion when using `processFileUpload()` with raw `pluginHost.post()` routes.

@@ -12,7 +12,7 @@
       - [Events](#events)
       - [Template Variables](#template-variables)
       - [Additional Context in Log Output](#additional-context-in-log-output)
-      - [IP Behind A Reverse Proxy](#ip-behind-a-reverse-proxy)
+      - [IP Behind a Reverse Proxy](#ip-behind-a-reverse-proxy)
       - [Level Config](#level-config)
       - [Client Abort Handling](#client-abort-handling)
       - [Fire-And-Forget Work Inside Hooks](#fire-and-forget-work-inside-hooks)
@@ -27,10 +27,10 @@
   - [SSRServer Class](#ssrserver-class)
   - [Construction](#construction)
   - [SSR Options](#ssr-options)
-  - [Options (prod-only)](#options-prod-only)
+  - [Options (Prod-Only)](#options-prod-only)
   - [Header and Cookies Forwarding](#header-and-cookies-forwarding)
-  - [Reading server decorations](#reading-server-decorations)
-  - [Environment flag in handlers](#environment-flag-in-handlers)
+  - [Reading Server Decorations](#reading-server-decorations)
+  - [Environment Flag in Handlers](#environment-flag-in-handlers)
     - [isDevelopment](#isdevelopment)
     - [clientIP and serverLabel](#clientip-and-serverlabel)
     - [domainInfo](#domaininfo)
@@ -38,7 +38,7 @@
   - [Page Data Loader Handlers and Versioning](#page-data-loader-handlers-and-versioning)
   - [Short-Circuit Data Handlers](#short-circuit-data-handlers)
   - [Custom API Routes](#custom-api-routes)
-    - [API route handler signature and parameters:](#api-route-handler-signature-and-parameters)
+    - [API Route Handler Signature and Parameters:](#api-route-handler-signature-and-parameters)
   - [Param Source Parity (Data Loader vs API Routes):](#param-source-parity-data-loader-vs-api-routes)
   - [Request Context Injection](#request-context-injection)
 - [Multi-App SSR Support](#multi-app-ssr-support)
@@ -58,14 +58,14 @@
     - [Resource Considerations](#resource-considerations)
     - [Validation](#validation)
 - [Standalone API (APIServer)](#standalone-api-apiserver)
-  - [Basic usage](#basic-usage)
+  - [Basic Usage](#basic-usage)
   - [API-Specific Options](#api-specific-options)
   - [Error Handling](#error-handling)
     - [JSON-Only (SSR Compatible)](#json-only-ssr-compatible)
     - [Web-Only (Plain Web Server)](#web-only-plain-web-server)
     - [Split Handlers (Mixed API + Web Server)](#split-handlers-mixed-api--web-server)
 - [Graceful Shutdown](#graceful-shutdown)
-  - [Force shutdown](#force-shutdown)
+  - [Force Shutdown](#force-shutdown)
 - [WebSockets](#websockets)
 
 <!-- tocstop -->
@@ -397,7 +397,7 @@ When using structured logging (e.g., JSON format with pino or other logging adap
 
 If you persist request history yourself, prefer the `accessLog.onRequest` and `accessLog.onResponse` hooks for DB writes. These hooks run regardless of the `events` setting, including `events: 'none'`, so you can disable template logging while still recording request starts/completions. If your central logger also writes to the same DB or external sink, filter out entries where `context.logSource === 'unirend.accessLog'` (or route them to a separate sink) to avoid double-writing the same access event.
 
-##### IP Behind A Reverse Proxy
+##### IP Behind a Reverse Proxy
 
 `ip` in access log templates and hook contexts comes from `request.clientIP`, which is resolved once at request start and is available everywhere - plugins, data loader handlers, API route handlers, and access log hooks.
 
@@ -846,7 +846,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
 - `clientFolderName?: string`, `serverFolderName?: string`
   - Names of subfolders inside the Vite build output (defaults: `client` and `server`).
 
-### Options (prod-only)
+### Options (Prod-Only)
 
 - `serverEntry?: string`
   - Name of the server entry in manifest (default `"EntrySSR"`).
@@ -940,7 +940,7 @@ Unirend forwards a curated set of headers and supports configurable cookie forwa
     - Empty cookie values (e.g., `name=`) are allowed and forwarded if the name passes policy
     - Name-based filtering only, attributes on `Set-Cookie` are preserved as-is
 
-### Reading server decorations
+### Reading Server Decorations
 
 Both SSR and API servers expose read-only helpers to access server-level decorations set by plugins:
 
@@ -953,7 +953,7 @@ const info = server.getDecoration<{
 }>('cookiePluginInfo');
 ```
 
-### Environment flag in handlers
+### Environment Flag in Handlers
 
 Both `SSRServer` and `APIServer` populate several per-request properties on the Fastify request object. These are available in any handler, hook, or plugin.
 
@@ -1305,7 +1305,7 @@ Notes:
 - Handlers must return a valid API envelope. Status codes are taken from `status_code`.
 - Available helpers: `.api.get`, `.api.post`, `.api.put`, `.api.delete`, `.api.patch`.
 
-#### API route handler signature and parameters:
+#### API Route Handler Signature and Parameters:
 
 - Handler signature: `(request, reply, params) => APIResponseEnvelope`
 - Handler parameters:
@@ -1724,7 +1724,7 @@ Use it when you don't need server-side React rendering. Common use cases:
 - **Mixed API + web server**: Serve both JSON APIs and static HTML/assets without React (use split error handlers for HTML vs JSON responses)
 - **Generic HTTP server**: Use as a general-purpose HTTP server (similar to Fastify/Express) with Unirend's plugin system. Set `apiEndpointPrefix: false` to disable API envelope handling and serve custom content via plugins
 
-### Basic usage
+### Basic Usage
 
 ```typescript
 import { serveAPI } from 'unirend/server';
@@ -1803,6 +1803,20 @@ const server = serveAPI({
   // Custom error handler - returns JSON envelope
   errorHandler: (request, error, isDevelopment, isPageData) => {
     // isPageData distinguishes page data requests from regular API requests
+    if (isPageData) {
+      return APIResponseHelpers.createPageErrorResponse({
+        request,
+        statusCode: 500,
+        errorCode: 'internal_error',
+        errorMessage: isDevelopment ? error.message : 'Internal server error',
+        pageMetadata: {
+          title: 'Server Error',
+          description: 'An internal server error occurred',
+        },
+        errorDetails: isDevelopment ? { stack: error.stack } : undefined,
+      });
+    }
+
     return APIResponseHelpers.createAPIErrorResponse({
       request,
       statusCode: 500,
@@ -1814,6 +1828,19 @@ const server = serveAPI({
 
   // Custom 404 handler - returns JSON envelope
   notFoundHandler: (request, isPageData) => {
+    if (isPageData) {
+      return APIResponseHelpers.createPageErrorResponse({
+        request,
+        statusCode: 404,
+        errorCode: 'not_found',
+        errorMessage: `Page data endpoint not found: ${request.url}`,
+        pageMetadata: {
+          title: 'Not Found',
+          description: 'The requested page data could not be found',
+        },
+      });
+    }
+
     return APIResponseHelpers.createAPIErrorResponse({
       request,
       statusCode: 404,
@@ -1824,7 +1851,7 @@ const server = serveAPI({
 });
 ```
 
-This is the same signature used by SSR server's `APIHandling` options (see [Options (shared)](#options-shared) above), making it easy to share handler logic between SSR and standalone API servers. The `isPageData` parameter distinguishes page data loader handler requests from regular API requests.
+This is the same signature used by SSR server's `APIHandling` options (see [Options (shared)](#options-shared) above), making it easy to share handler logic between SSR and standalone API servers. The `isPageData` parameter distinguishes page data loader requests from regular API requests. By checking `isPageData`, you can return a page error response (via `APIResponseHelpers.createPageErrorResponse` with metadata like page title/description) or a standard API error response (via `APIResponseHelpers.createAPIErrorResponse`).
 
 **Convention: stack traces in development** When writing custom JSON error handlers, include `errorDetails: isDevelopment ? { stack: error.stack } : undefined` so that stack traces appear in development error responses. This matches the convention used by the built-in page data loader and the default error handler. Components like `GenericError` in the SSR demo look for `error.details.stack` to display stack traces during development. See [Error Handling - Error Responses with Stack Trace](./error-handling.md#5-error-responses-with-stack-trace-development-only) for more details.
 
@@ -2032,7 +2059,7 @@ Notes:
 - Declare the server variable (`let server: SSRServer | null = null`) before defining the shutdown handler so it's in scope. Before creating a new server instance, check for an existing one, and handle it appropriately (eg. stop it first, and then create new one)
 - If you dynamically create or reassign server instances, consider using a factory function that returns a fresh server, see [Lifecycle and Persistence](./server-plugins.md#lifecycle-and-persistence) for details on how routes and handlers persist across `stop()`/`listen()` cycles
 
-### Force shutdown
+### Force Shutdown
 
 All server types (`SSRServer`, `APIServer`, `StaticWebServer`, `RedirectServer`) expose a `closeAllConnections()` method that immediately terminates the current HTTP connections, tracked Fastify WebSocket clients, and Vite HMR client connections in SSR development mode. Unlike `stop()`, it does not wait for in-flight requests to finish, preserve graceful shutdown responses, stop the listening server, or complete shutdown cleanup.
 

@@ -7,9 +7,9 @@
 - [Usage](#usage)
 - [Configuration](#configuration)
 - [Examples](#examples)
-- [Forwarded headers (SSR)](#forwarded-headers-ssr)
-  - [Deployment note](#deployment-note)
-- [Response headers](#response-headers)
+- [Forwarded Headers (SSR)](#forwarded-headers-ssr)
+  - [Deployment Note](#deployment-note)
+- [Response Headers](#response-headers)
 
 <!-- tocstop -->
 
@@ -98,7 +98,7 @@ clientInfo({ logging: true });
 clientInfo({ logging: false });
 ```
 
-## Forwarded headers (SSR)
+## Forwarded Headers (SSR)
 
 When `trustForwardedHeaders` returns `true`, the plugin will honor these request headers if present:
 
@@ -109,7 +109,7 @@ When `trustForwardedHeaders` returns `true`, the plugin will honor these request
 
 This lets your SSR server forward the user's client details to your API so both hops share the same correlation ID. See also: `docs/ssr.md`.
 
-### Deployment note
+### Deployment Note
 
 In production behind reverse proxies or load balancers, configure Fastify's `trustProxy` or `getClientIP` so `request.clientIP` reflects the real client IP. Unless you provide a custom `trustForwardedHeaders`, the plugin only accepts forwarded client-info headers when `request.clientIP` is private. Without one of those in place, `request.clientIP` may not reflect your proxy chain correctly.
 
@@ -146,7 +146,7 @@ clientInfo({
 });
 ```
 
-## Response headers
+## Response Headers
 
 By default, the plugin adds these to every response (configurable via `setResponseHeaders`):
 

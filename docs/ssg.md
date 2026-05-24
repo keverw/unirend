@@ -10,7 +10,7 @@
   - [Page Map Output](#page-map-output)
   - [5xx Error Handling](#5xx-error-handling)
   - [Logging](#logging)
-    - [Built-in Console Logger](#built-in-console-logger)
+    - [Built-In Console Logger](#built-in-console-logger)
     - [Lifecycleion Logger](#lifecycleion-logger)
     - [Custom Logger](#custom-logger)
 - [Serving Static Files](#serving-static-files)
@@ -362,7 +362,7 @@ const options = {
 
 By default the SSG generator is silent. Pass a `logger` in options to see generation output.
 
-#### Built-in Console Logger
+#### Built-In Console Logger
 
 Zero setup, prefixes every line with `[SSG Info]` / `[SSG Warn]` / `[SSG Error]`:
 
