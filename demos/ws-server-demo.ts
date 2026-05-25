@@ -350,6 +350,7 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
 
 class SSRWebSocketDemoComponent extends BaseComponent {
   private server: SSRServer | null = null;
+  private startPromise: Promise<void> | null = null;
   // Stored so concurrent callers (e.g. onShutdownForce) join the same
   // in-flight promise rather than starting a second concurrent close.
   private stopPromise: Promise<void> | null = null;
@@ -364,58 +365,76 @@ class SSRWebSocketDemoComponent extends BaseComponent {
     });
   }
 
-  public async start() {
-    // Start SSR server with WebSocket support on the SSR demo port.
-    this.server = serveSSRDev(
-      {
-        serverEntry: path.join(SSR_DEMO_DIR, 'EntrySSR.tsx'),
-        template: path.join(SSR_DEMO_DIR, 'index.html'),
-        viteConfig: path.join(SSR_DEMO_DIR, 'vite.config.ts'),
-      },
-      {
-        fastifyOptions: {
-          logger: true,
-        },
-        enableWebSockets: true,
-        webSocketOptions: {
-          preClose: createPreCloseHandler('SSR Server', this.logger),
-        },
-        apiEndpoints: {
-          apiEndpointPrefix: '/api',
-          versioned: false,
-        },
-      },
-    );
+  public async start(): Promise<void> {
+    // Return the same promise if start is already running, so concurrent callers
+    // join the in-flight operation instead of starting a second concurrent startup.
+    if (this.startPromise) {
+      return this.startPromise;
+    }
 
-    // Register the reusable WebSocket handlers on the SSR server.
-    registerWebSocketHandlers(this.server);
+    this.startPromise = (async () => {
+      try {
+        // Start SSR server with WebSocket support on the SSR demo port.
+        this.server = serveSSRDev(
+          {
+            serverEntry: path.join(SSR_DEMO_DIR, 'EntrySSR.tsx'),
+            template: path.join(SSR_DEMO_DIR, 'index.html'),
+            viteConfig: path.join(SSR_DEMO_DIR, 'vite.config.ts'),
+          },
+          {
+            fastifyOptions: {
+              logger: true,
+            },
+            enableWebSockets: true,
+            webSocketOptions: {
+              preClose: createPreCloseHandler('SSR Server', this.logger),
+            },
+            apiEndpoints: {
+              apiEndpointPrefix: '/api',
+              versioned: false,
+            },
+          },
+        );
 
-    // Register /stats endpoint on the SSR server.
-    this.server.api.get(
-      '/stats',
-      createStatsEndpointHandler(this.server, 'SSR Server', PORT_SSR),
-    );
+        // Register the reusable WebSocket handlers on the SSR server.
+        registerWebSocketHandlers(this.server);
 
-    // Start listening after all handlers and API routes are registered.
-    await this.server.listen(PORT_SSR, '0.0.0.0');
+        // Register /stats endpoint on the SSR server.
+        this.server.api.get(
+          '/stats',
+          createStatsEndpointHandler(this.server, 'SSR Server', PORT_SSR),
+        );
 
-    this.logger.success(
-      'SSR WebSocket server running at http://localhost:{{port}}',
-      {
-        params: { port: PORT_SSR },
-      },
-    );
-    this.logger.info('WebSocket endpoints:');
-    this.logger.info('  ws://localhost:3001/ws/always-allow');
-    this.logger.info('  ws://localhost:3001/ws/always-reject');
-    this.logger.info(
-      '  ws://localhost:3001/ws/token-validation?should-upgrade=yes',
-    );
-    this.logger.info('  ws://localhost:3001/ws/echo?msg=Hello');
-    this.logger.info('Stats: GET http://localhost:3001/api/stats');
-    this.logger.info(
-      'Test with wscat: wscat -c "ws://localhost:3001/ws/always-allow"',
-    );
+        // Start listening after all handlers and API routes are registered.
+        await this.server.listen(PORT_SSR, '0.0.0.0');
+
+        this.logger.success(
+          'SSR WebSocket server running at http://localhost:{{port}}',
+          {
+            params: { port: PORT_SSR },
+          },
+        );
+        this.logger.info('WebSocket endpoints:');
+        this.logger.info('  ws://localhost:3001/ws/always-allow');
+        this.logger.info('  ws://localhost:3001/ws/always-reject');
+        this.logger.info(
+          '  ws://localhost:3001/ws/token-validation?should-upgrade=yes',
+        );
+        this.logger.info('  ws://localhost:3001/ws/echo?msg=Hello');
+        this.logger.info('Stats: GET http://localhost:3001/api/stats');
+        this.logger.info(
+          'Test with wscat: wscat -c "ws://localhost:3001/ws/always-allow"',
+        );
+      } catch (error) {
+        // Reset promises and references on failure so that startup can be retried.
+        // We throw the error so it propagates to the caller.
+        this.startPromise = null;
+        this.server = null;
+        throw error;
+      }
+    })();
+
+    return this.startPromise;
   }
 
   public async stop(): Promise<void> {
@@ -428,6 +447,18 @@ class SSRWebSocketDemoComponent extends BaseComponent {
 
     this.stopPromise = (async () => {
       try {
+        // Await active startup to settle before stopping, preventing orphaned listening
+        // sockets if shutdown is initiated mid-boot. If startup hangs, the manager's
+        // shutdown timeouts or process termination will clean it up.
+        if (this.startPromise) {
+          try {
+            await this.startPromise;
+          } catch {
+            // Ignore start errors since we are stopping anyway
+          }
+        }
+
+        // Stop the server if it successfully started and is listening.
         if (this.server?.isListening()) {
           await this.server.stop();
         }
@@ -435,6 +466,7 @@ class SSRWebSocketDemoComponent extends BaseComponent {
         // Runs on both success and error. Without this, a thrown error would leave
         // stopPromise pointing at a rejected promise forever.
         this.server = null;
+        this.startPromise = null;
         this.stopPromise = null;
       }
     })();
@@ -450,8 +482,14 @@ class SSRWebSocketDemoComponent extends BaseComponent {
   }
 
   public healthCheck() {
-    const isHealthy = this.server?.isListening() ?? false;
+    if (!this.server) {
+      return {
+        healthy: false,
+        message: 'Server is not started',
+      };
+    }
 
+    const isHealthy = this.server.isListening();
     return {
       healthy: isHealthy,
       message: isHealthy
@@ -465,6 +503,7 @@ class SSRWebSocketDemoComponent extends BaseComponent {
 
 class APIWebSocketDemoComponent extends BaseComponent {
   private server: APIServer | null = null;
+  private startPromise: Promise<void> | null = null;
   // Stored so concurrent callers (e.g. onShutdownForce) join the same
   // in-flight promise rather than starting a second concurrent close.
   private stopPromise: Promise<void> | null = null;
@@ -479,51 +518,69 @@ class APIWebSocketDemoComponent extends BaseComponent {
     });
   }
 
-  public async start() {
-    // Start API server with WebSocket support on the API demo port.
-    this.server = serveAPI({
-      fastifyOptions: {
-        logger: true,
-      },
-      enableWebSockets: true,
-      webSocketOptions: {
-        preClose: createPreCloseHandler('API Server', this.logger),
-      },
-      apiEndpoints: {
-        apiEndpointPrefix: '/api',
-        versioned: false,
-      },
-    });
+  public async start(): Promise<void> {
+    // Return the same promise if start is already running, so concurrent callers
+    // join the in-flight operation instead of starting a second concurrent startup.
+    if (this.startPromise) {
+      return this.startPromise;
+    }
 
-    // Register the reusable WebSocket handlers on the API server.
-    registerWebSocketHandlers(this.server);
+    this.startPromise = (async () => {
+      try {
+        // Start API server with WebSocket support on the API demo port.
+        this.server = serveAPI({
+          fastifyOptions: {
+            logger: true,
+          },
+          enableWebSockets: true,
+          webSocketOptions: {
+            preClose: createPreCloseHandler('API Server', this.logger),
+          },
+          apiEndpoints: {
+            apiEndpointPrefix: '/api',
+            versioned: false,
+          },
+        });
 
-    // Register /stats endpoint on the API server.
-    this.server.api.get(
-      '/stats',
-      createStatsEndpointHandler(this.server, 'API Server', PORT_API),
-    );
+        // Register the reusable WebSocket handlers on the API server.
+        registerWebSocketHandlers(this.server);
 
-    // Start listening after all handlers and API routes are registered.
-    await this.server.listen(PORT_API, '0.0.0.0');
+        // Register /stats endpoint on the API server.
+        this.server.api.get(
+          '/stats',
+          createStatsEndpointHandler(this.server, 'API Server', PORT_API),
+        );
 
-    this.logger.success(
-      'API WebSocket server running at http://localhost:{{port}}',
-      {
-        params: { port: PORT_API },
-      },
-    );
-    this.logger.info('WebSocket endpoints:');
-    this.logger.info('  ws://localhost:3002/ws/always-allow');
-    this.logger.info('  ws://localhost:3002/ws/always-reject');
-    this.logger.info(
-      '  ws://localhost:3002/ws/token-validation?should-upgrade=yes',
-    );
-    this.logger.info('  ws://localhost:3002/ws/echo?msg=Hello');
-    this.logger.info('Stats: GET http://localhost:3002/api/stats');
-    this.logger.info(
-      'Test with wscat: wscat -c "ws://localhost:3002/ws/always-allow"',
-    );
+        // Start listening after all handlers and API routes are registered.
+        await this.server.listen(PORT_API, '0.0.0.0');
+
+        this.logger.success(
+          'API WebSocket server running at http://localhost:{{port}}',
+          {
+            params: { port: PORT_API },
+          },
+        );
+        this.logger.info('WebSocket endpoints:');
+        this.logger.info('  ws://localhost:3002/ws/always-allow');
+        this.logger.info('  ws://localhost:3002/ws/always-reject');
+        this.logger.info(
+          '  ws://localhost:3002/ws/token-validation?should-upgrade=yes',
+        );
+        this.logger.info('  ws://localhost:3002/ws/echo?msg=Hello');
+        this.logger.info('Stats: GET http://localhost:3002/api/stats');
+        this.logger.info(
+          'Test with wscat: wscat -c "ws://localhost:3002/ws/always-allow"',
+        );
+      } catch (error) {
+        // Reset promises and references on failure so that startup can be retried.
+        // We throw the error so it propagates to the caller.
+        this.startPromise = null;
+        this.server = null;
+        throw error;
+      }
+    })();
+
+    return this.startPromise;
   }
 
   public async stop(): Promise<void> {
@@ -536,6 +593,18 @@ class APIWebSocketDemoComponent extends BaseComponent {
 
     this.stopPromise = (async () => {
       try {
+        // Await active startup to settle before stopping, preventing orphaned listening
+        // sockets if shutdown is initiated mid-boot. If startup hangs, the manager's
+        // shutdown timeouts or process termination will clean it up.
+        if (this.startPromise) {
+          try {
+            await this.startPromise;
+          } catch {
+            // Ignore start errors since we are stopping anyway
+          }
+        }
+
+        // Stop the server if it successfully started and is listening.
         if (this.server?.isListening()) {
           await this.server.stop();
         }
@@ -543,6 +612,7 @@ class APIWebSocketDemoComponent extends BaseComponent {
         // Runs on both success and error. Without this, a thrown error would leave
         // stopPromise pointing at a rejected promise forever.
         this.server = null;
+        this.startPromise = null;
         this.stopPromise = null;
       }
     })();
@@ -558,8 +628,14 @@ class APIWebSocketDemoComponent extends BaseComponent {
   }
 
   public healthCheck() {
-    const isHealthy = this.server?.isListening() ?? false;
+    if (!this.server) {
+      return {
+        healthy: false,
+        message: 'Server is not started',
+      };
+    }
 
+    const isHealthy = this.server.isListening();
     return {
       healthy: isHealthy,
       message: isHealthy

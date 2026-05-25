@@ -45,6 +45,7 @@ const logger = new Logger({
 
 class APIServerDemoComponent extends BaseComponent {
   private server: APIServer | null = null;
+  private startPromise: Promise<void> | null = null;
   // Stored so concurrent callers (e.g. onShutdownForce) join the same
   // in-flight promise rather than starting a second concurrent close.
   private stopPromise: Promise<void> | null = null;
@@ -59,202 +60,234 @@ class APIServerDemoComponent extends BaseComponent {
     });
   }
 
-  public async start() {
-    const options: APIServerOptions = {
-      plugins: [
-        // Plugin demonstrating full wildcard support
-        (fastify, pluginOptions) => {
-          // eslint-disable-next-line no-console
-          console.log('📦 Registering API plugin with options:', pluginOptions);
+  public async start(): Promise<void> {
+    // Return the same promise if start is already running, so concurrent callers
+    // join the in-flight operation instead of starting a second concurrent startup.
+    if (this.startPromise) {
+      return this.startPromise;
+    }
 
-          // Root wildcard route - this would be blocked in SSR servers!
-          // commented out to test 404 handling
-          // fastify.get("*", async (request, _reply) => {
-          //   return {
-          //     message: "Catch-all route - this works in API servers!",
-          //     path: request.url,
-          //     method: request.method,
-          //     timestamp: new Date().toISOString(),
-          //   };
-          // });
+    this.startPromise = (async () => {
+      try {
+        const options: APIServerOptions = {
+          plugins: [
+            // Plugin demonstrating full wildcard support
+            (fastify, pluginOptions) => {
+              // eslint-disable-next-line no-console
+              console.log(
+                '📦 Registering API plugin with options:',
+                pluginOptions,
+              );
 
-          // API wildcard routes
-          fastify.get('/api/*', async (request, _reply) => {
-            return {
-              message: 'API wildcard route',
-              path: request.url,
-              api: true,
-              timestamp: new Date().toISOString(),
-            };
-          });
+              // Root wildcard route - this would be blocked in SSR servers!
+              // commented out to test 404 handling
+              // fastify.get("*", async (request, _reply) => {
+              //   return {
+              //     message: "Catch-all route - this works in API servers!",
+              //     path: request.url,
+              //     method: request.method,
+              //     timestamp: new Date().toISOString(),
+              //   };
+              // });
 
-          // Specific API endpoints
-          fastify.get('/api/users', async (_request, _reply) => {
-            return {
-              users: [
-                { id: 1, name: 'Alice' },
-                { id: 2, name: 'Bob' },
-              ],
-            };
-          });
+              // API wildcard routes
+              fastify.get('/api/*', async (request, _reply) => {
+                return {
+                  message: 'API wildcard route',
+                  path: request.url,
+                  api: true,
+                  timestamp: new Date().toISOString(),
+                };
+              });
 
-          fastify.post('/api/users', async (request, _reply) => {
-            return {
-              message: 'User created',
-              user: request.body,
-              timestamp: new Date().toISOString(),
-            };
-          });
+              // Specific API endpoints
+              fastify.get('/api/users', async (_request, _reply) => {
+                return {
+                  users: [
+                    { id: 1, name: 'Alice' },
+                    { id: 2, name: 'Bob' },
+                  ],
+                };
+              });
 
-          // Health check
-          fastify.get('/health', async (_request, _reply) => {
-            return {
-              status: 'healthy',
-              timestamp: new Date().toISOString(),
-              server: 'unirend-api',
-            };
-          });
+              fastify.post('/api/users', async (request, _reply) => {
+                return {
+                  message: 'User created',
+                  user: request.body,
+                  timestamp: new Date().toISOString(),
+                };
+              });
 
-          // Error testing routes
-          fastify.get('/api/error', async (_request, _reply) => {
-            throw new Error('This is a test error!');
-          });
+              // Health check
+              fastify.get('/health', async (_request, _reply) => {
+                return {
+                  status: 'healthy',
+                  timestamp: new Date().toISOString(),
+                  server: 'unirend-api',
+                };
+              });
 
-          fastify.get('/api/error/500', async (_request, _reply) => {
-            const error = new Error('Custom 500 error') as Error & {
-              statusCode?: number;
-            };
-            error.statusCode = 500;
-            throw error;
-          });
+              // Error testing routes
+              fastify.get('/api/error', async (_request, _reply) => {
+                throw new Error('This is a test error!');
+              });
 
-          fastify.get('/api/error/400', async (_request, _reply) => {
-            const error = new Error('Bad request error') as Error & {
-              statusCode?: number;
-            };
-            error.statusCode = 400;
-            throw error;
-          });
+              fastify.get('/api/error/500', async (_request, _reply) => {
+                const error = new Error('Custom 500 error') as Error & {
+                  statusCode?: number;
+                };
+                error.statusCode = 500;
+                throw error;
+              });
 
-          // Page-data error route (to test envelope detection)
-          // Note: page_data endpoints should always be under the API prefix
-          fastify.get('/api/v1/page_data/error', async (_request, _reply) => {
-            throw new Error('Page data error!');
-          });
-        },
-      ],
-      // errorHandler: (request, error, isDevelopment, isPageData) => {
-      //   console.error("🚨 API Error:", error.message);
+              fastify.get('/api/error/400', async (_request, _reply) => {
+                const error = new Error('Bad request error') as Error & {
+                  statusCode?: number;
+                };
+                error.statusCode = 400;
+                throw error;
+              });
 
-      //   // Return proper envelope response based on request type
-      //   if (isPageData) {
-      //     // Page data request - return PageErrorResponse
-      //     return APIResponseHelpers.createPageErrorResponse({
-      //       request,
-      //       statusCode: 500,
-      //       errorCode: "internal_server_error",
-      //       errorMessage: error.message,
-      //       pageMetadata: {
-      //         title: "Server Error",
-      //         description:
-      //           "An internal server error occurred while processing your request",
-      //       },
-      //       errorDetails: {
-      //         path: request.url,
-      //         method: request.method,
-      //         timestamp: new Date().toISOString(),
-      //         ...(isDevelopment && { stack: error.stack }),
-      //       },
-      //     });
-      //   } else {
-      //     // API request - return APIErrorResponse
-      //     return APIResponseHelpers.createAPIErrorResponse({
-      //       request,
-      //       statusCode: 500,
-      //       errorCode: "internal_server_error",
-      //       errorMessage: error.message,
-      //       errorDetails: {
-      //         path: request.url,
-      //         method: request.method,
-      //         timestamp: new Date().toISOString(),
-      //         ...(isDevelopment && { stack: error.stack }),
-      //       },
-      //     });
-      //   }
-      // },
-      // notFoundHandler: (request, isPageData) => {
-      //   console.log("🔍 Custom 404 Handler:", request.url, "isPageData:", isPageData);
+              // Page-data error route (to test envelope detection)
+              // Note: page_data endpoints should always be under the API prefix
+              fastify.get(
+                '/api/v1/page_data/error',
+                async (_request, _reply) => {
+                  throw new Error('Page data error!');
+                },
+              );
+            },
+          ],
+          // errorHandler: (request, error, isDevelopment, isPageData) => {
+          //   console.error("🚨 API Error:", error.message);
 
-      //   // Return proper envelope response based on request type
-      //   if (isPageData) {
-      //     // Page data request - return PageErrorResponse
-      //     return APIResponseHelpers.createPageErrorResponse({
-      //       request,
-      //       statusCode: 404,
-      //       errorCode: "not_found",
-      //       errorMessage: `Page data endpoint not found: ${request.url}`,
-      //       pageMetadata: {
-      //         title: "Page Not Found",
-      //         description: "The requested page data could not be found",
-      //       },
-      //       errorDetails: {
-      //         path: request.url,
-      //         method: request.method,
-      //         isPageRequest: true,
-      //         timestamp: new Date().toISOString(),
-      //         suggestion:
-      //           "Try checking the page route or data loader configuration",
-      //       },
-      //     });
-      //   } else {
-      //     // API request - return APIErrorResponse
-      //     return APIResponseHelpers.createAPIErrorResponse({
-      //       request,
-      //       statusCode: 404,
-      //       errorCode: "not_found",
-      //       errorMessage: `API endpoint not found: ${request.url}`,
-      //       errorDetails: {
-      //         path: request.url,
-      //         method: request.method,
-      //         isPageRequest: false,
-      //         timestamp: new Date().toISOString(),
-      //         suggestion: "Check the API endpoint URL and method",
-      //       },
-      //     });
-      //   }
-      // },
-      fastifyOptions: {
-        logger: {
-          level: 'info',
-        },
-      },
-    };
+          //   // Return proper envelope response based on request type
+          //   if (isPageData) {
+          //     // Page data request - return PageErrorResponse
+          //     return APIResponseHelpers.createPageErrorResponse({
+          //       request,
+          //       statusCode: 500,
+          //       errorCode: "internal_server_error",
+          //       errorMessage: error.message,
+          //       pageMetadata: {
+          //         title: "Server Error",
+          //         description:
+          //           "An internal server error occurred while processing your request",
+          //       },
+          //       errorDetails: {
+          //         path: request.url,
+          //         method: request.method,
+          //         timestamp: new Date().toISOString(),
+          //         ...(isDevelopment && { stack: error.stack }),
+          //       },
+          //     });
+          //   } else {
+          //     // API request - return APIErrorResponse
+          //     return APIResponseHelpers.createAPIErrorResponse({
+          //       request,
+          //       statusCode: 500,
+          //       errorCode: "internal_server_error",
+          //       errorMessage: error.message,
+          //       errorDetails: {
+          //         path: request.url,
+          //         method: request.method,
+          //         timestamp: new Date().toISOString(),
+          //         ...(isDevelopment && { stack: error.stack }),
+          //       },
+          //     });
+          //   }
+          // },
+          // notFoundHandler: (request, isPageData) => {
+          //   console.log("🔍 Custom 404 Handler:", request.url, "isPageData:", isPageData);
 
-    this.server = serveAPI(options);
-    await this.server.listen(PORT, '0.0.0.0');
+          //   // Return proper envelope response based on request type
+          //   if (isPageData) {
+          //     // Page data request - return PageErrorResponse
+          //     return APIResponseHelpers.createPageErrorResponse({
+          //       request,
+          //       statusCode: 404,
+          //       errorCode: "not_found",
+          //       errorMessage: `Page data endpoint not found: ${request.url}`,
+          //       pageMetadata: {
+          //         title: "Page Not Found",
+          //         description: "The requested page data could not be found",
+          //       },
+          //       errorDetails: {
+          //         path: request.url,
+          //         method: request.method,
+          //         isPageRequest: true,
+          //         timestamp: new Date().toISOString(),
+          //         suggestion:
+          //           "Try checking the page route or data loader configuration",
+          //       },
+          //     });
+          //   } else {
+          //     // API request - return APIErrorResponse
+          //     return APIResponseHelpers.createAPIErrorResponse({
+          //       request,
+          //       statusCode: 404,
+          //       errorCode: "not_found",
+          //       errorMessage: `API endpoint not found: ${request.url}`,
+          //       errorDetails: {
+          //         path: request.url,
+          //         method: request.method,
+          //         isPageRequest: false,
+          //         timestamp: new Date().toISOString(),
+          //         suggestion: "Check the API endpoint URL and method",
+          //       },
+          //     });
+          //   }
+          // },
+          fastifyOptions: {
+            logger: {
+              level: 'info',
+            },
+          },
+        };
 
-    this.logger.success('API server running at http://localhost:{{port}}', {
-      params: { port: PORT },
-    });
-    this.logger.info('Working routes:');
-    this.logger.info('  GET  http://localhost:3001/health');
-    this.logger.info('  GET  http://localhost:3001/api/users');
-    this.logger.info('  POST http://localhost:3001/api/users');
-    this.logger.info('  GET  http://localhost:3001/api/anything (wildcard)');
-    this.logger.info('Error testing routes:');
-    this.logger.info('  GET  http://localhost:3001/api/error (throws error)');
-    this.logger.info('  GET  http://localhost:3001/api/error/500 (custom 500)');
-    this.logger.info('  GET  http://localhost:3001/api/error/400 (custom 400)');
-    this.logger.info(
-      '  GET  http://localhost:3001/api/v1/page_data/error (page envelope)',
-    );
-    this.logger.info('404 testing routes:');
-    this.logger.info(
-      '  GET  http://localhost:3001/not-found (API 404 envelope)',
-    );
-    this.logger.info(
-      '  GET  http://localhost:3001/api/v1/page_data/not-found (Page 404 envelope)',
-    );
+        this.server = serveAPI(options);
+        await this.server.listen(PORT, '0.0.0.0');
+
+        this.logger.success('API server running at http://localhost:{{port}}', {
+          params: { port: PORT },
+        });
+        this.logger.info('Working routes:');
+        this.logger.info('  GET  http://localhost:3001/health');
+        this.logger.info('  GET  http://localhost:3001/api/users');
+        this.logger.info('  POST http://localhost:3001/api/users');
+        this.logger.info(
+          '  GET  http://localhost:3001/api/anything (wildcard)',
+        );
+        this.logger.info('Error testing routes:');
+        this.logger.info(
+          '  GET  http://localhost:3001/api/error (throws error)',
+        );
+        this.logger.info(
+          '  GET  http://localhost:3001/api/error/500 (custom 500)',
+        );
+        this.logger.info(
+          '  GET  http://localhost:3001/api/error/400 (custom 400)',
+        );
+        this.logger.info(
+          '  GET  http://localhost:3001/api/v1/page_data/error (page envelope)',
+        );
+        this.logger.info('404 testing routes:');
+        this.logger.info(
+          '  GET  http://localhost:3001/not-found (API 404 envelope)',
+        );
+        this.logger.info(
+          '  GET  http://localhost:3001/api/v1/page_data/not-found (Page 404 envelope)',
+        );
+      } catch (error) {
+        // Reset promises and references on failure so that startup can be retried.
+        // We throw the error so it propagates to the caller.
+        this.startPromise = null;
+        this.server = null;
+        throw error;
+      }
+    })();
+
+    return this.startPromise;
   }
 
   public async stop(): Promise<void> {
@@ -267,6 +300,18 @@ class APIServerDemoComponent extends BaseComponent {
 
     this.stopPromise = (async () => {
       try {
+        // Await active startup to settle before stopping, preventing orphaned listening
+        // sockets if shutdown is initiated mid-boot. If startup hangs, the manager's
+        // shutdown timeouts or process termination will clean it up.
+        if (this.startPromise) {
+          try {
+            await this.startPromise;
+          } catch {
+            // Ignore start errors since we are stopping anyway
+          }
+        }
+
+        // Stop the server if it successfully started and is listening.
         if (this.server?.isListening()) {
           await this.server.stop();
         }
@@ -274,6 +319,7 @@ class APIServerDemoComponent extends BaseComponent {
         // Runs on both success and error. Without this, a thrown error would leave
         // stopPromise pointing at a rejected promise forever.
         this.server = null;
+        this.startPromise = null;
         this.stopPromise = null;
       }
     })();
@@ -288,8 +334,14 @@ class APIServerDemoComponent extends BaseComponent {
   }
 
   public healthCheck() {
-    const isHealthy = this.server?.isListening() ?? false;
+    if (!this.server) {
+      return {
+        healthy: false,
+        message: 'Server is not started',
+      };
+    }
 
+    const isHealthy = this.server.isListening();
     return {
       healthy: isHealthy,
       message: isHealthy

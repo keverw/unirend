@@ -154,6 +154,7 @@ function generate404Html(url: string): string {
 
 class StaticContentDemoComponent extends BaseComponent {
   private server: APIServer | null = null;
+  private startPromise: Promise<void> | null = null;
   // Stored so concurrent callers (e.g. onShutdownForce) join the same
   // in-flight promise rather than starting a second concurrent close.
   private stopPromise: Promise<void> | null = null;
@@ -168,163 +169,186 @@ class StaticContentDemoComponent extends BaseComponent {
     });
   }
 
-  public async start() {
-    this.logger.info('Serving static files from: {{dir}}', {
-      params: { dir: staticFilesDir },
-    });
+  public async start(): Promise<void> {
+    // Return the same promise if start is already running, so concurrent callers
+    // join the in-flight operation instead of starting a second concurrent startup.
+    if (this.startPromise) {
+      return this.startPromise;
+    }
 
-    const options: APIServerOptions = {
-      // apiEndpoints.apiEndpointPrefix defaults to '/api'
-      // Split handlers use this to detect API vs web requests
-      plugins: [
-        // Static content plugin - serves files from /static/*
-        staticContent({
-          folderMap: {
-            '/static': {
-              path: staticFilesDir,
-              detectImmutableAssets: false, // Demo files aren't fingerprinted
+    this.startPromise = (async () => {
+      try {
+        this.logger.info('Serving static files from: {{dir}}', {
+          params: { dir: staticFilesDir },
+        });
+
+        const options: APIServerOptions = {
+          // apiEndpoints.apiEndpointPrefix defaults to '/api'
+          // Split handlers use this to detect API vs web requests
+          plugins: [
+            // Static content plugin - serves files from /static/*
+            staticContent({
+              folderMap: {
+                '/static': {
+                  path: staticFilesDir,
+                  detectImmutableAssets: false, // Demo files aren't fingerprinted
+                },
+              },
+              // Custom cache settings for demo
+              cacheControl: 'public, max-age=60', // 1 minute for demo
+              positiveCacheTtl: 10 * 1000, // 10 second internal cache for demo
+            }),
+
+            // API routes plugin
+            (fastify, pluginOptions) => {
+              // eslint-disable-next-line no-console
+              console.log(
+                '📦 Registering API routes with options:',
+                pluginOptions,
+              );
+
+              // Health check
+              fastify.get('/api/health', async (_request, _reply) => {
+                return {
+                  status: 'healthy',
+                  timestamp: new Date().toISOString(),
+                  server: 'unirend-api-with-static',
+                };
+              });
+
+              // Server info endpoint
+              fastify.get('/api/info', async (_request, _reply) => {
+                return {
+                  name: 'Static Content Demo Server',
+                  version: '1.0.0',
+                  staticDir: staticFilesDir,
+                  features: [
+                    'Static file serving via staticContent plugin',
+                    'ETag caching for efficient conditional requests',
+                    'Content-based hashing for small files',
+                    'Multiple plugin instances supported',
+                    'Split 404 handling (HTML for web, JSON for API)',
+                  ],
+                  endpoints: {
+                    api: ['/api/health', '/api/info'],
+                    static: [
+                      '/static/index.html',
+                      '/static/styles.css',
+                      '/static/logo.svg',
+                    ],
+                  },
+                };
+              });
+
+              // Redirect root to static index
+              fastify.get('/', async (_request, reply) => {
+                return reply.redirect('/static/index.html');
+              });
+
+              // Test routes that throw errors (for testing errorHandler)
+              fastify.get('/api/throw', () => {
+                throw new Error('Intentional API error for testing');
+              });
+
+              fastify.get('/throw', () => {
+                throw new Error('Intentional web error for testing');
+              });
+            },
+          ],
+
+          // Split handlers - the clean way to handle mixed HTML/JSON servers
+          // No catch-all route needed! Uses apiEndpointPrefix to detect API vs web
+
+          // Split error handler for 500 errors
+          errorHandler: {
+            // API errors get JSON envelope
+            api: (request, error, isDevelopment) => {
+              return APIResponseHelpers.createAPIErrorResponse({
+                request,
+                statusCode: 500,
+                errorCode: 'internal_error',
+                errorMessage: isDevelopment
+                  ? error.message
+                  : 'An internal error occurred',
+                errorDetails: isDevelopment
+                  ? { stack: error.stack }
+                  : undefined,
+              });
+            },
+            // Web errors get HTML page
+            web: (request, error, isDevelopment) => {
+              return {
+                contentType: 'html',
+                content: generateErrorHTML(
+                  500,
+                  'Server Error',
+                  isDevelopment ? error.message : 'An internal error occurred',
+                  request.url,
+                ),
+                statusCode: 500,
+              };
             },
           },
-          // Custom cache settings for demo
-          cacheControl: 'public, max-age=60', // 1 minute for demo
-          positiveCacheTtl: 10 * 1000, // 10 second internal cache for demo
-        }),
 
-        // API routes plugin
-        (fastify, pluginOptions) => {
-          // eslint-disable-next-line no-console
-          console.log('📦 Registering API routes with options:', pluginOptions);
-
-          // Health check
-          fastify.get('/api/health', async (_request, _reply) => {
-            return {
-              status: 'healthy',
-              timestamp: new Date().toISOString(),
-              server: 'unirend-api-with-static',
-            };
-          });
-
-          // Server info endpoint
-          fastify.get('/api/info', async (_request, _reply) => {
-            return {
-              name: 'Static Content Demo Server',
-              version: '1.0.0',
-              staticDir: staticFilesDir,
-              features: [
-                'Static file serving via staticContent plugin',
-                'ETag caching for efficient conditional requests',
-                'Content-based hashing for small files',
-                'Multiple plugin instances supported',
-                'Split 404 handling (HTML for web, JSON for API)',
-              ],
-              endpoints: {
-                api: ['/api/health', '/api/info'],
-                static: [
-                  '/static/index.html',
-                  '/static/styles.css',
-                  '/static/logo.svg',
-                ],
-              },
-            };
-          });
-
-          // Redirect root to static index
-          fastify.get('/', async (_request, reply) => {
-            return reply.redirect('/static/index.html');
-          });
-
-          // Test routes that throw errors (for testing errorHandler)
-          fastify.get('/api/throw', () => {
-            throw new Error('Intentional API error for testing');
-          });
-
-          fastify.get('/throw', () => {
-            throw new Error('Intentional web error for testing');
-          });
-        },
-      ],
-
-      // Split handlers - the clean way to handle mixed HTML/JSON servers
-      // No catch-all route needed! Uses apiEndpointPrefix to detect API vs web
-
-      // Split error handler for 500 errors
-      errorHandler: {
-        // API errors get JSON envelope
-        api: (request, error, isDevelopment) => {
-          return APIResponseHelpers.createAPIErrorResponse({
-            request,
-            statusCode: 500,
-            errorCode: 'internal_error',
-            errorMessage: isDevelopment
-              ? error.message
-              : 'An internal error occurred',
-            errorDetails: isDevelopment ? { stack: error.stack } : undefined,
-          });
-        },
-        // Web errors get HTML page
-        web: (request, error, isDevelopment) => {
-          return {
-            contentType: 'html',
-            content: generateErrorHTML(
-              500,
-              'Server Error',
-              isDevelopment ? error.message : 'An internal error occurred',
-              request.url,
-            ),
-            statusCode: 500,
-          };
-        },
-      },
-
-      // Split 404 handler
-      notFoundHandler: {
-        // API requests get JSON envelope
-        api: (request, isPageData) => {
-          return APIResponseHelpers.createAPIErrorResponse({
-            request,
-            statusCode: 404,
-            errorCode: 'not_found',
-            errorMessage: `API endpoint not found: ${request.url}`,
-            errorDetails: {
-              path: request.url,
-              method: request.method,
-              isPageData,
-              hint: 'Check the endpoint URL and HTTP method',
+          // Split 404 handler
+          notFoundHandler: {
+            // API requests get JSON envelope
+            api: (request, isPageData) => {
+              return APIResponseHelpers.createAPIErrorResponse({
+                request,
+                statusCode: 404,
+                errorCode: 'not_found',
+                errorMessage: `API endpoint not found: ${request.url}`,
+                errorDetails: {
+                  path: request.url,
+                  method: request.method,
+                  isPageData,
+                  hint: 'Check the endpoint URL and HTTP method',
+                },
+              });
             },
-          });
-        },
-        // Web requests get HTML page
-        web: (request) => {
-          return {
-            contentType: 'html',
-            content: generate404Html(request.url),
-            statusCode: 404,
-          };
-        },
-      },
+            // Web requests get HTML page
+            web: (request) => {
+              return {
+                contentType: 'html',
+                content: generate404Html(request.url),
+                statusCode: 404,
+              };
+            },
+          },
 
-      fastifyOptions: {
-        logger: {
-          level: 'info',
-        },
-      },
-    };
+          fastifyOptions: {
+            logger: {
+              level: 'info',
+            },
+          },
+        };
 
-    this.server = serveAPI(options);
-    await this.server.listen(PORT, '0.0.0.0');
+        this.server = serveAPI(options);
+        await this.server.listen(PORT, '0.0.0.0');
 
-    this.logger.success(
-      'API server with static content running at http://localhost:{{port}}',
-      { params: { port: PORT } },
-    );
-    this.logger.info('Open in browser: http://localhost:3002');
-    this.logger.info('API endpoints: GET /api/health, GET /api/info');
-    this.logger.info(
-      'Static files: /static/index.html, /static/styles.css, /static/logo.svg',
-    );
-    this.logger.info(
-      'Error testing: GET /api/throw (JSON error), GET /throw (HTML error)',
-    );
+        this.logger.success(
+          'API server with static content running at http://localhost:{{port}}',
+          { params: { port: PORT } },
+        );
+        this.logger.info('Open in browser: http://localhost:3002');
+        this.logger.info('API endpoints: GET /api/health, GET /api/info');
+        this.logger.info(
+          'Static files: /static/index.html, /static/styles.css, /static/logo.svg',
+        );
+        this.logger.info(
+          'Error testing: GET /api/throw (JSON error), GET /throw (HTML error)',
+        );
+      } catch (error) {
+        // Reset promises and references on failure so that startup can be retried.
+        // We throw the error so it propagates to the caller.
+        this.startPromise = null;
+        this.server = null;
+        throw error;
+      }
+    })();
+
+    return this.startPromise;
   }
 
   public async stop(): Promise<void> {
@@ -337,6 +361,18 @@ class StaticContentDemoComponent extends BaseComponent {
 
     this.stopPromise = (async () => {
       try {
+        // Await active startup to settle before stopping, preventing orphaned listening
+        // sockets if shutdown is initiated mid-boot. If startup hangs, the manager's
+        // shutdown timeouts or process termination will clean it up.
+        if (this.startPromise) {
+          try {
+            await this.startPromise;
+          } catch {
+            // Ignore start errors since we are stopping anyway
+          }
+        }
+
+        // Stop the server if it successfully started and is listening.
         if (this.server?.isListening()) {
           await this.server.stop();
         }
@@ -344,6 +380,7 @@ class StaticContentDemoComponent extends BaseComponent {
         // Runs on both success and error. Without this, a thrown error would leave
         // stopPromise pointing at a rejected promise forever.
         this.server = null;
+        this.startPromise = null;
         this.stopPromise = null;
       }
     })();
@@ -358,8 +395,14 @@ class StaticContentDemoComponent extends BaseComponent {
   }
 
   public healthCheck() {
-    const isHealthy = this.server?.isListening() ?? false;
+    if (!this.server) {
+      return {
+        healthy: false,
+        message: 'Server is not started',
+      };
+    }
 
+    const isHealthy = this.server.isListening();
     return {
       healthy: isHealthy,
       message: isHealthy

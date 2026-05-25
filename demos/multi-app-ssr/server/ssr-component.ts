@@ -280,6 +280,7 @@ interface MultiAppSSRServerComponentOptions {
 
 export class MultiAppSSRServerComponent extends BaseComponent {
   private server: SSRServer | null = null;
+  private startPromise: Promise<void> | null = null;
   private stopPromise: Promise<void> | null = null;
   private readonly mode: ServerMode;
 
@@ -292,87 +293,109 @@ export class MultiAppSSRServerComponent extends BaseComponent {
     this.mode = options.mode;
   }
 
-  public async start() {
-    const SHARED_PLUGINS = [
-      clientInfo({ setResponseHeaders: true }),
-      cookies(),
-      cookieRoutingPlugin,
-    ];
-
-    const loggingConfig = {
-      logger: UnirendLifecycleionLoggerAdaptor(this.logger),
-      level: 'debug' as const,
-    };
-
-    // publicAppConfig is per-app: the client reads appName/appKey from
-    // usePublicAppConfig() to show the current app name and drive AppSwitcher.
-    const APP_A_CONFIG = {
-      appName: 'App A',
-      appKey: 'app-a',
-      accentColor: '#6366f1',
-    };
-
-    const APP_B_CONFIG = {
-      appName: 'App B',
-      appKey: 'app-b',
-      accentColor: '#10b981',
-    };
-
-    if (this.mode === 'hmr') {
-      this.server = serveSSRDev(
-        {
-          serverEntry: path.join(SRC_DIR, 'EntrySSR.tsx'),
-          template: path.join(SRC_DIR, 'index.html'),
-          viteConfig: path.join(SRC_DIR, 'vite.config.ts'),
-        },
-        {
-          plugins: SHARED_PLUGINS,
-          publicAppConfig: APP_A_CONFIG,
-          get500ErrorPage,
-          logging: loggingConfig,
-        },
-      );
-
-      // App B: separate Vite instance, separate entry point and template
-      this.server.registerDevApp(
-        'app-b',
-        {
-          serverEntry: path.join(SRC_DIR, 'app-b/EntrySSR.tsx'),
-          template: path.join(SRC_DIR, 'app-b/index.html'),
-          viteConfig: path.join(SRC_DIR, 'app-b/vite.config.ts'),
-        },
-        {
-          publicAppConfig: APP_B_CONFIG,
-          get500ErrorPage,
-        },
-      );
-    } else {
-      this.server = serveSSRProd(DIST_DIR_APP_A, {
-        serverEntry: 'EntrySSR',
-        plugins: SHARED_PLUGINS,
-        publicAppConfig: APP_A_CONFIG,
-        get500ErrorPage,
-        logging: loggingConfig,
-      });
-
-      // App B: its own build directory
-      this.server.registerProdApp('app-b', DIST_DIR_APP_B, {
-        serverEntry: 'EntrySSR',
-        publicAppConfig: APP_B_CONFIG,
-        get500ErrorPage,
-      });
+  public async start(): Promise<void> {
+    // Return the same promise if start is already running, so concurrent callers
+    // join the in-flight operation instead of starting a second concurrent startup.
+    if (this.startPromise) {
+      return this.startPromise;
     }
 
-    await this.server.listen(PORT, HOST);
+    this.startPromise = (async () => {
+      try {
+        const SHARED_PLUGINS = [
+          clientInfo({ setResponseHeaders: true }),
+          cookies(),
+          cookieRoutingPlugin,
+        ];
 
-    this.logger.success(
-      '{{mode}} multi-app SSR server running at http://localhost:{{port}}',
-      { params: { mode: this.mode === 'hmr' ? 'HMR' : 'Built', port: PORT } },
-    );
-    this.logger.info('Apps: App A (default, indigo) | App B (app-b, green)');
-    this.logger.info(
-      'Cookie routing: set selected_app cookie to switch apps (app-a / app-b / app-c triggers error)',
-    );
+        const loggingConfig = {
+          logger: UnirendLifecycleionLoggerAdaptor(this.logger),
+          level: 'debug' as const,
+        };
+
+        // publicAppConfig is per-app: the client reads appName/appKey from
+        // usePublicAppConfig() to show the current app name and drive AppSwitcher.
+        const APP_A_CONFIG = {
+          appName: 'App A',
+          appKey: 'app-a',
+          accentColor: '#6366f1',
+        };
+
+        const APP_B_CONFIG = {
+          appName: 'App B',
+          appKey: 'app-b',
+          accentColor: '#10b981',
+        };
+
+        if (this.mode === 'hmr') {
+          this.server = serveSSRDev(
+            {
+              serverEntry: path.join(SRC_DIR, 'EntrySSR.tsx'),
+              template: path.join(SRC_DIR, 'index.html'),
+              viteConfig: path.join(SRC_DIR, 'vite.config.ts'),
+            },
+            {
+              plugins: SHARED_PLUGINS,
+              publicAppConfig: APP_A_CONFIG,
+              get500ErrorPage,
+              logging: loggingConfig,
+            },
+          );
+
+          // App B: separate Vite instance, separate entry point and template
+          this.server.registerDevApp(
+            'app-b',
+            {
+              serverEntry: path.join(SRC_DIR, 'app-b/EntrySSR.tsx'),
+              template: path.join(SRC_DIR, 'app-b/index.html'),
+              viteConfig: path.join(SRC_DIR, 'app-b/vite.config.ts'),
+            },
+            {
+              publicAppConfig: APP_B_CONFIG,
+              get500ErrorPage,
+            },
+          );
+        } else {
+          this.server = serveSSRProd(DIST_DIR_APP_A, {
+            serverEntry: 'EntrySSR',
+            plugins: SHARED_PLUGINS,
+            publicAppConfig: APP_A_CONFIG,
+            get500ErrorPage,
+            logging: loggingConfig,
+          });
+
+          // App B: its own build directory
+          this.server.registerProdApp('app-b', DIST_DIR_APP_B, {
+            serverEntry: 'EntrySSR',
+            publicAppConfig: APP_B_CONFIG,
+            get500ErrorPage,
+          });
+        }
+
+        await this.server.listen(PORT, HOST);
+
+        this.logger.success(
+          '{{mode}} multi-app SSR server running at http://localhost:{{port}}',
+          {
+            params: { mode: this.mode === 'hmr' ? 'HMR' : 'Built', port: PORT },
+          },
+        );
+        this.logger.info(
+          'Apps: App A (default, indigo) | App B (app-b, green)',
+        );
+        this.logger.info(
+          'Cookie routing: set selected_app cookie to switch apps (app-a / app-b / app-c triggers error)',
+        );
+      } catch (error) {
+        // Reset promises and references on failure so that startup can be retried.
+        // We throw the error so it propagates to the caller.
+        this.startPromise = null;
+        this.server = null;
+        throw error;
+      }
+    })();
+
+    return this.startPromise;
   }
 
   public async stop(): Promise<void> {
@@ -382,11 +405,24 @@ export class MultiAppSSRServerComponent extends BaseComponent {
 
     this.stopPromise = (async () => {
       try {
+        // Await active startup to settle before stopping, preventing orphaned listening
+        // sockets if shutdown is initiated mid-boot. If startup hangs, the manager's
+        // shutdown timeouts or process termination will clean it up.
+        if (this.startPromise) {
+          try {
+            await this.startPromise;
+          } catch {
+            // Ignore start errors since we are stopping anyway
+          }
+        }
+
+        // Stop the server if it successfully started and is listening.
         if (this.server?.isListening()) {
           await this.server.stop();
         }
       } finally {
         this.server = null;
+        this.startPromise = null;
         this.stopPromise = null;
       }
     })();
@@ -400,7 +436,14 @@ export class MultiAppSSRServerComponent extends BaseComponent {
   }
 
   public healthCheck() {
-    const isHealthy = this.server?.isListening() ?? false;
+    if (!this.server) {
+      return {
+        healthy: false,
+        message: 'Server is not started',
+      };
+    }
+
+    const isHealthy = this.server.isListening();
     return {
       healthy: isHealthy,
       message: isHealthy

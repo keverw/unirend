@@ -44,6 +44,7 @@ const logger = new Logger({
 
 class StaticWebServerComponent extends BaseComponent {
   private server: StaticWebServer | null = null;
+  private startPromise: Promise<void> | null = null;
   // Stored so concurrent callers (e.g. onShutdownForce) join the same
   // in-flight promise rather than starting a second concurrent close.
   private stopPromise: Promise<void> | null = null;
@@ -60,38 +61,59 @@ class StaticWebServerComponent extends BaseComponent {
     });
   }
 
-  public async start() {
-    this.server = new StaticWebServer({
-      buildDir: BUILD_DIR,
-      pageMapPath: 'page-map.json',
-      singleAssets: {
-        '/robots.txt': 'robots.txt',
-        '/favicon.ico': 'favicon.ico',
-      },
-      assetFolders: {
-        '/assets': 'assets',
-      },
-      detectImmutableAssets: true,
-      // This level controls the adapter's gate — what Fastify passes to the Lifecycleion
-      // logger. Set to 'debug' so everything gets through and the ConsoleSink's minLevel
-      // does the real filtering in one place.
-      logging: {
-        logger: UnirendLifecycleionLoggerAdaptor(this.logger),
-        level: 'debug' as const,
-      },
-    });
+  public async start(): Promise<void> {
+    // Return the same promise if start is already running, so concurrent callers
+    // join the in-flight operation instead of starting a second concurrent startup.
+    if (this.startPromise) {
+      return this.startPromise;
+    }
 
-    await this.server.listen(PORT, '0.0.0.0');
+    this.startPromise = (async () => {
+      try {
+        this.server = new StaticWebServer({
+          buildDir: BUILD_DIR,
+          pageMapPath: 'page-map.json',
+          singleAssets: {
+            '/robots.txt': 'robots.txt',
+            '/favicon.ico': 'favicon.ico',
+          },
+          assetFolders: {
+            '/assets': 'assets',
+          },
+          detectImmutableAssets: true,
+          // This level controls the adapter's gate — what Fastify passes to the Lifecycleion
+          // logger. Set to 'debug' so everything gets through and the ConsoleSink's minLevel
+          // does the real filtering in one place.
+          logging: {
+            logger: UnirendLifecycleionLoggerAdaptor(this.logger),
+            level: 'debug' as const,
+          },
+        });
 
-    this.logger.success('Static server running at http://localhost:{{port}}', {
-      params: { port: PORT },
-    });
+        await this.server.listen(PORT, '0.0.0.0');
 
-    this.logger.info('Serving files from: {{dir}}', {
-      params: { dir: BUILD_DIR },
-    });
+        this.logger.success(
+          'Static server running at http://localhost:{{port}}',
+          {
+            params: { port: PORT },
+          },
+        );
 
-    this.logger.info('Press R or send SIGHUP to reload without restarting');
+        this.logger.info('Serving files from: {{dir}}', {
+          params: { dir: BUILD_DIR },
+        });
+
+        this.logger.info('Press R or send SIGHUP to reload without restarting');
+      } catch (error) {
+        // Reset promises and references on failure so that startup can be retried.
+        // We throw the error so it propagates to the caller.
+        this.startPromise = null;
+        this.server = null;
+        throw error;
+      }
+    })();
+
+    return this.startPromise;
   }
 
   public async stop(): Promise<void> {
@@ -104,6 +126,18 @@ class StaticWebServerComponent extends BaseComponent {
 
     this.stopPromise = (async () => {
       try {
+        // Await active startup to settle before stopping, preventing orphaned listening
+        // sockets if shutdown is initiated mid-boot. If startup hangs, the manager's
+        // shutdown timeouts or process termination will clean it up.
+        if (this.startPromise) {
+          try {
+            await this.startPromise;
+          } catch {
+            // Ignore start errors since we are stopping anyway
+          }
+        }
+
+        // Stop the server if it successfully started and is listening.
         if (this.server?.isListening()) {
           await this.server.stop();
         }
@@ -112,6 +146,7 @@ class StaticWebServerComponent extends BaseComponent {
         // stopPromise pointing at a rejected promise forever. Since there's no catch,
         // errors still propagate normally to any caller awaiting this promise.
         this.server = null;
+        this.startPromise = null;
         this.stopPromise = null;
       }
     })();
@@ -171,8 +206,14 @@ class StaticWebServerComponent extends BaseComponent {
   }
 
   public healthCheck() {
-    const isHealthy = this.server?.isListening() ?? false;
+    if (!this.server) {
+      return {
+        healthy: false,
+        message: 'Server is not started',
+      };
+    }
 
+    const isHealthy = this.server.isListening();
     return {
       healthy: isHealthy,
       message: isHealthy
