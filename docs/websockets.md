@@ -12,6 +12,7 @@
 - [Accessing Connected Clients](#accessing-connected-clients)
   - [Broadcasting Example](#broadcasting-example)
 - [Client Example](#client-example)
+  - [Isomorphic Event Handlers](#isomorphic-event-handlers)
 - [Demo](#demo)
 - [Behavior Notes](#behavior-notes)
 - [Known Issues](#known-issues)
@@ -233,7 +234,31 @@ ws.onclose = (event) => {
 };
 ```
 
-**Note:** The browser `WebSocket` API uses `onerror`/`onclose` properties (or `addEventListener`), while the server-side `ws` library uses Node.js-style `socket.on('error', ...)` events.
+**Note:** The browser `WebSocket` API uses `onerror`/`onclose` properties (or `addEventListener`), while the server-side `ws` library uses Node.js-style event emitter `socket.on('error', ...)` events.
+
+### Isomorphic Event Handlers
+
+Browser WebSockets and server-side `ws` sockets use different event APIs, so it is usually clearer to write separate socket adapters and share only app-level message logic:
+
+```ts
+// shared/messages.ts
+export function handleSocketMessage(data: string) {
+  const message = JSON.parse(data);
+  console.log('Received:', message);
+}
+
+// browser client
+browserSocket.addEventListener('message', (event) => {
+  handleSocketMessage(event.data);
+});
+
+// server-side ws handler
+serverSocket.on('message', (data) => {
+  handleSocketMessage(data.toString());
+});
+```
+
+This keeps lifecycle handling (`open`, `close`, `error`) close to each platform while still letting parsing, validation, routing, and business logic live in shared modules.
 
 ## Demo
 
