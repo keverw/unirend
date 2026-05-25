@@ -65,6 +65,11 @@ export type { APIServer } from './lib/internal/api-server';
 // only export the config type as class not used internally
 export type { PageDataHandler } from './lib/internal/data-loader-server-handler-helpers';
 export type { APIRouteHandler } from './lib/internal/api-routes-server-helpers';
+export type {
+  WebSocketHandlerParams,
+  WebSocketPreValidationResult,
+  WebSocketHandlerConfig,
+} from './lib/internal/web-socket-server-helpers';
 export type { APIEndpointConfig } from './lib/types';
 
 // Server-safe functions

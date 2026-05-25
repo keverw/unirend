@@ -4,6 +4,7 @@ import type { WebSocket } from 'ws';
 import type { APIResponseEnvelope } from '../api-envelope/api-envelope-types';
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
 import type { APIResponseHelpersClass, WebSocketOptions } from '../types';
+import { getAPIResponseHelpersClass } from './api-response-helpers-utils';
 
 /**
  * Internal Fastify WebSocket plugin options interface
@@ -33,6 +34,8 @@ export interface WebSocketHandlerParams {
   queryParams: Record<string, unknown>;
   /** Route params (from Fastify, for parameterized paths) */
   routeParams: Record<string, unknown>;
+  /** The APIResponseHelpers class configured on this server (use this instead of importing directly) */
+  APIResponseHelpers: APIResponseHelpersClass;
 }
 
 /**
@@ -52,6 +55,7 @@ function extractWebSocketParams(
     originalURL,
     queryParams,
     routeParams,
+    APIResponseHelpers: getAPIResponseHelpersClass(request),
   };
 }
 

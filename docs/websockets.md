@@ -82,13 +82,14 @@ server.registerWebSocketHandler({
     // - params.routeParams: route parameters as Record<string, unknown>
     // - params.path: path without query string
     // - params.originalURL: full URL including query string
+    // - params.APIResponseHelpers: configured response helper subclass
 
     const token = (params.queryParams['token'] || '') as string;
 
     if (token !== 'yes') {
       return {
         action: 'reject',
-        envelope: APIResponseHelpers.createAPIErrorResponse({
+        envelope: params.APIResponseHelpers.createAPIErrorResponse({
           request,
           statusCode: 401,
           errorCode: 'websocket_invalid_token',
@@ -123,14 +124,14 @@ server.registerWebSocketHandler({
 `preValidate(request, params)` receives:
 
 - `request`: The Fastify request (for cookies, headers, IP, etc.)
-- `params`: Pre-extracted routing context (queryParams, routeParams, path, originalURL)
+- `params`: Pre-extracted routing context (queryParams, routeParams, path, originalURL, APIResponseHelpers)
 
 It can return one of:
 
 - `{ action: "upgrade", data?: Record<string, unknown> }`, allow the upgrade, `data` is passed to your handler
 - `{ action: "reject", envelope: APIResponseEnvelope }`, send the JSON envelope (with your status code) and do not upgrade the connection
 
-If `preValidate` throws, a standardized 500 envelope is sent.
+If `preValidate` throws, a standardized 500 envelope is sent. Use `params.APIResponseHelpers` inside `preValidate` to construct rejection envelopes. This is always the class configured on the server, with no separate import needed. If you've provided a custom subclass via `APIResponseHelpersClass`, WebSocket hooks and handlers automatically use it without any extra wiring.
 
 **Note:** Like API route handlers (and unlike page data handlers where params come from the frontend loader POST body), WebSocket `params` are extracted from the Fastify request. This provides pre-extracted routing information while keeping `request` available for transport-level data (cookies, headers, IP). Using `params` instead of extracting directly from `request` maintains consistency across handler types, making it easier to move logic between them. See [Param Source Parity](./ssr.md#param-source-parity-data-loader-vs-api-routes) for details on the differences between handler types.
 
@@ -149,7 +150,7 @@ Parameters:
 
 - `socket`: The WebSocket connection
 - `request`: The Fastify request (for cookies, headers, IP, etc.)
-- `params`: Pre-extracted routing context (queryParams, routeParams, path, originalURL)
+- `params`: Pre-extracted routing context (queryParams, routeParams, path, originalURL, APIResponseHelpers)
 - `upgradeData`: Whatever you returned from `preValidate` when `action === "upgrade"`
 
 ### Socket Events

@@ -18,6 +18,26 @@ const TMP_DIR = './tmp/unirend-ws-test';
 const BUILD_OUTPUT = join(TMP_DIR, 'ws-server-demo.cjs');
 const SOURCE_FILE = './demos/ws-server-demo.ts';
 
+// Determine if we should print detailed output during execution.
+//
+// This script supports two modes of execution:
+// 1. Verbose Mode: When run directly (e.g., `bun run ws-test`), the script prints verbose connection,
+//    server, and message logs for interactive debugging and tracking.
+// 2. Quiet Mode: When run as part of the normal test runner via web-socket-integration.test.ts (which
+//    passes QUIET) or if explicitly requested via QUIET/SILENT env variables or --quiet/--silent CLI flags.
+//    In this mode, verbose logs are suppressed and only a success message is shown unless a failure occurs.
+const isVerbose =
+  !process.env.QUIET &&
+  !process.env.SILENT &&
+  !process.env.BUN_TEST &&
+  !process.argv.includes('--quiet') &&
+  !process.argv.includes('--silent');
+
+// Buffer to store stdout and stderr from the spawned server process.
+// If the integration test fails when running in silent mode, this buffer is dumped
+// to the console to help with debugging the failure.
+let serverLogBuffer = '';
+
 interface TestResult {
   endpoint: string;
   port: number;
@@ -52,7 +72,9 @@ async function setupTmpDir(): Promise<void> {
  * bundler cannot statically resolve.
  */
 async function buildDemo(): Promise<void> {
-  console.log('🔨 Building WebSocket demo for Node.js...');
+  if (isVerbose) {
+    console.log('🔨 Building WebSocket demo for Node.js...');
+  }
 
   return new Promise((resolve, reject) => {
     const buildProcess = spawn(
@@ -88,21 +110,33 @@ async function buildDemo(): Promise<void> {
 
     buildProcess.on('close', (code) => {
       if (code === 0) {
-        console.log('✅ Build completed successfully');
+        if (isVerbose) {
+          console.log('✅ Build completed successfully');
 
-        if (stdout) {
-          console.log('Build output:', stdout);
+          if (stdout) {
+            console.log('Build output:', stdout);
+          }
         }
 
         resolve();
       } else {
-        console.error('❌ Build failed with code:', code);
+        if (isVerbose) {
+          console.error('❌ Build failed with code:', code);
 
-        if (stderr) {
-          console.error('Build error:', stderr);
+          if (stderr) {
+            console.error('Build error:', stderr);
+          }
+
+          reject(new Error(`Build failed with code ${code}`));
+        } else {
+          // In quiet/non-verbose mode, append the build stderr directly to the error message
+          // so that the failure details are reported when the caller catches and logs the error.
+          reject(
+            new Error(
+              `Build failed with code ${code}${stderr ? `\nBuild error: ${stderr}` : ''}`,
+            ),
+          );
         }
-
-        reject(new Error(`Build failed with code ${code}`));
       }
     });
   });
@@ -112,7 +146,9 @@ async function buildDemo(): Promise<void> {
  * Start the built demo server
  */
 async function startBuiltDemo(): Promise<ChildProcess> {
-  console.log('🚀 Starting built WebSocket demo...');
+  if (isVerbose) {
+    console.log('🚀 Starting built WebSocket demo...');
+  }
 
   const serverProcess = spawn('node', [BUILD_OUTPUT, 'dev'], {
     stdio: ['inherit', 'pipe', 'pipe'],
@@ -130,7 +166,11 @@ async function startBuiltDemo(): Promise<ChildProcess> {
     serverProcess.stdout?.on('data', (data: Buffer) => {
       const chunk = data.toString();
       output += chunk;
-      console.log(chunk.trim());
+      serverLogBuffer += chunk;
+
+      if (isVerbose) {
+        console.log(chunk.trim());
+      }
 
       // Check if both servers are running (matches logger.success output after template substitution)
       if (
@@ -143,7 +183,12 @@ async function startBuiltDemo(): Promise<ChildProcess> {
     });
 
     serverProcess.stderr?.on('data', (data: Buffer) => {
-      console.error('Server error:', data.toString());
+      const chunk = data.toString();
+      serverLogBuffer += chunk;
+
+      if (isVerbose) {
+        console.error('Server error:', chunk.trim());
+      }
     });
 
     serverProcess.on('close', (code) => {
@@ -183,7 +228,10 @@ async function testWebSocketConnection(
 
     ws.on('open', () => {
       isConnected = true;
-      console.log(`  ✅ Connected to ${endpoint}`);
+
+      if (isVerbose) {
+        console.log(`  ✅ Connected to ${endpoint}`);
+      }
 
       if (expectedBehavior === 'reject') {
         clearTimeout(timeout);
@@ -211,7 +259,10 @@ async function testWebSocketConnection(
     ws.on('message', (data: Buffer) => {
       const message = data.toString();
       messages.push(message);
-      console.log(`  📨 Received: ${message}`);
+
+      if (isVerbose) {
+        console.log(`  📨 Received: ${message}`);
+      }
     });
 
     ws.on('close', (code, _reason) => {
@@ -270,7 +321,9 @@ async function testClientCountProgression(port: number): Promise<TestResult> {
   const endpoint = '/client-count-progression';
 
   try {
-    console.log(`  🔗 Testing client count progression...`);
+    if (isVerbose) {
+      console.log(`  🔗 Testing client count progression...`);
+    }
 
     const messages: string[] = [];
     const counts: number[] = [];
@@ -364,7 +417,9 @@ async function testConnections(
   port: number,
   serverName: string,
 ): Promise<TestResult[]> {
-  console.log(`\n🧪 Testing ${serverName} server on port ${port}...`);
+  if (isVerbose) {
+    console.log(`\n🧪 Testing ${serverName} server on port ${port}...`);
+  }
 
   const tests = [
     {
@@ -400,7 +455,10 @@ async function testConnections(
   const results: TestResult[] = [];
 
   for (const test of tests) {
-    console.log(`  🔗 Testing ${test.url}...`);
+    if (isVerbose) {
+      console.log(`  🔗 Testing ${test.url}...`);
+    }
+
     const result = await testWebSocketConnection(
       test.url,
       port,
@@ -427,9 +485,6 @@ function printResults(
   ssrResults: TestResult[],
   apiResults: TestResult[],
 ): number {
-  console.log('\n📊 Test Results Summary:');
-  console.log('═'.repeat(60));
-
   const allResults = [
     ...ssrResults.map((r) => ({ ...r, server: 'SSR' })),
     ...apiResults.map((r) => ({ ...r, server: 'API' })),
@@ -439,18 +494,6 @@ function printResults(
   let failed = 0;
 
   for (const result of allResults) {
-    const status = result.success ? '✅ PASS' : '❌ FAIL';
-    const serverPort = `${result.server}:${result.port}`;
-    console.log(`${status} ${serverPort}${result.endpoint}`);
-
-    if (result.error) {
-      console.log(`     Error: ${result.error}`);
-    }
-
-    if (result.messages && result.messages.length > 0) {
-      console.log(`     Messages: ${result.messages.length} received`);
-    }
-
     if (result.success) {
       passed++;
     } else {
@@ -458,11 +501,33 @@ function printResults(
     }
   }
 
-  console.log('═'.repeat(60));
-  console.log(`📈 Results: ${passed} passed, ${failed} failed`);
+  // Always print detailed results if verbose mode is active OR if any test cases failed
+  if (isVerbose || failed > 0) {
+    console.log('\n📊 Test Results Summary:');
+    console.log('═'.repeat(60));
+
+    for (const result of allResults) {
+      const status = result.success ? '✅ PASS' : '❌ FAIL';
+      const serverPort = `${result.server}:${result.port}`;
+      console.log(`${status} ${serverPort}${result.endpoint}`);
+
+      if (result.error) {
+        console.log(`     Error: ${result.error}`);
+      }
+
+      if (result.messages && result.messages.length > 0) {
+        console.log(`     Messages: ${result.messages.length} received`);
+      }
+    }
+
+    console.log('═'.repeat(60));
+    console.log(`📈 Results: ${passed} passed, ${failed} failed`);
+  }
 
   if (failed === 0) {
-    console.log('🎉 All tests passed!');
+    if (isVerbose) {
+      console.log('🎉 All tests passed!');
+    }
   } else {
     console.log('⚠️  Some tests failed. Check the output above for details.');
   }
@@ -495,44 +560,85 @@ async function runTests(): Promise<void> {
     const failed = printResults(ssrResults, apiResults);
 
     if (failed > 0) {
+      // In quiet mode, dump the captured server logs so the developer has full context on why the checks failed.
+      if (!isVerbose && serverLogBuffer) {
+        console.error('\n🖥️ Server logs from run:');
+        console.error(serverLogBuffer);
+      }
+
       process.exitCode = 1;
+    } else {
+      if (!isVerbose) {
+        console.log('✅ WebSocket integration tests passed successfully.');
+      }
     }
   } catch (error) {
+    // If the server failed to start or test connections threw an error in quiet mode,
+    // dump any accumulated server output to assist with diagnosis.
+    if (!isVerbose && serverLogBuffer) {
+      console.error('\n🖥️ Server logs from run:');
+      console.error(serverLogBuffer);
+    }
+
     console.error('❌ Test execution failed:', error);
     process.exit(1);
   } finally {
     // Cleanup
     if (serverProcess) {
-      console.log('\n🛑 Stopping server...');
+      if (isVerbose) {
+        console.log('\n🛑 Stopping server...');
+      }
+
       serverProcess.kill('SIGTERM');
 
       // Wait for graceful shutdown
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
       if (!serverProcess.killed) {
-        console.log('🔪 Force killing server...');
+        if (isVerbose) {
+          console.log('🔪 Force killing server...');
+        }
+
         serverProcess.kill('SIGKILL');
       }
     }
 
     try {
       await rm(TMP_DIR, { recursive: true, force: true });
-      console.log('🧹 Cleaned up temporary files');
+
+      if (isVerbose) {
+        console.log('🧹 Cleaned up temporary files');
+      }
     } catch (error) {
-      console.warn('⚠️  Failed to clean up temporary files:', error);
+      if (isVerbose) {
+        console.warn('⚠️  Failed to clean up temporary files:', error);
+      }
     }
   }
 }
 
 // Handle script interruption
 process.on('SIGINT', () => {
-  console.log('\n🛑 Test interrupted by user');
+  if (isVerbose) {
+    console.log('\n🛑 Test interrupted by user');
+  }
+
   process.exit(0);
 });
 
 // Run the tests
-console.log('🧪 Starting WebSocket Build Test...');
+if (isVerbose) {
+  console.log('🧪 Starting WebSocket Build Test...');
+}
+
 runTests().catch((error) => {
+  // If the run failed at the top level in quiet mode, dump any captured server logs
+  // before printing the fatal script error.
+  if (!isVerbose && serverLogBuffer) {
+    console.error('\n🖥️ Server logs from run:');
+    console.error(serverLogBuffer);
+  }
+
   console.error('💥 Test script failed:', error);
   process.exit(1);
 });

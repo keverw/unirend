@@ -178,7 +178,7 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
       console.log('🚫 Rejecting WebSocket at path:', params.path);
       return {
         action: 'reject',
-        envelope: APIResponseHelpers.createAPIErrorResponse({
+        envelope: params.APIResponseHelpers.createAPIErrorResponse({
           request,
           statusCode: 403,
           errorCode: 'websocket_always_rejected',
@@ -223,7 +223,7 @@ function registerWebSocketHandlers(server: SSRServer | APIServer) {
       } else {
         return {
           action: 'reject',
-          envelope: APIResponseHelpers.createAPIErrorResponse({
+          envelope: params.APIResponseHelpers.createAPIErrorResponse({
             request,
             statusCode: 401,
             errorCode: 'websocket_invalid_token',

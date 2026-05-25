@@ -667,6 +667,7 @@ describe('WebSocketServerHelpers', () => {
         expect(params.originalURL).toBe('/ws/room/123?user=alice');
         expect(params.queryParams).toEqual({ user: 'alice' });
         expect(params.routeParams).toEqual({ roomID: '123' });
+        expect(params.APIResponseHelpers).toBe(APIResponseHelpers);
         return { action: 'upgrade' as const };
       });
 
