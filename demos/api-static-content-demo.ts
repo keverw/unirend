@@ -170,6 +170,12 @@ class StaticContentDemoComponent extends BaseComponent {
   }
 
   public async start(): Promise<void> {
+    // Starting while shutdown is active is not a safe no-op: the manager could
+    // mark the component running while the old stop() is still draining.
+    if (this.stopPromise) {
+      throw new Error('Cannot start server while shutdown is in progress');
+    }
+
     // Return the same promise if start is already running, so concurrent callers
     // join the in-flight operation instead of starting a second concurrent startup.
     if (this.startPromise) {
