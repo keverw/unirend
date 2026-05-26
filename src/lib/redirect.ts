@@ -34,7 +34,7 @@ import type { RedirectServerOptions } from './internal/redirect-server';
  *
  * @example Multi-server setup (HTTP redirect + HTTPS main server)
  * ```ts
- * import { serveRedirect, serveSSRProd } from 'unirend/server';
+ * import { serveRedirect, serveSSRBuilt } from 'unirend/server';
  *
  * // HTTP → HTTPS redirect server (port 80)
  * const redirectServer = serveRedirect({
@@ -44,7 +44,7 @@ import type { RedirectServerOptions } from './internal/redirect-server';
  * await redirectServer.listen(80);
  *
  * // Main HTTPS server (port 443)
- * const mainServer = serveSSRProd('./build', {
+ * const mainServer = serveSSRBuilt('./build', {
  *   https: {
  *     key: privateKey,     // string | Buffer
  *     cert: certificate,   // string | Buffer

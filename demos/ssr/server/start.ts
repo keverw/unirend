@@ -1,8 +1,8 @@
 /**
  * App factory — creates and starts the full SSR server application lifecycle.
- * Used by both serve-dev.ts and serve-built.ts.
+ * Used by both serve-hmr.ts and serve-built.ts.
  *
- * mode: 'hmr'   → Vite HMR, source files served directly (serve-dev.ts)
+ * mode: 'hmr'   → Vite HMR, source files served directly (serve-hmr.ts)
  * mode: 'built' → pre-built assets from build/            (serve-built.ts)
  *
  * Both entry files are identical except for that mode. All lifecycle
@@ -12,7 +12,7 @@
  * ServerMode ('hmr' vs 'built') controls asset serving — which file you run.
  * initDevMode controls Lifecycleion's dev/prod env (logging verbosity, etc.)
  * and is set independently via CLI arg, so you can mix them freely.
- * e.g. bun serve-dev.ts dev   → HMR + dev env
+ * e.g. bun serve-hmr.ts dev   → HMR + dev env
  *      bun serve-built.ts dev → built assets + dev env (useful for local prod testing)
  *
  * Signals:

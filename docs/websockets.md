@@ -36,10 +36,10 @@ Under the hood, the `WebSocketServerHelpers` class wires `@fastify/websocket`, a
 Enable support when creating the server. Works for both SSR dev/prod and the standalone API server:
 
 ```ts
-import { serveSSRDev, serveSSRProd, serveAPI } from 'unirend/server';
+import { serveSSRWithHMR, serveSSRBuilt, serveAPI } from 'unirend/server';
 
 // SSR (dev)
-const ssr = serveSSRDev(
+const ssr = serveSSRWithHMR(
   {
     serverEntry: './src/EntrySSR.tsx',
     template: './index.html',
@@ -54,7 +54,7 @@ const ssr = serveSSRDev(
 );
 
 // SSR (prod)
-const ssrProd = serveSSRProd('./build', {
+const ssrProd = serveSSRBuilt('./build', {
   enableWebSockets: true,
   webSocketOptions: {
     /* optional */

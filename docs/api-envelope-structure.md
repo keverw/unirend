@@ -819,7 +819,7 @@ For a complete example where using build info (load once at startup, decorate re
 You can configure a custom helpers class for the SSR and API servers so all server-produced envelopes (defaults, fallbacks) use your class for creation. This is useful for injecting default metadata (e.g., account/site info) or centralizing conventions.
 
 - Option name: `APIResponseHelpersClass`
-- Available on: SSR (`serveSSRDev`/`serveSSRProd` options) and API (`serveAPI` options)
+- Available on: SSR (`serveSSRWithHMR`/`serveSSRBuilt` options) and API (`serveAPI` options)
 - Validation helpers like `isValidEnvelope` still use the base helpers and are not overridden
 
 When `publicAppConfig` is configured on SSR or API servers, handlers and custom helper methods can read the current request snapshot from `request.publicAppConfig`. Unirend does not include it in envelopes automatically. If a helper should expose a public config value, add that selected value deliberately, usually as a normal `meta` field. Keep `pageMetadata` for page title/description, which becomes `meta.page` for frontend code such as `UnirendHead`.
@@ -827,7 +827,7 @@ When `publicAppConfig` is configured on SSR or API servers, handlers and custom 
 Example:
 
 ```ts
-import { serveSSRDev, serveAPI } from 'unirend/server';
+import { serveSSRWithHMR, serveAPI } from 'unirend/server';
 import { APIResponseHelpers } from 'unirend/api-envelope';
 
 // Your custom subclass (optional)
@@ -836,7 +836,7 @@ class AppResponseHelpers extends APIResponseHelpers {
 }
 
 // SSR
-const ssr = serveSSRDev(
+const ssr = serveSSRWithHMR(
   {
     serverEntry: './src/EntrySSR.tsx',
     template: './index.html',

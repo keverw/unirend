@@ -1,18 +1,18 @@
 import type {
   RenderRequest,
   RenderResult,
-  ServeSSRDevOptions,
-  ServeSSRProdOptions,
-  RegisterDevAppOptions,
-  RegisterProdAppOptions,
-  SSRDevPaths,
+  ServeSSRWithHMROptions,
+  ServeSSRBuiltOptions,
+  RegisterHMRAppOptions,
+  RegisterBuiltAppOptions,
+  SSRWithHMRPaths,
   StaticContentRouterOptions,
   SSRHelpers,
   PluginMetadata,
   APIResponseHelpersClass,
   SSRInternalAppConfig,
-  SSRInternalAppConfigDev,
-  SSRInternalAppConfigProd,
+  SSRInternalAppConfigHMR,
+  SSRInternalAppConfigBuilt,
   AccessLogConfig,
 } from '../types';
 import { AccessLogPlugin } from './access-log-plugin';
@@ -75,14 +75,14 @@ import {
 
 type SSRServerConfigDev = {
   mode: 'development';
-  paths: SSRDevPaths; // Contains serverEntry, template, and viteConfig paths
-  options: ServeSSRDevOptions;
+  sourcePaths: SSRWithHMRPaths; // Contains serverEntry, template, and viteConfig paths
+  options: ServeSSRWithHMROptions;
 };
 
 type SSRServerConfigProd = {
   mode: 'production';
   buildDir: string; // Directory containing built assets (HTML template, static files, manifest, etc.)
-  options: ServeSSRProdOptions;
+  options: ServeSSRBuiltOptions;
 };
 
 type SSRServerConfig = SSRServerConfigDev | SSRServerConfigProd;
@@ -116,7 +116,7 @@ export class SSRServer extends BaseServer {
   private apps: Map<string, SSRInternalAppConfig> = new Map();
 
   // Shared server configuration (used across all apps)
-  private sharedOptions: ServeSSRDevOptions | ServeSSRProdOptions;
+  private sharedOptions: ServeSSRWithHMROptions | ServeSSRBuiltOptions;
   private _accessLog: AccessLogPlugin;
 
   // Shared server resources (used across all apps)
@@ -155,8 +155,8 @@ export class SSRServer extends BaseServer {
     const defaultApp: SSRInternalAppConfig =
       config.mode === 'development'
         ? {
-            // Dev mode - has paths
-            paths: config.paths,
+            // Dev mode - has sourcePaths
+            sourcePaths: config.sourcePaths,
             publicAppConfig: config.options.publicAppConfig,
             clientFolderName: config.options.clientFolderName || 'client',
             serverFolderName: config.options.serverFolderName || 'server',
@@ -221,17 +221,16 @@ export class SSRServer extends BaseServer {
   }
 
   /**
-   * Register an additional dev-mode SSR app
+   * Register an additional HMR-mode SSR app
    *
-   * Can only be called on dev servers (created via serveSSRDev).
+   * Can only be called on HMR servers (created via serveSSRWithHMR).
    * Apps must be registered BEFORE calling listen().
    *
-   * Uses the same parameters as serveSSRDev for consistency - you can copy/paste
-   * configuration between the default app and additional apps.
+   * Uses the same app-specific parameters as serveSSRWithHMR (excluding server-wide settings like port/host).
    *
    * @param appKey - Unique identifier for this app (selected with request.setActiveSSRApp)
-   * @param paths - Dev-specific paths (same as serveSSRDev)
-   * @param options - Dev options (same as serveSSRDev)
+   * @param sourcePaths - Dev-specific source paths (same as serveSSRWithHMR)
+   * @param options - App-specific dev options (subset of serveSSRWithHMR options)
    *
    * @example
    * ```ts
@@ -240,10 +239,11 @@ export class SSRServer extends BaseServer {
    *   template: './index.html',
    *   viteConfig: './vite.config.ts'
    * };
-   * const server = serveSSRDev(mainPaths, { port: 3000 });
+   *
+   * const server = serveSSRWithHMR(mainPaths, { port: 3000 });
    *
    * // Same parameters as above - easy to copy/paste
-   * server.registerDevApp('marketing', {
+   * server.registerHMRApp('marketing', {
    *   serverEntry: './src/marketing/EntrySSR.tsx',
    *   template: './src/marketing/index.html',
    *   viteConfig: './vite.marketing.config.ts'
@@ -254,10 +254,10 @@ export class SSRServer extends BaseServer {
    * await server.listen(3000);
    * ```
    */
-  public registerDevApp(
+  public registerHMRApp(
     appKey: string,
-    paths: SSRDevPaths,
-    options?: RegisterDevAppOptions,
+    sourcePaths: SSRWithHMRPaths,
+    options?: RegisterHMRAppOptions,
   ): void {
     if (!appKey || typeof appKey !== 'string') {
       throw new Error('App key must be a non-empty string');
@@ -275,13 +275,13 @@ export class SSRServer extends BaseServer {
 
     if (this.serverMode !== 'development') {
       throw new Error(
-        `Cannot register dev app "${trimmedAppKey}" on prod server. Use registerProdApp() instead.`,
+        `Cannot register dev app "${trimmedAppKey}" on prod server. Use registerBuiltApp() instead.`,
       );
     }
 
     const opts = options || {};
-    const appConfig: SSRInternalAppConfigDev = {
-      paths,
+    const appConfig: SSRInternalAppConfigHMR = {
+      sourcePaths,
       publicAppConfig: opts.publicAppConfig,
       clientFolderName: opts.clientFolderName || 'client',
       serverFolderName: opts.serverFolderName || 'server',
@@ -293,34 +293,33 @@ export class SSRServer extends BaseServer {
   }
 
   /**
-   * Register an additional prod-mode SSR app
+   * Register an additional built-mode SSR app
    *
-   * Can only be called on prod servers (created via serveSSRProd).
+   * Can only be called on built servers (created via serveSSRBuilt).
    * Apps must be registered BEFORE calling listen().
    *
-   * Uses the same parameters as serveSSRProd for consistency - you can copy/paste
-   * configuration between the default app and additional apps.
+   * Uses the same app-specific parameters as serveSSRBuilt (excluding server-wide settings like port/host).
    *
    * @param appKey - Unique identifier for this app (selected with request.setActiveSSRApp)
-   * @param buildDir - Build directory path (same as serveSSRProd)
-   * @param options - Prod options (same as serveSSRProd)
+   * @param buildDir - Build directory path (same as serveSSRBuilt)
+   * @param options - App-specific prod options (subset of serveSSRBuilt options)
    *
    * @example
    * ```ts
-   * const server = serveSSRProd('./build-main', { port: 3000 });
+   * const server = serveSSRBuilt('./build-main', { port: 3000 });
    *
    * // Same parameters as above - easy to copy/paste
-   * server.registerProdApp('marketing', './build-marketing', {
+   * server.registerBuiltApp('marketing', './build-marketing', {
    *   publicAppConfig: { api_endpoint: 'https://marketing.example.com' }
    * });
    *
    * await server.listen(3000);
    * ```
    */
-  public registerProdApp(
+  public registerBuiltApp(
     appKey: string,
     buildDir: string,
-    options?: RegisterProdAppOptions,
+    options?: RegisterBuiltAppOptions,
   ): void {
     if (!appKey || typeof appKey !== 'string') {
       throw new Error('App key must be a non-empty string');
@@ -338,12 +337,12 @@ export class SSRServer extends BaseServer {
 
     if (this.serverMode !== 'production') {
       throw new Error(
-        `Cannot register prod app "${trimmedAppKey}" on dev server. Use registerDevApp() instead.`,
+        `Cannot register prod app "${trimmedAppKey}" on dev server. Use registerHMRApp() instead.`,
       );
     }
 
     const opts = options || {};
-    const appConfig: SSRInternalAppConfigProd = {
+    const appConfig: SSRInternalAppConfigBuilt = {
       buildDir,
       serverEntry: opts.serverEntry,
       template: opts.template,
@@ -426,8 +425,11 @@ export class SSRServer extends BaseServer {
       // Validate development paths exist before proceeding for ALL dev apps
       if (this.serverMode === 'development') {
         for (const [appKey, appConfig] of this.apps) {
-          if ('paths' in appConfig) {
-            const pathValidation = await validateDevPaths(appConfig.paths);
+          if ('sourcePaths' in appConfig) {
+            const pathValidation = await validateDevPaths(
+              appConfig.sourcePaths,
+            );
+
             if (!pathValidation.success) {
               throw new Error(
                 `Development paths validation failed for app "${appKey}":\n${pathValidation.errors.join('\n')}`,
@@ -863,7 +865,7 @@ export class SSRServer extends BaseServer {
       if (this.serverMode === 'development') {
         // Collect all dev apps (apps with paths)
         const devApps = Array.from(this.apps.entries()).filter(
-          ([_, app]) => 'paths' in app,
+          ([_, app]) => 'sourcePaths' in app,
         );
 
         if (devApps.length > 0) {
@@ -871,7 +873,7 @@ export class SSRServer extends BaseServer {
           // Each instance needs a unique HMR port to avoid conflicts
           await Promise.all(
             devApps.map(async ([appKey, appConfig], index) => {
-              const devApp = appConfig as SSRInternalAppConfigDev;
+              const devApp = appConfig as SSRInternalAppConfigHMR;
 
               // Auto-assign HMR port: base port + index offset
               // Use port + 1000 + index to avoid conflicts with main server port
@@ -880,7 +882,7 @@ export class SSRServer extends BaseServer {
               devApp.viteDevServer = await (
                 await import('vite')
               ).createServer({
-                configFile: devApp.paths.viteConfig,
+                configFile: devApp.sourcePaths.viteConfig,
                 server: {
                   middlewareMode: true,
                   hmr: {
@@ -1068,7 +1070,7 @@ export class SSRServer extends BaseServer {
 
             // Load server entry using Vite's SSR loader (from src)
             const entryServer = await appConfig.viteDevServer.ssrLoadModule(
-              appConfig.paths.serverEntry,
+              appConfig.sourcePaths.serverEntry,
             );
 
             if (
@@ -1868,9 +1870,9 @@ export class SSRServer extends BaseServer {
     // Determine template path based on mode
     let htmlTemplatePath: string;
 
-    if (this.serverMode === 'development' && 'paths' in appConfig) {
+    if (this.serverMode === 'development' && 'sourcePaths' in appConfig) {
       // Development mode: use provided template path
-      htmlTemplatePath = appConfig.paths.template;
+      htmlTemplatePath = appConfig.sourcePaths.template;
     } else if (this.serverMode === 'production' && 'buildDir' in appConfig) {
       // Production mode: use custom template or default to client/index.html
       if (appConfig.template) {

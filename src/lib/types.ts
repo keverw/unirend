@@ -119,9 +119,9 @@ export type RenderResult =
   | RenderErrorResult;
 
 /**
- * Required paths for SSR development server
+ * Required paths for SSR development server (with HMR)
  */
-export interface SSRDevPaths {
+export interface SSRWithHMRPaths {
   /** Path to the server entry file (e.g. "./src/EntrySSR.tsx") */
   serverEntry: string;
   /** Path to the HTML template file (e.g. "./index.html") */
@@ -900,14 +900,14 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface ServeSSRDevOptions<
+export interface ServeSSRWithHMROptions<
   M extends BaseMeta = BaseMeta,
 > extends ServeSSROptions<M> {
   // Currently no development-specific options
   // This is a placeholder for any future development-specific options
 }
 
-export interface ServeSSRProdOptions<
+export interface ServeSSRBuiltOptions<
   M extends BaseMeta = BaseMeta,
 > extends ServeSSROptions<M> {
   /**
@@ -921,11 +921,11 @@ export interface ServeSSRProdOptions<
    *
    * @example
    * // Default behavior - uses buildDir/client/index.html
-   * serveSSRProd('./build')
+   * serveSSRBuilt('./build')
    *
    * @example
    * // Custom template location
-   * serveSSRProd('./build', { template: 'dist/app.html' })
+   * serveSSRBuilt('./build', { template: 'dist/app.html' })
    */
   template?: string;
   /**
@@ -935,7 +935,7 @@ export interface ServeSSRProdOptions<
    *
    * @example
    * // Rewrite /assets/main.js to https://cdn.example.com/assets/main.js
-   * serveSSRProd('./build', {
+   * serveSSRBuilt('./build', {
    *   CDNBaseURL: 'https://cdn.example.com',
    *   staticContentRouter: false,  // Disable local serving
    * })
@@ -980,9 +980,9 @@ interface SSRInternalAppConfigBase {
  * Dev-mode app configuration (internal storage)
  * Used internally by SSRServer for dev apps
  */
-export interface SSRInternalAppConfigDev extends SSRInternalAppConfigBase {
+export interface SSRInternalAppConfigHMR extends SSRInternalAppConfigBase {
   /** Dev-specific paths */
-  paths: SSRDevPaths;
+  sourcePaths: SSRWithHMRPaths;
   /** Vite dev server instance (INTERNAL - created and managed by framework) */
   viteDevServer?: ViteDevServer;
 }
@@ -991,7 +991,7 @@ export interface SSRInternalAppConfigDev extends SSRInternalAppConfigBase {
  * Prod-mode app configuration (internal storage)
  * Used internally by SSRServer for prod apps
  */
-export interface SSRInternalAppConfigProd extends SSRInternalAppConfigBase {
+export interface SSRInternalAppConfigBuilt extends SSRInternalAppConfigBase {
   /** Prod-specific build directory */
   buildDir: string;
   /** Server entry name in manifest (default: "EntrySSR") */
@@ -1014,15 +1014,22 @@ export interface SSRInternalAppConfigProd extends SSRInternalAppConfigBase {
  * Union type for internal app storage (discriminated by presence of paths vs buildDir)
  */
 export type SSRInternalAppConfig =
-  | SSRInternalAppConfigDev
-  | SSRInternalAppConfigProd;
+  | SSRInternalAppConfigHMR
+  | SSRInternalAppConfigBuilt;
 
 /**
- * Options for registering additional dev apps via registerDevApp()
- * Only includes per-app options (excludes server-level shared options)
+ * Options for registering additional dev apps via registerHMRApp().
+ *
+ * Uses `Pick` to automatically synchronize properties with `ServeSSRWithHMROptions`
+ * while excluding server-wide configuration settings (like `port`, `host`, `logging`)
+ * which cannot be configured per-app.
+ *
+ * NOTE: If any option is omitted here, it will NOT inherit the value configured on
+ * the main/default app. Instead, it falls back to framework default values (e.g.,
+ * `containerID` defaults to `'root'`, error handler falls back to the framework's default 500 error page handler, etc).
  */
-export type RegisterDevAppOptions<M extends BaseMeta = BaseMeta> = Pick<
-  ServeSSRDevOptions<M>,
+export type RegisterHMRAppOptions<M extends BaseMeta = BaseMeta> = Pick<
+  ServeSSRWithHMROptions<M>,
   | 'publicAppConfig'
   | 'containerID'
   | 'get500ErrorPage'
@@ -1031,11 +1038,18 @@ export type RegisterDevAppOptions<M extends BaseMeta = BaseMeta> = Pick<
 >;
 
 /**
- * Options for registering additional prod apps via registerProdApp()
- * Only includes per-app options (excludes server-level shared options)
+ * Options for registering additional prod apps via registerBuiltApp().
+ *
+ * Uses `Pick` to automatically synchronize properties with `ServeSSRBuiltOptions`
+ * while excluding server-wide configuration settings (like `port`, `host`, `logging`)
+ * which cannot be configured per-app.
+ *
+ * NOTE: If any option is omitted here, it will NOT inherit the value configured on
+ * the main/default app. Instead, it falls back to framework default values (e.g.,
+ * `containerID` defaults to `'root'`, error handler falls back to the framework's default 500 error page handler, etc).
  */
-export type RegisterProdAppOptions<M extends BaseMeta = BaseMeta> = Pick<
-  ServeSSRProdOptions<M>,
+export type RegisterBuiltAppOptions<M extends BaseMeta = BaseMeta> = Pick<
+  ServeSSRBuiltOptions<M>,
   | 'publicAppConfig'
   | 'containerID'
   | 'get500ErrorPage'

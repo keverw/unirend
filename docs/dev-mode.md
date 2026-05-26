@@ -4,7 +4,7 @@ Unirend integrates with the **Lifecycleion dev mode convention** via the [`lifec
 
 <!-- toc -->
 
-- [Dev Mode vs `serveSSRDev` / `serveSSRProd`](#dev-mode-vs-servessrdev--servessrprod)
+- [Dev Mode vs `serveSSRWithHMR` / `serveSSRBuilt`](#dev-mode-vs-servessrwithhmr--servessrbuilt)
 - [API](#api)
   - [`initDevMode(arg?)`](#initdevmodearg)
   - [`getDevMode(): boolean`](#getdevmode-boolean)
@@ -18,14 +18,14 @@ Unirend integrates with the **Lifecycleion dev mode convention** via the [`lifec
 
 <!-- tocstop -->
 
-## Dev Mode vs `serveSSRDev` / `serveSSRProd`
+## Dev Mode vs `serveSSRWithHMR` / `serveSSRBuilt`
 
 These are **separate concepts**:
 
-- **`serveSSRDev` / `serveSSRProd`** control the **asset serving strategy**, whether Vite runs a live HMR dev server or serves pre-built static assets. This is about how code is loaded, not how errors are displayed.
+- **`serveSSRWithHMR` / `serveSSRBuilt`** control the **asset serving strategy**, whether Vite runs a live HMR dev server or serves pre-built static assets. This is about how code is loaded, not how errors are displayed.
 - **`initDevMode()`** controls **runtime behavior**, whether error details, stack traces, and debugging related output are shown to users.
 
-They are orthogonal. You could run `serveSSRDev` (live reload via Vite) with `initDevMode(false)` (production-style error handling) if you wanted to test how errors appear to end users while still getting HMR. Or run `serveSSRProd` with `initDevMode(true)` to debug a production build locally with full error details.
+They are orthogonal. You could run `serveSSRWithHMR` (live reload via Vite) with `initDevMode(false)` (production-style error handling) if you wanted to test how errors appear to end users while still getting HMR. Or run `serveSSRBuilt` with `initDevMode(true)` to debug a production build locally with full error details.
 
 ## API
 

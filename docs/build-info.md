@@ -132,7 +132,7 @@ Load build info once at startup and pass selected fields to both the frontend an
 
 ```ts
 // server.ts
-import { serveSSRDev, serveSSRProd } from 'unirend/server';
+import { serveSSRWithHMR, serveSSRBuilt } from 'unirend/server';
 import { loadBuildInfo } from 'unirend/build-info';
 
 // 'built' | 'hmr' — passed in from your CLI arg, env var, or startup script
@@ -161,7 +161,7 @@ async function main(mode: Mode) {
 
   const server =
     mode === 'hmr'
-      ? serveSSRDev(
+      ? serveSSRWithHMR(
           {
             serverEntry: './src/EntrySSR.tsx',
             template: './src/index.html',
@@ -169,7 +169,7 @@ async function main(mode: Mode) {
           },
           sharedConfig,
         )
-      : serveSSRProd('./build', sharedConfig);
+      : serveSSRBuilt('./build', sharedConfig);
 
   await server.listen(3000, 'localhost');
 }
@@ -195,7 +195,7 @@ server.api.get('health', async (request) => {
 This example shows how to:
 
 - Load build info once at server startup
-- Pass selected fields (version, git hash, git branch) to the frontend via `publicAppConfig` (available in both `serveSSRDev` and `serveSSRProd`)
+- Pass selected fields (version, git hash, git branch) to the frontend via `publicAppConfig` (available in both `serveSSRWithHMR` and `serveSSRBuilt`)
 - Read those same fields in any server-side handler via `request.publicAppConfig`
 
 ### Plugin Pattern: For Non-Public Server State

@@ -101,11 +101,11 @@ function extractLogOptions(
  *
  * ```typescript
  * import { Logger } from 'lifecycleion';
- * import { UnirendLifecycleionLoggerAdaptor, serveSSRProd } from 'unirend/server';
+ * import { UnirendLifecycleionLoggerAdaptor, serveSSRBuilt } from 'unirend/server';
  *
  * const logger = new Logger({ sinks: [...] });
  *
- * const server = serveSSRProd('./build', {
+ * const server = serveSSRBuilt('./build', {
  *   logging: {
  *     logger: UnirendLifecycleionLoggerAdaptor(logger),
  *   },

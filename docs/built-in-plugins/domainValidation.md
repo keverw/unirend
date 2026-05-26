@@ -34,7 +34,7 @@ The `domainValidation` plugin provides comprehensive domain security and normali
 ```typescript
 import { domainValidation } from 'unirend/plugins';
 
-const server = serveSSRProd(buildDir, {
+const server = serveSSRBuilt(buildDir, {
   plugins: [
     domainValidation({
       validProductionDomains: ['example.com', '*.example.com'],

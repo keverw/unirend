@@ -27,7 +27,7 @@ export type { FolderConfig, StaticContentRouterOptions } from '../types';
  * ```typescript
  * import { staticContent } from 'unirend/plugins';
  *
- * const server = serveSSRDev(paths, {
+ * const server = serveSSRWithHMR(paths, {
  *   plugins: [
  *     staticContent({
  *       folderMap: {
@@ -43,7 +43,7 @@ export type { FolderConfig, StaticContentRouterOptions } from '../types';
  * ```typescript
  * import { staticContent } from 'unirend/plugins';
  *
- * const server = serveSSRProd(buildDir, {
+ * const server = serveSSRBuilt(buildDir, {
  *   plugins: [
  *     // User uploads - no immutable caching
  *     staticContent({
@@ -63,7 +63,7 @@ export type { FolderConfig, StaticContentRouterOptions } from '../types';
  *
  * @example Custom plugin name for debugging and dependencies
  * ```typescript
- * const server = serveSSRProd(buildDir, {
+ * const server = serveSSRBuilt(buildDir, {
  *   plugins: [
  *     staticContent({
  *       folderMap: { '/uploads': './uploads' },
@@ -113,7 +113,7 @@ export type { FolderConfig, StaticContentRouterOptions } from '../types';
  *   folderMap: { '/pages': './dist/pages' }
  * });
  *
- * const server = serveSSRDev(paths, {
+ * const server = serveSSRWithHMR(paths, {
  *   plugins: [
  *     staticContent(cache, 'pages-handler'),
  *   ],

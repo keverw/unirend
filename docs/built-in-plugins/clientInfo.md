@@ -37,7 +37,7 @@ Use it to:
 ```typescript
 import { clientInfo } from 'unirend/plugins';
 
-const server = serveSSRProd(buildDir, {
+const server = serveSSRBuilt(buildDir, {
   plugins: [clientInfo()],
 });
 ```
@@ -114,11 +114,11 @@ This lets your SSR server forward the user's client details to your API so both 
 In production behind reverse proxies or load balancers, configure Fastify's `trustProxy` or `getClientIP` so `request.clientIP` reflects the real client IP. Unless you provide a custom `trustForwardedHeaders`, the plugin only accepts forwarded client-info headers when `request.clientIP` is private. Without one of those in place, `request.clientIP` may not reflect your proxy chain correctly.
 
 - On SSR and API servers, set `fastifyOptions.trustProxy` or `getClientIP` when appropriate. Common `trustProxy` options are `true`, a trusted IP/CIDR value like `'127.0.0.1'` or `'127.0.0.1,192.168.1.1/24'`, a trusted IP/CIDR list like `['127.0.0.1', '10.0.0.0/8']`, or a custom trust function with signature `(address: string, hop: number) => boolean`. Fastify also supports numeric hop counts.
-- Example: `serveSSRProd(buildDir, { fastifyOptions: { trustProxy: true }, plugins: [clientInfo()] })`
+- Example: `serveSSRBuilt(buildDir, { fastifyOptions: { trustProxy: true }, plugins: [clientInfo()] })`
 - Example with `getClientIP`:
 
 ```ts
-serveSSRProd(buildDir, {
+serveSSRBuilt(buildDir, {
   getClientIP: (req) => {
     // Pseudo-code: only trust the external reverse proxy header when the request came from
     // a proxy or load balancer range you control.

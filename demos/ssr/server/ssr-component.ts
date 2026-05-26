@@ -1,8 +1,8 @@
 import { BaseComponent } from 'lifecycleion/lifecycle-manager';
 import type { Logger } from 'lifecycleion/logger';
 import {
-  serveSSRDev,
-  serveSSRProd,
+  serveSSRWithHMR,
+  serveSSRBuilt,
   UnirendLifecycleionLoggerAdaptor,
   processFileUpload,
 } from '../../../src/server';
@@ -1071,7 +1071,7 @@ export class SSRServerComponent extends BaseComponent {
         ];
 
         if (this.mode === 'hmr') {
-          this.server = serveSSRDev(
+          this.server = serveSSRWithHMR(
             {
               serverEntry: path.join(SRC_DIR, 'EntrySSR.tsx'),
               template: path.join(SRC_DIR, 'index.html'),
@@ -1094,7 +1094,7 @@ export class SSRServerComponent extends BaseComponent {
             },
           );
         } else {
-          this.server = serveSSRProd(DIST_DIR, {
+          this.server = serveSSRBuilt(DIST_DIR, {
             ...sharedConfig,
             serverEntry: 'EntrySSR',
             plugins: SHARED_PLUGINS,

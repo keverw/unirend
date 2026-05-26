@@ -29,10 +29,10 @@ Plugins can depend on this plugin by declaring a dependency on the plugin name `
 ## Usage
 
 ```typescript
-import { serveSSRDev } from 'unirend/server';
+import { serveSSRWithHMR } from 'unirend/server';
 import { cookies } from 'unirend/plugins';
 
-const server = serveSSRDev(
+const server = serveSSRWithHMR(
   {
     serverEntry: './src/EntrySSR.tsx',
     template: './index.html',
@@ -166,7 +166,7 @@ const customSigner = {
   },
 };
 
-const server = serveSSRDev(paths, {
+const server = serveSSRWithHMR(sourcePaths, {
   plugins: [cookies({ secret: customSigner })],
 });
 

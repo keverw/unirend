@@ -1,8 +1,8 @@
 import { BaseComponent } from 'lifecycleion/lifecycle-manager';
 import type { Logger } from 'lifecycleion/logger';
 import {
-  serveSSRDev,
-  serveSSRProd,
+  serveSSRWithHMR,
+  serveSSRBuilt,
   UnirendLifecycleionLoggerAdaptor,
 } from '../../../src/server';
 import type {
@@ -334,7 +334,7 @@ export class MultiAppSSRServerComponent extends BaseComponent {
         };
 
         if (this.mode === 'hmr') {
-          this.server = serveSSRDev(
+          this.server = serveSSRWithHMR(
             {
               serverEntry: path.join(SRC_DIR, 'EntrySSR.tsx'),
               template: path.join(SRC_DIR, 'index.html'),
@@ -349,7 +349,7 @@ export class MultiAppSSRServerComponent extends BaseComponent {
           );
 
           // App B: separate Vite instance, separate entry point and template
-          this.server.registerDevApp(
+          this.server.registerHMRApp(
             'app-b',
             {
               serverEntry: path.join(SRC_DIR, 'app-b/EntrySSR.tsx'),
@@ -362,7 +362,7 @@ export class MultiAppSSRServerComponent extends BaseComponent {
             },
           );
         } else {
-          this.server = serveSSRProd(DIST_DIR_APP_A, {
+          this.server = serveSSRBuilt(DIST_DIR_APP_A, {
             serverEntry: 'EntrySSR',
             plugins: SHARED_PLUGINS,
             publicAppConfig: APP_A_CONFIG,
@@ -371,7 +371,7 @@ export class MultiAppSSRServerComponent extends BaseComponent {
           });
 
           // App B: its own build directory
-          this.server.registerProdApp('app-b', DIST_DIR_APP_B, {
+          this.server.registerBuiltApp('app-b', DIST_DIR_APP_B, {
             serverEntry: 'EntrySSR',
             publicAppConfig: APP_B_CONFIG,
             get500ErrorPage,

@@ -268,7 +268,7 @@ Add these scripts to your `package.json` for both SSG and SSR workflows. The exa
     // For SSR:
     "ssr:build:server": "vite build --outDir build/server --ssr src/EntrySSR.tsx",
     "ssr:build": "bun run build:client && bun run ssr:build:server",
-    "ssr:serve:hmr": "bun run serve-dev.ts dev", // SSR HMR mode, serving source through Vite
+    "ssr:serve:hmr": "bun run serve-hmr.ts dev", // SSR HMR mode, serving source through Vite
     "ssr:serve:prod": "bun run serve-built.ts prod", // SSR prod mode with built assets (requires ssr:build first)
     "ssr:build-and-serve:prod": "bun run ssr:build && bun run ssr:serve:prod",
 
@@ -289,7 +289,7 @@ Note: If you prefer a pure-Node toolchain without Bun, explore compiling or bund
 
 ## Public App Config Pattern
 
-You can provide safe-to-share app configuration via the `publicAppConfig` option. In SSR and SSG, Unirend injects this config into the frontend so components can read it with `usePublicAppConfig()`. This works in both SSG and SSR modes (both dev and prod) when using `generateSSG`, `serveSSRDev`, or `serveSSRProd`.
+You can provide safe-to-share app configuration via the `publicAppConfig` option. In SSR and SSG, Unirend injects this config into the frontend so components can read it with `usePublicAppConfig()`. This works in both SSG and SSR modes (both dev and prod) when using `generateSSG`, `serveSSRWithHMR`, or `serveSSRBuilt`.
 
 **In React Components** - use the `usePublicAppConfig()` hook:
 
@@ -437,7 +437,7 @@ What this shows:
 - Server theme plugin seeding `requestContext.themePreference` from a cookie for flash-free dark/light mode.
 - API/SSR coexistence: API routes under `/api/*` are handled first. Unmatched ones return JSON envelopes. Other GETs fall through to SSR.
 - Custom standalone 500 page handling via `get500ErrorPage` in `server/ssr-component.ts`.
-- `LifecycleManager` + `BaseComponent` for graceful shutdown with configurable timeouts (`serve-dev.ts` / `serve-built.ts` → `server/start.ts` → `server/ssr-component.ts`).
+- `LifecycleManager` + `BaseComponent` for graceful shutdown with configurable timeouts (`serve-hmr.ts` / `serve-built.ts` → `server/start.ts` → `server/ssr-component.ts`).
 - `src/components/AppLayout.tsx` owns the shared route chrome and route-change scroll-to-top behavior.
 
 ### Multi-App SSR Demo
@@ -464,7 +464,7 @@ bun run multi-ssr:build-and-serve:prod
 
 What this shows:
 
-- Registering a second app with `registerDevApp` / `registerProdApp`.
+- Registering a second app with `registerHMRApp` / `registerBuiltApp`.
 - Cookie-based app routing via `request.setActiveSSRApp()` in an `onRequest` hook.
 - Selecting an unregistered app key (`app-c`) triggers the caught error path, which serves a custom 500 HTML page with a "Clear App & Go Home" button that deletes the cookie and redirects.
 - Each app has its own `publicAppConfig` (app name, accent color) and its own Vite build output.
@@ -542,10 +542,10 @@ Unirend provides first-class support for file uploads with streaming validation,
 **Quick Start:**
 
 ```typescript
-import { serveSSRDev, processFileUpload } from 'unirend/server';
+import { serveSSRWithHMR, processFileUpload } from 'unirend/server';
 import { APIResponseHelpers } from 'unirend/api-envelope';
 
-const server = serveSSRDev(paths, {
+const server = serveSSRWithHMR(sourcePaths, {
   fileUploads: { enabled: true },
 });
 

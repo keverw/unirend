@@ -1,8 +1,8 @@
 import { SSRServer } from './internal/ssr-server';
 import type {
-  ServeSSRDevOptions,
-  ServeSSRProdOptions,
-  SSRDevPaths,
+  ServeSSRWithHMROptions,
+  ServeSSRBuiltOptions,
+  SSRWithHMRPaths,
 } from './types';
 
 /**
@@ -12,23 +12,23 @@ import type {
  * For development, we integrate with Vite's dev server for HMR support and middleware mode.
  *
  * Multi-App Support: The returned SSRServer instance supports serving multiple React applications
- * from a single server. Use `server.registerDevApp(appKey, paths, options)` to register additional
- * dev-mode apps before calling `server.listen()`. See docs/ssr.md "Multi-App SSR Support" for details.
+ * from a single server. Use `server.registerHMRApp(appKey, sourcePaths, options)` to register additional
+ * HMR-mode apps before calling `server.listen()`. See docs/ssr.md "Multi-App SSR Support" for details.
  *
- * @param paths Required file paths for development server setup (default app)
+ * @param sourcePaths Required file paths for development server setup (default app)
  * @param options Development SSR options (default app)
  *
  * @example Single app
  * ```ts
- * const server = serveSSRDev(devPaths, { port: 3000 });
+ * const server = serveSSRWithHMR(devPaths, { port: 3000 });
  * await server.listen(3000);
  * ```
  *
  * @example Multi-app with subdomain routing
  * ```ts
- * const server = serveSSRDev(mainPaths, mainOptions);
+ * const server = serveSSRWithHMR(mainPaths, mainOptions);
  *
- * server.registerDevApp('marketing', marketingPaths, marketingOptions);
+ * server.registerHMRApp('marketing', marketingPaths, marketingOptions);
  *
  * server.fastifyInstance.addHook('onRequest', async (request, reply) => {
  *   if (request.hostname === 'marketing.example.com') {
@@ -40,13 +40,13 @@ import type {
  * ```
  */
 
-export function serveSSRDev(
-  paths: SSRDevPaths,
-  options: ServeSSRDevOptions = {},
+export function serveSSRWithHMR(
+  sourcePaths: SSRWithHMRPaths,
+  options: ServeSSRWithHMROptions = {},
 ): SSRServer {
   return new SSRServer({
     mode: 'development',
-    paths,
+    sourcePaths,
     options,
   });
 }
@@ -59,23 +59,23 @@ export function serveSSRDev(
  * provides better error handling and avoids unnecessary work during construction.
  *
  * Multi-App Support: The returned SSRServer instance supports serving multiple React applications
- * from a single server. Use `server.registerProdApp(appKey, buildDir, options)` to register additional
- * prod-mode apps before calling `server.listen()`. See docs/ssr.md "Multi-App SSR Support" for details.
+ * from a single server. Use `server.registerBuiltApp(appKey, buildDir, options)` to register additional
+ * built-mode apps before calling `server.listen()`. See docs/ssr.md "Multi-App SSR Support" for details.
  *
  * @param buildDir Directory containing built assets (HTML template, static files, manifest, etc.) for default app
  * @param options Production SSR options, including serverEntry to specify which entry file to use (default app)
  *
  * @example Single app
  * ```ts
- * const server = serveSSRProd('./build', { port: 3000 });
+ * const server = serveSSRBuilt('./build', { port: 3000 });
  * await server.listen(3000);
  * ```
  *
  * @example Multi-app with path-based routing
  * ```ts
- * const server = serveSSRProd('./build-main', mainOptions);
+ * const server = serveSSRBuilt('./build-main', mainOptions);
  *
- * server.registerProdApp('marketing', './build-marketing', marketingOptions);
+ * server.registerBuiltApp('marketing', './build-marketing', marketingOptions);
  *
  * server.fastifyInstance.addHook('onRequest', async (request, reply) => {
  *   if (request.url.startsWith('/marketing')) {
@@ -87,9 +87,9 @@ export function serveSSRDev(
  * ```
  */
 
-export function serveSSRProd(
+export function serveSSRBuilt(
   buildDir: string,
-  options: ServeSSRProdOptions = {},
+  options: ServeSSRBuiltOptions = {},
 ): SSRServer {
   return new SSRServer({
     mode: 'production',

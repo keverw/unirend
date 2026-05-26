@@ -78,7 +78,7 @@ Use plugins to register routes, hooks, decorators, and third-party integrations.
 ## Basic Usage
 
 ```typescript
-import { serveSSRDev } from 'unirend/server';
+import { serveSSRWithHMR } from 'unirend/server';
 import type { ServerPlugin } from 'unirend/server';
 // Define a plugin
 const myPlugin: ServerPlugin = async (pluginHost, options) => {
@@ -103,7 +103,7 @@ const myPlugin: ServerPlugin = async (pluginHost, options) => {
 };
 
 // Register the plugin
-const server = serveSSRDev(paths, {
+const server = serveSSRWithHMR(sourcePaths, {
   plugins: [myPlugin],
   // ... other options
 });
@@ -452,7 +452,7 @@ For response timing, prefer the built-in `APIHandling.responseTimeHeader` option
 For plugin-specific configuration, use factory functions that return the plugin. This provides type-safe configuration through closures:
 
 ```typescript
-import { serveSSRDev } from 'unirend/server';
+import { serveSSRWithHMR } from 'unirend/server';
 import type { ServerPlugin } from 'unirend/server';
 // Plugin factory function for rate limiting
 const RateLimitPlugin = (config: { maxRequests: number; windowMs: number }) => {
@@ -492,7 +492,7 @@ const RateLimitPlugin = (config: { maxRequests: number; windowMs: number }) => {
   return rateLimitPlugin;
 };
 
-const server = serveSSRDev(paths, {
+const server = serveSSRWithHMR(sourcePaths, {
   plugins: [
     RateLimitPlugin({ maxRequests: 100, windowMs: 60000 }), // 100 requests per minute
   ],
@@ -546,19 +546,19 @@ Plugins are registered as an array of functions. Each plugin receives the contro
 
 ```typescript
 // In your server setup
-const server = serveSSRDev(paths, {
+const server = serveSSRWithHMR(sourcePaths, {
   plugins: [apiRoutesPlugin, authPlugin, fileUploadPlugin, securityPlugin],
   // ... other options
 });
 
 // Or for production
-const server = serveSSRProd(buildDir, {
+const server = serveSSRBuilt(buildDir, {
   plugins: [apiRoutesPlugin, authPlugin, fileUploadPlugin, securityPlugin],
   // ... other options
 });
 
 // With configuration via factory functions
-const server = serveSSRDev(paths, {
+const server = serveSSRWithHMR(sourcePaths, {
   plugins: [
     DatabasePlugin({ connectionString: process.env.DB_URL }),
     SessionPlugin({ idCookieName: 'auth-id', secretCookieName: 'auth-secret' }),
@@ -598,7 +598,7 @@ const sessionPlugin: ServerPlugin = async (pluginHost, options) => {
   };
 };
 
-const server = serveSSRDev(paths, {
+const server = serveSSRWithHMR(sourcePaths, {
   plugins: [
     databasePlugin, // Must come first
     sessionPlugin, // Depends on database
@@ -926,7 +926,7 @@ const faultyPlugin: ServerPlugin = async (fastify) => {
 };
 
 // This will log the error and throw during server startup
-const server = serveSSRDev(paths, {
+const server = serveSSRWithHMR(sourcePaths, {
   plugins: [faultyPlugin], // Will cause startup to fail with clear error message
 });
 ```
@@ -935,7 +935,7 @@ const server = serveSSRDev(paths, {
 
 ```typescript
 // This will fail - session depends on database but database comes after
-const server = serveSSRDev(paths, {
+const server = serveSSRWithHMR(sourcePaths, {
   plugins: [
     sessionPlugin, // depends on 'database'
     databasePlugin, // provides 'database' - too late!
@@ -949,7 +949,7 @@ const duplicateDBPlugin: ServerPlugin = async (pluginHost, options) => {
   return { name: 'database' };
 };
 
-const server = serveSSRDev(paths, {
+const server = serveSSRWithHMR(sourcePaths, {
   plugins: [
     databasePlugin, // returns { name: 'database' }
     duplicateDBPlugin, // also returns { name: 'database' } - conflict!
@@ -1009,7 +1009,7 @@ The direct Fastify-style methods are tied to the underlying Fastify instance:
 
 ```typescript
 import { initDevMode } from 'lifecycleion/dev-mode';
-import { serveSSRDev, serveSSRProd } from 'unirend/server';
+import { serveSSRWithHMR, serveSSRBuilt } from 'unirend/server';
 import type { SSRServer } from 'unirend/server';
 
 // Set dev mode once at startup (see docs/dev-mode.md)
@@ -1029,7 +1029,7 @@ function createServer(options: CreateServerOptions): SSRServer {
   };
 
   return options.mode === 'hmr'
-    ? serveSSRDev(
+    ? serveSSRWithHMR(
         {
           serverEntry: './src/EntrySSR.tsx',
           template: './src/index.html',
@@ -1037,7 +1037,7 @@ function createServer(options: CreateServerOptions): SSRServer {
         },
         sharedConfig,
       )
-    : serveSSRProd('./build', sharedConfig);
+    : serveSSRBuilt('./build', sharedConfig);
 }
 
 // Create initial server

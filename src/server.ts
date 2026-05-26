@@ -8,17 +8,17 @@
  * Import from 'unirend/server' in your server-side code:
  *
  * ```typescript
- * import { serveSSRDev, serveSSRProd, generateSSG } from 'unirend/server';
+ * import { serveSSRWithHMR, serveSSRBuilt, generateSSG } from 'unirend/server';
  *
- * // Development
- * const devServer = serveSSRDev({
+ * // Development (with HMR)
+ * const devServer = serveSSRWithHMR({
  *   serverEntry: './src/EntrySSR.tsx',
  *   template: './index.html',
  *   viteConfig: './vite.config.ts'
  * });
  *
- * // Production
- * const prodServer = serveSSRProd('./build');
+ * // Production (Built)
+ * const prodServer = serveSSRBuilt('./build');
  *
  * // Static Site Generation
  * const result = await generateSSG('./build', pages);
@@ -29,8 +29,8 @@
 export type {
   RenderRequest,
   RenderResult,
-  ServeSSRDevOptions,
-  ServeSSRProdOptions,
+  ServeSSRWithHMROptions,
+  ServeSSRBuiltOptions,
   SSGOptions,
   SSGReport,
   SSGPageReport,
@@ -53,7 +53,7 @@ export type { RedirectServerOptions } from './lib/redirect';
 export { SSGConsoleLogger } from './lib/types';
 
 export type {
-  SSRDevPaths,
+  SSRWithHMRPaths,
   ServerPlugin,
   PluginHostInstance,
   PluginOptions,
@@ -73,7 +73,7 @@ export type {
 export type { APIEndpointConfig } from './lib/types';
 
 // Server-safe functions
-export { serveSSRDev, serveSSRProd } from './lib/ssr';
+export { serveSSRWithHMR, serveSSRBuilt } from './lib/ssr';
 export { generateSSG } from './lib/ssg';
 export { unirendBaseRender } from './lib/base-render';
 export { serveAPI } from './lib/api';

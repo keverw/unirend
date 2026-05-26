@@ -225,11 +225,11 @@ export async function writeHTMLFile(
 }
 
 /**
- * Validates that all required development paths exist
- * @param paths SSRDevPaths object containing serverEntry, template, and viteConfig paths
+ * Validates that all required development source paths exist
+ * @param sourcePaths SSRWithHMRPaths object containing serverEntry, template, and viteConfig paths
  * @returns Result object with success status and error details for any missing files
  */
-export async function validateDevPaths(paths: {
+export async function validateDevPaths(sourcePaths: {
   serverEntry: string;
   template: string;
   viteConfig: string;
@@ -238,23 +238,23 @@ export async function validateDevPaths(paths: {
 
   // Check server entry file
   try {
-    await fs.access(paths.serverEntry);
+    await fs.access(sourcePaths.serverEntry);
   } catch {
-    errors.push(`Server entry file not found: ${paths.serverEntry}`);
+    errors.push(`Server entry file not found: ${sourcePaths.serverEntry}`);
   }
 
   // Check template file
   try {
-    await fs.access(paths.template);
+    await fs.access(sourcePaths.template);
   } catch {
-    errors.push(`Template file not found: ${paths.template}`);
+    errors.push(`Template file not found: ${sourcePaths.template}`);
   }
 
   // Check vite config file
   try {
-    await fs.access(paths.viteConfig);
+    await fs.access(sourcePaths.viteConfig);
   } catch {
-    errors.push(`Vite config file not found: ${paths.viteConfig}`);
+    errors.push(`Vite config file not found: ${sourcePaths.viteConfig}`);
   }
 
   return {

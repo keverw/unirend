@@ -175,7 +175,7 @@ export function usePublicAppConfig(): Record<string, unknown> | undefined {
  *
  * Returns the effective CDN base URL for the current request — either a per-request
  * override (set in middleware via `request.CDNBaseURL`) or the app-level default
- * (`CDNBaseURL` in `serveSSRProd`/`registerProdApp` options). Returns an empty string
+ * (`CDNBaseURL` in `serveSSRBuilt`/`registerBuiltApp` options). Returns an empty string
  * when no CDN is configured or when running Vite directly without the unirend server.
  *
  * Available on both server (during SSR rendering) and client (read from

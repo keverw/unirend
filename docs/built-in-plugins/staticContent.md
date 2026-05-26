@@ -49,10 +49,10 @@ Key features:
 ### Basic Example
 
 ```typescript
-import { serveSSRDev } from 'unirend/server';
+import { serveSSRWithHMR } from 'unirend/server';
 import { staticContent } from 'unirend/plugins';
 
-const server = serveSSRDev(
+const server = serveSSRWithHMR(
   {
     serverEntry: './src/EntrySSR.tsx',
     template: './index.html',
@@ -75,10 +75,10 @@ const server = serveSSRDev(
 You can register multiple `staticContent` plugins with different configurations:
 
 ```typescript
-import { serveSSRProd } from 'unirend/server';
+import { serveSSRBuilt } from 'unirend/server';
 import { staticContent } from 'unirend/plugins';
 
-const server = serveSSRProd('./build', {
+const server = serveSSRBuilt('./build', {
   plugins: [
     // User uploads - no immutable caching, shorter cache TTL
     staticContent(
@@ -445,7 +445,7 @@ The SSR server automatically serves the `/assets` folder in production mode for 
 **Example - Disable for CDN:**
 
 ```typescript
-const server = serveSSRProd('./build', {
+const server = serveSSRBuilt('./build', {
   staticContentRouter: false, // Disable - using CDN for all assets
 });
 ```
@@ -453,7 +453,7 @@ const server = serveSSRProd('./build', {
 **Example - Add extra folders:**
 
 ```typescript
-const server = serveSSRProd('./build', {
+const server = serveSSRBuilt('./build', {
   // Default /assets serving is still active
   plugins: [
     staticContent({ folderMap: { '/uploads': './uploads' } }, 'uploads'),

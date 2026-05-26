@@ -19,7 +19,7 @@ import {
 } from 'lifecycleion/lifecycle-manager';
 import { Logger, ConsoleSink, LogLevel } from 'lifecycleion/logger';
 import { assertSupportedRuntime } from '../src/utils';
-import { serveSSRDev, serveAPI } from '../src/server';
+import { serveSSRWithHMR, serveAPI } from '../src/server';
 import type { SSRServer, APIServer, APIRouteHandler } from '../src/server';
 import { APIResponseHelpers } from '../src/api-envelope';
 import type { RawData, WebSocket } from 'ws';
@@ -381,7 +381,7 @@ class SSRWebSocketDemoComponent extends BaseComponent {
     this.startPromise = (async () => {
       try {
         // Start SSR server with WebSocket support on the SSR demo port.
-        this.server = serveSSRDev(
+        this.server = serveSSRWithHMR(
           {
             serverEntry: path.join(SSR_DEMO_DIR, 'EntrySSR.tsx'),
             template: path.join(SSR_DEMO_DIR, 'index.html'),

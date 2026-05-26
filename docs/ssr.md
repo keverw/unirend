@@ -78,12 +78,12 @@
 
 Unirend provides two server classes with a shared plugin surface and common lifecycle methods:
 
-- `SSRServer` (via `serveSSRDev`/`serveSSRProd`): Full SSR server that renders HTML responses for React Router routes. It can additionally be used to host your API endpoints, with the benefit of data loader handlers being short circuited.
+- `SSRServer` (via `serveSSRWithHMR`/`serveSSRBuilt`): Full SSR server that renders HTML responses for React Router routes. It can additionally be used to host your API endpoints, with the benefit of data loader handlers being short circuited.
 - `APIServer` (via `serveAPI`): JSON API server for data loader endpoints and custom API routes (e.g., login, forms) that you wish to run as a separate standalone API server, separate from the server used for SSR rendering.
 
 ### Plugins
 
-Both `SSRServer` (via `serveSSRDev`/`serveSSRProd`) and `APIServer` (via `serveAPI`) support plugin registration for extending functionality. Plugins can register middleware (including Fastify middleware), add custom hooks, and register raw API endpoints on top of Fastify that don't need to conform to the API envelope pattern like data loader handlers or Custom API Routes helpers do.
+Both `SSRServer` (via `serveSSRWithHMR`/`serveSSRBuilt`) and `APIServer` (via `serveAPI`) support plugin registration for extending functionality. Plugins can register middleware (including Fastify middleware), add custom hooks, and register raw API endpoints on top of Fastify that don't need to conform to the API envelope pattern like data loader handlers or Custom API Routes helpers do.
 
 See the plugin docs: [server-plugins.md](./server-plugins.md) for an overview of the plugin system and how to create your own plugins, and [built-in-plugins.md](./built-in-plugins.md) for the catalog of ready‑to‑use plugins.
 
@@ -200,11 +200,11 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - Each server type has a sensible default so you only need this option when the default isn't descriptive enough for your setup.
   - ```ts
     // Two SSR servers - tell their logs apart
-    const mainServer = serveSSRProd('./build-main', {
+    const mainServer = serveSSRBuilt('./build-main', {
       serverLabel: 'SSR:main',
     });
 
-    const adminServer = serveSSRProd('./build-admin', {
+    const adminServer = serveSSRBuilt('./build-admin', {
       serverLabel: 'SSR:admin',
     });
     ```
@@ -247,9 +247,9 @@ Logging behavior quick reference:
 Example Unirend logger object (recommended path):
 
 ```typescript
-import { serveSSRProd } from 'unirend/server';
+import { serveSSRBuilt } from 'unirend/server';
 
-const server = serveSSRProd('./build', {
+const server = serveSSRBuilt('./build', {
   logging: {
     level: 'info',
     logger: {
@@ -269,9 +269,9 @@ If you already use **Lifecycleion** as your logger, see [Lifecycleion Logger Ada
 If you prefer Fastify/pino configuration directly, use `fastifyOptions.logger` or `fastifyOptions.loggerInstance`:
 
 ```typescript
-import { serveSSRProd } from 'unirend/server';
+import { serveSSRBuilt } from 'unirend/server';
 
-const server = serveSSRProd('./build', {
+const server = serveSSRBuilt('./build', {
   fastifyOptions: {
     logger: true,
     // or:
@@ -288,7 +288,7 @@ For formatted access logs and access log hook patterns, see [Access Logging](#ac
 Access logging is **on by default** on all server types (SSRServer, APIServer, StaticWebServer, RedirectServer) - finish events are logged using the default template with no configuration required. Use `accessLog` to customize behavior, or `accessLog: { events: 'none' }` to disable it. Output routes through `request.log`, so it respects whatever logger you've configured.
 
 ```typescript
-const server = serveSSRProd('./build', {
+const server = serveSSRBuilt('./build', {
   logging: { logger: myLogger },
   accessLog: {
     // Which lifecycle events print a log line: 'start' | 'finish' | 'both' | 'none'
@@ -422,7 +422,7 @@ fastifyOptions: {
 - **External reverse proxy with its own client-IP header**: use server-level `getClientIP` to read the right header. In a typical `browser → external reverse proxy → load balancer → your app` setup, `request.ip` is often the load balancer's private IP and `X-Forwarded-For` may contain the external proxy's edge IP rather than the real client IP. In those cases, read the provider's client-IP header only when the immediate request came from a trusted proxy or load balancer range you control:
 
 ```typescript
-serveSSRProd('./build', {
+serveSSRBuilt('./build', {
   getClientIP: (req) => {
     // Pseudo-code: only trust the external reverse proxy header when the
     // request came from a proxy or load balancer range you control.
@@ -518,7 +518,7 @@ server.updateAccessLoggingConfig({ level: 'debug' }); // change level only
 Use `onRequest` and `onResponse` hooks in `accessLog` for persistent request history (audit logs, analytics, debugging). Hooks fire independently of the `events` setting, so they run even when `events: 'none'`. Both hooks are awaited by the framework, so avoid blocking on slow work unless you want that behavior.
 
 ```typescript
-const server = serveSSRProd('./build', {
+const server = serveSSRBuilt('./build', {
   accessLog: {
     onRequest: async (ctx) => {
       // requestID (ULID) is on the raw request - globally unique, safe across restarts/instances
@@ -583,17 +583,17 @@ Use the Vite config setup shown in the main [README](../README.md#prepare-vite-c
 
 ### Create Production SSR Server
 
-Create a server file that uses the `serveSSRProd` function:
+Create a server file that uses the `serveSSRBuilt` function:
 
 ```typescript
-import { serveSSRProd } from 'unirend/server';
+import { serveSSRBuilt } from 'unirend/server';
 import path from 'path';
 
 async function main() {
   // Build directory (contains both client/ and server/ subdirectories)
   const buildDir = path.resolve(__dirname, 'build');
 
-  const server = serveSSRProd(buildDir, {
+  const server = serveSSRBuilt(buildDir, {
     // Optional: Custom server entry name (default: "EntrySSR" - looks for EntrySSR.js in server manifest)
     // serverEntry: "custom-entry",
 
@@ -666,7 +666,7 @@ Notes:
 You can override the CDN URL per-request in middleware for region-specific CDNs:
 
 ```typescript
-const server = serveSSRProd(buildDir, {
+const server = serveSSRBuilt(buildDir, {
   // Default CDN URL
   CDNBaseURL: 'https://cdn.example.com',
 });
@@ -698,13 +698,13 @@ HTML Template:
 
 ### Create Development SSR Server
 
-Use `serveSSRDev(paths, options)` to run the SSR server in development with Vite middleware and HMR:
+Use `serveSSRWithHMR(sourcePaths, options)` to run the SSR server for development with Vite middleware and HMR:
 
 ```typescript
-import { serveSSRDev } from 'unirend/server';
+import { serveSSRWithHMR } from 'unirend/server';
 
 async function main() {
-  const server = serveSSRDev(
+  const server = serveSSRWithHMR(
     {
       // Required: paths for development mode (no defaults, must be specified)
       serverEntry: './src/EntrySSR.tsx', // Your server entry file
@@ -753,23 +753,23 @@ Notes:
 
 - In dev, Vite serves client assets with middleware and `vite.ssrLoadModule` is used for the server entry.
 - HMR is available. Stack traces are mapped for easier debugging.
-- `publicAppConfig` is injected in both development and production when using `serveSSRDev` or `serveSSRProd`.
+- `publicAppConfig` is injected in both development and production when using `serveSSRWithHMR` or `serveSSRBuilt`.
 - All context globals (`window.__PUBLIC_APP_CONFIG__`, `window.__FRONTEND_REQUEST_CONTEXT__`, `window.__CDN_BASE_URL__`, `window.__DOMAIN_INFO__`) are injected into `<head>` before any of your app scripts, so they are available to inline `<head>` scripts, body scripts, and all module code that runs after page load.
 - `window.__DOMAIN_INFO__` contains `{ hostname, rootDomain }` computed from the request hostname server-side. Access it in components via `useDomainInfo()` (see [Unirend Context](../docs/unirend-context.md)). Useful for setting cookies that span subdomains without hardcoding the domain.
 - **HTML Template**: The `template` path in development mode is fully customizable. Specify any HTML file path (e.g., `./index.html`, `./src/app.html`, etc.). The template is read fresh on each request and transformed by Vite for HMR support.
 
 ### Asset Serving vs Runtime Behavior
 
-`serveSSRDev` and `serveSSRProd` control the **asset serving strategy**, which is how your code is loaded and served:
+`serveSSRWithHMR` and `serveSSRBuilt` control the **asset serving strategy**, which is how your code is loaded and served:
 
-- **`serveSSRDev`**: Uses Vite middleware with HMR. Source files are transformed on-the-fly, and changes are hot-reloaded in the browser. Server entry is loaded via `vite.ssrLoadModule`.
-- **`serveSSRProd`**: Serves pre-built assets from disk. Server entry is loaded from the Vite server manifest. Fingerprinted assets (e.g. `main.CTpDmzGw.js`) get immutable cache headers, other static files do not.
+- **`serveSSRWithHMR`**: Uses Vite middleware with HMR. Source files are transformed on-the-fly, and changes are hot-reloaded in the browser. Server entry is loaded via `vite.ssrLoadModule`.
+- **`serveSSRBuilt`**: Serves pre-built assets from disk. Server entry is loaded from the Vite server manifest. Fingerprinted assets (e.g. `main.CTpDmzGw.js`) get immutable cache headers, other static files do not.
 
 This is separate from **runtime behavior** controlled by `initDevMode()` / `getDevMode()`:
 
 - **Runtime behavior**: Whether detailed error messages (stack traces, error details) are shown to users, using debug logging, etc.
 
-These two concepts are **orthogonal**. You _in theory_ could run `serveSSRProd` (serving built assets) while `initDevMode(true)` shows verbose errors, which is useful for staging environments. Or run `serveSSRDev` (with HMR) while treating errors as production-safe.
+These two concepts are **orthogonal**. You _in theory_ could run `serveSSRBuilt` (serving built assets) while `initDevMode(true)` shows verbose errors, which is useful for staging environments. Or run `serveSSRWithHMR` (using Vite dev server) while treating errors as production-safe.
 
 In practice, you'll usually pair them: dev asset serving with dev runtime, and prod asset serving with prod runtime. But the separation lets you mix and match when needed.
 
@@ -777,10 +777,10 @@ See [Dev Mode](./dev-mode.md) for full details on `initDevMode()` and `getDevMod
 
 ### Organization Suggestion
 
-Since your project will most likely use both `serveSSRDev` and `serveSSRProd`, consider these options:
+Since your project will most likely use both `serveSSRWithHMR` and `serveSSRBuilt`, consider these options:
 
-- Single entry script that switches on an env/arg (dev vs prod) and calls `serveSSRDev` or `serveSSRProd`.
-- Separate scripts (e.g., `serve-dev.ts` and `serve-prod.ts`).
+- Single entry script that switches on an env/arg (dev vs prod) and calls `serveSSRWithHMR` or `serveSSRBuilt`.
+- Separate scripts (e.g., `serve-hmr.ts` and `serve-prod.ts`).
 - For production binaries, you can bundle your server script with a tool like Bun:
   - `bun build server.ts --outdir build/serve --external vite` and `bun run build/serve/server.js`
   - To run the Bun bundle under Node, add the target flag and start with Node:
@@ -788,7 +788,7 @@ Since your project will most likely use both `serveSSRDev` and `serveSSRProd`, c
 
 Always include `--external vite` when bundling your server entry with `bun build`. Vite lazily imports `esbuild` at runtime, which Bun's bundler cannot statically resolve. Keeping Vite external avoids a build error.
 
-See a complete example with plugins and data handler registration in `demos/ssr/server/ssr-component.ts`. The demo uses thin entry files, `demos/ssr/serve-dev.ts` for HMR mode and `demos/ssr/serve-built.ts` for built mode, which both call into `demos/ssr/server/start.ts`.
+See a complete example with plugins and data handler registration in `demos/ssr/server/ssr-component.ts`. The demo uses thin entry files, `demos/ssr/serve-hmr.ts` for HMR mode and `demos/ssr/serve-built.ts` for built mode, which both call into `demos/ssr/server/start.ts`.
 
 Recommendation: Use Bun for simplicity (dev runs TypeScript directly, prod bundles to JS that can run under Bun or Node). Pure Node alternatives (e.g., `tsc`, `esbuild`, `rollup`, `ts-node`) or vanilla JavaScript are possible but not covered in depth here to keep the setup simple and easy out of the box.
 
@@ -796,8 +796,8 @@ Note: Running SSR servers directly under Bun may stall graceful shutdown in some
 
 ```bash
 # HMR SSR entry
-bun build serve-dev.ts --outfile build/serve/serve-dev.js --target=node --external vite
-SSR_SRC_DIR=$(pwd) node build/serve/serve-dev.js dev
+bun build serve-hmr.ts --outfile build/serve/serve-hmr.js --target=node --external vite
+SSR_SRC_DIR=$(pwd) node build/serve/serve-hmr.js dev
 
 # Built SSR entry
 bun build serve-built.ts --outfile build/serve/serve-built.js --target=node --external vite
@@ -808,13 +808,13 @@ When bundling this way, `__dirname` resolves to the build output directory, not 
 
 ### SSRServer Class
 
-The `SSRServer` class powers both dev and prod servers created via `serveSSRDev` (dev) or `serveSSRProd` (prod), which passes the proper configuration.
+The `SSRServer` class powers both dev and prod servers created via `serveSSRWithHMR` (dev) or `serveSSRBuilt` (prod), which passes the proper configuration.
 
 ### Construction
 
-- Dev: `serveSSRDev({ serverEntry, template, viteConfig }, options)`
+- HMR Dev Server: `serveSSRWithHMR({ serverEntry, template, viteConfig }, options)`
   - Uses Vite middleware and `vite.ssrLoadModule` for HMR.
-- Prod: `serveSSRProd(buildDir, options)`
+- Built Assets (intended for production deployment): `serveSSRBuilt(buildDir, options)`
   - Loads server entry from the Vite server manifest in `buildDir/<serverFolderName>`.
 
 ### SSR Options
@@ -861,7 +861,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
   - Only affects absolute paths starting with `/` (e.g., `/assets/main.js` becomes `https://cdn.example.com/assets/main.js`).
   - **Runtime flexibility**: During template processing, absolute URLs are converted to placeholders. The actual CDN URL is injected per-request, allowing:
     - **Per-request override**: Set `request.CDNBaseURL` in middleware to override the CDN URL for specific requests (e.g., region-specific CDNs)
-    - **App-level default**: Falls back to the `CDNBaseURL` option configured in `serveSSRProd()` or `registerProdApp()`
+    - **App-level default**: Falls back to the `CDNBaseURL` option configured in `serveSSRBuilt()` or `registerBuiltApp()`
     - **No CDN**: If neither is set, original `/assets/...` paths are preserved
   - The resolved value is available as `request.CDNBaseURL` before SSR `preHandler` hooks, route handlers, SSR render, and custom 500 pages run. API servers do not set this field.
   - The effective CDN URL is also available to frontend code:
@@ -872,7 +872,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
         typeof window !== 'undefined' ? window.__CDN_BASE_URL__ : undefined;
       ```
   - Useful for serving assets from a CDN without build-time configuration changes.
-  - Tip: Set via environment variable (e.g., `CDNBaseURL: process.env.CDN_BASE_URL`) in `serveSSRProd()` or `registerProdApp()` options for deployment flexibility, or override per-request in middleware for region-specific CDN selection.
+  - Tip: Set via environment variable (e.g., `CDNBaseURL: process.env.CDN_BASE_URL`) in `serveSSRBuilt()` or `registerBuiltApp()` options for deployment flexibility, or override per-request in middleware for region-specific CDN selection.
 - `staticContentRouter?: StaticContentRouterOptions | false`
   - Serves static assets (images, CSS, JS) in production. Not related to React Router’s StaticRouter.
   - Set to `false` to disable built‑in static serving (e.g., when using a CDN).
@@ -913,7 +913,7 @@ Unirend forwards a curated set of headers and supports configurable cookie forwa
   - Configure via `cookieForwarding` in the SSR options (dev and prod):
 
     ```ts
-    // serveSSRDev(paths, options) or serveSSRProd(buildDir, options)
+    // serveSSRWithHMR(sourcePaths, options) or serveSSRBuilt(buildDir, options)
     {
       cookieForwarding: {
         // If both are empty/undefined: allow all cookies
@@ -1245,7 +1245,7 @@ To use cookies, register the `cookies` plugin (see [cookies plugin docs](./built
 ```typescript
 import { cookies } from 'unirend/plugins';
 
-const server = serveSSRDev(paths, {
+const server = serveSSRWithHMR(sourcePaths, {
   plugins: [cookies({ secret: process.env.COOKIE_SECRET })],
 });
 
@@ -1461,22 +1461,22 @@ A single `SSRServer` instance can serve **multiple distinct React applications**
 
 ### Monorepo Structure Tip
 
-A common pattern is to give each app its own source folder with its `EntrySSR`, `EntryClient`, components, assets, and Vite config, with `serve.ts` living alongside the default app's source. Build `serve.ts` to `build/serve/` and each app into its own sub-folder within `build/`, then register the additional apps via `registerProdApp()` (or `registerDevApp()` for dev).
+A common pattern is to give each app its own source folder with its `EntrySSR`, `EntryClient`, components, assets, and Vite config, with `serve.ts` living alongside the default app's source. Build `serve.ts` to `build/serve/` and each app into its own sub-folder within `build/`, then register the additional apps via `registerBuiltApp()` (or `registerHMRApp()` for dev).
 
 ### Usage Example
 
 #### Production Mode
 
 ```typescript
-import { serveSSRProd } from 'unirend/server';
+import { serveSSRBuilt } from 'unirend/server';
 
 // Create server with default app
-const server = serveSSRProd('./build-main', {
+const server = serveSSRBuilt('./build-main', {
   publicAppConfig: { api_endpoint: 'https://api.example.com' },
 });
 
-// Register additional apps - each supports the same options as serveSSRProd()
-server.registerProdApp('marketing', './build-marketing', {
+// Register additional apps - each supports app-specific options (excluding server-wide settings like port/host)
+server.registerBuiltApp('marketing', './build-marketing', {
   // App-specific frontend config (injected into client)
   publicAppConfig: { api_endpoint: 'https://marketing-api.example.com' },
 
@@ -1528,9 +1528,9 @@ await server.listen(3000);
 #### Development Mode
 
 ```typescript
-import { serveSSRDev } from 'unirend/server';
+import { serveSSRWithHMR } from 'unirend/server';
 
-const server = serveSSRDev(
+const server = serveSSRWithHMR(
   {
     serverEntry: './src/EntrySSR.tsx',
     template: './index.html',
@@ -1541,8 +1541,8 @@ const server = serveSSRDev(
   },
 );
 
-// Register additional apps - each supports the same options as serveSSRDev()
-server.registerDevApp(
+// Register additional apps - each supports app-specific options (excluding server-wide settings like port/host)
+server.registerHMRApp(
   'marketing',
   {
     serverEntry: './src/marketing/EntrySSR.tsx',
@@ -1579,21 +1579,21 @@ await server.listen(3000);
 
 ### API Reference
 
-**registerProdApp(appKey, buildDir, options?)**
+**registerBuiltApp(appKey, buildDir, options?)**
 
 Register an additional production-mode app. Must be called **before** `listen()`.
 
 - `appKey`: Unique identifier selected per request with `request.setActiveSSRApp(appKey)` and readable from `request.activeSSRApp`. Cannot be `"__default__"` or contain path separators.
 - `buildDir`: Path to the app's build directory
-- `options`: Same options as `serveSSRProd()` (e.g., `publicAppConfig`, `staticContentRouter`, etc.)
+- `options`: App-specific built options (subset of `serveSSRBuilt()` options, excluding server-wide settings like `port`, `host`, `logging`, etc.)
 
-**registerDevApp(appKey, paths, options?)**
+**registerHMRApp(appKey, sourcePaths, options?)**
 
 Register an additional development-mode app. Must be called **before** `listen()`.
 
 - `appKey`: Unique identifier selected per request with `request.setActiveSSRApp(appKey)` and readable from `request.activeSSRApp`. Cannot be `"__default__"` or contain path separators.
-- `paths`: Dev paths object (same as `serveSSRDev()`)
-- `options`: Same options as `serveSSRDev()` (e.g., `publicAppConfig`, etc.)
+- `sourcePaths`: Dev source paths object (same as `serveSSRWithHMR()`)
+- `options`: App-specific HMR options (subset of `serveSSRWithHMR()` options, excluding server-wide settings like `port`, `host`, `logging`, etc.)
 
 **Static Content Defaults (Production Only)**
 
@@ -1676,8 +1676,8 @@ server.fastifyInstance.addHook('onRequest', async (request, reply) => {
 
 #### Mode Enforcement
 
-- Production servers (via `serveSSRProd`) can only register production apps with `registerProdApp()`
-- Development servers (via `serveSSRDev`) can only register development apps with `registerDevApp()`
+- Production servers (via `serveSSRBuilt`) can only register production apps with `registerBuiltApp()`
+- Development servers (via `serveSSRWithHMR`) can only register development apps with `registerHMRApp()`
 - This prevents mode mixing and simplifies deployment
 
 #### Shared Resources
@@ -2010,12 +2010,12 @@ This means all your API endpoints (including versioned ones under `/api/v1/`, `/
 Both `SSRServer` and `APIServer` support graceful shutdown via the `stop()` method. In production, you should handle process signals to cleanly shut down the server:
 
 ```typescript
-import { serveSSRProd } from 'unirend/server';
+import { serveSSRBuilt } from 'unirend/server';
 import type { SSRServer } from 'unirend/server';
 let server: SSRServer | null = null;
 
 async function main() {
-  server = serveSSRProd('./build', {
+  server = serveSSRBuilt('./build', {
     /* options */
   });
 

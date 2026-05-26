@@ -1,6 +1,6 @@
 # HTTPS Configuration
 
-Both `SSRServer` (via `serveSSRDev`/`serveSSRProd`) and `APIServer` (via `serveAPI`) provide first-class HTTPS support with certificate files and SNI callback for dynamic certificate selection.
+Both `SSRServer` (via `serveSSRWithHMR`/`serveSSRBuilt`) and `APIServer` (via `serveAPI`) provide first-class HTTPS support with certificate files and SNI callback for dynamic certificate selection.
 
 <!-- toc -->
 
@@ -16,9 +16,9 @@ Both `SSRServer` (via `serveSSRDev`/`serveSSRProd`) and `APIServer` (via `serveA
 Add HTTPS configuration to your server options:
 
 ```typescript
-import { serveSSRProd } from 'unirend/server';
+import { serveSSRBuilt } from 'unirend/server';
 
-const server = serveSSRProd('./build', {
+const server = serveSSRBuilt('./build', {
   https: {
     key: privateKey, // string | Buffer - Your private key in PEM format
     cert: certificate, // string | Buffer - Your certificate in PEM format
@@ -54,10 +54,10 @@ For applications serving multiple domains with different certificates (e.g., mul
 > **⚠️ Runtime Compatibility:** SNI callbacks are fully supported in **Node.js**. **Bun** currently only supports static `tls.serverName` and does not support dynamic SNI callbacks ([bun#14395](https://github.com/oven-sh/bun/issues/14395)). If you need multi-domain HTTPS with dynamic certificate selection, target Node.js for production deployments. You can still use Bun for development, testing, and build tooling.
 
 ```typescript
-import { serveSSRProd } from 'unirend/server';
+import { serveSSRBuilt } from 'unirend/server';
 import { createSecureContext } from 'tls';
 
-const server = serveSSRProd('./build', {
+const server = serveSSRBuilt('./build', {
   https: {
     // Default certificate (REQUIRED - acts as universal fallback)
     // Used when: SNI callback errors or unknown domains
@@ -279,18 +279,23 @@ bun run server.ts prod
 
 ```typescript
 import { initDevMode, getDevMode } from 'lifecycleion/dev-mode';
-import { serveSSRDev, serveSSRProd, serveRedirect } from 'unirend/server';
+import { serveSSRWithHMR, serveSSRBuilt, serveRedirect } from 'unirend/server';
 
 initDevMode({ detect: 'cmd' }); // reads "dev" / "prod" from process.argv
 const isDev = getDevMode();
 
 if (isDev) {
-  // Development: serveSSRDev with hot reloading
-  const server = serveSSRDev(buildDir);
+  // Development: serveSSRWithHMR with hot reloading
+  const server = serveSSRWithHMR({
+    serverEntry: './src/EntrySSR.tsx',
+    template: './index.html',
+    viteConfig: './vite.config.ts',
+  });
+
   await server.listen(3000, 'localhost');
 } else {
-  // Production: serveSSRProd with HTTPS + HTTP redirect server
-  const server = serveSSRProd(buildDir, {
+  // Production: serveSSRBuilt with HTTPS + HTTP redirect server
+  const server = serveSSRBuilt(buildDir, {
     https: { key, cert },
   });
   await server.listen(443, '0.0.0.0');
@@ -308,7 +313,7 @@ Add domain validation plugin for additional security and canonical domain enforc
 
 ```typescript
 import { initDevMode, getDevMode } from 'lifecycleion/dev-mode';
-import { serveRedirect, serveSSRProd, serveSSRDev } from 'unirend/server';
+import { serveRedirect, serveSSRBuilt, serveSSRWithHMR } from 'unirend/server';
 import { domainValidation } from 'unirend/plugins';
 
 async function main() {
@@ -316,8 +321,13 @@ async function main() {
   const isDev = getDevMode();
 
   if (isDev) {
-    // Development: serveSSRDev with hot reloading
-    const server = serveSSRDev('./build');
+    // Development: serveSSRWithHMR with hot reloading
+    const server = serveSSRWithHMR({
+      serverEntry: './src/EntrySSR.tsx',
+      template: './index.html',
+      viteConfig: './vite.config.ts',
+    });
+
     await server.listen(3000, 'localhost');
     console.log('✓ Development server running at http://localhost:3000');
   } else {
@@ -332,7 +342,7 @@ async function main() {
     console.log('✓ HTTP redirect server running on port 80');
 
     // Production: Main HTTPS server (port 443)
-    const mainServer = serveSSRProd('./build', {
+    const mainServer = serveSSRBuilt('./build', {
       https: {
         key: privateKey, // string | Buffer - Load your SSL key
         cert: certificate, // string | Buffer - Load your SSL certificate

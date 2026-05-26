@@ -42,12 +42,12 @@ Unirend provides a unified API for handling multipart uploads with streaming lim
 
 **1. Enable file uploads in your server:**
 
-Works with both SSR servers (`serveSSRDev`/`serveSSRProd`) and standalone API servers (`serveAPI`):
+Works with both SSR servers (`serveSSRWithHMR`/`serveSSRBuilt`) and standalone API servers (`serveAPI`):
 
 ```ts
-import { serveSSRDev } from 'unirend/server';
+import { serveSSRWithHMR } from 'unirend/server';
 
-const server = serveSSRDev(paths, {
+const server = serveSSRWithHMR(sourcePaths, {
   fileUploads: {
     enabled: true,
     allowedRoutes: ['/api/v1/upload/*'], // Pre-validation (prevents DoS)
@@ -95,10 +95,10 @@ For detailed configuration and examples, see [Server configuration](#server-conf
 Enable multipart uploads in your server (works with both SSR and standalone API servers):
 
 ```ts
-import { serveSSRDev } from 'unirend/server';
+import { serveSSRWithHMR } from 'unirend/server';
 // Or: import { serveAPI } from 'unirend/server';
 
-const server = serveSSRDev(paths, {
+const server = serveSSRWithHMR(sourcePaths, {
   apiEndpoints: {
     apiEndpointPrefix: '/api',
     versioned: true, // DEFAULT! Routes will be under /api/v1/, /api/v2/, etc.
@@ -334,7 +334,7 @@ You can reject requests _before_ multipart parsing to save bandwidth and work. U
 `preValidation` supports both **synchronous** and **asynchronous** validation functions:
 
 ```ts
-const server = serveSSRDev(paths, {
+const server = serveSSRWithHMR(sourcePaths, {
   fileUploads: {
     enabled: true,
     allowedRoutes: ['/api/upload/*'],

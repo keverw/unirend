@@ -23,13 +23,16 @@ Create a Lifecycleion `Logger` instance, pass it to `UnirendLifecycleionLoggerAd
 
 ```typescript
 import { Logger, ConsoleSink } from 'lifecycleion';
-import { UnirendLifecycleionLoggerAdaptor, serveSSRProd } from 'unirend/server';
+import {
+  UnirendLifecycleionLoggerAdaptor,
+  serveSSRBuilt,
+} from 'unirend/server';
 
 const logger = new Logger({
   sinks: [new ConsoleSink()],
 });
 
-const server = serveSSRProd('./build', {
+const server = serveSSRBuilt('./build', {
   logging: {
     level: 'info',
     logger: UnirendLifecycleionLoggerAdaptor(logger),
@@ -48,7 +51,7 @@ You can pass a `LoggerService` (created via `logger.service(name)`) or an entity
 ```typescript
 const serverLogger = logger.service('Server');
 
-const server = serveSSRProd('./build', {
+const server = serveSSRBuilt('./build', {
   logging: {
     logger: UnirendLifecycleionLoggerAdaptor(serverLogger),
   },

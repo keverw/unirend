@@ -444,7 +444,7 @@ const requestCtx =
     ? window.__FRONTEND_REQUEST_CONTEXT__
     : undefined; // server fallback: not available outside of components on the server
 
-// App-wide config (set via publicAppConfig option in serveSSRDev, serveSSRProd, or generateSSG)
+// App-wide config (set via publicAppConfig option in serveSSRWithHMR, serveSSRBuilt, or generateSSG)
 const appConfig =
   typeof window !== 'undefined' ? window.__PUBLIC_APP_CONFIG__ : undefined; // server fallback: use process.env or your config source directly
 
@@ -547,11 +547,11 @@ export function themePlugin(): ServerPlugin {
 ##### Server Setup
 
 ```typescript
-import { serveSSRProd } from 'unirend/server';
+import { serveSSRBuilt } from 'unirend/server';
 import { cookies } from 'unirend/plugins';
 import { themePlugin } from './theme-plugin';
 
-const server = serveSSRProd({
+const server = serveSSRBuilt('./build', {
   // ... other options
   plugins: [cookies(), themePlugin()],
 });
@@ -911,7 +911,7 @@ function csrfPlugin(): ServerPlugin {
 }
 
 // Register the plugin in your server setup
-const server = serveSSRProd({
+const server = serveSSRBuilt('./build', {
   // ... other options
   plugins: [session(), csrfPlugin()],
 });

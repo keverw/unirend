@@ -12,7 +12,7 @@ describe('closeAllConnections()', () => {
   it('is a no-op for SSR before the server starts', () => {
     const server = new SSRServer({
       mode: 'development',
-      paths: {
+      sourcePaths: {
         serverEntry: './src/EntrySSR.tsx',
         template: './index.html',
         viteConfig: './vite.config.ts',
@@ -55,7 +55,7 @@ describe('closeAllConnections()', () => {
   it('also terminates Vite HMR clients in SSR development mode', () => {
     const server = new SSRServer({
       mode: 'development',
-      paths: {
+      sourcePaths: {
         serverEntry: './src/EntrySSR.tsx',
         template: './index.html',
         viteConfig: './vite.config.ts',
@@ -96,7 +96,7 @@ describe('closeAllConnections()', () => {
       [
         '__default__',
         {
-          paths: {
+          sourcePaths: {
             serverEntry: './src/EntrySSR.tsx',
             template: './index.html',
             viteConfig: './vite.config.ts',
@@ -132,7 +132,7 @@ describe('SSRServer.stop()', () => {
   it('marks the server stopped when Vite fully closes after pre-close warnings', async () => {
     const server = new SSRServer({
       mode: 'development',
-      paths: {
+      sourcePaths: {
         serverEntry: './src/EntrySSR.tsx',
         template: './index.html',
         viteConfig: './vite.config.ts',
@@ -166,7 +166,7 @@ describe('SSRServer.stop()', () => {
     };
 
     const appConfig = {
-      paths: {
+      sourcePaths: {
         serverEntry: './src/EntrySSR.tsx',
         template: './index.html',
         viteConfig: './vite.config.ts',

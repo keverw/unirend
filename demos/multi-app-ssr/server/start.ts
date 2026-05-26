@@ -1,5 +1,5 @@
 // App factory — creates and starts the full multi-app SSR server lifecycle.
-// Used by both serve-dev.ts (HMR) and serve-built.ts (pre-built assets).
+// Used by both serve-hmr.ts (HMR) and serve-built.ts (pre-built assets).
 //
 // ServerMode ('hmr' vs 'built') controls asset serving.
 // initDevMode controls runtime behavior (logging verbosity, error detail, etc.)
