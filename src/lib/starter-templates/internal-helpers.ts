@@ -51,19 +51,25 @@ export function addProjectToRepo(
 
 /**
  * Options for ensureBaseFiles function
- * Inherits package.json options, plus template-specific .gitignore entries:
+ * Inherits package.json options, plus template-specific ignore entries:
  * - log: Logger function
  * - templateScripts: Template-specific scripts
  * - templateDependencies: Template-specific dependencies
  * - templateDevDependencies: Template-specific devDependencies
  * - templateGitignoreSectionHeader: Header for template-specific .gitignore entries
  * - templateGitignoreEntries: Template-specific .gitignore entries
+ * - templatePrettierignoreSectionHeader: Header for template-specific .prettierignore entries
+ * - templatePrettierignoreEntries: Template-specific .prettierignore entries
  */
 export type EnsureBaseFilesOptions = EnsurePackageJSONOptions & {
   /** Header for template-specific .gitignore entries */
   templateGitignoreSectionHeader?: string;
   /** Template-specific .gitignore entries to append if missing */
   templateGitignoreEntries?: string[];
+  /** Header for template-specific .prettierignore entries */
+  templatePrettierignoreSectionHeader?: string;
+  /** Template-specific .prettierignore entries to append if missing */
+  templatePrettierignoreEntries?: string[];
   /** Template-specific cspell words to append/merge */
   templateCspellWords?: string[];
 };
@@ -71,7 +77,7 @@ export type EnsureBaseFilesOptions = EnsurePackageJSONOptions & {
 /**
  * Ensure base repo files exist at the workspace root.
  * Creates standard configuration files (.gitignore, package.json, tsconfig.json, .editorconfig, prettier.config.js, etc.)
- * Most files are only created if missing, package.json is updated to ensure required fields exist.
+ * Most files are only created if missing; configuration files like package.json, cspell.json, VS Code settings, .gitignore, and .prettierignore are updated/merged to ensure recommended setups exist.
  *
  * @throws {Error} If any file creation/update fails
  */
@@ -82,7 +88,7 @@ export async function ensureBaseFiles(
 ): Promise<void> {
   // Each separate helper function will throw on error, allowing errors to propagate to the caller
 
-  // Ensure .gitignore exists first (only creates if missing)
+  // Ensure .gitignore exists (creates or updates with missing template entries)
   await ensureGitignore(repoRoot, {
     log: options?.log,
     templateSectionHeader: options?.templateGitignoreSectionHeader,
@@ -123,8 +129,12 @@ export async function ensureBaseFiles(
   // Ensure prettier.config.js exists (only creates if missing)
   await ensurePrettierConfig(repoRoot, options?.log);
 
-  // Ensure .prettierignore exists (only creates if missing)
-  await ensurePrettierIgnore(repoRoot, options?.log);
+  // Ensure .prettierignore exists (creates or updates with missing template entries)
+  await ensurePrettierIgnore(repoRoot, {
+    log: options?.log,
+    templateSectionHeader: options?.templatePrettierignoreSectionHeader,
+    templateEntries: options?.templatePrettierignoreEntries,
+  });
 
   // Ensure eslint.config.js exists (only creates if missing)
   await ensureEslintConfig(repoRoot, options?.log);
@@ -159,6 +169,10 @@ export interface TemplateConfig {
   gitignoreEntries?: string[];
   /** Header for template-specific .gitignore entries */
   gitignoreSectionHeader?: string;
+  /** Template-specific .prettierignore entries */
+  prettierignoreEntries?: string[];
+  /** Header for template-specific .prettierignore entries */
+  prettierignoreSectionHeader?: string;
   /** Template-specific cspell words to merge */
   cspellWords?: string[];
 }

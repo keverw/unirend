@@ -1,0 +1,267 @@
+import { describe, expect, test } from 'bun:test';
+import { mkdir, mkdtemp, rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { ensurePrettierIgnore } from './ensure-prettier-ignore';
+import type { InMemoryDir } from '../vfs';
+import type { LogLevel } from '../types';
+
+const defaultPrettierIgnoreSrc = `# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules
+
+# Package manager lockfiles
+# This project uses Bun - ignore npm/yarn/pnpm lockfiles to avoid confusion
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+# Ignore Bun's binary lockfile (bun.lock JSON format is preferred and should be committed)
+bun.lockb
+
+# Environment variables
+# Keep secrets out of source control! Document required variables in README or create .env.example
+*.local
+.env
+.env.local
+.env.*.local
+
+# AI Development Tools
+# Claude Code local settings (personal preferences not shared with team)
+.claude/**/*.local*
+
+# Build outputs
+dist/
+build/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+.eslintcache
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Temporary files
+tmp/`;
+
+describe('ensurePrettierIgnore', () => {
+  const createLog = (): Array<{ level: LogLevel; message: string }> => [];
+
+  test('creates .prettierignore with default entries', async () => {
+    const memRoot: InMemoryDir = {};
+
+    await ensurePrettierIgnore(memRoot);
+
+    expect(memRoot['.prettierignore']).toBe(defaultPrettierIgnoreSrc);
+  });
+
+  test('logs when creating .prettierignore', async () => {
+    const memRoot: InMemoryDir = {};
+    const logs = createLog();
+
+    await ensurePrettierIgnore(memRoot, {
+      log: (level, message) => logs.push({ level, message }),
+    });
+
+    expect(logs).toEqual([
+      { level: 'info', message: 'Created repo root .prettierignore' },
+    ]);
+  });
+
+  test('creates .prettierignore with template-specific entries', async () => {
+    const memRoot: InMemoryDir = {};
+
+    await ensurePrettierIgnore(memRoot, {
+      templateEntries: ['.unirend-ssg.json', 'public/generated/'],
+    });
+
+    expect(memRoot['.prettierignore']).toBe(
+      `${defaultPrettierIgnoreSrc}\n\n# Template-specific\n.unirend-ssg.json\npublic/generated/`,
+    );
+  });
+
+  test('appends missing template-specific entries to an existing .prettierignore', async () => {
+    const memRoot: InMemoryDir = {
+      '.prettierignore': 'node_modules\n',
+    };
+
+    await ensurePrettierIgnore(memRoot, {
+      templateEntries: ['.unirend-ssg.json'],
+    });
+
+    expect(memRoot['.prettierignore']).toBe(
+      'node_modules\n\n# Template-specific\n.unirend-ssg.json',
+    );
+  });
+
+  test('adds a blank line before a new template section', async () => {
+    const memRoot: InMemoryDir = {
+      '.prettierignore': '# Local files\n.env.local',
+    };
+
+    await ensurePrettierIgnore(memRoot, {
+      templateEntries: ['public/generated/'],
+    });
+
+    expect(memRoot['.prettierignore']).toBe(
+      '# Local files\n.env.local\n\n# Template-specific\npublic/generated/',
+    );
+  });
+
+  test('does not duplicate existing entries', async () => {
+    const memRoot: InMemoryDir = {
+      '.prettierignore': 'node_modules\n.unirend-ssg.json\n',
+    };
+
+    await ensurePrettierIgnore(memRoot, {
+      templateEntries: ['.unirend-ssg.json'],
+    });
+
+    expect(memRoot['.prettierignore']).toBe(
+      'node_modules\n.unirend-ssg.json\n',
+    );
+  });
+
+  test('leaves an existing .prettierignore unchanged when no template entries are provided', async () => {
+    const memRoot: InMemoryDir = {
+      '.prettierignore': 'node_modules\n',
+    };
+
+    await ensurePrettierIgnore(memRoot);
+
+    expect(memRoot['.prettierignore']).toBe('node_modules\n');
+  });
+
+  test('does not duplicate the template-specific header', async () => {
+    const memRoot: InMemoryDir = {
+      '.prettierignore':
+        'node_modules\n\n# Template-specific\n.unirend-ssg.json\n',
+    };
+
+    await ensurePrettierIgnore(memRoot, {
+      templateEntries: ['public/generated/'],
+    });
+
+    expect(memRoot['.prettierignore']).toBe(
+      'node_modules\n\n# Template-specific\n.unirend-ssg.json\npublic/generated/',
+    );
+  });
+
+  test('logs when updating .prettierignore with missing template entries', async () => {
+    const memRoot: InMemoryDir = {
+      '.prettierignore': 'node_modules\n',
+    };
+    const logs = createLog();
+
+    await ensurePrettierIgnore(memRoot, {
+      log: (level, message) => logs.push({ level, message }),
+      templateEntries: ['.unirend-ssg.json'],
+    });
+
+    expect(logs).toEqual([
+      {
+        level: 'info',
+        message: 'Updated repo root .prettierignore (added template entries)',
+      },
+    ]);
+  });
+
+  test('groups new entries under an existing template-specific header', async () => {
+    const memRoot: InMemoryDir = {
+      '.prettierignore':
+        'node_modules\n\n# Template-specific\n.unirend-ssg.json\n\n# Build outputs\ndist/\n',
+    };
+
+    await ensurePrettierIgnore(memRoot, {
+      templateEntries: ['public/generated/'],
+    });
+
+    expect(memRoot['.prettierignore']).toBe(
+      'node_modules\n\n# Template-specific\n.unirend-ssg.json\npublic/generated/\n\n# Build outputs\ndist/',
+    );
+  });
+
+  test('groups new entries before the next header when there is no blank line', async () => {
+    const memRoot: InMemoryDir = {
+      '.prettierignore':
+        'node_modules\n\n# Template-specific\n.unirend-ssg.json\n# Build outputs\ndist/\n',
+    };
+
+    await ensurePrettierIgnore(memRoot, {
+      templateEntries: ['public/generated/'],
+    });
+
+    expect(memRoot['.prettierignore']).toBe(
+      'node_modules\n\n# Template-specific\n.unirend-ssg.json\npublic/generated/\n\n# Build outputs\ndist/',
+    );
+  });
+
+  test('groups new entries under an empty existing template section', async () => {
+    const memRoot: InMemoryDir = {
+      '.prettierignore':
+        'node_modules\n\n# Template-specific\n# Build outputs\ndist/\n',
+    };
+
+    await ensurePrettierIgnore(memRoot, {
+      templateEntries: ['public/generated/'],
+    });
+
+    expect(memRoot['.prettierignore']).toBe(
+      'node_modules\n\n# Template-specific\npublic/generated/\n\n# Build outputs\ndist/',
+    );
+  });
+
+  test('uses a custom template section header', async () => {
+    const memRoot: InMemoryDir = {
+      '.prettierignore':
+        'node_modules\n\n# SSG generated files\n.unirend-ssg.json\n\n# Build outputs\ndist/\n',
+    };
+
+    await ensurePrettierIgnore(memRoot, {
+      templateSectionHeader: '# SSG generated files',
+      templateEntries: ['public/generated/'],
+    });
+
+    expect(memRoot['.prettierignore']).toBe(
+      'node_modules\n\n# SSG generated files\n.unirend-ssg.json\npublic/generated/\n\n# Build outputs\ndist/',
+    );
+  });
+
+  test('wraps read errors when an existing .prettierignore cannot be read as a file', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'unirend-prettierignore-'));
+
+    try {
+      // Put a directory where the helper expects the .prettierignore file. That
+      // reliably makes vfsReadText return a read error instead of ENOENT, so
+      // this exercises the error branch without OS-specific permission setup.
+      await mkdir(join(tempRoot, '.prettierignore'));
+
+      // The helper should keep its public error shape while wrapping the
+      // lower-level filesystem problem.
+      expect(
+        ensurePrettierIgnore(tempRoot, {
+          templateEntries: ['.unirend-ssg.json'],
+        }),
+      ).rejects.toThrow('Failed to ensure .prettierignore');
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+});

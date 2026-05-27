@@ -1,6 +1,7 @@
-import { vfsWriteIfNotExists } from '../vfs';
+import { vfsReadText, vfsWrite } from '../vfs';
 import type { FileRoot } from '../vfs';
 import type { LoggerFunction } from '../types';
+import { appendMissingIgnoreEntries } from '../internal-utils';
 
 // NOTE: Keep this in sync with ensure-gitignore.ts
 // Both .gitignore and .prettierignore should have the same patterns
@@ -59,26 +60,84 @@ Thumbs.db
 # Temporary files
 tmp/`;
 
+const defaultTemplateSectionHeader = '# Template-specific';
+
+export interface EnsurePrettierIgnoreOptions {
+  /** Optional logger function */
+  log?: LoggerFunction;
+  /** Header used for template-specific .prettierignore entries */
+  templateSectionHeader?: string;
+  /** Template-specific .prettierignore entries to append if missing */
+  templateEntries?: string[];
+}
+
 /**
  * Ensure .prettierignore exists at the repo root.
- * Only creates the file if it doesn't exist - never overwrites.
+ * Creates the file if it doesn't exist, and appends template-specific entries
+ * to an existing file when they are missing.
  * @throws {Error} If file creation fails
  */
 export async function ensurePrettierIgnore(
   repoRoot: FileRoot,
-  log?: LoggerFunction,
+  options?: EnsurePrettierIgnoreOptions,
 ): Promise<void> {
+  const templateEntries = options?.templateEntries ?? [];
+  const templateSectionHeader =
+    options?.templateSectionHeader ?? defaultTemplateSectionHeader;
+
   try {
-    const didWrite = await vfsWriteIfNotExists(
-      repoRoot,
-      '.prettierignore',
-      fileSrc,
+    // Read first so the create and update paths are explicit. A missing file is
+    // the normal creation path, while other read problems are surfaced.
+    const existing = await vfsReadText(repoRoot, '.prettierignore');
+
+    if (!existing.ok) {
+      if (existing.code !== 'ENOENT') {
+        throw new Error(existing.message ?? existing.code);
+      }
+
+      // New repos get the standard ignore file plus any template-specific
+      // entries in one write.
+      const initialSrc = appendMissingIgnoreEntries(
+        fileSrc,
+        templateSectionHeader,
+        templateEntries,
+      );
+
+      await vfsWrite(repoRoot, '.prettierignore', initialSrc);
+
+      if (options?.log) {
+        options.log('info', 'Created repo root .prettierignore');
+      }
+
+      return;
+    }
+
+    // Existing files do not need to be rewritten unless the template has
+    // additional ignore patterns to merge.
+    if (templateEntries.length === 0) {
+      return;
+    }
+
+    // Append only the missing template entries. appendMissingIgnoreEntries also
+    // handles grouping under an existing custom/default section header.
+    const updated = appendMissingIgnoreEntries(
+      existing.text,
+      templateSectionHeader,
+      templateEntries,
     );
 
-    if (didWrite && log) {
-      log('info', 'Created repo root .prettierignore');
+    if (updated !== existing.text) {
+      await vfsWrite(repoRoot, '.prettierignore', updated);
+
+      if (options?.log) {
+        options.log(
+          'info',
+          'Updated repo root .prettierignore (added template entries)',
+        );
+      }
     }
   } catch (error) {
+    // Keep callers insulated from the exact VFS/filesystem error shape.
     const errorMessage = error instanceof Error ? error.message : String(error);
     throw new Error(`Failed to ensure .prettierignore: ${errorMessage}`);
   }

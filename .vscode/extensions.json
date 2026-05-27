@@ -1,0 +1,11 @@
+{
+  "recommendations": [
+    "Gruntfuggly.todo-tree",
+    "bradlc.vscode-tailwindcss",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "firsttris.vscode-jest-runner",
+    "jmbeach.list-symbols",
+    "streetsidesoftware.code-spell-checker"
+  ]
+}

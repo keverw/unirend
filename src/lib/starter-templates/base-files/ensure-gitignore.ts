@@ -1,6 +1,7 @@
 import { vfsReadText, vfsWrite } from '../vfs';
 import type { FileRoot } from '../vfs';
 import type { LoggerFunction } from '../types';
+import { appendMissingIgnoreEntries } from '../internal-utils';
 
 // NOTE: Keep this in sync with ensure-prettier-ignore.ts
 // Both .gitignore and .prettierignore should have the same patterns
@@ -70,100 +71,6 @@ export interface EnsureGitignoreOptions {
   templateEntries?: string[];
 }
 
-function normalizeEntry(entry: string): string {
-  return entry.trim();
-}
-
-function findTemplateSectionInsertIndex(
-  lines: string[],
-  sectionHeader: string,
-): number | undefined {
-  const headerIndex = lines.findIndex((line) => line.trim() === sectionHeader);
-
-  if (headerIndex === -1) {
-    return undefined;
-  }
-
-  let insertIndex = lines.length;
-
-  // Treat a section as ending at the next comment header. Most generated
-  // .gitignore sections are separated by a blank line, but existing user files
-  // may put headers directly adjacent, so handle both shapes.
-  for (let index = headerIndex + 1; index < lines.length; index += 1) {
-    const currentLine = lines[index]?.trim() ?? '';
-    const nextLine = lines[index + 1]?.trim() ?? '';
-
-    if (currentLine.startsWith('#') && currentLine !== sectionHeader) {
-      insertIndex = index;
-      break;
-    }
-
-    if (
-      currentLine === '' &&
-      nextLine.startsWith('#') &&
-      nextLine !== sectionHeader
-    ) {
-      insertIndex = index;
-      break;
-    }
-  }
-
-  return insertIndex;
-}
-
-function appendMissingEntries(
-  existing: string,
-  sectionHeader: string,
-  entries: string[],
-): string {
-  // Normalize caller-provided entries so whitespace-only differences do not
-  // create duplicate ignore patterns.
-  const normalizedEntries = entries.map(normalizeEntry).filter(Boolean);
-
-  if (normalizedEntries.length === 0) {
-    return existing;
-  }
-
-  // Dedup against the whole file, not only this template section. If a user
-  // already ignores the path somewhere else, leave their grouping untouched.
-  const existingEntries = new Set(
-    existing.split(/\r?\n/).map(normalizeEntry).filter(Boolean),
-  );
-
-  const missingEntries = normalizedEntries.filter(
-    (entry) => !existingEntries.has(entry),
-  );
-
-  if (missingEntries.length === 0) {
-    return existing;
-  }
-
-  // Work with a trimmed line list for insertion. This removes trailing blank
-  // lines so new entries land in the section body instead of after file-end
-  // whitespace, then split on either Unix or Windows line endings.
-  const lines = existing.replace(/\s*$/, '').split(/\r?\n/);
-  const insertIndex = findTemplateSectionInsertIndex(lines, sectionHeader);
-
-  // Reuse the existing section when present, rather than creating another
-  // section with the same header at the end of the file.
-  if (insertIndex !== undefined) {
-    lines.splice(insertIndex, 0, ...missingEntries);
-
-    // If inserting directly before the next section header, keep sections
-    // visually separated even when the original file omitted the blank line.
-    if (lines[insertIndex + missingEntries.length]?.trim().startsWith('#')) {
-      lines.splice(insertIndex + missingEntries.length, 0, '');
-    }
-
-    return lines.join('\n');
-  }
-
-  const trimmedEnd = existing.replace(/\s*$/, '');
-  const prefix = trimmedEnd.length > 0 ? `${trimmedEnd}\n\n` : '';
-
-  return `${prefix}${sectionHeader}\n${missingEntries.join('\n')}`;
-}
-
 /**
  * Ensure .gitignore exists at the repo root.
  * Creates the file if it doesn't exist, and appends template-specific entries
@@ -190,7 +97,7 @@ export async function ensureGitignore(
 
       // New repos get the standard ignore file plus any template-specific
       // entries in one write.
-      const initialSrc = appendMissingEntries(
+      const initialSrc = appendMissingIgnoreEntries(
         fileSrc,
         templateSectionHeader,
         templateEntries,
@@ -211,9 +118,9 @@ export async function ensureGitignore(
       return;
     }
 
-    // Append only the missing template entries. appendMissingEntries also
+    // Append only the missing template entries. appendMissingIgnoreEntries also
     // handles grouping under an existing custom/default section header.
-    const updated = appendMissingEntries(
+    const updated = appendMissingIgnoreEntries(
       existing.text,
       templateSectionHeader,
       templateEntries,
