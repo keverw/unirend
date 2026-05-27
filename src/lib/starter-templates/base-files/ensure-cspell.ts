@@ -21,6 +21,7 @@ const defaultWords = [
   'esbenp',
   'firsttris',
   'Gruntfuggly',
+  'jestrunner',
   'jmbeach',
   'Lifecycleion',
   'treemap',

@@ -11,6 +11,7 @@ describe('ensureCspell', () => {
     'esbenp',
     'firsttris',
     'Gruntfuggly',
+    'jestrunner',
     'jmbeach',
     'Lifecycleion',
     'treemap',
