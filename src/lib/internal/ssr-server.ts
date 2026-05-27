@@ -48,7 +48,8 @@ import {
   registerClientIPDecoration,
 } from './server-utils';
 import { generateDefault500ErrorPage } from './error-page-utils';
-import { StaticContentCache } from './static-content-cache';
+// See comment in static-content-cache.ts — cross-entry import via unirend/utils.
+import { StaticContentCache } from 'unirend/utils';
 import { staticContentHookHandler } from './static-content-hook';
 import { BaseServer } from './base-server';
 import { DataLoaderServerHandlerHelpers } from './data-loader-server-handler-helpers';

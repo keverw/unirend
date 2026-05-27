@@ -124,10 +124,10 @@ const server = serveSSRBuilt('./build', {
 The plugin works with standalone API servers too:
 
 ```typescript
-import { createAPIServer } from 'unirend/server';
+import { serveAPI } from 'unirend/server';
 import { staticContent } from 'unirend/plugins';
 
-const server = createAPIServer({
+const server = serveAPI({
   plugins: [
     staticContent({
       folderMap: {
@@ -149,8 +149,9 @@ await server.listen(3000);
 You can create a `StaticContentCache` instance externally and pass it to the plugin. This gives you direct access to the cache for runtime updates.
 
 ```typescript
-import { createAPIServer } from 'unirend/server';
-import { staticContent, StaticContentCache } from 'unirend/plugins';
+import { serveAPI } from 'unirend/server';
+import { staticContent } from 'unirend/plugins';
+import { StaticContentCache } from 'unirend/utils';
 
 // Create cache instance externally
 const pagesCache = new StaticContentCache({
@@ -163,7 +164,7 @@ const pagesCache = new StaticContentCache({
   },
 });
 
-const server = createAPIServer({
+const server = serveAPI({
   plugins: [
     // Pass cache instance instead of config
     staticContent(pagesCache, 'pages-handler'),
@@ -201,7 +202,7 @@ When using an external cache, you can update file mappings dynamically without r
 - **Empty objects clear that section**: Passing `singleAssetMap: {}` or `folderMap: {}` removes all mappings from that respective section
 
 ```typescript
-import { StaticContentCache } from 'unirend/plugins';
+import { StaticContentCache } from 'unirend/utils';
 
 const cache = new StaticContentCache({
   singleAssetMap: {
@@ -596,8 +597,9 @@ staticContent({
 For incremental SSG or dynamic content scenarios where you need to update file mappings without restarting the server:
 
 ```typescript
-import { createAPIServer } from 'unirend/server';
-import { staticContent, StaticContentCache } from 'unirend/plugins';
+import { serveAPI } from 'unirend/server';
+import { staticContent } from 'unirend/plugins';
+import { StaticContentCache } from 'unirend/utils';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -627,7 +629,7 @@ const pagesCache = new StaticContentCache({
   positiveCacheTtl: 5 * 60 * 1000, // 5 minutes - pages might be rebuilt
 });
 
-const server = createAPIServer({
+const server = serveAPI({
   plugins: [staticContent(pagesCache, 'pages')],
 });
 

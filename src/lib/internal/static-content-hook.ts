@@ -1,5 +1,9 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import { StaticContentCache } from './static-content-cache';
+// Cross-entry imports of StaticContentCache go through the public `unirend/utils`
+// subpath to preserve a single class identity at runtime and in .d.ts. The internal
+// type-only imports below stay on the relative path since they don't have nominal
+// identity issues.
+import { StaticContentCache } from 'unirend/utils';
 import type {
   StaticContentWarnLoggerObject,
   ServeFileResult,

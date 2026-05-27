@@ -1,3 +1,12 @@
+// IMPORTANT: This module is the canonical source for StaticContentCache. Internal
+// modules in the plugins and server entries import the class via the public
+// `unirend/utils` subpath (mapped to ./src/utils.ts via tsconfig `paths`, and listed
+// in `allExternals` in tsup.config.ts) so that a single class definition lives in the
+// utils bundle and every other entry references it externally. Without this, the
+// class would be duplicated across bundles — and because it has `private` fields
+// (nominal identity in TypeScript) plus runtime `instanceof` checks inside the
+// staticContent() plugin, the duplication would break both type compatibility and
+// `instanceof` against caches constructed via `unirend/utils`.
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { OutgoingHttpHeaders } from 'node:http';
 import fs from 'fs';

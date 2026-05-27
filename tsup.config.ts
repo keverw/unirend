@@ -42,10 +42,18 @@ const getAllDependencies = () => {
 // copies. Unlike plain interfaces which duck type fine, independent copies of a class with
 // predicate methods have different nominal identities and break TypeScript 5.5 strict
 // predicate checking for APIResponseHelpers (via PluginHostInstance → ServerPlugin).
+//
+// 'unirend/utils' is externalized for the same reason: the StaticContentCache class has
+// `private` fields (nominal identity in TypeScript) AND is checked with `instanceof` inside
+// the staticContent() plugin, so cross-entry duplication would break both type compatibility
+// and runtime instanceof. Internal modules import the class via `unirend/utils` (mapped to
+// ./src/utils.ts during typecheck via tsconfig paths) so a single class definition lives
+// in the utils bundle and every other entry imports it externally.
 const allExternals = [
   ...getAllDependencies(),
   'unirend/context',
   'unirend/api-envelope',
+  'unirend/utils',
 ];
 
 // Plugin that redirects ./context imports from UnirendContext/ and UnirendHead/

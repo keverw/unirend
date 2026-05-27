@@ -62,5 +62,6 @@ export function serveRedirect(
 
 export {
   type RedirectServerOptions,
+  type InvalidDomainResponse,
   RedirectServer,
 } from './internal/redirect-server';

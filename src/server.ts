@@ -47,7 +47,10 @@ export type {
   AccessLogResponseContext,
   AccessLogReplyInfo,
 } from './lib/types';
-export type { RedirectServerOptions } from './lib/redirect';
+export type {
+  RedirectServerOptions,
+  InvalidDomainResponse,
+} from './lib/redirect';
 
 // Server-safe constants
 export { SSGConsoleLogger } from './lib/types';

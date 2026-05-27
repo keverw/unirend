@@ -1,6 +1,7 @@
 import { APIServer } from './api-server';
 import { staticContent } from '../built-in-plugins/static-content';
-import { StaticContentCache } from './static-content-cache';
+// See comment in static-content-cache.ts — cross-entry import via unirend/utils.
+import { StaticContentCache } from 'unirend/utils';
 import type {
   StaticWebServerOptions,
   ServerPlugin,

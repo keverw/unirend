@@ -12,7 +12,8 @@
     "forceConsistentCasingInFileNames": true,
     "jsx": "react-jsx",
     "paths": {
-      "unirend/api-envelope": ["./src/api-envelope.ts"]
+      "unirend/api-envelope": ["./src/api-envelope.ts"],
+      "unirend/utils": ["./src/utils.ts"]
     }
   },
   "include": ["src/**/*", "scripts/**/*"],

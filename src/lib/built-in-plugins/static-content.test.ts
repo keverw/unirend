@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
-import { staticContent, StaticContentCache } from './static-content';
+import { staticContent } from './static-content';
 import type { StaticContentRouterOptions } from './static-content';
+import { StaticContentCache } from '../internal/static-content-cache';
 import type { PluginHostInstance, PluginOptions } from '../types';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import fs from 'fs';

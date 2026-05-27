@@ -1,13 +1,14 @@
 import type { ServerPlugin, StaticContentRouterOptions } from '../types';
 import { createStaticContentHook } from '../internal/static-content-hook';
-import { StaticContentCache } from '../internal/static-content-cache';
+// Import via the public `unirend/utils` subpath (mapped to ./src/utils.ts via tsconfig
+// paths) so this entry shares a single StaticContentCache identity with the utils entry.
+// See the import comment in src/lib/internal/static-content-cache.ts for the full rationale.
+import { StaticContentCache } from 'unirend/utils';
 
-// Re-export the options type for convenience
-
-// Also re-export FolderConfig since users will need it for folderMap
+// Re-export the options type and FolderConfig for convenience (users need
+// FolderConfig for folderMap entries). StaticContentCache itself is intentionally
+// not re-exported from this entry — it lives canonically in `unirend/utils`.
 export type { FolderConfig, StaticContentRouterOptions } from '../types';
-
-// Re-export StaticContentCache for external cache management
 
 /**
  * Creates a static content serving plugin that can be used with any Unirend server.
@@ -74,10 +75,10 @@ export type { FolderConfig, StaticContentRouterOptions } from '../types';
  *
  * @example Use on standalone API server
  * ```typescript
- * import { createAPIServer } from 'unirend/server';
+ * import { serveAPI } from 'unirend/server';
  * import { staticContent } from 'unirend/plugins';
  *
- * const server = createAPIServer({
+ * const server = serveAPI({
  *   plugins: [
  *     staticContent({
  *       folderMap: {
@@ -106,7 +107,8 @@ export type { FolderConfig, StaticContentRouterOptions } from '../types';
  *
  * @example Provide external cache for runtime updates
  * ```typescript
- * import { staticContent, StaticContentCache } from 'unirend/plugins';
+ * import { staticContent } from 'unirend/plugins';
+ * import { StaticContentCache } from 'unirend/utils';
  *
  * // Create cache externally for runtime control
  * const cache = new StaticContentCache({
@@ -180,5 +182,3 @@ export function staticContent(
 
   return staticContentPlugin;
 }
-
-export { StaticContentCache } from '../internal/static-content-cache';

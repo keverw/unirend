@@ -1192,7 +1192,7 @@ server.pageDataHandler.register(
 );
 ```
 
-**Important:** HTTP-level redirects (301/302 status codes) are **blocked** by the page data loader using `redirect: 'manual'`. This prevents security issues from following untrusted redirects. Always use the envelope redirect format shown above. See [API Envelope Structure docs](./api-envelope-structure.md#redirects-in-api-responses) for details.
+**Important:** HTTP-level redirects (301/302 status codes) are **blocked** by the page data loader using `redirect: 'manual'`. This prevents security issues from following untrusted redirects. Always use the envelope redirect format shown above. See [API Envelope Structure docs](./api-envelope-structure.md#redirects-in-apipage-responses) for details.
 
 ### Short-Circuit Data Handlers
 
@@ -1399,7 +1399,7 @@ When a session expires and the page data loader redirects to login (via 401 `aut
 ```tsx
 // In your app layout component
 import { useLoaderData } from 'react-router';
-import { useRequestContext } from 'unirend/context';
+import { useRequestContext } from 'unirend/client';
 import { useEffect } from 'react';
 
 function AppLayout() {
