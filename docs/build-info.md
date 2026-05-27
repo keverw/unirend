@@ -70,16 +70,16 @@ Add to `.gitignore` (recommended), since this file is meant to be auto-generated
 current-build-info.ts
 ```
 
-Add to your package.json scripts (run before your prod build as you could import the current build info file to reference in logs or health check endpoints, etc.):
+Add the build-info generator to your `package.json` scripts. Running the generator as the first step in your build process ensures the build info module is generated before any subsequent bundling steps:
 
 ```json
 {
   "scripts": {
-    "build:client": "vite build --outDir build/client --base=/ --ssrManifest",
-    "build:server:ssr": "vite build --outDir build/server --ssr src/EntrySSR.tsx",
-    "build:generate-info": "bun run scripts/generate-build-info.ts",
-    "build:ssr": "bun run build:client && bun run build:server:ssr",
-    "build:prod": "bun run build:generate-info && bun run build:ssr && bun build serve-built.ts --outdir ./dist --external vite"
+    "ssr:build:client": "vite build --outDir build/client --base=/ --ssrManifest",
+    "ssr:build:server": "vite build --outDir build/server --ssr src/EntrySSR.tsx",
+    "ssr:build:serve": "bun build serve-built.ts --outdir ./dist --external vite --define 'IS_BUILT=true'",
+    "generate:build-info": "bun run scripts/generate-build-info.ts",
+    "ssr:build": "bun run generate:build-info && bun run ssr:build:client && bun run ssr:build:server && bun run ssr:build:serve"
   }
 }
 ```
