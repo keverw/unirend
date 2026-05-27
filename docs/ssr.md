@@ -796,11 +796,14 @@ Note: Running SSR servers directly under Bun may stall graceful shutdown in some
 
 ```bash
 # HMR SSR entry
-bun build serve-hmr.ts --outfile build/serve/serve-hmr.js --target=node --external vite
+# Note: --define 'IS_BUILT=false' (to mirror running from source) and --external with the
+# absolute $(pwd) path are required because Bun parses and resolves dynamic imports at
+# build-time even when pruned via IS_BUILT=false.
+bun build serve-hmr.ts --outfile build/serve/serve-hmr.js --target=node --external vite --define 'IS_BUILT=false' --external "$(pwd)/current-build-info.ts"
 SSR_SRC_DIR=$(pwd) node build/serve/serve-hmr.js dev
 
 # Built SSR entry
-bun build serve-built.ts --outfile build/serve/serve-built.js --target=node --external vite
+bun build serve-built.ts --outfile build/serve/serve-built.js --target=node --external vite --define 'IS_BUILT=true'
 node build/serve/serve-built.js prod
 ```
 

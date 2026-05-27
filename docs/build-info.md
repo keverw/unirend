@@ -7,6 +7,7 @@ This guide covers generating and loading build information (version, git hash/br
 - [What's Included?](#whats-included)
 - [Generate Build Info (Pre-Build)](#generate-build-info-pre-build)
 - [Load Build Info (Runtime)](#load-build-info-runtime)
+  - [Bundler Configuration](#bundler-configuration)
   - [Complete Example: SSR Server + publicAppConfig](#complete-example-ssr-server--publicappconfig)
   - [Plugin Pattern: For Non-Public Server State](#plugin-pattern-for-non-public-server-state)
 
@@ -91,15 +92,15 @@ Notes:
 
 ## Load Build Info (Runtime)
 
-Use the loader to safely read the generated TypeScript module (`current-build-info.ts`) when running from a built artifact, and a default in development:
+Use the loader to safely read the generated TypeScript module (`current-build-info.ts`) when running from a built artifact, and a default in development.
+
+The recommended pattern is to check for a compile-time constant (e.g. `IS_BUILT`) injected at bundle time via a bundler (such as `bun build --define 'IS_BUILT=true|false'`). When running directly from source (where no bundler is involved), the check falls back safely to `false` because `IS_BUILT` is undefined:
 
 ```ts
 import { loadBuildInfo } from 'unirend/build-info';
 
-// Use whatever signal tracks whether you ran the build (e.g. a mode enum, CLI arg,
-// or env var). Do NOT use a runtime dev-mode flag — you can serve a built artifact
-// in dev mode, and HMR mode never generates current-build-info.ts regardless.
-const isBuilt = mode === 'built'; // 'built' | 'hmr'
+// @ts-expect-error IS_BUILT is a build-time constant injected via bun build --define; not declared in TypeScript source
+const isBuilt = typeof IS_BUILT !== 'undefined' && IS_BUILT === true;
 
 const { info } = await loadBuildInfo(
   isBuilt,
@@ -108,6 +109,25 @@ const { info } = await loadBuildInfo(
 
 // info: BuildInfo
 ```
+
+### Bundler Configuration
+
+If you compile your server code using `bun build`, Bun resolves and bundles all dynamic imports at build time, regardless of whether the conditional branch is executed at runtime. Without a defined external or compile-time pruning, compiling a file that imports `current-build-info.ts` will fail if that file is missing (which is typical during initial development or on fresh checkouts).
+
+To handle this, define `IS_BUILT` and mark the import as external when compiling for development:
+
+- **Production build** (`ssr:build:serve`):
+  ```bash
+  bun build server.ts --outdir ./dist --external vite --define 'IS_BUILT=true'
+  ```
+- **Dev-node build** (if bundling for dev mode under Node, e.g., to work around WebSocket close bugs):
+  ```bash
+  bun build server.ts --outfile build/serve-hmr.js --target=node --external vite --define 'IS_BUILT=false' --external "$(pwd)/current-build-info.ts"
+  ```
+  > [!IMPORTANT]
+  > The `--external` dynamic import exclusion requires an **absolute path** match because Bun resolves imports to their absolute paths before checking the external list. Using `$(pwd)/...` ensures the resolved absolute path matches.
+- **From source** (running directly under Bun without bundling, e.g., `ssr:serve:dev`):
+  No bundler is involved, so `IS_BUILT` is undefined at runtime, `isBuilt` resolves to `mode === 'built'` (falls back to `false` in HMR), and `loadBuildInfo` safely falls back to defaults without attempting the import.
 
 **Load Statuses:**
 
@@ -142,8 +162,11 @@ async function main(mode: Mode) {
   // Load build info before branching so it can feed shared config.
   // In HMR mode current-build-info.ts doesn't exist; loadBuildInfo skips the
   // import and returns DEFAULT_BUILD_INFO.
+  // @ts-expect-error IS_BUILT is a build-time constant injected via bun build --define; not declared in TypeScript source
+  const isBuilt = typeof IS_BUILT !== 'undefined' && IS_BUILT === true;
+
   const buildResult = await loadBuildInfo(
-    mode === 'built',
+    isBuilt,
     () => import('./current-build-info.ts'),
   );
 

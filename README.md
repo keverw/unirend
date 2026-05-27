@@ -268,7 +268,8 @@ Add these scripts to your `package.json` for both SSG and SSR workflows. The exa
     // For SSR:
     "ssr:build:server": "vite build --outDir build/server --ssr src/EntrySSR.tsx",
     "ssr:build": "bun run build:client && bun run ssr:build:server",
-    "ssr:serve:hmr": "bun run serve-hmr.ts dev", // SSR HMR mode, serving source through Vite
+    "ssr:serve:dev": "bun run serve-hmr.ts dev", // SSR HMR mode, serving source through Vite
+    "ssr:serve:dev-node": "bun build serve-hmr.ts --outfile build/serve-hmr.js --target=node --external vite --define 'IS_BUILT=false' --external \"$(pwd)/current-build-info.ts\" && SSR_SRC_DIR=$(pwd) node build/serve-hmr.js dev", // SSR HMR dev mode under Node (to work around Bun WebSocket bugs)
     "ssr:serve:prod": "bun run serve-built.ts prod", // SSR prod mode with built assets (requires ssr:build first)
     "ssr:build-and-serve:prod": "bun run ssr:build && bun run ssr:serve:prod",
 
@@ -286,6 +287,11 @@ Add these scripts to your `package.json` for both SSG and SSR workflows. The exa
 Tip: Always include `--target node` and `--external vite` when building for the Node runtime. To run under Bun instead, omit `--target node` and replace `node` with `bun` in the start script.
 
 Note: If you prefer a pure-Node toolchain without Bun, explore compiling or bundling your server with tools like `tsc`, `esbuild`, `rollup`, or `tsup`, or use vanilla JavaScript, then run with `node`. These alternatives are not covered in depth here to keep the setup simple and easy out of the box.
+
+**Note on `ssr:serve:dev-node`**:
+Running Vite HMR under Bun can sometimes stall graceful shutdown or suffer from WebSocket connection hang/stall issues on file reload/restart (due to upstream issues like [oven-sh/bun#5951](https://github.com/oven-sh/bun/issues/5951)). Running the dev server under Node with `ssr:serve:dev-node` avoids these issues by compiling the server wrapper (`serve-hmr.ts`) targeting Node and running it with `node`.
+
+- **Why the external flags?** When compiling the dev/HMR server wrapper with `bun build`, you must define `--define 'IS_BUILT=false'` (to mirror the behavior of running directly from source, ensuring the build-info loader resolves to `false` and doesn't attempt to load the file at runtime) and externalize the build info file using `--external "$(pwd)/current-build-info.ts"`. Even though the code branches on a compile-time constant `IS_BUILT` (meaning `current-build-info.ts` is never imported at runtime), Bun's compiler parses and attempts to resolve all dynamic imports at build-time. If the `current-build-info.ts` file doesn't exist on disk (which is common on fresh checkouts before a production build has run), the compilation will fail. Marking the absolute path as external prevents Bun from trying to resolve and bundle it at build-time.
 
 ## Public App Config Pattern
 
@@ -421,7 +427,7 @@ From the repo root (using package scripts):
 
 ```bash
 # Development SSR with Vite HMR + source entry.
-bun run ssr:serve:hmr
+bun run ssr:serve:dev
 
 # Production: build client and server, then run the built server.
 bun run ssr:build
@@ -452,7 +458,7 @@ From the repo root (using package scripts):
 
 ```bash
 # Development SSR with Vite HMR for both apps simultaneously.
-bun run multi-ssr:serve:hmr
+bun run multi-ssr:serve:dev
 
 # Production: build both app bundles, then run the built server.
 bun run multi-ssr:build
