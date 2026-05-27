@@ -12,6 +12,9 @@ const defaultScripts = {
   'lint:fix': 'eslint . --fix',
   format: 'prettier --write "**/*.{js,jsx,ts,tsx,json,css,md}"',
   'format:check': 'prettier --check "**/*.{js,jsx,ts,tsx,json,css,md}"',
+  spellcheck: 'cspell lint "**/*.{ts,tsx,js,jsx,md,html,css,json}"',
+  check:
+    'bun run type-check && bun run lint && bun run spellcheck && bun test --pass-with-no-tests',
 };
 
 export const devDependencies = {
@@ -24,6 +27,7 @@ export const devDependencies = {
   '@typescript-eslint/eslint-plugin': '^8.46.3',
   '@typescript-eslint/parser': '^8.46.3',
   '@vitejs/plugin-react': '^6.0.1',
+  cspell: '^10.0.0',
   eslint: '^9.39.1',
   'eslint-import-resolver-typescript': '^4.4.4',
   'eslint-plugin-check-file': '^3.3.1',
@@ -157,124 +161,132 @@ export async function ensurePackageJSON(
   repoName: string,
   options?: EnsurePackageJSONOptions,
 ): Promise<void> {
-  // Attempt to read an existing package.json at the repo root
-  const pkgResult = await vfsReadJSON<Record<string, unknown>>(
-    repoRoot,
-    'package.json',
-  );
+  try {
+    // Attempt to read an existing package.json at the repo root
+    const pkgResult = await vfsReadJSON<Record<string, unknown>>(
+      repoRoot,
+      'package.json',
+    );
 
-  // Creation path: no package.json found; create a minimal one
-  if (!pkgResult.ok) {
-    if (pkgResult.code === 'ENOENT') {
-      const pkg = {
-        name: repoName,
-        version: '0.0.1',
-        type: 'module',
-        private: true,
-        license: 'UNLICENSED',
-        scripts: { ...defaultScripts, ...options?.templateScripts },
-        dependencies: { ...dependencies, ...options?.templateDependencies },
-        devDependencies: {
-          ...devDependencies,
-          ...options?.templateDevDependencies,
-        },
-      };
+    // Creation path: no package.json found; create a minimal one
+    if (!pkgResult.ok) {
+      if (pkgResult.code === 'ENOENT') {
+        const pkg = {
+          name: repoName,
+          version: '0.0.1',
+          type: 'module',
+          private: true,
+          license: 'UNLICENSED',
+          scripts: { ...defaultScripts, ...options?.templateScripts },
+          dependencies: { ...dependencies, ...options?.templateDependencies },
+          devDependencies: {
+            ...devDependencies,
+            ...options?.templateDevDependencies,
+          },
+        };
 
-      // Sort the package.json for consistency
-      const sortedPkg = sortPackageJson(pkg);
+        // Sort the package.json for consistency
+        const sortedPkg = sortPackageJson(pkg);
 
-      await vfsWriteJSON(repoRoot, 'package.json', sortedPkg);
+        await vfsWriteJSON(repoRoot, 'package.json', sortedPkg);
+
+        if (options?.log) {
+          options.log('info', 'Created repo root package.json');
+        }
+
+        // Package.json created successfully, return early as we don't need to update it
+        return;
+      } else if (pkgResult.code === 'PARSE_ERROR') {
+        throw new Error(
+          `Invalid JSON in repo root package.json: ${pkgResult.message}`,
+        );
+      } else {
+        throw new Error(
+          `Failed to read repo root package.json: ${pkgResult.message}`,
+        );
+      }
+    }
+
+    // Update path: package.json exists and was successfully parsed — add missing fields only, never overwrite
+    const parsed = pkgResult.data;
+
+    let didChange = false;
+
+    // Add defaults only when these fields are absent
+    if (!Object.prototype.hasOwnProperty.call(parsed, 'name')) {
+      (parsed as { name: string }).name = repoName;
+      didChange = true;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(parsed, 'private')) {
+      (parsed as { private: boolean }).private = true;
+      didChange = true;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(parsed, 'license')) {
+      (parsed as { license: string }).license = 'UNLICENSED';
+      didChange = true;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(parsed, 'version')) {
+      (parsed as { version: string }).version = '0.0.1';
+      didChange = true;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(parsed, 'type')) {
+      (parsed as { type: string }).type = 'module';
+      didChange = true;
+    }
+
+    // Merge scripts (only add missing scripts, never overwrite)
+    // Combine default scripts with template-specific scripts
+    const allScripts = { ...defaultScripts, ...options?.templateScripts };
+    if (mergeScripts(parsed, allScripts)) {
+      didChange = true;
+    }
+
+    // Merge dependencies and devDependencies (only update if newer)
+    // Combine default dependencies with template-specific dependencies
+    const allDependencies = {
+      ...dependencies,
+      ...options?.templateDependencies,
+    };
+
+    if (mergeDependencies(parsed, allDependencies, 'dependencies')) {
+      didChange = true;
+    }
+
+    const allDevDependencies = {
+      ...devDependencies,
+      ...options?.templateDevDependencies,
+    };
+
+    if (mergeDependencies(parsed, allDevDependencies, 'devDependencies')) {
+      didChange = true;
+    }
+
+    // Sort the package.json and check if sorting changed anything
+    const beforeSort = JSON.stringify(parsed);
+    const sortedParsed = sortPackageJson(parsed);
+    const afterSort = JSON.stringify(sortedParsed);
+
+    if (beforeSort !== afterSort) {
+      didChange = true;
+    }
+
+    // write updated package.json only if we actually changed something
+    if (didChange) {
+      await vfsWriteJSON(repoRoot, 'package.json', sortedParsed);
 
       if (options?.log) {
-        options.log('info', 'Created repo root package.json');
+        options.log(
+          'info',
+          'Updated repo root package.json (added missing fields)',
+        );
       }
-
-      // Package.json created successfully, return early as we don't need to update it
-      return;
-    } else if (pkgResult.code === 'PARSE_ERROR') {
-      throw new Error(
-        `Invalid JSON in repo root package.json: ${pkgResult.message}`,
-      );
-    } else {
-      throw new Error(
-        `Failed to read repo root package.json: ${pkgResult.message}`,
-      );
     }
-  }
-
-  // Update path: package.json exists and was successfully parsed — add missing fields only, never overwrite
-  const parsed = pkgResult.data;
-
-  let didChange = false;
-
-  // Add defaults only when these fields are absent
-  if (!Object.prototype.hasOwnProperty.call(parsed, 'name')) {
-    (parsed as { name: string }).name = repoName;
-    didChange = true;
-  }
-
-  if (!Object.prototype.hasOwnProperty.call(parsed, 'private')) {
-    (parsed as { private: boolean }).private = true;
-    didChange = true;
-  }
-
-  if (!Object.prototype.hasOwnProperty.call(parsed, 'license')) {
-    (parsed as { license: string }).license = 'UNLICENSED';
-    didChange = true;
-  }
-
-  if (!Object.prototype.hasOwnProperty.call(parsed, 'version')) {
-    (parsed as { version: string }).version = '0.0.1';
-    didChange = true;
-  }
-
-  if (!Object.prototype.hasOwnProperty.call(parsed, 'type')) {
-    (parsed as { type: string }).type = 'module';
-    didChange = true;
-  }
-
-  // Merge scripts (only add missing scripts, never overwrite)
-  // Combine default scripts with template-specific scripts
-  const allScripts = { ...defaultScripts, ...options?.templateScripts };
-  if (mergeScripts(parsed, allScripts)) {
-    didChange = true;
-  }
-
-  // Merge dependencies and devDependencies (only update if newer)
-  // Combine default dependencies with template-specific dependencies
-  const allDependencies = { ...dependencies, ...options?.templateDependencies };
-
-  if (mergeDependencies(parsed, allDependencies, 'dependencies')) {
-    didChange = true;
-  }
-
-  const allDevDependencies = {
-    ...devDependencies,
-    ...options?.templateDevDependencies,
-  };
-
-  if (mergeDependencies(parsed, allDevDependencies, 'devDependencies')) {
-    didChange = true;
-  }
-
-  // Sort the package.json and check if sorting changed anything
-  const beforeSort = JSON.stringify(parsed);
-  const sortedParsed = sortPackageJson(parsed);
-  const afterSort = JSON.stringify(sortedParsed);
-
-  if (beforeSort !== afterSort) {
-    didChange = true;
-  }
-
-  // write updated package.json only if we actually changed something
-  if (didChange) {
-    await vfsWriteJSON(repoRoot, 'package.json', sortedParsed);
-
-    if (options?.log) {
-      options.log(
-        'info',
-        'Updated repo root package.json (added missing fields)',
-      );
-    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to ensure package.json: ${errorMessage}`);
   }
 }

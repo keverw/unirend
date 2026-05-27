@@ -33,6 +33,9 @@ export default [
       '**/npm-debug.log*',
       '**/yarn-debug.log*',
       '**/yarn-error.log*',
+      // Locks and package manager files
+      '**/bun.lock',
+      '**/bun.lockb',
     ],
   },
   {

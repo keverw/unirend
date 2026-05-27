@@ -12,6 +12,7 @@ import { ensureEslintConfig } from './base-files/ensure-eslint-config';
 import { ensureVSCodeExtensions } from './base-files/ensure-vscode-extensions';
 import { ensureVSCodeSettings } from './base-files/ensure-vscode-settings';
 import { ensureAgentsMD } from './base-files/ensure-agents-md';
+import { ensureCspell } from './base-files/ensure-cspell';
 import type { RepoConfig, ServerBuildTarget, LoggerFunction } from './types';
 import type { FileRoot } from './vfs';
 import {
@@ -63,6 +64,8 @@ export type EnsureBaseFilesOptions = EnsurePackageJSONOptions & {
   templateGitignoreSectionHeader?: string;
   /** Template-specific .gitignore entries to append if missing */
   templateGitignoreEntries?: string[];
+  /** Template-specific cspell words to append/merge */
+  templateCspellWords?: string[];
 };
 
 /**
@@ -126,6 +129,12 @@ export async function ensureBaseFiles(
   // Ensure eslint.config.js exists (only creates if missing)
   await ensureEslintConfig(repoRoot, options?.log);
 
+  // Ensure cspell.json exists (creates or updates with missing words/settings)
+  await ensureCspell(repoRoot, {
+    log: options?.log,
+    templateCspellWords: options?.templateCspellWords,
+  });
+
   // Ensure .vscode/extensions.json exists (creates or updates with missing extensions)
   await ensureVSCodeExtensions(repoRoot, options?.log);
 
@@ -150,6 +159,8 @@ export interface TemplateConfig {
   gitignoreEntries?: string[];
   /** Header for template-specific .gitignore entries */
   gitignoreSectionHeader?: string;
+  /** Template-specific cspell words to merge */
+  cspellWords?: string[];
 }
 
 /**
@@ -168,8 +179,8 @@ export function getTemplateConfig(
   projectPath: string,
   serverBuildTarget?: ServerBuildTarget,
 ): TemplateConfig {
-  // todo: when building serve, got to remember if we're goin to target bun or node...
-  // this changes the bun buidl target and if we call bun or node when running.
+  // todo: when building serve, got to remember if we're going to target bun or node...
+  // this changes the bun build target and if we call bun or node when running.
   return {};
 }
 

@@ -35,39 +35,19 @@ export async function ensureVSCodeExtensions(
     let extensionsData: VSCodeExtensions;
     let didChange = false;
 
-    if (readResult.ok && readResult.data) {
-      // File exists, merge extensions
-      extensionsData = readResult.data as VSCodeExtensions;
-
-      // Ensure recommendations array exists
-      if (!Array.isArray(extensionsData.recommendations)) {
-        extensionsData.recommendations = [];
-        didChange = true;
-      }
-
-      // Add missing extensions
-      const existingExtensions = new Set(extensionsData.recommendations);
-      for (const ext of defaultExtensions) {
-        if (!existingExtensions.has(ext)) {
-          extensionsData.recommendations.push(ext);
-          didChange = true;
-        }
-      }
-
-      if (didChange) {
-        // Sort recommendations alphabetically for consistency
-        extensionsData.recommendations.sort();
-
-        await vfsWriteJSON(repoRoot, filePath, extensionsData);
-
-        if (log) {
-          log(
-            'info',
-            'Updated .vscode/extensions.json with missing extensions',
+    if (!readResult.ok) {
+      if (readResult.code !== 'ENOENT') {
+        if (readResult.code === 'PARSE_ERROR') {
+          throw new Error(
+            `Invalid JSON in .vscode/extensions.json: ${readResult.message}`,
           );
         }
+
+        throw new Error(
+          `Failed to read .vscode/extensions.json: ${readResult.message}`,
+        );
       }
-    } else {
+
       // File doesn't exist, create it
       extensionsData = {
         recommendations: [...defaultExtensions].sort(),
@@ -77,6 +57,37 @@ export async function ensureVSCodeExtensions(
 
       if (log) {
         log('info', 'Created .vscode/extensions.json');
+      }
+
+      return;
+    }
+
+    // File exists, merge extensions
+    extensionsData = readResult.data as VSCodeExtensions;
+
+    // Ensure recommendations array exists
+    if (!Array.isArray(extensionsData.recommendations)) {
+      extensionsData.recommendations = [];
+      didChange = true;
+    }
+
+    // Add missing extensions
+    const existingExtensions = new Set(extensionsData.recommendations);
+    for (const ext of defaultExtensions) {
+      if (!existingExtensions.has(ext)) {
+        extensionsData.recommendations.push(ext);
+        didChange = true;
+      }
+    }
+
+    if (didChange) {
+      // Sort recommendations alphabetically for consistency
+      extensionsData.recommendations.sort();
+
+      await vfsWriteJSON(repoRoot, filePath, extensionsData);
+
+      if (log) {
+        log('info', 'Updated .vscode/extensions.json with missing extensions');
       }
     }
   } catch (error) {

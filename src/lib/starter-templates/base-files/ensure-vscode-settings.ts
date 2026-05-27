@@ -40,26 +40,19 @@ export async function ensureVSCodeSettings(
     let settingsData: VSCodeSettings;
     let didChange = false;
 
-    if (readResult.ok && readResult.data) {
-      // File exists, merge settings
-      settingsData = readResult.data as VSCodeSettings;
-
-      // Add missing settings (only if key doesn't exist)
-      for (const [key, value] of Object.entries(defaultSettings)) {
-        if (!(key in settingsData)) {
-          settingsData[key] = value;
-          didChange = true;
+    if (!readResult.ok) {
+      if (readResult.code !== 'ENOENT') {
+        if (readResult.code === 'PARSE_ERROR') {
+          throw new Error(
+            `Invalid JSON in .vscode/settings.json: ${readResult.message}`,
+          );
         }
+
+        throw new Error(
+          `Failed to read .vscode/settings.json: ${readResult.message}`,
+        );
       }
 
-      if (didChange) {
-        await vfsWriteJSON(repoRoot, filePath, settingsData);
-
-        if (log) {
-          log('info', 'Updated .vscode/settings.json with missing settings');
-        }
-      }
-    } else {
       // File doesn't exist, create it
       settingsData = { ...defaultSettings };
 
@@ -67,6 +60,27 @@ export async function ensureVSCodeSettings(
 
       if (log) {
         log('info', 'Created .vscode/settings.json');
+      }
+
+      return;
+    }
+
+    // File exists, merge settings
+    settingsData = readResult.data as VSCodeSettings;
+
+    // Add missing settings (only if key doesn't exist)
+    for (const [key, value] of Object.entries(defaultSettings)) {
+      if (!(key in settingsData)) {
+        settingsData[key] = value;
+        didChange = true;
+      }
+    }
+
+    if (didChange) {
+      await vfsWriteJSON(repoRoot, filePath, settingsData);
+
+      if (log) {
+        log('info', 'Updated .vscode/settings.json with missing settings');
       }
     }
   } catch (error) {

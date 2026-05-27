@@ -63,7 +63,7 @@ server.pageDataHandler.register('example', (request, reply) => {
   - Array enables key rotation.
   - Object enables a custom signer (e.g., providing `sign(value)`/`unsign(value)` methods). This follows the capabilities offered by `@fastify/cookie`.
 
-- `hook?: "onRequest" | "preParsing" | "preValidation" | "preHandler" | false`: Lifecycle hook for parsing. Defaults to `onRequest`. Setting this to `false` disables autoparsing (you can still use `reply.setCookie/clearCookie` and manual cookieUtils utilities, but `request.cookies` will not be populated automatically).
+- `hook?: "onRequest" | "preParsing" | "preValidation" | "preHandler" | false`: Lifecycle hook for parsing. Defaults to `onRequest`. Setting this to `false` disables auto-parsing (you can still use `reply.setCookie/clearCookie` and manual cookieUtils utilities, but `request.cookies` will not be populated automatically).
 - `algorithm?: string`: Hash algorithm used for signing (default `sha256`).
 - `parseOptions?: CookieSerializeOptions`: Options that control cookie serialization when setting cookies (and provide decode behavior when parsing). Note: despite the name, upstream uses `parseOptions` in two places:
   - for parsing (`fastify.parseCookie`): only decode-related behavior applies
