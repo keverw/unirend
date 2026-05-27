@@ -11,6 +11,7 @@ import { ensurePrettierIgnore } from './base-files/ensure-prettier-ignore';
 import { ensureEslintConfig } from './base-files/ensure-eslint-config';
 import { ensureVSCodeExtensions } from './base-files/ensure-vscode-extensions';
 import { ensureVSCodeSettings } from './base-files/ensure-vscode-settings';
+import { ensureAgentsMD } from './base-files/ensure-agents-md';
 import type { RepoConfig, ServerBuildTarget, LoggerFunction } from './types';
 import type { FileRoot } from './vfs';
 import {
@@ -130,6 +131,9 @@ export async function ensureBaseFiles(
 
   // Ensure .vscode/settings.json exists (creates or updates with missing settings)
   await ensureVSCodeSettings(repoRoot, options?.log);
+
+  // Ensure AGENTS.md exists (only creates if missing)
+  await ensureAgentsMD(repoRoot, options?.log);
 }
 
 /**
