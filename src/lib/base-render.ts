@@ -117,8 +117,8 @@ export async function unirendBaseRender(
       );
     }
 
-    // When throwing here, it won't return RenderResult, but the catch block
-    // in server.ts handles this. This throw is correct.
+    // Return a 404 response if the context is missing, which the server
+    // framework will handle.
     return {
       resultType: 'response',
       response: new Response('Not Found', { status: 404 }),

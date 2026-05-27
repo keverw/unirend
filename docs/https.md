@@ -268,11 +268,11 @@ The `RedirectServer` handles basic HTTP→HTTPS redirects with optional domain v
 Use `initDevMode()` to set development mode at startup. Pass a CLI argument (`dev` or `prod`) or use environment detection:
 
 ```bash
-# Development
-bun run server.ts dev
+# Development (HMR)
+bun run serve-hmr.ts dev   # (or serve.ts dev for SSG/API)
 
-# Production
-bun run server.ts prod
+# Production (Built)
+bun run serve-built.ts prod # (or serve.ts prod for SSG/API)
 ```
 
 **Basic Setup:**

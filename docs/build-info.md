@@ -79,7 +79,7 @@ Add to your package.json scripts (run before your prod build as you could import
     "build:server:ssr": "vite build --outDir build/server --ssr src/EntrySSR.tsx",
     "build:generate-info": "bun run scripts/generate-build-info.ts",
     "build:ssr": "bun run build:client && bun run build:server:ssr",
-    "build:prod": "bun run build:generate-info && bun run build:ssr && bun build server.ts --outdir ./dist --external vite"
+    "build:prod": "bun run build:generate-info && bun run build:ssr && bun build serve-built.ts --outdir ./dist --external vite"
   }
 }
 ```
@@ -118,11 +118,11 @@ To handle this, define `IS_BUILT` and mark the import as external when compiling
 
 - **Production build** (`ssr:build:serve`):
   ```bash
-  bun build server.ts --outdir ./dist --external vite --define 'IS_BUILT=true'
+  bun build serve-built.ts --outdir ./dist --external vite --define 'IS_BUILT=true'
   ```
 - **Dev-node build** (if bundling for dev mode under Node, e.g., to work around WebSocket close bugs):
   ```bash
-  bun build server.ts --outfile build/serve-hmr.js --target=node --external vite --define 'IS_BUILT=false' --external "$(pwd)/current-build-info.ts"
+  bun build serve-hmr.ts --outfile build/serve-hmr.js --target=node --external vite --define 'IS_BUILT=false' --external "$(pwd)/current-build-info.ts"
   ```
   > [!IMPORTANT]
   > The `--external` dynamic import exclusion requires an **absolute path** match because Bun resolves imports to their absolute paths before checking the external list. Using `$(pwd)/...` ensures the resolved absolute path matches.
@@ -151,7 +151,7 @@ To handle this, define `IS_BUILT` and mark the import as external when compiling
 Load build info once at startup and pass selected fields to both the frontend and server-side handlers via `publicAppConfig`:
 
 ```ts
-// server.ts
+// serve-built.ts / serve-hmr.ts (or serve.ts for SSG/API)
 import { serveSSRWithHMR, serveSSRBuilt } from 'unirend/server';
 import { loadBuildInfo } from 'unirend/build-info';
 

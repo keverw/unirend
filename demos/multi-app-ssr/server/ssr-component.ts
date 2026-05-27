@@ -21,8 +21,10 @@ const HOST = '0.0.0.0';
 // SSR_SRC_DIR and SSR_DIST_DIR_APP_A/B override __dirname resolution — useful when running
 // a bundled server or if the directory locations change relative to the runner.
 const SRC_DIR = process.env.SSR_SRC_DIR ?? path.resolve(__dirname, '..');
-const DIST_DIR_APP_A = process.env.SSR_DIST_DIR_APP_A ?? path.resolve(__dirname, '../build');
-const DIST_DIR_APP_B = process.env.SSR_DIST_DIR_APP_B ?? path.resolve(__dirname, '../build-app-b');
+const DIST_DIR_APP_A =
+  process.env.SSR_DIST_DIR_APP_A ?? path.resolve(__dirname, '../build');
+const DIST_DIR_APP_B =
+  process.env.SSR_DIST_DIR_APP_B ?? path.resolve(__dirname, '../build-app-b');
 
 // Error string emitted by setActiveSSRApp for unregistered app keys.
 // Full message: `Active app "<key>" not found. Available apps: __default__, app-b`

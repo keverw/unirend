@@ -18,7 +18,7 @@ const mockError = new Error('Something went unexpectedly wrong');
 mockError.stack = `Error: Something went unexpectedly wrong
     at render (/app/src/lib/internal/ssr-server.ts:42:11)
     at async handleRequest (/app/src/lib/internal/ssr-server.ts:120:5)
-    at async Server.<anonymous> (/app/src/lib/internal/base-server.ts:88:7)`;
+    at async Server.<anonymous> (/app/serve.ts:88:7)`;
 
 const pages: Array<{ filename: string; html: string }> = [
   {

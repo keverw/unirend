@@ -780,11 +780,11 @@ See [Dev Mode](./dev-mode.md) for full details on `initDevMode()` and `getDevMod
 Since your project will most likely use both `serveSSRWithHMR` and `serveSSRBuilt`, consider these options:
 
 - Single entry script that switches on an env/arg (dev vs prod) and calls `serveSSRWithHMR` or `serveSSRBuilt`.
-- Separate scripts (e.g., `serve-hmr.ts` and `serve-prod.ts`).
+- Separate scripts (e.g., `serve-hmr.ts` and `serve-built.ts`).
 - For production binaries, you can bundle your server script with a tool like Bun:
-  - `bun build server.ts --outdir build/serve --external vite` and `bun run build/serve/server.js`
+  - `bun build serve-built.ts --outdir build/serve --external vite` and `bun run build/serve/serve-built.js`
   - To run the Bun bundle under Node, add the target flag and start with Node:
-    - `bun build server.ts --outdir build/serve --target node --external vite` then `node build/serve/server.js`
+    - `bun build serve-built.ts --outdir build/serve --target node --external vite` then `node build/serve/serve-built.js`
 
 Always include `--external vite` when bundling your server entry with `bun build`. Vite lazily imports `esbuild` at runtime, which Bun's bundler cannot statically resolve. Keeping Vite external avoids a build error.
 
