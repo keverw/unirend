@@ -5,7 +5,7 @@ Unirend provides a unified API for handling multipart uploads with streaming lim
 <!-- toc -->
 
 - [What You Get](#what-you-get)
-- [Quickstart](#quickstart)
+- [Quick Start](#quick-start)
 - [Server Configuration](#server-configuration)
 - [Using processFileUpload()](#using-processfileupload)
   - [Configuration Options](#configuration-options)
@@ -36,7 +36,7 @@ Unirend provides a unified API for handling multipart uploads with streaming lim
 - **Fail-fast batch behavior**: first failure aborts the whole batch and runs all registered cleanup handlers
 - **Consistent error handling**: check `result.success`, if false, just `return result.errorEnvelope`. If true, use `result.files` to build your response
 
-## Quickstart
+## Quick Start
 
 > **Security note:** Never trust client-provided MIME types or filenames. See [Security notes](#security-notes).
 
