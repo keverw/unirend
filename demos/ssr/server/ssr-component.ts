@@ -29,9 +29,10 @@ import type { ServerMode } from './start';
 const PORT = 3000;
 const HOST = '0.0.0.0';
 
-// Resolved relative to this file's location (demos/ssr/server/).
-const SRC_DIR = path.resolve(__dirname, '..');
-const DIST_DIR = path.resolve(__dirname, '../build');
+// SSR_SRC_DIR and SSR_DIST_DIR override __dirname resolution — useful when running
+// a bundled server or if the directory locations change relative to the runner.
+const SRC_DIR = process.env.SSR_SRC_DIR ?? path.resolve(__dirname, '..');
+const DIST_DIR = process.env.SSR_DIST_DIR ?? path.resolve(__dirname, '../build');
 
 function escapeHTML(value: string): string {
   return value

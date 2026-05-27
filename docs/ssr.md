@@ -809,6 +809,8 @@ node build/serve/serve-built.js prod
 
 When bundling this way, `__dirname` resolves to the build output directory, not your source tree. Pass your source directory via an env var and read it in your serve script (`const SRC_DIR = process.env.SSR_SRC_DIR ?? path.resolve(__dirname, '..')`), then use `SRC_DIR` to resolve your `serverEntry`, `template`, and `viteConfig` paths. Vite handles HMR and source transforms as normal.
 
+Similarly, for production bundles where the built assets directory is moved (e.g., during container builds), you can override the distribution path using an environment variable (e.g. `const DIST_DIR = process.env.SSR_DIST_DIR ?? path.resolve(__dirname, '../build')`).
+
 ### SSRServer Class
 
 The `SSRServer` class powers both dev and prod servers created via `serveSSRWithHMR` (dev) or `serveSSRBuilt` (prod), which passes the proper configuration.
