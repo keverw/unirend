@@ -34,7 +34,7 @@ export async function startApp(mode: ServerMode) {
   });
 
   const manager = new LifecycleManager({
-    name: 'multi-app-ssr',
+    name: 'multi-app-ssr-demo',
     logger,
     attachSignalsBeforeStartup: true,
     detachSignalsOnStop: true,

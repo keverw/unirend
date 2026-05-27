@@ -52,7 +52,7 @@ class APIServerDemoComponent extends BaseComponent {
 
   constructor(parentLogger: Logger) {
     super(parentLogger, {
-      name: 'api-server-demo',
+      name: 'api-server',
       // 10s graceful: API requests complete in milliseconds.
       shutdownGracefulTimeoutMS: 10_000,
       // 5s force: after closeAllConnections() kicks in, stop() resolves quickly.

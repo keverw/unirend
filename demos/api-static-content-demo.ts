@@ -161,7 +161,7 @@ class StaticContentDemoComponent extends BaseComponent {
 
   constructor(parentLogger: Logger) {
     super(parentLogger, {
-      name: 'api-static-content-demo',
+      name: 'api-static-content-server',
       // 10s graceful: static file serving requests complete in milliseconds.
       shutdownGracefulTimeoutMS: 10_000,
       // 5s force: after closeAllConnections() kicks in, stop() resolves quickly.

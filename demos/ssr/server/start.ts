@@ -53,7 +53,7 @@ export async function startApp(mode: ServerMode) {
   // ─── Lifecycle manager ────────────────────────────────────────────────────────
 
   const manager = new LifecycleManager({
-    name: 'ssr-server',
+    name: 'ssr-server-demo',
     logger,
     // Attach signal handlers before startup so any signal queued during
     // startAllComponents() is handled correctly once the event loop resumes.

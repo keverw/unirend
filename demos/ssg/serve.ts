@@ -244,7 +244,7 @@ class StaticWebServerComponent extends BaseComponent {
 
 async function main() {
   const manager = new LifecycleManager({
-    name: 'ssg-server',
+    name: 'ssg-serve-demo',
     logger,
     // Attach signal handlers before startup so any signal queued during
     // startAllComponents() is handled correctly once the event loop resumes.
