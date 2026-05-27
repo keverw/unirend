@@ -812,7 +812,7 @@ All helper creators are generic over the data payload (T) and meta (M extends Ba
 
 Use a server plugin to attach defaults to each request, then merge them in your handlers. See the server plugins guide for request decoration: [Server Plugins](./server-plugins.md).
 
-For a complete example where using build info (load once at startup, decorate requests, auto-merge into response meta), see: [Build Info → Using with Unirend plugins](./build-info.md#using-with-unirend-plugins).
+For a complete example where using build info (load once at startup, decorate requests, auto-merge into response meta), see: [Build Info → Plugin Pattern](./build-info.md#plugin-pattern-for-non-public-server-state).
 
 #### Server-Wide Custom Helpers Class
 
