@@ -7,7 +7,7 @@ interface NotFoundProps {
   data?: PageErrorResponse | null;
 }
 
-function NotFound({ data }: NotFoundProps = {}) {
+export function NotFound({ data }: NotFoundProps = {}) {
   const title =
     data?.meta?.page?.title || '404 - Page Not Found - Unirend SSG Demo';
   const description =
@@ -190,5 +190,3 @@ function NotFound({ data }: NotFoundProps = {}) {
     </>
   );
 }
-
-export default NotFound;

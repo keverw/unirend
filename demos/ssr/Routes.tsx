@@ -4,14 +4,14 @@ import {
   createPageDataLoader,
   createDefaultPageDataLoaderConfig,
 } from '../../src/router-utils';
-import Home from './pages/Home';
-import About from './pages/About';
-import Contact from './pages/Contact';
-import ContextDemo from './pages/ContextDemo';
+import { Home } from './pages/Home';
+import { About } from './pages/About';
+import { Contact } from './pages/Contact';
+import { ContextDemo } from './pages/ContextDemo';
 import { AppLayout } from './components/AppLayout';
-import NotFound from './components/error-pages/NotFound';
-import ApplicationError from './components/error-pages/ApplicationError';
-import PageDataDisplay from './components/PageDataDisplay';
+import { NotFound } from './components/error-pages/NotFound';
+import { ApplicationError } from './components/error-pages/ApplicationError';
+import { PageDataDisplay } from './components/PageDataDisplay';
 
 // Shared page data loader config
 const pageDataLoaderConfig = {

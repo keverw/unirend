@@ -1,8 +1,7 @@
-import React from 'react';
 import { UnirendHead, usePublicAppConfig } from '../../../src/client';
 import { Link } from 'react-router';
 
-const Home: React.FC = () => {
+export function Home() {
   const publicAppConfig = usePublicAppConfig();
 
   return (
@@ -195,6 +194,4 @@ const Home: React.FC = () => {
       </main>
     </>
   );
-};
-
-export default Home;
+}

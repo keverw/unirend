@@ -1,10 +1,10 @@
 import { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router';
 import { useDataLoaderEnvelopeError } from '../../../src/lib/router-utils/use-data-loader-envelope-error-hook';
-import Header from './Header';
-import Footer from './Footer';
-import NotFound from './error-pages/NotFound';
-import GenericError from './error-pages/GenericError';
+import { Header } from './Header';
+import { Footer } from './Footer';
+import { NotFound } from './error-pages/NotFound';
+import { GenericError } from './error-pages/GenericError';
 
 export function AppLayout() {
   // RouteErrorBoundary handles thrown router errors and receives an `error` prop.

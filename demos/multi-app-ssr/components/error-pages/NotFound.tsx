@@ -4,7 +4,7 @@ interface NotFoundProps {
   error?: unknown;
 }
 
-export default function NotFound({ error: _error }: NotFoundProps) {
+export function NotFound({ error: _error }: NotFoundProps) {
   return (
     <>
       <UnirendHead>

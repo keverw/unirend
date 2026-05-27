@@ -1,7 +1,7 @@
 import { Link } from 'react-router';
 import { UnirendHead, usePublicAppConfig } from '../../../../src/client';
 
-export default function Home() {
+export function Home() {
   const config = usePublicAppConfig() as {
     appName?: string;
     appKey?: string;

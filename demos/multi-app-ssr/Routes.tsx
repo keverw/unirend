@@ -1,10 +1,10 @@
 import type { RouteObject } from 'react-router';
 import RouteErrorBoundary from '../../src/lib/router-utils/RouteErrorBoundary';
 import { AppLayout } from './components/AppLayout';
-import NotFound from './components/error-pages/NotFound';
-import ApplicationError from './components/error-pages/ApplicationError';
-import Home from './pages/Home';
-import TestAppThrow from './pages/TestAppThrow';
+import { NotFound } from './components/error-pages/NotFound';
+import { ApplicationError } from './components/error-pages/ApplicationError';
+import { Home } from './pages/Home';
+import { TestAppThrow } from './pages/TestAppThrow';
 
 export const routes: RouteObject[] = [
   {

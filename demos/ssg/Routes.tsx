@@ -1,14 +1,14 @@
 import type { RouteObject } from 'react-router';
-import Home from './pages/Home';
-import About from './pages/About';
-import Contact from './pages/Contact';
-import Dashboard from './pages/Dashboard';
-import AppPage from './pages/App';
-import NotFound from './components/error-pages/NotFound';
-import ContextDemo from './pages/ContextDemo';
+import { Home } from './pages/Home';
+import { About } from './pages/About';
+import { Contact } from './pages/Contact';
+import { Dashboard } from './pages/Dashboard';
+import { AppPage } from './pages/App';
+import { NotFound } from './components/error-pages/NotFound';
+import { ContextDemo } from './pages/ContextDemo';
 import { AppLayout } from './components/AppLayout';
 import RouteErrorBoundary from '../../src/lib/router-utils/RouteErrorBoundary';
-import ApplicationError from './components/error-pages/ApplicationError';
+import { ApplicationError } from './components/error-pages/ApplicationError';
 
 export const routes: RouteObject[] = [
   {

@@ -10,7 +10,7 @@ interface DashboardData {
   lastLogin: string;
 }
 
-function Dashboard() {
+export function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -130,5 +130,3 @@ function Dashboard() {
     </>
   );
 }
-
-export default Dashboard;

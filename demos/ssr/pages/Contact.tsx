@@ -1,7 +1,6 @@
-import React from 'react';
 import { UnirendHead } from '../../../src/client';
 
-const Contact: React.FC = () => {
+export function Contact() {
   return (
     <>
       <UnirendHead>
@@ -55,6 +54,4 @@ const Contact: React.FC = () => {
       </main>
     </>
   );
-};
-
-export default Contact;
+}

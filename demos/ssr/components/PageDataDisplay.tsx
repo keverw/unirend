@@ -2,7 +2,7 @@ import { useLoaderData, useParams } from 'react-router';
 import { UnirendHead } from '../../../src/client';
 
 // Component to display page data JSON with proper layout and SEO
-function PageDataDisplay() {
+export function PageDataDisplay() {
   const data: {
     meta?: {
       page?: {
@@ -77,5 +77,3 @@ function PageDataDisplay() {
     </>
   );
 }
-
-export default PageDataDisplay;

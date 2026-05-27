@@ -1,6 +1,6 @@
 import { Outlet, useLocation } from 'react-router';
 import { useEffect } from 'react';
-import Sidebar from './Sidebar';
+import { Sidebar } from './Sidebar';
 
 export function AppLayout() {
   const location = useLocation();

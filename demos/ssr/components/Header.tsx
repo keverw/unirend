@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router';
 import { ThemeToggle } from './theme/ThemeToggle';
 
-const Header = () => {
+export function Header() {
   return (
     <header className="header">
       <div className="header-content">
@@ -49,6 +49,4 @@ const Header = () => {
       </div>
     </header>
   );
-};
-
-export default Header;
+}

@@ -15,7 +15,7 @@ import {
   useRequestContextObjectRaw,
 } from '../../../src/client';
 
-const ContextDemo: React.FC = () => {
+export function ContextDemo() {
   // State to track if we're hydrated (client-side)
   const [isHydrated, setIsHydrated] = useState(false);
 
@@ -479,7 +479,7 @@ const ContextDemo: React.FC = () => {
       </main>
     </>
   );
-};
+}
 
 // Interactive demo component for useRequestContext()
 const RequestContextDemo: React.FC = () => {
@@ -679,5 +679,3 @@ const RequestContextValueDemo: React.FC = () => {
     </div>
   );
 };
-
-export default ContextDemo;

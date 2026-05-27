@@ -1,7 +1,6 @@
-import React from 'react';
 import { UnirendHead } from '../../../src/client';
 
-const Home: React.FC = () => {
+export function Home() {
   return (
     <>
       <UnirendHead>
@@ -43,6 +42,4 @@ const Home: React.FC = () => {
       </main>
     </>
   );
-};
-
-export default Home;
+}

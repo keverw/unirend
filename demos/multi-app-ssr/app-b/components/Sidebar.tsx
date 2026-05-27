@@ -1,8 +1,8 @@
 import { NavLink } from 'react-router';
 import { usePublicAppConfig } from '../../../../src/client';
-import AppSwitcher from '../../commons/AppSwitcher';
+import { AppSwitcher } from '../../commons/AppSwitcher';
 
-export default function Sidebar() {
+export function Sidebar() {
   const config = usePublicAppConfig() as { appName?: string } | null;
   const appName = config?.appName ?? 'App B';
 

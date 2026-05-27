@@ -8,7 +8,7 @@ const APP_OPTIONS = [
 
 // Shared by all apps. Lives in commons/ so each app's Vite build picks it up
 // from the same source file without needing a runtime shared module.
-export default function AppSwitcher() {
+export function AppSwitcher() {
   const config = usePublicAppConfig() as { appKey?: string } | null;
   // useDomainInfo() gives the root domain so the cookie spans subdomains
   // (e.g. app.example.com and marketing.example.com share the same cookie).

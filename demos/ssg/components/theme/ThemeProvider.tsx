@@ -65,7 +65,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const resolvedTheme: ResolvedTheme =
     preference && preference !== 'auto' ? preference : systemTheme;
 
-  // Single place that updates <html> — CSS dark selectors key off this class.
+  // Single place that updates <html> — CSS dark: selectors key off this class.
   useEffect(() => {
     document.documentElement.classList.toggle('dark', resolvedTheme === 'dark');
   }, [resolvedTheme]);

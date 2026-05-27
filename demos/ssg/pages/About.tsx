@@ -1,7 +1,6 @@
-import React from 'react';
 import { UnirendHead } from '../../../src/client';
 
-const About: React.FC = () => {
+export function About() {
   return (
     <>
       <UnirendHead>
@@ -52,6 +51,4 @@ const About: React.FC = () => {
       </main>
     </>
   );
-};
-
-export default About;
+}

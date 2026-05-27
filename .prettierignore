@@ -56,6 +56,9 @@ tmp/
 # Demos
 demos/ssg/build
 demos/ssr/build
+demos/ssr/current-build-info.ts
+demos/multi-app-ssr/build
+demos/multi-app-ssr/build-app-b
 
 # PHP / Composer (unirend-php)
 unirend-php/vendor/

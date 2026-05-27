@@ -1,8 +1,8 @@
 import { Link } from 'react-router';
 import { usePublicAppConfig } from '../../../src/client';
-import AppSwitcher from '../commons/AppSwitcher';
+import { AppSwitcher } from '../commons/AppSwitcher';
 
-export default function Header() {
+export function Header() {
   const config = usePublicAppConfig() as { appName?: string } | null;
   const appName = config?.appName ?? 'App A';
 

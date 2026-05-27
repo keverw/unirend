@@ -10,7 +10,7 @@ interface NotFoundProps {
  * Custom 404 component for the SSR demo
  * This shows how to create a branded NotFound component
  */
-export default function NotFound({ error: _error, data }: NotFoundProps) {
+export function NotFound({ error: _error, data }: NotFoundProps) {
   // Use envelope data if available, otherwise use defaults
   const title =
     data?.meta?.page?.title || '404 - Page Not Found - Unirend SSR Demo';

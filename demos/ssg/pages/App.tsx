@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-function App() {
+export function AppPage() {
   const [todos, setTodos] = useState([
     { id: 1, text: 'Learn about SSG', completed: true },
     { id: 2, text: 'Try SPA routing', completed: false },
@@ -166,5 +166,3 @@ function App() {
     </>
   );
 }
-
-export default App;

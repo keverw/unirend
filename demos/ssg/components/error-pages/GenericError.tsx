@@ -1,19 +1,22 @@
 import type { PageErrorResponse } from '../../../../src/lib/api-envelope/api-envelope-types';
-import { UnirendHead } from '../../../../src/client';
+import { UnirendHead, useIsDevelopment } from '../../../../src/client';
 
 interface GenericErrorProps {
   data: PageErrorResponse | null;
 }
 
-export default function GenericError({ data }: GenericErrorProps) {
+export function GenericError({ data }: GenericErrorProps) {
+  const isDevelopment = useIsDevelopment();
   const title = data?.meta?.page?.title || 'Error - Unirend SSG Demo';
   const description = data?.meta?.page?.description || 'An error occurred.';
   const message =
     data?.error?.message || 'Something went wrong. Please try again later.';
   const requestID = data?.request_id;
 
-  // Show stack trace if available (upstream data loader already gates details on isDevelopment)
-  const detailsToShow =
+  // Show stack trace only in development. Upstream data loaders typically gate
+  // details on isDevelopment too, but we guard here as well in case a custom
+  // loader, external API, or a remote server running in dev mode leaks details.
+  const stackTrace =
     data?.error?.details &&
     typeof data.error.details === 'object' &&
     !Array.isArray(data.error.details) &&
@@ -158,7 +161,7 @@ export default function GenericError({ data }: GenericErrorProps) {
           </div>
 
           {/* Display details (stack trace) in development mode if available */}
-          {detailsToShow && (
+          {isDevelopment && stackTrace && (
             <div
               style={{
                 marginTop: '1.5rem',
@@ -177,7 +180,7 @@ export default function GenericError({ data }: GenericErrorProps) {
                 color: 'rgba(255, 255, 255, 0.9)',
               }}
             >
-              {detailsToShow}
+              {stackTrace}
             </div>
           )}
 
