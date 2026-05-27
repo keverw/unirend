@@ -7,7 +7,7 @@ import { AppPage } from './pages/App';
 import { NotFound } from './components/error-pages/NotFound';
 import { ContextDemo } from './pages/ContextDemo';
 import { AppLayout } from './components/AppLayout';
-import RouteErrorBoundary from '../../src/lib/router-utils/RouteErrorBoundary';
+import { RouteErrorBoundary } from '../../src/router-utils';
 import { ApplicationError } from './components/error-pages/ApplicationError';
 
 export const routes: RouteObject[] = [

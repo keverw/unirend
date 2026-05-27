@@ -1,6 +1,6 @@
 import type { RouteObject } from 'react-router';
-import RouteErrorBoundary from '../../src/lib/router-utils/RouteErrorBoundary';
 import {
+  RouteErrorBoundary,
   createPageDataLoader,
   createDefaultPageDataLoaderConfig,
 } from '../../src/router-utils';
@@ -13,9 +13,16 @@ import { NotFound } from './components/error-pages/NotFound';
 import { ApplicationError } from './components/error-pages/ApplicationError';
 import { PageDataDisplay } from './components/PageDataDisplay';
 
-// Shared page data loader config
+const API_BASE_URL =
+  typeof window !== 'undefined'
+    ? // eslint-disable-next-line @typescript-eslint/naming-convention
+      ((window as Window & { __PUBLIC_APP_CONFIG__?: Record<string, unknown> })
+        .__PUBLIC_APP_CONFIG__?.api_endpoint as string) ||
+      window.location.origin
+    : (process.env.INTERNAL_API_ENDPOINT ?? 'http://localhost:3000');
+
 const pageDataLoaderConfig = {
-  ...createDefaultPageDataLoaderConfig('http://localhost:3000'),
+  ...createDefaultPageDataLoaderConfig(API_BASE_URL),
   pageDataEndpoint: '/api/v1/page_data',
 };
 

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router';
-import { useDataLoaderEnvelopeError } from '../../../src/lib/router-utils/use-data-loader-envelope-error-hook';
+import { useDataLoaderEnvelopeError } from '../../../src/router-utils';
 import { Header } from './Header';
 import { Footer } from './Footer';
 import { NotFound } from './error-pages/NotFound';

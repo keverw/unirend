@@ -161,6 +161,13 @@ async function main() {
           logger.success('  ✅ {{pageInfo}} ({{time}}ms)', {
             params: { pageInfo, time: page.timeMS },
           });
+        } else if (page.status === 'not_found') {
+          logger.warn(
+            '  ⚠️ {{pageInfo}} ({{time}}ms) — rendered with 404 status (expected for custom 404 pages)',
+            {
+              params: { pageInfo, time: page.timeMS },
+            },
+          );
         } else if (page.status === 'error') {
           logger.error(
             page.errorDetails
@@ -171,9 +178,12 @@ async function main() {
             },
           );
         } else {
-          logger.warn('  ⚠️ {{pageInfo}} ({{time}}ms)', {
-            params: { pageInfo, time: page.timeMS },
-          });
+          logger.warn(
+            '  ⚠️ {{pageInfo}} ({{time}}ms) — unknown status: {{status}}',
+            {
+              params: { pageInfo, time: page.timeMS, status: page.status },
+            },
+          );
         }
 
         if (page.outputPath) {
