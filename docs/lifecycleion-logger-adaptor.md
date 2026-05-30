@@ -7,7 +7,7 @@
 - [Basic Usage](#basic-usage)
 - [Using a Service or Entity Logger](#using-a-service-or-entity-logger)
 - [Context Options (`context.logger`)](#context-options-contextlogger)
-  - [Template Rendering with Params](#template-rendering-with-params)
+  - [Template Rendering With Params](#template-rendering-with-params)
   - [Redaction](#redaction)
   - [Tags](#tags)
 - [Level Mapping](#level-mapping)
@@ -64,7 +64,7 @@ All Fastify/Unirend logs will include `serviceName: 'Server'` as a field on each
 
 `request.log` and `pluginHost.log` accept a `logger` key in the context object (the first argument in pino's `(obj, msg)` order) to pass Lifecycleion-specific options. Use the `LifecycleionLogContextOptions` type for the value.
 
-### Template Rendering with Params
+### Template Rendering With Params
 
 Lifecycleion supports `{{variableName}}` placeholders in log messages. Pass a `params` field to supply values:
 

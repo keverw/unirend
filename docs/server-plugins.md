@@ -13,6 +13,7 @@
     - [Hooks](#hooks)
     - [Server-Level Logging](#server-level-logging)
     - [Decorators](#decorators)
+      - [TypeScript Augmentation](#typescript-augmentation)
     - [Reading Server Decorations](#reading-server-decorations)
     - [APIResponseHelpers](#apiresponsehelpers)
     - [API Shortcuts (Envelope Helpers)](#api-shortcuts-envelope-helpers)
@@ -33,12 +34,12 @@
 - [File Upload Helpers](#file-upload-helpers)
 - [Common Pitfalls](#common-pitfalls)
   - [Async Route Handler Pattern (Return Payload, Don't Call reply.send)](#async-route-handler-pattern-return-payload-dont-call-replysend)
-  - [Streaming Responses from Route Handlers](#streaming-responses-from-route-handlers)
+  - [Streaming Responses From Route Handlers](#streaming-responses-from-route-handlers)
   - [Setting Global Headers in onSend Hook](#setting-global-headers-in-onsend-hook)
 - [Limitations](#limitations)
   - [Forbidden Operations](#forbidden-operations)
   - [Route Conflicts](#route-conflicts)
-- [Integration with Third-Party Plugins](#integration-with-third-party-plugins)
+- [Integration With Third-Party Plugins](#integration-with-third-party-plugins)
 - [Error Handling](#error-handling)
 - [Testing Your Plugins](#testing-your-plugins)
 - [Lifecycle and Persistence](#lifecycle-and-persistence)
@@ -292,13 +293,50 @@ If a custom logger is configured via the server's `logging.logger` option, `plug
 
 #### Decorators
 
+Use decorators to attach custom properties, methods, or database helpers to request/reply objects or the server instance itself.
+
 ```typescript
 // Add properties to request/reply objects
 pluginHost.decorateRequest('userID', null);
 pluginHost.decorateReply('setUser', function (user) {
   /* ... */
 });
-pluginHost.decorate('db', databaseConnection);
+pluginHost.decorate('machineInfo', {
+  serverID: 'api-01',
+  region: 'us-west-2',
+});
+```
+
+##### TypeScript Augmentation
+
+Because Unirend is built on top of Fastify, properties added via decorators must be declared on the Fastify interface that matches the decorated target. Add a declaration block in your project types (or in the plugin file):
+
+```typescript
+declare module 'fastify' {
+  interface FastifyRequest {
+    userID: string | null;
+  }
+
+  interface FastifyReply {
+    setUser: (user: any) => void;
+  }
+
+  interface FastifyInstance {
+    machineInfo: {
+      serverID: string;
+      region: string;
+    };
+  }
+}
+```
+
+Server-level decorations are still accessed through Unirend's plugin host helpers:
+
+```typescript
+const machineInfo = pluginHost.getDecoration<{
+  serverID: string;
+  region: string;
+}>('machineInfo');
 ```
 
 #### Reading Server Decorations
@@ -809,7 +847,7 @@ This guard applies to route handlers registered through `pluginHost.get/post/put
 
 The `pluginHost.api.*` handlers and `pluginHost.pageDataHandler.register(...)` handlers are not affected, they return envelopes directly and are handled correctly by the framework.
 
-### Streaming Responses from Route Handlers
+### Streaming Responses From Route Handlers
 
 When you need to stream binary data, files, or other non-buffered responses from a raw route handler, use `reply.hijack()` to take full ownership of the response, then pipe directly to `reply.raw`. This bypasses Fastify's send pipeline entirely, no `wrapThenable`, no compression hook interference.
 
@@ -896,7 +934,7 @@ pluginHost.post('/some-page', handler);
 pluginHost.get('*', handler);
 ```
 
-## Integration with Third-Party Plugins
+## Integration With Third-Party Plugins
 
 Many Fastify ecosystem plugins work seamlessly:
 

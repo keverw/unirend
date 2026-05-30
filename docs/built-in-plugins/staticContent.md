@@ -23,7 +23,7 @@
 - [Hook Ordering and Cookie Renewal](#hook-ordering-and-cookie-renewal)
 - [Best Practices](#best-practices)
   - [1. Use Immutable Caching for Build Assets](#1-use-immutable-caching-for-build-assets)
-  - [2. Separate User Uploads from Build Assets](#2-separate-user-uploads-from-build-assets)
+  - [2. Separate User Uploads From Build Assets](#2-separate-user-uploads-from-build-assets)
   - [3. Tune Server Memory Caching for Your Workload](#3-tune-server-memory-caching-for-your-workload)
   - [4. Use Single Asset Map for Specific Files](#4-use-single-asset-map-for-specific-files)
   - [5. Use External Cache for Runtime Updates](#5-use-external-cache-for-runtime-updates)
@@ -536,7 +536,7 @@ staticContent({
 });
 ```
 
-### 2. Separate User Uploads from Build Assets
+### 2. Separate User Uploads From Build Assets
 
 ```typescript
 plugins: [

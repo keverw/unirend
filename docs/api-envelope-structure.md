@@ -42,7 +42,7 @@
     - [Decorate Request via Plugin](#decorate-request-via-plugin)
     - [Server-Wide Custom Helpers Class](#server-wide-custom-helpers-class)
     - [Per-Call Generics](#per-call-generics)
-    - [Subclass to Inject Defaults from the Request](#subclass-to-inject-defaults-from-the-request)
+    - [Subclass to Inject Defaults From the Request](#subclass-to-inject-defaults-from-the-request)
 
 <!-- tocstop -->
 
@@ -879,7 +879,7 @@ return APIResponseHelpers.createPageSuccessResponse<MyData, AppMeta>({
 });
 ```
 
-#### Subclass to Inject Defaults from the Request
+#### Subclass to Inject Defaults From the Request
 
 ```ts
 import { APIResponseHelpers } from 'unirend/api-envelope';

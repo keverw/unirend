@@ -12,9 +12,9 @@ Unirend provides a unified API for handling multipart uploads with streaming lim
   - [Single File Upload](#single-file-upload)
   - [Multiple Files (Batch)](#multiple-files-batch)
   - [Cleanup on Abort](#cleanup-on-abort)
-  - [Post-Processing with `onComplete`](#post-processing-with-oncomplete)
+  - [Post-Processing With `onComplete`](#post-processing-with-oncomplete)
   - [Pre-Validation (Reject Before Parsing Multipart)](#pre-validation-reject-before-parsing-multipart)
-  - [Custom MIME Type Validation with Validator Function](#custom-mime-type-validation-with-validator-function)
+  - [Custom MIME Type Validation With Validator Function](#custom-mime-type-validation-with-validator-function)
   - [Production: Tracking Uploads in a Database](#production-tracking-uploads-in-a-database)
     - [Background Processing (Video, Thumbnails, OCR, Etc.)](#background-processing-video-thumbnails-ocr-etc)
 - [Errors and Abort Reasons](#errors-and-abort-reasons)
@@ -282,7 +282,7 @@ processor: async (fileStream, metadata, context) => {
 };
 ```
 
-### Post-Processing with `onComplete`
+### Post-Processing With `onComplete`
 
 Use `onComplete` for a single step after all files finish (success or failure), like moving temp files to final location or committing a transaction.
 
@@ -368,7 +368,7 @@ const server = serveSSRWithHMR(sourcePaths, {
 
 **Note:** Both `allowedRoutes` rejections and `preValidation` rejections are automatically wrapped in proper API envelopes (with `status`, `status_code`, `request_id`, etc.) using your server's `APIResponseHelpersClass` if provided, or the default `APIResponseHelpers`.
 
-### Custom MIME Type Validation with Validator Function
+### Custom MIME Type Validation With Validator Function
 
 Use a validator function when you need custom rules and/or a custom rejection reason:
 

@@ -144,14 +144,14 @@ class StaticWebServerComponent extends BaseComponent {
         }
 
         // Stop the server if it successfully started and is listening. Keep a
-        // local reference so the callback closes the same server instance even if
+        // local reference so the callback stops the same server instance even if
         // component state changes while shutdown is in progress.
         const server = this.server;
         if (server?.isListening()) {
           await server.stop();
         }
 
-        // Only clear the server reference after a successful close. If close()
+        // Only clear the server reference after a successful stop. If stop()
         // rejects, force shutdown still needs this.server to close connections.
         this.server = null;
         this.startPromise = null;

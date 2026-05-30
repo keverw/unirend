@@ -16,8 +16,8 @@
     - [3) Thrown Errors After Hydration](#3-thrown-errors-after-hydration)
     - [4) Loader Response Errors After Hydration](#4-loader-response-errors-after-hydration)
   - [Static Site Generation (SSG) Notes](#static-site-generation-ssg-notes)
-    - [5) Error Responses with Stack Trace (Development Only)](#5-error-responses-with-stack-trace-development-only)
-- [Integration with API Envelope Structure](#integration-with-api-envelope-structure)
+    - [5) Error Responses With Stack Trace (Development Only)](#5-error-responses-with-stack-trace-development-only)
+- [Integration With API Envelope Structure](#integration-with-api-envelope-structure)
 - [Reference Implementation](#reference-implementation)
 - [Extending the Strategy](#extending-the-strategy)
 
@@ -152,12 +152,12 @@ When a loader returns a page error envelope directly, or when the framework conv
 - A raw component render throw is different. That becomes a render error instead of a rendered page envelope.
 - See [docs/ssg.md](./ssg.md#5xx-error-handling) for the SSG-specific write and `failOn5xx` behavior.
 
-#### 5) Error Responses with Stack Trace (Development Only)
+#### 5) Error Responses With Stack Trace (Development Only)
 
 - In dev, you may include a `stack` field in the envelope's `error.details` for debugging.
 - Show stack traces only in development, never in production.
 
-## Integration with API Envelope Structure
+## Integration With API Envelope Structure
 
 - Use the standardized envelopes for both page data loaders/handlers and API endpoints.
 - Construct envelopes via helpers: `APIResponseHelpers.createPageErrorResponse` / `createAPIErrorResponse`, etc.
