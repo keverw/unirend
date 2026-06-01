@@ -16,9 +16,11 @@
 
 import {
   STARTER_TEMPLATES,
+  TEMPLATE_IDS,
   REPO_CONFIG_FILE,
   DEFAULT_REPO_NAME,
 } from './lib/starter-templates/consts';
+import type { TemplateID } from './lib/starter-templates/consts';
 import type {
   TemplateInfo,
   RepoConfig,
@@ -69,14 +71,6 @@ export async function createProject(
   const projectPath = `src/apps/${options.projectName}`;
   const projectPathDisplay = vfsDisplayPath(options.repoRoot, projectPath);
 
-  // Get template-specific configuration (scripts, dependencies, devDependencies)
-  const templateConfig = getTemplateConfig(
-    options.projectName,
-    options.templateID,
-    projectPath,
-    options.serverBuildTarget,
-  );
-
   try {
     log('info', '🚀 Starting project creation...');
     log('info', `Template: ${options.templateID}`);
@@ -119,23 +113,36 @@ export async function createProject(
 
     // Validate template exists
     if (!templateExists(options.templateID)) {
+      // TS narrows `options.templateID` to `never` here (the negated branch
+      // of a TemplateID type guard), but a JS caller can absolutely land
+      // here with a garbage string — read the value as `string` for the
+      // error path so we can echo it back to the caller.
+      const invalidTemplateID = options.templateID as string;
       const available = listAvailableTemplates();
 
       log(
         'error',
-        `❌ Template "${options.templateID}" not found. Available templates: ${available.join(', ')}`,
+        `❌ Template "${invalidTemplateID}" not found. Available templates: ${available.join(', ')}`,
       );
 
       return {
         success: false,
-        error: `Template "${options.templateID}" not found`,
+        error: `Template "${invalidTemplateID}" not found`,
         metadata: {
-          templateID: options.templateID,
+          templateID: invalidTemplateID,
           projectName: options.projectName,
           repoPath: repoRootDisplay,
         },
       };
     }
+
+    // Get template-specific configuration (scripts, dependencies, devDependencies)
+    const templateConfig = getTemplateConfig(
+      options.projectName,
+      options.templateID,
+      projectPath,
+      options.serverBuildTarget,
+    );
 
     // Check if project path already exists
     const doesProjectExist = await vfsExists(options.repoRoot, projectPath);
@@ -453,24 +460,28 @@ export async function createProject(
 }
 
 /**
- * Check if a template exists in the registry
+ * Check if a template exists in the registry.
+ * Returns a type predicate so callers can narrow `string` to `TemplateID`
+ * after a successful check (used by `createProject` to flow the narrowed
+ * value into `getTemplateConfig` and `createProjectSpecificFiles`).
  */
-export function templateExists(templateID: string): boolean {
-  return templateID in STARTER_TEMPLATES;
+export function templateExists(templateID: string): templateID is TemplateID {
+  return (TEMPLATE_IDS as readonly string[]).includes(templateID);
 }
 
 /**
  * Get list of available starter template IDs
  */
-export function listAvailableTemplates(): string[] {
-  return Object.keys(STARTER_TEMPLATES);
+export function listAvailableTemplates(): TemplateID[] {
+  return Object.keys(STARTER_TEMPLATES) as TemplateID[];
 }
 
 /**
- * Get template information by ID
+ * Get template information by ID. Caller must have a valid `TemplateID`
+ * (narrow with `templateExists` first if you only have a raw string).
  */
-export function getTemplateInfo(templateID: string): TemplateInfo | undefined {
-  return STARTER_TEMPLATES[templateID] as TemplateInfo | undefined;
+export function getTemplateInfo(templateID: TemplateID): TemplateInfo {
+  return STARTER_TEMPLATES[templateID];
 }
 
 /**
@@ -676,9 +687,11 @@ export async function initRepo(
 // Re-export constants for public API consumers
 export {
   STARTER_TEMPLATES,
+  TEMPLATE_IDS,
   REPO_CONFIG_FILE,
   DEFAULT_REPO_NAME,
 } from './lib/starter-templates/consts';
+export type { TemplateID } from './lib/starter-templates/consts';
 
 // Re-export types for public API consumers
 export type {

@@ -1,8 +1,17 @@
 // Constants for starter templates and repository config
 
+/**
+ * Canonical list of template IDs. The `TemplateID` union is derived from this
+ * so adding/removing a template requires only one edit; the `STARTER_TEMPLATES`
+ * record below must then provide a matching entry.
+ */
+export const TEMPLATE_IDS = ['ssg', 'ssr', 'api'] as const;
+
+export type TemplateID = (typeof TEMPLATE_IDS)[number];
+
 export const STARTER_TEMPLATES: Record<
-  string,
-  { templateID: string; name: string; description: string }
+  TemplateID,
+  { templateID: TemplateID; name: string; description: string }
 > = {
   ssg: {
     templateID: 'ssg',

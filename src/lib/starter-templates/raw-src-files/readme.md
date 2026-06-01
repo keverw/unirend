@@ -273,3 +273,87 @@ hardcoding it:
 
 This keeps generated projects consistent with the demos and starter templates
 while avoiding the duplicate/collision issues that arise from hardcoded names.
+
+## Closeout checklist
+
+This tree is "done" when every file here has been absorbed into the generator
+and the directory can be deleted. 
+
+Working list:
+
+### Per template (do SSG first, then SSR, then API)
+
+- [ ] Port each file under `src/apps/<template>/` into the generator as string
+      literals + dedicated functions for the dynamic substitutions (project
+      name, app name, runtime target, etc.).
+- [ ] Populate the `getTemplateConfig` body for the template with the
+      `scripts`, `dependencies`, `devDependencies`, `gitignoreEntries` (+
+      section header), `prettierignoreEntries` (+ section header), and
+      `cspellWords` it needs. The plumbing is already wired through
+      `ensureBaseFiles`.
+- [ ] Add a branch in `createProjectSpecificFiles` for the template (if/else
+      if pattern with a trailing `const _exhaustive: never = templateID` so
+      TS catches missing branches).
+- [ ] Add tests covering `getTemplateConfig(<template>)` output and the
+      `createProjectSpecificFiles` branch.
+- [ ] Delete the per-template directory from this tree once parity is
+      verified against the generator's output.
+
+### Generator-level work
+
+- [ ] Pick a home for cross-template-but-not-all-templates string literals
+      and helpers. `base-files/` is for files every template needs (root
+      `tsconfig.json`, `prettier.config.js`, etc.) — but several pieces are
+      shared by a _subset_ of templates and don't fit there:
+  - `generate-build-info.ts` + `current-build-info.ts` → SSR + API
+  - `vite.config.ts` + Vite-related deps → SSG + SSR
+  - React component scaffolding (theme, layout, error pages) → SSG + SSR
+  - API server scaffolding → API only (effectively single-template, but
+    still doesn't belong in `base-files/`)
+
+  A sibling `templates-shared/` (or similar) directory would house these
+  literals so each template's branch in `createProjectSpecificFiles` can
+  import the same source rather than duplicating it.
+- [ ] Port `scripts/generate-build-info.ts` into a string literal under the
+      shared-helpers home (it's used by the SSR and API branches of
+      `createProjectSpecificFiles`, not all three).
+- [ ] Wire the generator to emit and amend `build-info.config.json` — the
+      file in this tree is the reference shape.
+- [ ] Use the `package.json` in this tree as the reference for the populated
+      per-app scripts/deps/devDeps shape; mirror those values in
+      `getTemplateConfig`.
+- [ ] Decide the script-name collision strategy (see _Script-name collisions_
+      above): either leave the silent-skip behavior in `mergeScripts` and
+      close the question, or add the read-once-up-front check in
+      `createProject`.
+
+### Documentation
+
+- [ ] Write user docs for the `unirend create ...` CLI — supported
+      template IDs, flags (`--target`, repo path), behavior when run in
+      a fresh vs. existing repo, what gets generated, and how to extend.
+- [ ] Write API docs for the starter-template library surface exposed
+      from `src/starter-templates.ts` — `createProject`,
+      `initRepo`, `templateExists`, `getTemplateInfo`,
+      `listAvailableTemplates(WithInfo)`, `readRepoConfig`, plus the
+      public types (`StarterTemplateOptions`, `TemplateID`,
+      `TemplateInfo`, `ProjectEntry`, `RepoConfig`,
+      `CreateProjectResult`, `InitRepoResult`, etc.). Cover the
+      direct-consumption use case (other tools wrapping the lib), not
+      just the CLI flow.
+
+### Cleanup once the tree is empty
+
+The `src/lib/starter-templates/raw-src-files/**` entry has been added to the
+repo's tooling configs so this tree doesn't get type-checked, formatted, or
+linted (the files reference subpath exports like `unirend/server` and
+`unirend/client` that only resolve in downstream consumers). All three
+entries need to come back out once the directory is gone:
+
+- [ ] Remove `"src/lib/starter-templates/raw-src-files/**"` from the
+      `exclude` list in the repo-root `tsconfig.json`.
+- [ ] Remove `src/lib/starter-templates/raw-src-files/**` from
+      `.prettierignore`.
+- [ ] Remove `src/lib/starter-templates/raw-src-files/**` from the
+      `ignores` list in the repo-root `eslint.config.js`.
+- [ ] Delete this directory (including this README).

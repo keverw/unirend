@@ -1,4 +1,5 @@
 import type { FileRoot, FileContent } from './vfs';
+import type { TemplateID } from './consts';
 
 // Types for starter-templates APIs
 
@@ -10,7 +11,7 @@ export type ServerBuildTarget = 'bun' | 'node';
 
 export interface TemplateInfo {
   /** Template identifier */
-  templateID: string;
+  templateID: TemplateID;
   /** Display name */
   name: string;
   /** Template description */
@@ -19,7 +20,7 @@ export interface TemplateInfo {
 
 export interface ProjectEntry {
   /** Template used for this project */
-  templateID: string;
+  templateID: TemplateID;
   /** Relative path to the project */
   path: string;
   /** ISO timestamp when project was created */
@@ -46,15 +47,22 @@ export type LoggerFunction = (level: LogLevel, message: string) => void;
 
 export interface StarterTemplateOptions {
   /** Project template type */
-  templateID: string;
+  templateID: TemplateID;
   /** Project name */
   projectName: string;
   /** Repo root directory: real FS path or in-memory directory object */
   repoRoot: FileRoot;
   /** Optional logger function for output */
   logger?: LoggerFunction;
-  /** Target runtime for server build/bundle (affects scripts/config emitted by templates) */
-  serverBuildTarget?: ServerBuildTarget;
+  /**
+   * Target runtime for server build/bundle (affects scripts/config emitted
+   * by templates). Required at the library boundary so each consumer makes
+   * a conscious choice — this library is meant to be usable directly by
+   * other tools, not just the bundled CLI. The bundled CLI happens
+   * to default to `'node'` before calling `createProject`; other tools
+   * are free to pick their own default based on their needs.
+   */
+  serverBuildTarget: ServerBuildTarget;
   /**
    * Install dependencies after project creation (only for filesystem mode).
    * Runs `bun install` in the project directory.
@@ -118,7 +126,7 @@ export type CreateProjectResult =
       success: true;
       /** Project metadata */
       metadata: {
-        templateID: string;
+        templateID: TemplateID;
         projectName: string;
         repoPath: string;
       };
@@ -128,7 +136,14 @@ export type CreateProjectResult =
       success: false;
       /** Error message describing what went wrong */
       error: string;
-      /** Project metadata (context of what was attempted) */
+      /**
+       * Project metadata (context of what was attempted).
+       *
+       * `templateID` is widened to `string` here because a JS caller can
+       * reach the failure path with an unknown template identifier — TS
+       * users get the narrow `TemplateID` only on the success branch, where
+       * the value has been runtime-validated.
+       */
       metadata: {
         templateID: string;
         projectName: string;

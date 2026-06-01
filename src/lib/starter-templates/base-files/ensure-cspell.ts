@@ -19,6 +19,7 @@ const defaultWords = [
   'bradlc',
   'dbaeumer',
   'esbenp',
+  'eslintcache',
   'firsttris',
   'Gruntfuggly',
   'jestrunner',

@@ -36,7 +36,11 @@ import {
   listAvailableTemplatesWithInfo,
   initRepo,
 } from './starter-templates';
-import type { LogLevel, ServerBuildTarget } from './starter-templates';
+import type {
+  LogLevel,
+  ServerBuildTarget,
+  TemplateID,
+} from './starter-templates';
 import { PKG_VERSION } from './version';
 import { parseCLIArgs, generateHelpText } from './lib/cli-helpers';
 import type { CommandInfo } from './lib/cli-helpers';
@@ -266,8 +270,10 @@ async function main() {
     // Use starter-templates library to create project
     // Name and template validation are handled by the library
     // Repo config updates are handled by createProject internally
+    // Cast at the CLI boundary: createProject still validates the value at
+    // runtime via templateExists and prints a clear error if it's unknown.
     const result = await createProject({
-      templateID: parsed.projectType,
+      templateID: parsed.projectType as TemplateID,
       projectName: parsed.projectName,
       repoRoot,
       logger: colorPrint,

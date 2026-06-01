@@ -69,3 +69,9 @@ unirend-php/composer.lock
 # Test fixture with intentionally malformed content
 unirend-php/tests/fixtures/build-malformed-json/
 
+# Starter template raw source files - see readme.md there for details.
+# Files get absorbed into the generator (as string literals + dynamic
+# substitution functions) and deleted from this tree over time. Removing this
+# entry is part of the closeout checklist once the directory is empty.
+src/lib/starter-templates/raw-src-files/**
+

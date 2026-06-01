@@ -1,5 +1,7 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-// todo: reenable @typescript-eslint/no-unused-vars once we implement the functions
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/require-await */
+// todo: reenable @typescript-eslint/no-unused-vars and @typescript-eslint/require-await
+// once getTemplateConfig and createProjectSpecificFiles bodies are filled in (the latter
+// will perform real I/O via vfsWrite/vfsWriteJSON, which restores the await).
 import { ensurePackageJSON } from './base-files/package-json';
 import type { EnsurePackageJSONOptions } from './base-files/package-json';
 import { ensureGitignore } from './base-files/ensure-gitignore';
@@ -14,6 +16,7 @@ import { ensureVSCodeSettings } from './base-files/ensure-vscode-settings';
 import { ensureAgentsMD } from './base-files/ensure-agents-md';
 import { ensureCspell } from './base-files/ensure-cspell';
 import type { RepoConfig, ServerBuildTarget, LoggerFunction } from './types';
+import type { TemplateID } from './consts';
 import type { FileRoot } from './vfs';
 import {
   APPS_GIT_KEEP_FILE_SRC,
@@ -33,7 +36,7 @@ export function createRepoConfigObject(name: string): RepoConfig {
 export function addProjectToRepo(
   config: RepoConfig,
   projectName: string,
-  templateID: string,
+  templateID: TemplateID,
   relativePath: string,
 ): RepoConfig {
   return {
@@ -189,13 +192,49 @@ export interface TemplateConfig {
  */
 export function getTemplateConfig(
   projectName: string,
-  templateID: string,
+  templateID: TemplateID,
   projectPath: string,
-  serverBuildTarget?: ServerBuildTarget,
+  serverBuildTarget: ServerBuildTarget,
 ): TemplateConfig {
-  // todo: when building serve, got to remember if we're going to target bun or node...
-  // this changes the bun build target and if we call bun or node when running.
-  return {};
+  if (templateID === 'ssg') {
+    // TODO: populate SSG config — scripts, dependencies, devDependencies,
+    // gitignoreEntries + section header, prettierignoreEntries + section
+    // header, cspellWords. See raw-src-files/package.json and
+    // raw-src-files/readme.md for the populated shape to mirror.
+    // `serverBuildTarget` matters here too: SSG ships a `serve.ts`
+    // static-file server (useful for previewing the generated output and
+    // for demos), and the bundle/runner choice for that script follows
+    // the same pattern as SSR/API (`bun build --target=<bun|node>` +
+    // `bun`-vs-`node` invocation against the built output).
+    return {};
+  } else if (templateID === 'ssr') {
+    // TODO: populate SSR config — same fields as SSG, plus scripts must
+    // honor `serverBuildTarget`. In practice that means two things:
+    //   1. the `bun build --target=<bun|node>` flag used to bundle the
+    //      server entries (serve-built.ts and the HMR variant), and
+    //   2. whether the run/serve scripts invoke `bun` or `node` against
+    //      the built output.
+    // The dev variant in particular is affected by the Bun HMR
+    // graceful-shutdown bug — see the "Bun HMR graceful shutdown
+    // workaround" section in raw-src-files/readme.md for which
+    // `ssr:serve:dev` variant to emit per target.
+    // gitignore/prettierignore entries should include
+    // `src/apps/<projectName>/current-build-info.ts`.
+    return {};
+  } else if (templateID === 'api') {
+    // TODO: populate API config. `serverBuildTarget` applies here for the
+    // same reasons as SSR (bun build target flag + node vs bun runner for
+    // the built output), minus the Bun HMR concern since the API server
+    // doesn't run a Vite dev server. gitignore/prettierignore entries
+    // should include `src/apps/<projectName>/current-build-info.ts`.
+    return {};
+  } else {
+    // Compile-time exhaustiveness — TS errors here if a new TemplateID is
+    // added without a matching branch above. JS callers can still land
+    // here at runtime, so cast for the error message.
+    const _exhaustive: never = templateID;
+    throw new Error(`Unknown template: ${templateID as string}`);
+  }
 }
 
 /**
@@ -214,9 +253,35 @@ export async function createProjectSpecificFiles(
   root: FileRoot,
   projectPath: string,
   projectName: string,
-  templateID: string,
-  serverBuildTarget: ServerBuildTarget | undefined,
+  templateID: TemplateID,
+  serverBuildTarget: ServerBuildTarget,
   log?: LoggerFunction,
 ): Promise<void> {
-  // todo: implement
+  if (templateID === 'ssg') {
+    // TODO: emit SSG files — EntryClient.tsx, EntrySSG.tsx, Routes.tsx,
+    // generate-ssg.ts, vite.config.ts, components/, pages/, public/,
+    // index.html, index.css, vite-env.d.ts, prettier.config.js,
+    // tsconfig.json, consts.ts. See raw-src-files/src/apps/ssg/** for
+    // the reference source.
+  } else if (templateID === 'ssr') {
+    // TODO: emit SSR files — EntryClient.tsx, EntrySSR.tsx, Routes.tsx,
+    // serve-built.ts, serve-hmr.ts, server/start.ts,
+    // server/ssr-component.ts, server/plugins/**, current-build-info.ts,
+    // vite.config.ts, components/, pages/, public/, index.html,
+    // index.css, vite-env.d.ts, prettier.config.js, tsconfig.json,
+    // consts.ts. See raw-src-files/src/apps/ssr/** for reference source.
+    // `serverBuildTarget` affects the build scripts and runner choice —
+    // see the SSR branch of `getTemplateConfig` above for what it
+    // controls in practice.
+  } else if (templateID === 'api') {
+    // TODO: emit API files — api-component.ts, serve.ts,
+    // current-build-info.ts. See raw-src-files/src/apps/api/** for the
+    // reference source.
+  } else {
+    // Compile-time exhaustiveness — TS errors here if a new TemplateID is
+    // added without a matching branch above. JS callers can still land
+    // here at runtime, so cast for the error message.
+    const _exhaustive: never = templateID;
+    throw new Error(`Unknown template: ${templateID as string}`);
+  }
 }
