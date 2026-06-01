@@ -36,11 +36,7 @@ import {
   listAvailableTemplatesWithInfo,
   initRepo,
 } from './starter-templates';
-import type {
-  LogLevel,
-  ServerBuildTarget,
-  TemplateID,
-} from './starter-templates';
+import type { LogLevel, TemplateID } from './starter-templates';
 import { PKG_VERSION } from './version';
 import { parseCLIArgs, generateHelpText } from './lib/cli-helpers';
 import type { CommandInfo } from './lib/cli-helpers';
@@ -267,17 +263,18 @@ async function main() {
       ? resolvePath(parsed.repoPath)
       : process.cwd();
 
-    // Use starter-templates library to create project
-    // Name and template validation are handled by the library
-    // Repo config updates are handled by createProject internally
-    // Cast at the CLI boundary: createProject still validates the value at
-    // runtime via templateExists and prints a clear error if it's unknown.
+    // Use starter-templates library to create project.
+    // Name validation is handled by the library; template validation is too
+    // (createProject runs templateExists at runtime). We cast templateID at
+    // this seam because the parser only knows it's a `string`. `parsed.target`
+    // is already typed `'bun' | 'node' | undefined`, so no cast is needed —
+    // just defaults to `'node'` when omitted.
     const result = await createProject({
       templateID: parsed.projectType as TemplateID,
       projectName: parsed.projectName,
       repoRoot,
       logger: colorPrint,
-      serverBuildTarget: (parsed.target as ServerBuildTarget) ?? 'node',
+      serverBuildTarget: parsed.target ?? 'node',
     });
 
     if (!result.success) {
@@ -287,6 +284,36 @@ async function main() {
   // Handle unknown command
   else if (parsed.command === 'unknown') {
     showHelp(`Unknown command "${parsed.unknownCommand}"`);
+    process.exit(1);
+  }
+  // Handle invalid arguments to a known command (bad --target value,
+  // extra positional args, etc.). The parser hands back the raw facts
+  // (which reason and any accompanying data); message wording lives here
+  // so it stays consistent with the rest of the CLI's user-facing copy.
+  else if (parsed.command === 'invalid_args') {
+    let message: string;
+
+    if (parsed.reason === 'missing_target_value') {
+      message = 'Missing value for --target; expected "bun" or "node".';
+    } else if (parsed.reason === 'missing_name_value') {
+      message = 'Missing value for --name.';
+    } else if (parsed.reason === 'invalid_target_value') {
+      message = `Invalid --target value "${parsed.value}"; expected "bun" or "node".`;
+    } else if (parsed.reason === 'extra_positional') {
+      const label = parsed.extras.length === 1 ? 'argument' : 'arguments';
+      const quoted = parsed.extras.map((a) => `"${a}"`).join(', ');
+      message = `Unexpected positional ${label}: ${quoted}.`;
+    } else if (parsed.reason === 'duplicate_flag') {
+      message = `Flag ${parsed.flag} was provided more than once.`;
+    } else {
+      // Exhaustiveness — TS errors here if a new `invalid_args` reason
+      // is added without a matching branch above.
+      const _exhaustive: never = parsed;
+      void _exhaustive;
+      message = 'Invalid arguments.';
+    }
+
+    showHelp(message);
     process.exit(1);
   } else {
     // Unhandled command, which should never happen as something wasn't implemented
@@ -299,7 +326,8 @@ async function main() {
 
 // Run the CLI
 main().catch((error) => {
-  print(
+  colorPrint(
+    'error',
     `❌ Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
   );
   process.exit(1);

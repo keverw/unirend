@@ -147,6 +147,47 @@ describe('parseCLIArgs', () => {
         repoName: 'my-workspace',
       });
     });
+
+    test('should return invalid_args for extra positional path argument', () => {
+      const result = parseCLIArgs(['init-repo', './projects', './extra']);
+
+      expect(result).toEqual({
+        command: 'invalid_args',
+        reason: 'extra_positional',
+        extras: ['./extra'],
+      });
+    });
+
+    test('should return invalid_args when --name has no value', () => {
+      const result = parseCLIArgs(['init-repo', '--name']);
+      expect(result).toEqual({
+        command: 'invalid_args',
+        reason: 'missing_name_value',
+      });
+    });
+
+    test('should return invalid_args when --name is followed by another flag', () => {
+      const result = parseCLIArgs(['init-repo', '--name', '--other-flag']);
+      expect(result).toEqual({
+        command: 'invalid_args',
+        reason: 'missing_name_value',
+      });
+    });
+
+    test('should return invalid_args when --name is given more than once', () => {
+      const result = parseCLIArgs([
+        'init-repo',
+        '--name',
+        'foo',
+        '--name',
+        'bar',
+      ]);
+      expect(result).toEqual({
+        command: 'invalid_args',
+        reason: 'duplicate_flag',
+        flag: '--name',
+      });
+    });
   });
 
   describe('create command', () => {
@@ -252,6 +293,80 @@ describe('parseCLIArgs', () => {
         projectName: 'my-blog',
         repoPath: './projects',
         target: 'bun',
+      });
+    });
+
+    test('should return invalid_args for unrecognized --target value', () => {
+      const result = parseCLIArgs([
+        'create',
+        'ssg',
+        'my-blog',
+        '--target',
+        'python',
+      ]);
+
+      expect(result).toEqual({
+        command: 'invalid_args',
+        reason: 'invalid_target_value',
+        value: 'python',
+      });
+    });
+
+    test('should return invalid_args when --target has no value', () => {
+      const result = parseCLIArgs(['create', 'ssg', 'my-blog', '--target']);
+      expect(result).toEqual({
+        command: 'invalid_args',
+        reason: 'missing_target_value',
+      });
+    });
+
+    test('should return invalid_args for extra positional after path', () => {
+      const result = parseCLIArgs([
+        'create',
+        'ssg',
+        'my-blog',
+        './projects',
+        './extra',
+      ]);
+
+      expect(result).toEqual({
+        command: 'invalid_args',
+        reason: 'extra_positional',
+        extras: ['./extra'],
+      });
+    });
+
+    test('should return invalid_args for multiple extra positionals', () => {
+      const result = parseCLIArgs([
+        'create',
+        'ssg',
+        'my-blog',
+        './projects',
+        './second',
+        './third',
+      ]);
+
+      expect(result).toEqual({
+        command: 'invalid_args',
+        reason: 'extra_positional',
+        extras: ['./second', './third'],
+      });
+    });
+
+    test('should return invalid_args when --target is given more than once', () => {
+      const result = parseCLIArgs([
+        'create',
+        'ssg',
+        'my-blog',
+        '--target',
+        'bun',
+        '--target',
+        'node',
+      ]);
+      expect(result).toEqual({
+        command: 'invalid_args',
+        reason: 'duplicate_flag',
+        flag: '--target',
       });
     });
   });

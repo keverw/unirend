@@ -21,7 +21,21 @@ export type ParsedCLIArgs =
   | {
       command: 'unknown';
       unknownCommand: string;
-    };
+    }
+  // Recognized command, but the arguments it received were malformed.
+  // The parser returns the raw facts (which reason fired and any
+  // accompanying data). The CLI is responsible for turning each `reason`
+  // into a user-facing error message. Same split as `unknown`: parser =
+  // what was seen, CLI = how to talk to the user.
+  | { command: 'invalid_args'; reason: 'missing_target_value' }
+  | { command: 'invalid_args'; reason: 'missing_name_value' }
+  | { command: 'invalid_args'; reason: 'invalid_target_value'; value: string }
+  | {
+      command: 'invalid_args';
+      reason: 'extra_positional';
+      extras: string[];
+    }
+  | { command: 'invalid_args'; reason: 'duplicate_flag'; flag: string };
 
 /**
  * Parse CLI arguments into structured command and options
@@ -75,16 +89,78 @@ export function parseCLIArgs(args: string[]): ParsedCLIArgs {
  * Parse init-repo command arguments
  */
 
+/**
+ * Parse arguments for the `init-repo` command.
+ *
+ * Expected shape: `init-repo [path] [--name <repoName>]`
+ *
+ * - `--name` captures the next arg as the repo name. A missing value (flag
+ *   at end of args or immediately followed by another flag) returns
+ *   `invalid_args` rather than silently falling back to the default name.
+ *   Duplicate `--name` is also rejected.
+ * - The first non-flag arg (skipping `--name`'s value) is treated as
+ *   `[path]`. Any additional non-flag args are rejected as extras so the
+ *   user knows their input wasn't ignored.
+ */
+
 function parseInitRepoArgs(args: string[]): ParsedCLIArgs {
-  // Get --name flag value
+  // Reject duplicate flags up front so the rest of the parser can assume each appears at most once.
+  if (args.filter((a) => a === '--name').length > 1) {
+    return {
+      command: 'invalid_args',
+      reason: 'duplicate_flag',
+      flag: '--name',
+    };
+  }
+
+  // --name <repoName> — capture the value following --name if present.
+  // Done with a simple indexOf because --name appears at most once.
   const nameIndex = args.indexOf('--name');
+
+  // --name with nothing after it (or another flag immediately following): surface as an
+  // error rather than silently falling back to the default repo name.
+  if (
+    nameIndex !== -1 &&
+    (args[nameIndex + 1] === undefined || args[nameIndex + 1].startsWith('--'))
+  ) {
+    return { command: 'invalid_args', reason: 'missing_name_value' };
+  }
+
   const repoName =
     nameIndex !== -1 && args[nameIndex + 1] ? args[nameIndex + 1] : undefined;
 
-  // Get path argument (first non-flag argument after command)
-  const repoPath = args.find(
-    (arg, i) => i > 0 && !arg.startsWith('--') && args[i - 1] !== '--name',
-  );
+  // Walk every arg after the 'init-repo' command word and collect anything
+  // that's a positional (i.e. not a flag and not the value attached to
+  // --name). The first positional becomes [path]; any further ones are
+  // extras and get rejected below.
+  const positional: string[] = [];
+
+  for (let i = 1; i < args.length; i++) {
+    const arg = args[i];
+
+    // Skip flags themselves (--name, --whatever).
+    if (arg.startsWith('--')) {
+      continue;
+    }
+
+    // Skip the value that follows --name; the indexOf above already
+    // claimed it as the repo name.
+    if (args[i - 1] === '--name') {
+      continue;
+    }
+
+    positional.push(arg);
+  }
+
+  const [repoPath, ...extras] = positional;
+
+  if (extras.length > 0) {
+    return {
+      command: 'invalid_args',
+      reason: 'extra_positional',
+      extras,
+    };
+  }
 
   return {
     command: 'init-repo',
@@ -97,15 +173,38 @@ function parseInitRepoArgs(args: string[]): ParsedCLIArgs {
  * Parse create command arguments
  */
 
+/**
+ * Parse arguments for the `create` command.
+ *
+ * Expected shape: `create <type> <name> [path] [--target bun|node]`
+ *
+ * - `<type>` and `<name>` are taken from `args[1]` and `args[2]` directly
+ *   (positional, in order). They're left as `undefined` if absent; the
+ *   CLI surfaces the "missing required arguments" case via `showHelp`.
+ * - `--target` accepts only `bun` or `node`. A missing value, unrecognized
+ *   value, or duplicate flag returns `invalid_args` rather than silently
+ *   defaulting, so typos surface as errors instead of getting masked by
+ *   the CLI's `'node'` fallback.
+ * - The first non-flag arg after `<name>` becomes `[path]`. Any further
+ *   non-flag args are rejected as extras.
+ */
+
 function parseCreateArgs(args: string[]): ParsedCLIArgs {
-  // Expected base form:
-  // create <type> <name> [path] [--target bun|node]
+  // Reject duplicate flags up front so the rest of the parser can assume each appears at most once.
+  if (args.filter((a) => a === '--target').length > 1) {
+    return {
+      command: 'invalid_args',
+      reason: 'duplicate_flag',
+      flag: '--target',
+    };
+  }
+
   let projectType: string | undefined;
   let projectName: string | undefined;
   let repoPath: string | undefined;
   let target: 'bun' | 'node' | undefined;
 
-  // Capture positional args first (type, name, optional path)
+  // <type> and <name> are positional, taken straight from args[1..2].
   if (args.length > 1) {
     projectType = args[1];
   }
@@ -114,21 +213,51 @@ function parseCreateArgs(args: string[]): ParsedCLIArgs {
     projectName = args[2];
   }
 
-  // Walk remaining args to find first non-flag as path and parse flags
+  // Walk anything after <name>: pick up --target's value (validated), claim
+  // the first non-flag as [path], collect any further non-flag args into
+  // `extras` so we can reject them below.
+  const extras: string[] = [];
+
   for (let i = 3; i < args.length; i++) {
     const arg = args[i];
 
     if (arg === '--target') {
       const value = args[i + 1];
 
-      if (value === 'bun' || value === 'node') {
-        target = value;
+      // --target with nothing after it: surface as an error rather than
+      // silently letting the CLI's default kick in.
+      if (value === undefined) {
+        return { command: 'invalid_args', reason: 'missing_target_value' };
       }
 
-      i++; // skip value
+      // Only 'bun' and 'node' are accepted. Anything else (typo, etc.)
+      // surfaces as an error so the user knows their value was rejected
+      // instead of silently swapped for the default.
+      if (value !== 'bun' && value !== 'node') {
+        return {
+          command: 'invalid_args',
+          reason: 'invalid_target_value',
+          value,
+        };
+      }
+
+      target = value;
+      i++; // skip past the value we just consumed
     } else if (!arg.startsWith('--') && repoPath === undefined) {
+      // First unclaimed positional becomes [path].
       repoPath = arg;
+    } else if (!arg.startsWith('--')) {
+      // Additional positional args aren't part of the `create` shape.
+      extras.push(arg);
     }
+  }
+
+  if (extras.length > 0) {
+    return {
+      command: 'invalid_args',
+      reason: 'extra_positional',
+      extras,
+    };
   }
 
   return {
