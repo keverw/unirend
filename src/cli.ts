@@ -83,11 +83,11 @@ const colorPrint = (level: LogLevel, message: string) => {
   switch (level) {
     case 'error':
       // eslint-disable-next-line no-console
-      console.log(`${colors.red}${message}${colors.reset}`);
+      console.error(`${colors.red}${message}${colors.reset}`);
       break;
     case 'warning':
       // eslint-disable-next-line no-console
-      console.log(`${colors.yellow}${message}${colors.reset}`);
+      console.warn(`${colors.yellow}${message}${colors.reset}`);
       break;
     case 'success':
       // eslint-disable-next-line no-console
@@ -110,8 +110,8 @@ const isBun = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined';
 
 // Enforce Bun runtime
 if (!isBun) {
-  // eslint-disable-next-line no-console
-  console.error(
+  colorPrint(
+    'error',
     '❌ Unirend CLI requires Bun.\n' +
       '\n' +
       'Why: Bun runs TypeScript directly and bundles to a single JS file, keeping the CLI simple and easy out of the box.\n' +
@@ -122,6 +122,7 @@ if (!isBun) {
       '  bunx unirend ...   # recommended (downloads if not installed)\n' +
       '  bun run unirend ...',
   );
+
   process.exit(1);
 }
 
@@ -330,5 +331,6 @@ main().catch((error) => {
     'error',
     `❌ Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
   );
+
   process.exit(1);
 });
