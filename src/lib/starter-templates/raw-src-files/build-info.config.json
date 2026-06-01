@@ -1,0 +1,6 @@
+{
+  "outputs": [
+    "src/apps/ssr/current-build-info.ts",
+    "src/apps/api/current-build-info.ts"
+  ]
+}

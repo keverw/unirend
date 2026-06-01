@@ -1,0 +1,275 @@
+# Raw starter template source files
+
+This directory holds the working source-of-truth versions of files that the
+Unirend starter template generator is being refactored to emit. The refactor
+turns each file here into string literals — plus dedicated functions for the
+dynamic substitutions (project name, app name, runtime target, etc.) — inside
+the generator itself.
+
+This directory is essentially a burn down chart style repo reference: as files are absorbed into
+the generator, they are deleted from here. What remains is what's left to do,
+and the contents can be diffed against the generator's output to verify
+parity.
+
+This README documents:
+
+1. The implementation plan for the scaffolding work (`createProjectSpecificFiles`).
+2. Non-obvious runtime and build behavior that the generator must preserve or
+   adapt when emitting code for a new project.
+
+## `createProjectSpecificFiles` — implementation plan
+
+`createProjectSpecificFiles` is the function that writes template-specific
+source files into a newly scaffolded project.
+
+### What's already in the generator (not in this tree)
+
+Several base files are already populated programmatically by `ensureBaseFiles`
+and the helpers under `src/lib/starter-templates/base-files/`. These are
+omitted from this directory so the tree only contains work still pending:
+
+- Root `tsconfig.json` → `ensureTsConfig`
+- Root `prettier.config.js` → `ensurePrettierConfig`
+- Root `eslint.config.js` → `ensureEslintConfig`
+- Root `cspell.json` (words + ignorePaths) → `ensureCspell`
+- `unirend-repo.json` → `createRepoConfigObject` + `addProjectToRepo`
+- `scripts/.gitkeep`, `src/apps/.gitkeep`, `src/libs/.gitkeep` →
+  `ensureGitkeep` with the `*_GIT_KEEP_FILE_SRC` constants
+
+### Shared vs. project-specific files
+
+Of what remains, some files are identical across all template types and
+should be written by a shared scaffold path:
+
+- `vite-env.d.ts`
+- `entry-client.tsx`
+- `index.html`
+- `public/` directory contents
+
+Project-specific files (entry points, routes, build configuration, server
+scripts, generated build info) vary by template type and must be emitted by
+`createProjectSpecificFiles`.
+
+### Implementation order
+
+1. **SSG** — easiest; no server, just routes and static generation. Do first.
+2. **SSR** — shares most files with SSG, but adds a server entry, build info
+   wiring, and the Bun HMR considerations documented below.
+3. **API** — separate script-style app with a small surface area, but distinct
+   enough to do last.
+
+### Function outline
+
+`createProjectSpecificFiles` should:
+
+1. Switch on `templateID` to determine which files to emit.
+2. Generate template-specific files into the project directory via `vfsWrite`
+   and `vfsWriteJSON`.
+3. Process template variables (e.g. `{{projectName}}`, app name, runtime
+   target).
+4. Create any required directory structure.
+
+Sketch:
+
+```typescript
+switch (templateID) {
+  case 'ssg':
+    // SSG entry, routes, generate-ssg script
+    break;
+  case 'ssr':
+    await vfsWrite(root, `${projectPath}/src/index.tsx`, ssrEntryTemplate);
+    await vfsWrite(root, `${projectPath}/vite.config.ts`, viteConfigTemplate);
+    await vfsWriteJSON(root, `${projectPath}/package.json`, {
+      name: projectName,
+      version: '0.1.0',
+      type: 'module',
+      scripts: {
+        /* ... */
+      },
+      dependencies: {
+        /* ... */
+      },
+    });
+    break;
+  case 'api':
+    // API entry, serve script
+    break;
+  default:
+    throw new Error(`Unknown template: ${templateID}`);
+}
+```
+
+### `package.json` script injection
+
+Existing scripts already follow an `<app-name>-<verb>` convention:
+
+```
+ssg-dev
+ssg-build
+ssg-build-and-generate
+ssr-dev
+ssr-build
+ssr-serve-prod
+```
+
+When generating a new app, inject scripts that follow the same pattern into the
+root `package.json`. An app named `my-app` would receive entries such as:
+
+```json
+{
+  "my-app-dev": "cd src/apps/my-app && vite",
+  "my-app-build": "...",
+  "my-app-serve": "..."
+}
+```
+
+The exact set of scripts depends on the template type:
+
+- **SSG** gets `generate` and `serve` scripts.
+- **SSR** gets `serve-dev` and `serve-prod` scripts (see the Bun HMR notes
+  below for which `serve-dev` variant to emit).
+- **API** gets a single `serve` script.
+
+#### Script-name collisions
+
+`ensurePackageJSON`'s `mergeScripts` helper never overwrites existing scripts —
+it only adds a key when one isn't already present. In practice this is safe:
+the only way to hit a collision is for the user to have already added a script
+named exactly `<new-app-name>-<verb>`, which would already be an unusual state.
+The user's script wins; the template's intended command is dropped silently.
+
+If we want to harden this, the cleanest option is to read the root
+`package.json` once near the top of `createProject` (tolerating file not found as "no
+collisions"), check for any script keys the template would inject, and fail
+early with a clear error listing the conflicts before any files are written.
+The parsed contents could also be threaded down to `ensureBaseFiles` so
+`ensurePackageJSON` doesn't have to re-read it. Leaving as-is for now; considering this as a refactor
+
+### Related work
+
+`getTemplateConfig` is the source of truth that `createProjectSpecificFiles`
+will read from. Its return type already covers everything that needs to vary
+per template — `scripts`, `dependencies`, `devDependencies`,
+`gitignoreEntries`, `prettierignoreEntries`, `cspellWords` (and their section
+headers) — and `ensureBaseFiles` already routes each field into the right
+`ensure*` helper. The body currently returns `{}`; the work is to populate it
+per template type, not to wire any new plumbing.
+
+## Bun HMR graceful shutdown workaround
+
+`ssr:serve:dev-node` is a temporary workaround for a Bun bug where the Vite HMR
+WebSocket server stalls during graceful shutdown.
+
+The script bundles the SSR dev server with `bun build --target=node` to
+`build/ssr/serve-hmr.js` and runs the output under Node.js, which handles
+WebSocket shutdown cleanly. The `SSR_SRC_DIR` environment variable is passed so
+Vite can still locate the original source files even though the bundle lives in
+`build/ssr/`.
+
+Once the upstream Bun issue is resolved, `ssr:serve:dev` (which runs directly
+under Bun with no build step) can be used again, and both `ssr:serve:dev-node`
+and the `SSR_SRC_DIR` fallback in `ssr-component.ts` can be removed.
+
+**Generator note:** when the generated project targets Bun, emit `ssr:serve:dev`.
+Otherwise, emit the `ssr:serve:dev-node` variant under the same script name
+(`ssr:serve:dev`) so end users get a consistent command regardless of runtime.
+
+## Build info generator design
+
+The project uses a single `scripts/generate-build-info.ts` script (renamed from
+`ssr-generate-build-info.ts`) that reads `build-info.config.json` — a manifest
+listing all output paths (e.g. `src/apps/ssr/current-build-info.ts`,
+`src/apps/api/current-build-info.ts`) — and writes each one.
+
+The generator script only reads the JSON config; it never writes or edits it.
+The Unirend starter template generator tool is responsible for:
+
+- Detecting which apps exist in the project.
+- Adding entries to `build-info.config.json`.
+- Wiring up the relevant `package.json` build scripts.
+- Appending each new `current-build-info.ts` path to `.gitignore` and
+  `.prettierignore` when scaffolding or adding a new app.
+
+When emitting component templates, the generator should interpolate the actual
+generated script names into inline comments that reference them (for example,
+the "which always runs first in `api:build`" comment in the `loadBuildInfo`
+block) rather than hardcoding the names. This keeps comments accurate when an
+app uses a different script naming convention.
+
+### IS_BUILT build-time constant
+
+Both the SSR and API components use an `IS_BUILT` constant to decide whether to
+load real build info or fall back to safe defaults. It is injected at bundle
+time via `bun build --define 'IS_BUILT=true|false'` and accessed in source via
+a `typeof` guard (since it is undeclared when running directly from source):
+
+```typescript
+// @ts-expect-error IS_BUILT is a build-time constant injected via bun build --define
+const isBuilt = typeof IS_BUILT !== 'undefined' && IS_BUILT === true;
+```
+
+The three execution modes:
+
+- **Production builds** (`ssr:build:serve`, `api:build:serve`):
+  `--define 'IS_BUILT=true'`. The build info file is bundled inline (generated
+  beforehand by `generate:build-info`).
+- **Dev-node builds** (`ssr:serve:dev-node`, `api:serve:dev-node`):
+  `--define 'IS_BUILT=false'` plus
+  `--external "$(pwd)/src/apps/<app>/current-build-info.ts"`. The `--external`
+  flag is required because Bun resolves and bundles all dynamic imports at
+  build time regardless of whether the conditional branch can ever execute at
+  runtime — without it, the build fails when the generated file is missing. An
+  absolute path is required because Bun matches externals against resolved
+  absolute paths, not the original import specifier. The `$(pwd)/...`
+  expansion in `package.json` scripts provides this.
+- **Direct-from-source** (`api:serve:dev`, `ssr:serve:dev`): `IS_BUILT` is
+  undefined at runtime, so the `typeof` guard returns `false` and the safe
+  defaults apply — no bundle step needed.
+
+The `--external` absolute path requirement was identified through testing: Bun
+resolves relative import paths to absolute paths before checking the external
+list, so only the full absolute path form matches.
+
+### Build script naming
+
+The SSR app splits its build into granular sub-scripts (`ssr:build:client`,
+`ssr:build:server`, `ssr:build:serve`) because it produces three separate
+artifacts. `ssr:build` orchestrates all of them along with the
+`generate:build-info` step.
+
+The API app only produces one artifact, so `api:build:serve` is essentially
+just that one bundle step. `api:build` wraps it together with the
+`generate:build-info` step for consistency with the SSR pattern.
+
+When generating scripts for new apps, the generator should mirror this
+convention where it makes sense, and may simplify or document the distinction
+for apps that only produce a single artifact.
+
+## Lifecycle and component naming consistency
+
+In the Unirend repository's demos, the `LifecycleManager` name uses a `-demo`
+suffix; the starter templates use `-app` or `-serve` suffixes. For example:
+
+| App | Demo name         | Starter template name |
+| --- | ----------------- | --------------------- |
+| SSR | `ssr-server-demo` | `ssr-server-app`      |
+| API | `api-server-demo` | `api-server-app`      |
+| SSG | `ssg-serve-demo`  | `ssg-serve-app`       |
+
+The underlying components retain their generic server names
+(`ssr-server`, `api-server`, `static-web-server`). This separation prevents
+name collisions between the application lifecycle manager and the registered
+component that share its base name.
+
+**Generator note:** when emitting code for a new project, derive the
+`LifecycleManager` name from the user-provided project or app name rather than
+hardcoding it:
+
+- The `LifecycleManager` name should incorporate the project or app name
+  (e.g. `<app-name>-ssr-server`, `<app-name>-api-server`,
+  `<app-name>-ssg-serve`).
+- The corresponding server component should retain its generic component name
+  (`ssr-server`, `api-server`, `static-web-server`).
+
+This keeps generated projects consistent with the demos and starter templates
+while avoiding the duplicate/collision issues that arise from hardcoded names.
