@@ -48,6 +48,10 @@ describe('ensurePackageJSON', () => {
       expect(pkg.devDependencies.typescript).toBe(devDependencies.typescript);
       expect(pkg.devDependencies.vite).toBe(devDependencies.vite);
       expect(pkg.devDependencies.cspell).toBe(devDependencies.cspell);
+      expect(pkg.devDependencies['@types/picomatch']).toBe(
+        devDependencies['@types/picomatch'],
+      );
+      expect(pkg.devDependencies.picomatch).toBe(devDependencies.picomatch);
       expect(pkg.scripts).toBeDefined();
       expect(pkg.scripts['type-check']).toBe('tsc --noEmit');
       expect(pkg.scripts.lint).toBe('eslint .');
@@ -55,6 +59,8 @@ describe('ensurePackageJSON', () => {
       expect(pkg.scripts.format).toBeDefined();
       expect(pkg.scripts['format:check']).toBeDefined();
       expect(pkg.scripts.spellcheck).toBeDefined();
+      expect(pkg.scripts['cspell:clean']).toBeDefined();
+      expect(pkg.scripts['cspell:clean:fix']).toBeDefined();
       expect(pkg.scripts.check).toBe(
         'bun run type-check && bun run lint && bun run spellcheck && bun test --pass-with-no-tests',
       );

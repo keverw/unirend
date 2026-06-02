@@ -18,6 +18,7 @@ import { ensureVSCodeExtensions } from './base-files/ensure-vscode-extensions';
 import { ensureVSCodeSettings } from './base-files/ensure-vscode-settings';
 import { ensureAgentsMD } from './base-files/ensure-agents-md';
 import { ensureCspell } from './base-files/ensure-cspell';
+import { ensureCleanCspell } from './base-files/ensure-clean-cspell';
 import type { RepoConfig, ServerBuildTarget, LoggerFunction } from './types';
 import type { TemplateID } from './consts';
 import type { FileRoot } from './vfs';
@@ -175,6 +176,9 @@ export async function ensureBaseFiles(
     log: options?.log,
     templateCspellWords: options?.templateCspellWords,
   });
+
+  // Ensure scripts/clean-cspell.ts exists (only creates if missing)
+  await ensureCleanCspell(repoRoot, options?.log);
 
   // Ensure .vscode/extensions.json exists (creates or updates with missing extensions)
   await ensureVSCodeExtensions(repoRoot, options?.log);

@@ -13,6 +13,8 @@ const defaultScripts = {
   format: 'prettier --write "**/*.{js,jsx,ts,tsx,json,css,md}"',
   'format:check': 'prettier --check "**/*.{js,jsx,ts,tsx,json,css,md}"',
   spellcheck: 'cspell lint "**/*.{ts,tsx,js,jsx,md,html,css,json}"',
+  'cspell:clean': 'bun run scripts/clean-cspell.ts',
+  'cspell:clean:fix': 'bun run scripts/clean-cspell.ts --write',
   check:
     'bun run type-check && bun run lint && bun run spellcheck && bun test --pass-with-no-tests',
 };
@@ -22,6 +24,7 @@ export const devDependencies = {
   '@tailwindcss/vite': '^4.1.17',
   '@types/bun': '^1.3.2',
   '@types/node': '^24.10.0',
+  '@types/picomatch': '^3.0.1',
   '@types/react': '^19.2.4',
   '@types/react-dom': '^19.2.2',
   '@typescript-eslint/eslint-plugin': '^8.46.3',
@@ -37,6 +40,7 @@ export const devDependencies = {
   'eslint-plugin-react-hooks': '^7.0.1',
   'eslint-plugin-react-refresh': '^0.5.2',
   'eslint-plugin-unicorn': '^62.0.0',
+  picomatch: '^4.0.4',
   prettier: '^3.6.2',
   'prettier-plugin-tailwindcss': '^0.7.1',
   tailwindcss: '^4.1.17',
