@@ -1,16 +1,36 @@
 import { describe, test, expect } from 'bun:test';
 import {
   ensurePackageJSON,
+  readRootPackageJSON,
+  findScriptConflicts,
   dependencies,
   devDependencies,
 } from './package-json';
+import type { RootPackageJSONState } from './package-json';
 import type { InMemoryDir } from '../vfs';
+
+/**
+ * Mirror how production obtains the state: read once, then pass it in.
+ * `ensurePackageJSON` no longer reads the file itself, so tests read the
+ * fixture they set up and thread the result in.
+ */
+async function readState(root: InMemoryDir): Promise<RootPackageJSONState> {
+  const result = await readRootPackageJSON(root);
+
+  if (result.status === 'parse_error' || result.status === 'read_error') {
+    throw new Error(
+      `unexpected package.json read error in test: ${result.status}`,
+    );
+  }
+
+  return result;
+}
 
 describe('ensurePackageJSON', () => {
   describe('new package.json creation', () => {
     test('creates package.json with all required fields and dependencies', async () => {
       const memRoot: InMemoryDir = {};
-      await ensurePackageJSON(memRoot, 'test-repo');
+      await ensurePackageJSON(memRoot, 'test-repo', await readState(memRoot));
 
       expect('package.json' in memRoot).toBe(true);
 
@@ -50,7 +70,7 @@ describe('ensurePackageJSON', () => {
         }),
       };
 
-      await ensurePackageJSON(memRoot, 'test-repo');
+      await ensurePackageJSON(memRoot, 'test-repo', await readState(memRoot));
 
       const pkg = JSON.parse(memRoot['package.json'] as string);
       expect(pkg.name).toBe('existing-name'); // Not overwritten
@@ -68,7 +88,7 @@ describe('ensurePackageJSON', () => {
         }),
       };
 
-      await ensurePackageJSON(memRoot, 'test-repo');
+      await ensurePackageJSON(memRoot, 'test-repo', await readState(memRoot));
 
       const pkg = JSON.parse(memRoot['package.json'] as string);
       expect(pkg.dependencies).toBeDefined();
@@ -93,7 +113,7 @@ describe('ensurePackageJSON', () => {
         }),
       };
 
-      await ensurePackageJSON(memRoot, 'test-repo');
+      await ensurePackageJSON(memRoot, 'test-repo', await readState(memRoot));
 
       const pkg = JSON.parse(memRoot['package.json'] as string);
       expect(pkg.dependencies.react).toBe(dependencies.react); // Updated
@@ -118,7 +138,7 @@ describe('ensurePackageJSON', () => {
         }),
       };
 
-      await ensurePackageJSON(memRoot, 'test-repo');
+      await ensurePackageJSON(memRoot, 'test-repo', await readState(memRoot));
 
       const pkg = JSON.parse(memRoot['package.json'] as string);
       expect(pkg.dependencies.react).toBe('^20.0.0'); // Not downgraded
@@ -141,7 +161,7 @@ describe('ensurePackageJSON', () => {
         }),
       };
 
-      await ensurePackageJSON(memRoot, 'test-repo');
+      await ensurePackageJSON(memRoot, 'test-repo', await readState(memRoot));
 
       const pkg = JSON.parse(memRoot['package.json'] as string);
       expect(pkg.dependencies['custom-package']).toBe('^1.0.0'); // Preserved
@@ -162,7 +182,7 @@ describe('ensurePackageJSON', () => {
         }),
       };
 
-      await ensurePackageJSON(memRoot, 'test-repo');
+      await ensurePackageJSON(memRoot, 'test-repo', await readState(memRoot));
 
       const pkg = JSON.parse(memRoot['package.json'] as string);
       expect(pkg.scripts.lint).toBe('custom-lint-command'); // Not overwritten
@@ -174,7 +194,7 @@ describe('ensurePackageJSON', () => {
 
     test('merges template-specific scripts and dependencies', async () => {
       const memRoot: InMemoryDir = {};
-      await ensurePackageJSON(memRoot, 'test-repo', {
+      await ensurePackageJSON(memRoot, 'test-repo', await readState(memRoot), {
         templateScripts: {
           dev: 'vite',
           build: 'vite build',
@@ -223,7 +243,7 @@ describe('ensurePackageJSON', () => {
         }),
       };
 
-      await ensurePackageJSON(memRoot, 'test-repo');
+      await ensurePackageJSON(memRoot, 'test-repo', await readState(memRoot));
 
       const pkg = JSON.parse(memRoot['package.json'] as string);
       const keys = Object.keys(pkg);
@@ -241,15 +261,142 @@ describe('ensurePackageJSON', () => {
         keys.indexOf('devDependencies'),
       );
     });
+  });
 
-    test('handles invalid JSON with proper error', () => {
+  describe('passed-in package.json state', () => {
+    test('takes the creation path when the state is not_found', async () => {
+      // The state is the source of truth: even though a package.json sits on
+      // disk, a `not_found` state makes ensurePackageJSON create (overwrite)
+      // rather than merge — ensurePackageJSON never reads the file itself.
       const memRoot: InMemoryDir = {
-        'package.json': 'invalid json{',
+        'package.json': JSON.stringify({ name: 'on-disk', custom: true }),
       };
 
-      expect(ensurePackageJSON(memRoot, 'test-repo')).rejects.toThrow(
-        'Failed to ensure package.json: Invalid JSON in repo root package.json',
-      );
+      // passing the known state instead of re-reading
+      const result = await ensurePackageJSON(memRoot, 'test-repo', {
+        status: 'not_found',
+      });
+
+      const pkg = JSON.parse(memRoot['package.json'] as string);
+      expect(pkg.name).toBe('test-repo'); // Created fresh, not merged from disk
+      expect(pkg.custom).toBeUndefined();
+      expect(pkg.scripts['type-check']).toBe('tsc --noEmit');
+
+      // Returns the resulting state so callers can thread it onward
+      expect(result.status).toBe('found');
+      if (result.status === 'found') {
+        expect(result.data.name).toBe('test-repo');
+      }
     });
+
+    test('takes the update path using the passed-in data and merges options', async () => {
+      // In real usage this state comes from readRootPackageJSON; here it's
+      // constructed directly to keep the fixture self-contained. Options are
+      // included to mirror real call sites (e.g. createProject passing
+      // templateScripts alongside the threaded state).
+      const memRoot: InMemoryDir = {
+        'package.json': JSON.stringify({ name: 'my-repo', version: '3.0.0' }),
+      };
+
+      const result = await ensurePackageJSON(
+        memRoot,
+        'test-repo',
+        {
+          status: 'found',
+          // the same data that was previously read from disk
+          data: { name: 'my-repo', version: '3.0.0' },
+        },
+        // options that would come from the template that can change the package.json
+        {
+          templateScripts: { 'my-app:build': 'vite build' },
+          templateDependencies: { 'my-lib': '^1.0.0' },
+        },
+      );
+
+      const pkg = JSON.parse(memRoot['package.json'] as string);
+      expect(pkg.name).toBe('my-repo'); // Preserved from the state
+      expect(pkg.version).toBe('3.0.0'); // Preserved from the state
+      expect(pkg.type).toBe('module'); // Added
+      expect(pkg.scripts.lint).toBe('eslint .'); // Added from defaults
+      expect(pkg.scripts['my-app:build']).toBe('vite build'); // From options
+      expect(pkg.dependencies['my-lib']).toBe('^1.0.0'); // From options
+
+      // Returned state mirrors what was written
+      expect(result.status).toBe('found');
+      if (result.status === 'found') {
+        expect(result.data.name).toBe('my-repo');
+      }
+    });
+  });
+});
+
+describe('readRootPackageJSON', () => {
+  test('returns not_found when there is no package.json', async () => {
+    const memRoot: InMemoryDir = {};
+    const result = await readRootPackageJSON(memRoot);
+    expect(result).toEqual({ status: 'not_found' });
+  });
+
+  test('returns found with parsed data', async () => {
+    const memRoot: InMemoryDir = {
+      'package.json': JSON.stringify({
+        name: 'demo',
+        scripts: { dev: 'vite' },
+      }),
+    };
+
+    const result = await readRootPackageJSON(memRoot);
+    expect(result.status).toBe('found');
+
+    if (result.status === 'found') {
+      expect(result.data.name).toBe('demo');
+      expect((result.data.scripts as Record<string, string>).dev).toBe('vite');
+    }
+  });
+
+  test('returns parse_error for invalid JSON', async () => {
+    const memRoot: InMemoryDir = {
+      'package.json': 'invalid json{',
+    };
+
+    const result = await readRootPackageJSON(memRoot);
+    expect(result.status).toBe('parse_error');
+  });
+});
+
+describe('findScriptConflicts', () => {
+  test('returns colliding project-script names in order', () => {
+    const existing = { 'app-build': 'old', lint: 'eslint .', 'app-dev': 'old' };
+    const projectScripts = {
+      'app-dev': 'vite',
+      'app-build': 'vite build',
+      'app-serve': 'node serve.js',
+    };
+
+    expect(findScriptConflicts(existing, projectScripts)).toEqual([
+      'app-dev',
+      'app-build',
+    ]);
+  });
+
+  test('returns empty array when nothing collides', () => {
+    const existing = { lint: 'eslint .' };
+    const projectScripts = { 'app-build': 'vite build' };
+    expect(findScriptConflicts(existing, projectScripts)).toEqual([]);
+  });
+
+  test('tolerates missing existing scripts or project scripts', () => {
+    expect(findScriptConflicts(undefined, { 'app-build': 'x' })).toEqual([]);
+    expect(findScriptConflicts({ 'app-build': 'x' }, undefined)).toEqual([]);
+    expect(findScriptConflicts(undefined, undefined)).toEqual([]);
+  });
+
+  test('ignores inherited object properties on the existing scripts', () => {
+    // A script literally named "toString" should still be detectable, but
+    // inherited prototype keys must not count as collisions.
+    const existing = { 'app-build': 'old' };
+    expect(
+      findScriptConflicts(existing, { toString: 'x', hasOwnProperty: 'y' }),
+    ).toEqual([]);
   });
 });

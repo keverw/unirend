@@ -32,6 +32,67 @@ describe('createProject', () => {
     });
     expect(repoRoot).toEqual({});
   });
+
+  test('auto-initializes a fresh repo and writes a valid package.json', async () => {
+    // Exercises the not_found auto-init path, where the up-front package.json
+    // read is threaded through initRepo and back into the base-file pass.
+    const repoRoot: InMemoryDir = {};
+
+    const result = await createProject({
+      templateID: 'ssg',
+      projectName: 'web',
+      repoRoot,
+      serverBuildTarget: 'node',
+      initGit: false,
+      installDependencies: false,
+      autoFormat: false,
+    });
+
+    expect(result.success).toBe(true);
+
+    // Root package.json was created and is valid JSON with the defaults
+    expect('package.json' in repoRoot).toBe(true);
+    const pkg = JSON.parse(repoRoot['package.json'] as string);
+    expect(pkg.name).toBe('unirend-projects');
+    expect(pkg.scripts['type-check']).toBe('tsc --noEmit');
+
+    // Repo config records the new project
+    const repoConfig = JSON.parse(repoRoot['unirend-repo.json'] as string);
+    expect(repoConfig.projects.web).toBeDefined();
+    expect(repoConfig.projects.web.templateID).toBe('ssg');
+  });
+
+  test('fails early on invalid root package.json before writing anything', async () => {
+    // The up-front read must surface a parse error and abort before any files
+    // (repo config, base files) are written.
+    const repoRoot: InMemoryDir = {
+      'package.json': 'not valid json{',
+    };
+
+    const result = await createProject({
+      templateID: 'ssg',
+      projectName: 'web',
+      repoRoot,
+      serverBuildTarget: 'node',
+      initGit: false,
+      installDependencies: false,
+      autoFormat: false,
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Root package.json contains invalid JSON',
+      metadata: {
+        templateID: 'ssg',
+        projectName: 'web',
+        repoPath: '[in-memory]',
+      },
+    });
+
+    // Nothing else should have been written
+    expect(Object.keys(repoRoot)).toEqual(['package.json']);
+    expect(repoRoot['package.json']).toBe('not valid json{');
+  });
 });
 
 describe('templateExists', () => {

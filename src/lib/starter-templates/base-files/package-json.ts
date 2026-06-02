@@ -136,6 +136,91 @@ function mergeScripts(
 }
 
 /**
+ * Result of *reading* the root package.json — reading is fallible, so this
+ * carries both the known states and the failure states. Mirrors the
+ * discriminated shape of `readRepoConfig` so callers can surface parse/read
+ * errors with a clear message before doing any work.
+ */
+export type RootPackageJSONResult =
+  | { status: 'found'; data: Record<string, unknown> } // ─┐ known states
+  | { status: 'not_found' } //                            ─┘ (no error)
+  | { status: 'parse_error'; errorMessage?: string } //   ─┐ error states
+  | { status: 'read_error'; errorMessage?: string }; //   ─┘
+
+/**
+ * A *known* (error-free) root package.json state — the `found`/`not_found`
+ * subset of {@link RootPackageJSONResult}, i.e. what you have once the
+ * parse/read errors have been handled.
+ *
+ * `Extract<Union, Filter>` is a built-in TS utility that *narrows* a union down
+ * to only the members assignable to `Filter` — so this keeps `found`/`not_found`
+ * and drops the two error members. (It's a filter/subset, despite the name
+ * sounding like "extend".) Deriving it from `RootPackageJSONResult` instead of
+ * re-typing the two members by hand keeps the shapes in sync if they change.
+ *
+ * Using the narrower type for the values threaded between helpers —
+ * `ensurePackageJSON`'s preload input + return, and the `packageJSON` handed
+ * back by `ensureBaseFiles`/`initRepoInternal` — makes it a compile-time
+ * guarantee that a parse/read error can never be passed around as if it were a
+ * real package.json, and means a caller never has to re-read the file.
+ * - `{ status: 'not_found' }` → no package.json yet; take the creation path.
+ * - `{ status: 'found', data }` → existing/parsed package.json; take the update path.
+ */
+export type RootPackageJSONState = Extract<
+  RootPackageJSONResult,
+  { status: 'found' } | { status: 'not_found' }
+>;
+
+/**
+ * Read and parse the root package.json once, classifying the outcome so the
+ * caller can fail early on invalid/unreadable JSON and otherwise thread the
+ * resulting {@link RootPackageJSONState} into `ensurePackageJSON`/
+ * `ensureBaseFiles` instead of reading the file again.
+ */
+export async function readRootPackageJSON(
+  repoRoot: FileRoot,
+): Promise<RootPackageJSONResult> {
+  const result = await vfsReadJSON<Record<string, unknown>>(
+    repoRoot,
+    'package.json',
+  );
+
+  if (!result.ok) {
+    if (result.code === 'ENOENT') {
+      return { status: 'not_found' };
+    } else if (result.code === 'PARSE_ERROR') {
+      return { status: 'parse_error', errorMessage: result.message };
+    } else {
+      return { status: 'read_error', errorMessage: result.message };
+    }
+  }
+
+  return { status: 'found', data: result.data };
+}
+
+/**
+ * Find which of the given project-specific script names already exist in the
+ * target package.json scripts. Used by `createProject` to detect collisions
+ * before writing anything: project-specific scripts (e.g. `<app>-build`) must
+ * not clash with the user's existing scripts, whereas generic shared scripts
+ * are allowed to be skipped silently by `mergeScripts`.
+ *
+ * @returns The colliding script names, in the order they appear in `projectScripts`.
+ */
+export function findScriptConflicts(
+  existingScripts: Record<string, unknown> | undefined,
+  projectScripts: Record<string, string> | undefined,
+): string[] {
+  if (!existingScripts || !projectScripts) {
+    return [];
+  }
+
+  return Object.keys(projectScripts).filter((name) =>
+    Object.prototype.hasOwnProperty.call(existingScripts, name),
+  );
+}
+
+/**
  * Options for customizing package.json generation
  */
 export interface EnsurePackageJSONOptions {
@@ -153,62 +238,60 @@ export interface EnsurePackageJSONOptions {
  * Ensure package.json exists at the repo root with required fields.
  * Creates a new package.json if missing, or updates existing one with missing fields.
  * Never overwrites existing user-defined fields.
- * @throws {Error} If package.json has invalid JSON or cannot be read/written
+ *
+ * This function does not read package.json itself — the caller passes the
+ * already-read `existing` state (see {@link RootPackageJSONState}). Reading (and
+ * surfacing any parse/read error) is therefore the caller's job, done once up
+ * front; everyone in this module threads that single read around. Use
+ * {@link readRootPackageJSON} to obtain the state.
+ *
+ * Returns the resulting {@link RootPackageJSONState} (always `found`, since the
+ * file is guaranteed to exist on success) so a caller can thread it onward —
+ * e.g. into a follow-up `ensurePackageJSON`/`ensureBaseFiles` call — without
+ * re-reading the file.
+ *
+ * @param existing - The pre-read package.json state to ensure from.
+ * @throws {Error} If package.json cannot be written.
  */
-
 export async function ensurePackageJSON(
   repoRoot: FileRoot,
   repoName: string,
+  existing: RootPackageJSONState,
   options?: EnsurePackageJSONOptions,
-): Promise<void> {
+): Promise<RootPackageJSONState> {
   try {
-    // Attempt to read an existing package.json at the repo root
-    const pkgResult = await vfsReadJSON<Record<string, unknown>>(
-      repoRoot,
-      'package.json',
-    );
-
     // Creation path: no package.json found; create a minimal one
-    if (!pkgResult.ok) {
-      if (pkgResult.code === 'ENOENT') {
-        const pkg = {
-          name: repoName,
-          version: '0.0.1',
-          type: 'module',
-          private: true,
-          license: 'UNLICENSED',
-          scripts: { ...defaultScripts, ...options?.templateScripts },
-          dependencies: { ...dependencies, ...options?.templateDependencies },
-          devDependencies: {
-            ...devDependencies,
-            ...options?.templateDevDependencies,
-          },
-        };
+    if (existing.status === 'not_found') {
+      const pkg = {
+        name: repoName,
+        version: '0.0.1',
+        type: 'module',
+        private: true,
+        license: 'UNLICENSED',
+        scripts: { ...defaultScripts, ...options?.templateScripts },
+        dependencies: { ...dependencies, ...options?.templateDependencies },
+        devDependencies: {
+          ...devDependencies,
+          ...options?.templateDevDependencies,
+        },
+      };
 
-        // Sort the package.json for consistency
-        const sortedPkg = sortPackageJson(pkg);
+      // Sort the package.json for consistency
+      const sortedPkg = sortPackageJson(pkg) as Record<string, unknown>;
 
-        await vfsWriteJSON(repoRoot, 'package.json', sortedPkg);
+      await vfsWriteJSON(repoRoot, 'package.json', sortedPkg);
 
-        if (options?.log) {
-          options.log('info', 'Created repo root package.json');
-        }
-
-        // Package.json created successfully, return early as we don't need to update it
-        return;
-      } else if (pkgResult.code === 'PARSE_ERROR') {
-        throw new Error(
-          `Invalid JSON in repo root package.json: ${pkgResult.message}`,
-        );
-      } else {
-        throw new Error(
-          `Failed to read repo root package.json: ${pkgResult.message}`,
-        );
+      if (options?.log) {
+        options.log('info', 'Created repo root package.json');
       }
+
+      // Package.json created successfully — hand back the resulting state so
+      // callers can thread it onward without re-reading.
+      return { status: 'found', data: sortedPkg };
     }
 
     // Update path: package.json exists and was successfully parsed — add missing fields only, never overwrite
-    const parsed = pkgResult.data;
+    const parsed = existing.data;
 
     let didChange = false;
 
@@ -285,6 +368,10 @@ export async function ensurePackageJSON(
         );
       }
     }
+
+    // Hand back the resulting state (sorted form; identical content to disk
+    // when nothing changed) so callers can thread it onward without re-reading.
+    return { status: 'found', data: sortedParsed };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     throw new Error(`Failed to ensure package.json: ${errorMessage}`);

@@ -29,7 +29,10 @@ import type {
   InitRepoOptions,
   CreateProjectResult,
   RepoConfigResult,
+  RepoConfigState,
   InitRepoResult,
+  InitRepoSuccess,
+  InitRepoFailure,
 } from './lib/starter-templates/types';
 import {
   createRepoConfigObject,
@@ -38,6 +41,11 @@ import {
   getTemplateConfig,
   createProjectSpecificFiles,
 } from './lib/starter-templates/internal-helpers';
+import {
+  readRootPackageJSON,
+  findScriptConflicts,
+} from './lib/starter-templates/base-files/package-json';
+import type { RootPackageJSONState } from './lib/starter-templates/base-files/package-json';
 import { validateName } from './lib/starter-templates/validate-name';
 import type { FileRoot } from './lib/starter-templates/vfs';
 import {
@@ -169,6 +177,123 @@ export async function createProject(
       };
     }
 
+    // Read the root package.json once, up front. This serves two purposes:
+    //   1. Detect script-name collisions before writing anything, so we can
+    //      fail early with a clear message instead of silently dropping the
+    //      template's intended command.
+    //   2. Thread the parsed contents into `ensureBaseFiles`/`ensurePackageJSON`
+    //      so package.json isn't read twice.
+    // Invalid/unreadable JSON is handled here (moved up from ensurePackageJSON)
+    // so the early-exit happens before any files are created.
+    const packageJSONPathDisplay = vfsDisplayPath(
+      options.repoRoot,
+      'package.json',
+    );
+
+    const rootPkgStatus = await readRootPackageJSON(options.repoRoot);
+
+    if (rootPkgStatus.status === 'parse_error') {
+      log(
+        'error',
+        `❌ Found ${packageJSONPathDisplay} but it contains invalid JSON`,
+      );
+
+      if (rootPkgStatus.errorMessage) {
+        log('error', `   ${rootPkgStatus.errorMessage}`);
+      }
+
+      log('info', '');
+      log(
+        'info',
+        'Please fix the JSON syntax or delete the file to start fresh.',
+      );
+
+      return {
+        success: false,
+        error: 'Root package.json contains invalid JSON',
+        metadata: {
+          templateID: options.templateID,
+          projectName: options.projectName,
+          repoPath: repoRootDisplay,
+        },
+      };
+    } else if (rootPkgStatus.status === 'read_error') {
+      log('error', `❌ Found ${packageJSONPathDisplay} but cannot read it`);
+
+      if (rootPkgStatus.errorMessage) {
+        log('error', `   ${rootPkgStatus.errorMessage}`);
+      }
+
+      return {
+        success: false,
+        error: 'Cannot read root package.json',
+        metadata: {
+          templateID: options.templateID,
+          projectName: options.projectName,
+          repoPath: repoRootDisplay,
+        },
+      };
+    }
+
+    // Combine the template's project-specific and shared scripts for merging.
+    // Project-specific scripts go last so they take precedence if a key ever
+    // overlaps (they shouldn't in practice).
+    const templateProjectScripts = templateConfig.projectScripts ?? {};
+    const combinedTemplateScripts = {
+      ...templateConfig.sharedScripts,
+      ...templateProjectScripts,
+    };
+
+    // Collision check: only project-specific scripts are guarded. Shared
+    // scripts are allowed to already exist (an existing definition wins; see
+    // mergeScripts), so they're intentionally excluded here. Note the
+    // conflicting names come from the project name + template combo (e.g.
+    // `<projectName>:build`), not the template ID alone — so a different
+    // project name produces different script names and can sidestep a clash.
+    if (rootPkgStatus.status === 'found') {
+      const existingScripts = rootPkgStatus.data.scripts as
+        | Record<string, unknown>
+        | undefined;
+
+      const conflicts = findScriptConflicts(
+        existingScripts,
+        templateProjectScripts,
+      );
+
+      if (conflicts.length > 0) {
+        log(
+          'error',
+          `❌ Cannot scaffold "${options.projectName}" from the "${options.templateID}" template: ${conflicts.length} of the script name(s) it would add already exist in ${packageJSONPathDisplay}`,
+        );
+
+        for (const name of conflicts) {
+          log('error', `   - ${name}`);
+        }
+
+        log('info', '');
+        log(
+          'info',
+          'These names come from the project name + template, so rename or remove the conflicting script(s), or pick a different project name, then try again.',
+        );
+
+        return {
+          success: false,
+          error: `Script name conflict in package.json: ${conflicts.join(', ')}`,
+          metadata: {
+            templateID: options.templateID,
+            projectName: options.projectName,
+            repoPath: repoRootDisplay,
+          },
+        };
+      }
+    }
+
+    // The parse/read error cases returned above, so `rootPkgStatus` is now a
+    // known found/not_found state — exactly a RootPackageJSONState. Thread it
+    // down so package.json is read only this once. The auto-init branch below
+    // refreshes it with whatever state initRepo ended up writing.
+    let preloadedPackageJSON: RootPackageJSONState = rootPkgStatus;
+
     // Repo root directory is the workspace root where projects live
     const configFullPathDisplay = vfsDisplayPath(
       options.repoRoot,
@@ -221,7 +346,7 @@ export async function createProject(
       };
     } else if (repoStatus.status === 'not_found') {
       // Auto-initialize repo if missing to keep flow simple
-      // (initRepo will perform safety checks on its own)
+      // (initRepo will perform the remaining safety checks on its own)
       const repoName = DEFAULT_REPO_NAME;
       log(
         'info',
@@ -230,8 +355,12 @@ export async function createProject(
       log('info', '');
 
       // Skip git init, dependency installation, and auto-format here.
-      // createProject will handle these in Steps 5, 7, and 8
-      const initResult = await initRepo(options.repoRoot, {
+      // createProject will handle these in Steps 5, 7, and 8.
+      // Use the internal variant so we can (a) hand it the repo config we
+      // already read in Step 1 (so it doesn't re-read unirend-repo.json) and
+      // (b) get back the package.json state it wrote, so Step 3 doesn't have to
+      // re-read that across the auto-init.
+      const initResult = await initRepoInternal(options.repoRoot, repoStatus, {
         name: repoName,
         logger: log,
         initGit: false,
@@ -241,6 +370,11 @@ export async function createProject(
 
       if (initResult.success) {
         repoStatus = { status: 'found', config: initResult.config };
+
+        // Refresh the threaded state with whatever initRepo ended up writing
+        // (a fresh `found`, or `not_found` if its non-fatal base-file pass
+        // failed — in which case Step 3 retries the create).
+        preloadedPackageJSON = initResult.packageJSON;
       } else {
         log('error', '❌ Failed to initialize repository configuration');
 
@@ -326,9 +460,10 @@ export async function createProject(
         repoStatus.status === 'found'
           ? repoStatus.config.name
           : DEFAULT_REPO_NAME,
+        preloadedPackageJSON,
         {
           log,
-          templateScripts: templateConfig.scripts,
+          templateScripts: combinedTemplateScripts,
           templateDependencies: templateConfig.dependencies,
           templateDevDependencies: templateConfig.devDependencies,
           templateGitignoreSectionHeader: templateConfig.gitignoreSectionHeader,
@@ -517,10 +652,32 @@ export async function readRepoConfig(
   return { status: 'found', config: result.data };
 }
 
-export async function initRepo(
+/**
+ * Like {@link InitRepoResult}, but success also carries the package.json state
+ * `initRepoInternal` ensured — so `createProject` can thread it onward across
+ * the auto-init without re-reading package.json.
+ */
+type InitRepoInternalResult =
+  | (InitRepoSuccess & { packageJSON: RootPackageJSONState })
+  | InitRepoFailure;
+
+/**
+ * Internal repo-init core. Public {@link initRepo} is a thin wrapper over this.
+ *
+ * It works from already-read state rather than reading config files itself:
+ * - `repoConfigState` is the caller's read of `unirend-repo.json` (public
+ *   initRepo reads it, or createProject threads its Step 1 read). Parse/read
+ *   errors are the caller's job — this only sees the `found`/`not_found` subset.
+ * - It returns the resulting package.json state for the caller to thread
+ *   onward, and doesn't need a package.json passed in: the emptiness gate below
+ *   guarantees the directory has none by the time base files are written, so it
+ *   ensures from `{ status: 'not_found' }`.
+ */
+async function initRepoInternal(
   dirPath: FileRoot,
+  repoConfigState: RepoConfigState,
   options: InitRepoOptions = {},
-): Promise<InitRepoResult> {
+): Promise<InitRepoInternalResult> {
   // Default logger that does nothing if none provided
   const log: LoggerFunction = options.logger || (() => {});
   const repoRootDisplay = vfsDisplayPath(dirPath);
@@ -528,57 +685,14 @@ export async function initRepo(
   log('info', '🏗️  Initializing repository...');
   log('info', `Repo Path: ${repoRootDisplay}`);
 
-  // Check for existing or problematic config first
-  const existing = await readRepoConfig(dirPath);
-
-  if (existing.status === 'found') {
+  // The caller already read the repo config (and handled any parse/read error),
+  // so we only need to distinguish an existing repo from a fresh one.
+  if (repoConfigState.status === 'found') {
     log('error', `❌ Repository already initialized at ${repoRootDisplay}`);
     return { success: false, error: 'already_exists' };
-  } else if (existing.status === 'parse_error') {
-    log('error', `❌ Found ${REPO_CONFIG_FILE} but it contains invalid JSON`);
-
-    if (existing.errorMessage) {
-      log('error', `   ${existing.errorMessage}`);
-    }
-
-    log('info', '');
-    log(
-      'info',
-      'Please fix the JSON syntax or delete the file to start fresh.',
-    );
-
-    return {
-      success: false,
-      error: 'parse_error',
-      errorMessage: existing.errorMessage,
-    };
-  } else if (existing.status === 'read_error') {
-    log('error', `❌ Found ${REPO_CONFIG_FILE} but cannot read it`);
-
-    if (existing.errorMessage) {
-      log('error', `   ${existing.errorMessage}`);
-    }
-
-    return {
-      success: false,
-      error: 'read_error',
-      errorMessage: existing.errorMessage,
-    };
-  } else if (existing.status !== 'not_found') {
-    // Guard for any future status values we don't explicitly handle yet
-    const statusValue = (existing as Record<string, unknown>).status;
-    const statusString =
-      typeof statusValue === 'string' || typeof statusValue === 'number'
-        ? String(statusValue)
-        : 'unknown';
-
-    log('error', `❌ Unsupported repository status: ${statusString}`);
-    return {
-      success: false,
-      error: 'unsupported_status',
-      errorMessage: `Unsupported repo status: ${statusString}`,
-    };
   }
+
+  // repoConfigState is `not_found` → proceed with a fresh init.
 
   // Check if directory is empty or empty-ish (only .git/.gitignore)
   const emptyCheck = await isRepoDirEmptyish(dirPath);
@@ -634,8 +748,21 @@ export async function initRepo(
     log('info', `🛠️  Created ${REPO_CONFIG_FILE}`);
 
     // Ensure base files exist (package.json, tsconfig.json, .editorconfig, etc.)
+    // The emptiness gate above guarantees no package.json is present, so we
+    // ensure from `not_found` rather than reading. Capture the resulting state
+    // so the caller can thread it on without re-reading; if this (non-fatal)
+    // pass fails it stays `not_found` and Step 3 retries the create.
+    let ensuredPackageJSON: RootPackageJSONState = { status: 'not_found' };
+
     try {
-      await ensureBaseFiles(dirPath, repoName, { log });
+      const baseResult = await ensureBaseFiles(
+        dirPath,
+        repoName,
+        { status: 'not_found' },
+        { log },
+      );
+
+      ensuredPackageJSON = baseResult.packageJSON;
       log('info', '✅ Repository initialized successfully');
     } catch (error) {
       // Log warning but don't fail - createProject will retry
@@ -668,8 +795,10 @@ export async function initRepo(
       await autoFormatCode(dirPath, log);
     }
 
-    // Return success result
-    return { success: true, config };
+    // Success. Thread back both files we just wrote so the caller doesn't
+    // re-read either: `config` is the object written to unirend-repo.json above,
+    // and `packageJSON` is the state ensureBaseFiles ensured.
+    return { success: true, config, packageJSON: ensuredPackageJSON };
   } catch (error) {
     // Return error result
     const errorMessage =
@@ -682,6 +811,77 @@ export async function initRepo(
       errorMessage,
     };
   }
+}
+
+/**
+ * Initialize a new Unirend repository at the given directory.
+ */
+export async function initRepo(
+  dirPath: FileRoot,
+  options: InitRepoOptions = {},
+): Promise<InitRepoResult> {
+  const log: LoggerFunction = options.logger || (() => {});
+
+  // This is the public entry point over the shared `initRepoInternal` core.
+  // Its job here is to own the repo-config read + error surfacing and expose
+  // the stable InitRepoResult contract; the core does the actual init from an
+  // already-read state. (createProject is the other caller of the core — it
+  // does its own read up front, which is why the core takes the state in.)
+
+  // Read the repo config once here and surface any parse/read error, so
+  // initRepoInternal can work from a known found/not_found state. This mirrors
+  // createProject's Step 1 — `configFullPathDisplay` and `repoStatus` are named
+  // to match there so both blocks' error messages line up for a Ctrl-F/diff
+  // parity check (only the success/return shape legitimately differs between them).
+  const configFullPathDisplay = vfsDisplayPath(dirPath, REPO_CONFIG_FILE);
+  const repoStatus = await readRepoConfig(dirPath);
+
+  if (repoStatus.status === 'parse_error') {
+    log(
+      'error',
+      `❌ Found ${configFullPathDisplay} but it contains invalid JSON`,
+    );
+
+    if (repoStatus.errorMessage) {
+      log('error', `   ${repoStatus.errorMessage}`);
+    }
+
+    log('info', '');
+    log(
+      'info',
+      'Please fix the JSON syntax or delete the file to start fresh.',
+    );
+
+    return {
+      success: false,
+      error: 'parse_error',
+      errorMessage: repoStatus.errorMessage,
+    };
+  } else if (repoStatus.status === 'read_error') {
+    log('error', `❌ Found ${configFullPathDisplay} but cannot read it`);
+
+    if (repoStatus.errorMessage) {
+      log('error', `   ${repoStatus.errorMessage}`);
+    }
+
+    return {
+      success: false,
+      error: 'read_error',
+      errorMessage: repoStatus.errorMessage,
+    };
+  }
+
+  // `repoStatus` is now the found/not_found subset (RepoConfigState). Run the
+  // core, then return only the public InitRepoResult: the core additionally
+  // hands back the package.json state it ensured (for createProject to thread
+  // on), which isn't part of this public contract, so we omit it below.
+  const result = await initRepoInternal(dirPath, repoStatus, options);
+
+  if (result.success) {
+    return { success: true, config: result.config };
+  }
+
+  return result;
 }
 
 // Re-export constants for public API consumers
@@ -707,6 +907,9 @@ export type {
   CreateProjectResult,
   RepoConfigResult,
   InitRepoResult,
+  InitRepoSuccess,
+  InitRepoErrorCode,
+  InitRepoFailure,
 } from './lib/starter-templates/types';
 
 export type {

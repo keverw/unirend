@@ -162,17 +162,42 @@ export type RepoConfigResult =
   | { status: 'parse_error'; errorMessage?: string }
   | { status: 'read_error'; errorMessage?: string };
 
-export type InitRepoResult =
-  | { success: true; config: RepoConfig }
-  | {
-      success: false;
-      error:
-        | 'invalid_name'
-        | 'write_error'
-        | 'already_exists'
-        | 'parse_error'
-        | 'read_error'
-        | 'unsupported_status'
-        | 'unsafe_directory';
-      errorMessage?: string;
-    };
+/**
+ * A *known* (error-free) repo config state — the `found`/`not_found` subset of
+ * {@link RepoConfigResult}, i.e. what you have once parse/read errors have been
+ * handled. Mirrors `RootPackageJSONState`: it's threaded into `initRepoInternal`
+ * as the already-read config so it doesn't re-read `unirend-repo.json`. (See the
+ * `Extract` explainer on `RootPackageJSONState` for how this filters a union.)
+ */
+export type RepoConfigState = Extract<
+  RepoConfigResult,
+  { status: 'found' } | { status: 'not_found' }
+>;
+
+/** Error codes returned when repo initialization fails. */
+export type InitRepoErrorCode =
+  | 'invalid_name'
+  | 'write_error'
+  | 'already_exists'
+  | 'parse_error'
+  | 'read_error'
+  | 'unsafe_directory';
+
+/** The success shape of repo initialization. */
+export type InitRepoSuccess = {
+  success: true;
+  config: RepoConfig;
+};
+
+/**
+ * The failure shape shared by `initRepo`'s public result and the internal
+ * result, pulled out so both reference one definition instead of re-typing it
+ * (and so the internal result can return it straight through the public wrapper).
+ */
+export type InitRepoFailure = {
+  success: false;
+  error: InitRepoErrorCode;
+  errorMessage?: string;
+};
+
+export type InitRepoResult = InitRepoSuccess | InitRepoFailure;

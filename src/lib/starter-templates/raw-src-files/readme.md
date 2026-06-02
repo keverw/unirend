@@ -101,15 +101,16 @@ switch (templateID) {
 
 ### `package.json` script injection
 
-Existing scripts already follow an `<app-name>-<verb>` convention:
+Existing scripts follow an `<app-name>:<verb>` convention, with colons
+separating further sub-steps:
 
 ```
-ssg-dev
-ssg-build
-ssg-build-and-generate
-ssr-dev
-ssr-build
-ssr-serve-prod
+ssg:spa-dev
+ssg:build
+ssg:build-and-generate:prod
+ssr:spa-dev
+ssr:build
+ssr:serve:prod
 ```
 
 When generating a new app, inject scripts that follow the same pattern into the
@@ -117,43 +118,38 @@ root `package.json`. An app named `my-app` would receive entries such as:
 
 ```json
 {
-  "my-app-dev": "cd src/apps/my-app && vite",
-  "my-app-build": "...",
-  "my-app-serve": "..."
+  "my-app:dev": "cd src/apps/my-app && vite",
+  "my-app:build": "...",
+  "my-app:serve": "..."
 }
 ```
 
 The exact set of scripts depends on the template type:
 
 - **SSG** gets `generate` and `serve` scripts.
-- **SSR** gets `serve-dev` and `serve-prod` scripts (see the Bun HMR notes
-  below for which `serve-dev` variant to emit).
+- **SSR** gets `serve:dev` and `serve:prod` scripts (see the Bun HMR notes
+  below for which `serve:dev` variant to emit).
 - **API** gets a single `serve` script.
 
-#### Script-name collisions
+When populating these in `getTemplateConfig`, split them into its two script
+buckets:
 
-`ensurePackageJSON`'s `mergeScripts` helper never overwrites existing scripts —
-it only adds a key when one isn't already present. In practice this is safe:
-the only way to hit a collision is for the user to have already added a script
-named exactly `<new-app-name>-<verb>`, which would already be an unusual state.
-The user's script wins; the template's intended command is dropped silently.
-
-If we want to harden this, the cleanest option is to read the root
-`package.json` once near the top of `createProject` (tolerating file not found as "no
-collisions"), check for any script keys the template would inject, and fail
-early with a clear error listing the conflicts before any files are written.
-The parsed contents could also be threaded down to `ensureBaseFiles` so
-`ensurePackageJSON` doesn't have to re-read it. Leaving as-is for now; considering this as a refactor
+- `projectScripts` — app-named commands (`<app>:build`, `<app>:dev`, …),
+  expected to be unique per project. `createProject` aborts early if any
+  collide with an existing root script.
+- `sharedScripts` — generic commands a single script services for every app
+  (e.g. `generate:build-info`). Added only when absent, so a second app
+  doesn't conflict.
 
 ### Related work
 
 `getTemplateConfig` is the source of truth that `createProjectSpecificFiles`
 will read from. Its return type already covers everything that needs to vary
-per template — `scripts`, `dependencies`, `devDependencies`,
-`gitignoreEntries`, `prettierignoreEntries`, `cspellWords` (and their section
-headers) — and `ensureBaseFiles` already routes each field into the right
-`ensure*` helper. The body currently returns `{}`; the work is to populate it
-per template type, not to wire any new plumbing.
+per template — `projectScripts`, `sharedScripts`, `dependencies`,
+`devDependencies`, `gitignoreEntries`, `prettierignoreEntries`, `cspellWords`
+(and their section headers) — and `ensureBaseFiles` already routes each field
+into the right `ensure*` helper. The body currently returns `{}`; the work is
+to populate it per template type, not to wire any new plumbing.
 
 ## Bun HMR graceful shutdown workaround
 
@@ -287,10 +283,10 @@ Working list:
       literals + dedicated functions for the dynamic substitutions (project
       name, app name, runtime target, etc.).
 - [ ] Populate the `getTemplateConfig` body for the template with the
-      `scripts`, `dependencies`, `devDependencies`, `gitignoreEntries` (+
-      section header), `prettierignoreEntries` (+ section header), and
-      `cspellWords` it needs. The plumbing is already wired through
-      `ensureBaseFiles`.
+      `projectScripts`, `sharedScripts`, `dependencies`, `devDependencies`,
+      `gitignoreEntries` (+ section header), `prettierignoreEntries` (+ section
+      header), and `cspellWords` it needs. The plumbing is already wired
+      through `ensureBaseFiles`.
 - [ ] Add a branch in `createProjectSpecificFiles` for the template (if/else
       if pattern with a trailing `const _exhaustive: never = templateID` so
       TS catches missing branches).
@@ -321,11 +317,8 @@ Working list:
       file in this tree is the reference shape.
 - [ ] Use the `package.json` in this tree as the reference for the populated
       per-app scripts/deps/devDeps shape; mirror those values in
-      `getTemplateConfig`.
-- [ ] Decide the script-name collision strategy (see _Script-name collisions_
-      above): either leave the silent-skip behavior in `mergeScripts` and
-      close the question, or add the read-once-up-front check in
-      `createProject`.
+      `getTemplateConfig` (splitting scripts into `projectScripts` vs
+      `sharedScripts` — see _Script buckets_ above).
 
 ### Documentation
 

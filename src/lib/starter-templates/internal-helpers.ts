@@ -3,7 +3,10 @@
 // once getTemplateConfig and createProjectSpecificFiles bodies are filled in (the latter
 // will perform real I/O via vfsWrite/vfsWriteJSON, which restores the await).
 import { ensurePackageJSON } from './base-files/package-json';
-import type { EnsurePackageJSONOptions } from './base-files/package-json';
+import type {
+  EnsurePackageJSONOptions,
+  RootPackageJSONState,
+} from './base-files/package-json';
 import { ensureGitignore } from './base-files/ensure-gitignore';
 import { ensureGitkeep } from './base-files/ensure-gitkeep';
 import { ensureTsConfig } from './base-files/ensure-tsconfig';
@@ -77,18 +80,36 @@ export type EnsureBaseFilesOptions = EnsurePackageJSONOptions & {
   templateCspellWords?: string[];
 };
 
+/** Result of {@link ensureBaseFiles}. */
+export interface EnsureBaseFilesResult {
+  /**
+   * The resulting root package.json state after ensuring it (always `found`).
+   * Returned so callers can thread it onward — e.g. a follow-up
+   * `ensureBaseFiles`/`ensurePackageJSON` call — without re-reading the file.
+   */
+  packageJSON: RootPackageJSONState;
+}
+
 /**
  * Ensure base repo files exist at the workspace root.
  * Creates standard configuration files (.gitignore, package.json, tsconfig.json, .editorconfig, prettier.config.js, etc.)
  * Most files are only created if missing; configuration files like package.json, cspell.json, VS Code settings, .gitignore, and .prettierignore are updated/merged to ensure recommended setups exist.
  *
+ * Like {@link ensurePackageJSON}, this does not read package.json itself — the
+ * caller passes the already-read `packageJSONState` (read once up front via
+ * `readRootPackageJSON`) and it's threaded down to `ensurePackageJSON`.
+ *
+ * @param packageJSONState - The pre-read package.json state to ensure from.
+ * @returns The resulting base-file state (currently just the package.json
+ *   state) so callers can thread it onward without re-reading.
  * @throws {Error} If any file creation/update fails
  */
 export async function ensureBaseFiles(
   repoRoot: FileRoot,
   repoName: string,
+  packageJSONState: RootPackageJSONState,
   options?: EnsureBaseFilesOptions,
-): Promise<void> {
+): Promise<EnsureBaseFilesResult> {
   // Each separate helper function will throw on error, allowing errors to propagate to the caller
 
   // Ensure .gitignore exists (creates or updates with missing template entries)
@@ -120,8 +141,15 @@ export async function ensureBaseFiles(
     options?.log,
   );
 
-  // Ensure package.json exists with required fields
-  await ensurePackageJSON(repoRoot, repoName, options);
+  // Ensure package.json exists with required fields. Capture the resulting
+  // state so it can be threaded back to the caller (avoids a re-read when the
+  // caller needs the post-ensure package.json, e.g. createProject's auto-init).
+  const packageJSON = await ensurePackageJSON(
+    repoRoot,
+    repoName,
+    packageJSONState,
+    options,
+  );
 
   // Ensure tsconfig.json exists (only creates if missing)
   await ensureTsConfig(repoRoot, options?.log);
@@ -156,14 +184,31 @@ export async function ensureBaseFiles(
 
   // Ensure AGENTS.md exists (only creates if missing)
   await ensureAgentsMD(repoRoot, options?.log);
+
+  // Return the resulting package.json state so callers can thread it onward
+  // without re-reading the file.
+  return { packageJSON };
 }
 
 /**
  * Template-specific configuration returned by getTemplateConfig
  */
 export interface TemplateConfig {
-  /** Template-specific package.json scripts */
-  scripts?: Record<string, string>;
+  /**
+   * Project-specific package.json scripts — the ones tied to this app's name
+   * (e.g. `<app>:build`, `<app>:dev`, `<app>:serve`). These are expected to be
+   * unique per project, so `createProject` treats a collision with an existing
+   * root script as a hard error and aborts before writing anything.
+   */
+  projectScripts?: Record<string, string>;
+  /**
+   * Generic scripts that may legitimately be shared across multiple apps in
+   * the same repo (e.g. `generate:build-info`, which a single script services
+   * for every app). These are merged with the existing scripts only when
+   * absent — an existing definition wins and the template's copy is skipped
+   * silently, so re-running for a second app doesn't conflict.
+   */
+  sharedScripts?: Record<string, string>;
   /** Template-specific dependencies */
   dependencies?: Record<string, string>;
   /** Template-specific devDependencies */
@@ -197,9 +242,10 @@ export function getTemplateConfig(
   serverBuildTarget: ServerBuildTarget,
 ): TemplateConfig {
   if (templateID === 'ssg') {
-    // TODO: populate SSG config — scripts, dependencies, devDependencies,
-    // gitignoreEntries + section header, prettierignoreEntries + section
-    // header, cspellWords. See raw-src-files/package.json and
+    // TODO: populate SSG config — projectScripts (app-named, collision = hard
+    // error) and sharedScripts (generic, reusable across apps), dependencies,
+    // devDependencies, gitignoreEntries + section header, prettierignoreEntries
+    // + section header, cspellWords. See raw-src-files/package.json and
     // raw-src-files/readme.md for the populated shape to mirror.
     // `serverBuildTarget` matters here too: SSG ships a `serve.ts`
     // static-file server (useful for previewing the generated output and
@@ -208,8 +254,9 @@ export function getTemplateConfig(
     // `bun`-vs-`node` invocation against the built output).
     return {};
   } else if (templateID === 'ssr') {
-    // TODO: populate SSR config — same fields as SSG, plus scripts must
-    // honor `serverBuildTarget`. In practice that means two things:
+    // TODO: populate SSR config — same fields as SSG (projectScripts vs
+    // sharedScripts split included), plus scripts must honor
+    // `serverBuildTarget`. In practice that means two things:
     //   1. the `bun build --target=<bun|node>` flag used to bundle the
     //      server entries (serve-built.ts and the HMR variant), and
     //   2. whether the run/serve scripts invoke `bun` or `node` against
