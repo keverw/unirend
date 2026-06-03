@@ -1,4 +1,23 @@
-<!doctype html>
+import { vfsWriteIfNotExists } from '../../vfs';
+import type { FileRoot } from '../../vfs';
+import type { LoggerFunction } from '../../types';
+
+/**
+ * Source for the SSG template's `error-pages/500.html`.
+ *
+ * A self-contained static error page — no React bundle, no Vite, no external
+ * assets — so it survives real server failures where the asset pipeline may be
+ * unavailable. Includes the same cookie-first dark-mode theme sync script as
+ * `index.html` (extended with `matchMedia` OS tracking, `BroadcastChannel`
+ * cross-tab sync, and `visibilitychange` cookie re-read), inline CSS with
+ * light/dark variants, and a styled error card.
+ *
+ * SSG-only: the SSG generator emits this as a `{ type: 'html' }` entry
+ * (see `generate-ssg.ts`) rather than routing it through React. For SSR, the
+ * equivalent is the `get500ErrorPage` callback in `ssr-component.ts`, which
+ * returns an HTML string directly — see the comment there for guidance.
+ */
+const fileSrc = `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -91,7 +110,7 @@
         // re-read the cookie when the tab comes back into focus.
         const valid = ['light', 'dark', 'auto'];
         const cookieMatch = document.cookie.match(
-          /(?:^|;\s*)themePreference=([^;]+)/,
+          /(?:^|;\\s*)themePreference=([^;]+)/,
         );
 
         const cookiePref = valid.includes(cookieMatch?.[1])
@@ -145,7 +164,7 @@
         // Intentionally does not broadcast back, matching ThemeProvider behavior.
         document.addEventListener('visibilitychange', function () {
           if (document.visibilityState !== 'visible') return;
-          var m = document.cookie.match(/(?:^|;\s*)themePreference=([^;]+)/);
+          var m = document.cookie.match(/(?:^|;\\s*)themePreference=([^;]+)/);
           applyPref((valid.includes(m?.[1]) ? m[1] : null) || 'auto');
         });
       })();
@@ -160,3 +179,33 @@
     </div>
   </body>
 </html>
+`;
+
+/**
+ * Ensure the SSG app's `error-pages/500.html` exists at
+ * `${projectPath}/error-pages/500.html`.
+ * Only creates the file if it doesn't exist - never overwrites.
+ *
+ * @param root - File root (filesystem path or in-memory object)
+ * @param projectPath - Relative path to the project directory (e.g. "src/apps/my-app")
+ * @param log - Optional logger function for output
+ * @throws {Error} If file creation fails
+ */
+export async function ensureSSG500HTML(
+  root: FileRoot,
+  projectPath: string,
+  log?: LoggerFunction,
+): Promise<void> {
+  const relPath = `${projectPath}/error-pages/500.html`;
+
+  try {
+    const didWrite = await vfsWriteIfNotExists(root, relPath, fileSrc);
+
+    if (didWrite && log) {
+      log('info', `Created ${relPath}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to ensure ${relPath}: ${errorMessage}`);
+  }
+}

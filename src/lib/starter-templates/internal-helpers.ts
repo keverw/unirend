@@ -39,6 +39,7 @@ import { ensureGenerateBuildInfo } from './templates-shared/generate-build-info'
 import { ensureBuildInfoOutput } from './templates-shared/build-info-config';
 import { ensureAPIComponent } from './templates-specific/api/api-component';
 import { ensureAPIServe } from './templates-specific/api/api-serve';
+import { ensureSSG500HTML } from './templates-specific/ssg/ssg-500-html';
 
 export function createRepoConfigObject(name: string): RepoConfig {
   return {
@@ -405,6 +406,9 @@ export async function createProjectSpecificFiles(
     await ensureAppEntryClient(root, projectPath, log);
     await ensureAppEntryServer(root, projectPath, 'ssg', log);
     await ensureAppConsts(root, projectPath, 'ssg', projectName, log);
+
+    // SSG-specific files.
+    await ensureSSG500HTML(root, projectPath, log);
   } else if (templateID === 'ssr') {
     // TODO: emit SSR files — Routes.tsx,
     // serve-built.ts, serve-hmr.ts, server/start.ts,

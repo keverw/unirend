@@ -140,6 +140,9 @@ export class SSRServerComponent extends BaseComponent {
           //
           // Override the default 500 HTML page (rendered when SSR itself fails, before React runs).
           // Your ApplicationError component should use a consistent style with whatever you put here.
+          // For a polished starting point with dark mode support and theme sync, see the SSG
+          // template's error-pages/500.html — for SSR you return the HTML string directly here
+          // rather than serving a static file.
           // get500ErrorPage: async (request, error, isDevelopment) => {
           //   return `<html><body><h1>Server Error</h1></body></html>`;
           // },

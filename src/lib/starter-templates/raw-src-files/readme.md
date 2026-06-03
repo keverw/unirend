@@ -117,6 +117,17 @@ called only from that template's branch of `createProjectSpecificFiles`:
 With both files done, the **API template is fully ported** — `raw-src-files/src/apps/api/`
 no longer exists.
 
+Already absorbed into the SSG-specific path (`templates-specific/ssg/`):
+
+- `src/apps/ssg/error-pages/500.html` → `templates-specific/ssg/ssg-500-html.ts`
+  (`ensureSSG500HTML`). A self-contained static error page — no React bundle, no
+  external assets — so it survives real server failures where the asset pipeline
+  may be unavailable. Includes inline CSS with light/dark variants and the same
+  cookie-first dark-mode theme sync script as `index.html` (extended with
+  `matchMedia` OS tracking, `BroadcastChannel` cross-tab sync, and
+  `visibilitychange` cookie re-read). SSG-only: the SSR equivalent is the
+  `get500ErrorPage` callback in `ssr-component.ts`.
+
 Project-specific files (entry points, routes, build configuration, server
 scripts, generated build info) vary by template type and must be emitted by
 `createProjectSpecificFiles`.
