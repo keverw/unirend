@@ -1,8 +1,25 @@
-<!doctype html>
+import { vfsWriteIfNotExists } from '../vfs';
+import type { FileRoot } from '../vfs';
+import type { LoggerFunction } from '../types';
+
+/**
+ * Build the source for a Vite app's `index.html`.
+ *
+ * Identical across the Vite-based templates (SSG, SSR) apart from the document
+ * `<title>`, so it lives in `templates-shared/` rather than being duplicated
+ * per template. The only dynamic substitution is `title` (the project name);
+ * everything else — the theme flash-prevention script, the noscript card, the
+ * SSR markers (`<!--ss-head-->` / `<!--ss-outlet-->`) and the EntryClient
+ * script tag — is emitted verbatim.
+ *
+ * @param title - Document `<title>` for the generated app
+ */
+function buildIndexHTMLSrc(title: string): string {
+  return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Unirend SSG Template</title>
+    <title>${title}</title>
     <!--ss-head-->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <!-- Ideally you would do a complete favicon and shortcut icon package - see https://realfavicongenerator.net/-->
@@ -19,7 +36,7 @@
       (function () {
         const valid = ['light', 'dark', 'auto'];
         const cookieMatch = document.cookie.match(
-          /(?:^|;\s*)themePreference=([^;]+)/,
+          /(?:^|;\\s*)themePreference=([^;]+)/,
         );
 
         const cookiePref = valid.includes(cookieMatch?.[1])
@@ -200,3 +217,39 @@
     <script type="module" src="./EntryClient.tsx"></script>
   </body>
 </html>
+`;
+}
+
+/**
+ * Ensure a Vite app's `index.html` exists at `${projectPath}/index.html`.
+ * Only creates the file if it doesn't exist - never overwrites.
+ *
+ * @param root - File root (filesystem path or in-memory object)
+ * @param projectPath - Relative path to the project directory (e.g. "src/apps/my-app")
+ * @param title - Document `<title>` for the generated app
+ * @param log - Optional logger function for output
+ * @throws {Error} If file creation fails
+ */
+export async function ensureAppIndexHTML(
+  root: FileRoot,
+  projectPath: string,
+  title: string,
+  log?: LoggerFunction,
+): Promise<void> {
+  const relPath = `${projectPath}/index.html`;
+
+  try {
+    const didWrite = await vfsWriteIfNotExists(
+      root,
+      relPath,
+      buildIndexHTMLSrc(title),
+    );
+
+    if (didWrite && log) {
+      log('info', `Created ${relPath}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to ensure ${relPath}: ${errorMessage}`);
+  }
+}

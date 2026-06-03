@@ -42,7 +42,6 @@ Of what remains, some files are identical across all template types and
 should be written by a shared scaffold path:
 
 - `entry-client.tsx`
-- `index.html`
 - `public/` directory contents
 
 Already absorbed into the shared scaffold path (`templates-shared/`), called
@@ -54,6 +53,17 @@ from the SSG and SSR branches of `createProjectSpecificFiles`:
   the generator interpolates the project name as `appName`. The `isSSRBuild`
   const was renamed to `isServerEntryPoint` (still reading
   `configEnv.isSsrBuild`) for clarity.
+- `tsconfig.json` → `app-tsconfig.ts` (`ensureAppTsConfig`). Static and
+  identical across SSG/SSR. API ships no app-level tsconfig — it has no
+  Vite/client surface and just uses the repo-root config.
+- `prettier.config.js` → `app-prettier-config.ts` (`ensureAppPrettierConfig`).
+  Static and identical across SSG/SSR; extends the repo-root config and adds the
+  Tailwind plugin. API ships none — no Tailwind/CSS surface, so it uses the
+  repo-root config.
+- `index.html` → `app-index-html.ts` (`ensureAppIndexHtml`). The two raw copies
+  differed only in the `<title>`, which was a hardcoded "Unirend SSG/SSR
+  Template" placeholder; the generator interpolates a real `title` (the project
+  name) instead. Everything else is verbatim.
 
 Project-specific files (entry points, routes, build configuration, server
 scripts, generated build info) vary by template type and must be emitted by
