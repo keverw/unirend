@@ -1,4 +1,24 @@
+import { vfsWriteIfNotExists } from '../../vfs';
+import type { FileRoot } from '../../vfs';
+import type { LoggerFunction } from '../../types';
+
 /**
+ * Build the source for an API app's `serve.ts` — the standalone entry point
+ * that wires the API server component into a Lifecycleion `LifecycleManager`
+ * and handles signals/graceful shutdown.
+ *
+ * API-only and structurally unique (no SSG/SSR counterpart), so it lives in
+ * `templates-specific/api/`. The only per-project substitution is the
+ * `LifecycleManager` name: per the naming rule, the manager incorporates the
+ * app name (`${appName}-api-server`) while the registered component keeps its
+ * generic `api-server` name (see `api-component.ts`). Everything else — the
+ * `{{name}}`/`{{msg}}`/`{{error}}` tokens are the Lifecycleion logger's own
+ * param syntax — is emitted verbatim.
+ *
+ * @param appName - The app/project name to fold into the manager name
+ */
+function buildAPIServeSrc(appName: string): string {
+  return `/**
  * Standalone API server demo.
  * Uses unirend's serveAPI with Lifecycleion for lifecycle management and logging.
  *
@@ -49,7 +69,7 @@ const logger = new Logger({
 
 async function main() {
   const manager = new LifecycleManager({
-    name: 'api-server-app',
+    name: '${appName}-api-server',
     logger,
     // Attach signal handlers before startup so any signal queued during
     // startAllComponents() is handled correctly once the event loop resumes.
@@ -108,3 +128,39 @@ main().catch((error) => {
     exitCode: 1,
   });
 });
+`;
+}
+
+/**
+ * Ensure an API app's `serve.ts` exists at `${projectPath}/serve.ts`.
+ * Only creates the file if it doesn't exist - never overwrites.
+ *
+ * @param root - File root (filesystem path or in-memory object)
+ * @param projectPath - Relative path to the project directory (e.g. "src/apps/my-api")
+ * @param appName - The app/project name, folded into the LifecycleManager name
+ * @param log - Optional logger function for output
+ * @throws {Error} If file creation fails
+ */
+export async function ensureAPIServe(
+  root: FileRoot,
+  projectPath: string,
+  appName: string,
+  log?: LoggerFunction,
+): Promise<void> {
+  const relPath = `${projectPath}/serve.ts`;
+
+  try {
+    const didWrite = await vfsWriteIfNotExists(
+      root,
+      relPath,
+      buildAPIServeSrc(appName),
+    );
+
+    if (didWrite && log) {
+      log('info', `Created ${relPath}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to ensure ${relPath}: ${errorMessage}`);
+  }
+}

@@ -1,7 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-// todo: reenable @typescript-eslint/no-unused-vars once getTemplateConfig and
-// createProjectSpecificFiles bodies are filled in (serverBuildTarget and the
-// getTemplateConfig params are not yet read by every branch).
 import { ensurePackageJSON } from './base-files/package-json';
 import type {
   EnsurePackageJSONOptions,
@@ -38,6 +34,8 @@ import {
 import { ensureAppConsts } from './templates-shared/app-consts';
 import { ensureGenerateBuildInfo } from './templates-shared/generate-build-info';
 import { ensureBuildInfoOutput } from './templates-shared/build-info-config';
+import { ensureAPIComponent } from './templates-specific/api/api-component';
+import { ensureAPIServe } from './templates-specific/api/api-serve';
 
 export function createRepoConfigObject(name: string): RepoConfig {
   return {
@@ -309,15 +307,42 @@ export function getTemplateConfig(
       cspellWords: [...APP_INDEX_HTML_CSPELL_WORDS],
     };
   } else if (templateID === 'api') {
-    // TODO: populate API config. `serverBuildTarget` applies here for the
-    // same reasons as SSR (bun build target flag + node vs bun runner for
-    // the built output), minus the Bun HMR concern since the API server
-    // doesn't run a Vite dev server. gitignore/prettierignore entries
-    // should include `src/apps/<projectName>/current-build-info.ts`.
-    //
-    // TODO: populate the app-specific `projectScripts` (the `<app>:build`,
-    // `<app>:serve`, … entries) and the dependencies/cspell fields.
+    // `serverBuildTarget` shapes the scripts to one runtime — we don't emit a
+    // variant for both. Per the toolchain convention (see the project README):
+    // target Node by passing `--target node` at bundle time and running the
+    // output with `node`; target Bun by omitting `--target` (Bun is `bun
+    // build`'s default) and running with `bun`.
+    const isBunTarget = serverBuildTarget === 'bun';
+    const builtRunner = isBunTarget ? 'bun' : 'node';
+    const buildTargetFlag = isBunTarget ? '' : '--target=node ';
+
+    // A single `<app>:serve:dev`, chosen by target. Under Bun we run serve.ts
+    // straight from source (no build step). For Node we bundle serve.ts with
+    // Bun and run the output under Node — bundling-for-Node sidesteps the
+    // Bun-native runtime quirks. IS_BUILT=false plus the absolute
+    // `--external` keep Bun from bundling the possibly-absent generated
+    // build-info file.
+    const serveDev = isBunTarget
+      ? `cd ${projectPath} && bun run serve.ts dev`
+      : `bun build ${projectPath}/serve.ts --outfile build/${projectName}/serve.js --target=node --external vite --define 'IS_BUILT=false' --external "$(pwd)/${projectPath}/current-build-info.ts" && node build/${projectName}/serve.js dev`;
+
     return {
+      // App-named commands, expected to be unique per project — createProject
+      // treats a collision with an existing root script as a hard error. The
+      // app name/path and build target are substituted in.
+      projectScripts: {
+        [`${projectName}:serve:dev`]: serveDev,
+        // Production bundle of serve.ts (IS_BUILT=true bundles the build info inline).
+        [`${projectName}:build:serve`]: `cd ${projectPath} && bun build serve.ts --outdir ../../../build/${projectName}/serve ${buildTargetFlag}--external vite --define 'IS_BUILT=true'`,
+        // Full build: generate build info first, then bundle.
+        [`${projectName}:build`]: `bun run generate:build-info && bun run ${projectName}:build:serve`,
+        // Run the production bundle (runner follows the build target).
+        [`${projectName}:serve:built:dev`]: `${builtRunner} build/${projectName}/serve/serve.js dev`,
+        [`${projectName}:serve:built:prod`]: `${builtRunner} build/${projectName}/serve/serve.js prod`,
+        // Build, then run the production bundle.
+        [`${projectName}:build-and-serve:dev`]: `bun run ${projectName}:build && bun run ${projectName}:serve:built:dev`,
+        [`${projectName}:build-and-serve:prod`]: `bun run ${projectName}:build && bun run ${projectName}:serve:built:prod`,
+      },
       // Generic build-info generator, shared by every server template (SSR,
       // API). See the SSR branch above for the rationale.
       sharedScripts: {
@@ -328,6 +353,10 @@ export function getTemplateConfig(
       // left default (`# Template-specific`).
       gitignoreEntries: [`${projectPath}/current-build-info.ts`],
       prettierignoreEntries: [`${projectPath}/current-build-info.ts`],
+      // No template-specific dependencies: the API's runtime needs (`unirend` +
+      // `lifecycleion`) are already in the base `dependencies` every project
+      // gets (see base-files/package-json.ts), and the toolchain is in the base
+      // `devDependencies`.
     };
   } else {
     // Compile-time exhaustiveness — TS errors here if a new TemplateID is
@@ -403,8 +432,13 @@ export async function createProjectSpecificFiles(
       log,
     );
   } else if (templateID === 'api') {
-    // TODO: emit API files — api-component.ts, serve.ts.
-    // See raw-src-files/src/apps/api/** for the reference source.
+    // API-only files: the component that boots the Unirend API server, plus
+    // the standalone serve.ts entry point that runs it under a
+    // LifecycleManager. serve.ts takes the project name so the manager is named
+    // `<projectName>-api-server` while the component keeps its generic
+    // `api-server` name.
+    await ensureAPIComponent(root, projectPath, projectName, log);
+    await ensureAPIServe(root, projectPath, projectName, log);
 
     // Shared across server templates (SSR, API): the build-info generator
     // script plus this app's entry in build-info.config.json. The generated

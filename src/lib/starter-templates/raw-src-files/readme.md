@@ -70,6 +70,35 @@ from the SSG and SSR branches of `createProjectSpecificFiles`:
   helper switches on `templateID` and injects the app-prefixed script names.
   API ships none — it has no error-demo routes.
 
+Already absorbed into a single template's path (`templates-specific/<template>/`),
+called only from that template's branch of `createProjectSpecificFiles`:
+
+- `src/apps/api/api-component.ts` → `templates-specific/api/api-component.ts`
+  (`ensureAPIComponent`). The Lifecycleion component that boots the Unirend API
+  server, registers routes/page-data handlers, and wires graceful start/stop.
+  API-only and structurally unique, so it has no shared counterpart. The one
+  per-project substitution is an inline comment naming the build script
+  (`${appName}:build` — see _Build info generator design_ below), kept accurate
+  so it tracks the generated app's actual script names. Note the component's own
+  `name: 'api-server'` (passed to `BaseComponent`) is intentionally **not**
+  injected: per _Lifecycle and component naming consistency_ below, the
+  component keeps its generic name and only the manager name (in `serve.ts`)
+  gets the app name. The `{{port}}` token is the Lifecycleion logger's own param
+  syntax, not a scaffold variable. No extra cspell words needed; `Lifecycleion`
+  is already a default.
+- `src/apps/api/serve.ts` → `templates-specific/api/api-serve.ts`
+  (`ensureAPIServe`). The standalone entry point that runs `APIServerComponent`
+  under a Lifecycleion `LifecycleManager` and handles signals/graceful
+  shutdown. The one per-project substitution is the manager name: per _Lifecycle
+  and component naming consistency_ below, it's injected as
+  `` `${appName}-api-server` `` (vs. the raw template's `api-server-app`), while
+  the registered component keeps its generic `api-server` name. Everything else
+  is verbatim (the `{{name}}`/`{{msg}}`/`{{error}}` tokens are logger param
+  syntax). No extra cspell words needed.
+
+With both files done, the **API template is fully ported** — `raw-src-files/src/apps/api/`
+no longer exists.
+
 Project-specific files (entry points, routes, build configuration, server
 scripts, generated build info) vary by template type and must be emitted by
 `createProjectSpecificFiles`.
@@ -87,10 +116,14 @@ whether it's shared (identical or near-identical) or project-specific.**
      (e.g. `vite.config.ts`'s app slug, `index.html`'s `<title>`,
      `consts.ts`'s per-template header). Inject those via a builder argument.
    - _Structurally different_ → project-specific; emit it from the template's
-     own branch.
+     own branch, with the literal living in `templates-specific/<template>/`.
 2. **Pick a home.** `base-files/` = every template needs it. `templates-shared/`
    = a _subset_ needs it (most are SSG+SSR or SSR+API). API frequently opts out
    (no Vite/Tailwind/build-info surface) — note that in the doc comment.
+   `templates-specific/` = structurally different, emitted from a single
+   template's branch; place it under the owning template's subfolder
+   (`templates-specific/ssg/`, `templates-specific/ssr/`,
+   `templates-specific/api/`).
 3. **Implement the pattern.** A private builder (or `const fileSrc`) returning
    the whole file as one template literal, plus an exported `ensure*` that
    writes it create-if-missing via `vfsWriteIfNotExists` (or read-merge for JSON
@@ -195,7 +228,14 @@ The exact set of scripts depends on the template type:
 - **SSG** gets `generate` and `serve` scripts.
 - **SSR** gets `serve:dev` and `serve:prod` scripts (see the Bun HMR notes
   below for which `serve:dev` variant to emit).
-- **API** gets a single `serve` script.
+- **API** gets `serve` and `build` scripts. A **single** `serve:dev` is
+  emitted, chosen by `serverBuildTarget` (not both): for Bun it runs `serve.ts`
+  directly (`bun run serve.ts dev`); for Node it bundles `serve.ts` with Bun and
+  runs the output under `node` (the old `serve:dev-node` form — bundling for
+  Node sidesteps the Bun-native runtime quirks). The rest: `build:serve` /
+  `build`, `serve:built:dev` / `serve:built:prod`, and the `build-and-serve`
+  combos. No client/generate steps since there's no Vite build. (Implemented —
+  see the API branch of `getTemplateConfig`.)
 
 When populating these in `getTemplateConfig`, split them into its two script
 buckets:
@@ -358,8 +398,8 @@ Working list:
       TS catches missing branches).
 - [ ] Add tests covering `getTemplateConfig(<template>)` output and the
       `createProjectSpecificFiles` branch.
-- [ ] Delete the per-template directory from this tree once parity is
-      verified against the generator's output.
+- [ ] Delete the raw template's directory from this `raw-src-files/` tree once
+      parity is verified against the generator's output.
 
 ### Generator-level work
 
@@ -385,6 +425,12 @@ Working list:
   builder that returns the whole file as one template literal with the dynamic
   bits interpolated (e.g. `${appName}`), plus an exported `ensure*` function
   that writes it create-if-missing via `vfsWriteIfNotExists`.
+
+  Files that are structurally different per template (emitted from a single
+  branch, not shared) live in `templates-specific/<template>/` instead — one
+  subfolder per template ID (`templates-specific/ssg/`, `.../ssr/`,
+  `.../api/`), mirroring `templates-shared/` as a sibling. Same builder +
+  `ensure*` pattern; the only difference is that exactly one branch imports it.
 - [x] Port `scripts/generate-build-info.ts` into a string literal under the
       shared-helpers home (it's used by the SSR and API branches of
       `createProjectSpecificFiles`, not all three). Done —
