@@ -69,6 +69,11 @@ from the SSG and SSR branches of `createProjectSpecificFiles`:
   template (it names the scripts that toggle the error-demo routes), so the
   helper switches on `templateID` and injects the app-prefixed script names.
   API ships none — it has no error-demo routes.
+- `index.css` → `app-index-css.ts` (`ensureAppIndexCSS`). The two raw copies
+  were byte-identical, so it's static and shared — the Tailwind import,
+  class-based dark-mode variant, base html background colors, and commented-out
+  theme/`@utility`/`@layer`/class examples are all emitted verbatim. API ships
+  none — it has no Tailwind/CSS surface.
 
 Already absorbed into a single template's path (`templates-specific/<template>/`),
 called only from that template's branch of `createProjectSpecificFiles`:

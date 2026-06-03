@@ -32,6 +32,7 @@ import {
   APP_INDEX_HTML_CSPELL_WORDS,
 } from './templates-shared/app-index-html';
 import { ensureAppConsts } from './templates-shared/app-consts';
+import { ensureAppIndexCSS } from './templates-shared/app-index-css';
 import { ensureGenerateBuildInfo } from './templates-shared/generate-build-info';
 import { ensureBuildInfoOutput } from './templates-shared/build-info-config';
 import { ensureAPIComponent } from './templates-specific/api/api-component';
@@ -389,8 +390,7 @@ export async function createProjectSpecificFiles(
 ): Promise<void> {
   if (templateID === 'ssg') {
     // TODO: emit SSG files — EntryClient.tsx, EntrySSG.tsx, Routes.tsx,
-    // generate-ssg.ts, components/, pages/, public/,
-    // index.css.
+    // generate-ssg.ts, components/, pages/, public/.
     // See raw-src-files/src/apps/ssg/** for the reference source.
 
     // Shared across all Vite-based templates (SSG, SSR).
@@ -399,13 +399,13 @@ export async function createProjectSpecificFiles(
     await ensureAppTsConfig(root, projectPath, log);
     await ensureAppPrettierConfig(root, projectPath, log);
     await ensureAppIndexHTML(root, projectPath, projectName, log);
+    await ensureAppIndexCSS(root, projectPath, log);
     await ensureAppConsts(root, projectPath, 'ssg', projectName, log);
   } else if (templateID === 'ssr') {
     // TODO: emit SSR files — EntryClient.tsx, EntrySSR.tsx, Routes.tsx,
     // serve-built.ts, serve-hmr.ts, server/start.ts,
     // server/ssr-component.ts, server/plugins/**,
-    // components/, pages/, public/,
-    // index.css.
+    // components/, pages/, public/.
     // See raw-src-files/src/apps/ssr/** for reference source.
     // `serverBuildTarget` affects the build scripts and runner choice —
     // see the SSR branch of `getTemplateConfig` above for what it
@@ -417,6 +417,7 @@ export async function createProjectSpecificFiles(
     await ensureAppTsConfig(root, projectPath, log);
     await ensureAppPrettierConfig(root, projectPath, log);
     await ensureAppIndexHTML(root, projectPath, projectName, log);
+    await ensureAppIndexCSS(root, projectPath, log);
     await ensureAppConsts(root, projectPath, 'ssr', projectName, log);
 
     // Shared across server templates (SSR, API): the build-info generator
