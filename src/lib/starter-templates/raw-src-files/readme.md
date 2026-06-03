@@ -74,6 +74,19 @@ from the SSG and SSR branches of `createProjectSpecificFiles`:
   class-based dark-mode variant, base html background colors, and commented-out
   theme/`@utility`/`@layer`/class examples are all emitted verbatim. API ships
   none — it has no Tailwind/CSS surface.
+- `EntryClient.tsx` → `app-entry-client.ts` (`ensureAppEntryClient`). The two
+  raw copies were byte-identical, so it's static and shared — mounts the app
+  via `unirend/client`, imports the stylesheet and routes, wraps the tree in
+  `ThemeProvider`, and logs the hydration/render outcome. API ships none — it
+  has no client entry point.
+- `EntrySSG.tsx` / `EntrySSR.tsx` → `app-entry-server.ts`
+  (`ensureAppEntryServer`). The two files are structurally identical — same
+  imports, same `render` export, same `unirendBaseRender` call — differing only
+  in two JSDoc comment lines that name the template and its rendering model
+  ("SSG generator / build time" vs "SSR server / runtime"). The output filename
+  also varies (`EntrySSG.tsx` vs `EntrySSR.tsx`), so `templateID` drives both
+  the comment text and the filename. API ships none — it has no server render
+  entry point.
 
 Already absorbed into a single template's path (`templates-specific/<template>/`),
 called only from that template's branch of `createProjectSpecificFiles`:
