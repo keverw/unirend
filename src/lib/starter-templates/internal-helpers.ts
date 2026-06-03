@@ -1,7 +1,7 @@
-/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/require-await */
-// todo: reenable @typescript-eslint/no-unused-vars and @typescript-eslint/require-await
-// once getTemplateConfig and createProjectSpecificFiles bodies are filled in (the latter
-// will perform real I/O via vfsWrite/vfsWriteJSON, which restores the await).
+/* eslint-disable @typescript-eslint/no-unused-vars */
+// todo: reenable @typescript-eslint/no-unused-vars once getTemplateConfig and
+// createProjectSpecificFiles bodies are filled in (serverBuildTarget and the
+// getTemplateConfig params are not yet read by every branch).
 import { ensurePackageJSON } from './base-files/package-json';
 import type {
   EnsurePackageJSONOptions,
@@ -27,6 +27,8 @@ import {
   LIBS_GIT_KEEP_FILE_SRC,
   SCRIPTS_GIT_KEEP_FILE_SRC,
 } from './base-files/gitkeep-files-src';
+import { ensureViteEnv } from './templates-shared/ensure-vite-env';
+import { ensureViteConfig } from './templates-shared/vite-config';
 
 export function createRepoConfigObject(name: string): RepoConfig {
   return {
@@ -310,20 +312,28 @@ export async function createProjectSpecificFiles(
 ): Promise<void> {
   if (templateID === 'ssg') {
     // TODO: emit SSG files — EntryClient.tsx, EntrySSG.tsx, Routes.tsx,
-    // generate-ssg.ts, vite.config.ts, components/, pages/, public/,
-    // index.html, index.css, vite-env.d.ts, prettier.config.js,
+    // generate-ssg.ts, components/, pages/, public/,
+    // index.html, index.css, prettier.config.js,
     // tsconfig.json, consts.ts. See raw-src-files/src/apps/ssg/** for
     // the reference source.
+
+    // Shared across all Vite-based templates (SSG, SSR).
+    await ensureViteEnv(root, projectPath, log);
+    await ensureViteConfig(root, projectPath, projectName, log);
   } else if (templateID === 'ssr') {
     // TODO: emit SSR files — EntryClient.tsx, EntrySSR.tsx, Routes.tsx,
     // serve-built.ts, serve-hmr.ts, server/start.ts,
     // server/ssr-component.ts, server/plugins/**, current-build-info.ts,
-    // vite.config.ts, components/, pages/, public/, index.html,
-    // index.css, vite-env.d.ts, prettier.config.js, tsconfig.json,
+    // components/, pages/, public/, index.html,
+    // index.css, prettier.config.js, tsconfig.json,
     // consts.ts. See raw-src-files/src/apps/ssr/** for reference source.
     // `serverBuildTarget` affects the build scripts and runner choice —
     // see the SSR branch of `getTemplateConfig` above for what it
     // controls in practice.
+
+    // Shared across all Vite-based templates (SSG, SSR).
+    await ensureViteEnv(root, projectPath, log);
+    await ensureViteConfig(root, projectPath, projectName, log);
   } else if (templateID === 'api') {
     // TODO: emit API files — api-component.ts, serve.ts,
     // current-build-info.ts. See raw-src-files/src/apps/api/** for the

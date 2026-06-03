@@ -41,10 +41,19 @@ omitted from this directory so the tree only contains work still pending:
 Of what remains, some files are identical across all template types and
 should be written by a shared scaffold path:
 
-- `vite-env.d.ts`
 - `entry-client.tsx`
 - `index.html`
 - `public/` directory contents
+
+Already absorbed into the shared scaffold path (`templates-shared/`), called
+from the SSG and SSR branches of `createProjectSpecificFiles`:
+
+- `vite-env.d.ts` → `ensure-vite-env.ts` (`ensureViteEnv`).
+- `vite.config.ts` → `vite-config.ts` (`ensureViteConfig`). The two raw copies
+  were identical apart from the app slug in the bundle-report/build paths, so
+  the generator interpolates the project name as `appName`. The `isSSRBuild`
+  const was renamed to `isServerEntryPoint` (still reading
+  `configEnv.isSsrBuild`) for clarity.
 
 Project-specific files (entry points, routes, build configuration, server
 scripts, generated build info) vary by template type and must be emitted by
@@ -302,14 +311,20 @@ Working list:
       `tsconfig.json`, `prettier.config.js`, etc.) — but several pieces are
       shared by a _subset_ of templates and don't fit there:
   - `generate-build-info.ts` + `current-build-info.ts` → SSR + API
-  - `vite.config.ts` + Vite-related deps → SSG + SSR
+  - ~~`vite.config.ts`~~ (done — `templates-shared/vite-config.ts`) + Vite-related
+    deps → SSG + SSR
   - React component scaffolding (theme, layout, error pages) → SSG + SSR
   - API server scaffolding → API only (effectively single-template, but
     still doesn't belong in `base-files/`)
 
-  A sibling `templates-shared/` (or similar) directory would house these
-  literals so each template's branch in `createProjectSpecificFiles` can
-  import the same source rather than duplicating it.
+  A sibling `templates-shared/` directory houses these literals so each
+  template's branch in `createProjectSpecificFiles` can import the same source
+  rather than duplicating it. It already exists — `ensure-vite-env.ts`
+  (`ensureViteEnv`) and `vite-config.ts` (`ensureViteConfig`) are the first
+  occupants; add the rest alongside them. The established pattern: a private
+  builder that returns the whole file as one template literal with the dynamic
+  bits interpolated (e.g. `${appName}`), plus an exported `ensure*` function
+  that writes it create-if-missing via `vfsWriteIfNotExists`.
 - [ ] Port `scripts/generate-build-info.ts` into a string literal under the
       shared-helpers home (it's used by the SSR and API branches of
       `createProjectSpecificFiles`, not all three).
