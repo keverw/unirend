@@ -3,6 +3,17 @@ import type { FileRoot } from '../vfs';
 import type { LoggerFunction } from '../types';
 
 /**
+ * cspell words that appear in the generated `index.html` and so must be in the
+ * generated project's dictionary. Co-located with the file that emits them so
+ * the two stay in sync; the SSG/SSR `getTemplateConfig` branches fold these
+ * into their template-specific `cspellWords` (they don't belong in the global
+ * `defaultWords` — an API-only project has no `index.html` to use them).
+ *
+ * - `Neue` — the `'Helvetica Neue'` font stack in the noscript card's CSS.
+ */
+export const APP_INDEX_HTML_CSPELL_WORDS = ['Neue'];
+
+/**
  * Build the source for a Vite app's `index.html`.
  *
  * Identical across the Vite-based templates (SSG, SSR) apart from the document

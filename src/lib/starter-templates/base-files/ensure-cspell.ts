@@ -25,7 +25,6 @@ const defaultWords = [
   'jestrunner',
   'jmbeach',
   'Lifecycleion',
-  'Neue',
   'treemap',
   'Unirend',
 ];

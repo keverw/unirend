@@ -15,7 +15,6 @@ describe('ensureCspell', () => {
     'jestrunner',
     'jmbeach',
     'Lifecycleion',
-    'Neue',
     'treemap',
     'Unirend',
   ];

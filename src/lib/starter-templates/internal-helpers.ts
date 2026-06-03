@@ -31,7 +31,10 @@ import { ensureViteEnv } from './templates-shared/ensure-vite-env';
 import { ensureViteConfig } from './templates-shared/vite-config';
 import { ensureAppTsConfig } from './templates-shared/app-tsconfig';
 import { ensureAppPrettierConfig } from './templates-shared/app-prettier-config';
-import { ensureAppIndexHTML } from './templates-shared/app-index-html';
+import {
+  ensureAppIndexHTML,
+  APP_INDEX_HTML_CSPELL_WORDS,
+} from './templates-shared/app-index-html';
 import { ensureAppConsts } from './templates-shared/app-consts';
 import { ensureGenerateBuildInfo } from './templates-shared/generate-build-info';
 import { ensureBuildInfoOutput } from './templates-shared/build-info-config';
@@ -264,7 +267,12 @@ export function getTemplateConfig(
     // for demos), and the bundle/runner choice for that script follows
     // the same pattern as SSR/API (`bun build --target=<bun|node>` +
     // `bun`-vs-`node` invocation against the built output).
-    return {};
+    return {
+      // Words from the shared index.html this template emits (see
+      // createProjectSpecificFiles). Template-specific, not a default, since
+      // only the Vite templates ship an index.html.
+      cspellWords: [...APP_INDEX_HTML_CSPELL_WORDS],
+    };
   } else if (templateID === 'ssr') {
     // TODO: populate SSR config — same fields as SSG (projectScripts vs
     // sharedScripts split included), plus scripts must honor
@@ -295,6 +303,10 @@ export function getTemplateConfig(
       // left default (`# Template-specific`).
       gitignoreEntries: [`${projectPath}/current-build-info.ts`],
       prettierignoreEntries: [`${projectPath}/current-build-info.ts`],
+      // Words from the shared index.html this template emits (see
+      // createProjectSpecificFiles). Template-specific, not a default, since
+      // only the Vite templates ship an index.html.
+      cspellWords: [...APP_INDEX_HTML_CSPELL_WORDS],
     };
   } else if (templateID === 'api') {
     // TODO: populate API config. `serverBuildTarget` applies here for the
