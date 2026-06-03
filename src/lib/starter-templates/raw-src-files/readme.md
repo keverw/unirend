@@ -74,6 +74,48 @@ Project-specific files (entry points, routes, build configuration, server
 scripts, generated build info) vary by template type and must be emitted by
 `createProjectSpecificFiles`.
 
+### Conversion playbook (per file)
+
+The repeatable process for absorbing a file from this tree into the generator.
+The core question is always: **diff the same file across templates and decide
+whether it's shared (identical or near-identical) or project-specific.**
+
+1. **Compare across templates.** `diff` the file between `ssg`/`ssr`/`api`.
+   Outcomes:
+   - _Identical_ → shared, static (e.g. `tsconfig.json`, `prettier.config.js`).
+   - _Differs only in small, predictable spots_ → shared with a substitution
+     (e.g. `vite.config.ts`'s app slug, `index.html`'s `<title>`,
+     `consts.ts`'s per-template header). Inject those via a builder argument.
+   - _Structurally different_ → project-specific; emit it from the template's
+     own branch.
+2. **Pick a home.** `base-files/` = every template needs it. `templates-shared/`
+   = a _subset_ needs it (most are SSG+SSR or SSR+API). API frequently opts out
+   (no Vite/Tailwind/build-info surface) — note that in the doc comment.
+3. **Implement the pattern.** A private builder (or `const fileSrc`) returning
+   the whole file as one template literal, plus an exported `ensure*` that
+   writes it create-if-missing via `vfsWriteIfNotExists` (or read-merge for JSON
+   manifests like `cspell.json` / `build-info.config.json`). Pass
+   repo-root-relative paths; the VFS resolves them against the root.
+4. **Mind template-literal escaping.** Escape backticks, `${`, and backslashes
+   when embedding source — e.g. a regex `\s` becomes `\\s`, a literal `\n`
+   becomes `\\n`. The parity check (step 6) catches mistakes.
+5. **Honor repo conventions.** Acronyms written uppercase in identifiers
+   (`ensureAppIndexHTML`, not `...Html`); preserve all comments verbatim; match
+   the original's trailing newline.
+6. **Verify byte-for-byte parity.** Generate into an in-memory root and compare
+   against the original (still in git history after `git rm` — read it with
+   `git show HEAD:<path>`), passing the reference's own substitution values
+   (e.g. the slug as `appName`). For intentional changes (a rename, a real
+   title), diff only the structural remainder.
+7. **cspell.** Any word that lands in _scaffolded output_ that is detected by
+   `cspell` and needs to be added to the dictionary goes in `ensureCspell`
+   `defaultWords` **and** its test — not just the repo's own `cspell.json`. A
+   word that only appears in generator source (not emitted) goes in the repo
+   `cspell.json` only, or just reword to avoid it. Audit by scaffolding a
+   project into a temp dir, running `ensureCspell`, then `cspell lint`.
+8. **Close out.** `git rm` the raw file(s), move them to the _Already absorbed_
+   list above, and run type-check + lint + prettier + spellcheck + tests.
+
 ### Implementation order
 
 1. **SSG** — easiest; no server, just routes and static generation. Do first.
@@ -325,7 +367,10 @@ Working list:
       and helpers. `base-files/` is for files every template needs (root
       `tsconfig.json`, `prettier.config.js`, etc.) — but several pieces are
       shared by a _subset_ of templates and don't fit there:
-  - `generate-build-info.ts` + `current-build-info.ts` → SSR + API
+  - ~~`generate-build-info.ts`~~ (done —
+    `templates-shared/generate-build-info.ts`) → SSR + API.
+    `current-build-info.ts` is a generated/gitignored artifact, not
+    scaffolded — running the script produces it.
   - ~~`vite.config.ts`~~ (done — `templates-shared/vite-config.ts`) + Vite-related
     deps → SSG + SSR
   - React component scaffolding (theme, layout, error pages) → SSG + SSR
@@ -340,11 +385,16 @@ Working list:
   builder that returns the whole file as one template literal with the dynamic
   bits interpolated (e.g. `${appName}`), plus an exported `ensure*` function
   that writes it create-if-missing via `vfsWriteIfNotExists`.
-- [ ] Port `scripts/generate-build-info.ts` into a string literal under the
+- [x] Port `scripts/generate-build-info.ts` into a string literal under the
       shared-helpers home (it's used by the SSR and API branches of
-      `createProjectSpecificFiles`, not all three).
-- [ ] Wire the generator to emit and amend `build-info.config.json` — the
-      file in this tree is the reference shape.
+      `createProjectSpecificFiles`, not all three). Done —
+      `templates-shared/generate-build-info.ts` (`ensureGenerateBuildInfo`),
+      written once per repo (create-if-missing). The `generate:build-info`
+      script is added to `getTemplateConfig`'s `sharedScripts` for SSR/API.
+- [x] Wire the generator to emit and amend `build-info.config.json`. Done —
+      `templates-shared/build-info-config.ts` (`ensureBuildInfoOutput`) creates
+      the manifest if missing and appends each app's
+      `current-build-info.ts` output path when absent.
 - [ ] Use the `package.json` in this tree as the reference for the populated
       per-app scripts/deps/devDeps shape; mirror those values in
       `getTemplateConfig` (splitting scripts into `projectScripts` vs

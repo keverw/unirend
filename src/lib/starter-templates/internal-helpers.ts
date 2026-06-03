@@ -33,6 +33,8 @@ import { ensureAppTsConfig } from './templates-shared/app-tsconfig';
 import { ensureAppPrettierConfig } from './templates-shared/app-prettier-config';
 import { ensureAppIndexHTML } from './templates-shared/app-index-html';
 import { ensureAppConsts } from './templates-shared/app-consts';
+import { ensureGenerateBuildInfo } from './templates-shared/generate-build-info';
+import { ensureBuildInfoOutput } from './templates-shared/build-info-config';
 
 export function createRepoConfigObject(name: string): RepoConfig {
   return {
@@ -277,14 +279,44 @@ export function getTemplateConfig(
     // `ssr:serve:dev` variant to emit per target.
     // gitignore/prettierignore entries should include
     // `src/apps/<projectName>/current-build-info.ts`.
-    return {};
+    //
+    // TODO: populate the app-specific `projectScripts` (the `<app>:build`,
+    // `<app>:serve`, … entries) and the dependencies/cspell fields.
+    return {
+      // Generic build-info generator, shared by every server template (SSR,
+      // API). Added only when absent (see `mergeScripts`) so a second app
+      // doesn't conflict. The single `scripts/generate-build-info.ts` it runs
+      // reads `build-info.config.json`, which each app appends its output to.
+      sharedScripts: {
+        'generate:build-info': 'bun run scripts/generate-build-info.ts',
+      },
+      // The generated build-info file is ignored by git and prettier (it's
+      // produced by `generate:build-info`, not committed). Section header is
+      // left default (`# Template-specific`).
+      gitignoreEntries: [`${projectPath}/current-build-info.ts`],
+      prettierignoreEntries: [`${projectPath}/current-build-info.ts`],
+    };
   } else if (templateID === 'api') {
     // TODO: populate API config. `serverBuildTarget` applies here for the
     // same reasons as SSR (bun build target flag + node vs bun runner for
     // the built output), minus the Bun HMR concern since the API server
     // doesn't run a Vite dev server. gitignore/prettierignore entries
     // should include `src/apps/<projectName>/current-build-info.ts`.
-    return {};
+    //
+    // TODO: populate the app-specific `projectScripts` (the `<app>:build`,
+    // `<app>:serve`, … entries) and the dependencies/cspell fields.
+    return {
+      // Generic build-info generator, shared by every server template (SSR,
+      // API). See the SSR branch above for the rationale.
+      sharedScripts: {
+        'generate:build-info': 'bun run scripts/generate-build-info.ts',
+      },
+      // The generated build-info file is ignored by git and prettier (it's
+      // produced by `generate:build-info`, not committed). Section header is
+      // left default (`# Template-specific`).
+      gitignoreEntries: [`${projectPath}/current-build-info.ts`],
+      prettierignoreEntries: [`${projectPath}/current-build-info.ts`],
+    };
   } else {
     // Compile-time exhaustiveness — TS errors here if a new TemplateID is
     // added without a matching branch above. JS callers can still land
@@ -330,7 +362,7 @@ export async function createProjectSpecificFiles(
   } else if (templateID === 'ssr') {
     // TODO: emit SSR files — EntryClient.tsx, EntrySSR.tsx, Routes.tsx,
     // serve-built.ts, serve-hmr.ts, server/start.ts,
-    // server/ssr-component.ts, server/plugins/**, current-build-info.ts,
+    // server/ssr-component.ts, server/plugins/**,
     // components/, pages/, public/,
     // index.css.
     // See raw-src-files/src/apps/ssr/** for reference source.
@@ -345,10 +377,35 @@ export async function createProjectSpecificFiles(
     await ensureAppPrettierConfig(root, projectPath, log);
     await ensureAppIndexHTML(root, projectPath, projectName, log);
     await ensureAppConsts(root, projectPath, 'ssr', projectName, log);
+
+    // Shared across server templates (SSR, API): the build-info generator
+    // script plus this app's entry in build-info.config.json. The generated
+    // current-build-info.ts itself is produced by running the script — it
+    // captures the repo's version and git state (hash/branch) at build time,
+    // so it's a gitignored, per-build artifact rather than something
+    // scaffolded here.
+    await ensureGenerateBuildInfo(root, log);
+    await ensureBuildInfoOutput(
+      root,
+      `${projectPath}/current-build-info.ts`,
+      log,
+    );
   } else if (templateID === 'api') {
-    // TODO: emit API files — api-component.ts, serve.ts,
-    // current-build-info.ts. See raw-src-files/src/apps/api/** for the
-    // reference source.
+    // TODO: emit API files — api-component.ts, serve.ts.
+    // See raw-src-files/src/apps/api/** for the reference source.
+
+    // Shared across server templates (SSR, API): the build-info generator
+    // script plus this app's entry in build-info.config.json. The generated
+    // current-build-info.ts itself is produced by running the script — it
+    // captures the repo's version and git state (hash/branch) at build time,
+    // so it's a gitignored, per-build artifact rather than something
+    // scaffolded here.
+    await ensureGenerateBuildInfo(root, log);
+    await ensureBuildInfoOutput(
+      root,
+      `${projectPath}/current-build-info.ts`,
+      log,
+    );
   } else {
     // Compile-time exhaustiveness — TS errors here if a new TemplateID is
     // added without a matching branch above. JS callers can still land
