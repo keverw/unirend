@@ -35,6 +35,9 @@ import { ensureAppConsts } from './templates-shared/app-consts';
 import { ensureAppIndexCSS } from './templates-shared/app-index-css';
 import { ensureAppEntryClient } from './templates-shared/app-entry-client';
 import { ensureAppEntryServer } from './templates-shared/app-entry-server';
+import { ensureAppPublicRobots } from './templates-shared/app-public-robots';
+import { ensureAppPublicFavicon } from './templates-shared/app-public-favicon';
+import { ensureAppPublicFaviconICO } from './templates-shared/app-public-favicon-ico';
 import { ensureGenerateBuildInfo } from './templates-shared/generate-build-info';
 import { ensureBuildInfoOutput } from './templates-shared/build-info-config';
 import { ensureAPIComponent } from './templates-specific/api/api-component';
@@ -411,6 +414,11 @@ export async function createProjectSpecificFiles(
     await ensureAppEntryServer(root, projectPath, 'ssg', log);
     await ensureAppConsts(root, projectPath, 'ssg', projectName, log);
 
+    // Shared public/ directory files (SSG, SSR).
+    await ensureAppPublicRobots(root, projectPath, log);
+    await ensureAppPublicFavicon(root, projectPath, log);
+    await ensureAppPublicFaviconICO(root, projectPath, log);
+
     // SSG-specific files.
     await ensureSSGRoutes(root, projectPath, log);
     await ensureSSGServe(root, projectPath, projectName, log);
@@ -434,6 +442,11 @@ export async function createProjectSpecificFiles(
     await ensureAppEntryClient(root, projectPath, log);
     await ensureAppEntryServer(root, projectPath, 'ssr', log);
     await ensureAppConsts(root, projectPath, 'ssr', projectName, log);
+
+    // Shared public/ directory files (SSG, SSR).
+    await ensureAppPublicRobots(root, projectPath, log);
+    await ensureAppPublicFavicon(root, projectPath, log);
+    await ensureAppPublicFaviconICO(root, projectPath, log);
 
     // SSR-specific files.
     await ensureSSRRoutes(root, projectPath, log);

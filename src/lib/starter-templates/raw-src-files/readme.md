@@ -42,7 +42,7 @@ Of what remains, some files are identical across all template types and
 should be written by a shared scaffold path:
 
 - `entry-client.tsx`
-- `public/` directory contents
+- remaining `public/` directory contents
 
 Already absorbed into the shared scaffold path (`templates-shared/`), called
 from the SSG and SSR branches of `createProjectSpecificFiles`:
@@ -79,6 +79,19 @@ from the SSG and SSR branches of `createProjectSpecificFiles`:
   via `unirend/client`, imports the stylesheet and routes, wraps the tree in
   `ThemeProvider`, and logs the hydration/render outcome. API ships none — it
   has no client entry point.
+- `public/robots.txt` → `app-public-robots.ts` (`ensureAppPublicRobots`). The
+  two raw copies were byte-identical, so it's static and shared — allows all
+  bots. The API template doesn't ship one (no public/static-file surface).
+- `public/favicon.svg` → `app-public-favicon.ts` (`ensureAppPublicFavicon`).
+  The two raw copies were byte-identical, so it's static and shared — a simple
+  dark-background SVG icon. The API template doesn't ship one (no
+  public/static-file surface).
+- `public/favicon.ico` → `app-public-favicon-ico.ts` (`ensureAppPublicFaviconICO`).
+  The two raw copies were byte-identical. Embedded as a base64 string literal
+  (decoded to `Buffer`/`Uint8Array` at write time) — base64 was chosen over hex
+  for ~33% overhead vs 100%. Parity verified by MD5 of in-memory VFS output vs.
+  original file. The API template doesn't ship one (no public/static-file
+  surface).
 - `EntrySSG.tsx` / `EntrySSR.tsx` → `app-entry-server.ts`
   (`ensureAppEntryServer`). The two files are structurally identical — same
   imports, same `render` export, same `unirendBaseRender` call — differing only
