@@ -9,10 +9,9 @@ import type { NameValidationResult } from './types';
  * - NPM rules: https://www.npmjs.com/package/validate-npm-package-name
  * - Maximum 214 characters
  * - Lowercase only
- * - Cannot start with dots, underscores, or dashes
- * - Cannot end with special characters
- * - No consecutive special characters
- * - No non-URL-safe characters
+ * - Kebab-case only: lowercase letters, numbers, and single hyphens
+ * - Must start with a lowercase letter
+ * - Must end with a lowercase letter or number
  * - No Node.js core module names or system reserved names
  * - Additional filesystem safety checks
  */
@@ -38,19 +37,20 @@ export function validateName(name: string): NameValidationResult {
     };
   }
 
-  // NPM Rule: Cannot start with a dot, underscore, or dash
-  if (/^[._-]/.test(name)) {
+  // Stricter than npm: project names feed script names, env vars, folders, and
+  // lifecycle labels, so require a shell/env-friendly lowercase letter start.
+  if (!/^[a-z]/.test(name)) {
     return {
       valid: false,
-      error: 'Name cannot start with a dot, underscore, or dash',
+      error: 'Name must start with a lowercase letter',
     };
   }
 
-  // Must not end with special characters (stricter than npm)
-  if (/[-_.]$/.test(name)) {
+  // Must not end with special characters (stricter than npm).
+  if (/-$/.test(name)) {
     return {
       valid: false,
-      error: 'Name cannot end with a dash, underscore, or dot',
+      error: 'Name cannot end with a dash',
     };
   }
 
@@ -62,30 +62,27 @@ export function validateName(name: string): NameValidationResult {
     };
   }
 
-  // NPM Rule: Cannot contain non-URL-safe characters
-  // Allowed: lowercase letters, digits, hyphens, dots, underscores
-  // Prohibited: all other characters including ~)('!* and filesystem-unsafe chars
-  if (!/^[a-z0-9._-]+$/.test(name)) {
+  // Stricter than npm: keep names kebab-case so they align with generated
+  // lifecycle component names, script names, folders, and env vars.
+  if (!/^[a-z0-9-]+$/.test(name)) {
     return {
       valid: false,
       error:
-        'Name contains invalid characters. Only lowercase letters, numbers, hyphens, dots, and underscores are allowed',
+        'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
     };
   }
 
-  // Must not contain consecutive special characters (dash, underscore, dot)
-  // Special characters must be surrounded by alphanumeric characters
-  // Examples: "foo-bar" ✓, "foo--bar" ✗, "foo_.bar" ✗, "foo..bar" ✗
-  const specialChars = new Set(['.', '_', '-']);
+  // Hyphens must be surrounded by alphanumeric characters.
+  // Examples: "foo-bar" ✓, "foo--bar" ✗
   for (let i = 0; i < name.length - 1; i++) {
     const current = name[i];
     const next = name[i + 1];
 
-    // If current char is special and next char is also special, it's invalid
-    if (specialChars.has(current) && specialChars.has(next)) {
+    if (current === '-' && next === '-') {
       return {
         valid: false,
-        error: `Name cannot contain consecutive special characters (found "${current}${next}"). Special characters must be surrounded by letters or numbers.`,
+        error:
+          'Name cannot contain consecutive hyphens. Hyphens must be surrounded by letters or numbers.',
       };
     }
   }

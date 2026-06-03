@@ -40,6 +40,11 @@ import { ensureBuildInfoOutput } from './templates-shared/build-info-config';
 import { ensureAPIComponent } from './templates-specific/api/api-component';
 import { ensureAPIServe } from './templates-specific/api/api-serve';
 import { ensureSSG500HTML } from './templates-specific/ssg/ssg-500-html';
+import { ensureSSGRoutes } from './templates-specific/ssg/ssg-routes';
+import { ensureSSGServe } from './templates-specific/ssg/ssg-serve';
+import { ensureSSRRoutes } from './templates-specific/ssr/ssr-routes';
+import { ensureSSRServeBuilt } from './templates-specific/ssr/ssr-serve-built';
+import { ensureSSRServeHMR } from './templates-specific/ssr/ssr-serve-hmr';
 
 export function createRepoConfigObject(name: string): RepoConfig {
   return {
@@ -392,8 +397,7 @@ export async function createProjectSpecificFiles(
   log?: LoggerFunction,
 ): Promise<void> {
   if (templateID === 'ssg') {
-    // TODO: emit SSG files — Routes.tsx,
-    // generate-ssg.ts, components/, pages/, public/.
+    // TODO: emit SSG files — generate-ssg.ts, components/, pages/, public/.
     // See raw-src-files/src/apps/ssg/** for the reference source.
 
     // Shared across all Vite-based templates (SSG, SSR).
@@ -408,10 +412,11 @@ export async function createProjectSpecificFiles(
     await ensureAppConsts(root, projectPath, 'ssg', projectName, log);
 
     // SSG-specific files.
+    await ensureSSGRoutes(root, projectPath, log);
+    await ensureSSGServe(root, projectPath, projectName, log);
     await ensureSSG500HTML(root, projectPath, log);
   } else if (templateID === 'ssr') {
-    // TODO: emit SSR files — Routes.tsx,
-    // serve-built.ts, serve-hmr.ts, server/start.ts,
+    // TODO: emit SSR files — serve-built.ts, serve-hmr.ts, server/start.ts,
     // server/ssr-component.ts, server/plugins/**,
     // components/, pages/, public/.
     // See raw-src-files/src/apps/ssr/** for reference source.
@@ -429,6 +434,11 @@ export async function createProjectSpecificFiles(
     await ensureAppEntryClient(root, projectPath, log);
     await ensureAppEntryServer(root, projectPath, 'ssr', log);
     await ensureAppConsts(root, projectPath, 'ssr', projectName, log);
+
+    // SSR-specific files.
+    await ensureSSRRoutes(root, projectPath, log);
+    await ensureSSRServeBuilt(root, projectPath, log);
+    await ensureSSRServeHMR(root, projectPath, log);
 
     // Shared across server templates (SSR, API): the build-info generator
     // script plus this app's entry in build-info.config.json. The generated

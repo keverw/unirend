@@ -103,9 +103,13 @@ export async function createProject(
       );
       log('info', '');
       log('info', 'Valid names must:');
-      log('info', '  - Contain at least one alphanumeric character');
-      log('info', '  - Not start or end with special characters');
-      log('info', '  - Not contain invalid filesystem characters');
+      log(
+        'info',
+        '  - Use kebab-case: lowercase letters, numbers, and hyphens',
+      );
+      log('info', '  - Start with a lowercase letter');
+      log('info', '  - End with a lowercase letter or number');
+      log('info', '  - Not contain consecutive hyphens');
       log('info', '  - Not be reserved system names');
 
       return {
@@ -725,9 +729,10 @@ async function initRepoInternal(
     );
     log('info', '');
     log('info', 'Valid names must:');
-    log('info', '  - Contain at least one alphanumeric character');
-    log('info', '  - Not start or end with special characters');
-    log('info', '  - Not contain invalid filesystem characters');
+    log('info', '  - Use kebab-case: lowercase letters, numbers, and hyphens');
+    log('info', '  - Start with a lowercase letter');
+    log('info', '  - End with a lowercase letter or number');
+    log('info', '  - Not contain consecutive hyphens');
     log('info', '  - Not be reserved system names');
 
     return {

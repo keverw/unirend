@@ -1,6 +1,7 @@
 import { vfsWriteIfNotExists } from '../../vfs';
 import type { FileRoot } from '../../vfs';
 import type { LoggerFunction } from '../../types';
+import { buildAppEnvVarName } from '../../internal-utils';
 
 /**
  * Build the source for an API app's `api-component.ts` — the Lifecycleion
@@ -19,6 +20,8 @@ import type { LoggerFunction } from '../../types';
  * @param appName - The app/project name, folded into the build-script comment
  */
 function buildAPIComponentSrc(appName: string): string {
+  const portEnvVarName = buildAppEnvVarName(appName, 'PORT');
+
   return `import { BaseComponent } from 'lifecycleion/lifecycle-manager';
 import type { Logger } from 'lifecycleion/logger';
 import { serveAPI, UnirendLifecycleionLoggerAdaptor } from 'unirend/server';
@@ -26,17 +29,17 @@ import type { APIServer } from 'unirend/server';
 import { loadBuildInfo } from 'unirend/build-info';
 // import { APIResponseHelpers } from 'unirend/api-envelope'; // Uncomment when using custom error/404 handlers
 
-// Read port from API_PORT env var, default 3001.
+// Read port from ${portEnvVarName} env var, default 3001.
 // Production HTTPS: use a reverse proxy (nginx, Caddy, etc.) for TLS termination,
 // or see https://github.com/keverw/unirend/blob/master/docs/https.md to handle it in code.
 //
 // Note: Unlike SSG/SSR servers, API servers typically don't need an HTTP→HTTPS redirect
 // server (serveRedirect). API clients and data loaders should be configured to use the
 // HTTPS URL directly and should not follow redirects. If using serveRedirect() (e.g. for
-// a browser-facing root page or API documentation), set its targetPort to API_PORT and
+// a browser-facing root page or API documentation), set its targetPort to ${portEnvVarName} and
 // use a separate HTTP_REDIRECT_PORT env var with a default. Then run both servers in the
 // same component in parallel, or add a dedicated redirect component.
-const API_PORT = parseInt(process.env.API_PORT ?? '3001', 10);
+const PORT = parseInt(process.env['${portEnvVarName}'] ?? '3001', 10);
 
 export class APIServerComponent extends BaseComponent {
   private server: APIServer | null = null;
@@ -295,10 +298,10 @@ export class APIServerComponent extends BaseComponent {
         // });
 
         // Start listening for requests
-        await this.server.listen(API_PORT, '0.0.0.0');
+        await this.server.listen(PORT, '0.0.0.0');
 
         this.logger.success('API server running at http://localhost:{{port}}', {
-          params: { port: API_PORT },
+          params: { port: PORT },
         });
       } catch (error) {
         // Reset promises and references on failure so that startup can be retried.
@@ -397,7 +400,7 @@ export class APIServerComponent extends BaseComponent {
     return {
       healthy: isHealthy,
       message: isHealthy
-        ? \`Listening on port \${API_PORT}\`
+        ? \`Listening on port \${PORT}\`
         : 'Server is not listening',
     };
   }

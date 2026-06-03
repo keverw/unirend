@@ -1,4 +1,19 @@
-import type { RouteObject } from 'react-router';
+import { vfsWriteIfNotExists } from '../../vfs';
+import type { FileRoot } from '../../vfs';
+import type { LoggerFunction } from '../../types';
+
+/**
+ * Source for the SSR template's `Routes.tsx`.
+ *
+ * SSR-specific: wires every route through `createPageDataLoader` so page data
+ * is fetched from the API (short-circuiting to the registered handler when
+ * co-located). Includes an `API_BASE_URL` block that reads from
+ * `window.__PUBLIC_APP_CONFIG__` on the client and `INTERNAL_API_ENDPOINT` on
+ * the server. The wildcard `*` route is active (with a `not-found` loader) so
+ * the server can log 404s. No static SSG-specific routes (`Dashboard`, `404`
+ * page) or `error-demo-loaders` import.
+ */
+const fileSrc = `import type { RouteObject } from 'react-router';
 import { AppLayout } from './components/AppLayout';
 import { Home } from './pages/Home';
 import { About } from './pages/About';
@@ -120,3 +135,32 @@ export const routes: RouteObject[] = [
     ],
   },
 ];
+`;
+
+/**
+ * Ensure the SSR template's `Routes.tsx` exists.
+ * Only creates the file if it doesn't exist — never overwrites.
+ *
+ * @param root - File root (filesystem path or in-memory object)
+ * @param projectPath - Relative path to the project directory (e.g. "src/apps/my-app")
+ * @param log - Optional logger function for output
+ * @throws {Error} If file creation fails
+ */
+export async function ensureSSRRoutes(
+  root: FileRoot,
+  projectPath: string,
+  log?: LoggerFunction,
+): Promise<void> {
+  const relPath = `${projectPath}/Routes.tsx`;
+
+  try {
+    const didWrite = await vfsWriteIfNotExists(root, relPath, fileSrc);
+
+    if (didWrite && log) {
+      log('info', `Created ${relPath}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to ensure ${relPath}: ${errorMessage}`);
+  }
+}

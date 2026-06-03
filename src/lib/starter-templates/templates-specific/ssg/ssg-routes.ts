@@ -1,4 +1,17 @@
-import type { RouteObject } from 'react-router';
+import { vfsWriteIfNotExists } from '../../vfs';
+import type { FileRoot } from '../../vfs';
+import type { LoggerFunction } from '../../types';
+
+/**
+ * Source for the SSG template's `Routes.tsx`.
+ *
+ * SSG-specific: uses static loaders from `./loaders/error-demo-loaders` for
+ * the error-demo test routes (rather than `createPageDataLoader`), includes a
+ * `Dashboard` route and a static `404` route (generated as a normal SSG page
+ * so it shares the app chrome), and leaves the wildcard `*` route commented
+ * out. No SSR page-data-loader wiring or `API_BASE_URL` block.
+ */
+const fileSrc = `import type { RouteObject } from 'react-router';
 import { AppLayout } from './components/AppLayout';
 import { Home } from './pages/Home';
 import { About } from './pages/About';
@@ -103,3 +116,32 @@ export const routes: RouteObject[] = [
     ],
   },
 ];
+`;
+
+/**
+ * Ensure the SSG template's `Routes.tsx` exists.
+ * Only creates the file if it doesn't exist — never overwrites.
+ *
+ * @param root - File root (filesystem path or in-memory object)
+ * @param projectPath - Relative path to the project directory (e.g. "src/apps/my-app")
+ * @param log - Optional logger function for output
+ * @throws {Error} If file creation fails
+ */
+export async function ensureSSGRoutes(
+  root: FileRoot,
+  projectPath: string,
+  log?: LoggerFunction,
+): Promise<void> {
+  const relPath = `${projectPath}/Routes.tsx`;
+
+  try {
+    const didWrite = await vfsWriteIfNotExists(root, relPath, fileSrc);
+
+    if (didWrite && log) {
+      log('info', `Created ${relPath}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to ensure ${relPath}: ${errorMessage}`);
+  }
+}

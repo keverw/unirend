@@ -1,4 +1,26 @@
+import { vfsWriteIfNotExists } from '../../vfs';
+import type { FileRoot } from '../../vfs';
+import type { LoggerFunction } from '../../types';
+import { buildAppEnvVarName } from '../../internal-utils';
+
 /**
+ * Build the source for an SSG app's `serve.ts` — the static file server entry
+ * point that serves pre-built SSG output via Unirend's StaticWebServer under a
+ * Lifecycleion LifecycleManager.
+ *
+ * Per the lifecycle naming rule, the LifecycleManager name incorporates the app
+ * name (`${appName}-ssg-serve`) while the registered component keeps its generic
+ * `static-web-server` name. The build directory (`build/${appName}/client`) and
+ * port env var (e.g. `MY_APP_PORT`) are also derived from `appName`.
+ *
+ * @param appName - The app/project name to fold into the manager name, build
+ *   path, and port env var
+ */
+function buildSSGServeSrc(appName: string): string {
+  const portEnvVarName = buildAppEnvVarName(appName, 'PORT');
+  const managerName = `${appName}-ssg-serve`;
+
+  return `/**
  * Static file server for SSG-generated sites.
  * Uses unirend's StaticWebServer with Lifecycleion for lifecycle management and logging.
  *
@@ -22,14 +44,14 @@ import { initDevMode, getDevMode } from 'lifecycleion/dev-mode';
 import { Logger, ConsoleSink, LogLevel } from 'lifecycleion/logger';
 import path from 'path';
 
-const BUILD_DIR = path.resolve(__dirname, '../../../build/ssg/client');
-// Read port from SSG_PORT env var, default 3000.
+const BUILD_DIR = path.resolve(__dirname, '../../../build/${appName}/client');
+// Read port from ${portEnvVarName} env var, default 3000.
 // Production HTTPS: use a reverse proxy (nginx, Caddy, etc.) for TLS termination,
 // or see https://github.com/keverw/unirend/blob/master/docs/https.md to handle it in code.
-// If using serveRedirect(), set its targetPort to SSG_PORT and use a separate
+// If using serveRedirect(), set its targetPort to ${portEnvVarName} and use a separate
 // HTTP_REDIRECT_PORT env var with a default. Then run both servers in the same
 // component in parallel, or add a dedicated redirect component.
-const SSG_PORT = parseInt(process.env.SSG_PORT ?? '3000', 10);
+const PORT = parseInt(process.env['${portEnvVarName}'] ?? '3000', 10);
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
 assertSupportedRuntime();
@@ -105,12 +127,12 @@ class StaticWebServerComponent extends BaseComponent {
           },
         });
 
-        await this.server.listen(SSG_PORT, '0.0.0.0');
+        await this.server.listen(PORT, '0.0.0.0');
 
         this.logger.success(
           'Static server running at http://localhost:{{port}}',
           {
-            params: { port: SSG_PORT },
+            params: { port: PORT },
           },
         );
 
@@ -205,10 +227,10 @@ class StaticWebServerComponent extends BaseComponent {
 
     const fmtBytes = (b: number) =>
       b >= 1_048_576
-        ? `${(b / 1_048_576).toFixed(1)} MB`
+        ? \`\${(b / 1_048_576).toFixed(1)} MB\`
         : b >= 1024
-          ? `${(b / 1024).toFixed(1)} KB`
-          : `${b} B`;
+          ? \`\${(b / 1024).toFixed(1)} KB\`
+          : \`\${b} B\`;
 
     this.logger.info(
       'Stats — {{routeCount}} routes, etag: {{etagItems}} items ({{etagSize}}), content: {{contentItems}} items ({{contentSize}}), stat: {{statItems}} items ({{statSize}})',
@@ -247,7 +269,7 @@ class StaticWebServerComponent extends BaseComponent {
     return {
       healthy: isHealthy,
       message: isHealthy
-        ? `Listening on port ${SSG_PORT}`
+        ? \`Listening on port \${PORT}\`
         : 'Server is not listening',
     };
   }
@@ -257,7 +279,7 @@ class StaticWebServerComponent extends BaseComponent {
 
 async function main() {
   const manager = new LifecycleManager({
-    name: 'ssg-serve-app',
+    name: '${managerName}',
     logger,
     // Attach signal handlers before startup so any signal queued during
     // startAllComponents() is handled correctly once the event loop resumes.
@@ -304,3 +326,40 @@ main().catch((error) => {
     exitCode: 1,
   });
 });
+`;
+}
+
+/**
+ * Emit the SSG template's `serve.ts` static file server entry point
+ * (create-if-missing).
+ *
+ * @param root - File root (filesystem path or in-memory object)
+ * @param projectPath - Relative path to the project directory (e.g. "src/apps/my-app")
+ * @param appName - The app/project name, folded into the LifecycleManager name,
+ *   build path, and port env var
+ * @param log - Optional logger function for output
+ * @throws {Error} If file creation fails
+ */
+export async function ensureSSGServe(
+  root: FileRoot,
+  projectPath: string,
+  appName: string,
+  log?: LoggerFunction,
+): Promise<void> {
+  const relPath = `${projectPath}/serve.ts`;
+
+  try {
+    const didWrite = await vfsWriteIfNotExists(
+      root,
+      relPath,
+      buildSSGServeSrc(appName),
+    );
+
+    if (didWrite && log) {
+      log('info', `Created ${relPath}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to ensure ${relPath}: ${errorMessage}`);
+  }
+}

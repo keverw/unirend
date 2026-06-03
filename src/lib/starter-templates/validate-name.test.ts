@@ -14,16 +14,6 @@ describe('validateName', () => {
       expect(validateName('foo-bar-baz')).toEqual({ valid: true });
     });
 
-    test('accepts names with underscores', () => {
-      expect(validateName('my_project')).toEqual({ valid: true });
-      expect(validateName('foo_bar_baz')).toEqual({ valid: true });
-    });
-
-    test('accepts names with dots', () => {
-      expect(validateName('my.project')).toEqual({ valid: true });
-      expect(validateName('foo.bar.baz')).toEqual({ valid: true });
-    });
-
     test('accepts names with numbers', () => {
       expect(validateName('project123')).toEqual({ valid: true });
       expect(validateName('app2')).toEqual({ valid: true });
@@ -31,8 +21,8 @@ describe('validateName', () => {
     });
 
     test('accepts mixed valid characters', () => {
-      expect(validateName('my-awesome_project.v2')).toEqual({ valid: true });
-      expect(validateName('app-v1.2.3')).toEqual({ valid: true });
+      expect(validateName('my-awesome-project-v2')).toEqual({ valid: true });
+      expect(validateName('app-v1-2-3')).toEqual({ valid: true });
     });
 
     test('accepts names up to 214 characters', () => {
@@ -89,24 +79,31 @@ describe('validateName', () => {
   });
 
   describe('starting character validation', () => {
+    test('rejects names starting with a number', () => {
+      expect(validateName('1app')).toEqual({
+        valid: false,
+        error: 'Name must start with a lowercase letter',
+      });
+    });
+
     test('rejects names starting with dot', () => {
       expect(validateName('.project')).toEqual({
         valid: false,
-        error: 'Name cannot start with a dot, underscore, or dash',
+        error: 'Name must start with a lowercase letter',
       });
     });
 
     test('rejects names starting with underscore', () => {
       expect(validateName('_project')).toEqual({
         valid: false,
-        error: 'Name cannot start with a dot, underscore, or dash',
+        error: 'Name must start with a lowercase letter',
       });
     });
 
     test('rejects names starting with dash', () => {
       expect(validateName('-project')).toEqual({
         valid: false,
-        error: 'Name cannot start with a dot, underscore, or dash',
+        error: 'Name must start with a lowercase letter',
       });
     });
   });
@@ -115,21 +112,23 @@ describe('validateName', () => {
     test('rejects names ending with dash', () => {
       expect(validateName('project-')).toEqual({
         valid: false,
-        error: 'Name cannot end with a dash, underscore, or dot',
+        error: 'Name cannot end with a dash',
       });
     });
 
     test('rejects names ending with underscore', () => {
       expect(validateName('project_')).toEqual({
         valid: false,
-        error: 'Name cannot end with a dash, underscore, or dot',
+        error:
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
     });
 
     test('rejects names ending with dot', () => {
       expect(validateName('project.')).toEqual({
         valid: false,
-        error: 'Name cannot end with a dash, underscore, or dot',
+        error:
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
     });
   });
@@ -139,19 +138,19 @@ describe('validateName', () => {
       // These fail the "cannot start with" check first
       expect(validateName('---')).toEqual({
         valid: false,
-        error: 'Name cannot start with a dot, underscore, or dash',
+        error: 'Name must start with a lowercase letter',
       });
       expect(validateName('___')).toEqual({
         valid: false,
-        error: 'Name cannot start with a dot, underscore, or dash',
+        error: 'Name must start with a lowercase letter',
       });
       expect(validateName('...')).toEqual({
         valid: false,
-        error: 'Name cannot start with a dot, underscore, or dash',
+        error: 'Name must start with a lowercase letter',
       });
       expect(validateName('-_.')).toEqual({
         valid: false,
-        error: 'Name cannot start with a dot, underscore, or dash',
+        error: 'Name must start with a lowercase letter',
       });
     });
 
@@ -159,11 +158,12 @@ describe('validateName', () => {
       // These start with valid char but end with special chars, so caught by "cannot end with" check
       expect(validateName('a---')).toEqual({
         valid: false,
-        error: 'Name cannot end with a dash, underscore, or dot',
+        error: 'Name cannot end with a dash',
       });
       expect(validateName('z___')).toEqual({
         valid: false,
-        error: 'Name cannot end with a dash, underscore, or dot',
+        error:
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
     });
   });
@@ -173,7 +173,7 @@ describe('validateName', () => {
       // This is caught by the "cannot start with" check first
       expect(validateName('-_-')).toEqual({
         valid: false,
-        error: 'Name cannot start with a dot, underscore, or dash',
+        error: 'Name must start with a lowercase letter',
       });
     });
 
@@ -182,7 +182,7 @@ describe('validateName', () => {
       // This demonstrates that the "must contain alphanumeric" check is redundant given the other checks
       expect(validateName('a-')).toEqual({
         valid: false,
-        error: 'Name cannot end with a dash, underscore, or dot',
+        error: 'Name cannot end with a dash',
       });
     });
   });
@@ -209,7 +209,7 @@ describe('validateName', () => {
       expect(validateName('my<project')).toEqual({
         valid: false,
         error:
-          'Name contains invalid characters. Only lowercase letters, numbers, hyphens, dots, and underscores are allowed',
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
     });
 
@@ -217,17 +217,30 @@ describe('validateName', () => {
       expect(validateName('my~project')).toEqual({
         valid: false,
         error:
-          'Name contains invalid characters. Only lowercase letters, numbers, hyphens, dots, and underscores are allowed',
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
       expect(validateName('project!')).toEqual({
         valid: false,
         error:
-          'Name contains invalid characters. Only lowercase letters, numbers, hyphens, dots, and underscores are allowed',
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
       expect(validateName('my@project')).toEqual({
         valid: false,
         error:
-          'Name contains invalid characters. Only lowercase letters, numbers, hyphens, dots, and underscores are allowed',
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
+      });
+    });
+
+    test('rejects dots and underscores', () => {
+      expect(validateName('my_project')).toEqual({
+        valid: false,
+        error:
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
+      });
+      expect(validateName('my.project')).toEqual({
+        valid: false,
+        error:
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
     });
 
@@ -235,91 +248,57 @@ describe('validateName', () => {
       expect(validateName('my<project')).toEqual({
         valid: false,
         error:
-          'Name contains invalid characters. Only lowercase letters, numbers, hyphens, dots, and underscores are allowed',
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
       expect(validateName('my>project')).toEqual({
         valid: false,
         error:
-          'Name contains invalid characters. Only lowercase letters, numbers, hyphens, dots, and underscores are allowed',
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
       expect(validateName('my:project')).toEqual({
         valid: false,
         error:
-          'Name contains invalid characters. Only lowercase letters, numbers, hyphens, dots, and underscores are allowed',
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
       expect(validateName('my"project')).toEqual({
         valid: false,
         error:
-          'Name contains invalid characters. Only lowercase letters, numbers, hyphens, dots, and underscores are allowed',
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
       expect(validateName('my|project')).toEqual({
         valid: false,
         error:
-          'Name contains invalid characters. Only lowercase letters, numbers, hyphens, dots, and underscores are allowed',
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
       expect(validateName('my?project')).toEqual({
         valid: false,
         error:
-          'Name contains invalid characters. Only lowercase letters, numbers, hyphens, dots, and underscores are allowed',
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
       expect(validateName('my*project')).toEqual({
         valid: false,
         error:
-          'Name contains invalid characters. Only lowercase letters, numbers, hyphens, dots, and underscores are allowed',
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
       expect(validateName('my\\project')).toEqual({
         valid: false,
         error:
-          'Name contains invalid characters. Only lowercase letters, numbers, hyphens, dots, and underscores are allowed',
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
       expect(validateName('my/project')).toEqual({
         valid: false,
         error:
-          'Name contains invalid characters. Only lowercase letters, numbers, hyphens, dots, and underscores are allowed',
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
     });
   });
 
-  describe('consecutive special characters', () => {
+  describe('consecutive hyphens', () => {
     test('rejects consecutive dashes', () => {
       expect(validateName('my--project')).toEqual({
         valid: false,
         error:
-          'Name cannot contain consecutive special characters (found "--"). Special characters must be surrounded by letters or numbers.',
-      });
-    });
-
-    test('rejects consecutive underscores', () => {
-      expect(validateName('my__project')).toEqual({
-        valid: false,
-        error:
-          'Name cannot contain consecutive special characters (found "__"). Special characters must be surrounded by letters or numbers.',
-      });
-    });
-
-    test('rejects consecutive dots', () => {
-      expect(validateName('my..project')).toEqual({
-        valid: false,
-        error:
-          'Name cannot contain consecutive special characters (found ".."). Special characters must be surrounded by letters or numbers.',
-      });
-    });
-
-    test('rejects mixed consecutive special characters', () => {
-      expect(validateName('my-.project')).toEqual({
-        valid: false,
-        error:
-          'Name cannot contain consecutive special characters (found "-."). Special characters must be surrounded by letters or numbers.',
-      });
-      expect(validateName('my._project')).toEqual({
-        valid: false,
-        error:
-          'Name cannot contain consecutive special characters (found "._"). Special characters must be surrounded by letters or numbers.',
-      });
-      expect(validateName('my_-project')).toEqual({
-        valid: false,
-        error:
-          'Name cannot contain consecutive special characters (found "_-"). Special characters must be surrounded by letters or numbers.',
+          'Name cannot contain consecutive hyphens. Hyphens must be surrounded by letters or numbers.',
       });
     });
   });
@@ -357,12 +336,12 @@ describe('validateName', () => {
       expect(validateName('node_modules')).toEqual({
         valid: false,
         error:
-          'Name "node_modules" is reserved (Node.js core module, npm reserved name, or system reserved name)',
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
       expect(validateName('favicon.ico')).toEqual({
         valid: false,
         error:
-          'Name "favicon.ico" is reserved (Node.js core module, npm reserved name, or system reserved name)',
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
     });
 
@@ -402,11 +381,11 @@ describe('validateName', () => {
     test('rejects relative path references', () => {
       expect(validateName('.')).toEqual({
         valid: false,
-        error: 'Name cannot start with a dot, underscore, or dash',
+        error: 'Name must start with a lowercase letter',
       });
       expect(validateName('..')).toEqual({
         valid: false,
-        error: 'Name cannot start with a dot, underscore, or dash',
+        error: 'Name must start with a lowercase letter',
       });
     });
 
@@ -442,15 +421,15 @@ describe('validateName', () => {
       expect(validateName('my_project!')).toEqual({
         valid: false,
         error:
-          'Name contains invalid characters. Only lowercase letters, numbers, hyphens, dots, and underscores are allowed',
+          'Name contains invalid characters. Only lowercase letters, numbers, and hyphens are allowed',
       });
       expect(validateName('-myproject')).toEqual({
         valid: false,
-        error: 'Name cannot start with a dot, underscore, or dash',
+        error: 'Name must start with a lowercase letter',
       });
       expect(validateName('myproject-')).toEqual({
         valid: false,
-        error: 'Name cannot end with a dash, underscore, or dot',
+        error: 'Name cannot end with a dash',
       });
     });
   });

@@ -127,6 +127,61 @@ Already absorbed into the SSG-specific path (`templates-specific/ssg/`):
   `matchMedia` OS tracking, `BroadcastChannel` cross-tab sync, and
   `visibilitychange` cookie re-read). SSG-only: the SSR equivalent is the
   `get500ErrorPage` callback in `ssr-component.ts`.
+- `src/apps/ssg/Routes.tsx` → `templates-specific/ssg/ssg-routes.ts`
+  (`ensureSSGRoutes`). SSG-specific: uses static loaders from
+  `./loaders/error-demo-loaders` for the error-demo test routes, includes a
+  `Dashboard` route and a static `404` route (generated as a normal SSG page so
+  it shares the app chrome), and leaves the wildcard `*` route commented out.
+  No `API_BASE_URL` block or `createPageDataLoader` wiring. Fully static — no
+  per-project substitutions needed.
+
+Already absorbed into the SSG-specific path (`templates-specific/ssg/`), continued:
+
+- `src/apps/ssg/serve.ts` → `templates-specific/ssg/ssg-serve.ts`
+  (`ensureSSGServe`). The static file server entry point — boots a
+  `StaticWebServer` under a Lifecycleion `LifecycleManager` and handles
+  signals/graceful shutdown. Three per-project substitutions: the
+  `LifecycleManager` name (`${appName}-ssg-serve`), the build directory
+  (`build/${appName}/client`), and the port env var
+  (`${UPPER_APP_NAME}_PORT` — used for both the JS const name and the
+  `process.env` lookup). The component keeps its generic `static-web-server`
+  name per the lifecycle naming rule.
+
+Already absorbed into the SSR-specific path (`templates-specific/ssr/`):
+
+- `src/apps/ssr/Routes.tsx` → `templates-specific/ssr/ssr-routes.ts`
+  (`ensureSSRRoutes`). SSR-specific: wires every route through
+  `createPageDataLoader` so page data is fetched from the API (short-circuiting
+  to the registered handler when co-located). Includes the `API_BASE_URL` block
+  (`window.__PUBLIC_APP_CONFIG__` on client, `INTERNAL_API_ENDPOINT` on server)
+  and `pageDataLoaderConfig`. The wildcard `*` route is active with a
+  `not-found` loader. No `Dashboard`/`404` SSG routes or `error-demo-loaders`
+  import. Fully static — no per-project substitutions needed.
+- `src/apps/ssr/serve-built.ts` → `templates-specific/ssr/ssr-serve-built.ts`
+  (`ensureSSRServeBuilt`). Thin entry point — delegates to `server/start.ts`
+  with `startApp('built')`. Fully static; no per-project substitutions.
+- `src/apps/ssr/serve-hmr.ts` → `templates-specific/ssr/ssr-serve-hmr.ts`
+  (`ensureSSRServeHMR`). Thin entry point — delegates to `server/start.ts`
+  with `startApp('hmr')`. Fully static; no per-project substitutions.
+
+Intentionally deferred from the SSR-specific path:
+
+- `src/apps/ssr/server/start.ts` — the app factory used by both `serve-built.ts`
+  and `serve-hmr.ts`. Only per-project substitution is the `LifecycleManager`
+  name (`${appName}-ssr-server`). Held off pending a decision on 500 error page
+  handling in `ssr-component.ts` — port once that design is settled so both
+  files can be absorbed together. Reference `templates-specific/api/api-serve.ts`
+  (`ensureAPIServe`) and `templates-specific/ssg/ssg-serve.ts` (`ensureSSGServe`)
+  for the LifecycleManager wiring pattern.
+- `src/apps/ssr/server/ssr-component.ts` — the SSR server component. When
+  porting, substitute `SSR_PORT`, `SSR_SRC_DIR`, and `SSR_DIST_DIR` with
+  app-name-derived equivalents (e.g. `MY_APP_PORT`, `MY_APP_SRC_DIR`,
+  `MY_APP_DIST_DIR`) using `buildAppEnvVarName`, matching the app-scoped env
+  vars in `api-component.ts` and `ssg-serve.ts`. Reference
+  `templates-specific/api/api-component.ts` (`ensureAPIComponent`) for the
+  server component pattern and `buildAppEnvVarName` for app-scoped env vars.
+  Do not edit the raw file — the generator's output should be diffed against
+  this reference as-is.
 
 Project-specific files (entry points, routes, build configuration, server
 scripts, generated build info) vary by template type and must be emitted by

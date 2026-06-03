@@ -2,6 +2,15 @@ import { vfsListDir } from './vfs';
 import type { FileRoot } from './vfs';
 
 /**
+ * Derive an app-scoped environment variable name from a project name and suffix.
+ * Project names are validated as kebab-case, so hyphens map to env-var
+ * underscores.
+ */
+export function buildAppEnvVarName(appName: string, suffix: string): string {
+  return `${appName.toUpperCase().replace(/-/g, '_')}_${suffix}`;
+}
+
+/**
  * Check if a directory is empty or "empty-ish" (safe to initialize as a new unirend repo).
  *
  * A directory is considered empty-ish if it:
