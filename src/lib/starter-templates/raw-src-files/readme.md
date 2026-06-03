@@ -60,10 +60,15 @@ from the SSG and SSR branches of `createProjectSpecificFiles`:
   Static and identical across SSG/SSR; extends the repo-root config and adds the
   Tailwind plugin. API ships none — no Tailwind/CSS surface, so it uses the
   repo-root config.
-- `index.html` → `app-index-html.ts` (`ensureAppIndexHtml`). The two raw copies
+- `index.html` → `app-index-html.ts` (`ensureAppIndexHTML`). The two raw copies
   differed only in the `<title>`, which was a hardcoded "Unirend SSG/SSR
   Template" placeholder; the generator interpolates a real `title` (the project
   name) instead. Everything else is verbatim.
+- `consts.ts` → `app-consts.ts` (`ensureAppConsts`). The exported
+  `ENABLE_TEST_ROUTES` flag is identical; only the header comment differs per
+  template (it names the scripts that toggle the error-demo routes), so the
+  helper switches on `templateID` and injects the app-prefixed script names.
+  API ships none — it has no error-demo routes.
 
 Project-specific files (entry points, routes, build configuration, server
 scripts, generated build info) vary by template type and must be emitted by

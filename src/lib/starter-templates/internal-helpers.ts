@@ -32,6 +32,7 @@ import { ensureViteConfig } from './templates-shared/vite-config';
 import { ensureAppTsConfig } from './templates-shared/app-tsconfig';
 import { ensureAppPrettierConfig } from './templates-shared/app-prettier-config';
 import { ensureAppIndexHTML } from './templates-shared/app-index-html';
+import { ensureAppConsts } from './templates-shared/app-consts';
 
 export function createRepoConfigObject(name: string): RepoConfig {
   return {
@@ -316,9 +317,8 @@ export async function createProjectSpecificFiles(
   if (templateID === 'ssg') {
     // TODO: emit SSG files — EntryClient.tsx, EntrySSG.tsx, Routes.tsx,
     // generate-ssg.ts, components/, pages/, public/,
-    // index.css,
-    // consts.ts. See raw-src-files/src/apps/ssg/** for
-    // the reference source.
+    // index.css.
+    // See raw-src-files/src/apps/ssg/** for the reference source.
 
     // Shared across all Vite-based templates (SSG, SSR).
     await ensureViteEnv(root, projectPath, log);
@@ -326,13 +326,14 @@ export async function createProjectSpecificFiles(
     await ensureAppTsConfig(root, projectPath, log);
     await ensureAppPrettierConfig(root, projectPath, log);
     await ensureAppIndexHTML(root, projectPath, projectName, log);
+    await ensureAppConsts(root, projectPath, 'ssg', projectName, log);
   } else if (templateID === 'ssr') {
     // TODO: emit SSR files — EntryClient.tsx, EntrySSR.tsx, Routes.tsx,
     // serve-built.ts, serve-hmr.ts, server/start.ts,
     // server/ssr-component.ts, server/plugins/**, current-build-info.ts,
     // components/, pages/, public/,
-    // index.css,
-    // consts.ts. See raw-src-files/src/apps/ssr/** for reference source.
+    // index.css.
+    // See raw-src-files/src/apps/ssr/** for reference source.
     // `serverBuildTarget` affects the build scripts and runner choice —
     // see the SSR branch of `getTemplateConfig` above for what it
     // controls in practice.
@@ -343,6 +344,7 @@ export async function createProjectSpecificFiles(
     await ensureAppTsConfig(root, projectPath, log);
     await ensureAppPrettierConfig(root, projectPath, log);
     await ensureAppIndexHTML(root, projectPath, projectName, log);
+    await ensureAppConsts(root, projectPath, 'ssr', projectName, log);
   } else if (templateID === 'api') {
     // TODO: emit API files — api-component.ts, serve.ts,
     // current-build-info.ts. See raw-src-files/src/apps/api/** for the
