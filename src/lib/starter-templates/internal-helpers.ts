@@ -45,6 +45,9 @@ import { ensureAPIServe } from './templates-specific/api/api-serve';
 import { ensureSSG500HTML } from './templates-specific/ssg/ssg-500-html';
 import { ensureSSGRoutes } from './templates-specific/ssg/ssg-routes';
 import { ensureSSGServe } from './templates-specific/ssg/ssg-serve';
+import { ensureAppLayout } from './templates-shared/react-components/app-layout';
+import { ensureAppApplicationError } from './templates-shared/react-components/application-error';
+import { ensureAppGenericError } from './templates-shared/react-components/generic-error';
 import { ensureSSRRoutes } from './templates-specific/ssr/ssr-routes';
 import { ensureSSRServeBuilt } from './templates-specific/ssr/ssr-serve-built';
 import { ensureSSRServeHMR } from './templates-specific/ssr/ssr-serve-hmr';
@@ -419,6 +422,11 @@ export async function createProjectSpecificFiles(
     await ensureAppPublicFavicon(root, projectPath, log);
     await ensureAppPublicFaviconICO(root, projectPath, log);
 
+    // Shared component files (SSG, SSR).
+    await ensureAppLayout(root, projectPath, log);
+    await ensureAppApplicationError(root, projectPath, log);
+    await ensureAppGenericError(root, projectPath, log);
+
     // SSG-specific files.
     await ensureSSGRoutes(root, projectPath, log);
     await ensureSSGServe(root, projectPath, projectName, log);
@@ -447,6 +455,11 @@ export async function createProjectSpecificFiles(
     await ensureAppPublicRobots(root, projectPath, log);
     await ensureAppPublicFavicon(root, projectPath, log);
     await ensureAppPublicFaviconICO(root, projectPath, log);
+
+    // Shared component files (SSG, SSR).
+    await ensureAppLayout(root, projectPath, log);
+    await ensureAppApplicationError(root, projectPath, log);
+    await ensureAppGenericError(root, projectPath, log);
 
     // SSR-specific files.
     await ensureSSRRoutes(root, projectPath, log);

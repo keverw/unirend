@@ -17,6 +17,52 @@ This README documents:
 2. Non-obvious runtime and build behavior that the generator must preserve or
    adapt when emitting code for a new project.
 
+## Remaining raw app files snapshot
+
+Snapshot taken June 3, 2026 at 4 PM MDT.
+
+There are **30 raw app files** left to port under `src/apps/`:
+
+- SSG: 15 files
+- SSR: 15 files
+- API: 0 files
+
+Remaining SSG files:
+
+- `src/apps/ssg/components/Footer.tsx`
+- `src/apps/ssg/components/Header.tsx`
+- `src/apps/ssg/components/error-pages/NotFound.tsx`
+- `src/apps/ssg/components/theme/ThemeProvider.tsx`
+- `src/apps/ssg/components/theme/ThemeToggle.tsx`
+- `src/apps/ssg/components/theme/context.ts`
+- `src/apps/ssg/generate-ssg.ts`
+- `src/apps/ssg/loaders/error-demo-loaders.ts`
+- `src/apps/ssg/pages/About.tsx`
+- `src/apps/ssg/pages/Dashboard.tsx`
+- `src/apps/ssg/pages/Home.tsx`
+- `src/apps/ssg/pages/SimulateComponentError.tsx`
+- `src/apps/ssg/pages/SimulateDataloader500.tsx`
+- `src/apps/ssg/pages/SimulateDataloader503.tsx`
+- `src/apps/ssg/pages/SimulateDataloaderError.tsx`
+
+Remaining SSR files:
+
+- `src/apps/ssr/components/Footer.tsx`
+- `src/apps/ssr/components/Header.tsx`
+- `src/apps/ssr/components/error-pages/NotFound.tsx`
+- `src/apps/ssr/components/theme/ThemeProvider.tsx`
+- `src/apps/ssr/components/theme/ThemeToggle.tsx`
+- `src/apps/ssr/components/theme/context.ts`
+- `src/apps/ssr/pages/About.tsx`
+- `src/apps/ssr/pages/Home.tsx`
+- `src/apps/ssr/pages/SimulateComponentError.tsx`
+- `src/apps/ssr/pages/SimulateDataloader500.tsx`
+- `src/apps/ssr/pages/SimulateDataloader503.tsx`
+- `src/apps/ssr/pages/SimulateDataloaderError.tsx`
+- `src/apps/ssr/server/plugins/theme.ts`
+- `src/apps/ssr/server/ssr-component.ts`
+- `src/apps/ssr/server/start.ts`
+
 ## `createProjectSpecificFiles` — implementation plan
 
 `createProjectSpecificFiles` is the function that writes template-specific
@@ -159,6 +205,29 @@ Already absorbed into the SSG-specific path (`templates-specific/ssg/`), continu
   (`${UPPER_APP_NAME}_PORT` — used for both the JS const name and the
   `process.env` lookup). The component keeps its generic `static-web-server`
   name per the lifecycle naming rule.
+
+Already absorbed into the shared scaffold path (`templates-shared/`), continued:
+
+- `src/apps/ssg/components/AppLayout.tsx` / `src/apps/ssr/components/AppLayout.tsx` →
+  `templates-shared/react-components/app-layout.ts` (`ensureAppLayout`). The two
+  raw copies were byte-identical, so it's static and shared — handles both thrown
+  router errors (via `RouteErrorBoundary`) and page-data loader error envelopes,
+  delegating to `NotFound` or `GenericError` as appropriate. Scrolls to top on
+  route change. API ships none — it has no client-side layout.
+- `src/apps/ssg/components/error-pages/ApplicationError.tsx` /
+  `src/apps/ssr/components/error-pages/ApplicationError.tsx` →
+  `templates-shared/react-components/application-error.ts`
+  (`ensureAppApplicationError`). The two raw copies were byte-identical, so it's
+  static and shared — standalone (not wrapped in AppLayout) to avoid cascading
+  failures if the layout itself throws; shows a dev-only error details panel.
+  API ships none — it has no client-side rendering.
+- `src/apps/ssg/components/error-pages/GenericError.tsx` /
+  `src/apps/ssr/components/error-pages/GenericError.tsx` →
+  `templates-shared/react-components/generic-error.ts`
+  (`ensureAppGenericError`). The two raw copies were byte-identical, so it's
+  static and shared — rendered by AppLayout when a page-data loader returns a
+  non-404 error envelope; shows error code, message, and a dev-only stack
+  trace. API ships none — it has no client-side rendering.
 
 Already absorbed into the SSR-specific path (`templates-specific/ssr/`):
 

@@ -1,4 +1,22 @@
-import { useEffect } from 'react';
+import { vfsWriteIfNotExists } from '../../vfs';
+import type { FileRoot } from '../../vfs';
+import type { LoggerFunction } from '../../types';
+
+/**
+ * Source for a Vite app's `components/error-pages/ApplicationError.tsx`.
+ *
+ * Static and byte-identical across the Vite-based templates (SSG, SSR), so it
+ * lives in `templates-shared/react-components/`. Client-side only — caught by
+ * the `RouteErrorBoundary` in the browser (during or after hydration). On SSR,
+ * the server-side equivalent is `get500ErrorPage` (raw HTML returned outside
+ * the React pipeline) if configured, otherwise the framework's built-in
+ * default. On SSG, a component throw fails generation outright
+ * (`render-error` result — file never written). Standalone (not wrapped in
+ * AppLayout) to avoid cascading failures if the layout itself throws; shows a
+ * dev-only error details panel. The API template doesn't ship one — it has no
+ * client-side rendering.
+ */
+const fileSrc = `import { useEffect } from 'react';
 import { UnirendHead, useIsDevelopment } from 'unirend/client';
 
 interface ApplicationErrorProps {
@@ -77,4 +95,34 @@ export function ApplicationError({ error }: ApplicationErrorProps) {
       </div>
     </>
   );
+}
+`;
+
+/**
+ * Ensure a Vite app's `components/error-pages/ApplicationError.tsx` exists at
+ * `${projectPath}/components/error-pages/ApplicationError.tsx`.
+ * Only creates the file if it doesn't exist - never overwrites.
+ *
+ * @param root - File root (filesystem path or in-memory object)
+ * @param projectPath - Relative path to the project directory (e.g. "src/apps/my-app")
+ * @param log - Optional logger function for output
+ * @throws {Error} If file creation fails
+ */
+export async function ensureAppApplicationError(
+  root: FileRoot,
+  projectPath: string,
+  log?: LoggerFunction,
+): Promise<void> {
+  const relPath = `${projectPath}/components/error-pages/ApplicationError.tsx`;
+
+  try {
+    const didWrite = await vfsWriteIfNotExists(root, relPath, fileSrc);
+
+    if (didWrite && log) {
+      log('info', `Created ${relPath}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to ensure ${relPath}: ${errorMessage}`);
+  }
 }
