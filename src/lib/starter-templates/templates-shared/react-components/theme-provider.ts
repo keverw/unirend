@@ -1,4 +1,19 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { vfsWriteIfNotExists } from '../../vfs';
+import type { FileRoot } from '../../vfs';
+import type { LoggerFunction } from '../../types';
+
+/**
+ * Source for a Vite app's `components/theme/ThemeProvider.tsx`.
+ *
+ * Static and byte-identical across the Vite-based templates (SSG, SSR), so it
+ * lives in `templates-shared/react-components/`. Wraps the app tree and
+ * manages theme state: seeds preference from request context (SSR middleware /
+ * SSG build-time), syncs with the cookie on mount, tracks OS-level dark/light
+ * changes via `matchMedia`, toggles the `dark` class on `<html>`, cycles the
+ * preference cookie on demand, and cross-tab syncs via `BroadcastChannel`.
+ * The API template doesn't ship one — it has no client-side rendering.
+ */
+const fileSrc = `import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRequestContextValue, useDomainInfo } from 'unirend/client';
 import {
   ThemeContext,
@@ -38,7 +53,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // the most up-to-date source — SSG bakes the context at build time, and even SSR reads
   // it at request time so a change in another tab mid-request can leave them out of sync.
   useEffect(() => {
-    const match = document.cookie.match(/(?:^|;\s*)themePreference=([^;]+)/);
+    const match = document.cookie.match(/(?:^|;\\s*)themePreference=([^;]+)/);
     const val = match?.[1] as ThemePreference | undefined;
     const valid: ThemePreference[] = ['light', 'dark', 'auto'];
 
@@ -75,10 +90,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       CYCLE[(CYCLE.indexOf(preference ?? 'auto') + 1) % CYCLE.length];
 
     document.cookie = [
-      `themePreference=${next}`,
+      \`themePreference=\${next}\`,
       'path=/',
-      `max-age=${60 * 60 * 24 * 365}`,
-      domainInfo?.rootDomain ? `domain=.${domainInfo.rootDomain}` : null,
+      \`max-age=\${60 * 60 * 24 * 365}\`,
+      domainInfo?.rootDomain ? \`domain=.\${domainInfo.rootDomain}\` : null,
     ]
       .filter(Boolean)
       .join('; ');
@@ -120,7 +135,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const match = document.cookie.match(/(?:^|;\s*)themePreference=([^;]+)/);
+      const match = document.cookie.match(/(?:^|;\\s*)themePreference=([^;]+)/);
       const val = match?.[1] as ThemePreference | undefined;
       const valid: ThemePreference[] = ['light', 'dark', 'auto'];
 
@@ -147,4 +162,34 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       {children}
     </ThemeContext.Provider>
   );
+}
+`;
+
+/**
+ * Ensure a Vite app's `components/theme/ThemeProvider.tsx` exists at
+ * `${projectPath}/components/theme/ThemeProvider.tsx`.
+ * Only creates the file if it doesn't exist - never overwrites.
+ *
+ * @param root - File root (filesystem path or in-memory object)
+ * @param projectPath - Relative path to the project directory (e.g. "src/apps/my-app")
+ * @param log - Optional logger function for output
+ * @throws {Error} If file creation fails
+ */
+export async function ensureAppThemeProvider(
+  root: FileRoot,
+  projectPath: string,
+  log?: LoggerFunction,
+): Promise<void> {
+  const relPath = `${projectPath}/components/theme/ThemeProvider.tsx`;
+
+  try {
+    const didWrite = await vfsWriteIfNotExists(root, relPath, fileSrc);
+
+    if (didWrite && log) {
+      log('info', `Created ${relPath}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to ensure ${relPath}: ${errorMessage}`);
+  }
 }

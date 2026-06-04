@@ -45,12 +45,19 @@ import { ensureAPIServe } from './templates-specific/api/api-serve';
 import { ensureSSG500HTML } from './templates-specific/ssg/ssg-500-html';
 import { ensureSSGRoutes } from './templates-specific/ssg/ssg-routes';
 import { ensureSSGServe } from './templates-specific/ssg/ssg-serve';
+import { ensureSSGFooter } from './templates-specific/ssg/ssg-footer';
 import { ensureAppLayout } from './templates-shared/react-components/app-layout';
 import { ensureAppApplicationError } from './templates-shared/react-components/application-error';
 import { ensureAppGenericError } from './templates-shared/react-components/generic-error';
+import { ensureAppNotFound } from './templates-shared/react-components/not-found';
+import { ensureAppThemeContext } from './templates-shared/react-components/theme-context';
+import { ensureAppThemeProvider } from './templates-shared/react-components/theme-provider';
+import { ensureAppThemeToggle } from './templates-shared/react-components/theme-toggle';
+import { ensureAppHeader } from './templates-shared/react-components/header';
 import { ensureSSRRoutes } from './templates-specific/ssr/ssr-routes';
 import { ensureSSRServeBuilt } from './templates-specific/ssr/ssr-serve-built';
 import { ensureSSRServeHMR } from './templates-specific/ssr/ssr-serve-hmr';
+import { ensureSSRFooter } from './templates-specific/ssr/ssr-footer';
 
 export function createRepoConfigObject(name: string): RepoConfig {
   return {
@@ -426,8 +433,14 @@ export async function createProjectSpecificFiles(
     await ensureAppLayout(root, projectPath, log);
     await ensureAppApplicationError(root, projectPath, log);
     await ensureAppGenericError(root, projectPath, log);
+    await ensureAppNotFound(root, projectPath, log);
+    await ensureAppThemeContext(root, projectPath, log);
+    await ensureAppThemeProvider(root, projectPath, log);
+    await ensureAppThemeToggle(root, projectPath, log);
+    await ensureAppHeader(root, projectPath, 'ssg', log);
 
     // SSG-specific files.
+    await ensureSSGFooter(root, projectPath, log);
     await ensureSSGRoutes(root, projectPath, log);
     await ensureSSGServe(root, projectPath, projectName, log);
     await ensureSSG500HTML(root, projectPath, log);
@@ -460,8 +473,14 @@ export async function createProjectSpecificFiles(
     await ensureAppLayout(root, projectPath, log);
     await ensureAppApplicationError(root, projectPath, log);
     await ensureAppGenericError(root, projectPath, log);
+    await ensureAppNotFound(root, projectPath, log);
+    await ensureAppThemeContext(root, projectPath, log);
+    await ensureAppThemeProvider(root, projectPath, log);
+    await ensureAppThemeToggle(root, projectPath, log);
+    await ensureAppHeader(root, projectPath, 'ssr', log);
 
     // SSR-specific files.
+    await ensureSSRFooter(root, projectPath, log);
     await ensureSSRRoutes(root, projectPath, log);
     await ensureSSRServeBuilt(root, projectPath, log);
     await ensureSSRServeHMR(root, projectPath, log);

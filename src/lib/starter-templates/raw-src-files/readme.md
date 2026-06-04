@@ -21,20 +21,14 @@ This README documents:
 
 Snapshot taken June 3, 2026 at 4 PM MDT.
 
-There are **30 raw app files** left to port under `src/apps/`:
+There are **18 raw app files** left to port under `src/apps/`:
 
-- SSG: 15 files
-- SSR: 15 files
+- SSG: 9 files
+- SSR: 9 files
 - API: 0 files
 
 Remaining SSG files:
 
-- `src/apps/ssg/components/Footer.tsx`
-- `src/apps/ssg/components/Header.tsx`
-- `src/apps/ssg/components/error-pages/NotFound.tsx`
-- `src/apps/ssg/components/theme/ThemeProvider.tsx`
-- `src/apps/ssg/components/theme/ThemeToggle.tsx`
-- `src/apps/ssg/components/theme/context.ts`
 - `src/apps/ssg/generate-ssg.ts`
 - `src/apps/ssg/loaders/error-demo-loaders.ts`
 - `src/apps/ssg/pages/About.tsx`
@@ -47,12 +41,6 @@ Remaining SSG files:
 
 Remaining SSR files:
 
-- `src/apps/ssr/components/Footer.tsx`
-- `src/apps/ssr/components/Header.tsx`
-- `src/apps/ssr/components/error-pages/NotFound.tsx`
-- `src/apps/ssr/components/theme/ThemeProvider.tsx`
-- `src/apps/ssr/components/theme/ThemeToggle.tsx`
-- `src/apps/ssr/components/theme/context.ts`
 - `src/apps/ssr/pages/About.tsx`
 - `src/apps/ssr/pages/Home.tsx`
 - `src/apps/ssr/pages/SimulateComponentError.tsx`
@@ -228,6 +216,56 @@ Already absorbed into the shared scaffold path (`templates-shared/`), continued:
   static and shared — rendered by AppLayout when a page-data loader returns a
   non-404 error envelope; shows error code, message, and a dev-only stack
   trace. API ships none — it has no client-side rendering.
+- `src/apps/ssg/components/error-pages/NotFound.tsx` /
+  `src/apps/ssr/components/error-pages/NotFound.tsx` →
+  `templates-shared/react-components/not-found.ts`
+  (`ensureAppNotFound`). The two raw copies were byte-identical, so it's
+  static and shared — rendered by AppLayout when the router signals a 404;
+  accepts both `error` (for thrown router errors) and `data` (for loader error
+  envelopes) props but only uses `data` to populate the page. API ships none —
+  it has no client-side rendering.
+- `src/apps/ssg/components/theme/context.ts` /
+  `src/apps/ssr/components/theme/context.ts` →
+  `templates-shared/react-components/theme-context.ts`
+  (`ensureAppThemeContext`). The two raw copies were byte-identical, so it's
+  static and shared — defines `ThemePreference`, `ResolvedTheme`,
+  `ThemeContextValue`, `ThemeContext`, and the `useTheme` hook. Consumed by
+  `ThemeProvider` (writes to the context) and any component that reads the
+  current theme. API ships none — it has no client-side rendering.
+- `src/apps/ssg/components/theme/ThemeProvider.tsx` /
+  `src/apps/ssr/components/theme/ThemeProvider.tsx` →
+  `templates-shared/react-components/theme-provider.ts`
+  (`ensureAppThemeProvider`). The two raw copies were byte-identical, so it's
+  static and shared. Seeds preference from request context, syncs with the
+  cookie on mount, tracks OS dark/light changes via `matchMedia`, toggles the
+  `dark` class on `<html>`, cycles the preference cookie, and cross-tab syncs
+  via `BroadcastChannel`. Requires template-literal escaping: `\s` in two
+  regex patterns and `${...}` in three cookie-string template literals. API
+  ships none — it has no client-side rendering.
+- `src/apps/ssg/components/theme/ThemeToggle.tsx` /
+  `src/apps/ssr/components/theme/ThemeToggle.tsx` →
+  `templates-shared/react-components/theme-toggle.ts`
+  (`ensureAppThemeToggle`). The two raw copies were byte-identical, so it's
+  static and shared — renders a button that cycles through `auto` → `dark` →
+  `light` by calling `cycleTheme` from `useTheme`. API ships none — it has no
+  client-side rendering.
+- `src/apps/ssg/components/Header.tsx` /
+  `src/apps/ssr/components/Header.tsx` →
+  `templates-shared/react-components/header.ts`
+  (`ensureAppHeader`). Two differences: the title text ("SSG Starter" /
+  "SSR Starter") and the Dashboard nav link (SSG only). Uses a
+  `buildHeaderSrc(templateID)` builder with an `if`/`else if`/exhaustive-check
+  pattern (same as `app-consts.ts`). Requires template-literal escaping for
+  the `navClass` arrow function's backtick template literal and its
+  `${isActive ? ...}` interpolation.
+
+Already absorbed into the SSG-specific path (`templates-specific/ssg/`), continued:
+
+- `src/apps/ssg/components/Footer.tsx` →
+  `templates-specific/ssg/ssg-footer.ts` (`ensureSSGFooter`). Static footer
+  with Home, About, and Dashboard links. No dynamic data — title is a plain
+  string and there is no current-year logic (contrast with the SSR footer,
+  which reads `currentYear` from `usePublicAppConfig` seeded server-side).
 
 Already absorbed into the SSR-specific path (`templates-specific/ssr/`):
 
@@ -245,6 +283,11 @@ Already absorbed into the SSR-specific path (`templates-specific/ssr/`):
 - `src/apps/ssr/serve-hmr.ts` → `templates-specific/ssr/ssr-serve-hmr.ts`
   (`ensureSSRServeHMR`). Thin entry point — delegates to `server/start.ts`
   with `startApp('hmr')`. Fully static; no per-project substitutions.
+- `src/apps/ssr/components/Footer.tsx` →
+  `templates-specific/ssr/ssr-footer.ts` (`ensureSSRFooter`). Reads
+  `currentYear` from `usePublicAppConfig` (seeded server-side at startup,
+  updated at midnight) to avoid a server/client year-rollover mismatch. Home
+  and About links only — no Dashboard link (contrast with the SSG footer).
 
 Intentionally deferred from the SSR-specific path:
 
