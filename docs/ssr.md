@@ -1466,7 +1466,44 @@ A single `SSRServer` instance can serve **multiple distinct React applications**
 
 ### Monorepo Structure Tip
 
-A common pattern is to give each app its own source folder with its `EntrySSR`, `EntryClient`, components, assets, and Vite config, with `serve.ts` living alongside the default app's source. Build `serve.ts` to `build/serve/` and each app into its own sub-folder within `build/`, then register the additional apps via `registerBuiltApp()` (or `registerHMRApp()` for dev).
+We recommend moving the default app's source into its own subfolder so it stays separate from the shared server code (plugins, start script, etc.) that lives at the root. Build output follows the same convention as the rest of the templates — everything goes under `build/<app-name>/` at the repo root (already gitignored), with per-app subfolders inside it. A clean layout looks like this:
+
+```
+src/apps/my-app/
+  app-a/               ← default app source (EntrySSR, EntryClient, Routes, components, vite.config.ts)
+  app-b/               ← second app source
+  server/              ← shared server code (plugins, ssr-component.ts, start.ts)
+  serve-built.ts
+  serve-hmr.ts
+
+build/my-app/          ← gitignored at repo root (same convention as SSG/SSR templates)
+  serve/               ← compiled serve-built.js
+  app-a/client/
+  app-a/server/
+  app-b/client/
+  app-b/server/
+```
+
+Build scripts chain each app's client and server builds back to back. The serve entry at the root registers additional apps via `registerBuiltApp()` / `registerHMRApp()`, pointing each app at its own build folder under the shared `build/` directory:
+
+```json
+{
+  "my-app:build:app-a:client": "cd src/apps/my-app/app-a && vite build --outDir ../../../../build/my-app/app-a/client --base=/ --ssrManifest",
+  "my-app:build:app-a:server": "cd src/apps/my-app/app-a && vite build --outDir ../../../../build/my-app/app-a/server --ssr EntrySSR.tsx",
+  "my-app:build:app-b:client": "cd src/apps/my-app/app-b && vite build --outDir ../../../../build/my-app/app-b/client --base=/ --ssrManifest",
+  "my-app:build:app-b:server": "cd src/apps/my-app/app-b && vite build --outDir ../../../../build/my-app/app-b/server --ssr EntrySSR.tsx",
+  "my-app:build:serve": "cd src/apps/my-app && bun build serve-built.ts --outdir ../../../build/my-app/serve --target=node --external vite --define 'IS_BUILT=true'",
+  "my-app:build": "bun run my-app:build:app-a:client && bun run my-app:build:app-a:server && bun run my-app:build:app-b:client && bun run my-app:build:app-b:server && bun run my-app:build:serve",
+  "my-app:serve:built:dev": "node build/my-app/serve/serve-built.js dev",
+  "my-app:serve:built:prod": "node build/my-app/serve/serve-built.js prod"
+}
+```
+
+Keep the SSR starter template's serve build and run scripts in place alongside the per-app bundle scripts.
+
+If you started from the SSR starter template (which puts source at the folder root), moving the default app into a subfolder is a manual step — update the Vite config paths and serve entry accordingly. The framework has no opinion on folder layout.
+
+**If you use the build info option:** add an entry to `build-info.config.json` for each new app's `current-build-info.ts` output path, and add those paths to `.gitignore` and `.prettierignore` so the generated files are excluded.
 
 ### Usage Example
 
