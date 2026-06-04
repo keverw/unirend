@@ -47,6 +47,8 @@ import { ensureSSGRoutes } from './templates-specific/ssg/ssg-routes';
 import { ensureSSGServe } from './templates-specific/ssg/ssg-serve';
 import { ensureSSGFooter } from './templates-specific/ssg/ssg-footer';
 import { ensureSSGHome } from './templates-specific/ssg/ssg-home';
+import { ensureSSGAbout } from './templates-specific/ssg/ssg-about';
+import { ensureSSGDashboard } from './templates-specific/ssg/ssg-dashboard';
 import { ensureSSGErrorDemoLoaders } from './templates-specific/ssg/ssg-error-demo-loaders';
 import { ensureAppLayout } from './templates-shared/react-components/app-layout';
 import { ensureAppApplicationError } from './templates-shared/react-components/application-error';
@@ -61,6 +63,7 @@ import { ensureSSRServeBuilt } from './templates-specific/ssr/ssr-serve-built';
 import { ensureSSRServeHMR } from './templates-specific/ssr/ssr-serve-hmr';
 import { ensureSSRFooter } from './templates-specific/ssr/ssr-footer';
 import { ensureSSRHome } from './templates-specific/ssr/ssr-home';
+import { ensureSSRAbout } from './templates-specific/ssr/ssr-about';
 
 export function createRepoConfigObject(name: string): RepoConfig {
   return {
@@ -444,6 +447,8 @@ export async function createProjectSpecificFiles(
 
     // SSG-specific files.
     await ensureSSGHome(root, projectPath, log);
+    await ensureSSGAbout(root, projectPath, log);
+    await ensureSSGDashboard(root, projectPath, log);
     await ensureSSGErrorDemoLoaders(root, projectPath, log);
     await ensureSSGFooter(root, projectPath, log);
     await ensureSSGRoutes(root, projectPath, log);
@@ -485,6 +490,7 @@ export async function createProjectSpecificFiles(
 
     // SSR-specific files.
     await ensureSSRHome(root, projectPath, log);
+    await ensureSSRAbout(root, projectPath, log);
     await ensureSSRFooter(root, projectPath, log);
     await ensureSSRRoutes(root, projectPath, log);
     await ensureSSRServeBuilt(root, projectPath, log);

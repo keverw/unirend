@@ -21,17 +21,15 @@ This README documents:
 
 Snapshot taken June 3, 2026 at 4 PM MDT.
 
-There are **15 raw app files** left to port under `src/apps/`:
+There are **12 raw app files** left to port under `src/apps/`:
 
-- SSG: 7 files
-- SSR: 8 files
+- SSG: 5 files
+- SSR: 7 files
 - API: 0 files
 
 Remaining SSG files:
 
 - `src/apps/ssg/generate-ssg.ts`
-- `src/apps/ssg/pages/About.tsx`
-- `src/apps/ssg/pages/Dashboard.tsx`
 - `src/apps/ssg/pages/SimulateComponentError.tsx`
 - `src/apps/ssg/pages/SimulateDataloader500.tsx`
 - `src/apps/ssg/pages/SimulateDataloader503.tsx`
@@ -39,7 +37,6 @@ Remaining SSG files:
 
 Remaining SSR files:
 
-- `src/apps/ssr/pages/About.tsx`
 - `src/apps/ssr/pages/SimulateComponentError.tsx`
 - `src/apps/ssr/pages/SimulateDataloader500.tsx`
 - `src/apps/ssr/pages/SimulateDataloader503.tsx`
@@ -269,6 +266,16 @@ Already absorbed into the SSG-specific path (`templates-specific/ssg/`), continu
   (with Dashboard link), and "Theme Support". Error simulation section notes
   that "Throw from Component" is browser-only and includes a comment explaining
   /404 hard-navigation behavior in production.
+- `src/apps/ssg/pages/About.tsx` →
+  `templates-specific/ssg/ssg-about.ts` (`ensureSSGAbout`). Fully static —
+  no loader data. Describes the SSG rendering model. Contrast with the SSR
+  version which uses `useLoaderData` and shows a "From Server" line.
+- `src/apps/ssg/pages/Dashboard.tsx` →
+  `templates-specific/ssg/ssg-dashboard.ts` (`ensureSSGDashboard`). A
+  client-rendered SPA page (registered as `{ type: 'spa', ... }` in
+  `generate-ssg.ts`). The server serves a minimal HTML shell; React renders
+  entirely on the client. SSR has no equivalent — all SSR pages are
+  server-rendered on each request.
 - `src/apps/ssg/loaders/error-demo-loaders.ts` →
   `templates-specific/ssg/ssg-error-demo-loaders.ts`
   (`ensureSSGErrorDemoLoaders`). Three local page-data loaders for the
@@ -307,6 +314,10 @@ Already absorbed into the SSR-specific path (`templates-specific/ssr/`):
   section explains that "Throw from Component" fires on both server and client:
   hard refresh triggers `get500ErrorPage`, client-side navigation after
   hydration is caught by `RouteErrorBoundary`'s `ApplicationErrorComponent`.
+- `src/apps/ssr/pages/About.tsx` →
+  `templates-specific/ssr/ssr-about.ts` (`ensureSSRAbout`). Uses
+  `useLoaderData` and displays a "From Server" line. Describes the SSR
+  rendering model. Contrast with the SSG version which is fully static.
 
 Intentionally deferred from the SSR-specific path:
 

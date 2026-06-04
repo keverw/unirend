@@ -1,4 +1,18 @@
-import { useState } from 'react';
+import { vfsWriteIfNotExists } from '../../vfs';
+import type { FileRoot } from '../../vfs';
+import type { LoggerFunction } from '../../types';
+
+/**
+ * Source for the SSG app's `pages/Dashboard.tsx`.
+ *
+ * SSG-specific — lives in `templates-specific/ssg/`. A client-rendered SPA
+ * page (registered as `{ type: 'spa', ... }` in `generate-ssg.ts`). The
+ * server serves a minimal HTML shell with no pre-rendered content; React
+ * renders everything on the client. Demonstrates the SPA page mode contrast
+ * with SSG pages like Home. The SSR template has no equivalent — all SSR
+ * pages are server-rendered on each request.
+ */
+const fileSrc = `import { useState } from 'react';
 
 // This page is rendered as a SPA (Single Page Application) page because it is registered
 // as { type: 'spa', filename: 'dashboard.html', ... } in generate-ssg.ts.
@@ -49,4 +63,34 @@ export function Dashboard() {
       </p>
     </div>
   );
+}
+`;
+
+/**
+ * Ensure the SSG app's `pages/Dashboard.tsx` exists at
+ * `${projectPath}/pages/Dashboard.tsx`.
+ * Only creates the file if it doesn't exist - never overwrites.
+ *
+ * @param root - File root (filesystem path or in-memory object)
+ * @param projectPath - Relative path to the project directory (e.g. "src/apps/my-app")
+ * @param log - Optional logger function for output
+ * @throws {Error} If file creation fails
+ */
+export async function ensureSSGDashboard(
+  root: FileRoot,
+  projectPath: string,
+  log?: LoggerFunction,
+): Promise<void> {
+  const relPath = `${projectPath}/pages/Dashboard.tsx`;
+
+  try {
+    const didWrite = await vfsWriteIfNotExists(root, relPath, fileSrc);
+
+    if (didWrite && log) {
+      log('info', `Created ${relPath}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to ensure ${relPath}: ${errorMessage}`);
+  }
 }
