@@ -21,19 +21,17 @@ This README documents:
 
 Snapshot taken June 3, 2026 at 4 PM MDT.
 
-There are **18 raw app files** left to port under `src/apps/`:
+There are **15 raw app files** left to port under `src/apps/`:
 
-- SSG: 9 files
-- SSR: 9 files
+- SSG: 7 files
+- SSR: 8 files
 - API: 0 files
 
 Remaining SSG files:
 
 - `src/apps/ssg/generate-ssg.ts`
-- `src/apps/ssg/loaders/error-demo-loaders.ts`
 - `src/apps/ssg/pages/About.tsx`
 - `src/apps/ssg/pages/Dashboard.tsx`
-- `src/apps/ssg/pages/Home.tsx`
 - `src/apps/ssg/pages/SimulateComponentError.tsx`
 - `src/apps/ssg/pages/SimulateDataloader500.tsx`
 - `src/apps/ssg/pages/SimulateDataloader503.tsx`
@@ -42,7 +40,6 @@ Remaining SSG files:
 Remaining SSR files:
 
 - `src/apps/ssr/pages/About.tsx`
-- `src/apps/ssr/pages/Home.tsx`
 - `src/apps/ssr/pages/SimulateComponentError.tsx`
 - `src/apps/ssr/pages/SimulateDataloader500.tsx`
 - `src/apps/ssr/pages/SimulateDataloader503.tsx`
@@ -266,6 +263,21 @@ Already absorbed into the SSG-specific path (`templates-specific/ssg/`), continu
   with Home, About, and Dashboard links. No dynamic data — title is a plain
   string and there is no current-year logic (contrast with the SSR footer,
   which reads `currentYear` from `usePublicAppConfig` seeded server-side).
+- `src/apps/ssg/pages/Home.tsx` →
+  `templates-specific/ssg/ssg-home.ts` (`ensureSSGHome`). Fully static at
+  build time — no loader data. Feature cards cover "SSG Pages", "SPA Pages"
+  (with Dashboard link), and "Theme Support". Error simulation section notes
+  that "Throw from Component" is browser-only and includes a comment explaining
+  /404 hard-navigation behavior in production.
+- `src/apps/ssg/loaders/error-demo-loaders.ts` →
+  `templates-specific/ssg/ssg-error-demo-loaders.ts`
+  (`ensureSSGErrorDemoLoaders`). Three local page-data loaders for the
+  error-simulation routes: one that throws (Unirend converts it to a 500
+  envelope), one that returns an explicit 500 envelope, and one that returns an
+  explicit 503 envelope. SSG-only — SSR wires its error-demo loaders directly
+  in `Routes.tsx` via `createPageDataLoader` and ships no separate loaders
+  file. Requires template-literal escaping for the `request_id` backtick
+  strings (`\`local_500_\${Date.now()}\`` and `\`local_503_\${Date.now()}\``).
 
 Already absorbed into the SSR-specific path (`templates-specific/ssr/`):
 
@@ -288,6 +300,13 @@ Already absorbed into the SSR-specific path (`templates-specific/ssr/`):
   `currentYear` from `usePublicAppConfig` (seeded server-side at startup,
   updated at midnight) to avoid a server/client year-rollover mismatch. Home
   and About links only — no Dashboard link (contrast with the SSG footer).
+- `src/apps/ssr/pages/Home.tsx` →
+  `templates-specific/ssr/ssr-home.ts` (`ensureSSRHome`). Uses `useLoaderData`
+  to display a "From Server" line seeded by the page-data loader. Feature cards
+  cover "SSR Pages", "Data Loaders", and "Theme Support". Error simulation
+  section explains that "Throw from Component" fires on both server and client:
+  hard refresh triggers `get500ErrorPage`, client-side navigation after
+  hydration is caught by `RouteErrorBoundary`'s `ApplicationErrorComponent`.
 
 Intentionally deferred from the SSR-specific path:
 

@@ -1,4 +1,18 @@
-import { useLoaderData, Link } from 'react-router';
+import { vfsWriteIfNotExists } from '../../vfs';
+import type { FileRoot } from '../../vfs';
+import type { LoggerFunction } from '../../types';
+
+/**
+ * Source for the SSR app's `pages/Home.tsx`.
+ *
+ * SSR-specific — lives in `templates-specific/ssr/`. Uses `useLoaderData` to
+ * display a "From Server" line seeded by the page-data loader. Feature cards
+ * cover "SSR Pages", "Data Loaders", and "Theme Support". The error simulation
+ * section explains that "Throw from Component" fires on both server and client:
+ * a hard refresh triggers `get500ErrorPage`, while a client-side navigation
+ * after hydration is caught by `RouteErrorBoundary`'s `ApplicationErrorComponent`.
+ */
+const fileSrc = `import { useLoaderData, Link } from 'react-router';
 import { UnirendHead } from 'unirend/client';
 import { ENABLE_TEST_ROUTES } from '../consts';
 
@@ -127,4 +141,34 @@ export function Home() {
       )}
     </>
   );
+}
+`;
+
+/**
+ * Ensure the SSR app's `pages/Home.tsx` exists at
+ * `${projectPath}/pages/Home.tsx`.
+ * Only creates the file if it doesn't exist - never overwrites.
+ *
+ * @param root - File root (filesystem path or in-memory object)
+ * @param projectPath - Relative path to the project directory (e.g. "src/apps/my-app")
+ * @param log - Optional logger function for output
+ * @throws {Error} If file creation fails
+ */
+export async function ensureSSRHome(
+  root: FileRoot,
+  projectPath: string,
+  log?: LoggerFunction,
+): Promise<void> {
+  const relPath = `${projectPath}/pages/Home.tsx`;
+
+  try {
+    const didWrite = await vfsWriteIfNotExists(root, relPath, fileSrc);
+
+    if (didWrite && log) {
+      log('info', `Created ${relPath}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to ensure ${relPath}: ${errorMessage}`);
+  }
 }

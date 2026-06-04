@@ -1,4 +1,19 @@
-import { Link } from 'react-router';
+import { vfsWriteIfNotExists } from '../../vfs';
+import type { FileRoot } from '../../vfs';
+import type { LoggerFunction } from '../../types';
+
+/**
+ * Source for the SSG app's `pages/Home.tsx`.
+ *
+ * SSG-specific — lives in `templates-specific/ssg/`. No loader data (SSG home
+ * is fully static at build time). Feature cards cover "SSG Pages", "SPA Pages"
+ * (with a Dashboard link), and "Theme Support". The error simulation section
+ * notes that "Throw from Component" is browser-only (the component skips
+ * throwing during pre-render so the SSG build succeeds, then throws on
+ * hydration). Includes a comment explaining why direct hard navigation to /404
+ * behaves differently from client-side routing in production.
+ */
+const fileSrc = `import { Link } from 'react-router';
 import { UnirendHead } from 'unirend/client';
 import { ENABLE_TEST_ROUTES } from '../consts';
 
@@ -129,4 +144,34 @@ export function Home() {
       )}
     </>
   );
+}
+`;
+
+/**
+ * Ensure the SSG app's `pages/Home.tsx` exists at
+ * `${projectPath}/pages/Home.tsx`.
+ * Only creates the file if it doesn't exist - never overwrites.
+ *
+ * @param root - File root (filesystem path or in-memory object)
+ * @param projectPath - Relative path to the project directory (e.g. "src/apps/my-app")
+ * @param log - Optional logger function for output
+ * @throws {Error} If file creation fails
+ */
+export async function ensureSSGHome(
+  root: FileRoot,
+  projectPath: string,
+  log?: LoggerFunction,
+): Promise<void> {
+  const relPath = `${projectPath}/pages/Home.tsx`;
+
+  try {
+    const didWrite = await vfsWriteIfNotExists(root, relPath, fileSrc);
+
+    if (didWrite && log) {
+      log('info', `Created ${relPath}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to ensure ${relPath}: ${errorMessage}`);
+  }
 }

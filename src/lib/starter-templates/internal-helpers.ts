@@ -46,6 +46,8 @@ import { ensureSSG500HTML } from './templates-specific/ssg/ssg-500-html';
 import { ensureSSGRoutes } from './templates-specific/ssg/ssg-routes';
 import { ensureSSGServe } from './templates-specific/ssg/ssg-serve';
 import { ensureSSGFooter } from './templates-specific/ssg/ssg-footer';
+import { ensureSSGHome } from './templates-specific/ssg/ssg-home';
+import { ensureSSGErrorDemoLoaders } from './templates-specific/ssg/ssg-error-demo-loaders';
 import { ensureAppLayout } from './templates-shared/react-components/app-layout';
 import { ensureAppApplicationError } from './templates-shared/react-components/application-error';
 import { ensureAppGenericError } from './templates-shared/react-components/generic-error';
@@ -58,6 +60,7 @@ import { ensureSSRRoutes } from './templates-specific/ssr/ssr-routes';
 import { ensureSSRServeBuilt } from './templates-specific/ssr/ssr-serve-built';
 import { ensureSSRServeHMR } from './templates-specific/ssr/ssr-serve-hmr';
 import { ensureSSRFooter } from './templates-specific/ssr/ssr-footer';
+import { ensureSSRHome } from './templates-specific/ssr/ssr-home';
 
 export function createRepoConfigObject(name: string): RepoConfig {
   return {
@@ -410,7 +413,7 @@ export async function createProjectSpecificFiles(
   log?: LoggerFunction,
 ): Promise<void> {
   if (templateID === 'ssg') {
-    // TODO: emit SSG files — generate-ssg.ts, components/, pages/, public/.
+    // TODO: emit SSG files — generate-ssg.ts, pages/.
     // See raw-src-files/src/apps/ssg/** for the reference source.
 
     // Shared across all Vite-based templates (SSG, SSR).
@@ -440,14 +443,15 @@ export async function createProjectSpecificFiles(
     await ensureAppHeader(root, projectPath, 'ssg', log);
 
     // SSG-specific files.
+    await ensureSSGHome(root, projectPath, log);
+    await ensureSSGErrorDemoLoaders(root, projectPath, log);
     await ensureSSGFooter(root, projectPath, log);
     await ensureSSGRoutes(root, projectPath, log);
     await ensureSSGServe(root, projectPath, projectName, log);
     await ensureSSG500HTML(root, projectPath, log);
   } else if (templateID === 'ssr') {
-    // TODO: emit SSR files — serve-built.ts, serve-hmr.ts, server/start.ts,
-    // server/ssr-component.ts, server/plugins/**,
-    // components/, pages/, public/.
+    // TODO: emit SSR files — server/start.ts, server/ssr-component.ts,
+    // server/plugins/**, pages/.
     // See raw-src-files/src/apps/ssr/** for reference source.
     // `serverBuildTarget` affects the build scripts and runner choice —
     // see the SSR branch of `getTemplateConfig` above for what it
@@ -480,6 +484,7 @@ export async function createProjectSpecificFiles(
     await ensureAppHeader(root, projectPath, 'ssr', log);
 
     // SSR-specific files.
+    await ensureSSRHome(root, projectPath, log);
     await ensureSSRFooter(root, projectPath, log);
     await ensureSSRRoutes(root, projectPath, log);
     await ensureSSRServeBuilt(root, projectPath, log);
