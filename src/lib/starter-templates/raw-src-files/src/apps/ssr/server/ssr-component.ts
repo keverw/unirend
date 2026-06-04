@@ -13,6 +13,7 @@ import path from 'path';
 import type { ServerMode } from './start';
 import { ENABLE_TEST_ROUTES } from '../consts';
 import { themePlugin } from './plugins/theme';
+import { get500ErrorPage } from './get-500-error-page.ts';
 
 // Read port from SSR_PORT env var, default 3000.
 // Production HTTPS: use a reverse proxy (nginx, Caddy, etc.) for TLS termination,
@@ -140,12 +141,7 @@ export class SSRServerComponent extends BaseComponent {
           //
           // Override the default 500 HTML page (rendered when SSR itself fails, before React runs).
           // Your ApplicationError component should use a consistent style with whatever you put here.
-          // For a polished starting point with dark mode support and theme sync, see the SSG
-          // template's error-pages/500.html — for SSR you return the HTML string directly here
-          // rather than serving a static file.
-          // get500ErrorPage: async (request, error, isDevelopment) => {
-          //   return `<html><body><h1>Server Error</h1></body></html>`;
-          // },
+          get500ErrorPage,
           //
           // Customize API error and not-found responses (both page-data data loader and plain API routes).
           // Handlers return API envelopes (JSON), not raw HTML — use get500ErrorPage above for

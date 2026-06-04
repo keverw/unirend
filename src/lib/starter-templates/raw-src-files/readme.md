@@ -21,10 +21,10 @@ This README documents:
 
 Snapshot taken June 3, 2026 at 4 PM MDT.
 
-There are **4 raw app files** left to port under `src/apps/`:
+There are **5 raw app files** left to port under `src/apps/`:
 
 - SSG: 1 file
-- SSR: 3 files
+- SSR: 4 files
 - API: 0 files
 
 Remaining SSG files:
@@ -33,6 +33,7 @@ Remaining SSG files:
 
 Remaining SSR files:
 
+- `src/apps/ssr/server/get-500-error-page.ts`
 - `src/apps/ssr/server/plugins/theme.ts`
 - `src/apps/ssr/server/ssr-component.ts`
 - `src/apps/ssr/server/start.ts`

@@ -337,6 +337,9 @@ export function getTemplateConfig(
       // Words from the shared index.html this template emits (see
       // createProjectSpecificFiles). Template-specific, not a default, since
       // only the Vite templates ship an index.html.
+      // TODO: also add 'Menlo' and 'Consolas' here once the 500 error page
+      // changes are copied to raw-src-files and ported —
+      // those font names appear in the emitted error page HTML.
       cspellWords: [...APP_INDEX_HTML_CSPELL_WORDS],
     };
   } else if (templateID === 'api') {

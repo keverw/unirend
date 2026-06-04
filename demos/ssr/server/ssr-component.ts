@@ -22,6 +22,7 @@ import { themePlugin } from './plugins/theme';
 import { pipeline } from 'stream/promises';
 import { createWriteStream } from 'fs';
 import { mkdir, unlink } from 'fs/promises';
+import { escapeHTML } from '../../../src/utils';
 import type { FastifyRequest } from 'fastify';
 import path from 'path';
 import type { ServerMode } from './start';
@@ -34,15 +35,6 @@ const HOST = '0.0.0.0';
 const SRC_DIR = process.env.SSR_SRC_DIR ?? path.resolve(__dirname, '..');
 const DIST_DIR =
   process.env.SSR_DIST_DIR ?? path.resolve(__dirname, '../build');
-
-function escapeHTML(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 // ─── Custom meta type ────────────────────────────────────────────────────────
 
