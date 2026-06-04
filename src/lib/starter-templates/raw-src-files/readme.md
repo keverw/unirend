@@ -21,15 +21,11 @@ This README documents:
 
 Snapshot taken June 3, 2026 at 4 PM MDT.
 
-There are **5 raw app files** left to port under `src/apps/`:
+There are **4 raw app files** left to port under `src/apps/`:
 
-- SSG: 1 file
+- SSG: 0 files ✅
 - SSR: 4 files
 - API: 0 files
-
-Remaining SSG files:
-
-- `src/apps/ssg/generate-ssg.ts`
 
 Remaining SSR files:
 
@@ -300,6 +296,16 @@ Already absorbed into the SSG-specific path (`templates-specific/ssg/`), continu
   `generate-ssg.ts`). The server serves a minimal HTML shell; React renders
   entirely on the client. SSR has no equivalent — all SSR pages are
   server-rendered on each request.
+- `src/apps/ssg/generate-ssg.ts` →
+  `templates-specific/ssg/ssg-generate-ssg.ts` (`ensureSSGGenerate`). The
+  script that drives `generateSSG` to pre-render all pages at build time.
+  Three per-project substitutions: build directory path in code
+  (`'../../../build/${appName}'`), the same path in the JSDoc header comment,
+  and the dashboard SPA page `title` field (`'Dashboard - ${appName}'`). Four
+  template-literal escapes: three in the `pageInfo` ternary (path/filename
+  interpolation) and one in the error-count string (`errorCount` interpolation).
+  The dashboard title is an intentional change from `'Dashboard - My App'` in
+  the raw file — the generator substitutes the real project name instead.
 - `src/apps/ssg/loaders/error-demo-loaders.ts` →
   `templates-specific/ssg/ssg-error-demo-loaders.ts`
   (`ensureSSGErrorDemoLoaders`). Three local page-data loaders for the

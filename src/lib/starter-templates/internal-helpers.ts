@@ -51,6 +51,7 @@ import { ensureSSGAbout } from './templates-specific/ssg/ssg-about';
 import { ensureSSGDashboard } from './templates-specific/ssg/ssg-dashboard';
 import { ensureSSGSimulateComponentError } from './templates-specific/ssg/ssg-simulate-component-error';
 import { ensureSSGErrorDemoLoaders } from './templates-specific/ssg/ssg-error-demo-loaders';
+import { ensureSSGGenerate } from './templates-specific/ssg/ssg-generate-ssg';
 import { ensureAppLayout } from './templates-shared/react-components/app-layout';
 import { ensureAppApplicationError } from './templates-shared/react-components/application-error';
 import { ensureAppGenericError } from './templates-shared/react-components/generic-error';
@@ -288,17 +289,35 @@ export function getTemplateConfig(
   serverBuildTarget: ServerBuildTarget,
 ): TemplateConfig {
   if (templateID === 'ssg') {
-    // TODO: populate SSG config — projectScripts (app-named, collision = hard
-    // error) and sharedScripts (generic, reusable across apps), dependencies,
-    // devDependencies, gitignoreEntries + section header, prettierignoreEntries
-    // + section header, cspellWords. See raw-src-files/package.json and
-    // raw-src-files/readme.md for the populated shape to mirror.
-    // `serverBuildTarget` matters here too: SSG ships a `serve.ts`
-    // static-file server (useful for previewing the generated output and
-    // for demos), and the bundle/runner choice for that script follows
-    // the same pattern as SSR/API (`bun build --target=<bun|node>` +
-    // `bun`-vs-`node` invocation against the built output).
+    // `serverBuildTarget` shapes the serve.ts bundle and runner choice, following
+    // the same pattern as SSR/API: target Node → `--target=node` + `node` runner;
+    // target Bun → omit `--target` + `bun` runner.
+    const isBunTarget = serverBuildTarget === 'bun';
+    const builtRunner = isBunTarget ? 'bun' : 'node';
+    const buildTargetFlag = isBunTarget ? '' : '--target=node ';
+
     return {
+      // All SSG scripts are app-named (collision = hard error). Covers the full
+      // generate-and-serve lifecycle: spa-dev (Vite HMR), build (client + server
+      // + serve bundle), generate (run generate-ssg.ts), serve (direct from
+      // source and from the built bundle), and convenience combos.
+      projectScripts: {
+        [`${projectName}:spa-dev`]: `cd ${projectPath} && vite`,
+        [`${projectName}:build:client`]: `cd ${projectPath} && vite build --outDir ../../../build/${projectName}/client --base=/ --ssrManifest`,
+        [`${projectName}:build:server`]: `cd ${projectPath} && vite build --outDir ../../../build/${projectName}/server --ssr EntrySSG.tsx`,
+        [`${projectName}:build:serve`]: `cd ${projectPath} && bun build serve.ts --outdir ../../../build/${projectName}/serve ${buildTargetFlag}--external vite`,
+        [`${projectName}:build`]: `bun run ${projectName}:build:client && bun run ${projectName}:build:server && bun run ${projectName}:build:serve`,
+        [`${projectName}:generate:dev`]: `cd ${projectPath} && bun run generate-ssg.ts dev`,
+        [`${projectName}:generate:prod`]: `cd ${projectPath} && bun run generate-ssg.ts prod`,
+        [`${projectName}:build-and-generate:dev`]: `bun run ${projectName}:build && bun run ${projectName}:generate:dev`,
+        [`${projectName}:build-and-generate:prod`]: `bun run ${projectName}:build && bun run ${projectName}:generate:prod`,
+        [`${projectName}:serve:dev`]: `cd ${projectPath} && bun run serve.ts dev`,
+        [`${projectName}:serve:prod`]: `cd ${projectPath} && bun run serve.ts prod`,
+        [`${projectName}:serve:built:dev`]: `${builtRunner} build/${projectName}/serve/serve.js dev`,
+        [`${projectName}:serve:built:prod`]: `${builtRunner} build/${projectName}/serve/serve.js prod`,
+        [`${projectName}:build-generate-serve:dev`]: `bun run ${projectName}:build-and-generate:dev && bun run ${projectName}:serve:built:dev`,
+        [`${projectName}:build-generate-serve:prod`]: `bun run ${projectName}:build-and-generate:prod && bun run ${projectName}:serve:built:prod`,
+      },
       // Words from the shared index.html this template emits (see
       // createProjectSpecificFiles). Template-specific, not a default, since
       // only the Vite templates ship an index.html.
@@ -424,9 +443,6 @@ export async function createProjectSpecificFiles(
   log?: LoggerFunction,
 ): Promise<void> {
   if (templateID === 'ssg') {
-    // TODO: emit SSG files — generate-ssg.ts, pages/.
-    // See raw-src-files/src/apps/ssg/** for the reference source.
-
     // Shared across all Vite-based templates (SSG, SSR).
     await ensureViteEnv(root, projectPath, log);
     await ensureViteConfig(root, projectPath, projectName, log);
@@ -466,6 +482,7 @@ export async function createProjectSpecificFiles(
     await ensureSSGRoutes(root, projectPath, log);
     await ensureSSGServe(root, projectPath, projectName, log);
     await ensureSSG500HTML(root, projectPath, log);
+    await ensureSSGGenerate(root, projectPath, projectName, log);
   } else if (templateID === 'ssr') {
     // TODO: emit SSR files — server/start.ts, server/ssr-component.ts,
     // server/plugins/**, pages/.
