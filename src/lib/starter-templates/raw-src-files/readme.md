@@ -21,26 +21,18 @@ This README documents:
 
 Snapshot taken June 3, 2026 at 4 PM MDT.
 
-There are **12 raw app files** left to port under `src/apps/`:
+There are **4 raw app files** left to port under `src/apps/`:
 
-- SSG: 5 files
-- SSR: 7 files
+- SSG: 1 file
+- SSR: 3 files
 - API: 0 files
 
 Remaining SSG files:
 
 - `src/apps/ssg/generate-ssg.ts`
-- `src/apps/ssg/pages/SimulateComponentError.tsx`
-- `src/apps/ssg/pages/SimulateDataloader500.tsx`
-- `src/apps/ssg/pages/SimulateDataloader503.tsx`
-- `src/apps/ssg/pages/SimulateDataloaderError.tsx`
 
 Remaining SSR files:
 
-- `src/apps/ssr/pages/SimulateComponentError.tsx`
-- `src/apps/ssr/pages/SimulateDataloader500.tsx`
-- `src/apps/ssr/pages/SimulateDataloader503.tsx`
-- `src/apps/ssr/pages/SimulateDataloaderError.tsx`
 - `src/apps/ssr/server/plugins/theme.ts`
 - `src/apps/ssr/server/ssr-component.ts`
 - `src/apps/ssr/server/start.ts`
@@ -252,9 +244,40 @@ Already absorbed into the shared scaffold path (`templates-shared/`), continued:
   pattern (same as `app-consts.ts`). Requires template-literal escaping for
   the `navClass` arrow function's backtick template literal and its
   `${isActive ? ...}` interpolation.
+- `src/apps/ssg/pages/SimulateDataloader500.tsx` /
+  `src/apps/ssr/pages/SimulateDataloader500.tsx` →
+  `templates-shared/react-components/simulate-dataloader-500.ts`
+  (`ensureAppSimulateDataloader500`). The two raw copies were byte-identical,
+  so it's static and shared — a fallback view shown only if the demo loader
+  unexpectedly does not return a 500 error envelope (in practice the envelope
+  is always returned and intercepted by `AppLayout`). No template-literal
+  escaping needed. API ships none — it has no client-side rendering.
+- `src/apps/ssg/pages/SimulateDataloader503.tsx` /
+  `src/apps/ssr/pages/SimulateDataloader503.tsx` →
+  `templates-shared/react-components/simulate-dataloader-503.ts`
+  (`ensureAppSimulateDataloader503`). The two raw copies were byte-identical,
+  so it's static and shared — same structure as the 500 variant but for 503
+  envelopes. No template-literal escaping needed. API ships none — it has no
+  client-side rendering.
+- `src/apps/ssg/pages/SimulateDataloaderError.tsx` /
+  `src/apps/ssr/pages/SimulateDataloaderError.tsx` →
+  `templates-shared/react-components/simulate-dataloader-error.ts`
+  (`ensureAppSimulateDataloaderError`). The two raw copies were byte-identical,
+  so it's static and shared — fallback view for the throw-from-loader demo
+  route; shown only if the loader unexpectedly does not throw (in practice it
+  always throws and the result is a 500 envelope). No template-literal escaping
+  needed. API ships none — it has no client-side rendering.
 
 Already absorbed into the SSG-specific path (`templates-specific/ssg/`), continued:
 
+- `src/apps/ssg/pages/SimulateComponentError.tsx` →
+  `templates-specific/ssg/ssg-simulate-component-error.ts`
+  (`ensureSSGSimulateComponentError`). Guards the throw behind a
+  `typeof window !== 'undefined'` check so the SSG build can render a static
+  placeholder without failing. In the browser it throws on hydration, triggering
+  the `ApplicationError` boundary. Requires template-literal escaping for the
+  backtick around `window` in the opening comment. Contrast with the SSR
+  version, which always throws (no pre-render phase).
 - `src/apps/ssg/components/Footer.tsx` →
   `templates-specific/ssg/ssg-footer.ts` (`ensureSSGFooter`). Static footer
   with Home, About, and Dashboard links. No dynamic data — title is a plain
@@ -288,6 +311,13 @@ Already absorbed into the SSG-specific path (`templates-specific/ssg/`), continu
 
 Already absorbed into the SSR-specific path (`templates-specific/ssr/`):
 
+- `src/apps/ssr/pages/SimulateComponentError.tsx` →
+  `templates-specific/ssr/ssr-simulate-component-error.ts`
+  (`ensureSSRSimulateComponentError`). Throws unconditionally on both server and
+  client — no `window` guard needed because SSR renders per-request, not at
+  build time. Return type is `never`. Contrast with the SSG version, which needs
+  a `typeof window` check to avoid throwing during the static generation pass.
+  No template-literal escaping needed.
 - `src/apps/ssr/Routes.tsx` → `templates-specific/ssr/ssr-routes.ts`
   (`ensureSSRRoutes`). SSR-specific: wires every route through
   `createPageDataLoader` so page data is fetched from the API (short-circuiting

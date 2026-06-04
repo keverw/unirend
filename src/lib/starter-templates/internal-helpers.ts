@@ -49,6 +49,7 @@ import { ensureSSGFooter } from './templates-specific/ssg/ssg-footer';
 import { ensureSSGHome } from './templates-specific/ssg/ssg-home';
 import { ensureSSGAbout } from './templates-specific/ssg/ssg-about';
 import { ensureSSGDashboard } from './templates-specific/ssg/ssg-dashboard';
+import { ensureSSGSimulateComponentError } from './templates-specific/ssg/ssg-simulate-component-error';
 import { ensureSSGErrorDemoLoaders } from './templates-specific/ssg/ssg-error-demo-loaders';
 import { ensureAppLayout } from './templates-shared/react-components/app-layout';
 import { ensureAppApplicationError } from './templates-shared/react-components/application-error';
@@ -58,12 +59,16 @@ import { ensureAppThemeContext } from './templates-shared/react-components/theme
 import { ensureAppThemeProvider } from './templates-shared/react-components/theme-provider';
 import { ensureAppThemeToggle } from './templates-shared/react-components/theme-toggle';
 import { ensureAppHeader } from './templates-shared/react-components/header';
+import { ensureAppSimulateDataloader500 } from './templates-shared/react-components/simulate-dataloader-500';
+import { ensureAppSimulateDataloader503 } from './templates-shared/react-components/simulate-dataloader-503';
+import { ensureAppSimulateDataloaderError } from './templates-shared/react-components/simulate-dataloader-error';
 import { ensureSSRRoutes } from './templates-specific/ssr/ssr-routes';
 import { ensureSSRServeBuilt } from './templates-specific/ssr/ssr-serve-built';
 import { ensureSSRServeHMR } from './templates-specific/ssr/ssr-serve-hmr';
 import { ensureSSRFooter } from './templates-specific/ssr/ssr-footer';
 import { ensureSSRHome } from './templates-specific/ssr/ssr-home';
 import { ensureSSRAbout } from './templates-specific/ssr/ssr-about';
+import { ensureSSRSimulateComponentError } from './templates-specific/ssr/ssr-simulate-component-error';
 
 export function createRepoConfigObject(name: string): RepoConfig {
   return {
@@ -449,6 +454,10 @@ export async function createProjectSpecificFiles(
     await ensureSSGHome(root, projectPath, log);
     await ensureSSGAbout(root, projectPath, log);
     await ensureSSGDashboard(root, projectPath, log);
+    await ensureSSGSimulateComponentError(root, projectPath, log);
+    await ensureAppSimulateDataloader500(root, projectPath, log);
+    await ensureAppSimulateDataloader503(root, projectPath, log);
+    await ensureAppSimulateDataloaderError(root, projectPath, log);
     await ensureSSGErrorDemoLoaders(root, projectPath, log);
     await ensureSSGFooter(root, projectPath, log);
     await ensureSSGRoutes(root, projectPath, log);
@@ -491,6 +500,10 @@ export async function createProjectSpecificFiles(
     // SSR-specific files.
     await ensureSSRHome(root, projectPath, log);
     await ensureSSRAbout(root, projectPath, log);
+    await ensureSSRSimulateComponentError(root, projectPath, log);
+    await ensureAppSimulateDataloader500(root, projectPath, log);
+    await ensureAppSimulateDataloader503(root, projectPath, log);
+    await ensureAppSimulateDataloaderError(root, projectPath, log);
     await ensureSSRFooter(root, projectPath, log);
     await ensureSSRRoutes(root, projectPath, log);
     await ensureSSRServeBuilt(root, projectPath, log);
