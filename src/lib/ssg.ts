@@ -386,11 +386,15 @@ export async function generateSSG(
           headInject,
           renderResult.html,
           {
-            app: publicAppConfig,
-            request: requestContext,
+            context: {
+              app: publicAppConfig,
+              request: requestContext,
+            },
+            CDNBaseURL: options.CDNBaseURL,
+            domainInfo,
+            htmlAttrs: renderResult.head?.htmlAttrs,
+            bodyAttrs: renderResult.head?.bodyAttrs,
           },
-          options.CDNBaseURL,
-          domainInfo,
         );
 
         // Write the HTML file to the client directory (where assets are)
@@ -528,11 +532,13 @@ export async function generateSSG(
         headInject.trim(),
         '', // Empty body content for SPA
         {
-          app: publicAppConfig, // Inject app config for SPA pages if provided from options
-          request: page.requestContext, // Inject request context for SPA pages that was manually provided for the specific page
+          context: {
+            app: publicAppConfig, // Inject app config for SPA pages if provided from options
+            request: page.requestContext, // Inject request context for SPA pages that was manually provided for the specific page
+          },
+          CDNBaseURL: options.CDNBaseURL,
+          domainInfo,
         },
-        options.CDNBaseURL,
-        domainInfo,
       );
 
       // Write the HTML file to the client directory (where assets are)

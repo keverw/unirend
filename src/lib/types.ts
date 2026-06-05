@@ -86,6 +86,8 @@ export interface RenderPageResult extends RenderResultBase {
     title: string;
     meta: string;
     link: string;
+    htmlAttrs?: Record<string, string>;
+    bodyAttrs?: Record<string, string>;
   };
   statusCode?: number;
   errorDetails?: Error;

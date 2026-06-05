@@ -9,6 +9,8 @@ export function serializeHeadCollector(collector: HeadCollector): {
   title: string;
   meta: string;
   link: string;
+  htmlAttrs: Record<string, string>;
+  bodyAttrs: Record<string, string>;
 } {
   const title = collector.title
     ? `<title>${escapeHTML(collector.title)}</title>`
@@ -34,5 +36,11 @@ export function serializeHeadCollector(collector: HeadCollector): {
     })
     .join('\n');
 
-  return { title, meta, link };
+  return {
+    title,
+    meta,
+    link,
+    htmlAttrs: collector.htmlAttrs,
+    bodyAttrs: collector.bodyAttrs,
+  };
 }

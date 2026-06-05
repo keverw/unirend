@@ -3,6 +3,16 @@ import type { FileRoot } from '../../vfs';
 import type { LoggerFunction } from '../../types';
 
 /**
+ * cspell words that appear in the generated SSG `pages/Home.tsx` and so must be
+ * in the generated project's dictionary. Co-located with the file that emits
+ * them so the two stay in sync; the SSG `getTemplateConfig` branch folds these
+ * into its template-specific `cspellWords`.
+ *
+ * - `noreferrer` — the `rel="noreferrer"` attribute on the Unirend link.
+ */
+export const SSG_HOME_CSPELL_WORDS: string[] = ['noreferrer'];
+
+/**
  * Source for the SSG app's `pages/Home.tsx`.
  *
  * SSG-specific — lives in `templates-specific/ssg/`. No loader data (SSG home

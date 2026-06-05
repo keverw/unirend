@@ -65,7 +65,13 @@ export async function unirendBaseRender(
   options: BaseRenderOptions = {},
 ): Promise<RenderResult> {
   // Create new instances per request for isolation
-  const headCollector: HeadCollector = { title: '', metas: [], links: [] };
+  const headCollector: HeadCollector = {
+    title: '',
+    metas: [],
+    links: [],
+    htmlAttrs: {},
+    bodyAttrs: {},
+  };
 
   // Create a Static Handler
   // The handler examines the routes and prepares data for rendering

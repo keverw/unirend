@@ -585,7 +585,14 @@ Add to `<head>` to apply the correct class before JS loads. The cookie is prefer
     const theme =
       pref === 'auto' ? (systemPrefersDark ? 'dark' : 'light') : pref;
 
-    if (theme === 'dark') document.documentElement.classList.add('dark');
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+      // Register dynamic classes in window.__UNIREND_IGNORED_CLASSES__ so
+      // UnirendHead doesn't capture them in its static template baseline attributes.
+      window.__UNIREND_IGNORED_CLASSES__ =
+        window.__UNIREND_IGNORED_CLASSES__ || new Set();
+      window.__UNIREND_IGNORED_CLASSES__.add('dark');
+    }
   })();
 </script>
 ```

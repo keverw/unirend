@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useRequestContextValue, useDomainInfo } from '../../../../src/client';
+import {
+  useRequestContextValue,
+  useDomainInfo,
+  UnirendHead,
+} from '../../../../src/client';
 import {
   ThemeContext,
   type ThemePreference,
@@ -64,11 +68,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // Missing or 'auto' preferences follow the OS theme.
   const resolvedTheme: ResolvedTheme =
     preference && preference !== 'auto' ? preference : systemTheme;
-
-  // Single place that updates <html> — CSS dark: selectors key off this class.
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', resolvedTheme === 'dark');
-  }, [resolvedTheme]);
 
   const cycleTheme = () => {
     const next =
@@ -144,6 +143,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         cycleTheme,
       }}
     >
+      <UnirendHead>
+        {/* eslint-disable-next-line jsx-a11y/html-has-lang */}
+        <html className={resolvedTheme === 'dark' ? 'dark' : ''} />
+      </UnirendHead>
       {children}
     </ThemeContext.Provider>
   );

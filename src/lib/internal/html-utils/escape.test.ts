@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { escapeHTML, escapeHTMLAttr } from './escape';
+import { escapeHTML, escapeHTMLAttr, decodeHTML } from './escape';
 
 describe('escapeHTML', () => {
   it('should escape ampersands', () => {
@@ -132,5 +132,47 @@ describe('escapeHTMLAttr', () => {
 
   it('should preserve already-escaped sequences', () => {
     expect(escapeHTMLAttr('&lt;')).toBe('&amp;lt;');
+  });
+});
+
+describe('decodeHTML', () => {
+  it('should decode standard named entities', () => {
+    expect(decodeHTML('foo &amp; bar')).toBe('foo & bar');
+    expect(decodeHTML('&quot;hello&quot;')).toBe('"hello"');
+    expect(decodeHTML('&lt;script&gt;')).toBe('<script>');
+    expect(decodeHTML('it&apos;s working')).toBe("it's working");
+  });
+
+  it('should decode other named HTML entities like nbsp and copy', () => {
+    expect(decodeHTML('A&nbsp;B')).toBe('A\u00A0B');
+    expect(decodeHTML('&copy;')).toBe('©');
+  });
+
+  it('should decode decimal numeric entities', () => {
+    expect(decodeHTML('&#38;')).toBe('&');
+    expect(decodeHTML('&#60;')).toBe('<');
+    expect(decodeHTML('&#62;')).toBe('>');
+  });
+
+  it('should decode hexadecimal numeric entities', () => {
+    expect(decodeHTML('&#x26;')).toBe('&');
+    expect(decodeHTML('&#x3c;')).toBe('<');
+    expect(decodeHTML('&#x3E;')).toBe('>');
+  });
+
+  it('should decode entities above 0xFFFF correctly using fromCodePoint', () => {
+    expect(decodeHTML('&#128512;')).toBe('😀');
+    expect(decodeHTML('&#x1f600;')).toBe('😀');
+  });
+
+  it('should handle invalid or malformed numeric entities', () => {
+    expect(decodeHTML('&#1114112;')).toBe('\uFFFD'); // > 0x10FFFF becomes replacement character
+    expect(decodeHTML('&#-1;')).toBe('&#-1;'); // '-' is malformed inside entity syntax
+  });
+
+  it('should handle unencoded text and leave unknown entities untouched', () => {
+    expect(decodeHTML('hello world')).toBe('hello world');
+    expect(decodeHTML('&unknown;')).toBe('&unknown;');
+    expect(decodeHTML('&#xyz;')).toBe('&#xyz;');
   });
 });

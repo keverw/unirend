@@ -1286,12 +1286,16 @@ export class SSRServer extends BaseServer {
                 headInject,
                 renderResult.html,
                 {
-                  app: request.publicAppConfig,
-                  // inject per-request context so client-side React hydrates with the same values
-                  request: request.requestContext,
+                  context: {
+                    app: request.publicAppConfig,
+                    // inject per-request context so client-side React hydrates with the same values
+                    request: request.requestContext,
+                  },
+                  CDNBaseURL,
+                  domainInfo: request.domainInfo,
+                  htmlAttrs: renderResult.head?.htmlAttrs,
+                  bodyAttrs: renderResult.head?.bodyAttrs,
                 },
-                CDNBaseURL,
-                request.domainInfo,
               );
 
               // ---> Send response with the extracted status code

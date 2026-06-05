@@ -8,6 +8,8 @@ export interface HeadCollector {
   title: string;
   metas: Array<Record<string, string>>;
   links: Array<Record<string, string>>;
+  htmlAttrs: Record<string, string>;
+  bodyAttrs: Record<string, string>;
 }
 
 /**

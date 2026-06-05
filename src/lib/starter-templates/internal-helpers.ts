@@ -47,7 +47,10 @@ import { ensureSSG500HTML } from './templates-specific/ssg/ssg-500-html';
 import { ensureSSGRoutes } from './templates-specific/ssg/ssg-routes';
 import { ensureSSGServe } from './templates-specific/ssg/ssg-serve';
 import { ensureSSGFooter } from './templates-specific/ssg/ssg-footer';
-import { ensureSSGHome } from './templates-specific/ssg/ssg-home';
+import {
+  ensureSSGHome,
+  SSG_HOME_CSPELL_WORDS,
+} from './templates-specific/ssg/ssg-home';
 import { ensureSSGAbout } from './templates-specific/ssg/ssg-about';
 import { ensureSSGDashboard } from './templates-specific/ssg/ssg-dashboard';
 import { ensureSSGSimulateComponentError } from './templates-specific/ssg/ssg-simulate-component-error';
@@ -68,7 +71,10 @@ import { ensureSSRRoutes } from './templates-specific/ssr/ssr-routes';
 import { ensureSSRServeBuilt } from './templates-specific/ssr/ssr-serve-built';
 import { ensureSSRServeHMR } from './templates-specific/ssr/ssr-serve-hmr';
 import { ensureSSRFooter } from './templates-specific/ssr/ssr-footer';
-import { ensureSSRHome } from './templates-specific/ssr/ssr-home';
+import {
+  ensureSSRHome,
+  SSR_HOME_CSPELL_WORDS,
+} from './templates-specific/ssr/ssr-home';
 import { ensureSSRAbout } from './templates-specific/ssr/ssr-about';
 import { ensureSSRSimulateComponentError } from './templates-specific/ssr/ssr-simulate-component-error';
 import { ensureSSRStart } from './templates-specific/ssr/ssr-start';
@@ -325,10 +331,10 @@ export function getTemplateConfig(
         [`${projectName}:build-generate-serve:dev`]: `bun run ${projectName}:build-and-generate:dev && bun run ${projectName}:serve:built:dev`,
         [`${projectName}:build-generate-serve:prod`]: `bun run ${projectName}:build-and-generate:prod && bun run ${projectName}:serve:built:prod`,
       },
-      // Words from the shared index.html this template emits (see
-      // createProjectSpecificFiles). Template-specific, not a default, since
-      // only the Vite templates ship an index.html.
-      cspellWords: [...APP_INDEX_HTML_CSPELL_WORDS],
+      // Words from the shared index.html and the home page this template emits
+      // (see createProjectSpecificFiles). Template-specific, not a default,
+      // since only the Vite templates ship an index.html.
+      cspellWords: [...APP_INDEX_HTML_CSPELL_WORDS, ...SSG_HOME_CSPELL_WORDS],
     };
   } else if (templateID === 'ssr') {
     // Env var prefix for SRC_DIR — passed in the Node serve:dev script so Vite
@@ -377,11 +383,13 @@ export function getTemplateConfig(
       // left default (`# Template-specific`).
       gitignoreEntries: [`${projectPath}/current-build-info.ts`],
       prettierignoreEntries: [`${projectPath}/current-build-info.ts`],
-      // Words from the shared index.html and the 500 error page this template
-      // emits. Template-specific, not a default, since only the Vite templates
-      // ship an index.html, and Menlo/Consolas appear in get-500-error-page.ts.
+      // Words from the shared index.html, the home page, and the 500 error page
+      // this template emits. Template-specific, not a default, since only the
+      // Vite templates ship an index.html, and Menlo/Consolas appear in
+      // get-500-error-page.ts.
       cspellWords: [
         ...APP_INDEX_HTML_CSPELL_WORDS,
+        ...SSR_HOME_CSPELL_WORDS,
         ...SSR_GET_500_ERROR_PAGE_CSPELL_WORDS,
       ],
     };

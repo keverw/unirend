@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
+import * as cheerio from 'cheerio';
 import { prettifyHeadTags, injectContent } from './inject';
 import { TAB_SPACES } from '../consts';
 
@@ -64,7 +65,8 @@ describe('injectContent', () => {
       `${TAB_SPACES}<meta name="description" content="Test">` +
       '<script>globalThis.__lifecycleion_is_dev__=false;</script>\n' +
       '<script>window.__CDN_BASE_URL__="";</script>\n' +
-      '<script>window.__DOMAIN_INFO__=null;</script>' +
+      '<script>window.__DOMAIN_INFO__=null;</script>\n' +
+      '<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>' +
       '</head><body><div>Hello World</div></body></html>';
 
     expect(await injectContent(template, headContent, bodyContent)).toBe(
@@ -77,7 +79,7 @@ describe('injectContent', () => {
       '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
 
     const expected =
-      '<!DOCTYPE html><html><head><script>globalThis.__lifecycleion_is_dev__=false;</script>\n<script>window.__CDN_BASE_URL__="";</script>\n<script>window.__DOMAIN_INFO__=null;</script></head><body></body></html>';
+      '<!DOCTYPE html><html><head><script>globalThis.__lifecycleion_is_dev__=false;</script>\n<script>window.__CDN_BASE_URL__="";</script>\n<script>window.__DOMAIN_INFO__=null;</script>\n<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script></head><body></body></html>';
 
     expect(await injectContent(template, '', '')).toBe(expected);
   });
@@ -95,7 +97,8 @@ describe('injectContent', () => {
       '</head><body><div id="root" data-reactroot=""><div>React Content</div></div>' +
       '<script>globalThis.__lifecycleion_is_dev__=false;</script>\n' +
       '<script>window.__CDN_BASE_URL__="";</script>\n' +
-      '<script>window.__DOMAIN_INFO__=null;</script>' +
+      '<script>window.__DOMAIN_INFO__=null;</script>\n' +
+      '<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>' +
       '</body></html>';
 
     expect(await injectContent(template, headContent, bodyContent)).toBe(
@@ -111,7 +114,7 @@ describe('injectContent', () => {
     const appConfig = { api_endpoint: 'https://api.example.com', debug: true };
 
     const result = await injectContent(template, headContent, bodyContent, {
-      app: appConfig,
+      context: { app: appConfig },
     });
 
     expect(result).toContain('window.__PUBLIC_APP_CONFIG__=');
@@ -124,7 +127,9 @@ describe('injectContent', () => {
       '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
     const appConfig = { htmlContent: "<script>alert('xss')</script>" };
 
-    const result = await injectContent(template, '', '', { app: appConfig });
+    const result = await injectContent(template, '', '', {
+      context: { app: appConfig },
+    });
 
     expect(result).toContain('\\u003c');
     expect(result).not.toContain('<script>alert');
@@ -139,7 +144,7 @@ describe('injectContent', () => {
     };
 
     const result = await injectContent(template, '', '', {
-      request: requestContext,
+      context: { request: requestContext },
     });
 
     expect(result).toContain('window.__FRONTEND_REQUEST_CONTEXT__=');
@@ -166,8 +171,7 @@ describe('injectContent', () => {
     const requestContext = { user: { id: '123' } };
 
     const result = await injectContent(template, '', '', {
-      app: appConfig,
-      request: requestContext,
+      context: { app: appConfig, request: requestContext },
     });
 
     expect(result).toContain('window.__PUBLIC_APP_CONFIG__=');
@@ -183,8 +187,7 @@ describe('injectContent', () => {
     const requestContext = { user: { id: '123' } };
 
     const result = await injectContent(template, '', '', {
-      app: appConfig,
-      request: requestContext,
+      context: { app: appConfig, request: requestContext },
     });
 
     // Should contain both scripts
@@ -201,13 +204,9 @@ describe('injectContent', () => {
     const template =
       '<!DOCTYPE html><html><head><script src="__CDN__INJECTION__POINT__/assets/main.js"></script><link href="__CDN__INJECTION__POINT__/assets/styles.css" rel="stylesheet" /></head><body><!--ss-outlet--></body></html>';
 
-    const result = await injectContent(
-      template,
-      '',
-      '',
-      undefined,
-      'https://cdn.example.com',
-    );
+    const result = await injectContent(template, '', '', {
+      CDNBaseURL: 'https://cdn.example.com',
+    });
 
     expect(result).toContain('src="https://cdn.example.com/assets/main.js"');
     expect(result).toContain(
@@ -231,13 +230,9 @@ describe('injectContent', () => {
     const template =
       '<!DOCTYPE html><html><head><script src="__CDN__INJECTION__POINT__/assets/main.js"></script></head><body><!--ss-outlet--></body></html>';
 
-    const result = await injectContent(
-      template,
-      '',
-      '',
-      undefined,
-      'https://cdn.example.com/',
-    );
+    const result = await injectContent(template, '', '', {
+      CDNBaseURL: 'https://cdn.example.com/',
+    });
 
     expect(result).toContain('src="https://cdn.example.com/assets/main.js"');
     expect(result).not.toContain('//assets/');
@@ -248,13 +243,9 @@ describe('injectContent', () => {
     const template =
       '<!DOCTYPE html><html><head><script src="__CDN__INJECTION__POINT__/assets/vendor.js"></script><script src="__CDN__INJECTION__POINT__/assets/main.js"></script><link href="__CDN__INJECTION__POINT__/assets/styles.css" rel="stylesheet" /><link href="__CDN__INJECTION__POINT__/favicon.ico" rel="icon" /></head><body><!--ss-outlet--></body></html>';
 
-    const result = await injectContent(
-      template,
-      '',
-      '',
-      undefined,
-      'https://cdn.example.com',
-    );
+    const result = await injectContent(template, '', '', {
+      CDNBaseURL: 'https://cdn.example.com',
+    });
 
     expect(result).toContain('src="https://cdn.example.com/assets/vendor.js"');
     expect(result).toContain('src="https://cdn.example.com/assets/main.js"');
@@ -269,13 +260,9 @@ describe('injectContent', () => {
     const template =
       '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
 
-    const result = await injectContent(
-      template,
-      '',
-      '',
-      undefined,
-      'https://cdn.example.com',
-    );
+    const result = await injectContent(template, '', '', {
+      CDNBaseURL: 'https://cdn.example.com',
+    });
 
     expect(result).toContain(
       'window.__CDN_BASE_URL__="https://cdn.example.com"',
@@ -295,13 +282,9 @@ describe('injectContent', () => {
     const template =
       '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
 
-    const result = await injectContent(
-      template,
-      '',
-      '',
-      undefined,
-      'https://cdn.example.com/',
-    );
+    const result = await injectContent(template, '', '', {
+      CDNBaseURL: 'https://cdn.example.com/',
+    });
 
     expect(result).toContain(
       'window.__CDN_BASE_URL__="https://cdn.example.com"',
@@ -357,5 +340,162 @@ describe('injectContent', () => {
     expect(scriptPos).toBeGreaterThan(0);
     expect(scriptPos).toBeLessThan(bodyStart);
     expect(scriptPos).toBeLessThan(bodyEnd);
+  });
+
+  it('should inject html and body attributes', async () => {
+    const template =
+      '<!DOCTYPE html><html lang="en"><head><!--ss-head--></head><body class="light"><!--ss-outlet--></body></html>';
+
+    const result = await injectContent(template, '', '', {
+      htmlAttrs: { class: 'dark', lang: 'es', 'data-foo': 'bar' },
+      bodyAttrs: { class: 'dark-theme', style: 'background: red;' },
+    });
+
+    expect(result).toContain('<html lang="es" class="dark" data-foo="bar">');
+    expect(result).toContain(
+      '<body class="light dark-theme" style="background: red;">',
+    );
+  });
+
+  it('should remove boolean attributes from html and body when value is "false"', async () => {
+    const template =
+      '<!DOCTYPE html><html lang="en" hidden><head><!--ss-head--></head><body class="light" inert="inert"><!--ss-outlet--></body></html>';
+
+    const result = await injectContent(template, '', '', {
+      htmlAttrs: { hidden: 'false' },
+      bodyAttrs: { inert: 'false' },
+    });
+
+    // Both hidden and inert should be removed
+    expect(result).toContain('<html lang="en">');
+    expect(result).toContain('<body class="light">');
+  });
+
+  it('should preserve original body and html attributes if none are passed', async () => {
+    const template =
+      '<!DOCTYPE html><html lang="en"><head><!--ss-head--></head><body class="light"><!--ss-outlet--></body></html>';
+
+    const result = await injectContent(template, '', '');
+
+    expect(result).toContain('<html lang="en">');
+    expect(result).toContain('<body class="light">');
+  });
+
+  it('should serialize empty string attributes as boolean attributes without value', async () => {
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--></head><body><!--ss-outlet--></body></html>';
+
+    const result = await injectContent(template, '', '', {
+      htmlAttrs: { 'data-boolean': '', lang: 'es' },
+    });
+
+    expect(result).toContain('<html data-boolean lang="es">');
+  });
+
+  it('should gracefully handle cheerio script nodes without sourceCodeLocation', async () => {
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
+    const hydrationScript =
+      '<script>window.__staticRouterHydrationData = JSON.parse("{}");</script>';
+    const bodyContent = `<div>${hydrationScript}</div>`;
+
+    const originalLoad = cheerio.load.bind(cheerio);
+    const loadSpy = spyOn(cheerio, 'load').mockImplementation(
+      (content: any, options: any) => {
+        return originalLoad(content, {
+          ...options,
+          sourceCodeLocationInfo: false,
+        });
+      },
+    );
+
+    try {
+      const result = await injectContent(template, '', bodyContent);
+      const headContentResult = result.slice(
+        result.indexOf('<head>'),
+        result.indexOf('</head>'),
+      );
+      const bodyContentResult = result.slice(
+        result.indexOf('<body>'),
+        result.indexOf('</body>'),
+      );
+
+      // The script is NOT moved to the head, and remains in the body
+      expect(headContentResult).not.toContain(
+        'window.__staticRouterHydrationData',
+      );
+      expect(bodyContentResult).toContain(hydrationScript);
+    } finally {
+      loadSpy.mockRestore();
+    }
+  });
+
+  it('should gracefully handle templates without html or body tags when attributes are passed', async () => {
+    const template = '<div>Just a div</div>';
+    const result = await injectContent(template, '', '', {
+      htmlAttrs: { class: 'foo' },
+      bodyAttrs: { class: 'bar' },
+    });
+
+    expect(result).toBe('<div>Just a div</div>');
+  });
+
+  it('should omit empty class and style attributes from html and body elements', async () => {
+    const template =
+      '<!DOCTYPE html><html lang="en" class="" style=""><head><!--ss-head--></head><body class="" style="  "><!--ss-outlet--></body></html>';
+
+    const result = await injectContent(template, '', '', {
+      htmlAttrs: { lang: 'es' },
+      bodyAttrs: { 'data-foo': 'bar' },
+    });
+
+    expect(result).toContain('<html lang="es">');
+    expect(result).toContain('<body data-foo="bar">');
+  });
+
+  it('should decode HTML entities in template attributes before serialization to prevent double-escaping', async () => {
+    const template =
+      '<!DOCTYPE html><html lang="en"><head><!--ss-head--><!--context-scripts-injection-point--></head><body data-name="A &amp; B" data-label="A&nbsp;B" data-copy="&copy;"><!--ss-outlet--></body></html>';
+
+    const result = await injectContent(template, '', '', {
+      bodyAttrs: { class: 'active' },
+    });
+
+    expect(result).toContain('data-name="A &amp; B"');
+    expect(result).toContain('data-label="A\u00A0B"');
+    expect(result).toContain('data-copy="©"');
+    expect(result).toContain(
+      'window.__UNIREND_TEMPLATE_ATTRS__={"html":{"lang":"en"},"body":{"data-name":"A & B","data-label":"A\u00A0B","data-copy":"©"}}',
+    );
+  });
+
+  it('should correctly handle tags containing > inside attribute quotes without corrupting the document', async () => {
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--></head><body data-label="a > b"><!--ss-outlet--></body></html>';
+    const result = await injectContent(template, '', '', {
+      bodyAttrs: { class: 'x' },
+    });
+    // Check that body tag was merged correctly and did not corrupt the markup
+    expect(result).toContain('<body data-label="a &gt; b" class="x">');
+  });
+
+  it('should fallback to injecting context scripts before </head> if the placeholder comment is missing', async () => {
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--></head><body><!--ss-outlet--></body></html>';
+    const result = await injectContent(template, '', '');
+    expect(result).toContain('window.__UNIREND_TEMPLATE_ATTRS__=');
+    expect(result).toContain('</head>');
+  });
+
+  it('should ignore body and html tags inside script and style blocks when scanning', async () => {
+    const template =
+      '<!DOCTYPE html><html><head><script>const b = "<body>";</script><style>body { content: "<body>"; }</style><!--ss-head--></head><body><!--ss-outlet--></body></html>';
+    const result = await injectContent(template, '', '', {
+      bodyAttrs: { class: 'x' },
+    });
+    // Check that it ignored the fake body tags inside script/style, and updated the actual body tag
+    expect(result).toContain('const b = "<body>";');
+    expect(result).toContain('body { content: "<body>"; }');
+    expect(result).toContain('<body class="x">');
   });
 });

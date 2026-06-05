@@ -3,6 +3,16 @@ import type { FileRoot } from '../../vfs';
 import type { LoggerFunction } from '../../types';
 
 /**
+ * cspell words that appear in the generated SSR `pages/Home.tsx` and so must be
+ * in the generated project's dictionary. Co-located with the file that emits
+ * them so the two stay in sync; the SSR `getTemplateConfig` branch folds these
+ * into its template-specific `cspellWords`.
+ *
+ * - `noreferrer` — the `rel="noreferrer"` attribute on the Unirend link.
+ */
+export const SSR_HOME_CSPELL_WORDS: string[] = ['noreferrer'];
+
+/**
  * Source for the SSR app's `pages/Home.tsx`.
  *
  * SSR-specific — lives in `templates-specific/ssr/`. Uses `useLoaderData` to
