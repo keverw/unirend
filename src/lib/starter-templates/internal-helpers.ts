@@ -18,6 +18,7 @@ import { ensureCleanCspell } from './base-files/ensure-clean-cspell';
 import type { RepoConfig, ServerBuildTarget, LoggerFunction } from './types';
 import type { TemplateID } from './consts';
 import type { FileRoot } from './vfs';
+import { buildAppEnvVarName } from './internal-utils';
 import {
   APPS_GIT_KEEP_FILE_SRC,
   LIBS_GIT_KEEP_FILE_SRC,
@@ -70,6 +71,13 @@ import { ensureSSRFooter } from './templates-specific/ssr/ssr-footer';
 import { ensureSSRHome } from './templates-specific/ssr/ssr-home';
 import { ensureSSRAbout } from './templates-specific/ssr/ssr-about';
 import { ensureSSRSimulateComponentError } from './templates-specific/ssr/ssr-simulate-component-error';
+import { ensureSSRStart } from './templates-specific/ssr/ssr-start';
+import {
+  ensureSSRGet500ErrorPage,
+  SSR_GET_500_ERROR_PAGE_CSPELL_WORDS,
+} from './templates-specific/ssr/ssr-get-500-error-page';
+import { ensureSSRThemePlugin } from './templates-specific/ssr/ssr-theme-plugin';
+import { ensureSSRComponent } from './templates-specific/ssr/ssr-component';
 
 export function createRepoConfigObject(name: string): RepoConfig {
   return {
@@ -288,14 +296,13 @@ export function getTemplateConfig(
   projectPath: string,
   serverBuildTarget: ServerBuildTarget,
 ): TemplateConfig {
-  if (templateID === 'ssg') {
-    // `serverBuildTarget` shapes the serve.ts bundle and runner choice, following
-    // the same pattern as SSR/API: target Node → `--target=node` + `node` runner;
-    // target Bun → omit `--target` + `bun` runner.
-    const isBunTarget = serverBuildTarget === 'bun';
-    const builtRunner = isBunTarget ? 'bun' : 'node';
-    const buildTargetFlag = isBunTarget ? '' : '--target=node ';
+  // Shared across all three templates: target Bun → omit `--target` + `bun` runner;
+  // target Node → `--target=node` + `node` runner.
+  const isBunTarget = serverBuildTarget === 'bun';
+  const builtRunner = isBunTarget ? 'bun' : 'node';
+  const buildTargetFlag = isBunTarget ? '' : '--target=node ';
 
+  if (templateID === 'ssg') {
     return {
       // All SSG scripts are app-named (collision = hard error). Covers the full
       // generate-and-serve lifecycle: spa-dev (Vite HMR), build (client + server
@@ -324,23 +331,40 @@ export function getTemplateConfig(
       cspellWords: [...APP_INDEX_HTML_CSPELL_WORDS],
     };
   } else if (templateID === 'ssr') {
-    // TODO: populate SSR config — same fields as SSG (projectScripts vs
-    // sharedScripts split included), plus scripts must honor
-    // `serverBuildTarget`. In practice that means two things:
-    //   1. the `bun build --target=<bun|node>` flag used to bundle the
-    //      server entries (serve-built.ts and the HMR variant), and
-    //   2. whether the run/serve scripts invoke `bun` or `node` against
-    //      the built output.
-    // The dev variant in particular is affected by the Bun HMR
-    // graceful-shutdown bug — see the "Bun HMR graceful shutdown
-    // workaround" section in raw-src-files/readme.md for which
-    // `ssr:serve:dev` variant to emit per target.
-    // gitignore/prettierignore entries should include
-    // `src/apps/<projectName>/current-build-info.ts`.
-    //
-    // TODO: populate the app-specific `projectScripts` (the `<app>:build`,
-    // `<app>:serve`, … entries) and the dependencies/cspell fields.
+    // Env var prefix for SRC_DIR — passed in the Node serve:dev script so Vite
+    // can locate source files when running from the bundled output.
+    const srcDirEnvVarName = buildAppEnvVarName(projectName, 'SRC_DIR');
+
+    // For Bun: run serve-hmr.ts directly (no build step).
+    // For Node: bundle with Bun (IS_BUILT=false + absolute --external to keep
+    // the possibly-absent build-info file out of the bundle) then run under Node
+    // with SRC_DIR set so Vite resolves source files correctly. This workaround
+    // is needed because of a Bun HMR WebSocket graceful-shutdown bug — see
+    // "Bun HMR graceful shutdown workaround" in raw-src-files/readme.md.
+    const serveDev = isBunTarget
+      ? `cd ${projectPath} && bun run serve-hmr.ts dev`
+      : `bun build ${projectPath}/serve-hmr.ts --outfile build/${projectName}/serve-hmr.js --target=node --external vite --define 'IS_BUILT=false' --external "$(pwd)/${projectPath}/current-build-info.ts" && ${srcDirEnvVarName}=$(pwd)/${projectPath} node build/${projectName}/serve-hmr.js dev`;
+
     return {
+      // All SSR app-named scripts — collision with an existing root script is a
+      // hard error. Covers the full build-and-serve lifecycle: spa-dev (Vite HMR),
+      // build (client + server + serve bundle), serve (HMR dev and built), and
+      // convenience combos.
+      projectScripts: {
+        [`${projectName}:spa-dev`]: `cd ${projectPath} && vite`,
+        [`${projectName}:build:client`]: `cd ${projectPath} && vite build --outDir ../../../build/${projectName}/client --base=/ --ssrManifest`,
+        [`${projectName}:build:server`]: `cd ${projectPath} && vite build --outDir ../../../build/${projectName}/server --ssr EntrySSR.tsx`,
+        // IS_BUILT=true bundles the build-info file generated by generate:build-info.
+        [`${projectName}:build:serve`]: `cd ${projectPath} && bun build serve-built.ts --outdir ../../../build/${projectName}/serve ${buildTargetFlag}--external vite --define 'IS_BUILT=true'`,
+        // Full build: generate build info first (always runs before bundling).
+        [`${projectName}:build`]: `bun run generate:build-info && bun run ${projectName}:build:client && bun run ${projectName}:build:server && bun run ${projectName}:build:serve`,
+        // serve:dev — Bun runs serve-hmr.ts directly; Node bundles it first (see above).
+        [`${projectName}:serve:dev`]: serveDev,
+        [`${projectName}:serve:built:dev`]: `${builtRunner} build/${projectName}/serve/serve-built.js dev`,
+        [`${projectName}:serve:built:prod`]: `${builtRunner} build/${projectName}/serve/serve-built.js prod`,
+        [`${projectName}:build-and-serve:dev`]: `bun run ${projectName}:build && bun run ${projectName}:serve:built:dev`,
+        [`${projectName}:build-and-serve:prod`]: `bun run ${projectName}:build && bun run ${projectName}:serve:built:prod`,
+      },
       // Generic build-info generator, shared by every server template (SSR,
       // API). Added only when absent (see `mergeScripts`) so a second app
       // doesn't conflict. The single `scripts/generate-build-info.ts` it runs
@@ -353,24 +377,15 @@ export function getTemplateConfig(
       // left default (`# Template-specific`).
       gitignoreEntries: [`${projectPath}/current-build-info.ts`],
       prettierignoreEntries: [`${projectPath}/current-build-info.ts`],
-      // Words from the shared index.html this template emits (see
-      // createProjectSpecificFiles). Template-specific, not a default, since
-      // only the Vite templates ship an index.html.
-      // TODO: also add 'Menlo' and 'Consolas' here once the 500 error page
-      // changes are copied to raw-src-files and ported —
-      // those font names appear in the emitted error page HTML.
-      cspellWords: [...APP_INDEX_HTML_CSPELL_WORDS],
+      // Words from the shared index.html and the 500 error page this template
+      // emits. Template-specific, not a default, since only the Vite templates
+      // ship an index.html, and Menlo/Consolas appear in get-500-error-page.ts.
+      cspellWords: [
+        ...APP_INDEX_HTML_CSPELL_WORDS,
+        ...SSR_GET_500_ERROR_PAGE_CSPELL_WORDS,
+      ],
     };
   } else if (templateID === 'api') {
-    // `serverBuildTarget` shapes the scripts to one runtime — we don't emit a
-    // variant for both. Per the toolchain convention (see the project README):
-    // target Node by passing `--target node` at bundle time and running the
-    // output with `node`; target Bun by omitting `--target` (Bun is `bun
-    // build`'s default) and running with `bun`.
-    const isBunTarget = serverBuildTarget === 'bun';
-    const builtRunner = isBunTarget ? 'bun' : 'node';
-    const buildTargetFlag = isBunTarget ? '' : '--target=node ';
-
     // A single `<app>:serve:dev`, chosen by target. Under Bun we run serve.ts
     // straight from source (no build step). For Node we bundle serve.ts with
     // Bun and run the output under Node — bundling-for-Node sidesteps the
@@ -528,6 +543,10 @@ export async function createProjectSpecificFiles(
     await ensureSSRRoutes(root, projectPath, log);
     await ensureSSRServeBuilt(root, projectPath, log);
     await ensureSSRServeHMR(root, projectPath, log);
+    await ensureSSRStart(root, projectPath, projectName, log);
+    await ensureSSRGet500ErrorPage(root, projectPath, log);
+    await ensureSSRThemePlugin(root, projectPath, log);
+    await ensureSSRComponent(root, projectPath, projectName, log);
 
     // Shared across server templates (SSR, API): the build-info generator
     // script plus this app's entry in build-info.config.json. The generated

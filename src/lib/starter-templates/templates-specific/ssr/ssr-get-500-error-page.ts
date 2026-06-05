@@ -1,4 +1,29 @@
-import type { FastifyRequest } from 'unirend/server';
+import { vfsWriteIfNotExists } from '../../vfs';
+import type { FileRoot } from '../../vfs';
+import type { LoggerFunction } from '../../types';
+
+/**
+ * Source for the SSR app's `server/get-500-error-page.ts`.
+ *
+ * SSR-specific; lives in `templates-specific/ssr/`. Generates a self-contained
+ * HTML 500 error page at request time — mirrors the SSG template's static
+ * `error-pages/500.html` style but adapted for SSR: reads the theme preference
+ * from the request context and exposes development error details (message, stack
+ * trace, request info) when `isDevelopment` is true.
+ *
+ * No per-project substitutions — fully static. Template-literal escaping
+ * required for:
+ *  • The outer `return \`...\`` backtick pair and the nested isDevelopment
+ *    ternary backtick pair (4 backtick escapes total).
+ *  • Eight runtime `\${...}` interpolations: `preference` (class attr),
+ *    `JSON.stringify(preference)` (script block), `isDevelopment` (card class),
+ *    the ternary `\${...}` block itself, `safeMessage`, `safeStack`,
+ *    `escapeHTML(request.url)`, `request.method`.
+ *  • Two `\\s` regex patterns inside the return template literal — each needs
+ *    `\\\\s` in the generator so the emitted file contains `\\s` (which the
+ *    browser evaluates to `\s` when running the inline script).
+ */
+const GET_500_ERROR_PAGE_SRC = `import type { FastifyRequest } from 'unirend/server';
 import { escapeHTML } from 'unirend/utils';
 
 /**
@@ -29,8 +54,8 @@ export function get500ErrorPage(
     ? escapeHTML(error.stack)
     : 'No stack trace available';
 
-  return `<!doctype html>
-<html lang="en"${preference === 'dark' ? ' class="dark"' : ''}>
+  return \`<!doctype html>
+<html lang="en"\${preference === 'dark' ? ' class="dark"' : ''}>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -183,7 +208,7 @@ export function get500ErrorPage(
     </style>
     <script>
       window.__FRONTEND_REQUEST_CONTEXT__ = {
-        themePreference: ${JSON.stringify(preference)}
+        themePreference: \${JSON.stringify(preference)}
       };
     </script>
     <script>
@@ -196,7 +221,7 @@ export function get500ErrorPage(
         // re-read the cookie when the tab comes back into focus.
         const valid = ['light', 'dark', 'auto'];
         const cookieMatch = document.cookie.match(
-          /(?:^|;\\s*)themePreference=([^;]+)/,
+          /(?:^|;\\\\s*)themePreference=([^;]+)/,
         );
 
         const cookiePref = valid.includes(cookieMatch?.[1])
@@ -250,41 +275,84 @@ export function get500ErrorPage(
         // Intentionally does not broadcast back, matching ThemeProvider behavior.
         document.addEventListener('visibilitychange', function () {
           if (document.visibilityState !== 'visible') return;
-          var m = document.cookie.match(/(?:^|;\\s*)themePreference=([^;]+)/);
+          var m = document.cookie.match(/(?:^|;\\\\s*)themePreference=([^;]+)/);
           applyPref((valid.includes(m?.[1]) ? m[1] : null) || 'auto');
         });
       })();
     </script>
   </head>
   <body>
-    <div class="card${isDevelopment ? ' dev-card' : ''}">
+    <div class="card\${isDevelopment ? ' dev-card' : ''}">
       <h1>500</h1>
       <h2>Server Error</h2>
       <p>Something went wrong on our end. Please try again later.</p>
       <a href="/">Go Home</a>
-      ${
+      \${
         isDevelopment
-          ? `<div class="details">
+          ? \`<div class="details">
               <h3>Development Error Details</h3>
               <div class="details-section">
                 <div class="details-label">Message:</div>
-                <div class="details-val">${safeMessage}</div>
+                <div class="details-val">\${safeMessage}</div>
               </div>
               <div class="details-section">
                 <div class="details-label">Stack Trace:</div>
-                <div class="details-val stack-trace">${safeStack}</div>
+                <div class="details-val stack-trace">\${safeStack}</div>
               </div>
               <div class="details-section">
                 <div class="details-label">Request Info:</div>
                 <div class="details-val">
-                  URL: ${escapeHTML(request.url)}<br>
-                  Method: ${request.method}
+                  URL: \${escapeHTML(request.url)}<br>
+                  Method: \${request.method}
                 </div>
               </div>
-            </div>`
+            </div>\`
           : ''
       }
     </div>
   </body>
-</html>`;
+</html>\`;
+}
+`;
+
+/**
+ * cspell words introduced by the emitted `get-500-error-page.ts` — the
+ * monospace font stack in the dev-details CSS uses Menlo and Consolas.
+ */
+export const SSR_GET_500_ERROR_PAGE_CSPELL_WORDS: string[] = [
+  'Menlo',
+  'Consolas',
+];
+
+/**
+ * Ensure an SSR app's `server/get-500-error-page.ts` exists at
+ * `${projectPath}/server/get-500-error-page.ts`.
+ * Only creates the file if it doesn't exist - never overwrites.
+ *
+ * @param root - File root (filesystem path or in-memory object)
+ * @param projectPath - Relative path to the project directory (e.g. "src/apps/my-app")
+ * @param log - Optional logger function for output
+ * @throws {Error} If file creation fails
+ */
+export async function ensureSSRGet500ErrorPage(
+  root: FileRoot,
+  projectPath: string,
+  log?: LoggerFunction,
+): Promise<void> {
+  const relPath = `${projectPath}/server/get-500-error-page.ts`;
+
+  try {
+    const didWrite = await vfsWriteIfNotExists(
+      root,
+      relPath,
+      GET_500_ERROR_PAGE_SRC,
+    );
+
+    if (didWrite && log) {
+      log('info', `Created ${relPath}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to ensure ${relPath}: ${errorMessage}`);
+  }
 }

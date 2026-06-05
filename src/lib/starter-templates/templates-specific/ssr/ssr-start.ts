@@ -1,4 +1,22 @@
+import { vfsWriteIfNotExists } from '../../vfs';
+import type { FileRoot } from '../../vfs';
+import type { LoggerFunction } from '../../types';
+
 /**
+ * Build the source for an SSR app's `server/start.ts` — the app factory used
+ * by both `serve-built.ts` and `serve-hmr.ts`.
+ *
+ * SSR-specific; lives in `templates-specific/ssr/`. The only per-project
+ * substitution is the `LifecycleManager` name: per the naming rule, the manager
+ * incorporates the app name (`${appName}-ssr-server`) while the registered
+ * component keeps its generic name (see `ssr-component.ts`). Everything else is
+ * emitted verbatim — `{{mode}}`/`{{error}}`/`{{name}}`/`{{msg}}` tokens are
+ * Lifecycleion logger param syntax, not template-literal interpolations.
+ *
+ * @param appName - The app/project name to fold into the manager name
+ */
+function buildSSRStartSrc(appName: string): string {
+  return `/**
  * App factory — creates and starts the full SSR server application lifecycle.
  * Used by both serve-hmr.ts and serve-built.ts.
  *
@@ -55,7 +73,7 @@ export async function startApp(mode: ServerMode) {
   // ─── Lifecycle manager ─────────────────────────────────────────────────────
 
   const manager = new LifecycleManager({
-    name: 'ssr-server-app',
+    name: '${appName}-ssr-server',
     logger,
     // Attach signal handlers before startup so any signal queued during
     // startAllComponents() is handled correctly once the event loop resumes.
@@ -104,5 +122,42 @@ export async function startApp(mode: ServerMode) {
       params: { mode, error },
       exitCode: 1,
     });
+  }
+}
+`;
+}
+
+/**
+ * Ensure an SSR app's `server/start.ts` exists at
+ * `${projectPath}/server/start.ts`.
+ * Only creates the file if it doesn't exist - never overwrites.
+ *
+ * @param root - File root (filesystem path or in-memory object)
+ * @param projectPath - Relative path to the project directory (e.g. "src/apps/my-app")
+ * @param appName - The app/project name, folded into the LifecycleManager name
+ * @param log - Optional logger function for output
+ * @throws {Error} If file creation fails
+ */
+export async function ensureSSRStart(
+  root: FileRoot,
+  projectPath: string,
+  appName: string,
+  log?: LoggerFunction,
+): Promise<void> {
+  const relPath = `${projectPath}/server/start.ts`;
+
+  try {
+    const didWrite = await vfsWriteIfNotExists(
+      root,
+      relPath,
+      buildSSRStartSrc(appName),
+    );
+
+    if (didWrite && log) {
+      log('info', `Created ${relPath}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to ensure ${relPath}: ${errorMessage}`);
   }
 }

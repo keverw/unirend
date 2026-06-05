@@ -21,18 +21,11 @@ This README documents:
 
 Snapshot taken June 3, 2026 at 4 PM MDT.
 
-There are **4 raw app files** left to port under `src/apps/`:
+There are **0 raw app files** left to port under `src/apps/`:
 
 - SSG: 0 files ✅
-- SSR: 4 files
-- API: 0 files
-
-Remaining SSR files:
-
-- `src/apps/ssr/server/get-500-error-page.ts`
-- `src/apps/ssr/server/plugins/theme.ts`
-- `src/apps/ssr/server/ssr-component.ts`
-- `src/apps/ssr/server/start.ts`
+- SSR: 0 files ✅
+- API: 0 files ✅
 
 ## `createProjectSpecificFiles` — implementation plan
 
@@ -356,24 +349,51 @@ Already absorbed into the SSR-specific path (`templates-specific/ssr/`):
   `useLoaderData` and displays a "From Server" line. Describes the SSR
   rendering model. Contrast with the SSG version which is fully static.
 
-Intentionally deferred from the SSR-specific path:
+Already absorbed into the SSR-specific path (`templates-specific/ssr/`), continued:
 
-- `src/apps/ssr/server/start.ts` — the app factory used by both `serve-built.ts`
-  and `serve-hmr.ts`. Only per-project substitution is the `LifecycleManager`
-  name (`${appName}-ssr-server`). Held off pending a decision on 500 error page
-  handling in `ssr-component.ts` — port once that design is settled so both
-  files can be absorbed together. Reference `templates-specific/api/api-serve.ts`
-  (`ensureAPIServe`) and `templates-specific/ssg/ssg-serve.ts` (`ensureSSGServe`)
-  for the LifecycleManager wiring pattern.
-- `src/apps/ssr/server/ssr-component.ts` — the SSR server component. When
-  porting, substitute `SSR_PORT`, `SSR_SRC_DIR`, and `SSR_DIST_DIR` with
-  app-name-derived equivalents (e.g. `MY_APP_PORT`, `MY_APP_SRC_DIR`,
-  `MY_APP_DIST_DIR`) using `buildAppEnvVarName`, matching the app-scoped env
-  vars in `api-component.ts` and `ssg-serve.ts`. Reference
-  `templates-specific/api/api-component.ts` (`ensureAPIComponent`) for the
-  server component pattern and `buildAppEnvVarName` for app-scoped env vars.
-  Do not edit the raw file — the generator's output should be diffed against
-  this reference as-is.
+- `src/apps/ssr/server/start.ts` →
+  `templates-specific/ssr/ssr-start.ts` (`ensureSSRStart`). App factory used by
+  both `serve-built.ts` and `serve-hmr.ts`. Exports `startApp(mode: ServerMode)`
+  and wires the `SSRServerComponent` into a `LifecycleManager`. Only per-project
+  substitution is the manager name: `'ssr-server-app'` → `'${appName}-ssr-server'`.
+  No template-literal escaping needed — `{{mode}}`/`{{error}}`/`{{name}}`/`{{msg}}`
+  tokens are Lifecycleion param syntax, not JS interpolations. Parity: 1
+  intentional diff (manager name).
+- `src/apps/ssr/server/get-500-error-page.ts` →
+  `templates-specific/ssr/ssr-get-500-error-page.ts`
+  (`ensureSSRGet500ErrorPage`). Generates a self-contained HTML 500 error page
+  at request time — mirrors the SSG static `error-pages/500.html` style but
+  adapted for SSR: reads the theme preference from the request context and shows
+  development error details (message, stack trace, request info) when
+  `isDevelopment` is true. No per-project substitutions — fully static.
+  Template-literal escaping required for 4 backticks (outer return template
+  literal + nested isDevelopment ternary), 8 `\${...}` runtime interpolations,
+  and 2 `\\s` regex patterns (`\\\\s` in the generator → `\\s` in the emitted
+  file, which the browser interprets as `\s` in the inline script). Parity:
+  exact match.
+- `src/apps/ssr/server/plugins/theme.ts` →
+  `templates-specific/ssr/ssr-theme-plugin.ts` (`ensureSSRThemePlugin`). Seeds
+  the theme preference from the request cookie into `requestContext` on every
+  request (`onRequest` hook), and renews the cookie with a rolling expiry on
+  responses (`onSend` hook, skipping static assets). No per-project
+  substitutions. One template-literal escape: the domain template literal
+  (`` `.\${request.domainInfo.rootDomain}` ``). Parity: exact match.
+
+- `src/apps/ssr/server/ssr-component.ts` →
+  `templates-specific/ssr/ssr-component.ts` (`ensureSSRComponent`). The SSR
+  server component — boots the Unirend SSR server, registers page-data handlers
+  and API routes, and wires graceful start/stop via `BaseComponent`. Component
+  name stays generic (`'ssr-server'`) per the naming rule. Per-project
+  substitutions via `buildAppEnvVarName`: `SSR_PORT` → `portEnvVarName` (const
+  name, env key, and all variable references), `SSR_SRC_DIR` → `srcDirEnvVarName`
+  (env key only; local const stays `SRC_DIR`), `SSR_DIST_DIR` →
+  `distDirEnvVarName` (env key; local const stays `DIST_DIR`); build path
+  `build/ssr` → `build/${appName}`; `ssr:build` script comment → `${appName}:build`.
+  Template-literal escaping for 4 backtick strings: commented-out `api_endpoint`
+  literal, `healthCheck` ternary, and two `serverLine` data loader strings.
+  Parity: 3 intentional diffs — bracket-notation env access
+  (`process.env['SSR_PORT']` vs `process.env.SSR_PORT`) following the same
+  upgrade applied in `api-component.ts`.
 
 Project-specific files (entry points, routes, build configuration, server
 scripts, generated build info) vary by template type and must be emitted by

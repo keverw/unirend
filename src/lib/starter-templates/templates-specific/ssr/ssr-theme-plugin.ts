@@ -1,4 +1,18 @@
-import type { ServerPlugin } from 'unirend/server';
+import { vfsWriteIfNotExists } from '../../vfs';
+import type { FileRoot } from '../../vfs';
+import type { LoggerFunction } from '../../types';
+
+/**
+ * Source for the SSR app's `server/plugins/theme.ts`.
+ *
+ * SSR-specific; lives in `templates-specific/ssr/`. Seeds the theme preference
+ * from the request cookie into `requestContext` on every request, and optionally
+ * renews the cookie server-side with a rolling expiry on responses (skipping
+ * static assets via the `reply.hijack()` bypass). No per-project substitutions.
+ * One template-literal escape: the domain string
+ * (`` `.\${request.domainInfo.rootDomain}` ``).
+ */
+const SSR_THEME_PLUGIN_SRC = `import type { ServerPlugin } from 'unirend/server';
 
 // Seed theme preference from cookie. Store the raw preference — the server never
 // resolves 'auto' since OS preference isn't available server-side.
@@ -52,7 +66,7 @@ export function themePlugin(): ServerPlugin {
           maxAge: 60 * 60 * 24 * 365,
           sameSite: 'lax',
           domain: request.domainInfo?.rootDomain
-            ? `.${request.domainInfo.rootDomain}`
+            ? \`.\${request.domainInfo.rootDomain}\`
             : undefined,
         });
       }
@@ -63,4 +77,38 @@ export function themePlugin(): ServerPlugin {
       dependsOn: ['cookies'], // Ensure cookies plugin is loaded first
     };
   };
+}
+`;
+
+/**
+ * Ensure an SSR app's `server/plugins/theme.ts` exists at
+ * `${projectPath}/server/plugins/theme.ts`.
+ * Only creates the file if it doesn't exist - never overwrites.
+ *
+ * @param root - File root (filesystem path or in-memory object)
+ * @param projectPath - Relative path to the project directory (e.g. "src/apps/my-app")
+ * @param log - Optional logger function for output
+ * @throws {Error} If file creation fails
+ */
+export async function ensureSSRThemePlugin(
+  root: FileRoot,
+  projectPath: string,
+  log?: LoggerFunction,
+): Promise<void> {
+  const relPath = `${projectPath}/server/plugins/theme.ts`;
+
+  try {
+    const didWrite = await vfsWriteIfNotExists(
+      root,
+      relPath,
+      SSR_THEME_PLUGIN_SRC,
+    );
+
+    if (didWrite && log) {
+      log('info', `Created ${relPath}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to ensure ${relPath}: ${errorMessage}`);
+  }
 }
