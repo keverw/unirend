@@ -15,6 +15,7 @@ const defaultScripts = {
   spellcheck: 'cspell lint "**/*.{ts,tsx,js,jsx,md,html,css,json}"',
   'cspell:clean': 'bun run scripts/clean-cspell.ts',
   'cspell:clean:fix': 'bun run scripts/clean-cspell.ts --write',
+  'list-outdated-packages': 'bun outdated',
   check:
     'bun run type-check && bun run lint && bun run spellcheck && bun test --pass-with-no-tests',
 };

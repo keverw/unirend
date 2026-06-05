@@ -77,6 +77,7 @@
     "spellcheck": "cspell lint \"**/*.{ts,tsx,js,jsx,md,html,css,json}\"",
     "cspell:clean": "bun run scripts/clean-cspell.ts",
     "cspell:clean:fix": "bun run scripts/clean-cspell.ts --write",
+    "list-outdated-packages": "bun outdated",
     "update-docs": "markdown-toc-gen update README.md && bun run scripts/update-readme-version.ts && markdown-toc-gen update changelog.md && markdown-toc-gen update unirend-php/README.md && find docs -type f -name '*.md' -print0 | xargs -0 -n1 markdown-toc-gen update && bun run format:docs",
     "format:docs": "prettier --write README.md changelog.md \"docs/**/*.md\" \"unirend-php/README.md\"",
     "ssg:spa-dev": "cd demos/ssg && vite",

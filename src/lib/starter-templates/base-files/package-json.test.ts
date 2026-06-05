@@ -61,6 +61,7 @@ describe('ensurePackageJSON', () => {
       expect(pkg.scripts.spellcheck).toBeDefined();
       expect(pkg.scripts['cspell:clean']).toBeDefined();
       expect(pkg.scripts['cspell:clean:fix']).toBeDefined();
+      expect(pkg.scripts['list-outdated-packages']).toBe('bun outdated');
       expect(pkg.scripts.check).toBe(
         'bun run type-check && bun run lint && bun run spellcheck && bun test --pass-with-no-tests',
       );
