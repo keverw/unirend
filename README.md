@@ -60,15 +60,14 @@ Note: Always include `--external vite` when bundling your server entry with `bun
 
 Note: Running the SSR dev server under Bun may stall graceful shutdown. The Vite HMR WebSocket server can fail to close cleanly under Bun, compared to Node. The same style of issue is described in [docs/websockets.md](docs/websockets.md), along with the Node-based workaround covered in [docs/ssr.md](docs/ssr.md).
 
-CLI note: The Unirend project generator (CLI) requires Bun for a simple, out‑of‑the‑box experience. Generated projects use Bun for development and build tooling, and target Node by default at bundle time (`bun build --target node --external vite`). As Node tooling continues to improve, we may add first-class Node CLI support in the future.
-
-Repo auto‑init: The CLI sets up a repository structure that supports multiple projects in one workspace. You can initialize it explicitly with `init-repo`, but if it’s missing when you run `create`, Unirend will set it up automatically with a sensible default.
+CLI note: The Unirend project generator (CLI) requires Bun for a simple, out‑of‑the‑box experience. Generated projects use Bun for development and build tooling, and target Node by default at bundle time (`bun build --target node --external vite`). As Node tooling continues to improve, we may add first-class Node CLI support in the future. See the [Starter Templates & CLI](#starter-templates--cli) section below for the generator and available templates.
 
 <!-- toc -->
 
 - [Installation](#installation)
   - [Runtime Requirements](#runtime-requirements)
   - [Toolchain Recommendation](#toolchain-recommendation)
+- [Starter Templates & CLI](#starter-templates--cli)
 - [Common Setup for SSG (Static Site Generation) or SSR (Server-Side Rendering)](#common-setup-for-ssg-static-site-generation-or-ssr-server-side-rendering)
   - [Prepare Client Frontend](#prepare-client-frontend)
   - [Prepare Vite Config and Entry Points](#prepare-vite-config-and-entry-points)
@@ -98,6 +97,33 @@ Repo auto‑init: The CLI sets up a repository structure that supports multiple 
 - [Utilities](#utilities)
 
 <!-- tocstop -->
+
+## Starter Templates & CLI
+
+The fastest way to start is the `unirend` CLI, which scaffolds a working SSG,
+SSR, or API project so you can skip the manual setup below:
+
+```bash
+# Recommended: bunx downloads unirend if it isn't installed
+bunx unirend create ssg my-blog
+```
+
+The command above sets up a workspace repo that supports multiple projects in one workspace,
+writes the project files into `src/apps/my-blog`, wires up `package.json`
+scripts, and installs dependencies. You can initialize the repo explicitly with
+`bunx unirend init-repo`, or let `create` set it up automatically with the
+default name (`unirend-projects`) if it isn't there yet. The CLI requires Bun, and generated projects
+target Node by default.
+
+See [docs/starter-templates.md](docs/starter-templates.md) for the full CLI
+reference, the available templates, and what each one generates (with a
+files-to-customize list and next-steps checklist per template). The same
+generator is available as a library for integrating into other tools. See
+[docs/starter-templates-api.md](docs/starter-templates-api.md).
+
+The rest of this README covers the framework APIs (data loaders, error handling,
+file uploads, and more) as well as the manual setup steps. This is useful whether
+you're using the CLI templates or building from scratch.
 
 ## Common Setup for SSG (Static Site Generation) or SSR (Server-Side Rendering)
 

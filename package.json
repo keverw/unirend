@@ -115,6 +115,8 @@
     "ws-test": "bun run scripts/test-ws-build.ts",
     "run-dist-cli": "bun ./dist/cli/cli.js",
     "run-dev-cli": "bun run src/cli.ts",
+    "test-cli-delegate-newer": "UNIREND_DELEGATED_FROM=99.99.99 bun run src/cli.ts version",
+    "test-cli-delegate-older": "UNIREND_DELEGATED_FROM=0.0.0 bun run src/cli.ts version",
     "dump-error-pages": "bun run scripts/dump-error-pages.ts"
   },
   "keywords": [

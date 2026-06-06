@@ -15,7 +15,7 @@
       - [IP Behind a Reverse Proxy](#ip-behind-a-reverse-proxy)
       - [Level Config](#level-config)
       - [Client Abort Handling](#client-abort-handling)
-      - [Fire-And-Forget Work Inside Hooks](#fire-and-forget-work-inside-hooks)
+      - [Fire-and-Forget Work Inside Hooks](#fire-and-forget-work-inside-hooks)
       - [Runtime Config Updates](#runtime-config-updates)
       - [Pattern: DB Request Tracing](#pattern-db-request-tracing)
 - [HTTPS Configuration](#https-configuration)
@@ -463,7 +463,7 @@ accessLog: {
 
 `onResponse` fires for both normal completion and client disconnects (when the client disconnects before the response finishes). Use `context.finishType` (`'completed'` | `'aborted'`) to distinguish. The `{{finishType}}` template variable is also available.
 
-##### Fire-And-Forget Work Inside Hooks
+##### Fire-and-Forget Work Inside Hooks
 
 `onRequest` and `onResponse` are both awaited by the framework. If you intentionally start background work inside either hook, handle errors explicitly so failures are not lost:
 
@@ -1466,7 +1466,7 @@ A single `SSRServer` instance can serve **multiple distinct React applications**
 
 ### Monorepo Structure Tip
 
-We recommend moving the default app's source into its own subfolder so it stays separate from the shared server code (plugins, start script, etc.) that lives at the root. Build output follows the same convention as the rest of the templates — everything goes under `build/<app-name>/` at the repo root (already gitignored), with per-app subfolders inside it. A clean layout looks like this:
+We recommend moving the default app's source into its own subfolder so it stays separate from the shared server code (plugins, start script, etc.) that lives at the root. Build output follows the same convention as the rest of the templates. Everything goes under `build/<app-name>/` at the repo root (already gitignored), with per-app subfolders inside it. A clean layout looks like this:
 
 ```
 src/apps/my-app/
@@ -1501,7 +1501,7 @@ Build scripts chain each app's client and server builds back to back. The serve 
 
 Keep the SSR starter template's serve build and run scripts in place alongside the per-app bundle scripts.
 
-If you started from the SSR starter template (which puts source at the folder root), moving the default app into a subfolder is a manual step — update the Vite config paths and serve entry accordingly. The framework has no opinion on folder layout.
+If you started from the SSR starter template (which puts source at the folder root), moving the default app into a subfolder is a manual step. Update the Vite config paths and serve entry accordingly. The framework has no opinion on folder layout.
 
 **If you use the build info option:** add an entry to `build-info.config.json` for each new app's `current-build-info.ts` output path, and add those paths to `.gitignore` and `.prettierignore` so the generated files are excluded.
 

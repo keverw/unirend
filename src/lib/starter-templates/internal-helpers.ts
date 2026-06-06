@@ -341,12 +341,14 @@ export function getTemplateConfig(
     // can locate source files when running from the bundled output.
     const srcDirEnvVarName = buildAppEnvVarName(projectName, 'SRC_DIR');
 
-    // For Bun: run serve-hmr.ts directly (no build step).
-    // For Node: bundle with Bun (IS_BUILT=false + absolute --external to keep
-    // the possibly-absent build-info file out of the bundle) then run under Node
-    // with SRC_DIR set so Vite resolves source files correctly. This workaround
-    // is needed because of a Bun HMR WebSocket graceful-shutdown bug — see
-    // "Bun HMR graceful shutdown workaround" in raw-src-files/readme.md.
+    // A single `<app>:serve:dev`, chosen by target. Under Bun we run
+    // serve-hmr.ts directly (no build step). For Node we bundle serve-hmr.ts
+    // with Bun and run the output under Node — bundling-for-Node sidesteps
+    // Bun-native runtime quirks (see docs/websockets.md, the SSR scripts note
+    // in docs/starter-templates.md, and Toolchain Recommendation in README.md).
+    // IS_BUILT=false plus the absolute `--external` keeps Bun from bundling the
+    // possibly-absent build-info file; SRC_DIR is set so Vite resolves source
+    // files correctly.
     const serveDev = isBunTarget
       ? `cd ${projectPath} && bun run serve-hmr.ts dev`
       : `bun build ${projectPath}/serve-hmr.ts --outfile build/${projectName}/serve-hmr.js --target=node --external vite --define 'IS_BUILT=false' --external "$(pwd)/${projectPath}/current-build-info.ts" && ${srcDirEnvVarName}=$(pwd)/${projectPath} node build/${projectName}/serve-hmr.js dev`;
@@ -396,10 +398,11 @@ export function getTemplateConfig(
   } else if (templateID === 'api') {
     // A single `<app>:serve:dev`, chosen by target. Under Bun we run serve.ts
     // straight from source (no build step). For Node we bundle serve.ts with
-    // Bun and run the output under Node — bundling-for-Node sidesteps the
-    // Bun-native runtime quirks. IS_BUILT=false plus the absolute
-    // `--external` keep Bun from bundling the possibly-absent generated
-    // build-info file.
+    // Bun and run the output under Node — bundling-for-Node sidesteps Bun-native
+    // runtime quirks (see docs/websockets.md, the API scripts note in
+    // docs/starter-templates.md, and Toolchain Recommendation in README.md).
+    // IS_BUILT=false plus the absolute `--external` keeps Bun from bundling the
+    // possibly-absent generated build-info file.
     const serveDev = isBunTarget
       ? `cd ${projectPath} && bun run serve.ts dev`
       : `bun build ${projectPath}/serve.ts --outfile build/${projectName}/serve.js --target=node --external vite --define 'IS_BUILT=false' --external "$(pwd)/${projectPath}/current-build-info.ts" && node build/${projectName}/serve.js dev`;
@@ -507,9 +510,6 @@ export async function createProjectSpecificFiles(
     await ensureSSG500HTML(root, projectPath, log);
     await ensureSSGGenerate(root, projectPath, projectName, log);
   } else if (templateID === 'ssr') {
-    // TODO: emit SSR files — server/start.ts, server/ssr-component.ts,
-    // server/plugins/**, pages/.
-    // See raw-src-files/src/apps/ssr/** for reference source.
     // `serverBuildTarget` affects the build scripts and runner choice —
     // see the SSR branch of `getTemplateConfig` above for what it
     // controls in practice.

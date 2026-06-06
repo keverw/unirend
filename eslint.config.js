@@ -23,11 +23,6 @@ export default [
       '**/node_modules/**',
       // Repo-specific: Composer dependencies for the unirend-php companion package
       'unirend-php/vendor/**',
-      // Starter template raw source files — see readme.md
-      // there. Excluded for the same reason as in tsconfig/.prettierignore:
-      // these files reference subpath exports (unirend/server, etc.) that only
-      // resolve in downstream consumers, not within this package.
-      'src/lib/starter-templates/raw-src-files/**',
       // Config files
       '*.config.js',
       '*.config.mjs',

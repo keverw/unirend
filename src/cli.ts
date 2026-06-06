@@ -26,7 +26,9 @@
  *   As Node tooling evolves, we may revisit a Node-focused CLI path.
  */
 
-import { join, resolve, isAbsolute } from 'path';
+import { join, dirname, parse as parsePath, resolve, isAbsolute } from 'path';
+import { existsSync, readFileSync, realpathSync } from 'fs';
+import { spawnSync } from 'child_process';
 import { homedir } from 'os';
 import {
   createProject,
@@ -40,6 +42,7 @@ import type { LogLevel, TemplateID } from './starter-templates';
 import { PKG_VERSION } from './version';
 import { parseCLIArgs, generateHelpText } from './lib/cli-helpers';
 import type { CommandInfo } from './lib/cli-helpers';
+import { gt as semverGt } from 'semver';
 // ANSI color codes
 const colors = {
   reset: '\u001b[0m',
@@ -101,6 +104,49 @@ const colorPrint = (level: LogLevel, message: string) => {
   }
 };
 
+// Walk up from CWD to find a local node_modules/unirend installation.
+// Returns the binary path and version string, or null if none is found.
+// Walking up (rather than just checking CWD) handles the case where the
+// CLI is run from a subdirectory of the workspace root.
+function findLocalUnirend(): { binPath: string; version: string } | null {
+  let dir = process.cwd();
+  const { root } = parsePath(dir);
+
+  while (true) {
+    const binPath = join(dir, 'node_modules', '.bin', 'unirend');
+    const pkgPath = join(dir, 'node_modules', 'unirend', 'package.json');
+
+    // Require both so we can read the version — bin alone isn't enough.
+    if (existsSync(binPath) && existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as {
+          version?: string;
+        };
+
+        if (typeof pkg.version === 'string') {
+          return { binPath, version: pkg.version };
+        }
+      } catch {
+        // unreadable package.json — skip this directory and keep walking up
+      }
+    }
+
+    if (dir === root) {
+      break;
+    }
+
+    const parent = dirname(dir);
+
+    if (parent === dir) {
+      break;
+    }
+
+    dir = parent;
+  }
+
+  return null;
+}
+
 // Parse command line arguments
 const args = process.argv.slice(2);
 
@@ -124,6 +170,59 @@ if (!isBun) {
   );
 
   process.exit(1);
+}
+
+// Delegate to a local unirend installation when the version differs from the
+// one bunx downloaded. Set UNIREND_NO_DELEGATE=1 to skip (escape hatch, and
+// also prevents re-exec loops when the local binary calls back into itself).
+// Skip delegation when running from a .ts source file (dev mode).
+if (
+  !process.env.UNIREND_NO_DELEGATE &&
+  !(process.argv[1] ?? '').endsWith('.ts')
+) {
+  // Look for a local unirend install. If one is found and its version differs
+  // from the version bunx pulled down (in either direction), delegate to it so
+  // the project always uses the version it was scaffolded with.
+  const local = findLocalUnirend();
+
+  // Any version difference triggers delegation — not just "local is older".
+  // This ensures the project's pinned version is always what actually runs.
+  if (local && local.version !== PKG_VERSION) {
+    let isSelf = false;
+
+    try {
+      isSelf =
+        realpathSync(local.binPath) === realpathSync(process.argv[1] ?? '');
+    } catch {
+      // can't resolve — assume not self, proceed with delegation
+    }
+
+    if (!isSelf) {
+      const result = spawnSync(local.binPath, process.argv.slice(2), {
+        stdio: 'inherit',
+        // UNIREND_NO_DELEGATE prevents re-exec loops.
+        // UNIREND_DELEGATED_FROM lets the local binary show which bunx version
+        // invoked it (useful in `version` output to flag if bunx is newer).
+        env: {
+          ...process.env,
+          UNIREND_NO_DELEGATE: '1',
+          UNIREND_DELEGATED_FROM: PKG_VERSION,
+        },
+      });
+
+      if (result.error) {
+        colorPrint(
+          'error',
+          `Failed to run local unirend at ${local.binPath}: ${result.error.message}`,
+        );
+        process.exit(1);
+      }
+
+      // Forward the delegated process status; if it was terminated without a
+      // numeric exit code, treat delegation as failed.
+      process.exit(result.status ?? 1);
+    }
+  }
 }
 
 function showHelp(errorMessage?: string) {
@@ -158,16 +257,16 @@ function showHelp(errorMessage?: string) {
   ];
 
   const examples = [
-    'unirend init-repo',
-    'unirend init-repo ./my-workspace',
-    'unirend init-repo --name my-workspace',
-    'unirend init-repo ./projects --name my-workspace',
-    'unirend create ssg my-blog',
-    'unirend create ssr my-app ./projects',
-    'unirend create api my-api-server',
-    'unirend list',
-    'unirend help',
-    'unirend version',
+    'bunx unirend init-repo',
+    'bunx unirend init-repo ./my-workspace',
+    'bunx unirend init-repo --name my-workspace',
+    'bunx unirend init-repo ./projects --name my-workspace',
+    'bunx unirend create ssg my-blog',
+    'bunx unirend create ssr my-app ./projects',
+    'bunx unirend create api my-api-server',
+    'bunx unirend list',
+    'bunx unirend help',
+    'bunx unirend version',
   ];
 
   const helpText = generateHelpText(
@@ -194,6 +293,33 @@ function showHelp(errorMessage?: string) {
 
 function showVersion() {
   print(`unirend v${PKG_VERSION}`);
+
+  const delegatedFrom = process.env.UNIREND_DELEGATED_FROM;
+
+  if (delegatedFrom) {
+    // We are the local binary — show which bunx version invoked us.
+    print(`  source: local (node_modules/unirend)`);
+    if (semverGt(delegatedFrom, PKG_VERSION)) {
+      print(
+        `  bunx version: v${delegatedFrom} (newer — run: bun update unirend)`,
+      );
+    } else if (delegatedFrom !== PKG_VERSION) {
+      print(`  bunx version: v${delegatedFrom}`);
+    }
+  } else {
+    // Running directly without delegation — check for a local install and show
+    // the comparison.
+    const local = findLocalUnirend();
+    if (local && local.version === PKG_VERSION) {
+      print(`  local repo: v${local.version} (matches)`);
+    } else if (local) {
+      // Versions differ but delegation was skipped (such as dev mode).
+      // Warn so it's obvious the running version isn't the local one.
+      print(
+        `  local repo: v${local.version} (differs — running bunx version, not local)`,
+      );
+    }
+  }
 }
 
 // Main CLI function
@@ -244,7 +370,7 @@ async function main() {
     if (initResult.success) {
       colorPrint('info', '');
       colorPrint('info', 'You can now create projects in this repo:');
-      colorPrint('info', '  unirend create ssg my-blog');
+      colorPrint('info', '  bunx unirend create ssg my-blog');
       process.exit(0);
     } else {
       // initRepo already logged the error details, just exit with error code
