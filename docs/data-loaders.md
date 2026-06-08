@@ -11,6 +11,8 @@ Unirend centralizes route data fetching through a single loader system. Define l
 - [Page Type Handler (Fetch/Short-Circuit) Data Loader](#page-type-handler-fetchshort-circuit-data-loader)
 - [Local Data Loader](#local-data-loader)
 - [Using Loaders in React Router (Applies to Both Types)](#using-loaders-in-react-router-applies-to-both-types)
+  - [Reading Loader Data](#reading-loader-data)
+  - [Loading Indicators](#loading-indicators)
 - [Query Parameters](#query-parameters)
 - [Data Loader Error Transformation and Additional Config](#data-loader-error-transformation-and-additional-config)
   - [`errorDefaults` Presets](#errordefaults-presets)
@@ -178,6 +180,10 @@ Configuration (Local Loader):
 
 ## Using Loaders in React Router (Applies to Both Types)
 
+Both loader types integrate with React Router components the same way: register the loader on a route, read the envelope in the component, and optionally show a loading indicator during client-side navigation.
+
+### Reading Loader Data
+
 Register the loader on the route, then read the envelope in the component with `useLoaderData()`:
 
 ```ts
@@ -215,6 +221,26 @@ Pass the envelope interface as a type parameter to `useLoaderData<T>()`. Declare
 Note: type `T` for the success shape. Error envelopes may still appear in route data (especially rendered page error envelopes), so handle them with `RouteErrorBoundary` and `useDataLoaderEnvelopeError` before assuming the success shape. See [Error Handling (README)](../README.md#error-handling).
 
 `meta.page` comes from the `pageMetadata` returned by your handler or local loader. Pass it to `UnirendHead` for dynamic page titles. See [UnirendHead - Hardcoded vs loader-driven titles](./unirendhead.md#hardcoded-vs-loader-driven-titles).
+
+### Loading Indicators
+
+To show a loading indicator while a loader is fetching during client-side navigation, use React Router's `useNavigation()` hook. `navigation.state` becomes `"loading"` while any active loader is running:
+
+```tsx
+import { Outlet, useNavigation } from 'react-router';
+
+function Layout() {
+  const navigation = useNavigation();
+  return (
+    <>
+      {navigation.state === 'loading' && <div className="loading-bar" />}
+      <Outlet />
+    </>
+  );
+}
+```
+
+This hook is client-side only and does not apply during SSR.
 
 ## Query Parameters
 
