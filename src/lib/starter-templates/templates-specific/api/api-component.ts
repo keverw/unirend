@@ -199,6 +199,41 @@ export class APIServerComponent extends BaseComponent {
           //   });
           // },
 
+          // ─── Closing handler ────────────────────────────────────────────────────
+          // Customize the response returned to clients that arrive while the server
+          // is shutting down. When omitted, Unirend sends a default 503 response.
+          //
+          // Function form handles API requests. Split form separates API and web handlers
+          // for mixed servers (when serving both API routes and web pages on the same port).
+          // Missing handlers fall back to the default 503 response.
+          // See: https://github.com/keverw/unirend/blob/master/docs/ssr.md
+          //
+          // closingHandler: (request, isPageData) => {
+          //   return APIResponseHelpers.createAPIErrorResponse({
+          //     request,
+          //     statusCode: 503,
+          //     errorCode: 'service_unavailable',
+          //     errorMessage: 'Server is shutting down. Please try again shortly.',
+          //   });
+          // },
+          //
+          // Split form (when mixing API and web routes on the same port):
+          // closingHandler: {
+          //   api: (request, isPageData) => {
+          //     return APIResponseHelpers.createAPIErrorResponse({
+          //       request,
+          //       statusCode: 503,
+          //       errorCode: 'service_unavailable',
+          //       errorMessage: 'Server is shutting down. Please try again shortly.',
+          //     });
+          //   },
+          //   web: (_request) => ({
+          //     contentType: 'html',
+          //     content: '<html><body>Server shutting down. Try again shortly.</body></html>',
+          //     statusCode: 503,
+          //   }),
+          // },
+
           // ─── WebSocket support ───────────────────────────────────────────────────
           // Uncomment to enable WebSockets on the API server.
           // Bun caveat: preClose and preValidation hooks may hang when run directly under Bun.

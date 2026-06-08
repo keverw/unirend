@@ -1,25 +1,25 @@
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { createTempDir } from 'lifecycleion/tmp-dir';
+import type { TmpDir } from 'lifecycleion/tmp-dir';
 import { loadBuildInfo, DEFAULT_BUILD_INFO } from './load';
 import type { BuildInfo } from './types';
 
 describe('build-info load', () => {
+  let tmpDir: TmpDir;
   let tempDir: string;
 
   beforeEach(async () => {
-    // Create a temporary directory for each test
-    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'build-info-test-'));
+    tmpDir = await createTempDir({
+      prefix: 'build-info-test-',
+      unsafeCleanup: true,
+    });
+    tempDir = tmpDir.path;
   });
 
   afterEach(async () => {
-    // Clean up temporary directory
-    try {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    } catch {
-      // Ignore cleanup errors
-    }
+    await tmpDir.cleanup();
   });
 
   describe('loadBuildInfo', () => {

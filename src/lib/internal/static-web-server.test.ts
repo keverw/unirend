@@ -3,10 +3,10 @@ import { StaticWebServer } from './static-web-server';
 import { StaticContentCache } from './static-content-cache';
 import { cors } from '../built-in-plugins/cors';
 import { overrideDevMode } from 'lifecycleion/dev-mode';
+import { createTempDir } from 'lifecycleion/tmp-dir';
 import fs from 'fs';
 import getPort from 'get-port';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
@@ -920,11 +920,13 @@ describe('StaticWebServer', () => {
     it('keeps static GET, HEAD, and 304 compression behavior aligned on a live server', async () => {
       (fs.promises as { readFile: unknown }).readFile = originalReadFile;
 
-      const tempBuildDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'unirend-static-compression-'),
-      );
+      const compressionTmpDir = await createTempDir({
+        prefix: 'unirend-static-compression-',
+        unsafeCleanup: true,
+      });
 
       try {
+        const tempBuildDir = compressionTmpDir.path;
         const html = `<html><body>${'hello world '.repeat(400)}</body></html>`;
         fs.writeFileSync(
           path.join(tempBuildDir, 'page-map.json'),
@@ -987,7 +989,7 @@ describe('StaticWebServer', () => {
         expect(notModifiedResponse.headers.etag).toBe(getResponse.headers.etag);
         expect(notModifiedResponse.body.length).toBe(0);
       } finally {
-        fs.rmSync(tempBuildDir, { recursive: true, force: true });
+        await compressionTmpDir.cleanup();
         (fs.promises as { readFile: unknown }).readFile = mockReadFile;
       }
     });

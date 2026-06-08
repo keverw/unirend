@@ -197,6 +197,37 @@ export class SSRServerComponent extends BaseComponent {
           // resolvePageDataFetch: ({ pageType, baseURL, fastifyRequest }) => {
           //   return { baseURL: 'http://internal-api:8080', dispatcher: myAgent };
           // },
+          //
+          // Closing handler — customize the response returned to clients that arrive while
+          // the server is shutting down. When omitted, Unirend sends a default 503 response.
+          //
+          // Function form handles web requests. Split form separates web and API handlers for
+          // mixed SSR + API servers (when apiEndpointPrefix is set and API routes are enabled).
+          // Missing handlers fall back to the default 503 response.
+          // See: https://github.com/keverw/unirend/blob/master/docs/ssr.md
+          //
+          // closingHandler: (_request) => ({
+          //   contentType: 'html',
+          //   content: '<html><body>Server shutting down. Try again shortly.</body></html>',
+          //   statusCode: 503,
+          // }),
+          //
+          // Split form (when mixing web pages and API routes on the same SSR server):
+          // closingHandler: {
+          //   web: (_request) => ({
+          //     contentType: 'html',
+          //     content: '<html><body>Server shutting down. Try again shortly.</body></html>',
+          //     statusCode: 503,
+          //   }),
+          //   api: (request, isPageData) => {
+          //     return APIResponseHelpers.createAPIErrorResponse({
+          //       request,
+          //       statusCode: 503,
+          //       errorCode: 'service_unavailable',
+          //       errorMessage: 'Server is shutting down. Please try again shortly.',
+          //     });
+          //   },
+          // },
         };
 
         // This level controls the adapter's gate — what Fastify passes to the Lifecycleion
