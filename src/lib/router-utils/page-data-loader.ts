@@ -185,7 +185,7 @@ import type {
   BaseMeta,
   APIResponseEnvelope,
 } from '../api-envelope/api-envelope-types';
-import type { SSRHelpers } from '../types';
+import type { SSRHelpers, PageDataFetchOverrides } from '../types';
 import { getDevMode } from 'lifecycleion/dev-mode';
 import {
   createBaseHeaders,
@@ -454,6 +454,11 @@ async function pageDataLoader({
             );
           }
 
+          SSRHelpers?.fastifyRequest?.log?.error(
+            { err: internalError },
+            `[pageDataLoader] Internal handler error for ${pageType}; converting to 500`,
+          );
+
           // Choose a clearer message for internal handler timeouts vs. generic internal errors
           const isHandlerTimeout =
             internalError instanceof Error &&
@@ -538,13 +543,76 @@ async function pageDataLoader({
         headers.set('Accept-Language', acceptLanguage);
       }
 
+      // Allow the server to rewrite the target URL or inject a custom Undici
+      // dispatcher (e.g. for TLS over a private network or internal load balancing).
+      // Errors from the resolver are caught and converted to 500 envelopes so a
+      // misconfigured resolver never causes an unhandled rejection.
+      let effectiveEndpoint = apiEndpoint;
+      let fetchDispatcher: unknown = undefined;
+
+      if (SSRHelpers?.resolvePageDataFetch) {
+        // Assign to a local so TypeScript narrows the type after the truthy guard —
+        // calling through the optional chain directly defeats ESLint's type resolution.
+        const resolve = SSRHelpers.resolvePageDataFetch;
+
+        try {
+          const overrides: PageDataFetchOverrides = await resolve({
+            pageType,
+            baseURL: APIBaseURL,
+            fastifyRequest: SSRHelpers.fastifyRequest,
+          });
+
+          if (overrides.baseURL) {
+            effectiveEndpoint = `${overrides.baseURL}${pageDataEndpoint}/${pageType}`;
+          }
+
+          fetchDispatcher = overrides.dispatcher;
+        } catch (resolveError) {
+          if (DEBUG_PAGE_LOADER) {
+            // eslint-disable-next-line no-console
+            console.error(
+              `[pageDataLoader] resolvePageDataFetch threw for ${pageType}; returning 500`,
+              resolveError,
+            );
+          }
+
+          SSRHelpers?.fastifyRequest?.log?.error(
+            { err: resolveError },
+            `[pageDataLoader] resolvePageDataFetch threw for ${pageType}; returning 500`,
+          );
+
+          return decorateWithSsrOnlyData(
+            createErrorResponse(
+              config,
+              500,
+              config.errorDefaults.internalError.code,
+              config.errorDefaults.internalError.message,
+              undefined,
+              undefined,
+              isDevelopment
+                ? resolveError instanceof Error
+                  ? {
+                      name: resolveError.name,
+                      message: resolveError.message,
+                      stack: resolveError.stack,
+                    }
+                  : { value: String(resolveError) }
+                : undefined,
+            ),
+            {},
+          );
+        }
+      }
+
+      // Fetch page data from the API server (effectiveEndpoint may be rewritten by resolvePageDataFetch)
       const response = await fetchWithTimeout(
-        apiEndpoint,
+        effectiveEndpoint,
         {
           method: 'POST',
           headers,
           body: JSON.stringify(requestBody),
           redirect: 'manual', // Don't automatically follow redirects
+          ...(fetchDispatcher ? { dispatcher: fetchDispatcher } : {}),
         },
         config.timeoutMS ?? DEFAULT_TIMEOUT_MS,
       );
@@ -610,6 +678,11 @@ async function pageDataLoader({
       // eslint-disable-next-line no-console
       console.error('Error fetching page data:', error);
     }
+
+    SSRHelpers?.fastifyRequest?.log?.error(
+      { err: error },
+      `[pageDataLoader] Failed to fetch page data for ${pageType}`,
+    );
 
     // Check for common connection errors
     const errorMessage =

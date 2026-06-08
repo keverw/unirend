@@ -188,6 +188,15 @@ export class SSRServerComponent extends BaseComponent {
           //   },
           //   notFoundHandler: (request, isPageData) => { ... },
           // },
+          //
+          // Advanced: resolvePageDataFetch rewrites the API base URL per-request (load balancing)
+          // or passes a custom Undici dispatcher for private-network TLS.
+          // Only fires when SSR and API are on separate servers — handlers registered on the same
+          // SSR server short-circuit in-process and bypass this entirely.
+          // See: https://github.com/keverw/unirend/blob/master/docs/ssr.md
+          // resolvePageDataFetch: ({ pageType, baseURL, fastifyRequest }) => {
+          //   return { baseURL: 'http://internal-api:8080', dispatcher: myAgent };
+          // },
         };
 
         // This level controls the adapter's gate — what Fastify passes to the Lifecycleion

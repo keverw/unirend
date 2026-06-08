@@ -917,6 +917,42 @@ describe('HTTP-backed page data loader', () => {
     });
   });
 
+  it('initializes requestContext when missing before merging ssr_request_context', async () => {
+    const baseURL = startServer(() =>
+      Response.json(
+        createPageEnvelope({
+          request_id: 'req_init_context',
+          ssr_request_context: { locale: 'fr-FR' },
+        }),
+      ),
+    );
+
+    const loader = createPageDataLoader(
+      createDefaultPageDataLoaderConfig(baseURL),
+      'home',
+    );
+
+    const request = new Request('https://app.example.com/home');
+    const fastifyRequest: Record<string, unknown> = {}; // no requestContext yet
+
+    (
+      request as Request & {
+        SSRHelpers?: Record<string, unknown>;
+      }
+    ).SSRHelpers = { fastifyRequest };
+
+    const result = (await loader({
+      ...createArgs(),
+      request,
+    })) as Record<string, any>;
+
+    expect(result.status).toBe('success');
+    expect(
+      (fastifyRequest as { requestContext?: Record<string, unknown> })
+        .requestContext,
+    ).toEqual({ locale: 'fr-FR' });
+  });
+
   it('skips sending empty ssr_request_context objects to the HTTP page data endpoint', async () => {
     const baseURL = startServer(async (request) => {
       const body = await request.json();
@@ -1041,6 +1077,39 @@ describe('HTTP-backed page data loader', () => {
     );
     expect(result.error?.details?.errorCode).toBe('handler_timeout');
     expect(result.error?.details?.timeoutMS).toBe(25);
+  });
+
+  it('omits error details for internal SSR short-circuit failures in production mode', async () => {
+    const loader = createPageDataLoader(
+      createDefaultPageDataLoaderConfig('http://api.example.com'),
+      'home',
+    );
+
+    const request = new Request('https://app.example.com/home');
+
+    (
+      request as Request & {
+        SSRHelpers?: Record<string, unknown>;
+      }
+    ).SSRHelpers = {
+      handlers: {
+        hasHandler: () => true,
+        callHandler: () => {
+          throw new Error('Secret internal detail');
+        },
+      },
+      fastifyRequest: {},
+      controlledReply: {},
+    };
+
+    const result = (await loader({
+      ...createArgs(),
+      request,
+    })) as Record<string, any>;
+
+    expect(result.status).toBe('error');
+    expect(result.status_code).toBe(500);
+    expect(result.error?.details).toBeUndefined();
   });
 
   it('stringifies non-Error internal SSR short-circuit failures in development mode', async () => {
@@ -1207,6 +1276,293 @@ describe('HTTP-backed page data loader', () => {
     expect(result.status_code).toBe(500);
     expect(result.error?.message).toBe('Client fetch failed');
     expect(result.error?.details).toBeUndefined();
+  });
+
+  describe('resolvePageDataFetch', () => {
+    it('rewrites the target URL when resolvePageDataFetch returns a baseURL', async () => {
+      const baseURL = startServer(() =>
+        Response.json(
+          createPageEnvelope({
+            request_id: 'req_rewritten',
+            data: { rewritten: true },
+          }),
+        ),
+      );
+
+      // Config points somewhere else, that will not resolve on its own
+      // resolvePageDataFetch redirects it to the real server
+      const loader = createPageDataLoader(
+        createDefaultPageDataLoaderConfig('http://original-api.internal:9999'),
+        'home',
+      );
+
+      const request = new Request('https://app.example.com/home');
+      (
+        request as Request & { SSRHelpers?: Record<string, unknown> }
+      ).SSRHelpers = {
+        handlers: { hasHandler: () => false },
+        fastifyRequest: {},
+        controlledReply: {},
+        resolvePageDataFetch: () => ({ baseURL }),
+      };
+
+      const result = (await loader({
+        ...createArgs(),
+        request,
+      })) as Record<string, any>;
+
+      expect(result.status).toBe('success');
+      expect(result.data).toEqual({ rewritten: true });
+    });
+
+    it('passes the dispatcher to the fetch call', async () => {
+      const fetchMock = mock(() =>
+        Promise.resolve(
+          Response.json(createPageEnvelope({ request_id: 'req_dispatcher' })),
+        ),
+      );
+
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const sentinel = { type: 'fake-dispatcher' };
+
+      const loader = createPageDataLoader(
+        createDefaultPageDataLoaderConfig('https://api.example.com'),
+        'home',
+      );
+
+      const request = new Request('https://app.example.com/home');
+      (
+        request as Request & { SSRHelpers?: Record<string, unknown> }
+      ).SSRHelpers = {
+        handlers: { hasHandler: () => false },
+        fastifyRequest: {},
+        controlledReply: {},
+        resolvePageDataFetch: () => ({ dispatcher: sentinel }),
+      };
+
+      const result = (await loader({
+        ...createArgs(),
+        request,
+      })) as Record<string, any>;
+
+      expect(result.status).toBe('success');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      const [, options] = fetchMock.mock.calls[0] as unknown as [
+        string,
+        Record<string, unknown>,
+      ];
+      expect(options.dispatcher).toBe(sentinel);
+    });
+
+    it('rewrites URL and passes dispatcher together', async () => {
+      const baseURL = startServer(() =>
+        Response.json(
+          createPageEnvelope({ request_id: 'req_both', data: { both: true } }),
+        ),
+      );
+
+      const fetchMock = mock((url: string, opts: Record<string, unknown>) =>
+        originalFetch(url, opts as RequestInit),
+      );
+
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const dispatcher = { type: 'fake-dispatcher-both' };
+
+      const loader = createPageDataLoader(
+        createDefaultPageDataLoaderConfig('http://original-api.internal:9999'),
+        'home',
+      );
+
+      const request = new Request('https://app.example.com/home');
+      (
+        request as Request & { SSRHelpers?: Record<string, unknown> }
+      ).SSRHelpers = {
+        handlers: { hasHandler: () => false },
+        fastifyRequest: {},
+        controlledReply: {},
+        resolvePageDataFetch: () => ({ baseURL, dispatcher }),
+      };
+
+      const result = (await loader({
+        ...createArgs(),
+        request,
+      })) as Record<string, any>;
+
+      expect(result.status).toBe('success');
+      expect(result.data).toEqual({ both: true });
+
+      const [, options] = fetchMock.mock.calls[0] as unknown as [
+        string,
+        Record<string, unknown>,
+      ];
+
+      expect(options.dispatcher).toBe(dispatcher);
+    });
+
+    it('returns a 500 envelope when resolvePageDataFetch throws synchronously', async () => {
+      const loader = createPageDataLoader(
+        createDefaultPageDataLoaderConfig('https://api.example.com'),
+        'home',
+      );
+
+      const request = new Request('https://app.example.com/home');
+      (
+        request as Request & { SSRHelpers?: Record<string, unknown> }
+      ).SSRHelpers = {
+        handlers: { hasHandler: () => false },
+        fastifyRequest: {},
+        controlledReply: {},
+        resolvePageDataFetch: () => {
+          throw new Error('resolver failed');
+        },
+      };
+
+      const result = (await loader({
+        ...createArgs(),
+        request,
+      })) as Record<string, any>;
+
+      expect(result.status).toBe('error');
+      expect(result.status_code).toBe(500);
+      expect(result.error?.code).toBe('internal_server_error');
+    });
+
+    it('returns a 500 envelope when resolvePageDataFetch returns a rejected promise', async () => {
+      const loader = createPageDataLoader(
+        createDefaultPageDataLoaderConfig('https://api.example.com'),
+        'home',
+      );
+
+      const request = new Request('https://app.example.com/home');
+      (
+        request as Request & { SSRHelpers?: Record<string, unknown> }
+      ).SSRHelpers = {
+        handlers: { hasHandler: () => false },
+        fastifyRequest: {},
+        controlledReply: {},
+        resolvePageDataFetch: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          throw new Error('async resolver failed');
+        },
+      };
+
+      const result = (await loader({
+        ...createArgs(),
+        request,
+      })) as Record<string, any>;
+
+      expect(result.status).toBe('error');
+      expect(result.status_code).toBe(500);
+      expect(result.error?.code).toBe('internal_server_error');
+    });
+
+    it('includes resolver error details in development mode', async () => {
+      overrideDevMode(true);
+
+      const loader = createPageDataLoader(
+        createDefaultPageDataLoaderConfig('https://api.example.com'),
+        'home',
+      );
+
+      const request = new Request('https://app.example.com/home');
+      (
+        request as Request & { SSRHelpers?: Record<string, unknown> }
+      ).SSRHelpers = {
+        handlers: { hasHandler: () => false },
+        fastifyRequest: {},
+        controlledReply: {},
+        resolvePageDataFetch: () => {
+          throw new Error('resolver boom');
+        },
+      };
+
+      const result = (await loader({
+        ...createArgs(),
+        request,
+      })) as Record<string, any>;
+
+      expect(result.status_code).toBe(500);
+      expect(result.error?.details?.message).toBe('resolver boom');
+    });
+
+    it('skips resolver when a short-circuit handler is present', async () => {
+      const resolverMock = mock(() => ({}));
+
+      const loader = createPageDataLoader(
+        createDefaultPageDataLoaderConfig('https://api.example.com'),
+        'home',
+      );
+
+      const request = new Request('https://app.example.com/home');
+      (
+        request as Request & { SSRHelpers?: Record<string, unknown> }
+      ).SSRHelpers = {
+        handlers: {
+          hasHandler: () => true,
+          callHandler: () => ({
+            exists: true,
+            result: createPageEnvelope({ request_id: 'req_short_circuit' }),
+          }),
+        },
+        fastifyRequest: {},
+        controlledReply: {},
+        resolvePageDataFetch: resolverMock,
+      };
+
+      const result = (await loader({
+        ...createArgs(),
+        request,
+      })) as Record<string, any>;
+
+      expect(result.status).toBe('success');
+      expect(resolverMock).not.toHaveBeenCalled();
+    });
+
+    it('passes pageType, baseURL, and fastifyRequest to the resolver context', async () => {
+      const baseURL = startServer(() =>
+        Response.json(createPageEnvelope({ request_id: 'req_ctx' })),
+      );
+
+      const resolverMock = mock(
+        (ctx: { pageType: string; baseURL: string }) => ({
+          baseURL: ctx.baseURL,
+        }),
+      );
+
+      const loader = createPageDataLoader(
+        createDefaultPageDataLoaderConfig(baseURL),
+        'about',
+      );
+
+      const fastifyRequest = { id: 'req_123' };
+      const request = new Request('https://app.example.com/about');
+      (
+        request as Request & { SSRHelpers?: Record<string, unknown> }
+      ).SSRHelpers = {
+        handlers: { hasHandler: () => false },
+        fastifyRequest,
+        controlledReply: {},
+        resolvePageDataFetch: resolverMock as unknown as () => {
+          baseURL: string;
+        },
+      };
+
+      await loader({ ...createArgs(), request });
+
+      expect(resolverMock).toHaveBeenCalledTimes(1);
+      const ctx = resolverMock.mock.calls[0][0] as {
+        pageType: string;
+        baseURL: string;
+        fastifyRequest: unknown;
+      };
+
+      expect(ctx.pageType).toBe('about');
+      expect(ctx.baseURL).toBe(baseURL);
+      expect(ctx.fastifyRequest).toBe(fastifyRequest);
+    });
   });
 });
 

@@ -37,6 +37,10 @@
     - [isStaticAsset](#isstaticasset)
   - [Page Data Loader Handlers and Versioning](#page-data-loader-handlers-and-versioning)
   - [Short-Circuit Data Handlers](#short-circuit-data-handlers)
+  - [Customizing Server-Side Page Data Fetches](#customizing-server-side-page-data-fetches)
+    - [Callback Signature](#callback-signature)
+    - [Example: URL Rewriting / Internal Load Balancing](#example-url-rewriting--internal-load-balancing)
+    - [Example: TLS Over a Private Network (Undici Agent)](#example-tls-over-a-private-network-undici-agent)
   - [Custom API Routes](#custom-api-routes)
     - [API Route Handler Signature and Parameters:](#api-route-handler-signature-and-parameters)
   - [Param Source Parity (Data Loader vs API Routes):](#param-source-parity-data-loader-vs-api-routes)
@@ -60,7 +64,7 @@
 - [Standalone API (APIServer)](#standalone-api-apiserver)
   - [Basic Usage](#basic-usage)
   - [API-Specific Options](#api-specific-options)
-  - [Error Handling](#error-handling)
+  - [API Error Handlers](#api-error-handlers)
     - [JSON-Only (SSR Compatible)](#json-only-ssr-compatible)
     - [Web-Only (Plain Web Server)](#web-only-plain-web-server)
     - [Split Handlers (Mixed API + Web Server)](#split-handlers-mixed-api--web-server)
@@ -1272,6 +1276,72 @@ server.pageDataHandler.register('profile', (request, reply) => {
 
 **Note:** The framework handles the architecture choice automatically - you don't need to change your handler code when switching between single-server and separate-server deployments.
 
+### Customizing Server-Side Page Data Fetches
+
+For separate-server deployments — where SSR and API run in different processes — you can intercept the outgoing page-data HTTP fetch using the `resolvePageDataFetch` option on the SSR server. This is a sync or async callback that runs **server-side only** and lets you:
+
+- Rewrite the target URL (e.g., for internal load balancing or per-request host selection)
+- Supply a custom [Undici](https://undici.nodejs.org/) `Dispatcher` (e.g., for TLS over a private network using a private CA or client certificates)
+
+> **Note:** `resolvePageDataFetch` is only relevant when SSR and API are on separate servers. When page data handlers live on this same SSR server, they run in-process — no HTTP fetch happens and this callback is never invoked.
+
+#### Callback Signature
+
+```ts
+type ResolvePageDataFetch = (context: {
+  pageType: string; // e.g. 'home', 'about', 'not-found'
+  baseURL: string; // the API base URL derived from INTERNAL_API_ENDPOINT or config
+  fastifyRequest: FastifyRequest; // the live Fastify request for per-request decisions
+}) => PageDataFetchOverrides | Promise<PageDataFetchOverrides>;
+
+interface PageDataFetchOverrides {
+  baseURL?: string; // override the base URL for this fetch
+  dispatcher?: unknown; // Undici Dispatcher (Agent, Pool, etc.)
+}
+```
+
+Return an empty object (`{}`) to leave the defaults unchanged. If the callback throws or returns a rejected promise, the loader returns a 500 envelope immediately — no fetch is attempted. In development mode the error's `name`, `message`, and `stack` are included in `error.details` for debugging.
+
+#### Example: URL Rewriting / Internal Load Balancing
+
+```ts
+const apiServers = [
+  'http://api-1.internal:3001',
+  'http://api-2.internal:3001',
+  'http://api-3.internal:3001',
+];
+
+serveSSRBuilt({
+  // ...
+  resolvePageDataFetch() {
+    // Pick a random server on each request for simple load balancing
+    const baseURL = apiServers[Math.floor(Math.random() * apiServers.length)];
+    return { baseURL };
+  },
+});
+```
+
+#### Example: TLS Over a Private Network (Undici Agent)
+
+```ts
+import { Agent } from 'undici';
+import { readFileSync } from 'node:fs';
+
+const internalAgent = new Agent({
+  connect: {
+    ca: readFileSync('/etc/ssl/internal-ca.pem'),
+    // cert / key for mutual TLS if required
+  },
+});
+
+serveSSRBuilt({
+  // ...
+  resolvePageDataFetch() {
+    return { dispatcher: internalAgent };
+  },
+});
+```
+
 ### Custom API Routes
 
 You can register versioned custom API routes using the server's `.api` shortcuts method surface (available on both `SSRServer` and `APIServer`, and inside plugins as `pluginHost.api`). These return standardized API envelopes and automatically set the HTTP response status to `status_code`.
@@ -1825,7 +1895,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
 
 Note: Unlike SSR servers, the API server allows full wildcard routes (including root wildcards) in plugins.
 
-### Error Handling
+### API Error Handlers
 
 Both `errorHandler` and `notFoundHandler` support two forms: a simple function or an object with split handlers. Choose based on your server type:
 

@@ -13,6 +13,9 @@ import { NotFound } from './components/error-pages/NotFound';
 import { ApplicationError } from './components/error-pages/ApplicationError';
 import { PageDataDisplay } from './components/PageDataDisplay';
 
+// Client: window.__PUBLIC_APP_CONFIG__.api_endpoint or window.location.origin.
+// Server: INTERNAL_API_ENDPOINT or localhost fallback. For advanced setups
+// (load balancing, private TLS), use resolvePageDataFetch on the SSR server.
 const API_BASE_URL =
   typeof window !== 'undefined'
     ? // eslint-disable-next-line @typescript-eslint/naming-convention

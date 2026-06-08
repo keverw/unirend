@@ -1192,6 +1192,7 @@ export class SSRServer extends BaseServer {
             fastifyRequest: request,
             controlledReply: createControlledReply(request, reply),
             handlers: this.pageDataHandlers,
+            resolvePageDataFetch: this.sharedOptions.resolvePageDataFetch,
           } as const;
 
           try {

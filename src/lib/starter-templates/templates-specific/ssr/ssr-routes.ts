@@ -44,6 +44,10 @@ import { SimulateComponentError } from './pages/SimulateComponentError';
 // In co-located setups the handler short-circuits on the same instance anyway, so
 // the exact fallback URL rarely matters. Set INTERNAL_API_ENDPOINT to be explicit.
 //
+// For more advanced server-side routing — internal load balancing, per-request
+// host selection, or TLS over a private network — use resolvePageDataFetch on the
+// SSR server instead of INTERNAL_API_ENDPOINT. See docs/ssr.md for details.
+//
 // See: https://github.com/keverw/unirend/blob/master/README.md#public-app-config-pattern
 const API_BASE_URL =
   typeof window !== 'undefined'

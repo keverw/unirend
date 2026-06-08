@@ -50,6 +50,55 @@ export interface RenderRequest {
 }
 
 /**
+ * Context passed to the resolvePageDataFetch callback on each server-side
+ * HTTP page-data fetch (i.e. when no internal short-circuit handler is registered).
+ */
+export interface PageDataFetchContext {
+  /** Page type being requested (e.g. 'home', 'about', 'not-found') */
+  pageType: string;
+  /** The API base URL from the loader config */
+  baseURL: string;
+  /** The Fastify request for per-request routing/auth decisions */
+  fastifyRequest: FastifyRequest;
+}
+
+/**
+ * Return value from a resolvePageDataFetch callback.
+ * All fields are optional — omitting a field keeps the original value.
+ */
+export interface PageDataFetchOverrides {
+  /**
+   * Override the API base URL for this request.
+   * Useful for internal load-balancing, private hostnames, or per-region routing.
+   */
+  baseURL?: string;
+  /**
+   * Undici Dispatcher to use for this fetch.
+   * Pass an `Agent` or `Pool` from `undici` to configure custom TLS (e.g. private CAs,
+   * client certificates) or connection pooling for internal networks.
+   *
+   * @example
+   * import { Agent } from 'undici';
+   * const internalAgent = new Agent({ connect: { ca: myCA } });
+   * resolvePageDataFetch: () => ({ dispatcher: internalAgent })
+   */
+  dispatcher?: unknown;
+}
+
+/**
+ * Callback for customizing server-side page-data HTTP fetches.
+ *
+ * Called once per page-data HTTP request — only on the server and only when no
+ * internal short-circuit handler is registered for the page type.
+ *
+ * If the callback throws or returns a rejected Promise, the request is treated
+ * as a 500 internal server error and no fetch is attempted.
+ */
+export type ResolvePageDataFetch = (
+  context: PageDataFetchContext,
+) => PageDataFetchOverrides | Promise<PageDataFetchOverrides>;
+
+/**
  * Helper object attached to SSR Fetch Request for server-only context
  */
 export interface SSRHelpers {
@@ -57,6 +106,8 @@ export interface SSRHelpers {
   /** Controlled reply to allow handlers to set headers/cookies in short-circuit path */
   controlledReply: ControlledReply;
   handlers: DataLoaderServerHandlerHelpers;
+  /** Optional callback for customizing server-side page-data HTTP fetches (URL rewriting, custom TLS dispatcher) */
+  resolvePageDataFetch?: ResolvePageDataFetch;
 }
 
 /**
@@ -893,6 +944,19 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    * @example 'SSR:marketing'
    */
   serverLabel?: string;
+  /**
+   * Rewrite the API base URL or pass a custom Undici dispatcher for
+   * server-side page-data HTTP fetches (e.g. internal load balancing,
+   * private-network TLS). Only fires in separate-server deployments —
+   * co-located handlers on the same SSR server instance short-circuit
+   * in-process, bypassing this callback entirely.
+   *
+   * Return `{}` to leave defaults unchanged. Thrown errors or rejected
+   * Promises return a 500 immediately without attempting the fetch.
+   *
+   * See docs/ssr.md for details and examples.
+   */
+  resolvePageDataFetch?: ResolvePageDataFetch;
   /**
    * Timeout in milliseconds for the SSR render fetch request.
    * If the render takes longer than this, the request is aborted.

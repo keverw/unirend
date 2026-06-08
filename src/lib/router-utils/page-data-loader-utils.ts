@@ -94,12 +94,12 @@ export function isSafeRedirect(
  */
 export async function fetchWithTimeout(
   url: string,
-  options: RequestInit = {},
+  options: RequestInit & { dispatcher?: unknown } = {},
   timeoutMS: number = DEFAULT_TIMEOUT_MS,
 ): Promise<Response> {
   // If timeout is 0 or negative, use regular fetch without timeout
   if (timeoutMS <= 0) {
-    return fetch(url, options);
+    return fetch(url, options as RequestInit);
   }
 
   const controller = new AbortController();
@@ -109,7 +109,7 @@ export async function fetchWithTimeout(
     const response = await fetch(url, {
       ...options,
       signal: controller.signal,
-    });
+    } as RequestInit);
     return response;
   } catch (error) {
     // Abort the controller to ensure cleanup in case of non-timeout errors

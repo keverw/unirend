@@ -358,6 +358,10 @@ All four context hooks, `usePublicAppConfig()`, `useRequestContext()`, `useCDNBa
 // In co-located setups the handler short-circuits on the same instance anyway, so
 // the exact fallback URL rarely matters. Update the port to match your API server,
 // or set INTERNAL_API_ENDPOINT to an explicit URL for separate-server deployments.
+//
+// For more advanced server-side routing — internal load balancing, per-request
+// host selection, or TLS over a private network — use resolvePageDataFetch on the
+// SSR server instead of INTERNAL_API_ENDPOINT. See docs/ssr.md for details.
 const APIBaseURL =
   typeof window !== 'undefined'
     ? (window.__PUBLIC_APP_CONFIG__?.api_endpoint as string) ||
