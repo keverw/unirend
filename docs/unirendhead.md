@@ -8,6 +8,7 @@
 - [API](#api)
   - [`<UnirendHead>`](#unirendhead)
   - [Supported Tags](#supported-tags)
+    - [Preloading images](#preloading-images)
   - [Tag Merging and Overrides](#tag-merging-and-overrides)
   - [Shared Layout & Error Component Pattern](#shared-layout--error-component-pattern)
   - [Global Provider Pattern (Theme, Language, etc.)](#global-provider-pattern-theme-language-etc)
@@ -131,6 +132,30 @@ import { UnirendHead } from 'unirend/client';
 | `<body>`  | Sets attributes on the document `<body>` element.               |
 
 Other child elements are silently ignored on the server (not collected). On the client, `<title>`, `<meta>`, and `<link>` are natively hoisted by React 19, whereas `<html>` and `<body>` are filtered out from rendering inside the root element and instead applied to the DOM root elements using a client-side stack manager.
+
+#### Preloading images
+
+`<link rel="preload">` works and is useful for hinting the browser to fetch a hero or above-the-fold image before it is discovered in the page body:
+
+```tsx
+import { UnirendHead } from 'unirend/client';
+import { useCDNBaseURL } from 'unirend/client';
+
+function HeroPage() {
+  const cdn = useCDNBaseURL();
+
+  return (
+    <>
+      <UnirendHead>
+        <link rel="preload" as="image" href={`${cdn}/assets/hero.jpg`} />
+      </UnirendHead>
+      <img src={`${cdn}/assets/hero.jpg`} alt="Hero" />
+    </>
+  );
+}
+```
+
+Unlike `<script>` and `<link>` tags already in your `index.html`, the head content injected by `UnirendHead` is not CDN-rewritten automatically. Prefix asset paths with `useCDNBaseURL()` so the preload hint and the actual image request go to the same origin.
 
 ### Tag Merging and Overrides
 

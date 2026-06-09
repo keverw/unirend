@@ -251,16 +251,9 @@ export async function unirendBaseRender(
   // Serialize collected head data AFTER rendering
   const head = serializeHeadCollector(headCollector);
 
-  // TODO: Inject Preload Links (using ssrManifest)
-  // This part requires logic to parse the ssrManifest and context.modules
-  // to generate <link rel="modulepreload"> tags.
-  // Most likely only want the main entry, not the chunks
-  const preloadLinks = ''; // Placeholder
-
   return {
     resultType: 'page',
     html: appHTML,
-    preloadLinks: preloadLinks,
     head,
     statusCode: statusCode,
     errorDetails: errorDetails,

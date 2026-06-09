@@ -132,7 +132,6 @@ interface RenderResultBase {
 export interface RenderPageResult extends RenderResultBase {
   resultType: 'page';
   html: string;
-  preloadLinks: string;
   head?: {
     title: string;
     meta: string;

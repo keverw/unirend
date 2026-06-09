@@ -1277,7 +1277,6 @@ export class SSRServer extends BaseServer {
                 renderResult.head?.title || '',
                 renderResult.head?.meta || '',
                 renderResult.head?.link || '',
-                renderResult.preloadLinks || '',
               ].filter(Boolean);
 
               const headInject = headParts.join('\n');

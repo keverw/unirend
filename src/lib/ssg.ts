@@ -373,7 +373,6 @@ export async function generateSSG(
         ${renderResult.head?.title || ''}
         ${renderResult.head?.meta || ''}
         ${renderResult.head?.link || ''}
-        ${renderResult.preloadLinks}
       `;
 
         // Get the requestContext from ssgHelper (may have been populated during render)
