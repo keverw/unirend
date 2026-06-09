@@ -160,6 +160,7 @@ export class WebSocketServerHelpers {
               { err: error },
               'WebSocket preClose handler error:',
             );
+
             done(); // Still call done to prevent hanging
           });
       };

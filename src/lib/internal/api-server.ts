@@ -502,7 +502,6 @@ export class APIServer extends BaseServer {
   }
 
   /**
-   * Setup global error handler for unhandled errors
    * @private
    */
   private setupErrorHandler(): void {
@@ -516,22 +515,18 @@ export class APIServer extends BaseServer {
         return;
       }
 
-      // Log errors for debugging (unless explicitly disabled)
-      // This ensures errors are never lost even with custom error handlers
-      if (this.options.logErrors !== false) {
-        const requestID = (request as unknown as { requestID?: string })
-          .requestID;
+      const requestID = (request as unknown as { requestID?: string })
+        .requestID;
 
-        request.log.error(
-          {
-            err: error,
-            method: request.method,
-            url: request.url,
-            ...(requestID ? { requestID } : {}),
-          },
-          `[${this.serverLabel}] Request error`,
-        );
-      }
+      request.log.error(
+        {
+          err: error,
+          method: request.method,
+          url: request.url,
+          ...(requestID ? { requestID } : {}),
+        },
+        `[${this.serverLabel}] Request error`,
+      );
 
       const { isAPI, isPageData } = classifyRequest(
         request.url,

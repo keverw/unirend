@@ -192,10 +192,6 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - Function form returns `WebResponse` on SSR/Static/Redirect servers and an API/Page envelope on APIServer.
   - Split form (`{ api, web }`) customizes API and web handlers for mixed servers. Either handler can be omitted - omitted handlers use Unirend's default 503 response.
   - Fastify's built-in closing 503 JSON response is disabled internally so shutdown responses use Unirend's handler/defaults consistently.
-- `logErrors?: boolean`
-  - Whether to automatically log request errors (default: `true`). `method`, `url`, `err`, and `requestID` (if available) are included as structured fields in the log entry alongside the `[Label] Request error` message.
-  - Exactly one log entry is emitted per error - no double-logging. All SSR errors (whether caught at route level or by the global error handler) are logged before the 500 page is generated, so the log fires whether you use a custom `get500ErrorPage` or not. API errors are logged in the global error handler.
-  - Set to `false` to suppress the built-in error log entirely - useful when a plugin's Fastify `onError` hook or a custom error/not-found handler already records the error.
 - `serverLabel?: string`
   - Label for this server instance, used in error log messages and access log templates (default: `'SSR'` for SSRServer, `'API'` for APIServer, `'Static'` for StaticWebServer, `'Redirect'` for RedirectServer).
   - Useful for distinguishing log output when running multiple server instances (e.g. an SSR server and an API server in the same process, or two SSR servers serving different apps).
@@ -850,7 +846,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
 - `get500ErrorPage?: (request, error, isDevelopment) => string | Promise<string>`
   - Provide custom HTML for SSR 500 responses.
   - The `request` argument is the Fastify request and includes the current `request.requestContext`. Depending on where rendering failed, data loaders may not have run or may not have returned context yet, so values required by the custom 500 page should be seeded by SSR middleware. The returned HTML is sent directly outside the React hydration and context injection flow, so inject any context-derived values yourself if your custom 500 page needs them.
-  - The error is logged by `logErrors` before this function is called. If you handle logging inside `get500ErrorPage` yourself, set `logErrors: false` to avoid double-logging.
+  - The error is always logged before this function is called.
   - **Security Note**: When including dynamic values (error messages, URLs, etc.) in your HTML, always escape them using `escapeHTML` from `unirend/utils` to prevent XSS attacks. React automatically escapes content, but raw HTML generation requires manual escaping.
 - `clientFolderName?: string`, `serverFolderName?: string`
   - Names of subfolders inside the Vite build output (defaults: `client` and `server`).

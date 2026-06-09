@@ -772,20 +772,18 @@ export class SSRServer extends BaseServer {
               // Log the original request error here (single log point for API errors).
               // If a custom errorHandler also throws, that failure is logged separately
               // inside handleAPIError — two different errors, intentionally two log entries.
-              if (this.sharedOptions.logErrors !== false) {
-                const requestID = (request as unknown as { requestID?: string })
-                  .requestID;
+              const requestID = (request as unknown as { requestID?: string })
+                .requestID;
 
-                request.log.error(
-                  {
-                    err: error,
-                    method: request.method,
-                    url: request.url,
-                    ...(requestID ? { requestID } : {}),
-                  },
-                  `[${this.serverLabel}] Request error`,
-                );
-              }
+              request.log.error(
+                {
+                  err: error,
+                  method: request.method,
+                  url: request.url,
+                  ...(requestID ? { requestID } : {}),
+                },
+                `[${this.serverLabel}] Request error`,
+              );
 
               // Return the envelope so wrapThenable makes exactly one reply.send() call.
               return await this.handleAPIError(request, reply, error);
@@ -1355,7 +1353,11 @@ export class SSRServer extends BaseServer {
                 return body || undefined;
               } catch (bodyError) {
                 request.log.error(
-                  { err: bodyError, method: request.method, url: request.url },
+                  {
+                    err: bodyError,
+                    method: request.method,
+                    url: request.url,
+                  },
                   `[${this.serverLabel}] Error reading response body`,
                 );
 
@@ -1976,20 +1978,17 @@ export class SSRServer extends BaseServer {
 
     // Log SSR errors here (single log point — avoids double-logging when called from global error handler)
     // Uses request.log to include per-request logger bindings
-    if (this.sharedOptions.logErrors !== false) {
-      const requestID = (request as unknown as { requestID?: string })
-        .requestID;
+    const requestID = (request as unknown as { requestID?: string }).requestID;
 
-      request.log.error(
-        {
-          err: error,
-          method: request.method,
-          url: request.url,
-          ...(requestID ? { requestID } : {}),
-        },
-        `[${this.serverLabel}] Request error`,
-      );
-    }
+    request.log.error(
+      {
+        err: error,
+        method: request.method,
+        url: request.url,
+        ...(requestID ? { requestID } : {}),
+      },
+      `[${this.serverLabel}] Request error`,
+    );
 
     // Generate error page HTML (handles dev vs prod internally).
     // Callers inside async Fastify route handlers should `return await handleSSRError(...)`
@@ -2041,6 +2040,7 @@ export class SSRServer extends BaseServer {
         { err: errorHandlerError, method: request.method, url: request.url },
         `[${this.serverLabel}] Custom 500 error page handler failed`,
       );
+
       return generateDefault500ErrorPage(request, error, isDevelopment);
     }
   }

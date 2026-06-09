@@ -480,7 +480,6 @@ await server.reload();
 
 - `notFoundPage` - Custom 404 page path (relative to buildDir)
 - `errorPage` - Custom 500 error page path (relative to buildDir)
-- `logErrors` - Automatically log errors to server logger (default: `true`)
 
 Dev mode (stack traces in built-in 500 page, not custom error page provided) is controlled via the Lifecycleion dev mode convention, call `initDevMode()` at startup. See [Dev Mode](./dev-mode.md).
 
@@ -610,11 +609,10 @@ initDevMode(true); // Shows stack traces in built-in 500 error page
 const server = new StaticWebServer({
   buildDir: './build/client',
   pageMapPath: 'page-map.json',
-  logErrors: true, // Automatically log errors (default: true)
 });
 ```
 
-**Error Logging:** By default, all request errors are automatically logged to the server logger with URL, method, and error details. This is especially useful when using custom error pages that can't show dynamic stack traces. Set `logErrors: false` to disable automatic error logging if you prefer to handle logging in custom error handlers.
+**Error Logging:** All request errors are automatically logged to the server logger with URL, method, and error details. This is especially useful when using custom error pages that can't show dynamic stack traces.
 
 **Note:** Stack traces only appear in the built-in generic 500 error page (used when no custom error page is found). Custom error page files are served as-is without dynamic content.
 

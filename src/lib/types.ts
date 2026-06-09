@@ -930,13 +930,6 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    */
   getClientIP?: (request: FastifyRequest) => string | Promise<string>;
   /**
-   * Whether to automatically log errors via the server logger
-   * When enabled, all errors are logged before custom error handlers run
-   * Useful for debugging custom error pages that can't show stack traces
-   * @default true
-   */
-  logErrors?: boolean;
-  /**
    * Label for this server instance, used in error log messages and access log templates.
    * Useful for distinguishing log output when running multiple server instances.
    * @default 'SSR'
@@ -1402,13 +1395,6 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    */
   closingHandler?: APIClosingHandlerFn<M> | SplitClosingHandler<M>;
   /**
-   * Whether to automatically log errors via the server logger
-   * When enabled, all errors are logged before custom error handlers run
-   * Useful for debugging custom error pages that can't show stack traces
-   * @default true
-   */
-  logErrors?: boolean;
-  /**
    * Label for this server instance, used in error log messages and access log templates.
    * Useful for distinguishing log output when running multiple server instances.
    * @default 'API'
@@ -1497,14 +1483,12 @@ export interface StaticWebServerOptions {
    * @default 'page-map.json'
    */
   pageMapPath?: string;
-
   /**
    * Base directory containing built assets
    *
    * @example "./build/client"
    */
   buildDir: string;
-
   /**
    * Response compression for static pages/assets and generated web responses.
    * Negotiates `Accept-Encoding` and skips range or already-encoded replies.
@@ -1526,20 +1510,12 @@ export interface StaticWebServerOptions {
   responseTimeHeader?: boolean | ResponseTimeHeaderOptions;
 
   /**
-   * Whether to automatically log errors via the server logger
-   * When enabled, all errors are logged before custom error handlers run
-   * Useful for debugging custom error pages that can't show stack traces
-   * @default true
-   */
-  logErrors?: boolean;
-  /**
    * Label for this server instance, used in error log messages and access log templates.
    * Useful for distinguishing log output when running multiple server instances.
    * @default 'Static'
    * @example 'Static:marketing'
    */
   serverLabel?: string;
-
   /**
    * Custom 404 HTML file path (relative to buildDir)
    * If not specified, automatically looks for "404.html" in buildDir
@@ -1555,7 +1531,6 @@ export interface StaticWebServerOptions {
    * @default "500.html" if it exists, otherwise uses generated error page
    */
   errorPage?: string;
-
   /**
    * Additional folders to serve (for assets like /assets, /images)
    * Maps URL prefix to filesystem directory
@@ -1563,7 +1538,6 @@ export interface StaticWebServerOptions {
    * @example { '/assets': './build/client/assets' }
    */
   assetFolders?: Record<string, string>;
-
   /**
    * Additional single-file assets to serve (e.g., favicon, robots.txt, sitemap.xml)
    * Maps URL path to filesystem file path
@@ -1589,19 +1563,16 @@ export interface StaticWebServerOptions {
    * @default true
    */
   detectImmutableAssets?: boolean;
-
   /**
    * Default Cache-Control header for HTML pages
    * @default "public, max-age=0, must-revalidate"
    */
   cacheControl?: string;
-
   /**
    * Cache-Control header for immutable assets (fingerprinted files)
    * @default "public, max-age=31536000, immutable"
    */
   immutableCacheControl?: string;
-
   /**
    * HTTPS/SSL configuration (same as APIServer and SSRServer)
    * Supports SNI (Server Name Indication) for multi-domain certificates
@@ -1628,13 +1599,11 @@ export interface StaticWebServerOptions {
    * }
    */
   https?: HTTPSOptions;
-
   /**
    * Fastify server options (logging, trust proxy, etc.)
    * Subset of Fastify options that don't conflict with static server setup
    */
   fastifyOptions?: FastifyServerOptions;
-
   /**
    * Framework-level logging options adapted to Fastify under the hood
    * Cannot be used together with fastifyOptions.logger or fastifyOptions.loggerInstance
@@ -1646,7 +1615,6 @@ export interface StaticWebServerOptions {
    * Controls request/response logging without needing a custom plugin
    */
   accessLog?: AccessLogConfig;
-
   /**
    * Custom client IP resolver.
    * When set, called once per request to populate `request.clientIP` — available
@@ -1666,7 +1634,6 @@ export interface StaticWebServerOptions {
    * If omitted, Unirend returns a default 503 HTML page.
    */
   closingHandler?: WebClosingHandlerFn;
-
   /**
    * Additional plugins to register
    * Useful for custom routes, middleware, or request hooks

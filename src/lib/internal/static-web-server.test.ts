@@ -810,7 +810,7 @@ describe('StaticWebServer', () => {
 
     it('returns default 404 HTML for unmatched routes', async () => {
       setReadFileMock({ 'page-map.json': VALID_PAGE_MAP });
-      server = makeServer({ logErrors: false });
+      server = makeServer();
       await server.listen(testPort);
 
       const response = await fetch(
@@ -830,7 +830,6 @@ describe('StaticWebServer', () => {
 
       server = makeServer({
         notFoundPage: 'custom-404.html',
-        logErrors: false,
       });
 
       await server.listen(testPort);
@@ -846,7 +845,7 @@ describe('StaticWebServer', () => {
 
     it('returns default 500 HTML when the cache throws and no errorPage is configured', async () => {
       setReadFileMock({ 'page-map.json': VALID_PAGE_MAP });
-      server = makeServer({ logErrors: false });
+      server = makeServer();
       await server.listen(testPort);
 
       const cache = (server as unknown as { cache: StaticContentCache }).cache;
@@ -869,7 +868,7 @@ describe('StaticWebServer', () => {
     it('includes an escaped stack trace in the 500 page when dev mode is enabled', async () => {
       setReadFileMock({ 'page-map.json': VALID_PAGE_MAP });
       overrideDevMode(true);
-      server = makeServer({ logErrors: false });
+      server = makeServer();
       await server.listen(testPort);
 
       const cache = (server as unknown as { cache: StaticContentCache }).cache;
@@ -897,7 +896,7 @@ describe('StaticWebServer', () => {
         'custom-500.html': '<html>Custom 500</html>',
       });
 
-      server = makeServer({ errorPage: 'custom-500.html', logErrors: false });
+      server = makeServer({ errorPage: 'custom-500.html' });
       await server.listen(testPort);
 
       const cache = (server as unknown as { cache: StaticContentCache }).cache;

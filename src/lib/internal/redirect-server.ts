@@ -93,12 +93,6 @@ export interface RedirectServerOptions {
   ) => InvalidDomainResponse;
 
   /**
-   * Whether to automatically log errors via the server logger
-   * When enabled, all errors are logged before custom error handlers run
-   * @default true
-   */
-  logErrors?: boolean;
-  /**
    * Label for this server instance, used in error log messages and access log templates.
    * @default 'Redirect'
    * @example 'Redirect:http'
@@ -235,7 +229,6 @@ export class RedirectServer {
       apiEndpoints: {
         apiEndpointPrefix: false, // Disable API handling
       },
-      logErrors: options.logErrors, // Pass through error logging config
       serverLabel: options.serverLabel ?? 'Redirect', // Pass through server label with redirect default
       logging: options.logging, // Pass through logging config
       fastifyOptions: options.fastifyOptions, // Pass through Fastify options
