@@ -493,4 +493,261 @@ describe('processAPIResponse', () => {
     expect(result.error?.code).toBe('http_error');
     expect(result.error?.message).toBe('HTTP Error: 418');
   });
+
+  it('returns a custom handler result directly when it is not a redirect', async () => {
+    // Covers the JSON-path branch where customHandlerResult is not a redirect
+    // (line 185: return customHandlerResult after the redirect-guard block).
+    const response = new Response(JSON.stringify({ x: 1 }), {
+      status: 402,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const result = await processAPIResponse(
+      response,
+      {
+        ...baseConfig,
+        statusCodeHandlers: {
+          ['402']: () =>
+            ({
+              status: 'error',
+              status_code: 402,
+              request_id: 'req_custom_json_error',
+              type: 'page',
+              data: null,
+              meta: {
+                page: {
+                  title: 'Payment Required',
+                  description: 'Need payment',
+                },
+              },
+              error: {
+                code: 'payment_required',
+                message: 'Payment required',
+              },
+            }) as PageResponseEnvelope,
+        },
+      },
+      false,
+    );
+
+    expect(result.status).toBe('error');
+    expect(result.type).toBe('page');
+    expect(result.error?.code).toBe('payment_required');
+  });
+
+  it('passes through a non-200 page envelope unchanged', async () => {
+    // A 400 response whose body already has type:'page' — returned as-is
+    // (lines 227-231 in the else-branch after the status-200 page check).
+    const response = new Response(
+      JSON.stringify({
+        status: 'error',
+        status_code: 400,
+        request_id: 'req_page_400',
+        type: 'page',
+        data: null,
+        meta: { page: { title: 'Bad Request', description: 'Oops' } },
+        error: { code: 'bad_request', message: 'Bad request' },
+      }),
+      {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+
+    const result = await processAPIResponse(response, baseConfig, false);
+    expect(result.status).toBe('error');
+    expect(result.type).toBe('page');
+    expect(result.error?.code).toBe('bad_request');
+  });
+
+  it('uses fallback request_id when auth_required response omits one', async () => {
+    // Covers the ternary at lines 256-257: authResponse.request_id is absent
+    // so config.generateFallbackRequestID is called instead.
+    const response = new Response(
+      JSON.stringify({
+        status: 'error',
+        status_code: 401,
+        type: 'api',
+        data: null,
+        meta: {},
+        error: {
+          code: 'authentication_required',
+          message: 'Login required',
+          details: { return_to: '/dashboard' },
+        },
+      }),
+      {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+
+    const result = (await processAPIResponse(
+      response,
+      baseConfig,
+      false,
+    )) as unknown as Response;
+
+    expect(result.status).toBe(302);
+    expect(result.headers.get('Location')).toBe(
+      `/login?return_to=${encodeURIComponent('/dashboard')}`,
+    );
+  });
+
+  it('redirects to loginURL without return_to when error details are absent', async () => {
+    // Covers line 300: redirect(config.loginURL) when returnTo is undefined.
+    const response = new Response(
+      JSON.stringify({
+        status: 'error',
+        status_code: 401,
+        request_id: 'req_no_return_to',
+        type: 'api',
+        data: null,
+        meta: {},
+        error: {
+          code: 'authentication_required',
+          message: 'Login required',
+        },
+      }),
+      {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+
+    const result = (await processAPIResponse(
+      response,
+      baseConfig,
+      false,
+    )) as unknown as Response;
+
+    expect(result.status).toBe(302);
+    expect(result.headers.get('Location')).toBe('/login');
+  });
+
+  it('uses fallback request_id for API errors that omit one', async () => {
+    // Covers lines 321-322: apiResponse.request_id is absent, so the ternary
+    // falls through to config.generateFallbackRequestID('error').
+    const response = new Response(
+      JSON.stringify({
+        status: 'error',
+        status_code: 404,
+        // NO request_id field
+        type: 'api',
+        data: null,
+        meta: {},
+        error: { code: 'not_found', message: 'Resource not found' },
+      }),
+      {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+
+    const result = await processAPIResponse(response, baseConfig, false);
+    expect(result.status).toBe('error');
+    expect(result.type).toBe('page');
+    expect(result.error?.code).toBe('not_found');
+    // Fallback request_id starts with 'fallback_' (from baseConfig.generateFallbackRequestID)
+    expect(result.request_id).toMatch(/^fallback_/);
+  });
+
+  it('converts a 422 API error into a generic page error', async () => {
+    // Covers lines 368-384: the generic-error branch for API errors that are
+    // not 404, 500, or 403.
+    const response = new Response(
+      JSON.stringify({
+        status: 'error',
+        status_code: 422,
+        request_id: 'req_422',
+        type: 'api',
+        data: null,
+        meta: {},
+        error: {
+          code: 'unprocessable_entity',
+          message: 'Validation failed',
+          details: { field: 'email' },
+        },
+      }),
+      {
+        status: 422,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+
+    const result = await processAPIResponse(response, baseConfig, true);
+    expect(result.status).toBe('error');
+    expect(result.status_code).toBe(422);
+    expect(result.type).toBe('page');
+    expect(result.error?.code).toBe('unprocessable_entity');
+    expect(result.error?.message).toBe('Validation failed');
+    expect(result.error?.details).toEqual({ field: 'email' });
+  });
+
+  it('converts a non-api 404 JSON response into a not_found page error', async () => {
+    // Covers lines 408-416: status 404, valid JSON, but not type:'api'.
+    const response = new Response(JSON.stringify({ message: 'not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const result = await processAPIResponse(response, baseConfig, false);
+    expect(result.status).toBe('error');
+    expect(result.type).toBe('page');
+    expect(result.error?.code).toBe('not_found');
+  });
+
+  it('converts a non-api 500 JSON response into an internal error page error', async () => {
+    // Covers lines 418-426: status 500, valid JSON, but not type:'api'.
+    const response = new Response(
+      // Valid JSON but not following our API envelope format (no type/status fields).
+      JSON.stringify({ message: 'server error' }),
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+
+    const result = await processAPIResponse(response, baseConfig, false);
+    expect(result.status).toBe('error');
+    expect(result.type).toBe('page');
+    expect(result.error?.code).toBe('internal_server_error');
+    // The original body message is discarded — the default message is used instead.
+    expect(result.error?.message).toBe(
+      baseConfig.errorDefaults.internalError.message,
+    );
+  });
+
+  it('follows a redirect returned by a non-json custom handler', async () => {
+    // Covers lines 458-463: non-JSON response, custom handler returns a redirect
+    // response, which processRedirectResponse processes into a real HTTP redirect.
+    const response = new Response('<html>payment</html>', {
+      status: 402,
+      headers: { 'Content-Type': 'text/html' },
+    });
+
+    const result = (await processAPIResponse(
+      response,
+      {
+        ...baseConfig,
+        statusCodeHandlers: {
+          ['402']: () =>
+            ({
+              status: 'redirect',
+              status_code: 200,
+              request_id: 'req_non_json_redirect',
+              type: 'page',
+              data: null,
+              meta: { page: { title: 'Billing', description: 'Redirecting' } },
+              error: null,
+              redirect: { target: '/billing', permanent: false },
+            }) as unknown as PageResponseEnvelope,
+        },
+      },
+      false,
+    )) as unknown as Response;
+
+    expect(result.status).toBe(302);
+    expect(result.headers.get('Location')).toBe('/billing');
+  });
 });
