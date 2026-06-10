@@ -202,9 +202,9 @@ describe('validateName', () => {
 
   describe('invalid characters', () => {
     test('note: filesystem-unsafe character check is unreachable', () => {
-      // The URL-safe regex check (line 84) catches ALL filesystem-unsafe characters
-      // before the explicit filesystem check (line 93) can run.
-      // Lines 94-97 are unreachable code and could be removed.
+      // The URL-safe regex check catches ALL filesystem-unsafe characters
+      // before the explicit filesystem check can run.
+      // The filesystem check is unreachable code and could be removed.
       // This test documents the behavior - filesystem chars are caught by URL-safe check:
       expect(validateName('my<project')).toEqual({
         valid: false,

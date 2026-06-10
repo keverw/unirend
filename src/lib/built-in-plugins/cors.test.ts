@@ -1965,4 +1965,294 @@ describe('cors', () => {
       );
     });
   });
+
+  // -------------------------------------------------------------------------
+  // credentials: ['null'] — validateCredentialsOrigins null-origin guard
+  // -------------------------------------------------------------------------
+
+  describe("credentials: ['null'] rejection", () => {
+    it("rejects 'null' as a credentials origin", () => {
+      const config: CORSConfig = {
+        origin: ['https://example.com'],
+        credentials: ['null'],
+      };
+
+      expect(() => cors(config)).toThrow(
+        "credentials cannot be enabled for the 'null' origin",
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // origin as a function — isOriginAllowed function branch
+  // -------------------------------------------------------------------------
+
+  describe('origin as a function', () => {
+    it('calls the origin function and allows when it returns true', async () => {
+      const originFn = mock((_origin: string | undefined) => true);
+      const config: CORSConfig = {
+        origin: originFn,
+      };
+
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      await cors(config)(pluginHost, options);
+
+      const onRequestHook = pluginHost
+        .getHooks()
+        .find((h) => h.event === 'onRequest');
+      const request = createMockRequest({
+        headers: { origin: 'https://dynamic.example.com' },
+      });
+      const reply = createMockReply();
+      await onRequestHook?.handler(request, reply);
+
+      expect(originFn).toHaveBeenCalled();
+      expect(reply.header).toHaveBeenCalledWith(
+        'Access-Control-Allow-Origin',
+        'https://dynamic.example.com',
+      );
+    });
+
+    it('calls the origin function and blocks when it returns false', async () => {
+      const config: CORSConfig = {
+        origin: mock((_origin: string | undefined) => false),
+      };
+
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      await cors(config)(pluginHost, options);
+
+      const onRequestHook = pluginHost
+        .getHooks()
+        .find((h) => h.event === 'onRequest');
+      const request = createMockRequest({
+        headers: { origin: 'https://blocked.example.com' },
+      });
+      const reply = createMockReply();
+      await onRequestHook?.handler(request, reply);
+
+      expect(reply.header).not.toHaveBeenCalledWith(
+        'Access-Control-Allow-Origin',
+        expect.anything(),
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // credentials as a function — areCredentialsAllowed function branch
+  // -------------------------------------------------------------------------
+
+  describe('credentials as a function', () => {
+    it('calls the credentials function and allows when it returns true', async () => {
+      const credFn = mock((_origin: string | undefined) => true);
+      const config: CORSConfig = {
+        origin: ['https://example.com'],
+        credentials: credFn,
+      };
+
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      await cors(config)(pluginHost, options);
+
+      const onRequestHook = pluginHost
+        .getHooks()
+        .find((h) => h.event === 'onRequest');
+      const request = createMockRequest({
+        headers: { origin: 'https://example.com' },
+      });
+      const reply = createMockReply();
+      await onRequestHook?.handler(request, reply);
+
+      expect(credFn).toHaveBeenCalled();
+      expect(reply.header).toHaveBeenCalledWith(
+        'Access-Control-Allow-Credentials',
+        'true',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // credentials: true + array origin with protocol wildcard
+  // -------------------------------------------------------------------------
+
+  describe('credentials: true + protocol-wildcard array origin', () => {
+    it('throws when origin array contains https://* and credentials: true without opt-in', () => {
+      const config: CORSConfig = {
+        origin: ['https://*'],
+        credentials: true,
+        // allowCredentialsWithProtocolWildcard not set → throws
+      };
+
+      expect(() => cors(config)).toThrow(
+        'Cannot use credentials: true with protocol wildcard origins',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // origin: '*', credentials: [] — empty allowlist guard
+  // -------------------------------------------------------------------------
+
+  describe("origin: '*' + empty credentials array", () => {
+    it('throws when credentials is an empty array combined with origin: *', () => {
+      const config: CORSConfig = {
+        origin: '*',
+        credentials: [],
+      };
+
+      expect(() => cors(config)).toThrow(
+        "credentials list is empty; cannot combine origin '*' with credentials",
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Single-string invalid origin
+  // -------------------------------------------------------------------------
+
+  describe('single-string origin validation', () => {
+    it('rejects a string origin with a path component', () => {
+      const config: CORSConfig = {
+        origin: 'https://example.com/path',
+      };
+
+      expect(() => cors(config)).toThrow(
+        'Invalid CORS origin "https://example.com/path"',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Wildcard + non-null entry in origin array
+  // -------------------------------------------------------------------------
+
+  describe('wildcard + non-null entry in origin array', () => {
+    it('throws when a non-null regular origin follows a protocol wildcard', () => {
+      const config: CORSConfig = {
+        origin: ['https://*', 'https://specific.example.com'],
+      };
+
+      expect(() => cors(config)).toThrow(
+        "when a wildcard token is present, the only other allowed entry is the literal 'null'",
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // ['*', 'null'] + credentials: true / function
+  // -------------------------------------------------------------------------
+
+  describe("origin array with '*' and null + credentials guards", () => {
+    it("throws when credentials: true is combined with origin array containing '*'", () => {
+      const config: CORSConfig = {
+        origin: ['*', 'null'],
+        credentials: true,
+      };
+
+      expect(() => cors(config)).toThrow(
+        "Cannot use credentials: true when origin array contains '*'",
+      );
+    });
+
+    it("throws when a credentials function is combined with origin array containing '*'", () => {
+      const config: CORSConfig = {
+        origin: ['*', 'null'],
+        credentials: mock((_origin: string | undefined) => true),
+      };
+
+      expect(() => cors(config)).toThrow(
+        "Unsafe CORS: cannot combine an origin array containing '*' with dynamic credentials",
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // applyCORSHeaders decorator body
+  // -------------------------------------------------------------------------
+
+  describe('applyCORSHeaders decorator', () => {
+    it('calls applyCORSActualResponseHeaders when the decorator is invoked', async () => {
+      let capturedDecorator:
+        | ((...args: unknown[]) => Promise<void>)
+        | undefined;
+
+      const capturingHost = {
+        decorateRequest: mock(
+          (_name: string, fn: (...args: unknown[]) => Promise<void>) => {
+            capturedDecorator = fn;
+          },
+        ),
+        addHook: mock(
+          (_event: string, _handler: (...args: unknown[]) => Promise<void>) =>
+            undefined,
+        ),
+        getHooks: () =>
+          [] as Array<{
+            event: string;
+            handler: (...args: unknown[]) => Promise<void>;
+          }>,
+      } as unknown as MockPluginHost;
+
+      const options = createMockOptions();
+      await cors({ origin: 'https://example.com' })(capturingHost, options);
+
+      expect(capturedDecorator).toBeDefined();
+
+      const mockReply = createMockReply();
+      const mockRequest = createMockRequest({
+        corsOriginAllowed: true,
+      });
+
+      // Invoke the decorator with `this` bound to the mock request
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      await capturedDecorator!.call(mockRequest, mockReply);
+
+      // applyCORSActualResponseHeaders sets response headers
+      expect(mockReply.header).toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Non-wildcard allowedHeaders: invalid header names filtered
+  // -------------------------------------------------------------------------
+
+  describe('non-wildcard allowedHeaders preflight — invalid header filtering', () => {
+    it('skips header names containing spaces', async () => {
+      const config: CORSConfig = {
+        origin: 'https://example.com',
+        allowedHeaders: ['Content-Type', 'Authorization'],
+      };
+
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      await cors(config)(pluginHost, options);
+
+      const hooks = pluginHost.getHooks();
+      const onRequestHook = hooks.find((h) => h.event === 'onRequest');
+
+      const mockRequest = createMockRequest({
+        method: 'OPTIONS',
+        headers: {
+          origin: 'https://example.com',
+          'access-control-request-method': 'POST',
+          // "bad header!!!" has a space — invalid per RFC 7230 token
+          'access-control-request-headers': 'Content-Type, bad header!!!',
+        },
+      });
+
+      const mockReply = createMockReply();
+      await onRequestHook?.handler(mockRequest, mockReply);
+
+      // Only Content-Type should appear; the invalid header was filtered
+      const headerCalls = mockReply.header.mock.calls as Array<[string, string]>;
+      const allowHeadersCall = headerCalls.find(
+        ([k]) => k === 'Access-Control-Allow-Headers',
+      );
+      expect(allowHeadersCall).toBeDefined();
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const headerValue = allowHeadersCall![1];
+      expect(headerValue).not.toContain('bad header');
+    });
+  });
 });

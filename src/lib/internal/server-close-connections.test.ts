@@ -5,7 +5,7 @@ import { RedirectServer } from './redirect-server';
 
 /**
  * Covers the closeAllConnections() method body on StaticWebServer and
- * RedirectServer, which were previously uncovered (line 403 and 289).
+ * RedirectServer, which were previously uncovered.
  * Both use optional chaining (this.server?.closeAllConnections()), so
  * calling them on an un-started server is a safe, observable no-op.
  */

@@ -495,8 +495,7 @@ describe('processAPIResponse', () => {
   });
 
   it('returns a custom handler result directly when it is not a redirect', async () => {
-    // Covers the JSON-path branch where customHandlerResult is not a redirect
-    // (line 185: return customHandlerResult after the redirect-guard block).
+    // Covers the JSON-path branch where customHandlerResult is not a redirect.
     const response = new Response(JSON.stringify({ x: 1 }), {
       status: 402,
       headers: { 'Content-Type': 'application/json' },
@@ -536,8 +535,7 @@ describe('processAPIResponse', () => {
   });
 
   it('passes through a non-200 page envelope unchanged', async () => {
-    // A 400 response whose body already has type:'page' — returned as-is
-    // (lines 227-231 in the else-branch after the status-200 page check).
+    // A 400 response whose body already has type:'page' — returned as-is.
     const response = new Response(
       JSON.stringify({
         status: 'error',
@@ -561,7 +559,7 @@ describe('processAPIResponse', () => {
   });
 
   it('uses fallback request_id when auth_required response omits one', async () => {
-    // Covers the ternary at lines 256-257: authResponse.request_id is absent
+    // Covers the ternary: authResponse.request_id is absent
     // so config.generateFallbackRequestID is called instead.
     const response = new Response(
       JSON.stringify({
@@ -595,7 +593,7 @@ describe('processAPIResponse', () => {
   });
 
   it('redirects to loginURL without return_to when error details are absent', async () => {
-    // Covers line 300: redirect(config.loginURL) when returnTo is undefined.
+    // Covers redirect(config.loginURL) when returnTo is undefined.
     const response = new Response(
       JSON.stringify({
         status: 'error',
@@ -626,7 +624,7 @@ describe('processAPIResponse', () => {
   });
 
   it('uses fallback request_id for API errors that omit one', async () => {
-    // Covers lines 321-322: apiResponse.request_id is absent, so the ternary
+    // Covers apiResponse.request_id is absent, so the ternary
     // falls through to config.generateFallbackRequestID('error').
     const response = new Response(
       JSON.stringify({
@@ -653,7 +651,7 @@ describe('processAPIResponse', () => {
   });
 
   it('converts a 422 API error into a generic page error', async () => {
-    // Covers lines 368-384: the generic-error branch for API errors that are
+    // Covers the generic-error branch for API errors that are
     // not 404, 500, or 403.
     const response = new Response(
       JSON.stringify({
@@ -685,7 +683,7 @@ describe('processAPIResponse', () => {
   });
 
   it('converts a non-api 404 JSON response into a not_found page error', async () => {
-    // Covers lines 408-416: status 404, valid JSON, but not type:'api'.
+    // Covers status 404, valid JSON, but not type:'api'.
     const response = new Response(JSON.stringify({ message: 'not found' }), {
       status: 404,
       headers: { 'Content-Type': 'application/json' },
@@ -698,7 +696,7 @@ describe('processAPIResponse', () => {
   });
 
   it('converts a non-api 500 JSON response into an internal error page error', async () => {
-    // Covers lines 418-426: status 500, valid JSON, but not type:'api'.
+    // Covers status 500, valid JSON, but not type:'api'.
     const response = new Response(
       // Valid JSON but not following our API envelope format (no type/status fields).
       JSON.stringify({ message: 'server error' }),
@@ -719,7 +717,7 @@ describe('processAPIResponse', () => {
   });
 
   it('follows a redirect returned by a non-json custom handler', async () => {
-    // Covers lines 458-463: non-JSON response, custom handler returns a redirect
+    // Covers non-JSON response, custom handler returns a redirect
     // response, which processRedirectResponse processes into a real HTTP redirect.
     const response = new Response('<html>payment</html>', {
       status: 402,

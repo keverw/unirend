@@ -237,18 +237,20 @@ describe('createProjectSpecificFiles — unknown template', () => {
   it('throws for an unrecognized templateID', async () => {
     const root: InMemoryDir = {};
     let caughtError: unknown;
+
     try {
-      // @ts-expect-error — intentionally passing invalid template
       await createProjectSpecificFiles(
         root,
         'src/apps/app',
         'app',
+        // @ts-expect-error — intentionally passing invalid template
         'does-not-exist',
         'bun',
       );
     } catch (error) {
       caughtError = error;
     }
+
     expect(caughtError).toBeInstanceOf(Error);
     expect((caughtError as Error).message).toMatch(/Unknown template/);
   });
