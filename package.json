@@ -132,6 +132,10 @@
     "type": "git",
     "url": "https://github.com/keverw/unirend"
   },
+  "homepage": "https://github.com/keverw/unirend#readme",
+  "bugs": {
+    "url": "https://github.com/keverw/unirend/issues"
+  },
   "engines": {
     "node": ">=25"
   },
