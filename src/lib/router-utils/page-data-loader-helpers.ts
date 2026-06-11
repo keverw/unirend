@@ -197,11 +197,7 @@ export async function processAPIResponse(
       'redirect' in responseData &&
       responseData.redirect
     ) {
-      return processRedirectResponse(
-        config,
-        responseData as Record<string, unknown>,
-        ssrOnlyData,
-      );
+      return processRedirectResponse(config, responseData, ssrOnlyData);
     }
 
     // Continue with existing checks for page responses and auth redirects

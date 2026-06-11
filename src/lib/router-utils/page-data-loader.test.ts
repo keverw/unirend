@@ -14,9 +14,10 @@ function createArgs(
 ): LoaderFunctionArgs {
   return {
     request: new Request(path),
+    url: new URL(path),
     params,
     context: undefined,
-    unstable_pattern: '',
+    pattern: '',
   };
 }
 
@@ -1394,10 +1395,7 @@ describe('HTTP-backed page data loader', () => {
       expect(result.status).toBe('success');
       expect(result.data).toEqual({ both: true });
 
-      const [, options] = fetchMock.mock.calls[0] as unknown as [
-        string,
-        Record<string, unknown>,
-      ];
+      const [, options] = fetchMock.mock.calls[0];
 
       expect(options.dispatcher).toBe(dispatcher);
     });
@@ -1545,9 +1543,7 @@ describe('HTTP-backed page data loader', () => {
         handlers: { hasHandler: () => false },
         fastifyRequest,
         controlledReply: {},
-        resolvePageDataFetch: resolverMock as unknown as () => {
-          baseURL: string;
-        },
+        resolvePageDataFetch: resolverMock,
       };
 
       await loader({ ...createArgs(), request });

@@ -99,7 +99,7 @@ export async function fetchWithTimeout(
 ): Promise<Response> {
   // If timeout is 0 or negative, use regular fetch without timeout
   if (timeoutMS <= 0) {
-    return fetch(url, options as RequestInit);
+    return fetch(url, options);
   }
 
   const controller = new AbortController();
@@ -109,7 +109,7 @@ export async function fetchWithTimeout(
     const response = await fetch(url, {
       ...options,
       signal: controller.signal,
-    } as RequestInit);
+    });
     return response;
   } catch (error) {
     // Abort the controller to ensure cleanup in case of non-timeout errors
@@ -201,13 +201,13 @@ export function createErrorResponse(
         : DEFAULT_FALLBACK_REQUEST_ID_GENERATOR('error')),
     type: 'page',
     data: null,
-    meta: finalMeta as BaseMeta,
+    meta: finalMeta,
     error: {
       code: errorCode,
       message,
       ...(errorDetails ? { details: errorDetails } : {}),
     },
-  } as PageErrorResponse;
+  };
 }
 
 /**

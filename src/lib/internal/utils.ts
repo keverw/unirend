@@ -62,7 +62,7 @@ function parseMajorVersion(version?: string): number | undefined {
  */
 export function getRuntimeSupportInfo(
   minimumNodeMajor = MINIMUM_SUPPORTED_NODE_MAJOR,
-  environment: RuntimeEnvironmentLike = globalThis as RuntimeEnvironmentLike,
+  environment: RuntimeEnvironmentLike = globalThis,
 ): RuntimeSupportInfo {
   const versions = environment.process?.versions;
   const nodeVersion =

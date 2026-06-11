@@ -614,21 +614,25 @@ function guardRouteHandler(handler: RouteHandler): RouteHandler {
       );
     };
 
-    reply.redirect = ((url: string, code?: number) => {
+    reply.redirect = (url: string, code?: number) => {
       // Record the redirect intent but defer the real Fastify redirect call
       // until after this wrapper restores the original reply methods.
       deferredActionKind = 'redirect';
       deferredRedirectURL = url;
       deferredRedirectCode = code;
       return DEFERRED_REPLY_ACTION_SENTINEL as unknown as FastifyReply;
-    }) as typeof reply.redirect;
+    };
 
-    reply.callNotFound = (() => {
+    // The sentinel return is a thenable FastifyReply where Fastify types
+    // callNotFound as void — intentional, so `return reply.callNotFound()`
+    // hands the sentinel back to the wrapper for deferred-action detection.
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
+    reply.callNotFound = () => {
       // Record the delegation intent but defer the real Fastify helper until
       // after this wrapper restores the original reply methods.
       deferredActionKind = 'callNotFound';
       return DEFERRED_REPLY_ACTION_SENTINEL as unknown as FastifyReply;
-    }) as typeof reply.callNotFound;
+    };
 
     try {
       handlerResult = await (
@@ -810,8 +814,8 @@ export function createControlledInstance(
           };
       return fastifyInstance.addHook(
         hookName as Parameters<typeof fastifyInstance.addHook>[0],
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument
-        wrappedHandler as any,
+
+        wrappedHandler,
       );
     },
     decorate: (property: string, value: unknown) =>
@@ -878,13 +882,8 @@ export function createControlledReply(
     header: (name: string, value: string) => {
       reply.header(name, value);
     },
-    getHeader: (name: string) =>
-      reply.getHeader(name) as unknown as
-        | string
-        | number
-        | string[]
-        | undefined,
-    getHeaders: () => reply.getHeaders() as unknown as Record<string, unknown>,
+    getHeader: (name: string) => reply.getHeader(name),
+    getHeaders: () => reply.getHeaders(),
     removeHeader: (name: string) => {
       reply.removeHeader(name);
     },

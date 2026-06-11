@@ -150,7 +150,7 @@ export function registerResponseTimeHijackPatch(
   fastifyInstance.addHook('onRequest', (_request, reply, done) => {
     const originalHijack = reply.hijack.bind(reply);
 
-    reply.hijack = ((...args: unknown[]) => {
+    reply.hijack = (...args: unknown[]) => {
       // If a route switches to raw Node response handling, make sure the
       // response-time header is already present in reply.getHeaders() before
       // user code calls raw.writeHead(...). This is an early measurement for
@@ -160,7 +160,7 @@ export function registerResponseTimeHijackPatch(
       }
 
       return originalHijack(...(args as []));
-    }) as typeof reply.hijack;
+    };
 
     done();
   });

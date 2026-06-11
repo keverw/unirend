@@ -445,7 +445,7 @@ async function main() {
   } else {
     // Unhandled command, which should never happen as something wasn't implemented
     // show a helpful error message about the command that was not implemented
-    const details = JSON.stringify(parsed as unknown, null, 2);
+    const details = JSON.stringify(parsed, null, 2);
     showHelp(`Command not implemented. Parser output:\n${details}`);
     process.exit(1);
   }

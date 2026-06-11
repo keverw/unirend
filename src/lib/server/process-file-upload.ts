@@ -1058,7 +1058,7 @@ class FileUploadProcessor<T = unknown> {
 
     // Extract error message in development mode
     if (error && typeof error === 'object' && 'message' in error) {
-      const message = (error as { message: unknown }).message;
+      const message = error.message;
       return typeof message === 'string' ? message : fallback;
     }
     return fallback;

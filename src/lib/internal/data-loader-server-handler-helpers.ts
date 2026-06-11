@@ -472,11 +472,9 @@ export class DataLoaderServerHandlerHelpers {
       !timeoutMS || timeoutMS <= 0
         ? // No timeout specified, return the handler result immediately
           // Handler promise when no timer is specified
-          (invocation as Promise<
-            PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M> | false
-          >)
+          invocation
         : // If a timeout is specified, race the handler promise with a timer promise
-          (Promise.race([
+          Promise.race([
             // Handler promise
             invocation,
             // Timer promise
@@ -493,9 +491,7 @@ export class DataLoaderServerHandlerHelpers {
                 reject(error);
               }, timeoutMS);
             }),
-          ]) as Promise<
-            PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M> | false
-          >);
+          ]);
 
     // Ensure the timeout is cleared regardless of timeout path
     const result = await resultPromise.finally(() => {

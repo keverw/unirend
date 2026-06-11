@@ -996,11 +996,11 @@ describe('validateAndRegisterPlugin', () => {
     const regs: Array<{ name: string; dependsOn?: string | string[] }> = [];
 
     // No metadata -> no change
-    validateAndRegisterPlugin(regs as any, undefined);
+    validateAndRegisterPlugin(regs, undefined);
     expect(regs.length).toBe(0);
 
     // Register first plugin
-    validateAndRegisterPlugin(regs as any, { name: 'a' });
+    validateAndRegisterPlugin(regs, { name: 'a' });
     expect(regs.map((r) => r.name)).toEqual(['a']);
 
     // Duplicate should throw
@@ -1017,8 +1017,8 @@ describe('validateAndRegisterPlugin', () => {
     ).toThrow(/depends on "missing"/i);
 
     // Register dependency then dependent
-    validateAndRegisterPlugin(regs as any, { name: 'base' });
-    validateAndRegisterPlugin(regs as any, { name: 'c', dependsOn: 'base' });
+    validateAndRegisterPlugin(regs, { name: 'base' });
+    validateAndRegisterPlugin(regs, { name: 'c', dependsOn: 'base' });
     expect(regs.map((r) => r.name)).toEqual(['a', 'base', 'c']);
   });
 });
@@ -1106,7 +1106,7 @@ describe('buildFastifyHTTPSOptions', () => {
     const config: HTTPSOptions = {
       key: 'test-key',
       cert: 'test-cert',
-      sni: () => ({ context: true }) as any,
+      sni: () => ({ context: true }),
     };
 
     const result = buildFastifyHTTPSOptions(config);
@@ -1120,7 +1120,7 @@ describe('buildFastifyHTTPSOptions', () => {
     const config: HTTPSOptions = {
       key: 'k',
       cert: 'c',
-      sni: (_servername: string) => mockCtx as any,
+      sni: (_servername: string) => mockCtx,
     };
 
     const result = buildFastifyHTTPSOptions(config);
@@ -1140,7 +1140,7 @@ describe('buildFastifyHTTPSOptions', () => {
     const config: HTTPSOptions = {
       key: 'k',
       cert: 'c',
-      sni: (_servername: string) => mockCtx as any,
+      sni: (_servername: string) => mockCtx,
     };
 
     const result = buildFastifyHTTPSOptions(config);
@@ -1160,7 +1160,7 @@ describe('buildFastifyHTTPSOptions', () => {
       cert: 'c',
       sni: async (_servername: string) => {
         await Promise.resolve();
-        return mockCtx as any;
+        return mockCtx;
       },
     };
 
@@ -1241,7 +1241,7 @@ describe('buildFastifyHTTPSOptions', () => {
       cert: 'c',
       sni: async (_servername: string) => {
         await Promise.resolve();
-        return mockCtx as any;
+        return mockCtx;
       },
     };
 

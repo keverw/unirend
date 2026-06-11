@@ -40,9 +40,7 @@ describe('cookie-utils: isCookieNameAllowed', () => {
 describe('cookie-utils: filterIncomingCookieHeader', () => {
   it('returns undefined for null/undefined/empty headers', () => {
     expect(filterIncomingCookieHeader(undefined)).toBeUndefined();
-    expect(
-      filterIncomingCookieHeader(null as unknown as string),
-    ).toBeUndefined();
+    expect(filterIncomingCookieHeader(null)).toBeUndefined();
     expect(filterIncomingCookieHeader('')).toBeUndefined();
     expect(filterIncomingCookieHeader('   ')).toBeUndefined();
   });

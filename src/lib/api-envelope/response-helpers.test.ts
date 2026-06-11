@@ -137,7 +137,7 @@ describe('APIResponseHelpers', () => {
     });
 
     it('uses "unknown" as request_id when requestID is not available', () => {
-      const request = createMockRequest({ requestID: undefined } as any);
+      const request = createMockRequest({ requestID: undefined });
       const data = { test: true };
 
       const response = APIResponseHelpers.createAPISuccessResponse({
@@ -308,7 +308,7 @@ describe('APIResponseHelpers', () => {
       const requestContext = { userID: '123', role: 'admin' };
       const request = createMockRequest({
         requestContext,
-      } as any);
+      });
       const data = { page: 'home' };
       const pageMetadata = { title: 'Home', description: 'Home page' };
 
@@ -324,7 +324,7 @@ describe('APIResponseHelpers', () => {
     it('excludes ssr_request_context when empty', () => {
       const request = createMockRequest({
         requestContext: {},
-      } as any);
+      });
       const data = { page: 'home' };
       const pageMetadata = { title: 'Home', description: 'Home page' };
 
@@ -399,7 +399,7 @@ describe('APIResponseHelpers', () => {
       const requestContext = { userID: '456' };
       const request = createMockRequest({
         requestContext,
-      } as any);
+      });
       const redirectInfo = { target: '/dashboard', permanent: false };
       const pageMetadata = { title: 'Redirect', description: 'Redirecting' };
 
@@ -466,7 +466,7 @@ describe('APIResponseHelpers', () => {
       const requestContext = { userID: '789' };
       const request = createMockRequest({
         requestContext,
-      } as any);
+      });
       const pageMetadata = { title: 'Error', description: 'Error page' };
 
       const response = APIResponseHelpers.createPageErrorResponse({

@@ -63,8 +63,7 @@ export async function loadBuildInfo(
       typeof buildInfoModule === 'object' &&
       'BUILD_INFO' in buildInfoModule
     ) {
-      const loadedInfo = (buildInfoModule as { BUILD_INFO: unknown })
-        .BUILD_INFO;
+      const loadedInfo = buildInfoModule.BUILD_INFO;
 
       // Validate that BUILD_INFO is actually a valid BuildInfo object
       if (isValidBuildInfo(loadedInfo)) {

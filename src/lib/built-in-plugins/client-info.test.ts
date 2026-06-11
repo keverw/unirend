@@ -1,6 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { clientInfo } from './client-info';
-import type { ClientInfoConfig } from './client-info';
 import { ulid, isValid as isValidULID } from 'ulid';
 import type { PluginOptions, PluginHostInstance } from '../types';
 
@@ -293,7 +292,7 @@ describe('clientInfo', () => {
       requestIDGenerator: () => 'req-2',
       requestIDValidator: (id) => id === 'corr-2',
       trustForwardedHeaders: () => true,
-    } as ClientInfoConfig);
+    });
 
     await plugin(pluginHost, options);
     const onRequestHook = pluginHost

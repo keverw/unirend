@@ -44,7 +44,7 @@ const createMockFSReadStream = (
     stream.emit('open', 1);
   });
 
-  return stream as fs.ReadStream;
+  return stream;
 };
 
 // Helper to create mock request

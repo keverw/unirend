@@ -311,7 +311,7 @@ export function createPageDataLoader(
   // If the pageTypeOrHandler is a LocalPageHandler, create a page data loader that uses the handler
   const handler = pageTypeOrHandler;
   return (args: LoaderFunctionArgs) =>
-    localPageDataLoader(config as LocalPageDataLoaderConfig, handler, args);
+    localPageDataLoader(config, handler, args);
 }
 
 /**
@@ -785,9 +785,9 @@ async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
     !timeoutMS || timeoutMS <= 0
       ? // No timeout specified, return the handler result immediately
         // Handler promise when no timer is specified
-        (invocation as Promise<PageResponseEnvelope | APIResponseEnvelope>)
+        invocation
       : // If a timeout is specified, race the handler promise with a timer promise
-        (Promise.race([
+        Promise.race([
           // Handler promise
           invocation,
           // Timer promise
@@ -800,7 +800,7 @@ async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
               reject(error);
             }, timeoutMS);
           }),
-        ]) as Promise<PageResponseEnvelope | APIResponseEnvelope>);
+        ]);
 
   try {
     // Ensure timer cleared regardless of outcome

@@ -152,7 +152,7 @@ class DemoResponseHelpers extends APIResponseHelpers {
         environment: isDev ? 'development' : 'production',
         buildTime: new Date().toISOString(),
       },
-    } as Partial<DemoMeta>;
+    };
   }
 
   private static mergeMeta<M extends BaseMeta>(

@@ -57,7 +57,7 @@ describe('cookies plugin', () => {
       secret: 'shhh',
       hook: 'preHandler',
       parseOptions: { path: '/', sameSite: 'lax', signed: true },
-    } as CookiesConfig;
+    };
 
     const plugin = cookies(config);
     const meta = await plugin(host, options);
@@ -78,7 +78,7 @@ describe('cookies plugin', () => {
     const options = createMockOptions();
     const config: CookiesConfig = {
       secret: ['k2', 'k1'],
-    } as CookiesConfig;
+    };
 
     // Inject non-standard algorithm field our plugin reads for decoration
     (config as unknown as { algorithm?: string }).algorithm = 'sha512';

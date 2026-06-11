@@ -62,7 +62,7 @@ export class APIResponseHelpers {
         : {}),
       type: 'api',
       data,
-      meta: { ...defaultMeta, ...(meta as Partial<M>) } as M,
+      meta: { ...defaultMeta, ...(meta as Partial<M>) },
     };
   }
 
@@ -101,7 +101,7 @@ export class APIResponseHelpers {
         : {}),
       type: 'api',
       data: null,
-      meta: { ...defaultMeta, ...(meta as Partial<M>) } as M,
+      meta: { ...defaultMeta, ...(meta as Partial<M>) },
       error: {
         code: errorCode,
         message: errorMessage,
@@ -154,7 +154,7 @@ export class APIResponseHelpers {
         : {}),
       type: 'page',
       data,
-      meta: { ...(baseMeta as M), ...(meta as Partial<M>) } as M,
+      meta: { ...(baseMeta as M), ...(meta as Partial<M>) },
       ...(requestContext &&
       typeof requestContext === 'object' &&
       !Array.isArray(requestContext) &&
@@ -203,7 +203,7 @@ export class APIResponseHelpers {
         : {}),
       type: 'page',
       data: null,
-      meta: { ...(baseMeta as M), ...(meta as Partial<M>) } as M,
+      meta: { ...(baseMeta as M), ...(meta as Partial<M>) },
       redirect: redirectInfo,
       ...(requestContext &&
       typeof requestContext === 'object' &&
@@ -264,7 +264,7 @@ export class APIResponseHelpers {
         : {}),
       type: 'page',
       data: null,
-      meta: { ...(baseMeta as M), ...(meta as Partial<M>) } as M,
+      meta: { ...(baseMeta as M), ...(meta as Partial<M>) },
       error: {
         code: errorCode,
         message: errorMessage,

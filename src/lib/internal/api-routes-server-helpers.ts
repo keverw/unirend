@@ -444,6 +444,7 @@ export class APIRoutesServerHelpers<
 
   private ensureMethod(method: string): HTTPMethod {
     const upper = (method || '').toUpperCase();
+
     if (
       upper === 'GET' ||
       upper === 'POST' ||
@@ -451,7 +452,7 @@ export class APIRoutesServerHelpers<
       upper === 'DELETE' ||
       upper === 'PATCH'
     ) {
-      return upper as HTTPMethod;
+      return upper;
     }
 
     throw new Error('Unsupported HTTP method: ' + method);

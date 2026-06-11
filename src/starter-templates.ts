@@ -627,7 +627,7 @@ export function getTemplateInfo(templateID: TemplateID): TemplateInfo {
  * Get available template IDs with info objects
  */
 export function listAvailableTemplatesWithInfo(): TemplateInfo[] {
-  return Object.values(STARTER_TEMPLATES) as TemplateInfo[];
+  return Object.values(STARTER_TEMPLATES);
 }
 
 /**

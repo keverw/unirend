@@ -124,7 +124,7 @@ async function vfsReadRaw(
         return { ok: true, data };
       }
 
-      return { ok: true, data: new TextDecoder().decode(data as Uint8Array) };
+      return { ok: true, data: new TextDecoder().decode(data) };
     }
 
     const norm = normalizeRelPath(relPath);

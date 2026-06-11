@@ -48,6 +48,8 @@ export function UnirendHead({ children }: { children?: ReactNode }) {
 
   const [isMounted, setIsMounted] = React.useState(false);
   React.useEffect(() => {
+    // Intentional hydration detection: flip to client-only rendering after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsMounted(true);
   }, []);
 
@@ -73,6 +75,9 @@ export function UnirendHead({ children }: { children?: ReactNode }) {
   // Effect 1: Handles mounting, attribute updates, and synchronization.
   // Pushes the attributes onto the stack registry on mount, and triggers updateDOM()
   // if attributes change in subsequent layout cycles.
+  // The refs are only read inside the effect callback; the lint can't tell because
+  // useLayoutEffect here is the isomorphic alias variable, not the React hook directly.
+  // eslint-disable-next-line react-hooks/refs
   useLayoutEffect(() => {
     if (collector !== null) {
       return; // Server-side collection is handled in the render phase
@@ -712,7 +717,13 @@ function serializeStyleObject(styleObj: Record<string, unknown>): string {
         (match) => `-${match.toLowerCase()}`,
       );
 
-      let formattedValue = String(value as string | number);
+      // CSSProperties values are strings or numbers; skip anything else rather
+      // than emitting a useless '[object Object]' value.
+      if (typeof value !== 'string' && typeof value !== 'number') {
+        return '';
+      }
+
+      let formattedValue = String(value);
       // Append 'px' to numbers unless the CSS property is unitless
       if (typeof value === 'number' && !UNITLESS_CSS_PROPERTIES.has(kebabKey)) {
         formattedValue = `${value}px`;

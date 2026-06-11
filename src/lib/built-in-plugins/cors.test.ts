@@ -2245,7 +2245,9 @@ describe('cors', () => {
       await onRequestHook?.handler(mockRequest, mockReply);
 
       // Only Content-Type should appear; the invalid header was filtered
-      const headerCalls = mockReply.header.mock.calls as Array<[string, string]>;
+      const headerCalls = mockReply.header.mock.calls as Array<
+        [string, string]
+      >;
       const allowHeadersCall = headerCalls.find(
         ([k]) => k === 'Access-Control-Allow-Headers',
       );

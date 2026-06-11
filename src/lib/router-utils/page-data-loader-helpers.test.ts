@@ -453,24 +453,23 @@ describe('processAPIResponse', () => {
       {
         ...baseConfig,
         statusCodeHandlers: {
-          ['402']: () =>
-            ({
-              status: 'error',
-              status_code: 402,
-              request_id: 'req_custom_non_json',
-              type: 'page',
-              data: null,
-              meta: {
-                page: {
-                  title: 'Payment Required',
-                  description: 'Need payment',
-                },
+          ['402']: () => ({
+            status: 'error',
+            status_code: 402,
+            request_id: 'req_custom_non_json',
+            type: 'page',
+            data: null,
+            meta: {
+              page: {
+                title: 'Payment Required',
+                description: 'Need payment',
               },
-              error: {
-                code: 'payment_required',
-                message: 'Payment required',
-              },
-            }) as PageResponseEnvelope,
+            },
+            error: {
+              code: 'payment_required',
+              message: 'Payment required',
+            },
+          }),
         },
       },
       false,
@@ -506,24 +505,23 @@ describe('processAPIResponse', () => {
       {
         ...baseConfig,
         statusCodeHandlers: {
-          ['402']: () =>
-            ({
-              status: 'error',
-              status_code: 402,
-              request_id: 'req_custom_json_error',
-              type: 'page',
-              data: null,
-              meta: {
-                page: {
-                  title: 'Payment Required',
-                  description: 'Need payment',
-                },
+          ['402']: () => ({
+            status: 'error',
+            status_code: 402,
+            request_id: 'req_custom_json_error',
+            type: 'page',
+            data: null,
+            meta: {
+              page: {
+                title: 'Payment Required',
+                description: 'Need payment',
               },
-              error: {
-                code: 'payment_required',
-                message: 'Payment required',
-              },
-            }) as PageResponseEnvelope,
+            },
+            error: {
+              code: 'payment_required',
+              message: 'Payment required',
+            },
+          }),
         },
       },
       false,

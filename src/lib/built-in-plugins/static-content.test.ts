@@ -32,10 +32,10 @@ const createMockPluginHost = (): MockPluginHost => {
     (host as MockPluginHost)._hooks = hooks;
   });
 
-  host.getDecoration = (<T = unknown>(property: string): T | undefined => {
+  host.getDecoration = <T = unknown>(property: string): T | undefined => {
     const decorations = (host as MockPluginHost)._decorations;
     return decorations?.[property] as T | undefined;
-  }) as typeof host.getDecoration;
+  };
 
   host.hasDecoration = mock((property: string) => {
     const decorations = (host as MockPluginHost)._decorations;
@@ -296,7 +296,7 @@ describe('staticContent plugin', () => {
 
   it('works when logger is not available', async () => {
     const host = createMockPluginHost();
-    host.getDecoration = mock(() => undefined) as typeof host.getDecoration;
+    host.getDecoration = mock(() => undefined);
 
     const options = createMockOptions();
     const config: StaticContentRouterOptions = {

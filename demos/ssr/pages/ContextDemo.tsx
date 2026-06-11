@@ -54,6 +54,7 @@ export function ContextDemo() {
   // Populate context snapshot after hydration
   // This is an intentional pattern for hydration detection in SSR/SSG apps
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsHydrated(true);
     setContextSnapshot({
       renderMode,

@@ -22,7 +22,7 @@ export function hasSSRRequestContext(request: Request): request is Request & {
     return false;
   }
 
-  const helpers = (request as Request & { SSRHelpers: unknown }).SSRHelpers;
+  const helpers = request.SSRHelpers;
 
   if (typeof helpers !== 'object' || helpers === null) {
     return false;
@@ -32,7 +32,7 @@ export function hasSSRRequestContext(request: Request): request is Request & {
     return false;
   }
 
-  const fastifyReq = (helpers as { fastifyRequest: unknown }).fastifyRequest;
+  const fastifyReq = helpers.fastifyRequest;
 
   if (typeof fastifyReq !== 'object' || fastifyReq === null) {
     return false;
@@ -42,7 +42,7 @@ export function hasSSRRequestContext(request: Request): request is Request & {
     return false;
   }
 
-  const reqCtx = (fastifyReq as { requestContext: unknown }).requestContext;
+  const reqCtx = fastifyReq.requestContext;
   return typeof reqCtx === 'object' && reqCtx !== null;
 }
 
@@ -56,7 +56,7 @@ export function hasSSGRequestContext(request: Request): request is Request & {
     return false;
   }
 
-  const helpers = (request as Request & { SSGHelpers: unknown }).SSGHelpers;
+  const helpers = request.SSGHelpers;
   if (typeof helpers !== 'object' || helpers === null) {
     return false;
   }
@@ -65,7 +65,7 @@ export function hasSSGRequestContext(request: Request): request is Request & {
     return false;
   }
 
-  const reqCtx = (helpers as { requestContext: unknown }).requestContext;
+  const reqCtx = helpers.requestContext;
   return typeof reqCtx === 'object' && reqCtx !== null;
 }
 
