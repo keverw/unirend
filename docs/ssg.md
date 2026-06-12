@@ -501,7 +501,7 @@ Dev mode (stack traces in built-in 500 page, not custom error page provided) is 
   - Also available as `{{serverLabel}}` in access log templates and as `request.serverLabel` in hooks and handlers. The raw label value is exposed (no brackets), so templates can use it as `[{{serverLabel}}]` if desired.
 - `accessLog` - First-party access logging for the underlying server. On by default (`events: 'finish'`, logs request completions); use `{ events: 'none' }` to disable, or provide config to customize.
 - `getClientIP` - Custom resolver for `request.clientIP` (same as APIServer/SSRServer).
-- `getRequestID` - Custom generator for `request.requestID` (used by access log templates/hooks). Defaults to a ULID; returning `undefined` or an empty string opts out. Same as APIServer/SSRServer — see [ssr.md](./ssr.md#shared-server-configuration).
+- `getRequestID` - Custom generator for `request.requestID` (available as the `{{requestID}}` access-log template variable and in hooks). Defaults to a ULID; returning `undefined` or an empty string opts out. Same as APIServer/SSRServer — see [ssr.md](./ssr.md#shared-server-configuration).
 - `closingHandler` - Custom `WebResponse` for requests received while `stop()` is closing the server. If omitted, Unirend returns a default 503 HTML page.
 - `responseCompression?: boolean | ResponseCompressionOptions`
   - Enables built-in response compression for static files and pages (default: `true`).

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { isValid as isValidULID } from 'ulid';
 import { AccessLogPlugin, resolveAccessLogLevel } from './access-log-plugin';
 import { serveAPI } from '../api';
 import type { APIServer } from './api-server';
@@ -195,6 +196,33 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
     );
 
     expect(accessLogs.length).toBeGreaterThan(0);
+  });
+
+  it('exposes the server-generated requestID as the {{requestID}} template variable', async () => {
+    server = serveAPI({
+      logging: makeMockLoggingConfig(),
+      accessLog: { responseTemplate: 'RID={{requestID}}' },
+    });
+    await server.listen(port, 'localhost');
+
+    const response = await fetch(`http://localhost:${port}/api/nonexistent`);
+    await response.text();
+
+    const accessLogs = logs.filter((log) => log.message.startsWith('RID='));
+    expect(accessLogs.length).toBeGreaterThan(0);
+
+    // Rendered into the template (default ULID) ...
+    const rendered = accessLogs[0].message.slice('RID='.length);
+    expect(isValidULID(rendered)).toBe(true);
+    // ... and present as a structured field on the log context.
+    expect(
+      isValidULID(
+        String(
+          (accessLogs[0].context as { requestID?: string } | undefined)
+            ?.requestID,
+        ),
+      ),
+    ).toBe(true);
   });
 
   it('logs at "info" level for 2xx responses by default', async () => {

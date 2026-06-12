@@ -635,7 +635,14 @@ export type AccessLogLevelConfig =
 export interface AccessLogRequestContext {
   /** Stable source identifier for access log entries and hooks. */
   logSource: 'unirend.accessLog';
+  /** Fastify's per-process request id (incremental counter). */
   reqID: string | number;
+  /**
+   * Server-generated request ID (ULID by default, or the `getRequestID` option).
+   * Same value as the envelope `request_id`. `undefined` only if `getRequestID`
+   * opted out. Available as the `{{requestID}}` template variable.
+   */
+  requestID: string | undefined;
   method: string;
   url: string;
   ip: string;
@@ -685,13 +692,13 @@ export interface AccessLogConfig {
   events?: 'start' | 'finish' | 'both' | 'none';
   /**
    * Template for finish/response log lines. Supports {{variable}} placeholders.
-   * Available variables: logSource, method, url, statusCode, responseTime, finishType, reqID, ip, userAgent, serverLabel, isStaticAsset
+   * Available variables: logSource, method, url, statusCode, responseTime, finishType, reqID, requestID, ip, userAgent, serverLabel, isStaticAsset
    * @default 'Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'
    */
   responseTemplate?: string;
   /**
    * Template for start/request log lines. Supports {{variable}} placeholders.
-   * Available variables: logSource, method, url, reqID, ip, userAgent, serverLabel, isStaticAsset
+   * Available variables: logSource, method, url, reqID, requestID, ip, userAgent, serverLabel, isStaticAsset
    * @default 'Request started {{method}} {{url}}'
    */
   requestTemplate?: string;
@@ -979,8 +986,8 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    * Custom request ID generator.
    * Called once per request to populate `request.requestID` — the value the
    * API/Page envelope helpers use for `request_id`, available throughout the
-   * request lifecycle (plugins, hooks, page data + API handlers, access log
-   * templates/hooks). When not set, the framework generates a ULID.
+   * request lifecycle (plugins, hooks, page data + API handlers, and access-log
+   * templates `{{requestID}}` / hooks). When not set, the framework generates a ULID.
    *
    * Return a non-empty string to use it (e.g. adopt an upstream/proxy
    * `X-Request-ID`). Returning `undefined` or an empty string opts out, leaving
@@ -1533,8 +1540,8 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    * Custom request ID generator.
    * Called once per request to populate `request.requestID` — the value the
    * API/Page envelope helpers use for `request_id`, available throughout the
-   * request lifecycle (plugins, hooks, page data + API handlers, access log
-   * templates/hooks). When not set, the framework generates a ULID.
+   * request lifecycle (plugins, hooks, page data + API handlers, and access-log
+   * templates `{{requestID}}` / hooks). When not set, the framework generates a ULID.
    *
    * Return a non-empty string to use it (e.g. adopt an upstream/proxy
    * `X-Request-ID`). Returning `undefined` or an empty string opts out, leaving
@@ -1704,9 +1711,10 @@ export interface StaticWebServerOptions {
   getClientIP?: (request: FastifyRequest) => string | Promise<string>;
   /**
    * Custom request ID generator.
-   * Called once per request to populate `request.requestID`, available in
-   * access log templates/hooks and throughout the request lifecycle. When not
-   * set, the framework generates a ULID. Return a non-empty string to set it;
+   * Called once per request to populate `request.requestID`, available as the
+   * `{{requestID}}` access-log template variable, in hooks, and throughout the
+   * request lifecycle. When not set, the framework generates a ULID. Return a
+   * non-empty string to set it;
    * `undefined` or an empty string opts out (`request_id` becomes "unknown").
    */
   getRequestID?: (
@@ -2138,8 +2146,8 @@ declare module 'fastify' {
      * Defaults to a ULID (globally unique, safe across instances/restarts).
      * Customizable via the `getRequestID` server option. The API/Page envelope
      * helpers read this for the envelope `request_id` field, and it is available
-     * throughout the request lifecycle (access log hooks/templates, plugins,
-     * page data + API route handlers).
+     * throughout the request lifecycle (access-log templates `{{requestID}}` and
+     * hooks, plugins, page data + API route handlers).
      *
      * Distinct from Fastify's `request.id` (an incremental per-process counter
      * surfaced as the access log `reqID`). `undefined` only if a custom

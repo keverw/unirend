@@ -143,8 +143,8 @@ The following options are accepted by both `SSRServer` and `APIServer`:
 - `accessLog?: AccessLogConfig`
   - First-party access logging - on by default. Use `{ events: 'none' }` to disable, or provide config to customize.
   - `events?: 'start' | 'finish' | 'both' | 'none'` - Which lifecycle events to print a log line for (default: `'finish'`).
-  - `responseTemplate?: string` - Template for finish/response events. Default: `'[{{serverLabel}}] Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'`. Available variables: `logSource`, `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`.
-  - `requestTemplate?: string` - Template for start/request events. Default: `'[{{serverLabel}}] Request started {{method}} {{url}}'`. Available variables: `logSource`, `method`, `url`, `reqID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`.
+  - `responseTemplate?: string` - Template for finish/response events. Default: `'[{{serverLabel}}] Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'`. Available variables: `logSource`, `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `requestID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`.
+  - `requestTemplate?: string` - Template for start/request events. Default: `'[{{serverLabel}}] Request started {{method}} {{url}}'`. Available variables: `logSource`, `method`, `url`, `reqID`, `requestID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`.
   - `level?: UnirendLoggerLevel | { success?, clientError?, serverError? }` - Log level. Default: `info` for 2xx/3xx, `warn` for 4xx, `error` for 5xx.
   - `onRequest?: (context: AccessLogRequestContext) => void | Promise<void>` - Custom hook fired at request start when provided. It is awaited before request handling continues. If you intentionally start fire-and-forget work inside it, handle errors explicitly. Fires regardless of the `events` setting.
   - `onResponse?: (context: AccessLogResponseContext) => void | Promise<void>` - Custom hook fired on response completion when provided (both normal and client-aborted). It is awaited after the response finishes or aborts. If you intentionally start fire-and-forget work inside it, handle errors explicitly. `context.finishType` is `'completed'` or `'aborted'`. Fires regardless of the `events` setting.
@@ -156,7 +156,7 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - If `getClientIP` throws, the error propagates as a 500 - there is no silent fallback to `request.ip`.
   - See [Access Logging](#access-logging) for proxy and external reverse proxy examples.
 - `getRequestID?: (request: FastifyRequest) => string | undefined | Promise<string | undefined>`
-  - Custom generator for `request.requestID` — the value the API/Page envelope helpers use for `request_id`. Set once per request before access logging and plugins run, so it is available in access log hooks/templates, plugins (including `clientInfo`), and all handlers.
+  - Custom generator for `request.requestID` — the value the API/Page envelope helpers use for `request_id`. Set once per request before access logging and plugins run, so it is available as the `{{requestID}}` access-log template variable, in access-log hooks (`ctx.request.requestID`), plugins (including `clientInfo`), and all handlers.
   - When not set, the framework generates a ULID (globally unique, safe across instances/restarts). Use the override to adopt an upstream/proxy `X-Request-ID` from a trusted header.
   - Returning `undefined` or an empty string opts out: `request.requestID` is left unset and envelopes fall back to `request_id: "unknown"`. It does **not** auto-generate a ULID, so generate your own fallback if you want one.
   - Distinct from the access log `reqID` (Fastify's incremental `request.id`).
@@ -325,9 +325,9 @@ const server = serveSSRBuilt('./build', {
 
 ##### Template Variables
 
-- Response/finish events: `logSource`, `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`
+- Response/finish events: `logSource`, `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `requestID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`
   - Also supports dot notation for nested fields: `replyInfo.statusCode`, `replyInfo.headers['content-type']`
-- Request/start events: `logSource`, `method`, `url`, `reqID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`
+- Request/start events: `logSource`, `method`, `url`, `reqID`, `requestID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`
 - `isStaticAsset` is most useful in response/finish templates. Static serving marks it after the access-log start event, so request/start templates always see `false`.
 - `serverLabel` exposes the raw label value (no brackets) - use `[{{serverLabel}}]` if you want brackets in your template output.
 - Dot notation is supported for nested properties (e.g. `{{replyInfo.headers['x-request-id']}}`).
@@ -526,7 +526,7 @@ server.updateAccessLoggingConfig({ level: 'debug' }); // change level only
 
 Use the `onRequest` and `onResponse` hooks in `accessLog` for persistent request history (audit logs, analytics, debugging). Hooks fire independently of the `events` setting, so they run even when `events: 'none'`. Both hooks are awaited by the framework, so avoid blocking on slow work unless you want that behavior.
 
-`request.requestID` (the server-generated ULID used for the envelope `request_id`) is available in **both** hooks — the framework sets it before access logging and plugins run — so you can write an in-flight "pending" row keyed by it in `onRequest` and update that same row in `onResponse`. Read it off `ctx.request` (it is not an access-log template variable), and note it is distinct from `ctx.reqID` (Fastify's incremental counter).
+`request.requestID` (the server-generated ULID used for the envelope `request_id`) is available in **both** hooks — the framework sets it before access logging and plugins run — so you can write an in-flight "pending" row keyed by it in `onRequest` and update that same row in `onResponse`. Read it off `ctx.request.requestID` in hooks (or use `{{requestID}}` in templates), and note it is distinct from `ctx.reqID` (Fastify's incremental counter).
 
 ```typescript
 const server = serveSSRBuilt('./build', {

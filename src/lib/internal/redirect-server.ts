@@ -141,8 +141,9 @@ export interface RedirectServerOptions {
   /**
    * Custom request ID generator.
    * Called once per request to populate `request.requestID`, available in
-   * access log templates/hooks. When not set, the framework generates a ULID.
-   * Return a non-empty string to set it; `undefined` or an empty string opts out.
+   * access-log templates (`{{requestID}}`) and hooks. When not set, the framework
+   * generates a ULID. Return a non-empty string to set it; `undefined` or an
+   * empty string opts out.
    */
   getRequestID?: (
     request: FastifyRequest,
