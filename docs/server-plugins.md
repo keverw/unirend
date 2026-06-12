@@ -501,7 +501,7 @@ const apiRoutesPlugin: ServerPlugin = async (pluginHost, options) => {
 };
 ```
 
-For response timing, prefer the built-in `APIHandling.responseTimeHeader` option instead of mutating `request` and adding your own `onSend` timing hook.
+For response timing, prefer the built-in server-level `responseTimeHeader` option instead of mutating `request` and adding your own `onSend` timing hook.
 
 ### Plugin Configuration via Factory Functions
 

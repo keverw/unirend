@@ -78,7 +78,7 @@ type ClientInfo = {
   isFromSSRServerAPICall: boolean;
   connectionIP: string; // mirrors request.connectionIP
   clientIP: string; // mirrors request.clientIP (the real end user)
-  userAgent: string;
+  userAgent: string; // resolved end-user UA (mirrors request.clientUserAgent)
   isIPFromHeader: boolean; // true when clientIP came from X-SSR-Original-IP
   isUserAgentFromHeader: boolean; // true when userAgent came from X-SSR-Forwarded-User-Agent
 };

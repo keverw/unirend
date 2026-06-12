@@ -87,11 +87,36 @@ if (result.success) {
 | `installDependencies` | `boolean`                            | no       | Run `bun install` (filesystem mode only). Default `true`.                                                          |
 | `autoFormat`          | `boolean`                            | no       | Run Prettier if installed (filesystem mode only). Default `true`.                                                  |
 | `initGit`             | `boolean`                            | no       | Run `git init` if needed (filesystem mode only). Default `true`.                                                   |
-| `starterFiles`        | `Record<string, FileContent>`        | no       | Extra files to write into the project (paths relative to the project root).                                        |
+| `starterFiles`        | `StarterFiles`                       | no       | Extra files grouped by path base: `repoRoot` for workspace-root paths, `projectRoot` for generated project paths.  |
 
 `serverBuildTarget` is intentionally required at the library boundary so every
 consumer makes a conscious choice. The bundled CLI is the one that applies the
 `'node'` default before calling in.
+
+`starterFiles` uses explicit path bases:
+
+```typescript
+await createProject({
+  templateID: 'ssr',
+  projectName: 'web',
+  repoRoot: '/path/to/workspace',
+  serverBuildTarget: 'node',
+  starterFiles: {
+    repoRoot: {
+      'README.md': '# Workspace',
+    },
+    projectRoot: {
+      'server/plugins/example.ts': 'export const example = true;\n',
+    },
+  },
+});
+```
+
+`repoRoot` entries are written relative to the workspace root.
+`projectRoot` entries are written relative to `src/apps/<projectName>`.
+Avoid using `starterFiles` paths that match files emitted by the generator.
+Generated files are processed after `starterFiles`, and depending on the file,
+the generator may overwrite, merge with, or skip an existing custom file.
 
 ### Result (`CreateProjectResult`)
 

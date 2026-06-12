@@ -63,6 +63,30 @@ import {
 } from './lib/starter-templates/repo-utils';
 import { isRepoDirEmptyish } from './lib/starter-templates/internal-utils';
 
+const STARTER_FILE_BASES = ['repoRoot', 'projectRoot'] as const;
+
+function countStarterFiles(
+  starterFiles: StarterTemplateOptions['starterFiles'],
+): number {
+  return STARTER_FILE_BASES.reduce(
+    (count, base) => count + Object.keys(starterFiles?.[base] ?? {}).length,
+    0,
+  );
+}
+
+function getUnknownStarterFileBases(
+  starterFiles: StarterTemplateOptions['starterFiles'],
+): string[] {
+  if (!starterFiles) {
+    return [];
+  }
+
+  return Object.keys(starterFiles).filter(
+    (key) =>
+      !STARTER_FILE_BASES.includes(key as (typeof STARTER_FILE_BASES)[number]),
+  );
+}
+
 /**
  * Create a new project from a starter template
  * @returns Promise<CreateProjectResult> - Result object with success status and metadata
@@ -78,6 +102,7 @@ export async function createProject(
   // Compute project path: src/apps/{projectName}
   const projectPath = `src/apps/${options.projectName}`;
   const projectPathDisplay = vfsDisplayPath(options.repoRoot, projectPath);
+  const starterFileCount = countStarterFiles(options.starterFiles);
 
   try {
     log('info', '🚀 Starting project creation...');
@@ -86,11 +111,8 @@ export async function createProject(
     log('info', `Repo Path: ${repoRootDisplay}`);
     log('info', `Project Path: ${projectPathDisplay}`);
 
-    if (options.starterFiles && Object.keys(options.starterFiles).length > 0) {
-      log(
-        'info',
-        `Custom starter files: ${Object.keys(options.starterFiles).length}`,
-      );
+    if (starterFileCount > 0) {
+      log('info', `Custom starter files: ${starterFileCount}`);
     }
 
     // Validate project name
@@ -142,6 +164,22 @@ export async function createProject(
         error: `Template "${invalidTemplateID}" not found`,
         metadata: {
           templateID: invalidTemplateID,
+          projectName: options.projectName,
+          repoPath: repoRootDisplay,
+        },
+      };
+    }
+
+    const unknownStarterFileBases = getUnknownStarterFileBases(
+      options.starterFiles,
+    );
+
+    if (unknownStarterFileBases.length > 0) {
+      return {
+        success: false,
+        error: `Unknown starterFiles base(s): ${unknownStarterFileBases.join(', ')}`,
+        metadata: {
+          templateID: options.templateID,
           projectName: options.projectName,
           repoPath: repoRootDisplay,
         },
@@ -499,16 +537,23 @@ export async function createProject(
     }
 
     // Step 4: Write provided starter files
-    if (options.starterFiles && Object.keys(options.starterFiles).length > 0) {
+    if (starterFileCount > 0) {
       try {
-        log(
-          'info',
-          `📄 Writing ${Object.keys(options.starterFiles).length} starter files`,
-        );
+        log('info', `📄 Writing ${starterFileCount} starter files`);
 
-        for (const [relPath, content] of Object.entries(options.starterFiles)) {
+        for (const [relPath, content] of Object.entries(
+          options.starterFiles?.repoRoot ?? {},
+        )) {
           await vfsWrite(options.repoRoot, relPath, content);
           log('info', `   ${vfsDisplayPath(options.repoRoot, relPath)}`);
+        }
+
+        for (const [relPath, content] of Object.entries(
+          options.starterFiles?.projectRoot ?? {},
+        )) {
+          const projectRelPath = `${projectPath}/${relPath}`;
+          await vfsWrite(options.repoRoot, projectRelPath, content);
+          log('info', `   ${vfsDisplayPath(options.repoRoot, projectRelPath)}`);
         }
       } catch (error) {
         const errorMessage =
@@ -906,6 +951,7 @@ export type {
   LoggerFunction,
   LogLevel,
   ServerBuildTarget,
+  StarterFiles,
   StarterTemplateOptions,
   InitRepoOptions,
   NameValidationResult,

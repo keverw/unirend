@@ -1198,7 +1198,52 @@ describe('buildFastifyHTTPSOptions', () => {
     expect(cbResult.ctx).toBe(mockCtx);
   });
 
-  it('creates SNICallback that handles async sni error and invokes callback with error', async () => {
+  it('creates SNICallback that falls back to default context when sni returns null', () => {
+    const config: HTTPSOptions = {
+      key: 'k',
+      cert: 'c',
+      sni: (_servername: string) => null,
+    };
+
+    const result = buildFastifyHTTPSOptions(config);
+    const sniCallback = result.SNICallback as (
+      servername: string,
+      cb?: (err: Error | null, ctx?: unknown) => void,
+    ) => unknown;
+
+    const cb = mock((_err: Error | null, _ctx?: unknown) => {});
+    sniCallback('example.com', cb);
+
+    expect(cb).toHaveBeenCalledWith(null, null);
+  });
+
+  it('creates SNICallback that falls back to default context when async sni returns undefined', async () => {
+    const config: HTTPSOptions = {
+      key: 'k',
+      cert: 'c',
+      sni: async (_servername: string) => {
+        await Promise.resolve();
+        return undefined;
+      },
+    };
+
+    const result = buildFastifyHTTPSOptions(config);
+    const sniCallback = result.SNICallback as (
+      servername: string,
+      cb?: (err: Error | null, ctx?: unknown) => void,
+    ) => unknown;
+
+    const cbResult = await new Promise<{ err: Error | null; ctx?: unknown }>(
+      (resolve) => {
+        sniCallback('example.com', (err, ctx) => resolve({ err, ctx }));
+      },
+    );
+
+    expect(cbResult.err).toBeNull();
+    expect(cbResult.ctx).toBeUndefined();
+  });
+
+  it('creates SNICallback that forwards async sni errors', async () => {
     const config: HTTPSOptions = {
       key: 'k',
       cert: 'c',
@@ -1222,9 +1267,10 @@ describe('buildFastifyHTTPSOptions', () => {
 
     expect(cbResult.err).toBeInstanceOf(Error);
     expect(cbResult.err?.message).toBe('cert lookup failed');
+    expect(cbResult.ctx).toBeUndefined();
   });
 
-  it('creates SNICallback that wraps non-Error throws into Error objects', async () => {
+  it('creates SNICallback that converts non-Error throws into callback errors', async () => {
     const config: HTTPSOptions = {
       key: 'k',
       cert: 'c',
@@ -1250,6 +1296,33 @@ describe('buildFastifyHTTPSOptions', () => {
 
     expect(cbResult.err).toBeInstanceOf(Error);
     expect(cbResult.err?.message).toBe('string error');
+    expect(cbResult.ctx).toBeUndefined();
+  });
+
+  it('creates SNICallback that forwards sync sni throws to the callback', () => {
+    const config: HTTPSOptions = {
+      key: 'k',
+      cert: 'c',
+      sni: (_servername: string) => {
+        throw new Error('sync lookup failed');
+      },
+    };
+
+    const result = buildFastifyHTTPSOptions(config);
+    const sniCallback = result.SNICallback as (
+      servername: string,
+      cb?: (err: Error | null, ctx?: unknown) => void,
+    ) => unknown;
+
+    const cb = mock((_err: Error | null, _ctx?: unknown) => {});
+    sniCallback('example.com', cb);
+
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb.mock.calls[0]).toHaveLength(1);
+    expect(cb.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+    expect((cb.mock.calls[0]?.[0] as Error | undefined)?.message).toBe(
+      'sync lookup failed',
+    );
   });
 
   it('creates SNICallback that returns Promise when async sni called without callback', async () => {
@@ -1275,7 +1348,7 @@ describe('buildFastifyHTTPSOptions', () => {
     expect(resolved).toBe(mockCtx);
   });
 
-  it('creates SNICallback that returns rejecting Promise when async sni errors without callback', () => {
+  it('creates SNICallback that rejects when async sni errors without callback', async () => {
     const config: HTTPSOptions = {
       key: 'k',
       cert: 'c',
@@ -1293,7 +1366,7 @@ describe('buildFastifyHTTPSOptions', () => {
 
     const returned = sniCallback('example.com') as Promise<unknown>;
     expect(returned).toBeInstanceOf(Promise);
-    expect(returned).rejects.toThrow('no-cb error');
+    await expect(returned).rejects.toThrow('no-cb error');
   });
 
   it('passes the correct servername to the sni function', () => {

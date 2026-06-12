@@ -1162,28 +1162,36 @@ export function buildFastifyHTTPSOptions(
       servername: string,
       callback?: (err: Error | null, ctx?: unknown) => void,
     ) => {
-      // Call user's SNI function (supports both sync and async)
-      const result = sni(servername);
+      try {
+        // Call user's SNI function (supports both sync and async)
+        const result = sni(servername);
 
-      // Handle Promise return
-      if (result && typeof result === 'object' && 'then' in result) {
-        if (callback) {
-          result
-            .then((ctx: unknown) => {
-              callback(null, ctx);
-            })
-            .catch((error: unknown) => {
-              callback(
-                error instanceof Error ? error : new Error(String(error)),
-              );
-            });
+        // Handle Promise return
+        if (result && typeof result === 'object' && 'then' in result) {
+          if (callback) {
+            result
+              .then((ctx: unknown) => {
+                callback(null, ctx);
+              })
+              .catch((error: unknown) => {
+                callback(
+                  error instanceof Error ? error : new Error(String(error)),
+                );
+              });
+          } else {
+            return result;
+          }
+        } else if (callback) {
+          callback(null, result);
         } else {
           return result;
         }
-      } else if (callback) {
-        callback(null, result);
-      } else {
-        return result;
+      } catch (error) {
+        if (callback) {
+          callback(error instanceof Error ? error : new Error(String(error)));
+        } else {
+          throw error;
+        }
       }
     };
   }

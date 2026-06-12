@@ -60,7 +60,7 @@ import { createSecureContext } from 'tls';
 const server = serveSSRBuilt('./build', {
   https: {
     // Default certificate (REQUIRED - acts as universal fallback)
-    // Used when: SNI callback errors or unknown domains
+    // Used when: SNI returns null/undefined for unknown domains
     // Common approaches:
     // - Wildcard cert for *.yourdomain.com (covers all subdomains)
     // - Self-signed cert as fallback (causes browser warnings but works if all valid domains use SNI)
@@ -72,7 +72,13 @@ const server = serveSSRBuilt('./build', {
     sni: async (servername) => {
       // Load certificate based on domain
       // This example assumes you have a certificate store/database
-      const { key, cert } = await loadCertificateForDomain(servername);
+      const certificate = await loadCertificateForDomain(servername);
+
+      if (!certificate) {
+        return null;
+      }
+
+      const { key, cert } = certificate;
 
       return createSecureContext({
         key,
@@ -98,8 +104,7 @@ async function loadCertificateForDomain(domain: string) {
   // const cert = await certStore.get(domain);
   // return cert;
 
-  // Return null/throw error to use default certificate
-  // (Node.js will automatically fall back to the default cert above)
+  // Return null to use the default certificate.
   return null;
 }
 ```
@@ -109,7 +114,8 @@ async function loadCertificateForDomain(domain: string) {
 - The callback can be **async** (return a Promise) or sync
 - Called during TLS handshake for each new connection
 - Should be fast - cache certificates in memory when possible
-- **Error handling**: If the callback throws an error or returns null/undefined, Node.js automatically falls back to the default certificate (the `key`/`cert` in the main HTTPS options)
+- **Fallback behavior**: If the callback returns `null`/`undefined`, Unirend passes no context to Node's SNI callback, and Node uses the default secure context from the main HTTPS `key`/`cert`.
+- **Error handling**: If the callback throws or rejects, Unirend forwards the error to Node's SNI callback error path. Use `return null` for "no matching certificate". Throw only for lookup or certificate-loading failures that should fail the handshake.
 - **Default certificate is REQUIRED**: Node.js TLS requires a valid certificate to start the HTTPS server. The SNI callback is for _dynamic selection_ on top of this base certificate.
 
 **Default Certificate Strategies for Multi-Tenant SaaS:**

@@ -184,7 +184,7 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - Object form:
     - `enabled?: boolean` - Enable/disable explicitly (default: `true` when object form is used)
     - `headerName?: string` - Header name to emit (default: `'X-Response-Time'`). Must use only letters, numbers, and dashes.
-    - `digits?: number` - Number of fractional digits in the emitted time (default: `2`)
+    - `digits?: number` - Number of fractional digits in the emitted time (integer `0` through `6`, default: `2`)
   - If timing cannot be measured in an unusual edge case, the emitted/logged value falls back to `-1` as an explicit "unavailable" sentinel.
   - Works with normal Fastify-managed responses and hijacked/raw responses used by static/range serving. On hijacked/raw responses, the header is measured when `reply.hijack()` runs, while access logging measures when the response finishes.
   - Example:

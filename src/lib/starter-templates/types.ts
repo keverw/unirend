@@ -45,6 +45,26 @@ export type LogLevel = 'info' | 'warning' | 'error' | 'success';
  */
 export type LoggerFunction = (level: LogLevel, message: string) => void;
 
+/**
+ * Additional files to write during template generation.
+ *
+ * Workspace base files are ensured before these files are written. Project-specific
+ * generated files are written afterward, so avoid paths that match generated files.
+ */
+export interface StarterFiles {
+  /**
+   * Files written relative to the repository root.
+   * Use this for workspace-level files such as README.md or tool config.
+   */
+  repoRoot?: Record<string, FileContent>;
+  /**
+   * Files written relative to the generated project root
+   * (`src/apps/<projectName>`).
+   * Use this for app files that should live inside the new project.
+   */
+  projectRoot?: Record<string, FileContent>;
+}
+
 export interface StarterTemplateOptions {
   /** Project template type */
   templateID: TemplateID;
@@ -85,12 +105,16 @@ export interface StarterTemplateOptions {
   initGit?: boolean;
   /**
    * Custom starter files (UTF-8 strings or binary as Uint8Array).
-   * File paths are relative to the project root. Strings are treated as UTF-8.
+   * File paths are grouped by their path base:
+   * - `repoRoot`: paths are relative to the repository root
+   * - `projectRoot`: paths are relative to the generated project root
+   *   (`src/apps/<projectName>`)
+   * Strings are treated as UTF-8.
    * These files are written into the project for both root modes:
    * - in-memory directory object (mutates the object content)
    * - real filesystem directory (writes files to disk)
    */
-  starterFiles?: Record<string, FileContent>;
+  starterFiles?: StarterFiles;
 }
 
 export interface InitRepoOptions {

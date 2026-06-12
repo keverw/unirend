@@ -274,7 +274,7 @@ describe('createProject — error paths', () => {
     );
   });
 
-  test('writes provided starterFiles into the VFS', async () => {
+  test('writes provided starterFiles into the VFS by explicit base', async () => {
     const repoRoot: InMemoryDir = {};
 
     const result = await createProject({
@@ -286,11 +286,17 @@ describe('createProject — error paths', () => {
       installDependencies: false,
       autoFormat: false,
       starterFiles: {
-        'src/apps/web/custom.ts': '// custom starter file',
+        repoRoot: {
+          'README.md': '# Workspace',
+        },
+        projectRoot: {
+          'custom.ts': '// custom starter file',
+        },
       },
     });
 
     expect(result.success).toBe(true);
+    expect(repoRoot['README.md']).toBe('# Workspace');
     expect(repoRoot['src/apps/web/custom.ts']).toBe('// custom starter file');
   });
 });

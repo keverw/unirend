@@ -540,10 +540,12 @@ export interface HTTPSOptions {
    * Useful for multi-tenant SaaS applications serving multiple domains
    *
    * The callback receives the server name (domain) and should return a SecureContext
-   * with the appropriate certificate for that domain. Can be async.
+   * with the appropriate certificate for that domain. Return null/undefined to fall
+   * back to the default certificate configured by `key`/`cert`. Thrown or rejected
+   * errors are forwarded to Node's SNI callback error path. Can be async.
    *
    * @param servername - The domain name from the TLS handshake
-   * @returns SecureContext with the appropriate certificate, or a Promise resolving to one
+   * @returns SecureContext with the appropriate certificate, null/undefined to use the default certificate, or a Promise resolving to one of those values
    *
    * @example
    * ```ts
@@ -557,7 +559,13 @@ export interface HTTPSOptions {
    * }
    * ```
    */
-  sni?: (servername: string) => SecureContext | Promise<SecureContext>;
+  sni?: (
+    servername: string,
+  ) =>
+    | SecureContext
+    | null
+    | undefined
+    | Promise<SecureContext | null | undefined>;
 }
 
 /**
@@ -2064,7 +2072,7 @@ export interface SSGOptions {
   serverEntry?: string;
   /**
    * Optional logger for the SSG process
-   * Defaults to console if not provided
+   * Defaults to silent/no-op if not provided
    */
   logger?: SSGLogger;
   /**

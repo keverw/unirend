@@ -455,16 +455,18 @@ RESTful API endpoints use standard HTTP methods according to the operation:
 
 #### Base Routes:
 
-- `/v1/auth` - Authentication operations
-- `/v1/account` - User operations
-- `/v1/rooms` - Property operations
+- `/api/v1/auth` - Authentication operations
+- `/api/v1/account` - User operations
+- `/api/v1/rooms` - Property operations
 - ... other resource endpoints
 
 #### Examples:
 
-- `POST /v1/auth/login` - User login
-- `GET /v1/rooms?min_price=100000` - List rooms with filtering
-- `GET /v1/room/{id}` - Get a specific room
+- `POST /api/v1/auth/login` - User login
+- `GET /api/v1/rooms?min_price=100000` - List rooms with filtering
+- `GET /api/v1/room/{id}` - Get a specific room
+
+These examples assume the default `apiEndpoints.apiEndpointPrefix` of `"/api"` and `versioned: true`. If you set `apiEndpointPrefix: "/"`, the same helper routes mount at `/v1/...` instead.
 
 ### Success Response
 
