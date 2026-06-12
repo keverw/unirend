@@ -146,12 +146,12 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - `responseTemplate?: string` - Template for finish/response events. Default: `'[{{serverLabel}}] Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'`. Available variables: `logSource`, `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `requestID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`.
   - `requestTemplate?: string` - Template for start/request events. Default: `'[{{serverLabel}}] Request started {{method}} {{url}}'`. Available variables: `logSource`, `method`, `url`, `reqID`, `requestID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`.
   - `level?: UnirendLoggerLevel | { success?, clientError?, serverError? }` - Log level. Default: `info` for 2xx/3xx, `warn` for 4xx, `error` for 5xx.
-  - `onRequest?: (context: AccessLogRequestContext) => void | Promise<void>` - Custom hook fired at request start when provided. It is awaited before request handling continues. If you intentionally start fire-and-forget work inside it, handle errors explicitly. Fires regardless of the `events` setting. Client identity is already resolved here — `ctx.request.requestID` / `clientIP` / `connectionIP` / `clientInfo` are all populated (resolution runs before access logging), so it's available in this start hook, not just `onResponse`. See [Client Identity](./client-identity.md).
+  - `onRequest?: (context: AccessLogRequestContext) => void | Promise<void>` - Custom hook fired at request start when provided. It is awaited before request handling continues. If you intentionally start fire-and-forget work inside it, handle errors explicitly. Fires regardless of the `events` setting. Client identity is already resolved here, so `ctx.request.requestID` / `clientIP` / `connectionIP` / `clientInfo` are all populated (resolution runs before access logging) and available in this start hook, not just `onResponse`. See [Client Identity](./client-identity.md).
   - `onResponse?: (context: AccessLogResponseContext) => void | Promise<void>` - Custom hook fired on response completion when provided (both normal and client-aborted). It is awaited after the response finishes or aborts. If you intentionally start fire-and-forget work inside it, handle errors explicitly. `context.finishType` is `'completed'` or `'aborted'`. Fires regardless of the `events` setting.
   - See [Access Logging](#access-logging) for template examples, level config, DB tracing patterns, and runtime updates.
 - `getConnectionIP?: (request: FastifyRequest) => string | Promise<string>`
-  - Custom resolver for the **connecting IP** (`request.connectionIP`) when behind a reverse proxy or external hosted proxy — e.g. read `CF-Connecting-IP`.
-  - Called once per request; the result is stored as `request.connectionIP` (and seeds `request.clientIP`). Available throughout the request lifecycle and as the access-log `{{connectionIP}}` variable.
+  - Custom resolver for the **connecting IP** (`request.connectionIP`) when behind a reverse proxy or external hosted proxy, for example to read `CF-Connecting-IP`.
+  - Called once per request. The result is stored as `request.connectionIP` (and seeds `request.clientIP`). Available throughout the request lifecycle and as the access-log `{{connectionIP}}` variable.
   - When not set, `request.connectionIP` falls back to `request.ip` (which reflects Fastify proxy handling when `fastifyOptions.trustProxy` is configured).
   - If `getConnectionIP` throws, the error propagates as a 500 - there is no silent fallback to `request.ip`.
   - See [Access Logging](#access-logging) for proxy and external reverse proxy examples.
@@ -161,7 +161,7 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - Config: `trustForwardedHeaders`, `forwardedRequestIDValidator`, `setResponseHeaders`, `logging`. Pass `false` to disable entirely (then `request.clientIP` equals `request.connectionIP` and `request.clientInfo` is `undefined`).
   - See [Client Identity](./client-identity.md) for the full model and the `connectionIP` vs `clientIP` distinction.
 - `getRequestID?: (request: FastifyRequest) => string | undefined | Promise<string | undefined>`
-  - Custom generator for `request.requestID` — the value the API/Page envelope helpers use for `request_id`. Set once per request before access logging and plugins run, so it is available as the `{{requestID}}` access-log template variable, in access-log hooks (`ctx.request.requestID`), plugins, and all handlers.
+  - Custom generator for `request.requestID`, the value the API/Page envelope helpers use for `request_id`. Set once per request before access logging and plugins run, so it is available as the `{{requestID}}` access-log template variable, in access-log hooks (`ctx.request.requestID`), plugins, and all handlers.
   - When not set, the framework generates a ULID (globally unique, safe across instances/restarts). Use the override to adopt an upstream/proxy `X-Request-ID` from a trusted header.
   - Returning `undefined` or an empty string opts out: `request.requestID` is left unset and envelopes fall back to `request_id: "unknown"`. It does **not** auto-generate a ULID, so generate your own fallback if you want one.
   - Distinct from the access log `reqID` (Fastify's incremental `request.id`).
@@ -254,7 +254,7 @@ Logging behavior quick reference:
 
 **Note:** `reqID` in Fastify's framework logs is the Fastify request identifier (`request.id`), which is an incremental counter by default. This is separate from `request.requestID`, which the server generates (a ULID by default, customizable via `getRequestID`) and the Unirend envelope helpers use for `request_id`. The ULID is better for distributed systems (e.g., multiple servers behind a load balancer) than the incremental `reqID`.
 
-The **correlation ID** is a separate value used to tie a single user action together across SSR → API hops. The SSR server automatically forwards `X-Correlation-ID` (set to the SSR request's `requestID`) on its page-data fetches; on the receiving server the built-in `clientInfo` reads that forwarded value into `request.clientInfo.correlationID`, falling back to that request's own `requestID` when nothing was forwarded. So each hop keeps its own unique `requestID`, while the correlation ID stays constant across the chain. `clientInfo` only reads `request.requestID` — it does not generate it.
+The **correlation ID** is a separate value used to tie a single user action together across SSR → API hops. The SSR server automatically forwards `X-Correlation-ID` (set to the SSR request's `requestID`) on its page-data fetches. On the receiving server, the built-in `clientInfo` reads that forwarded value into `request.clientInfo.correlationID`, falling back to that request's own `requestID` when nothing was forwarded. So each hop keeps its own unique `requestID`, while the correlation ID stays constant across the chain. `clientInfo` only reads `request.requestID`. It does not generate it.
 
 Example Unirend logger object (recommended path):
 
@@ -339,7 +339,7 @@ const server = serveSSRBuilt('./build', {
 - Unknown variables are substituted as `???`.
 - Avoid logging sensitive data (auth tokens, passwords, PII) in templates, as access logs are typically written to files or external services.
 
-> **`ip` is the real end user; `connectionIP` is the connecting IP.** The access-log `ip` (`{{ip}}` / `ctx.ip`) is `request.clientIP` — the resolved real end user, which sees through CDNs / load balancers and the SSR → API hop (when `clientInfo` is enabled, the default). `request.connectionIP` (`{{connectionIP}}` / `ctx.connectionIP`) is the IP that actually connected to this server; use it for debugging. For per-user rate limiting prefer `ip`/`clientIP` — `connectionIP` can be a shared CDN/proxy address (or, on an SSR → API hop, the SSR server's IP), so it would lump users together. Both are available in templates and in both hooks (client identity is resolved before access logging). Like `ip`, `{{userAgent}}` / `ctx.userAgent` is the resolved end-user User-Agent (the forwarded UA on a trusted SSR hop, the request header otherwise; it falls back to the raw header when `clientInfo` is disabled). `ctx.request.clientInfo` also carries the correlation ID and forwarded-source flags. See [Client Identity](./client-identity.md).
+> **`ip` is the real end user, `connectionIP` is the connecting IP.** The access-log `ip` (`{{ip}}` / `ctx.ip`) is `request.clientIP`, the resolved real end user, which sees through CDNs / load balancers and the SSR → API hop (when `clientInfo` is enabled, the default). `request.connectionIP` (`{{connectionIP}}` / `ctx.connectionIP`) is the IP that actually connected to this server. Use it for debugging. For per-user rate limiting prefer `ip`/`clientIP`, because `connectionIP` can be a shared CDN/proxy address (or, on an SSR → API hop, the SSR server's IP), so it would lump users together. Both are available in templates and in both hooks (client identity is resolved before access logging). Like `ip`, `{{userAgent}}` / `ctx.userAgent` is the resolved end-user User-Agent (the forwarded UA on a trusted SSR hop, the request header otherwise, and it falls back to the raw header when `clientInfo` is disabled). `ctx.request.clientInfo` also carries the correlation ID and forwarded-source flags. See [Client Identity](./client-identity.md).
 
 ##### Additional Context in Log Output
 
@@ -457,7 +457,7 @@ serveSSRBuilt('./build', {
 
 You can also use `trustProxy` and `getConnectionIP` together. For example, `trustProxy` can help you trust your load balancer and `getConnectionIP` can read the connecting IP from an external reverse proxy header such as `CF-Connecting-IP`.
 
-`getConnectionIP` receives the raw `FastifyRequest` and may return either a string or a promise for a string. The result is awaited once at request start, then stored as `request.connectionIP` (and seeds `request.clientIP`) for the full request lifecycle - not just access logs. The real end user (after SSR forwarding) is `request.clientIP`; see [Client Identity](./client-identity.md).
+`getConnectionIP` receives the raw `FastifyRequest` and may return either a string or a promise for a string. The result is awaited once at request start, then stored as `request.connectionIP` (and seeds `request.clientIP`) for the full request lifecycle - not just access logs. The real end user (after SSR forwarding) is `request.clientIP`. See [Client Identity](./client-identity.md).
 
 ##### Level Config
 
@@ -531,7 +531,7 @@ server.updateAccessLoggingConfig({ level: 'debug' }); // change level only
 
 Use the `onRequest` and `onResponse` hooks in `accessLog` for persistent request history (audit logs, analytics, debugging). Hooks fire independently of the `events` setting, so they run even when `events: 'none'`. Both hooks are awaited by the framework, so avoid blocking on slow work unless you want that behavior.
 
-`request.requestID` (the server-generated ULID used for the envelope `request_id`) is available in **both** hooks — the framework sets it before access logging and plugins run — so you can write an in-flight "pending" row keyed by it in `onRequest` and update that same row in `onResponse`. Read it off `ctx.request.requestID` in hooks (or use `{{requestID}}` in templates), and note it is distinct from `ctx.reqID` (Fastify's incremental counter).
+`request.requestID` (the server-generated ULID used for the envelope `request_id`) is available in **both** hooks. The framework sets it before access logging and plugins run, so you can write an in-flight "pending" row keyed by it in `onRequest` and update that same row in `onResponse`. Read it off `ctx.request.requestID` in hooks (or use `{{requestID}}` in templates), and note it is distinct from `ctx.reqID` (Fastify's incremental counter).
 
 ```typescript
 const server = serveSSRBuilt('./build', {
@@ -579,10 +579,10 @@ const server = serveSSRBuilt('./build', {
 Considerations:
 
 - Use `requestID` (ULID via `ctx.request`) as the record key rather than `reqID` in the context (Fastify's incremental counter per process) - it's safe across multiple server instances and restarts.
-- For the client IP / User-Agent columns, `ctx.ip` / `ctx.userAgent` are already the resolved real end user (`clientInfo` is on by default — `userAgent` is the forwarded UA on a trusted SSR hop, the request header otherwise). `ctx.request.clientInfo.correlationID` ties SSR → API hops together (when the API trusts forwarded headers — see [Client Identity](./client-identity.md)). Use `ctx.connectionIP` for the raw connecting IP. All are available in both hooks. See [Client Identity](./client-identity.md).
+- For the client IP / User-Agent columns, `ctx.ip` / `ctx.userAgent` are already the resolved real end user (`clientInfo` is on by default, and `userAgent` is the forwarded UA on a trusted SSR hop or the request header otherwise). `ctx.request.clientInfo.correlationID` ties SSR → API hops together when the API trusts forwarded headers. Use `ctx.connectionIP` for the raw connecting IP. All are available in both hooks. See [Client Identity](./client-identity.md).
 - The framework awaits these hooks. If you do not want DB writes to hold up request handling or post-response cleanup, fire-and-forget inside the hook and attach `.catch()` or similar error handling so failures are not lost. Prefer `ctx.request.log` over `console.*` so the messages go through the server's configured logger.
 - `onResponse` covers both normal completion and client aborts via `ctx.finishType`.
-- If you configure `getRequestID` to opt out (return `undefined`), `request.requestID` is unset in these hooks — guard for it or key on something else.
+- If you configure `getRequestID` to opt out (return `undefined`), `request.requestID` is unset in these hooks. Guard for it or key on something else.
 - If writes to your primary store can fail, consider a local fallback queue with a background retry timer so data isn't silently lost. See [Resilient Write Queue](./patterns.md#resilient-write-queue) for the pattern.
 
 For augmenting finish/response event templates with custom fields set by plugins (user ID, tenant, etc.), use dot notation to access nested context properties (e.g. `{{requestContext.userID}}`). Note that start/request event templates run before plugin hooks, so plugin-set fields are not yet available there.
@@ -1292,13 +1292,13 @@ server.pageDataHandler.register('profile', (request, reply) => {
 
 ### Customizing Server-Side Page Data Requests
 
-For separate-server deployments — where SSR and API run in different processes — you can customize the outgoing page-data request using the `resolvePageDataRequestOptions` option on the SSR server. This is a sync or async callback that runs **server-side only** and lets you:
+For separate-server deployments, where SSR and API run in different processes, you can customize the outgoing page-data request using the `resolvePageDataRequestOptions` option on the SSR server. This is a sync or async callback that runs **server-side only** and lets you:
 
 - Rewrite the target URL (e.g., for internal load balancing or per-request host selection)
 - Supply a `NodeAdapter` from `lifecycleion/http-client-node` for TLS over a private network (custom CA, mTLS, SNI override)
 - Inject or override request headers (e.g., set `Host` when dialing by IP so services that validate the host header see the right value)
 
-> **Note:** `resolvePageDataRequestOptions` is only relevant when SSR and API are on separate servers. When page data handlers live on this same SSR server, they run in-process — no HTTP request is made and this callback is never invoked.
+> **Note:** `resolvePageDataRequestOptions` is only relevant when SSR and API are on separate servers. When page data handlers live on this same SSR server, they run in-process. No HTTP request is made and this callback is never invoked.
 
 #### Callback Signature
 
@@ -1316,7 +1316,7 @@ interface PageDataRequestOptions {
 }
 ```
 
-Return an empty object (`{}`) to leave the defaults unchanged. If the callback throws or returns a rejected promise, the loader returns a 500 envelope immediately — no request is attempted. In development mode the error's `name`, `message`, and `stack` are included in `error.details` for debugging.
+Return an empty object (`{}`) to leave the defaults unchanged. If the callback throws or returns a rejected promise, the loader returns a 500 envelope immediately. No request is attempted. In development mode the error's `name`, `message`, and `stack` are included in `error.details` for debugging.
 
 #### Example: URL Rewriting / Internal Load Balancing
 
@@ -1427,7 +1427,7 @@ Notes:
   - Data loader handlers: `params` are produced by the frontend page data loader and sent in the POST body (SSR short-circuit passes the same shape internally for consistency). Treat this as the authoritative routing context for page data.
   - API route handlers: `params` are assembled on the server from Fastify’s request (route/query/path/URL). Use these directly for API endpoints.
 - In both cases, the best practice is to use `originalRequest` (the Fastify request) only for transport/ambient data (cookies/headers/IP/auth), and use `reply` for headers/cookies you want on the HTTP response. This also makes it easy to port code between page data loader handlers and custom API handlers.
-- Use `request.clientIP` (not `request.ip`) to read the resolved real end-user IP. The framework sets `request.connectionIP` once per request using `getConnectionIP` (if configured) or falling back to `request.ip` (which reflects Fastify proxy handling when `fastifyOptions.trustProxy` is configured), and `request.clientIP` starts from it and is overridden with the forwarded original IP across an SSR → API hop (when `clientInfo` resolution is enabled). Both are the same in plugins, hooks, page data loader handlers, and API route handlers - so you never need to re-implement proxy header logic per handler. Use `request.connectionIP` for connection-level decisions and debugging; for per-user rate limiting prefer `request.clientIP` (the real user — `connectionIP` can be a shared CDN/proxy address).
+- Use `request.clientIP` (not `request.ip`) to read the resolved real end-user IP. The framework sets `request.connectionIP` once per request using `getConnectionIP` (if configured) or falling back to `request.ip` (which reflects Fastify proxy handling when `fastifyOptions.trustProxy` is configured), and `request.clientIP` starts from it and is overridden with the forwarded original IP across an SSR → API hop (when `clientInfo` resolution is enabled). Both are the same in plugins, hooks, page data loader handlers, and API route handlers - so you never need to re-implement proxy header logic per handler. Use `request.connectionIP` for connection-level decisions and debugging. For per-user rate limiting prefer `request.clientIP` (the real user), because `connectionIP` can be a shared CDN/proxy address.
 
 ### Request Context Injection
 

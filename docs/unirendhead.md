@@ -133,7 +133,7 @@ import { UnirendHead } from 'unirend/client';
 
 Other child elements are silently ignored on the server (not collected). On the client, `<title>`, `<meta>`, and `<link>` are natively hoisted by React 19, whereas `<html>` and `<body>` are filtered out from rendering inside the root element and instead applied to the DOM root elements using a client-side stack manager.
 
-#### Preloading images
+#### Preloading Images
 
 `<link rel="preload">` works and is useful for hinting the browser to fetch a hero or above-the-fold image before it is discovered in the page body:
 

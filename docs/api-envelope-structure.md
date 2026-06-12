@@ -83,13 +83,13 @@ The `request_id` field is automatically populated by the unirend response helper
 
 Customizing or opting out:
 
-- Pass the `getRequestID` server option (on SSR, API, Static, and Redirect servers) to control generation — e.g. adopt an upstream/proxy `X-Request-ID` from a trusted header. Returning `undefined` or an empty string opts out, in which case the helpers fall back to `"unknown"`.
+- Pass the `getRequestID` server option (on SSR, API, Static, and Redirect servers) to control generation, for example to adopt an upstream/proxy `X-Request-ID` from a trusted header. Returning `undefined` or an empty string opts out, in which case the helpers fall back to `"unknown"`.
 - The helpers default to `"unknown"` only when `request.requestID` is absent (i.e. you opted out). This makes missing instrumentation obvious and avoids inventing IDs that cannot be correlated across systems.
 - Separately, the page data loader has its own fallback request ID generator used only when transforming responses that are missing a `request_id` or when network/timeout errors occur. See the loader config option `generateFallbackRequestID` and the default described below.
 
-> The built-in [`clientInfo`](client-identity.md) (a server option) does **not** generate the request ID — it reads the server-generated `request.requestID` and layers a correlation ID and forwarded client info on top. Note `request_id` is a different value from the access log's `reqID` (Fastify's incremental `request.id`).
+> The built-in [`clientInfo`](client-identity.md) (a server option) does **not** generate the request ID. It reads the server-generated `request.requestID` and layers a correlation ID and forwarded client info on top. Note `request_id` is a different value from the access log's `reqID` (Fastify's incremental `request.id`).
 
-Example — adopt an upstream request ID from a trusted proxy, otherwise generate one:
+Example: adopt an upstream request ID from a trusted proxy, otherwise generate one.
 
 ```typescript
 import { randomUUID } from 'crypto';
@@ -794,7 +794,7 @@ For convenience, Unirend provides helper functions to construct and validate env
   - `await APIResponseHelpers.ensureMultipartBody(request, reply)` - For file uploads with multipart/form-data (POST/PUT/PATCH). Returns `true` when valid, otherwise sends an error envelope and returns `false`. On failure it uses the same raw/hijacked termination path as `sendErrorEnvelope()`, so normal Fastify `onSend` hooks do not run. Note: `processFileUpload()` validates Content-Type automatically, so `ensureMultipartBody` is typically only needed for advanced use cases (e.g., early validation before multipart parsing).
 - Type guards: `isSuccessResponse`, `isErrorResponse`, `isRedirectResponse`, `isPageResponse`, `isValidEnvelope`
 
-The server sets `request.requestID` automatically (see above), so these helpers populate `request_id` out of the box; it defaults to `"unknown"` only if you opted out via `getRequestID`.
+The server sets `request.requestID` automatically (see above), so these helpers populate `request_id` out of the box. It defaults to `"unknown"` only if you opted out via `getRequestID`.
 
 ### Extending Helpers and Custom Meta
 

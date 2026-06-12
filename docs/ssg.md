@@ -499,10 +499,10 @@ Dev mode (stack traces in built-in 500 page, not custom error page provided) is 
   - Useful for distinguishing log output when running multiple server instances in the same process.
   - Appears in error log messages as `[Static] Request error` (brackets are added automatically).
   - Also available as `{{serverLabel}}` in access log templates and as `request.serverLabel` in hooks and handlers. The raw label value is exposed (no brackets), so templates can use it as `[{{serverLabel}}]` if desired.
-- `accessLog` - First-party access logging for the underlying server. On by default (`events: 'finish'`, logs request completions); use `{ events: 'none' }` to disable, or provide config to customize.
-- `getConnectionIP` - Custom resolver for `request.connectionIP` (the connecting IP; base for `request.clientIP`). Same as APIServer/SSRServer.
-- `clientInfo` - Client-identity resolution: the real end-user `request.clientIP` and `request.clientInfo`. On by default; pass `false` to disable. Same as APIServer/SSRServer — see [Client Identity](./client-identity.md).
-- `getRequestID` - Custom generator for `request.requestID` (available as the `{{requestID}}` access-log template variable and in hooks). Defaults to a ULID; returning `undefined` or an empty string opts out. Same as APIServer/SSRServer — see [ssr.md](./ssr.md#shared-server-configuration).
+- `accessLog` - First-party access logging for the underlying server. On by default (`events: 'finish'`, logs request completions). Use `{ events: 'none' }` to disable, or provide config to customize.
+- `getConnectionIP` - Custom resolver for `request.connectionIP` (the connecting IP, base for `request.clientIP`). Same as APIServer/SSRServer.
+- `clientInfo` - Client-identity resolution: the real end-user `request.clientIP` and `request.clientInfo`. On by default. Pass `false` to disable. Same as APIServer/SSRServer. See [Client Identity](./client-identity.md).
+- `getRequestID` - Custom generator for `request.requestID` (available as the `{{requestID}}` access-log template variable and in hooks). Defaults to a ULID. Returning `undefined` or an empty string opts out. Same as APIServer/SSRServer. See [ssr.md](./ssr.md#shared-server-configuration).
 - `closingHandler` - Custom `WebResponse` for requests received while `stop()` is closing the server. If omitted, Unirend returns a default 503 HTML page.
 - `responseCompression?: boolean | ResponseCompressionOptions`
   - Enables built-in response compression for static files and pages (default: `true`).
