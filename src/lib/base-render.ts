@@ -43,12 +43,12 @@ export type BaseRenderOptions = {
  * // Basic usage
  * const result = unirendBaseRender({ type: "ssg", url: "/" }, routes);
  *
- * // With custom wrapper
- * const customWrapper = (node) => <ThemeProvider>{node}</ThemeProvider>;
+ * // With custom providers
+ * const RootProviders = ({ children }) => <ThemeProvider>{children}</ThemeProvider>;
  * const result = unirendBaseRender(
  *   { type: "ssg", url: "/about" },
  *   routes,
- *   { wrapApp: customWrapper }
+ *   { rootProviders: RootProviders }
  * );
  *
  * // Without StrictMode

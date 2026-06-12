@@ -58,15 +58,15 @@ export type MountAppOptions = {
  * const result = mountApp('root', routes);
  *
  * // With custom providers
- * const customWrapper = (node) => (
+ * const RootProviders = ({ children }) => (
  *   <ThemeProvider>
  *     <StateProvider>
- *       {node}
+ *       {children}
  *     </StateProvider>
  *   </ThemeProvider>
  * );
  *
- * const result = mountApp('root', routes, { wrapApp: customWrapper });
+ * const result = mountApp('root', routes, { rootProviders: RootProviders });
  *
  * if (result === 'hydrated') {
  *   console.log('Hydrated SSR content');

@@ -11,7 +11,7 @@
     - [Preloading Images](#preloading-images)
   - [Tag Merging and Overrides](#tag-merging-and-overrides)
   - [Shared Layout & Error Component Pattern](#shared-layout--error-component-pattern)
-  - [Global Provider Pattern (Theme, Language, etc.)](#global-provider-pattern-theme-language-etc)
+  - [Global Provider Pattern (Theme, Language, Etc.)](#global-provider-pattern-theme-language-etc)
 - [How It Works](#how-it-works)
   - [Server-Side (SSR / SSG)](#server-side-ssr--ssg)
   - [Client-Side](#client-side)
@@ -189,7 +189,7 @@ export function DocHead() {
 
 And render `<DocHead />` inside both your `AppLayout.tsx` and your `ApplicationError.tsx`.
 
-### Global Provider Pattern (Theme, Language, etc.)
+### Global Provider Pattern (Theme, Language, Etc.)
 
 Alternatively to the `DocHead` component, if you pass global context providers (like a `ThemeProvider` or `LanguageProvider`) to the `rootProviders` option of the client-side `mountApp` and server-side render functions (e.g., `basePageRender`), you can render `<UnirendHead>` directly inside those providers to manage document attributes (like class names or document locale) dynamically:
 

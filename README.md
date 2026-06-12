@@ -555,7 +555,7 @@ See the canonical spec in [docs/api-envelope-structure.md](docs/api-envelope-str
 
 The following helpers and integrations make it easy to work with these envelopes throughout your application.
 
-- **Server middleware/plugins**: The `SSRServer` and `serveAPI` plugin systems are designed to work with these envelopes (including default error/not-found handling). Use the middleware/plugin APIs exposed by `unirend/server` to register your routes.
+- **Server middleware/plugins**: The `SSRServer` and `serveAPI` plugin systems are designed to work with these envelopes (including default error/not-found handling). Use the middleware/plugin APIs exposed by `unirend/server` to register your routes. (`servePlain` provides the same server without envelope helpers for plain web mode.)
 - **Helper utilities**: Import helpers to construct envelopes and validate requests at your API handlers:
   - Import path: `import { APIResponseHelpers } from 'unirend/api-envelope'`
   - Key helpers: `createAPISuccessResponse`, `createAPIErrorResponse`, `createPageSuccessResponse`, `createPageErrorResponse`, `createPageRedirectResponse`, `ensureJSONBody`, `ensureURLEncodedBody`, `ensureMultipartBody`, and type guards like `isSuccessResponse`, `isErrorResponse`, `isRedirectResponse`, `isPageResponse`, `isValidEnvelope`.

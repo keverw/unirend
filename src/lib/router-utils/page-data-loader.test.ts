@@ -381,6 +381,28 @@ describe('HTTP-backed page data loader', () => {
     expect(result.data).toEqual({ message: 'hello' });
   });
 
+  it('normalizes outer page type slashes while preserving nested page types', async () => {
+    let requestedPath = '';
+    const baseURL = startServer((request) => {
+      requestedPath = new URL(request.url).pathname;
+      return Response.json(
+        createPageEnvelope({
+          request_id: 'req_nested',
+        }),
+      );
+    });
+
+    const loader = createPageDataLoader(
+      createDefaultPageDataLoaderConfig(baseURL),
+      '/service-a/home/',
+    );
+
+    const result = (await loader(createArgs())) as Record<string, any>;
+
+    expect(result.status).toBe('success');
+    expect(requestedPath).toBe('/api/v1/page_data/service-a/home');
+  });
+
   it('returns invalid response errors for non-envelope JSON responses', async () => {
     const baseURL = startServer(() =>
       Response.json({

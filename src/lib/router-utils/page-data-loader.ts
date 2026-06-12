@@ -284,6 +284,16 @@ export function createDefaultLocalPageDataLoaderConfig(
 }
 
 // Define a factory function to create page data loaders with specific page types
+function normalizePageType(pageType: string): string {
+  const normalized = pageType.trim().replace(/^\/+|\/+$/g, '');
+
+  if (normalized.length === 0) {
+    throw new Error('Page type cannot be empty after normalization');
+  }
+
+  return normalized;
+}
+
 export function createPageDataLoader(
   config: PageDataLoaderConfig,
   pageType: string,
@@ -298,7 +308,7 @@ export function createPageDataLoader(
 ) {
   // If the pageTypeOrHandler is a string, create a page data loader that uses the page type
   if (typeof pageTypeOrHandler === 'string') {
-    const pageType = pageTypeOrHandler;
+    const pageType = normalizePageType(pageTypeOrHandler);
 
     return ({ request, params }: LoaderFunctionArgs) =>
       pageDataLoader({

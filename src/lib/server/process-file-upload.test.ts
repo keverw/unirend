@@ -1240,6 +1240,21 @@ describe('processFileUpload', () => {
   });
 
   describe('Multipart Not Enabled', () => {
+    it('should throw error when maxSizePerFile is missing or invalid', async () => {
+      const request = createMockRequest([]);
+      const reply = createMockReply();
+
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      await expect(
+        processFileUpload({
+          request,
+          reply,
+          allowedMimeTypes: ['text/plain'],
+          processor: () => ({}),
+        } as any),
+      ).rejects.toThrow(/maxSizePerFile/);
+    });
+
     it('should throw error when multipart is not enabled', async () => {
       const request = {
         server: { multipartEnabled: false }, // Not enabled
