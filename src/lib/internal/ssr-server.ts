@@ -2208,6 +2208,7 @@ export class SSRServer extends BaseServer {
             error,
             isDevelopment,
             isPageData,
+            { APIResponseHelpers: this.APIResponseHelpersClass },
           ),
         );
 
@@ -2266,7 +2267,9 @@ export class SSRServer extends BaseServer {
     if (this.sharedOptions.APIHandling?.notFoundHandler) {
       try {
         const customResponse = await Promise.resolve(
-          this.sharedOptions.APIHandling.notFoundHandler(request, isPageData),
+          this.sharedOptions.APIHandling.notFoundHandler(request, isPageData, {
+            APIResponseHelpers: this.APIResponseHelpersClass,
+          }),
         );
 
         // Extract status code from envelope response

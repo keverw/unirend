@@ -2,6 +2,7 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { serveSSRBuilt } from '../ssr';
 import type { FastifyRequest, FastifyReply } from 'fastify';
+import { APIResponseHelpers } from '../../api-envelope';
 
 /**
  * Tests for SSRServer's handleAPIError and handleAPINotFound private methods.
@@ -31,6 +32,8 @@ function makeMockReply(): FastifyReply {
   };
   return reply as unknown as FastifyReply;
 }
+
+class CustomAPIResponseHelpers extends APIResponseHelpers {}
 
 // ---------------------------------------------------------------------------
 // handleAPIError
@@ -71,6 +74,36 @@ describe('SSRServer.handleAPIError() (private)', () => {
 
     expect(reply.code).toHaveBeenCalledWith(422);
     expect(result).toBe(customResponse);
+  });
+
+  it('passes the configured APIResponseHelpersClass to the custom error handler params', async () => {
+    const customResponse = { status_code: 500, error: 'custom error' };
+    const customHandler = mock(
+      (
+        _request: FastifyRequest,
+        _error: Error,
+        _isDevelopment: boolean,
+        _isPageData: boolean | undefined,
+        _params: unknown,
+      ) => customResponse,
+    );
+    const server = serveSSRBuilt('/fake/build', {
+      APIResponseHelpersClass: CustomAPIResponseHelpers,
+      APIHandling: {
+        // @ts-expect-error — simplified mock return type for testing
+        errorHandler: customHandler,
+      },
+    });
+
+    const request = makeMockRequest();
+    const reply = makeMockReply();
+
+    // @ts-expect-error — accessing private method for testing
+    await server.handleAPIError(request, reply, new Error('e'));
+
+    expect(customHandler.mock.calls[0][4]).toEqual({
+      APIResponseHelpers: CustomAPIResponseHelpers,
+    });
   });
 
   it('defaults status to 500 when the custom response has no status_code', async () => {
@@ -195,6 +228,34 @@ describe('SSRServer.handleAPINotFound() (private)', () => {
 
     expect(reply.code).toHaveBeenCalledWith(404);
     expect(result).toBe(customResponse);
+  });
+
+  it('passes the configured APIResponseHelpersClass to the custom not-found handler params', async () => {
+    const customResponse = { status_code: 404, error: 'custom not found' };
+    const customHandler = mock(
+      (
+        _request: FastifyRequest,
+        _isPageData: boolean | undefined,
+        _params: unknown,
+      ) => customResponse,
+    );
+    const server = serveSSRBuilt('/fake/build', {
+      APIResponseHelpersClass: CustomAPIResponseHelpers,
+      APIHandling: {
+        // @ts-expect-error — simplified mock return type for testing
+        notFoundHandler: customHandler,
+      },
+    });
+
+    const request = makeMockRequest();
+    const reply = makeMockReply();
+
+    // @ts-expect-error — accessing private method for testing
+    await server.handleAPINotFound(request, reply);
+
+    expect(customHandler.mock.calls[0][2]).toEqual({
+      APIResponseHelpers: CustomAPIResponseHelpers,
+    });
   });
 
   it('uses a non-404 status code from the custom response envelope', async () => {

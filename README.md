@@ -579,7 +579,6 @@ Unirend provides first-class support for file uploads with streaming validation,
 
 ```typescript
 import { serveSSRWithHMR, processFileUpload } from 'unirend/server';
-import { APIResponseHelpers } from 'unirend/api-envelope';
 
 const server = serveSSRWithHMR(sourcePaths, {
   fileUploads: { enabled: true },
@@ -602,7 +601,7 @@ server.api.post('upload/avatar', async (request, reply, params) => {
     return result.errorEnvelope;
   }
 
-  return APIResponseHelpers.createAPISuccessResponse({
+  return params.APIResponseHelpers.createAPISuccessResponse({
     request,
     data: { file: result.files[0].data },
     statusCode: 200,

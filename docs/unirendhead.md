@@ -8,7 +8,7 @@
 - [API](#api)
   - [`<UnirendHead>`](#unirendhead)
   - [Supported Tags](#supported-tags)
-    - [Preloading images](#preloading-images)
+    - [Preloading Images](#preloading-images)
   - [Tag Merging and Overrides](#tag-merging-and-overrides)
   - [Shared Layout & Error Component Pattern](#shared-layout--error-component-pattern)
   - [Global Provider Pattern (Theme, Language, etc.)](#global-provider-pattern-theme-language-etc)

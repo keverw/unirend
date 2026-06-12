@@ -111,7 +111,7 @@ The following options are accepted by both `SSRServer` and `APIServer`:
 
 - `apiEndpoints?: APIEndpointConfig`
   - Shared versioned endpoint configuration used by page data and generic API routes.
-  - `apiEndpointPrefix?: string | false` - API route prefix (default: `"/api"`). Set to `false` to disable API handling. Throws error on startup if routes are registered but API is disabled.
+  - `apiEndpointPrefix?: string | false` - API route prefix (default: `"/api"`). Set to `"/"` for a full-root API server where all paths are treated as API paths. Set to `false` to disable API handling. Throws error on startup if routes are registered but API is disabled.
   - `versioned?: boolean` - Enable versioned endpoints like `/api/v1/...` (default: `true`). **Note**: This defaults to `true`, which means routes registered with `server.api.*` helpers will be under `/api/v{n}/...`. When using `processFileUpload()`, this also affects the paths you must specify in `fileUploads.allowedRoutes` on your SSR or standalone API server config.
   - `pageDataEndpoint?: string` - Endpoint name for page data loader handlers (default: `"page_data"`)
 - `plugins?: ServerPlugin[]`
@@ -141,10 +141,10 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - If a logger write throws, Unirend tries `logger.error` and then falls back to `globalThis.reportError` (when available) and `console.error`.
   - **Important:** Exactly one logging source can be configured: `logging`, `fastifyOptions.logger`, or `fastifyOptions.loggerInstance`. Configuring multiple sources will cause an error on server startup.
 - `accessLog?: AccessLogConfig`
-  - First-party access logging - on by default. Use `{ events: 'none' }` to disable, or provide config to customize.
+  - First-party access logging hooks are installed by default. Printed access log lines require a configured logger (`logging`, `fastifyOptions.logger`, or `fastifyOptions.loggerInstance`). Use `{ events: 'none' }` to disable template log output, or provide config to customize.
   - `events?: 'start' | 'finish' | 'both' | 'none'` - Which lifecycle events to print a log line for (default: `'finish'`).
-  - `responseTemplate?: string` - Template for finish/response events. Default: `'[{{serverLabel}}] Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'`. Available variables: `logSource`, `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `requestID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`.
-  - `requestTemplate?: string` - Template for start/request events. Default: `'[{{serverLabel}}] Request started {{method}} {{url}}'`. Available variables: `logSource`, `method`, `url`, `reqID`, `requestID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`.
+  - `responseTemplate?: string` - Template for finish/response events. Default: `'[{{serverLabel}}] Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'`. Available variables: `logSource`, `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `requestID`, `ip`, `connectionIP`, `userAgent`, `serverLabel`, `isStaticAsset`.
+  - `requestTemplate?: string` - Template for start/request events. Default: `'[{{serverLabel}}] Request started {{method}} {{url}}'`. Available variables: `logSource`, `method`, `url`, `reqID`, `requestID`, `ip`, `connectionIP`, `userAgent`, `serverLabel`, `isStaticAsset`.
   - `level?: UnirendLoggerLevel | { success?, clientError?, serverError? }` - Log level. Default: `info` for 2xx/3xx, `warn` for 4xx, `error` for 5xx.
   - `onRequest?: (context: AccessLogRequestContext) => void | Promise<void>` - Custom hook fired at request start when provided. It is awaited before request handling continues. If you intentionally start fire-and-forget work inside it, handle errors explicitly. Fires regardless of the `events` setting. Client identity is already resolved here, so `ctx.request.requestID` / `clientIP` / `connectionIP` / `clientInfo` are all populated (resolution runs before access logging) and available in this start hook, not just `onResponse`. See [Client Identity](./client-identity.md).
   - `onResponse?: (context: AccessLogResponseContext) => void | Promise<void>` - Custom hook fired on response completion when provided (both normal and client-aborted). It is awaited after the response finishes or aborts. If you intentionally start fire-and-forget work inside it, handle errors explicitly. `context.finishType` is `'completed'` or `'aborted'`. Fires regardless of the `events` setting.
@@ -225,7 +225,7 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - `logger` is Fastify's built-in logger option (boolean or pino options), for example `true` or `{ level: "info" }`.
   - `loggerInstance` is for passing an existing pino (or pino-compatible) logger instance.
   - `trustProxy` is passed directly to Fastify. Common options are `true`, a trusted IP/CIDR string like `'127.0.0.1'` or `'127.0.0.1,192.168.1.1/24'`, a trusted IP/CIDR list like `['127.0.0.1', '10.0.0.0/8']`, or a custom trust function with signature `(address: string, hop: number) => boolean`. Fastify also supports numeric hop counts.
-  - `bodyLimit` - maximum request body size in bytes for non-multipart requests (JSON, text, URL-encoded forms). Default: `1048576` (1 MB). Rejected with `413` when exceeded. Does **not** apply to multipart file uploads - those are controlled entirely by `fileUploads.limits.fileSize` (the multipart plugin registers its own streaming content-type parser, bypassing `bodyLimit`).
+  - `bodyLimit` - maximum request body size in bytes for non-multipart requests (JSON, text, URL-encoded forms). Default: `1048576` (1 MB). Rejected with `413` when exceeded. Does **not** apply to multipart file uploads - those are handled by the multipart plugin and the required per-route `processFileUpload({ maxSizePerFile })` setting. `fileUploads.limits.fileSize` configures the server-level multipart parser default, which `maxSizePerFile` overrides for that upload handler.
     - **Request body parsing note:** JSON (`application/json`) and URL-encoded forms (`application/x-www-form-urlencoded`) are both parsed automatically - both result in `request.body` as a plain object. Use `request.headers['content-type']` to distinguish them if needed. Multipart file uploads are handled separately via `fileUploads`.
   - `keepAliveTimeout` - how long (in milliseconds) to keep an idle HTTP keep-alive connection open before closing it. Default: `72000` (72 seconds). Should be set higher than your upstream load balancer's idle timeout to avoid race-condition resets.
   - `requestTimeout` - idle timeout in milliseconds for an in-progress request. The timer resets on each data chunk received, so large file uploads are unaffected as long as data keeps flowing. A request that stalls (no new data) is closed with `408` once the timeout elapses. Default: `0` (disabled). Most reverse proxies (nginx, Cloudflare, AWS ALB) enforce their own request timeouts, so this mainly matters for servers exposed directly - `30000` (30 s) is a reasonable starting point in that case.
@@ -297,7 +297,7 @@ For formatted access logs and access log hook patterns, see [Access Logging](#ac
 
 #### Access Logging
 
-Access logging is **on by default** on all server types (SSRServer, APIServer, StaticWebServer, RedirectServer) - finish events are logged using the default template with no configuration required. Use `accessLog` to customize behavior, or `accessLog: { events: 'none' }` to disable it. Output routes through `request.log`, so it respects whatever logger you've configured.
+Access logging hooks are **installed by default** on all server types (SSRServer, APIServer, StaticWebServer, RedirectServer). Finish events use the default template, but printed log lines require a configured logger (`logging`, `fastifyOptions.logger`, or `fastifyOptions.loggerInstance`) because output routes through `request.log`. Use `accessLog` to customize behavior, or `accessLog: { events: 'none' }` to disable template log output while still allowing custom hooks.
 
 ```typescript
 const server = serveSSRBuilt('./build', {
@@ -330,9 +330,9 @@ const server = serveSSRBuilt('./build', {
 
 ##### Template Variables
 
-- Response/finish events: `logSource`, `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `requestID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`
+- Response/finish events: `logSource`, `method`, `url`, `statusCode`, `responseTime`, `finishType`, `reqID`, `requestID`, `ip`, `connectionIP`, `userAgent`, `serverLabel`, `isStaticAsset`
   - Also supports dot notation for nested fields: `replyInfo.statusCode`, `replyInfo.headers['content-type']`
-- Request/start events: `logSource`, `method`, `url`, `reqID`, `requestID`, `ip`, `userAgent`, `serverLabel`, `isStaticAsset`
+- Request/start events: `logSource`, `method`, `url`, `reqID`, `requestID`, `ip`, `connectionIP`, `userAgent`, `serverLabel`, `isStaticAsset`
 - `isStaticAsset` is most useful in response/finish templates. Static serving marks it after the access-log start event, so request/start templates always see `false`.
 - `serverLabel` exposes the raw label value (no brackets) - use `[{{serverLabel}}]` if you want brackets in your template output.
 - Dot notation is supported for nested properties (e.g. `{{replyInfo.headers['x-request-id']}}`).
@@ -637,7 +637,7 @@ async function main() {
     // apiEndpoints: { apiEndpointPrefix: "/api", versioned: true, pageDataEndpoint: "page_data" },
 
     // Optional: Custom error/not-found handlers for API requests
-    // APIHandling: { errorHandler: (request, error, isDev, isPageData) => {...}, notFoundHandler: (request, isPageData) => {...} },
+    // APIHandling: { errorHandler: (request, error, isDev, isPageData, params) => {...}, notFoundHandler: (request, isPageData, params) => {...} },
 
     // Optional: Custom container ID (default: "root")
     // containerID: "app",
@@ -743,7 +743,7 @@ async function main() {
       // apiEndpoints: { apiEndpointPrefix: "/api", versioned: true, pageDataEndpoint: "page_data" },
 
       // Optional: Custom error/not-found handlers for API requests
-      // APIHandling: { errorHandler: (request, error, isDev, isPageData) => {...}, notFoundHandler: (request, isPageData) => {...} },
+      // APIHandling: { errorHandler: (request, error, isDev, isPageData, params) => {...}, notFoundHandler: (request, isPageData, params) => {...} },
 
       // Optional: Custom container ID (default: "root")
       // containerID: "app",
@@ -1397,6 +1397,7 @@ server.api.post('demo/items', 2, async (request, reply, params) => {
 Notes:
 
 - Endpoints are mounted under `apiEndpoints.apiEndpointPrefix` and optionally `/v{n}` when `versioned` is true.
+- `apiEndpoints.apiEndpointPrefix: "/"` mounts API routes at the site root and makes every path an API path for error/not-found classification.
 - SSR servers disallow wildcard endpoints at root prefix. Use a non-root prefix like `/api` to allow wildcards.
 - Handlers must return a valid API envelope. Status codes are taken from `status_code`.
 - Available helpers: `.api.get`, `.api.post`, `.api.put`, `.api.delete`, `.api.patch`.
@@ -1882,8 +1883,8 @@ async function main() {
     // Optional: Fastify options (curated subset)
     // fastifyOptions: { logger: true },
     // Optional: error/notFound handlers (return envelope responses)
-    // errorHandler: (request, error) => APIResponseHelpers.createAPIErrorResponse({ ... }),
-    // notFoundHandler: (request) => APIResponseHelpers.createAPIErrorResponse({ statusCode: 404, ... }),
+    // errorHandler: (request, error, isDev, isPageData, params) => params.APIResponseHelpers.createAPIErrorResponse({ ... }),
+    // notFoundHandler: (request, isPageData, params) => params.APIResponseHelpers.createAPIErrorResponse({ statusCode: 404, ... }),
   });
 
   await api.listen(3001, 'localhost');
@@ -1904,10 +1905,10 @@ In addition to the [shared server configuration](#shared-server-configuration), 
   - `CDNBaseURL` is an SSR/SSG HTML rewriting and injection feature. API servers do not populate `request.CDNBaseURL`, even when used as a plain web/static server. Use `publicAppConfig` or your own plugin decoration if API-side handlers need a public CDN URL.
   - Like SSRServer, APIServer sets `request.domainInfo` on every request (see [Environment flag in handlers](#environment-flag-in-handlers)).
 - `errorHandler?: Function | { api?, web? }`
-  - Function form: Returns JSON envelope (see [JSON-Only](#json-only-ssr-compatible))
+  - Function form: Returns JSON envelope for API servers (see [JSON-Only](#json-only-ssr-compatible)), or `WebResponse` when `apiEndpoints.apiEndpointPrefix: false` (see [Web-Only](#web-only-plain-web-server)).
   - Object form: Split handlers for mixed API + web servers (see [Split Handlers](#split-handlers-mixed-api--web-server)). Either handler can be omitted - missing handlers fall through to default behavior.
 - `notFoundHandler?: Function | { api?, web? }`
-  - Function form: Returns JSON envelope (see [JSON-Only](#json-only-ssr-compatible))
+  - Function form: Returns JSON envelope for API servers (see [JSON-Only](#json-only-ssr-compatible)), or `WebResponse` when `apiEndpoints.apiEndpointPrefix: false` (see [Web-Only](#web-only-plain-web-server)).
   - Object form: Split handlers for mixed API + web servers (see [Split Handlers](#split-handlers-mixed-api--web-server)). Either handler can be omitted - missing handlers fall through to default behavior.
 - `closingHandler?: Function | { api?, web? }`
   - Custom 503 response for requests received while `stop()` is closing the server.
@@ -1921,23 +1922,26 @@ Note: Unlike SSR servers, the API server allows full wildcard routes (including 
 Both `errorHandler` and `notFoundHandler` support two forms: a simple function or an object with split handlers. Choose based on your server type:
 
 - **API-only server** (JSON responses): Use function form returning API envelopes
-- **Web-only server** (`apiEndpointPrefix: false`): Use function form returning `WebResponse` (HTML/text)
+- **Web-only server** (`apiEndpointPrefix: false`): Use function form returning `WebResponse` (HTML/text/json)
 - **Mixed API + web server**: Use split form with separate `api` and `web` handlers
 
 #### JSON-Only (SSR Compatible)
 
 The function form is compatible with the SSR server's `APIHandling.errorHandler` and `APIHandling.notFoundHandler`. Use this when your API server only returns JSON responses:
 
+API/page error, not-found, and closing handlers receive a narrow `params` object with `params.APIResponseHelpers`, the same configured helper class route handlers receive. Use it instead of importing `APIResponseHelpers` directly so custom `APIResponseHelpersClass` metadata/defaults are respected. Split-form `web` handlers do not receive this params object because they return `WebResponse`, not API/Page envelopes. If a custom error/not-found handler throws, Unirend logs that failure and falls back to the built-in handler.
+
 ```typescript
 import { serveAPI } from 'unirend/server';
-import { APIResponseHelpers } from 'unirend/api-envelope';
+import { AppResponseHelpers } from './AppResponseHelpers';
 
 const server = serveAPI({
+  APIResponseHelpersClass: AppResponseHelpers,
   // Custom error handler - returns JSON envelope
-  errorHandler: (request, error, isDevelopment, isPageData) => {
+  errorHandler: (request, error, isDevelopment, isPageData, params) => {
     // isPageData distinguishes page data requests from regular API requests
     if (isPageData) {
-      return APIResponseHelpers.createPageErrorResponse({
+      return params.APIResponseHelpers.createPageErrorResponse({
         request,
         statusCode: 500,
         errorCode: 'internal_error',
@@ -1950,7 +1954,7 @@ const server = serveAPI({
       });
     }
 
-    return APIResponseHelpers.createAPIErrorResponse({
+    return params.APIResponseHelpers.createAPIErrorResponse({
       request,
       statusCode: 500,
       errorCode: 'internal_error',
@@ -1960,9 +1964,9 @@ const server = serveAPI({
   },
 
   // Custom 404 handler - returns JSON envelope
-  notFoundHandler: (request, isPageData) => {
+  notFoundHandler: (request, isPageData, params) => {
     if (isPageData) {
-      return APIResponseHelpers.createPageErrorResponse({
+      return params.APIResponseHelpers.createPageErrorResponse({
         request,
         statusCode: 404,
         errorCode: 'not_found',
@@ -1974,7 +1978,7 @@ const server = serveAPI({
       });
     }
 
-    return APIResponseHelpers.createAPIErrorResponse({
+    return params.APIResponseHelpers.createAPIErrorResponse({
       request,
       statusCode: 404,
       errorCode: 'not_found',
@@ -1984,28 +1988,46 @@ const server = serveAPI({
 });
 ```
 
-This is the same signature used by SSR server's `APIHandling` options (see [Options (shared)](#options-shared) above), making it easy to share handler logic between SSR and standalone API servers. The `isPageData` parameter distinguishes page data loader requests from regular API requests. By checking `isPageData`, you can return a page error response (via `APIResponseHelpers.createPageErrorResponse` with metadata like page title/description) or a standard API error response (via `APIResponseHelpers.createAPIErrorResponse`).
+This is the same signature used by SSR server's `APIHandling` options (see [Options (shared)](#options-shared) above), making it easy to share handler logic between SSR and standalone API servers. The `isPageData` parameter distinguishes page data loader requests from regular API requests. By checking `isPageData`, you can return a page error response (via `params.APIResponseHelpers.createPageErrorResponse` with metadata like page title/description) or a standard API error response (via `params.APIResponseHelpers.createAPIErrorResponse`).
 
 **Convention: stack traces in development** When writing custom JSON error handlers, include `errorDetails: isDevelopment ? { stack: error.stack } : undefined` so that stack traces appear in development error responses. This matches the convention used by the built-in page data loader and the default error handler. Components like `GenericError` in the SSR demo look for `error.details.stack` to display stack traces during development. See [Error Handling - Error Responses with Stack Trace](./error-handling.md#5-error-responses-with-stack-trace-development-only) for more details.
 
 #### Web-Only (Plain Web Server)
 
-When using APIServer as a plain web server (`apiEndpointPrefix: false`), use the function form returning `WebResponse`:
+Use `servePlain()` when you want APIServer's server lifecycle, plugins, logging, client identity, shutdown handling, compression, and server utilities without API/page-data route helpers. It wraps APIServer with `apiEndpointPrefix: false`, so use plugins/static/raw routes for content and use simple function-form `WebResponse` handlers for errors, not-found responses, and shutdown responses.
+
+The `server.api.*`, `pluginHost.api.*`, and `server.pageDataHandler.*` helpers are disabled in this mode; registering those handlers and then starting the server throws, because they are envelope-first helpers.
 
 ```typescript
-import { serveAPI } from 'unirend/server';
+import { servePlain } from 'unirend/server';
 import { staticContent } from 'unirend/plugins';
 import { escapeHTML } from 'unirend/utils';
 
-const server = serveAPI({
-  // Disable API handling - plain web server mode
-  apiEndpoints: { apiEndpointPrefix: false },
-
+const server = servePlain({
   plugins: [
     // Serve static files (HTML, CSS, JS, images)
     staticContent({
       folderMap: { '/': './public' },
     }),
+
+    // Register plain/raw routes through plugins. These return normal Fastify
+    // payloads and are not converted to Unirend API envelopes.
+    (pluginHost) => {
+      pluginHost.get('/health', async () => ({
+        ok: true,
+      }));
+
+      pluginHost.get('/maintenance', async (_request, reply) => {
+        reply.code(503).header('Retry-After', '60');
+
+        return {
+          ok: false,
+          message: 'Maintenance window active',
+        };
+      });
+
+      pluginHost.get('/hello', async () => '<h1>Hello</h1>');
+    },
   ],
 
   // Simple function form - returns HTML/text
@@ -2033,10 +2055,24 @@ const server = serveAPI({
       </html>`,
     statusCode: 500,
   }),
+
+  closingHandler: () => ({
+    contentType: 'html',
+    content: `<!DOCTYPE html>
+      <html>
+        <body>
+          <h1>503 - Server Shutting Down</h1>
+          <p>Please retry shortly.</p>
+        </body>
+      </html>`,
+    statusCode: 503,
+  }),
 });
 ```
 
-**Note**: When `apiEndpointPrefix: false`, all requests are treated as web requests, so split handlers would only use the `web` path. The simple function form is clearer for this use case.
+**Note**: `servePlain()` always disables API handling, so all requests are treated as web requests. Function-form `errorHandler`, `notFoundHandler`, and `closingHandler` return `WebResponse`, and Unirend's default 404/500/503 fallbacks are web HTML responses. The returned `PlainServer` type does not expose `server.api.*` or `server.pageDataHandler.*`. If you want envelope responses from those helpers, use `serveAPI()` with an API prefix such as `/api` or `/`.
+
+If you want one server to serve regular HTML/raw Fastify routes and also expose Unirend API envelopes, use `serveAPI()` instead of `servePlain()`: keep an API prefix such as `/api`, register HTML routes through plugins with `pluginHost.get/post/...`, register API routes with `server.api.*` or `pluginHost.api.*`, and use split `errorHandler` / `notFoundHandler` / `closingHandler` forms so API paths return envelopes while web paths return `WebResponse`.
 
 #### Split Handlers (Mixed API + Web Server)
 
@@ -2047,7 +2083,6 @@ Both `api` and `web` handlers are optional. If a handler is omitted or throws an
 ```typescript
 import { serveAPI } from 'unirend/server';
 import { staticContent } from 'unirend/plugins';
-import { APIResponseHelpers } from 'unirend/api-envelope';
 import { escapeHTML } from 'unirend/utils';
 
 const server = serveAPI({
@@ -2063,8 +2098,8 @@ const server = serveAPI({
   // Split form - different responses for API vs web
   notFoundHandler: {
     // API requests (paths starting with /api/) get JSON envelope
-    api: (request, isPageData) =>
-      APIResponseHelpers.createAPIErrorResponse({
+    api: (request, isPageData, params) =>
+      params.APIResponseHelpers.createAPIErrorResponse({
         request,
         statusCode: 404,
         errorCode: 'not_found',
@@ -2089,8 +2124,8 @@ const server = serveAPI({
 
   // Same pattern works for errorHandler
   errorHandler: {
-    api: (request, error, isDev, isPageData) =>
-      APIResponseHelpers.createAPIErrorResponse({
+    api: (request, error, isDev, isPageData, params) =>
+      params.APIResponseHelpers.createAPIErrorResponse({
         request,
         statusCode: 500,
         errorCode: 'internal_error',
@@ -2135,6 +2170,8 @@ The server uses `apiEndpoints.apiEndpointPrefix` (default `/api`) to detect API 
 - `/api/v2/users/123` → API (starts with `/api`)
 - `/static/index.html` → Web (doesn't start with `/api`)
 - `/about` → Web (doesn't start with `/api`)
+
+When `apiEndpointPrefix: "/"`, every path is treated as API for request classification. API routes mount at the root, page data mounts at `/page_data/...` (or `/v{n}/page_data/...` when versioned), and default not-found/error responses are envelopes. Use `apiEndpointPrefix: false` only when you want plain web behavior instead of API envelopes.
 
 This means all your API endpoints (including versioned ones under `/api/v1/`, `/api/v2/`, etc.) are detected as API requests, while everything else is treated as web requests.
 
@@ -2227,5 +2264,7 @@ process.on('SIGTERM', () => {
 ## WebSockets
 
 Both `SSRServer` and `APIServer` support WebSockets. Enable with `enableWebSockets: true` and register handlers via `server.registerWebSocketHandler({ path, preValidate?, handler })`.
+
+WebSocket registration is a server-level API, not a plugin-host method. It remains available when APIServer is used in plain web mode (`apiEndpoints.apiEndpointPrefix: false`). If a WebSocket `preValidate` handler rejects an upgrade, the rejection response is still an API envelope; plain web mode only disables API/page-data route helpers such as `server.api.*`, `pluginHost.api.*`, and `pageDataHandler.*`. If you want a root-mounted API server with envelopes everywhere, use `apiEndpointPrefix: "/"` instead of plain mode.
 
 See full guide and examples: [WebSockets](./websockets.md).

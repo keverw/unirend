@@ -1,4 +1,9 @@
-import type { PluginHostInstance, PluginOptions, ServerPlugin } from '../types';
+import type {
+  PluginHostInstance,
+  PluginOptions,
+  ServerPlugin,
+  UnirendServerMode,
+} from '../types';
 import type { FastifyRequest } from 'fastify';
 import {
   normalizeDomain,
@@ -123,7 +128,10 @@ export interface DomainValidationConfig {
  * Helper function to determine if a request URL is for an API endpoint.
  * Uses the same classifyRequest logic as the servers for consistency.
  */
-function checkIfAPIEndpoint(url: string, options: PluginOptions): boolean {
+function checkIfAPIEndpoint(
+  url: string,
+  options: PluginOptions<UnirendServerMode>,
+): boolean {
   // Normalize the API prefix (handles null/undefined/empty → default, false → false)
   const apiPrefix = normalizeAPIPrefix(options.apiEndpoints?.apiEndpointPrefix);
 
@@ -199,8 +207,13 @@ function getHost(
  *
  * This plugin is a no-op in development mode by default.
  */
-export function domainValidation(config: DomainValidationConfig): ServerPlugin {
-  return async (pluginHost: PluginHostInstance, options: PluginOptions) => {
+export function domainValidation(
+  config: DomainValidationConfig,
+): ServerPlugin<UnirendServerMode> {
+  return async (
+    pluginHost: PluginHostInstance<UnirendServerMode>,
+    options: PluginOptions<UnirendServerMode>,
+  ) => {
     // Early config validation for validProductionDomains using centralized validator
     if (
       config.validProductionDomains &&

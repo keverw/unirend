@@ -270,7 +270,7 @@ export class StaticWebServer {
     });
 
     // 5. Create plugins array (pass cache instance rather than raw config)
-    const plugins: ServerPlugin[] = [
+    const plugins: ServerPlugin<'plain'>[] = [
       staticContent(this.cache, 'static-web-server'),
       ...(this.options.plugins || []),
     ];

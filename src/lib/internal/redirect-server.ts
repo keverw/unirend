@@ -12,6 +12,7 @@ import type {
   AccessLogConfig,
   ResponseTimeHeaderOptions,
   WebClosingHandlerFn,
+  PluginHostInstance,
 } from '../types';
 import type { ClientInfoConfig } from './client-info-resolution';
 
@@ -258,7 +259,7 @@ export class RedirectServer {
       getRequestID: options.getRequestID, // Pass through request ID generator
       clientInfo: options.clientInfo, // Pass through client-info resolution config
       plugins: [
-        (pluginHost) => {
+        (pluginHost: PluginHostInstance<'plain'>) => {
           // Register redirect logic as an onRequest hook
           pluginHost.addHook('onRequest', (request, reply) => {
             return this.handleRedirect(request, reply);

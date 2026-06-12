@@ -43,7 +43,6 @@ import {
 import type { SSRServer } from 'unirend/server';
 import { loadBuildInfo } from 'unirend/build-info';
 import { cookies } from 'unirend/plugins';
-// import { APIResponseHelpers } from 'unirend/api-envelope'; // Uncomment when using custom error/404 handlers
 import path from 'path';
 import type { ServerMode } from './start';
 import { ENABLE_TEST_ROUTES } from '../consts';
@@ -191,11 +190,12 @@ export class SSRServerComponent extends BaseComponent {
           // Handlers return API envelopes (JSON), not raw HTML — use get500ErrorPage above for
           // the raw-HTML fallback when SSR rendering itself fails before React can run.
           // APIHandling: {
-          //   errorHandler: (request, error, isDev, isPageData) => {
+          //   errorHandler: (request, error, isDev, isPageData, params) => {
           //     // isDev mirrors request.isDevelopment elsewhere — convention:
           //     // errorDetails: isDev ? { stack: error.stack } : undefined
+          //     // Use params.APIResponseHelpers to build API/Page envelopes.
           //   },
-          //   notFoundHandler: (request, isPageData) => { ... },
+          //   notFoundHandler: (request, isPageData, params) => { ... },
           // },
           //
           // Advanced: resolvePageDataRequestOptions rewrites the API base URL per-request (load balancing)
@@ -228,8 +228,8 @@ export class SSRServerComponent extends BaseComponent {
           //     content: '<html><body>Server shutting down. Try again shortly.</body></html>',
           //     statusCode: 503,
           //   }),
-          //   api: (request, isPageData) => {
-          //     return APIResponseHelpers.createAPIErrorResponse({
+          //   api: (request, isPageData, params) => {
+          //     return params.APIResponseHelpers.createAPIErrorResponse({
           //       request,
           //       statusCode: 503,
           //       errorCode: 'service_unavailable',

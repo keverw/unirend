@@ -28,6 +28,14 @@ import type {
   SplitErrorHandler,
   SplitNotFoundHandler,
   AccessLogConfig,
+  WebErrorHandlerFn,
+  WebNotFoundHandlerFn,
+  APIErrorHandlerFn,
+  APINotFoundHandlerFn,
+  PluginAPIRouteShortcuts,
+  PluginPageDataHandlerShortcuts,
+  PluginHostInstance,
+  ServerPlugin,
 } from '../types';
 import { AccessLogPlugin } from './access-log-plugin';
 import { BaseServer } from './base-server';
@@ -41,6 +49,10 @@ import {
   registerMultipartPlugin,
 } from './file-upload-validation-helpers';
 import { APIResponseHelpers } from '../../api-envelope';
+import {
+  generateDefault404NotFoundPage,
+  generateDefault500ErrorPage,
+} from './error-page-utils';
 import type { WebSocket, WebSocketServer } from 'ws';
 import { getDevMode } from 'lifecycleion/dev-mode';
 import { registerResponseCompression } from './response-compression';
@@ -49,6 +61,38 @@ import {
   registerResponseTimeHijackPatch,
 } from './response-time-header';
 import { deepFreeze } from './utils';
+
+function createDisabledAPIRouteShortcuts(): PluginAPIRouteShortcuts {
+  const throwDisabled = () => {
+    throw new Error(
+      `Cannot register pluginHost.api.* handlers because API handling is disabled ` +
+        `(apiEndpoints.apiEndpointPrefix is false). Use raw pluginHost.get/post routes ` +
+        `for plain web server mode, or enable API handling with an API prefix like '/api'.`,
+    );
+  };
+
+  return {
+    get: throwDisabled,
+    post: throwDisabled,
+    put: throwDisabled,
+    delete: throwDisabled,
+    patch: throwDisabled,
+  };
+}
+
+function createDisabledPageDataHandlerShortcuts(): PluginPageDataHandlerShortcuts {
+  const throwDisabled = () => {
+    throw new Error(
+      `Cannot register pluginHost.pageDataHandler.* handlers because API handling is disabled ` +
+        `(apiEndpoints.apiEndpointPrefix is false). Use raw pluginHost.get/post routes ` +
+        `for plain web server mode, or enable API handling with an API prefix like '/api'.`,
+    );
+  };
+
+  return {
+    register: throwDisabled,
+  };
+}
 
 /**
  * API Server class for creating JSON API servers with plugin support
@@ -293,10 +337,10 @@ export class APIServer extends BaseServer {
         () => this._isStopping,
         {
           handler: this.options.closingHandler,
-          // APIServer function form is API-first. Split form can still
-          // customize web requests when APIServer is used as a mixed or
-          // plain web server.
-          functionHandlerType: 'api',
+          // APIServer function form is API-first when API handling is enabled.
+          // In plain web server mode, function form returns WebResponse.
+          functionHandlerType:
+            this.normalizedAPIPrefix === false ? 'web' : 'api',
           serverLabel: this.serverLabel,
           HelpersClass: this.APIResponseHelpersClass,
           apiPrefix: this.normalizedAPIPrefix,
@@ -576,6 +620,7 @@ export class APIServer extends BaseServer {
                   error as FastifyError,
                   isDev,
                   isPageData,
+                  { APIResponseHelpers: this.APIResponseHelpersClass },
                 ),
               );
 
@@ -598,15 +643,24 @@ export class APIServer extends BaseServer {
             }
 
             // Missing handler for this case - fall through to default
+          } else if (
+            typeof this.options.errorHandler === 'function' &&
+            this.normalizedAPIPrefix === false
+          ) {
+            // Web-only function form for plain web server mode.
+            const webHandler = this.options.errorHandler as WebErrorHandlerFn;
+            const webResponse = await Promise.resolve(
+              webHandler(request, error as FastifyError, isDev),
+            );
+
+            return prepareWebResponse(reply, webResponse, 500);
           } else if (typeof this.options.errorHandler === 'function') {
-            // Function form (SSR compatible)
+            // Function form (SSR compatible API/Page envelope)
+            const apiHandler = this.options.errorHandler as APIErrorHandlerFn;
             const errorResponse = await Promise.resolve(
-              this.options.errorHandler(
-                request,
-                error as FastifyError,
-                isDev,
-                isPageData,
-              ),
+              apiHandler(request, error as FastifyError, isDev, isPageData, {
+                APIResponseHelpers: this.APIResponseHelpersClass,
+              }),
             );
 
             // Extract status code from envelope response
@@ -626,6 +680,23 @@ export class APIServer extends BaseServer {
             `[${this.serverLabel}] Custom error handler failed`,
           );
         }
+      }
+
+      // Default 500 error page for web/plain-server mode
+      if (this.normalizedAPIPrefix === false) {
+        return prepareWebResponse(
+          reply,
+          {
+            contentType: 'html',
+            content: generateDefault500ErrorPage(
+              request,
+              error as FastifyError,
+              isDev,
+            ),
+            statusCode: 500,
+          },
+          500,
+        );
       }
 
       // Default case (also used when split handler is missing api/web)
@@ -678,7 +749,9 @@ export class APIServer extends BaseServer {
             if (isAPI && splitHandler.api) {
               // Use API handler
               const apiResponse = await Promise.resolve(
-                splitHandler.api(request, isPageData),
+                splitHandler.api(request, isPageData, {
+                  APIResponseHelpers: this.APIResponseHelpersClass,
+                }),
               );
 
               // Extract status code from envelope response
@@ -696,10 +769,24 @@ export class APIServer extends BaseServer {
             }
 
             // Missing handler for this case - fall through to default
+          } else if (
+            typeof this.options.notFoundHandler === 'function' &&
+            this.normalizedAPIPrefix === false
+          ) {
+            // Web-only function form for plain web server mode.
+            const webHandler = this.options
+              .notFoundHandler as WebNotFoundHandlerFn;
+            const webResponse = await Promise.resolve(webHandler(request));
+
+            return prepareWebResponse(reply, webResponse, 404);
           } else if (typeof this.options.notFoundHandler === 'function') {
-            // Function form (SSR compatible)
+            // Function form (SSR compatible API/Page envelope)
+            const apiHandler = this.options
+              .notFoundHandler as APINotFoundHandlerFn;
             const custom = await Promise.resolve(
-              this.options.notFoundHandler(request, isPageData),
+              apiHandler(request, isPageData, {
+                APIResponseHelpers: this.APIResponseHelpersClass,
+              }),
             );
 
             // Extract status code from envelope response
@@ -715,6 +802,19 @@ export class APIServer extends BaseServer {
             `[${this.serverLabel}] Custom not-found handler failed`,
           );
         }
+      }
+
+      // Default 404 not found page for web/plain-server mode
+      if (this.normalizedAPIPrefix === false) {
+        return prepareWebResponse(
+          reply,
+          {
+            contentType: 'html',
+            content: generateDefault404NotFoundPage(request),
+            statusCode: 404,
+          },
+          404,
+        );
       }
 
       // Default case (also used when split handler is missing api/web)
@@ -745,30 +845,43 @@ export class APIServer extends BaseServer {
       return;
     }
 
+    const apiShortcuts =
+      this.normalizedAPIPrefix === false
+        ? createDisabledAPIRouteShortcuts()
+        : this.apiRoutes.apiMethod;
+    const pageDataHandlerShortcuts =
+      this.normalizedAPIPrefix === false
+        ? createDisabledPageDataHandlerShortcuts()
+        : this.pageDataHandlers.pageDataHandlerMethod;
+
     // Create controlled instance wrapper with full wildcard support
     const controlledInstance = createControlledInstance(
       this.fastifyInstance,
       false,
-      this.apiRoutes.apiMethod,
-      this.pageDataHandlers.pageDataHandlerMethod,
+      apiShortcuts,
+      pageDataHandlerShortcuts,
       this.APIResponseHelpersClass,
     );
 
     // Plugin options to pass to each plugin
     const isDevelopment = getDevMode();
 
-    const pluginOptions: PluginOptions = {
-      serverType: 'api',
+    const pluginOptions: PluginOptions<'api' | 'plain'> = {
+      serverType: this.normalizedAPIPrefix === false ? 'plain' : 'api',
       mode: isDevelopment ? 'development' : 'production',
       isDevelopment,
       apiEndpoints: this.options.apiEndpoints,
     };
 
     // Register each plugin with dependency validation
-    for (const plugin of this.options.plugins) {
+    const registerPlugin = async <Mode extends 'api' | 'plain'>(
+      plugin: ServerPlugin<Mode>,
+      host: PluginHostInstance<Mode>,
+      options: PluginOptions<Mode>,
+    ) => {
       try {
         // Call plugin and get potential metadata
-        const pluginResult = await plugin(controlledInstance, pluginOptions);
+        const pluginResult = await plugin(host, options);
 
         // Validate dependencies and track plugin
         validateAndRegisterPlugin(this.registeredPlugins, pluginResult);
@@ -781,6 +894,26 @@ export class APIServer extends BaseServer {
         throw new Error(
           `Plugin registration failed: ${error instanceof Error ? error.message : String(error)}`,
         );
+      }
+    };
+
+    // Register each plugin with dependency validation
+    if (this.normalizedAPIPrefix === false) {
+      const plugins = this.options.plugins as ServerPlugin<'plain'>[];
+      const host = controlledInstance as unknown as PluginHostInstance<'plain'>;
+      const options = pluginOptions as PluginOptions<'plain'>;
+
+      for (const plugin of plugins) {
+        await registerPlugin(plugin, host, options);
+      }
+    } else {
+      const plugins = this.options.plugins as ServerPlugin<'api'>[];
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+      const host = controlledInstance as PluginHostInstance<'api'>;
+      const options = pluginOptions as PluginOptions<'api'>;
+
+      for (const plugin of plugins) {
+        await registerPlugin(plugin, host, options);
       }
     }
   }

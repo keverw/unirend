@@ -309,7 +309,7 @@ These endpoints are specifically designed for retrieving complete page data for 
 To fetch data for SSR pages, the frontend makes an HTTP POST request to a dedicated endpoint:
 
 - **Method:** `POST`
-- **Endpoint:** e.g.`/v1/page_data/{page_type}` (e.g., `/v1/page_data/home`, `/v1/page_data/rooms_list`). The `{page_type}` in the URL path identifies the type of page being requested and corresponds to the `pageType` argument used by the frontend page data loader.
+- **Endpoint:** e.g.`/api/v1/page_data/{page_type}` (e.g., `/api/v1/page_data/home`, `/api/v1/page_data/rooms_list`). The `{page_type}` in the URL path identifies the type of page being requested and corresponds to the `pageType` argument used by the frontend page data loader.
 - **Content-Type:** `application/json`
 
 #### Request Body:
@@ -339,7 +339,7 @@ The JSON body uses `snake_case` and includes the following fields:
 #### Example Request:
 
 ```
-POST /v1/page_data/rooms_list
+POST /api/v1/page_data/rooms_list
 Content-Type: application/json
 
 {

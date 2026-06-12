@@ -186,6 +186,39 @@ ${generateErrorPageStyles({
 }
 
 /**
+ * Generates a default web/plain-server 404 not found page.
+ * API/page-data 404s use envelope responses instead.
+ * @param request The Fastify request object
+ * @returns HTML string for the not found page
+ */
+export function generateDefault404NotFoundPage(
+  request: FastifyRequest,
+): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>404 - Not Found</title>
+  <style>
+${generateErrorPageStyles({
+  '.ep-title': {
+    color: '#374151',
+  },
+})}
+  </style>
+</head>
+<body>
+  <main class="ep-card">
+    <div class="ep-title">404 - Not Found</div>
+    <div class="ep-sub">The requested page could not be found.</div>
+    <div class="ep-panel">${escapeHTML(request.url)}</div>
+  </main>
+</body>
+</html>`;
+}
+
+/**
  * Generates a default 503 page for requests received while the server is closing.
  * @returns HTML string for the shutdown page
  */

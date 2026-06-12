@@ -1,4 +1,8 @@
-import type { ServerPlugin, PluginHostInstance } from '../types';
+import type {
+  ServerPlugin,
+  PluginHostInstance,
+  UnirendServerMode,
+} from '../types';
 import fastifyCookie from '@fastify/cookie';
 import type { FastifyCookieOptions } from '@fastify/cookie';
 
@@ -14,8 +18,10 @@ export type CookiesConfig = FastifyCookieOptions;
  * Other plugins can declare a dependency on "cookies" in their PluginMetadata.dependsOn
  * to ensure this plugin is registered first.
  */
-export function cookies(config: CookiesConfig = {}): ServerPlugin {
-  return async (pluginHost: PluginHostInstance) => {
+export function cookies(
+  config: CookiesConfig = {},
+): ServerPlugin<UnirendServerMode> {
+  return async (pluginHost: PluginHostInstance<UnirendServerMode>) => {
     await pluginHost.register(fastifyCookie, config as Record<string, unknown>);
 
     // Expose simple runtime metadata so other plugins/handlers can check

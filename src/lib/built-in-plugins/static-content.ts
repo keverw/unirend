@@ -1,4 +1,8 @@
-import type { ServerPlugin, StaticContentRouterOptions } from '../types';
+import type {
+  ServerPlugin,
+  StaticContentRouterOptions,
+  UnirendServerMode,
+} from '../types';
 import { createStaticContentHook } from '../internal/static-content-hook';
 // Import via the public `unirend/utils` subpath (mapped to ./src/utils.ts via tsconfig
 // paths) so this entry shares a single StaticContentCache identity with the utils entry.
@@ -138,7 +142,7 @@ export type { FolderConfig, StaticContentRouterOptions } from '../types';
 export function staticContent(
   configOrCache: StaticContentRouterOptions | StaticContentCache,
   name?: string,
-): ServerPlugin {
+): ServerPlugin<UnirendServerMode> {
   // Validate custom name if provided
   if (name !== undefined) {
     if (typeof name !== 'string' || name.trim().length === 0) {
@@ -154,7 +158,10 @@ export function staticContent(
     name ||
     `static-content-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  const staticContentPlugin: ServerPlugin = (pluginHost, _pluginOptions) => {
+  const staticContentPlugin: ServerPlugin<UnirendServerMode> = (
+    pluginHost,
+    _pluginOptions,
+  ) => {
     // Determine cache source: use provided instance or create new one from config
     let cache: StaticContentCache;
 

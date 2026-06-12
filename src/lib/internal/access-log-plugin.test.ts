@@ -277,6 +277,77 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
     expect(captured[0].userAgent).toBe('ForwardedUA/1.0');
   });
 
+  it('accessLog onRequest sees resolved clientInfo / clientIP / connectionIP', async () => {
+    const captured: Array<{
+      clientInfo: unknown;
+      clientIP: string;
+      connectionIP: string;
+    }> = [];
+
+    server = serveAPI({
+      logging: makeMockLoggingConfig(),
+      accessLog: {
+        onRequest: (ctx) => {
+          const r = ctx.request as unknown as {
+            clientInfo?: unknown;
+            clientIP: string;
+            connectionIP: string;
+          };
+          captured.push({
+            clientInfo: r.clientInfo,
+            clientIP: r.clientIP,
+            connectionIP: r.connectionIP,
+          });
+        },
+      },
+    });
+    await server.listen(port, 'localhost');
+    await (await fetch(`http://localhost:${port}/api/nonexistent`)).text();
+
+    expect(captured.length).toBeGreaterThan(0);
+    // Client identity is resolved before access logging, so it's already
+    // populated in onRequest (not just onResponse).
+    expect(captured[0].clientInfo).toBeDefined();
+    expect((captured[0].clientIP ?? '').length).toBeGreaterThan(0);
+    expect(typeof captured[0].connectionIP).toBe('string');
+  });
+
+  it('clientInfo: false disables resolution (no ID headers, no clientInfo, clientIP == connectionIP)', async () => {
+    const captured: Array<{
+      clientInfo: unknown;
+      clientIP: string;
+      connectionIP: string;
+    }> = [];
+
+    server = serveAPI({
+      logging: makeMockLoggingConfig(),
+      clientInfo: false,
+      accessLog: {
+        onRequest: (ctx) => {
+          const r = ctx.request as unknown as {
+            clientInfo?: unknown;
+            clientIP: string;
+            connectionIP: string;
+          };
+          captured.push({
+            clientInfo: r.clientInfo,
+            clientIP: r.clientIP,
+            connectionIP: r.connectionIP,
+          });
+        },
+      },
+    });
+    await server.listen(port, 'localhost');
+    const response = await fetch(`http://localhost:${port}/api/nonexistent`);
+    await response.text();
+
+    expect(response.headers.get('x-request-id')).toBeNull();
+    expect(response.headers.get('x-correlation-id')).toBeNull();
+    expect(captured.length).toBeGreaterThan(0);
+    expect(captured[0].clientInfo).toBeUndefined();
+    expect(captured[0].clientIP).toBe(captured[0].connectionIP);
+  });
+
   it('logs at "info" level for 2xx responses by default', async () => {
     server = serveAPI({
       logging: makeMockLoggingConfig(),

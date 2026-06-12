@@ -63,9 +63,8 @@ const server = serveSSRWithHMR(sourcePaths, {
 
 ```ts
 import { processFileUpload } from 'unirend/server';
-import { APIResponseHelpers } from 'unirend/api-envelope';
 
-server.api.post('upload/avatar', async (request, reply) => {
+server.api.post('upload/avatar', async (request, reply, params) => {
   const result = await processFileUpload({
     request,
     reply,
@@ -80,7 +79,7 @@ server.api.post('upload/avatar', async (request, reply) => {
 
   if (!result.success) return result.errorEnvelope;
 
-  return APIResponseHelpers.createAPISuccessResponse({
+  return params.APIResponseHelpers.createAPISuccessResponse({
     request,
     statusCode: 200,
     data: { file: result.files[0].data },
@@ -133,9 +132,9 @@ const server = serveSSRWithHMR(sourcePaths, {
 
 **Configuration notes:**
 
-- **`bodyLimit` does not apply to multipart**: `fastifyOptions.bodyLimit` (a server-level option, see [Shared Server Configuration](./ssr.md#shared-server-configuration)) controls non-multipart request bodies (JSON, text, URL-encoded forms). It does not apply to file uploads, the multipart plugin registers its own streaming content-type parser, bypassing `bodyLimit`. File upload size is controlled entirely by `fileUploads.limits.fileSize`.
-- **Global limits**: Set default limits for all upload routes via `fileUploads.limits`
-- **Per-route overrides**: `processFileUpload()` can override these per route (see [Configuration options](#configuration-options))
+- **`bodyLimit` does not apply to multipart**: `fastifyOptions.bodyLimit` (a server-level option, see [Shared Server Configuration](./ssr.md#shared-server-configuration)) controls non-multipart request bodies (JSON, text, URL-encoded forms). It does not apply to file uploads, the multipart plugin registers its own streaming content-type parser, bypassing `bodyLimit`. Each `processFileUpload()` call must pass `maxSizePerFile`; `fileUploads.limits.fileSize` configures the server-level multipart parser default, which `maxSizePerFile` overrides for that upload handler.
+- **Global limits**: Set server-level multipart parser defaults for upload routes via `fileUploads.limits`
+- **Per-route limits**: `processFileUpload()` requires `maxSizePerFile` and can override the server-level file size default for that handler. It can also set route-specific field/file count limits (see [Configuration options](#configuration-options))
 - **Pre-validation with `allowedRoutes`**: Automatically rejects multipart requests to non-allowed routes before parsing (prevents bandwidth waste and DoS attacks)
   - Supports wildcard patterns:
     - `*` matches a single path segment: `/api/*/upload` matches `/api/foo/upload` but NOT `/api/foo/bar/upload`
@@ -153,7 +152,7 @@ const server = serveSSRWithHMR(sourcePaths, {
 - **`request`**: Fastify request
 - **`reply`**: Fastify reply (or controlled reply)
 - **`maxFiles`**: defaults to `1`
-- **`maxSizePerFile`**: bytes (overrides server `limits.fileSize`)
+- **`maxSizePerFile`**: required per-route file size limit in bytes (overrides server `fileUploads.limits.fileSize` for this handler)
 - **`maxFields`**: optional max form fields (overrides server `limits.fields`)
 - **`maxFieldSize`**: optional max field value size in bytes (overrides server `limits.fieldSize`)
 - **`allowedMimeTypes`**: `string[]` supporting wildcards (e.g. `image/*`) or a validator function
@@ -181,9 +180,8 @@ import { createWriteStream } from 'node:fs';
 import { mkdir, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { processFileUpload } from 'unirend/server';
-import { APIResponseHelpers } from 'unirend/api-envelope';
 
-server.api.post('upload/avatar', async (request, reply) => {
+server.api.post('upload/avatar', async (request, reply, params) => {
   const result = await processFileUpload({
     request,
     reply,
@@ -210,7 +208,7 @@ server.api.post('upload/avatar', async (request, reply) => {
 
   if (!result.success) return result.errorEnvelope;
 
-  return APIResponseHelpers.createAPISuccessResponse({
+  return params.APIResponseHelpers.createAPISuccessResponse({
     request,
     statusCode: 200,
     data: { file: result.files[0].data },
@@ -223,7 +221,7 @@ server.api.post('upload/avatar', async (request, reply) => {
 Batch uploads are **sequential** and **fail-fast**. The first failure aborts the rest and runs all registered abort cleanups.
 
 ```ts
-server.api.post('upload/gallery', async (request, reply) => {
+server.api.post('upload/gallery', async (request, reply, params) => {
   const result = await processFileUpload({
     request,
     reply,
@@ -238,7 +236,7 @@ server.api.post('upload/gallery', async (request, reply) => {
 
   if (!result.success) return result.errorEnvelope;
 
-  return APIResponseHelpers.createAPISuccessResponse({
+  return params.APIResponseHelpers.createAPISuccessResponse({
     request,
     statusCode: 200,
     data: { files: result.files.map((f) => f.data) },

@@ -1,5 +1,10 @@
 import { APIServer } from './internal/api-server';
-import type { APIServerOptions } from './types';
+import type { APIServerOptions, PlainServerOptions } from './types';
+
+export type PlainServer = Omit<
+  APIServer,
+  'APIResponseHelpersClass' | 'api' | 'pageDataHandler'
+>;
 
 /**
  * Create an API server instance
@@ -42,6 +47,23 @@ import type { APIServerOptions } from './types';
  */
 export function serveAPI(options: APIServerOptions = {}): APIServer {
   return new APIServer(options);
+}
+
+/**
+ * Create a plain web server instance.
+ *
+ * This is a small wrapper around APIServer with API/page-data routing disabled.
+ * Use plugins and raw `pluginHost.get/post/...` routes for content. Function-form
+ * error, not-found, and closing handlers return `WebResponse`.
+ *
+ * @param options Configuration options for the plain web server
+ * @returns PlainServer instance ready to be started
+ */
+export function servePlain(options: PlainServerOptions = {}): PlainServer {
+  return new APIServer({
+    ...options,
+    apiEndpoints: { apiEndpointPrefix: false },
+  });
 }
 
 export { APIServer } from './internal/api-server';

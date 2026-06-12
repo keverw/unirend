@@ -12,7 +12,7 @@ import { isPrivateIP } from 'range_check';
  */
 export interface ClientInfo {
   requestID: string; // Unique ID for this specific request (mirrors request.requestID)
-  correlationID: string | null; // ID for tracing requests across services (can be null)
+  correlationID: string; // ID for tracing across services (forwarded value, or the request ID)
   /** True when request came from SSR layer with trusted forwarded headers */
   isFromSSRServerAPICall: boolean;
   /** The connecting IP (mirrors request.connectionIP). */
@@ -173,11 +173,27 @@ export function registerClientInfoResolution(
       !!request.headers['x-correlation-id'];
 
     if (shouldTrustForwarded) {
-      if (isSSRRequest) {
-        isFromSSRServerAPICall = true;
+      // X-Correlation-ID is a standard cross-service tracing header, not an
+      // SSR-specific concept — honor a valid forwarded value from any trusted
+      // source (even without X-SSR-Request), so non-SSR upstreams can propagate
+      // a trace ID. Still gated by trust + the validator (ULID by default).
+      const correlationHeader = request.headers['x-correlation-id'];
+
+      if (
+        typeof correlationHeader === 'string' &&
+        validateForwardedRequestID(correlationHeader)
+      ) {
+        correlationID = correlationHeader;
       }
 
-      if (hasForwardedHeaders) {
+      // SSR identity recovery (the original client IP / forwarded User-Agent /
+      // isFromSSRServerAPICall) is SSR-specific, so it requires the explicit
+      // X-SSR-Request marker (the SSR server always sets it when forwarding). A
+      // trusted source that didn't mark the request as SSR does not override
+      // clientIP/UA.
+      if (isSSRRequest) {
+        isFromSSRServerAPICall = true;
+
         // Recover the real end-user IP into request.clientIP
         const originalIPHeader = request.headers['x-ssr-original-ip'];
 
@@ -192,15 +208,6 @@ export function registerClientInfoResolution(
         if (typeof forwardedUserAgentHeader === 'string') {
           userAgent = forwardedUserAgentHeader;
           isUserAgentFromHeader = true;
-        }
-
-        const correlationHeader = request.headers['x-correlation-id'];
-
-        if (
-          typeof correlationHeader === 'string' &&
-          validateForwardedRequestID(correlationHeader)
-        ) {
-          correlationID = correlationHeader;
         }
 
         if (shouldLogForwardedClientInfo) {
@@ -230,9 +237,10 @@ export function registerClientInfoResolution(
     }
 
     // For direct requests, the request ID doubles as the correlation ID.
-    if (!correlationID) {
-      correlationID = requestID;
-    }
+    // Direct requests (and the getRequestID opt-out) fall back to the request
+    // ID, so the resolved correlation ID is always a string (possibly '' when
+    // the request ID opted out) — never null.
+    const resolvedCorrelationID: string = correlationID ?? requestID;
 
     // Optionally add the request/correlation IDs to response headers. Guard
     // against empty values (when getRequestID opts out) — don't emit blank headers.
@@ -241,8 +249,8 @@ export function registerClientInfoResolution(
         reply.header('X-Request-ID', requestID);
       }
 
-      if (correlationID) {
-        reply.header('X-Correlation-ID', correlationID);
+      if (resolvedCorrelationID) {
+        reply.header('X-Correlation-ID', resolvedCorrelationID);
       }
     }
 
@@ -250,7 +258,7 @@ export function registerClientInfoResolution(
       request.log?.info?.(
         {
           requestID,
-          correlationID: correlationID || undefined,
+          correlationID: resolvedCorrelationID || undefined,
         },
         `client-info: request received — ${request.method} ${request.url}`,
       );
@@ -260,7 +268,7 @@ export function registerClientInfoResolution(
     // (clientIP may have been overridden above with the forwarded original IP.)
     request.clientInfo = {
       requestID,
-      correlationID,
+      correlationID: resolvedCorrelationID,
       isFromSSRServerAPICall,
       connectionIP: request.connectionIP,
       clientIP: request.clientIP,

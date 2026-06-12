@@ -205,10 +205,10 @@ type PublicAppConfig = {
   build: { version: string; git_hash: string; git_branch: string };
 };
 
-server.api.get('health', async (request) => {
+server.api.get('health', async (request, reply, params) => {
   const { build } = request.publicAppConfig as PublicAppConfig;
 
-  return APIResponseHelpers.createAPISuccessResponse({
+  return params.APIResponseHelpers.createAPISuccessResponse({
     request,
     data: { ok: true, version: build.version },
   });
@@ -259,10 +259,10 @@ publicAppConfig: {
 Then handlers can access the full object for internal use:
 
 ```ts
-server.api.get('health', async (request) => {
+server.api.get('health', async (request, reply, params) => {
   const buildInfo = (request as any).buildInfo as BuildInfo;
 
-  return APIResponseHelpers.createAPISuccessResponse({
+  return params.APIResponseHelpers.createAPISuccessResponse({
     request,
     data: { ok: true, ci_run_id: buildInfo.ci_run_id as string },
   });

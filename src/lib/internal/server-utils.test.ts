@@ -25,7 +25,11 @@ import {
   normalizeCDNBaseURL,
   computeDomainInfo,
 } from './server-utils';
-import type { HTTPSOptions } from '../types';
+import type {
+  HTTPSOptions,
+  PluginAPIRouteShortcuts,
+  PluginPageDataHandlerShortcuts,
+} from '../types';
 import { APIResponseHelpers } from '../../api-envelope';
 
 // cspell:ignore regs apix datax falsey
@@ -637,6 +641,18 @@ describe('default envelope helpers', () => {
 });
 
 describe('createControlledInstance', () => {
+  const createNoopAPIShortcuts = (): PluginAPIRouteShortcuts => ({
+    get: mock(() => {}),
+    post: mock(() => {}),
+    put: mock(() => {}),
+    delete: mock(() => {}),
+    patch: mock(() => {}),
+  });
+  const createNoopPageDataHandlerShortcuts =
+    (): PluginPageDataHandlerShortcuts => ({
+      register: mock(() => {}),
+    });
+
   const createFakeFastify = () => {
     const instance: any = {
       _decorations: Object.create(null),
@@ -668,8 +684,8 @@ describe('createControlledInstance', () => {
     const host = createControlledInstance(
       f,
       true,
-      { api: true },
-      { page: true },
+      createNoopAPIShortcuts(),
+      createNoopPageDataHandlerShortcuts(),
       APIResponseHelpers,
     );
 
@@ -753,8 +769,8 @@ describe('createControlledInstance', () => {
     const host = createControlledInstance(
       f,
       false, // shouldDisableRootWildcard = false
-      { api: true },
-      { page: true },
+      createNoopAPIShortcuts(),
+      createNoopPageDataHandlerShortcuts(),
       APIResponseHelpers,
     );
 
@@ -770,8 +786,8 @@ describe('createControlledInstance', () => {
     const host = createControlledInstance(
       f,
       true, // shouldDisableRootWildcard = true
-      { api: true },
-      { page: true },
+      createNoopAPIShortcuts(),
+      createNoopPageDataHandlerShortcuts(),
       APIResponseHelpers,
     );
 
@@ -786,8 +802,8 @@ describe('createControlledInstance', () => {
     const host = createControlledInstance(
       app,
       false,
-      {},
-      {},
+      createNoopAPIShortcuts(),
+      createNoopPageDataHandlerShortcuts(),
       APIResponseHelpers,
     );
 
@@ -817,8 +833,8 @@ describe('createControlledInstance', () => {
     const host = createControlledInstance(
       app,
       false,
-      {},
-      {},
+      createNoopAPIShortcuts(),
+      createNoopPageDataHandlerShortcuts(),
       APIResponseHelpers,
     );
 
@@ -845,8 +861,8 @@ describe('createControlledInstance', () => {
     const host = createControlledInstance(
       app,
       false,
-      {},
-      {},
+      createNoopAPIShortcuts(),
+      createNoopPageDataHandlerShortcuts(),
       APIResponseHelpers,
     );
 
@@ -871,8 +887,8 @@ describe('createControlledInstance', () => {
     const host = createControlledInstance(
       app,
       false,
-      {},
-      {},
+      createNoopAPIShortcuts(),
+      createNoopPageDataHandlerShortcuts(),
       APIResponseHelpers,
     );
 
@@ -902,8 +918,8 @@ describe('createControlledInstance', () => {
     const host = createControlledInstance(
       app,
       false,
-      {},
-      {},
+      createNoopAPIShortcuts(),
+      createNoopPageDataHandlerShortcuts(),
       APIResponseHelpers,
     );
 
@@ -930,8 +946,8 @@ describe('createControlledInstance', () => {
     const host = createControlledInstance(
       app,
       false,
-      {},
-      {},
+      createNoopAPIShortcuts(),
+      createNoopPageDataHandlerShortcuts(),
       APIResponseHelpers,
     );
 
@@ -965,8 +981,8 @@ describe('createControlledInstance', () => {
     const host = createControlledInstance(
       app,
       false,
-      {},
-      {},
+      createNoopAPIShortcuts(),
+      createNoopPageDataHandlerShortcuts(),
       APIResponseHelpers,
     );
 
@@ -1836,14 +1852,21 @@ describe('resolveClosingResponse', () => {
   });
 
   it('uses split API and web closing handlers when present', async () => {
-    const closingHandler = {
-      api: (request: FastifyRequest) =>
+    const apiHandler = mock(
+      (
+        request: FastifyRequest,
+        _isPageData: boolean | undefined,
+        _params: unknown,
+      ) =>
         APIResponseHelpers.createAPIErrorResponse({
           request,
           statusCode: 451,
           errorCode: 'custom_api_closing',
           errorMessage: 'API closing',
         }),
+    );
+    const closingHandler = {
+      api: apiHandler,
       web: () => ({
         contentType: 'text' as const,
         content: 'Web closing',
@@ -1864,6 +1887,9 @@ describe('resolveClosingResponse', () => {
       pageDataEndpoint: 'page_data',
     });
 
+    expect(apiHandler.mock.calls[0][2]).toEqual({
+      APIResponseHelpers,
+    });
     expect(apiPayload).toMatchObject({
       status_code: 451,
       error: {

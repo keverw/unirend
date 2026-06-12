@@ -13,6 +13,8 @@ import type {
   SafeRouteOptions,
   ControlledReply,
   APIResponseHelpersClass,
+  PluginAPIRouteShortcuts,
+  PluginPageDataHandlerShortcuts,
   HTTPSOptions,
   WebResponse,
   APIClosingHandlerFn,
@@ -415,7 +417,9 @@ export async function resolveClosingResponse<M extends BaseMeta = BaseMeta>({
         // independently. Missing handlers fall through to Unirend defaults.
         if (isAPI && handler.api) {
           const apiResponse = await Promise.resolve(
-            handler.api(request, isPageData),
+            handler.api(request, isPageData, {
+              APIResponseHelpers: HelpersClass,
+            }),
           );
 
           const statusCode = apiResponse.status_code || 503;
@@ -434,7 +438,9 @@ export async function resolveClosingResponse<M extends BaseMeta = BaseMeta>({
         // default web response unless split form provides a web handler.
         const apiHandler = handler as APIClosingHandlerFn<M>;
         const apiResponse = await Promise.resolve(
-          apiHandler(request, isPageData),
+          apiHandler(request, isPageData, {
+            APIResponseHelpers: HelpersClass,
+          }),
         );
 
         const statusCode = apiResponse.status_code || 503;
@@ -691,8 +697,8 @@ function guardRouteHandler(handler: RouteHandler): RouteHandler {
 export function createControlledInstance(
   fastifyInstance: FastifyInstance,
   shouldDisableRootWildcard: boolean,
-  apiShortcuts: unknown,
-  pageDataHandlerShortcuts: unknown,
+  apiShortcuts: PluginAPIRouteShortcuts,
+  pageDataHandlerShortcuts: PluginPageDataHandlerShortcuts,
   apiResponseHelpersClass: APIResponseHelpersClass,
 ): PluginHostInstance {
   const earlyResponseHooks = new Set<FastifyHookName>([

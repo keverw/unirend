@@ -1,5 +1,9 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import type { ServerPlugin, PluginHostInstance } from '../types';
+import type {
+  ServerPlugin,
+  PluginHostInstance,
+  UnirendServerMode,
+} from '../types';
 import {
   matchesOriginList,
   matchesCORSCredentialsList,
@@ -421,7 +425,7 @@ async function applyCORSActualResponseHeaders(
  * })
  * ```
  */
-export function cors(config: CORSConfig = {}): ServerPlugin {
+export function cors(config: CORSConfig = {}): ServerPlugin<UnirendServerMode> {
   const resolvedConfig = { ...DEFAULT_CONFIG, ...config };
 
   // Config-time validations:
@@ -669,7 +673,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin {
     }
   }
 
-  return async (fastify: PluginHostInstance) => {
+  return async (fastify: PluginHostInstance<UnirendServerMode>) => {
     fastify.decorateRequest(
       'applyCORSHeaders',
       async function applyCORSHeaders(

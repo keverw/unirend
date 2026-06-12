@@ -28,7 +28,7 @@ It is built in and **on by default**, configured via the `clientInfo` server opt
 
 These answer different questions and are both always present:
 
-- **`request.connectionIP`**: the connecting IP (`request.ip`, or the `getConnectionIP` resolver). Adjustable via `fastifyOptions.trustProxy`. Use it for connection-level decisions and debugging, to answer "who actually connected to me". When behind a CDN/proxy this can be a shared address, so it's a poor key for per-user rate limiting. Use `clientIP` for that.
+- **`request.connectionIP`**: the trusted transport/source IP — `request.ip` (after Fastify `fastifyOptions.trustProxy`) or the `getConnectionIP` resolver (e.g. `CF-Connecting-IP`). It's the base value for `clientIP`. Use it for connection-level decisions and debugging. Note it isn't necessarily the literal socket peer (a proxy/CDN/`trustProxy` may have rewritten it), and behind a CDN/proxy it can be a shared address — a poor key for per-user rate limiting; use `clientIP` for that.
 - **`request.clientIP`**: the **real end user**. It starts as `connectionIP`, then is replaced with the original browser IP forwarded by an SSR server (`X-SSR-Original-IP`) when client-info resolution is enabled (the default) and the connection is trusted. Use it for end-user attribution and per-user logic like rate limiting. It sees through CDNs / load balancers and the SSR → API hop.
 
 | Scenario                     | `connectionIP`  | `clientIP`            |
@@ -72,7 +72,7 @@ const server = serveAPI({
 ```ts
 type ClientInfo = {
   requestID: string; // mirrors request.requestID
-  correlationID: string | null;
+  correlationID: string; // forwarded value, or the request ID
   isFromSSRServerAPICall: boolean;
   connectionIP: string; // mirrors request.connectionIP
   clientIP: string; // mirrors request.clientIP (the real end user)
@@ -82,16 +82,16 @@ type ClientInfo = {
 };
 ```
 
-`clientInfo` is a frozen per-request snapshot. The canonical IP accessors are `request.clientIP` (real end user) and `request.connectionIP` (the connecting IP), and `clientInfo` mirrors both. `isIPFromHeader` tells you whether `clientIP` was recovered from a trusted forwarded header. When `clientInfo: false`, `request.clientInfo` is `undefined`.
+`clientInfo` is a frozen per-request snapshot. The canonical IP accessors are `request.clientIP` (real end user) and `request.connectionIP` (the connecting IP), and `clientInfo` mirrors both. `isIPFromHeader` tells you whether `clientIP` was recovered from a trusted forwarded header. When `clientInfo: false`, `request.clientInfo` is `undefined`. `correlationID` is the forwarded `X-Correlation-ID` (when trusted) or the request ID — never `null`. Edge case: if `getRequestID` opts out (so `request.requestID` is `undefined`), `clientInfo.requestID` and `clientInfo.correlationID` are both `''` here — empty strings, not `undefined`/`null`.
 
 ## Forwarded Headers (SSR)
 
 When the connection is trusted (`trustForwardedHeaders`), the framework honors these request headers if present:
 
-- `X-SSR-Request: "true"`: marks the request as originating from SSR (`isFromSSRServerAPICall: true`)
-- `X-SSR-Original-IP: <client-ip>`: original browser IP → becomes `request.clientIP`
-- `X-SSR-Forwarded-User-Agent: <ua>`: original client User-Agent → `clientInfo.userAgent`
-- `X-Correlation-ID: <id>`: correlation ID for tracing (validated via `forwardedRequestIDValidator`)
+- `X-SSR-Request: "true"`: marks the request as an SSR-forwarded hop (`isFromSSRServerAPICall: true`). **Required** to honor the IP / User-Agent recovery below.
+- `X-SSR-Original-IP: <client-ip>`: original browser IP → `request.clientIP` (only when `X-SSR-Request: true`)
+- `X-SSR-Forwarded-User-Agent: <ua>`: original client User-Agent → `clientInfo.userAgent` (only when `X-SSR-Request: true`)
+- `X-Correlation-ID: <id>`: correlation ID for tracing (validated via `forwardedRequestIDValidator`). Honored from any trusted source **independently of `X-SSR-Request`**, since it's a standard cross-service tracing header — an upstream that isn't your SSR server can still propagate a trace ID. (It can therefore set `correlationID` while `isFromSSRServerAPICall` stays `false`.)
 
 The SSR server sets these automatically on its page-data fetches (forwarding `request.clientIP` and `request.requestID`). When the receiving API trusts them, both hops share the same correlation ID. `trustForwardedHeaders` is off by default. See [Deployment Note](#deployment-note) and [ssr.md](./ssr.md).
 

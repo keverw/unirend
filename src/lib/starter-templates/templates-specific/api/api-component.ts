@@ -28,7 +28,8 @@ import { serveAPI, UnirendLifecycleionLoggerAdaptor } from 'unirend/server';
 import type { APIServer } from 'unirend/server';
 import { loadBuildInfo } from 'unirend/build-info';
 import { cookies } from 'unirend/plugins';
-// import { APIResponseHelpers } from 'unirend/api-envelope'; // Uncomment when using custom error/404 handlers
+// Uncomment when using a custom APIResponseHelpersClass.
+// import { YourCustomAPIResponseHelpers } from './YourCustomAPIResponseHelpers';
 
 // Read port from ${portEnvVarName} env var, default 3001.
 // Production HTTPS: use a reverse proxy (nginx, Caddy, etc.) for TLS termination,
@@ -107,7 +108,10 @@ export class APIServerComponent extends BaseComponent {
         this.server = serveAPI({
           apiEndpoints: {
             // Set apiEndpointPrefix to false to disable API handling entirely
-            // (e.g. when using as a plain web server with plugins).
+            // (e.g. when using as a plain web server with pluginHost.get/post routes).
+            // In that mode, server.api.* and server.pageDataHandler.* helpers are
+            // disabled and startup throws if any were registered, because those
+            // helpers are envelope-first.
             apiEndpointPrefix: '/api',
             versioned: true,
             pageDataEndpoint: 'page_data',
@@ -153,20 +157,24 @@ export class APIServerComponent extends BaseComponent {
           // the API server accepts these as top-level options.
           //
           // Both support two forms:
-          //   - Function form: returns a JSON envelope (compatible with SSR's APIHandling signature)
+          //   - Function form: returns a JSON envelope in API mode, or WebResponse when
+          //     apiEndpoints.apiEndpointPrefix is false (plain web server mode).
           //   - Split form: { api, web } for mixed servers (API server only). Requests matching
           //     apiEndpoints.apiEndpointPrefix use the 'api' handler, others use the 'web' handler.
           //
           // When omitted, Unirend uses sensible defaults. Convention: include
           // errorDetails: isDevelopment ? { stack: error.stack } : undefined for dev stack traces.
+          // API/page error, not-found, and closing handlers receive
+          // params.APIResponseHelpers, the configured helper class for this server.
+          // Split-form web handlers do not receive params because they return WebResponse.
           // See: https://github.com/keverw/unirend/blob/master/docs/ssr.md (Standalone API section)
           //
-          // errorHandler: (request, error, isDevelopment, isPageData) => {
+          // errorHandler: (request, error, isDevelopment, isPageData, params) => {
           //   // isPageData distinguishes page data requests from regular API requests.
-          //   // Use APIResponseHelpers.createAPIErrorResponse for API requests
-          //   // or APIResponseHelpers.createPageErrorResponse for page data requests.
+          //   // Use params.APIResponseHelpers.createAPIErrorResponse for API requests
+          //   // or params.APIResponseHelpers.createPageErrorResponse for page data requests.
           //   if (isPageData) {
-          //     return APIResponseHelpers.createPageErrorResponse({
+          //     return params.APIResponseHelpers.createPageErrorResponse({
           //       request,
           //       statusCode: 500,
           //       errorCode: 'internal_server_error',
@@ -179,7 +187,7 @@ export class APIServerComponent extends BaseComponent {
           //     });
           //   }
 
-          //   return APIResponseHelpers.createAPIErrorResponse({
+          //   return params.APIResponseHelpers.createAPIErrorResponse({
           //     request,
           //     statusCode: 500,
           //     errorCode: 'internal_server_error',
@@ -188,9 +196,9 @@ export class APIServerComponent extends BaseComponent {
           //   });
           // },
           //
-          // notFoundHandler: (request, isPageData) => {
+          // notFoundHandler: (request, isPageData, params) => {
           //   if (isPageData) {
-          //     return APIResponseHelpers.createPageErrorResponse({
+          //     return params.APIResponseHelpers.createPageErrorResponse({
           //       request,
           //       statusCode: 404,
           //       errorCode: 'not_found',
@@ -202,7 +210,7 @@ export class APIServerComponent extends BaseComponent {
           //     });
           //   }
 
-          //   return APIResponseHelpers.createAPIErrorResponse({
+          //   return params.APIResponseHelpers.createAPIErrorResponse({
           //     request,
           //     statusCode: 404,
           //     errorCode: 'not_found',
@@ -219,8 +227,8 @@ export class APIServerComponent extends BaseComponent {
           // Missing handlers fall back to the default 503 response.
           // See: https://github.com/keverw/unirend/blob/master/docs/ssr.md
           //
-          // closingHandler: (request, isPageData) => {
-          //   return APIResponseHelpers.createAPIErrorResponse({
+          // closingHandler: (request, isPageData, params) => {
+          //   return params.APIResponseHelpers.createAPIErrorResponse({
           //     request,
           //     statusCode: 503,
           //     errorCode: 'service_unavailable',
@@ -230,8 +238,8 @@ export class APIServerComponent extends BaseComponent {
           //
           // Split form (when mixing API and web routes on the same port):
           // closingHandler: {
-          //   api: (request, isPageData) => {
-          //     return APIResponseHelpers.createAPIErrorResponse({
+          //   api: (request, isPageData, params) => {
+          //     return params.APIResponseHelpers.createAPIErrorResponse({
           //       request,
           //       statusCode: 503,
           //       errorCode: 'service_unavailable',
@@ -480,6 +488,10 @@ export class APIServerComponent extends BaseComponent {
     // Handler signature: (request, reply, params) => APIResponseEnvelope
     // params includes: method, endpoint, version, fullPath, routeParams,
     //                   queryParams, requestPath, originalURL, APIResponseHelpers
+    //
+    // These helpers require API handling to be enabled. If apiEndpointPrefix is
+    // false for plain web server mode, use pluginHost.get/post routes from a
+    // plugin instead.
     //
     // Important:
     // - Handlers must return a valid APIResponseEnvelope. The HTTP status code and content-type

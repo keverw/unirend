@@ -7,7 +7,7 @@
 - [Plugin Interface](#plugin-interface)
   - [ServerPlugin Type](#serverplugin-type)
   - [PluginOptions](#pluginoptions)
-  - [Plugin Host Methods (ControlledFastifyInstance)](#plugin-host-methods-controlledfastifyinstance)
+  - [Plugin Host Methods (PluginHostInstance)](#plugin-host-methods-pluginhostinstance)
     - [Route Registration](#route-registration)
     - [Plugin Registration](#plugin-registration)
     - [Hooks](#hooks)
@@ -115,11 +115,25 @@ const server = serveSSRWithHMR(sourcePaths, {
 ### ServerPlugin Type
 
 ```typescript
-type ServerPlugin = (
-  fastify: ControlledFastifyInstance,
-  options: PluginOptions,
+type UnirendServerMode = 'ssr' | 'api' | 'plain';
+
+type ServerPlugin<Mode extends UnirendServerMode = 'ssr' | 'api'> = (
+  pluginHost: PluginHostInstance<Mode>,
+  options: PluginOptions<Mode>,
 ) => Promise<PluginMetadata | void> | PluginMetadata | void;
 ```
+
+Use the mode parameter when a plugin is intended for a specific server shape:
+
+- **`ServerPlugin`** or **`ServerPlugin<'ssr' | 'api'>`**: envelope-capable SSR/API plugin. `pluginHost.api.*` and `pluginHost.pageDataHandler.*` are available.
+- **`ServerPlugin<'ssr'>`**: SSR-only plugin.
+- **`ServerPlugin<'api'>`**: API-server-only plugin.
+- **`ServerPlugin<'plain'>`**: plain web plugin for `servePlain()`, `StaticWebServer`, or APIServer with `apiEndpointPrefix: false`. Use raw routes such as `pluginHost.get/post/...`; envelope shortcuts are not available.
+- **`ServerPlugin<UnirendServerMode>`**: all-mode plugin. Use this for raw/shared plugins that only rely on the common host surface, such as hooks, decorators, Fastify plugin registration, cookies, CORS, static content, logging, or file upload parsing. This type does not expose `pluginHost.api.*` or `pluginHost.pageDataHandler.*` unless your code first narrows out plain mode.
+
+`StaticWebServer` also uses `ServerPlugin<'plain'>` for its public `plugins` option because it rides on APIServer with API handling disabled. `RedirectServer` uses the same plain APIServer machinery internally, but it does not expose a public `plugins` option.
+
+WebSocket registration is a server-level API (`server.registerWebSocketHandler(...)`), not a plugin-host method. `enableWebSockets` is available on SSR and APIServer options, including plain web APIServer mode.
 
 Plugins can optionally return metadata for dependency tracking, using the `PluginMetadata` type from `unirend/server`:
 
@@ -135,19 +149,19 @@ import type { PluginMetadata } from 'unirend/server';
 ### PluginOptions
 
 ```typescript
-interface PluginOptions {
+interface PluginOptions<Mode extends UnirendServerMode = 'ssr' | 'api'> {
   mode: 'development' | 'production';
   isDevelopment: boolean;
-  serverType: 'ssr' | 'api'; // Server type context
-  apiEndpoints: APIEndpointConfig; // API endpoint configuration
+  serverType: Mode;
+  apiEndpoints?: APIEndpointConfig;
 }
 ```
 
 Plugins receive context about the server environment and configuration:
 
 - **`mode`** / **`isDevelopment`**: Current environment mode for conditional plugin behavior
-- **`serverType`**: Whether the plugin is running on an SSR server or standalone API server
-- **`apiEndpoints`**: API endpoint configuration including `apiEndpointPrefix` (default `"/api"`) and other settings
+- **`serverType`**: Whether the plugin is running on an SSR server, API server, or plain web APIServer
+- **`apiEndpoints`**: API endpoint configuration including `apiEndpointPrefix` (default `"/api"`, or `false` when API/page-data helper routing is disabled) and other settings
 
 **Example usage:**
 
@@ -163,11 +177,11 @@ const contextAwarePlugin: ServerPlugin = async (pluginHost, options) => {
   }
 
   // Use API endpoint configuration
-  const apiPrefix = options.apiEndpoints.apiEndpointPrefix; // "/api" by default
+  const apiPrefix = options.apiEndpoints?.apiEndpointPrefix ?? '/api';
 
   // Skip domain redirects for API endpoints
   pluginHost.addHook('onRequest', async (request) => {
-    if (request.url.startsWith(apiPrefix)) {
+    if (apiPrefix !== false && request.url.startsWith(apiPrefix)) {
       // Skip processing for API routes
       return;
     }
@@ -176,7 +190,7 @@ const contextAwarePlugin: ServerPlugin = async (pluginHost, options) => {
 };
 ```
 
-### Plugin Host Methods (ControlledFastifyInstance)
+### Plugin Host Methods (PluginHostInstance)
 
 #### Route Registration
 
@@ -378,6 +392,8 @@ For `pluginHost.pageDataHandler.register(...)` handlers, use `params.APIResponse
 
 #### API Shortcuts (Envelope Helpers)
 
+`pluginHost.api.*` shortcuts are envelope-first helpers. They are only available to SSR/API plugins when API handling is enabled (`apiEndpoints.apiEndpointPrefix` is a string, such as the default `"/api"` or root prefix `"/"`). Plain web plugins (`ServerPlugin<'plain'>`, used by `servePlain()` and StaticWebServer) do not expose `pluginHost.api.*` or `pluginHost.pageDataHandler.*` at type time, and the runtime throws during plugin registration if incompatible code calls those shortcuts. Third-party plugins that can run in every mode should use `ServerPlugin<UnirendServerMode>` and rely on raw `pluginHost.get/post/...` routes, hooks, decorators, or other shared host APIs.
+
 ```typescript
 // Register versioned API endpoints that must return the standardized envelopes
 // Available helpers: pluginHost.api.get | post | put | delete | patch
@@ -412,6 +428,8 @@ Notes:
 
 - Prefer `pluginHost.api.*` for JSON endpoints to keep responses standardized with the envelope pattern. HTTP status is taken from `status_code` in the returned envelope.
 - Use raw `pluginHost.get/post/...` when you deliberately need non-envelope responses (e.g., file downloads, HTML), but avoid mixing patterns for JSON APIs.
+- In plain web mode (`apiEndpoints.apiEndpointPrefix: false`), use raw `pluginHost.get/post/...` routes. Envelope shortcuts throw immediately so incompatible third-party plugins fail clearly during startup.
+- Use `apiEndpoints.apiEndpointPrefix: "/"` for a full-root API server where all paths are treated as API paths and default error/not-found responses are envelopes.
 - Wildcard endpoints are allowed via `pluginHost.api.*` only when the API prefix is non-root (default `"/api"`), raw wildcard routes are blocked to avoid SSR conflicts.
 - For the full `params` shape passed to `pluginHost.api.*` handlers, see Custom API Routes in `docs/ssr.md`.
 - Duplicate registrations for the API same method + endpoint + version: last registration wins. Prefer centralizing your API shortcut registrations to avoid surprises, use distinct versions when you need multiple version handlers.
@@ -755,7 +773,7 @@ pluginHost.post(
 
 ## File Upload Helpers
 
-When using `processFileUpload()` in your plugins, keep in mind that it returns an **envelope response** (API-friendly format). This works seamlessly when used in API routes registered via `pluginHost.api.*`.
+When using `processFileUpload()` in your plugins, keep in mind that it returns an **envelope response** (API-friendly format). This works seamlessly when used in API routes registered via `pluginHost.api.*`. Multipart parsing can also be enabled on plain web servers, but raw `pluginHost.get/post/...` routes are responsible for choosing their own response shape; return the envelope intentionally or use lower-level Fastify multipart handling if you want a non-envelope response.
 
 However, if you're using file upload helpers outside the standard API context (e.g., in a custom Fastify route registered with `pluginHost.get/post/...`), you'll need to extract the envelope and convert it to a Fastify reply:
 

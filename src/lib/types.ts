@@ -12,7 +12,11 @@ import type {
 import type { CookieSerializeOptions } from '@fastify/cookie';
 import type { ViteDevServer } from 'vite';
 import type { SecureContext } from 'tls';
-import type { DataLoaderServerHandlerHelpers } from './internal/data-loader-server-handler-helpers';
+import type {
+  DataLoaderServerHandlerHelpers,
+  PageDataHandler,
+} from './internal/data-loader-server-handler-helpers';
+import type { APIRouteHandler } from './internal/api-routes-server-helpers';
 import type {
   APIErrorResponse,
   PageErrorResponse,
@@ -242,14 +246,87 @@ export interface PluginMetadata {
   dependsOn?: string | string[];
 }
 
+/** Server context a plugin can be registered in. */
+export type UnirendServerMode = 'ssr' | 'api' | 'plain';
+export type PluginModeWithEnvelopeHelpers = Exclude<UnirendServerMode, 'plain'>;
+
+export interface PluginAPIRouteShortcuts {
+  get<T = unknown, M extends BaseMeta = BaseMeta>(
+    endpoint: string,
+    handler: APIRouteHandler<T, M>,
+  ): void;
+  get<T = unknown, M extends BaseMeta = BaseMeta>(
+    endpoint: string,
+    version: number,
+    handler: APIRouteHandler<T, M>,
+  ): void;
+  post<T = unknown, M extends BaseMeta = BaseMeta>(
+    endpoint: string,
+    handler: APIRouteHandler<T, M>,
+  ): void;
+  post<T = unknown, M extends BaseMeta = BaseMeta>(
+    endpoint: string,
+    version: number,
+    handler: APIRouteHandler<T, M>,
+  ): void;
+  put<T = unknown, M extends BaseMeta = BaseMeta>(
+    endpoint: string,
+    handler: APIRouteHandler<T, M>,
+  ): void;
+  put<T = unknown, M extends BaseMeta = BaseMeta>(
+    endpoint: string,
+    version: number,
+    handler: APIRouteHandler<T, M>,
+  ): void;
+  delete<T = unknown, M extends BaseMeta = BaseMeta>(
+    endpoint: string,
+    handler: APIRouteHandler<T, M>,
+  ): void;
+  delete<T = unknown, M extends BaseMeta = BaseMeta>(
+    endpoint: string,
+    version: number,
+    handler: APIRouteHandler<T, M>,
+  ): void;
+  patch<T = unknown, M extends BaseMeta = BaseMeta>(
+    endpoint: string,
+    handler: APIRouteHandler<T, M>,
+  ): void;
+  patch<T = unknown, M extends BaseMeta = BaseMeta>(
+    endpoint: string,
+    version: number,
+    handler: APIRouteHandler<T, M>,
+  ): void;
+}
+
+export interface PluginPageDataHandlerShortcuts {
+  register<T = unknown, M extends BaseMeta = BaseMeta>(
+    pageType: string,
+    handler: PageDataHandler<T, M>,
+  ): void;
+  register<T = unknown, M extends BaseMeta = BaseMeta>(
+    pageType: string,
+    version: number,
+    handler: PageDataHandler<T, M>,
+  ): void;
+}
+
 /**
- * Plugin registration function type
- * Plugins get access to a controlled subset of Fastify functionality
- * Can optionally return metadata for dependency tracking
+ * Plugin registration function type.
+ *
+ * - `ServerPlugin<'ssr'>`: SSR server plugin with envelope helpers.
+ * - `ServerPlugin<'api'>`: API server plugin with envelope helpers.
+ * - `ServerPlugin<'plain'>`: plain web server plugin with raw routes only.
+ * - `ServerPlugin<UnirendServerMode>`: all-mode plugin that uses only the
+ *   shared host surface. It cannot call `pluginHost.api.*` or
+ *   `pluginHost.pageDataHandler.*` unless it first narrows out plain mode.
+ *
+ * The default `ServerPlugin` type is for envelope-capable SSR/API plugins.
  */
-export type ServerPlugin = (
-  pluginHost: PluginHostInstance,
-  options: PluginOptions,
+export type ServerPlugin<
+  M extends UnirendServerMode = PluginModeWithEnvelopeHelpers,
+> = (
+  pluginHost: PluginHostInstance<M>,
+  options: PluginOptions<M>,
 ) => Promise<PluginMetadata | void> | PluginMetadata | void;
 
 /**
@@ -262,7 +339,7 @@ export type FastifyHookName = Parameters<FastifyInstance['addHook']>[0];
  * Controlled Fastify instance interface for plugins
  * Exposes safe methods while preventing access to destructive operations
  */
-export interface PluginHostInstance {
+export interface PluginHostBase {
   /** Register plugins and middleware */
   register: <Options extends Record<string, unknown> = Record<string, never>>(
     plugin: FastifyPluginAsync<Options> | FastifyPluginCallback<Options>,
@@ -293,13 +370,29 @@ export interface PluginHostInstance {
   patch: (path: string, handler: RouteHandler) => void;
   /** Server-level logger (pino). Use `(obj, msg)` argument order. Useful for logging during plugin setup, before any request exists. */
   log: FastifyBaseLogger;
-  /** API route registration shortcuts method for versioned endpoints */
-  api?: unknown;
-  /** Page data loader handler registration method for page data endpoints */
-  pageDataHandler?: unknown;
   /** The APIResponseHelpers class configured on this server — use this to build envelopes so custom subclasses are respected */
   APIResponseHelpers: APIResponseHelpersClass;
 }
+
+export interface PluginHostEnvelopeHelpers {
+  /** API route registration shortcuts method for versioned envelope endpoints */
+  api: PluginAPIRouteShortcuts;
+  /** Page data loader handler registration method for page data endpoints */
+  pageDataHandler: PluginPageDataHandlerShortcuts;
+}
+
+export interface PluginHostPlainHelpers {
+  /** Not available in plain web mode. Use raw pluginHost.get/post routes instead. */
+  api?: never;
+  /** Not available in plain web mode. Use raw pluginHost.get/post routes instead. */
+  pageDataHandler?: never;
+}
+
+export type PluginHostInstance<
+  M extends UnirendServerMode = PluginModeWithEnvelopeHelpers,
+> = M extends 'plain'
+  ? PluginHostBase & PluginHostPlainHelpers
+  : PluginHostBase & PluginHostEnvelopeHelpers;
 
 /**
  * Controlled reply surface available to handlers.
@@ -495,9 +588,11 @@ export interface APIEndpointConfig {
  *   `request.isDevelopment` (decorated by the servers). Both reflect the same
  *   underlying mode; they serve different scopes.
  */
-export interface PluginOptions {
+export interface PluginOptions<
+  M extends UnirendServerMode = PluginModeWithEnvelopeHelpers,
+> {
   /** Type of server the plugin is running on */
-  serverType: 'ssr' | 'api';
+  serverType: M;
   /** Server mode (development or production) */
   mode: 'development' | 'production';
   /** Whether running in development mode */
@@ -823,7 +918,7 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    * Array of plugins to register with the server
    * Plugins get access to a controlled Fastify instance
    */
-  plugins?: ServerPlugin[];
+  plugins?: ServerPlugin<'ssr'>[];
   /**
    * Override the helpers used to construct API/Page envelopes.
    * Provide your own class (subclassing `APIResponseHelpers` recommended) to
@@ -879,11 +974,12 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
      * - For API requests (isPageData=false): Return APIErrorResponse envelope
      * - For Page requests (isPageData=true): Return PageErrorResponse envelope
      *
-     * Params: (request, error, isDevelopment, isPageData)
+     * Params: (request, error, isDevelopment, isPageData, params)
      * - request: The Fastify request object
      * - error: The error that occurred
      * - isDevelopment: Whether running in development mode
      * - isPageData: Whether this is a page-data request (e.g., /api/v1/page_data/home)
+     * - params.APIResponseHelpers: The APIResponseHelpers class configured on this server
      *
      * Required envelope return fields:
      * - status: "error"
@@ -903,9 +999,10 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
      * - For API requests (isPageData=false): Return APIErrorResponse envelope with status_code: 404
      * - For Page requests (isPageData=true): Return PageErrorResponse envelope with status_code: 404
      *
-     * Params: (request, isPageData)
+     * Params: (request, isPageData, params)
      * - request: The Fastify request object
      * - isPageData: Whether this is a page-data request (e.g., /api/v1/page_data/home)
+     * - params.APIResponseHelpers: The APIResponseHelpers class configured on this server
      *
      * Required envelope return fields:
      * - status: "error"
@@ -1231,11 +1328,17 @@ export interface WebResponse {
 /**
  * Error handler function type for API/page requests
  */
+export interface APIErrorHandlerParams {
+  /** The APIResponseHelpers class configured on this server. Use this instead of importing directly. */
+  APIResponseHelpers: APIResponseHelpersClass;
+}
+
 export type APIErrorHandlerFn<M extends BaseMeta = BaseMeta> = (
   request: FastifyRequest,
   error: Error,
   isDevelopment: boolean,
-  isPageData?: boolean,
+  isPageData: boolean | undefined,
+  params: APIErrorHandlerParams,
 ) =>
   | APIErrorResponse<M>
   | PageErrorResponse<M>
@@ -1255,7 +1358,8 @@ export type WebErrorHandlerFn = (
  */
 export type APINotFoundHandlerFn<M extends BaseMeta = BaseMeta> = (
   request: FastifyRequest,
-  isPageData?: boolean,
+  isPageData: boolean | undefined,
+  params: APIErrorHandlerParams,
 ) =>
   | APIErrorResponse<M>
   | PageErrorResponse<M>
@@ -1299,10 +1403,14 @@ export interface SplitNotFoundHandler<M extends BaseMeta = BaseMeta> {
 /**
  * Closing handler function type for API/page requests.
  * Called for requests that arrive while the server is shutting down.
+ *
+ * Params: (request, isPageData, params)
+ * - params.APIResponseHelpers: The APIResponseHelpers class configured on this server
  */
 export type APIClosingHandlerFn<M extends BaseMeta = BaseMeta> = (
   request: FastifyRequest,
-  isPageData?: boolean,
+  isPageData: boolean | undefined,
+  params: APIErrorHandlerParams,
 ) =>
   | APIErrorResponse<M>
   | PageErrorResponse<M>
@@ -1330,11 +1438,60 @@ export interface SplitClosingHandler<M extends BaseMeta = BaseMeta> {
   web?: WebClosingHandlerFn;
 }
 
+export interface WebOnlySplitErrorHandler {
+  /** Not available in plain web mode. Enable API handling to use envelope handlers. */
+  api?: never;
+  /** Handler for plain web requests. If missing or throws, logs error and falls back to the default 500 page. */
+  web?: WebErrorHandlerFn;
+}
+
+export interface WebOnlySplitNotFoundHandler {
+  /** Not available in plain web mode. Enable API handling to use envelope handlers. */
+  api?: never;
+  /** Handler for plain web requests. If missing or throws, logs error and falls back to the default 404 page. */
+  web?: WebNotFoundHandlerFn;
+}
+
+export interface WebOnlySplitClosingHandler {
+  /** Not available in plain web mode. Enable API handling to use envelope handlers. */
+  api?: never;
+  /** Handler for plain web requests. If missing or throws, falls back to the default 503 page. */
+  web?: WebClosingHandlerFn;
+}
+
+export type APIEndpointConfigWithAPI = Omit<
+  APIEndpointConfig,
+  'apiEndpointPrefix'
+> & {
+  /**
+   * Endpoint prefix for API/page-data helpers.
+   *
+   * Defaults to `"/api"` when omitted. Use this mode for `server.api.*`,
+   * `pluginHost.api.*`, and page data loader routes that return Unirend
+   * API/Page envelopes.
+   */
+  apiEndpointPrefix?: string;
+};
+
+export type APIEndpointConfigWithoutAPI = Omit<
+  APIEndpointConfig,
+  'apiEndpointPrefix'
+> & {
+  /**
+   * Disable API/page-data helper routing and use APIServer as a plain web server.
+   *
+   * In this mode, register content with raw plugin routes such as
+   * `pluginHost.get/post/...`. Envelope-first helpers (`server.api.*`,
+   * `pluginHost.api.*`, and page data handlers) are disabled.
+   */
+  apiEndpointPrefix: false;
+};
+
 /**
- * Options for configuring the API server
+ * Shared options for configuring the API server
  * @template M Custom meta type extending BaseMeta for error/notFound handlers
  */
-export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
+export interface APIServerOptionsBase<M extends BaseMeta = BaseMeta> {
   /**
    * Optional safe-to-share app configuration object.
    * Cloned and frozen per request as `request.publicAppConfig`.
@@ -1363,8 +1520,9 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    */
   responseTimeHeader?: boolean | ResponseTimeHeaderOptions;
   /**
-   * Array of plugins to register with the server
-   * Plugins get access to a controlled Fastify instance with full wildcard support
+   * Array of plugins to register with the server.
+   *
+   * Concrete server option types narrow this to the plugin modes they support.
    */
   plugins?: ServerPlugin[];
   /**
@@ -1385,107 +1543,6 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    * Allows use of processFileUpload() in your plugins
    */
   fileUploads?: FileUploadsConfig;
-  /**
-   * Custom error handler for server errors
-   *
-   * Can be either:
-   * 1. A function (handles all requests the same way - JSON envelope)
-   * 2. An object with separate `api` and `web` handlers for split behavior
-   *
-   * Function form (same signature as SSR APIHandling.errorHandler):
-   * - Must return API or Page envelope response (see api-envelope-structure.md)
-   * - Used for pure API servers
-   *
-   * Object form (for mixed API + web servers):
-   * - `api`: Handles API requests (paths matching apiEndpointPrefix)
-   *   Params: (request, error, isDevelopment, isPageData)
-   *   - request: The Fastify request object
-   *   - error: The error that occurred
-   *   - isDevelopment: Whether running in development mode
-   *   - isPageData: Whether this is a page-data request (e.g., /api/v1/page_data/home)
-   *   Required envelope return fields:
-   *   - status: "error"
-   *   - status_code: HTTP status code (400, 401, 404, 500, etc.)
-   *   - request_id: Unique request identifier
-   *   - type: "api" for API requests, "page" for page data requests
-   *   - data: null (always null for error responses)
-   *   - meta: Object containing metadata (page metadata required for page type)
-   *   - error: Object with { code, message, details? }
-   * - `web`: Handles non-API requests
-   *   Params: (request, error, isDevelopment)
-   *   - request: The Fastify request object
-   *   - error: The error that occurred
-   *   - isDevelopment: Whether running in development mode
-   *   Required WebResponse return fields:
-   *   - contentType: 'html' | 'text' | 'json'
-   *   - content: string for html/text, object for json
-   *   - statusCode?: HTTP status code (defaults to 500)
-   *
-   * @example Function form
-   * errorHandler: (request, error, isDev, isPageData) =>
-   *   APIResponseHelpers.createAPIErrorResponse({ request, statusCode: 500, ... })
-   *
-   * @example Object form
-   * errorHandler: {
-   *   api: (request, error, isDev, isPageData) => APIResponseHelpers.createAPIErrorResponse({ ... }),
-   *   web: (request, error, isDev) => ({ contentType: 'html', content: '<h1>Error</h1>' })
-   * }
-   */
-  errorHandler?: APIErrorHandlerFn<M> | SplitErrorHandler<M>;
-  /**
-   * Custom handler for requests that did not match any route (404)
-   * If provided, overrides the built-in envelope handler.
-   *
-   * Can be either:
-   * 1. A function (handles all requests the same way - JSON envelope)
-   * 2. An object with separate `api` and `web` handlers for split behavior
-   *
-   * Function form (same signature as SSR APIHandling.notFoundHandler):
-   * - Must return API or Page envelope response with status_code: 404 (see api-envelope-structure.md)
-   * - Used for pure API servers
-   *
-   * Object form (for mixed API + web servers):
-   * - `api`: Handles API requests (paths matching apiEndpointPrefix)
-   *   Params: (request, isPageData)
-   *   - request: The Fastify request object
-   *   - isPageData: Whether this is a page-data request (e.g., /api/v1/page_data/home)
-   *   Required envelope return fields:
-   *   - status: "error"
-   *   - status_code: 404
-   *   - request_id: Unique request identifier
-   *   - type: "api" for API requests, "page" for page data requests
-   *   - data: null (always null for error responses)
-   *   - meta: Object containing metadata (page metadata required for page type)
-   *   - error: Object with { code: "not_found", message, details? }
-   * - `web`: Handles non-API requests
-   *   Params: (request)
-   *   - request: The Fastify request object
-   *   Required WebResponse return fields:
-   *   - contentType: 'html' | 'text' | 'json'
-   *   - content: string for html/text, object for json
-   *   - statusCode?: HTTP status code (defaults to 404)
-   *
-   * @example Function form
-   * notFoundHandler: (request, isPageData) =>
-   *   APIResponseHelpers.createAPIErrorResponse({ request, statusCode: 404, ... })
-   *
-   * @example Object form
-   * notFoundHandler: {
-   *   api: (request, isPageData) => APIResponseHelpers.createAPIErrorResponse({ ... }),
-   *   web: (request) => ({ contentType: 'html', content: '<h1>404 Not Found</h1>' })
-   * }
-   */
-  notFoundHandler?: APINotFoundHandlerFn<M> | SplitNotFoundHandler<M>;
-  /**
-   * Custom handler for requests that arrive while the server is shutting down.
-   *
-   * Can be either:
-   * 1. A function (handles API requests the same way - JSON envelope)
-   * 2. An object with separate `api` and `web` handlers for split behavior
-   *
-   * Missing handlers fall back to Unirend's default 503 response.
-   */
-  closingHandler?: APIClosingHandlerFn<M> | SplitClosingHandler<M>;
   /**
    * Label for this server instance, used in error log messages and access log templates.
    * Useful for distinguishing log output when running multiple server instances.
@@ -1589,6 +1646,156 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
     request: FastifyRequest,
   ) => string | undefined | Promise<string | undefined>;
 }
+
+/**
+ * Options for APIServer when API/page-data helpers are enabled.
+ *
+ * Use this mode for JSON APIs and page data endpoints. Function-form
+ * error/not-found/closing handlers return Unirend API/Page envelopes, and
+ * split handlers can serve envelope responses for API paths and `WebResponse`
+ * values for non-API paths.
+ */
+export interface APIServerAPIOptions<
+  M extends BaseMeta = BaseMeta,
+> extends Omit<APIServerOptionsBase<M>, 'apiEndpoints' | 'plugins'> {
+  plugins?: ServerPlugin<'api'>[];
+  /**
+   * Configuration for versioned API endpoints.
+   *
+   * Omit this to use the default API prefix (`"/api"`) with versioned routes.
+   * Set `versioned` or `pageDataEndpoint` here to customize how `server.api.*`
+   * and page data loader routes are mounted.
+   */
+  apiEndpoints?: APIEndpointConfigWithAPI;
+  /**
+   * Custom error handler for server errors.
+   *
+   * Function form uses the same signature as SSR `APIHandling.errorHandler` and
+   * must return an API/Page envelope:
+   * `(request, error, isDevelopment, isPageData, params)`.
+   *
+   * Split form can provide separate `api` and `web` handlers for mixed API +
+   * web servers. The `api` handler returns an envelope and receives
+   * `params.APIResponseHelpers`; the `web` handler returns `WebResponse`.
+   */
+  errorHandler?: APIErrorHandlerFn<M> | SplitErrorHandler<M>;
+  /**
+   * Custom handler for requests that did not match any route.
+   *
+   * Function form uses the same signature as SSR `APIHandling.notFoundHandler`
+   * and must return an API/Page envelope with `status_code: 404`:
+   * `(request, isPageData, params)`.
+   *
+   * Split form can provide separate `api` and `web` handlers for mixed API +
+   * web servers. The `api` handler returns an envelope and receives
+   * `params.APIResponseHelpers`; the `web` handler returns `WebResponse`.
+   */
+  notFoundHandler?: APINotFoundHandlerFn<M> | SplitNotFoundHandler<M>;
+  /**
+   * Custom handler for requests that arrive while the server is shutting down.
+   *
+   * Function form returns an API/Page envelope for API requests. Split form can
+   * provide separate `api` and `web` handlers. Missing handlers fall back to
+   * Unirend's default 503 response for that request type.
+   */
+  closingHandler?: APIClosingHandlerFn<M> | SplitClosingHandler<M>;
+}
+
+/**
+ * Options for APIServer plain web mode (`apiEndpoints.apiEndpointPrefix: false`).
+ *
+ * Use this mode when APIServer is acting as a general-purpose web server with
+ * Unirend plugins/lifecycle/logging but without API envelope routing.
+ * Function-form error/not-found/closing handlers return `WebResponse`.
+ */
+export interface APIServerWebOptions<
+  M extends BaseMeta = BaseMeta,
+> extends Omit<APIServerOptionsBase<M>, 'apiEndpoints' | 'plugins'> {
+  plugins?: ServerPlugin<'plain'>[];
+  /**
+   * Disable API/page-data helper routing.
+   *
+   * Register content with raw plugin routes such as `pluginHost.get/post/...`.
+   * Envelope-first helpers throw if used in this mode.
+   */
+  apiEndpoints: APIEndpointConfigWithoutAPI;
+  /**
+   * Custom error handler for plain web mode.
+   *
+   * Function form receives `(request, error, isDevelopment)` and returns
+   * `WebResponse` (`contentType`, `content`, optional `statusCode`). Split form
+   * may provide a `web` handler; `api` is intentionally unavailable here.
+   */
+  errorHandler?: WebErrorHandlerFn | WebOnlySplitErrorHandler;
+  /**
+   * Custom 404 handler for plain web mode.
+   *
+   * Function form receives `(request)` and returns `WebResponse`. Split form may
+   * provide a `web` handler; `api` is intentionally unavailable here.
+   */
+  notFoundHandler?: WebNotFoundHandlerFn | WebOnlySplitNotFoundHandler;
+  /**
+   * Custom shutdown handler for plain web mode.
+   *
+   * Function form receives `(request)` and returns `WebResponse`. Split form may
+   * provide a `web` handler; `api` is intentionally unavailable here.
+   */
+  closingHandler?: WebClosingHandlerFn | WebOnlySplitClosingHandler;
+}
+
+/**
+ * Options for servePlain().
+ *
+ * This is the dedicated plain web server wrapper around APIServer. API handling
+ * is always disabled, so API/page-data route helpers are unavailable and
+ * error/not-found/closing handlers use the simple web function form.
+ */
+export interface PlainServerOptions extends Omit<
+  APIServerWebOptions,
+  | 'apiEndpoints'
+  | 'APIResponseHelpersClass'
+  | 'errorHandler'
+  | 'notFoundHandler'
+  | 'closingHandler'
+> {
+  /** Not configurable in servePlain(); API handling is always disabled. */
+  apiEndpoints?: never;
+  /** Not configurable in servePlain(); API envelopes are not used for HTTP routes. */
+  APIResponseHelpersClass?: never;
+  /**
+   * Custom error handler for plain web mode.
+   *
+   * Receives `(request, error, isDevelopment)` and returns `WebResponse`.
+   */
+  errorHandler?: WebErrorHandlerFn;
+  /**
+   * Custom 404 handler for plain web mode.
+   *
+   * Receives `(request)` and returns `WebResponse`.
+   */
+  notFoundHandler?: WebNotFoundHandlerFn;
+  /**
+   * Custom shutdown handler for plain web mode.
+   *
+   * Receives `(request)` and returns `WebResponse`.
+   */
+  closingHandler?: WebClosingHandlerFn;
+}
+
+/**
+ * Options for configuring the API server.
+ *
+ * By default, APIServer runs in API mode: `server.api.*`, `pluginHost.api.*`,
+ * and page data handlers are enabled and function-form error handlers return
+ * API/Page envelopes.
+ *
+ * Set `apiEndpoints.apiEndpointPrefix: false` to use plain web mode. In that
+ * mode API/page-data helpers are disabled and function-form error handlers
+ * return `WebResponse`.
+ */
+export type APIServerOptions<M extends BaseMeta = BaseMeta> =
+  | APIServerAPIOptions<M>
+  | APIServerWebOptions<M>;
 
 /**
  * Options for configuring the Static Web Server
@@ -1782,7 +1989,7 @@ export interface StaticWebServerOptions {
    * Useful for custom routes, middleware, or request hooks
    * (e.g., analytics, custom headers, redirects)
    */
-  plugins?: ServerPlugin[];
+  plugins?: ServerPlugin<'plain'>[];
 }
 
 /**

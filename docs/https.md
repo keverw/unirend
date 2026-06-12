@@ -176,7 +176,7 @@ console.log('HTTP redirect server running on port 80');
 - `targetPort` - Override the port in the redirect URL (e.g., redirect `http://host:8080` → `https://host:8443`). Takes precedence over `preservePort` when set. Port `443` is automatically omitted from the URL since it's the HTTPS default.
 - `invalidDomainHandler` - Custom error response for blocked domains
 - `logging` - Framework-level logging options (same as APIServer/SSRServer)
-- `accessLog` - First-party access logging, same `AccessLogConfig` as SSR/API servers (templates, level config, `onRequest`/`onResponse` hooks). On by default (`events: 'finish'`, logs request completions). Use `{ events: 'none' }` to disable, or provide config to customize. Also adjustable at runtime via `redirectServer.updateAccessLoggingConfig(partial)`. See [Access Logging](./ssr.md#access-logging).
+- `accessLog` - First-party access logging, same `AccessLogConfig` as SSR/API servers (templates, level config, `onRequest`/`onResponse` hooks). Hooks are installed by default (`events: 'finish'`), but printed log lines require a configured logger. Use `{ events: 'none' }` to disable template log output, or provide config to customize. Also adjustable at runtime via `redirectServer.updateAccessLoggingConfig(partial)`. See [Access Logging](./ssr.md#access-logging).
 - `fastifyOptions` - Fastify server options (logger, trustProxy, etc.)
 - `getConnectionIP` - Custom resolver for `request.connectionIP` (the connecting IP, base for `request.clientIP`). Same as APIServer/SSRServer.
 - `clientInfo` - Client-identity resolution: the real end-user `request.clientIP` and `request.clientInfo`. On by default. Pass `false` to disable. Same as APIServer/SSRServer. See [Client Identity](./client-identity.md)

@@ -36,6 +36,7 @@ export type {
   SSGPageReport,
   PageTypeWanted,
   APIServerOptions,
+  PlainServerOptions,
   ControlledReply,
   UnirendLoggingOptions,
   UnirendLoggerObject,
@@ -61,10 +62,14 @@ export type {
   PluginHostInstance,
   PluginOptions,
   PluginMetadata,
+  UnirendServerMode,
+  PluginAPIRouteShortcuts,
+  PluginPageDataHandlerShortcuts,
   StaticWebServerOptions,
 } from './lib/types';
 export type { SSRServer } from './lib/internal/ssr-server';
 export type { APIServer } from './lib/internal/api-server';
+export type { PlainServer } from './lib/api';
 // only export the config type as class not used internally
 export type { PageDataHandler } from './lib/internal/data-loader-server-handler-helpers';
 export type { APIRouteHandler } from './lib/internal/api-routes-server-helpers';
@@ -79,7 +84,7 @@ export type { APIEndpointConfig } from './lib/types';
 export { serveSSRWithHMR, serveSSRBuilt } from './lib/ssr';
 export { generateSSG } from './lib/ssg';
 export { unirendBaseRender } from './lib/base-render';
-export { serveAPI } from './lib/api';
+export { serveAPI, servePlain } from './lib/api';
 export { serveRedirect, RedirectServer } from './lib/redirect';
 
 // Re-export Fastify request/reply types to avoid forcing consumers to import 'fastify'

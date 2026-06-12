@@ -235,6 +235,36 @@ describe('registerClientInfoResolution', () => {
     expect(request.clientIP).toBe('8.8.8.8');
   });
 
+  it('honors a trusted X-Correlation-ID without X-SSR-Request, but skips IP/UA recovery', async () => {
+    const request = createMockRequest({
+      requestID: 'req-no-ssr',
+      connectionIP: '10.0.0.5',
+      clientIP: '10.0.0.5',
+      headers: {
+        // No x-ssr-request: SSR-specific IP/UA recovery is skipped...
+        'x-ssr-original-ip': '1.2.3.4',
+        'x-ssr-forwarded-user-agent': 'UA-fwd',
+        // ...but a valid forwarded correlation ID is still honored.
+        'x-correlation-id': 'corr-x',
+      },
+    });
+    await run(
+      {
+        trustForwardedHeaders: () => true,
+        forwardedRequestIDValidator: (id) => id === 'corr-x',
+      },
+      request,
+    );
+
+    expect(request.clientIP).toBe('10.0.0.5'); // IP not overridden
+    expect(request.clientInfo).toMatchObject({
+      isFromSSRServerAPICall: false,
+      isIPFromHeader: false,
+      isUserAgentFromHeader: false,
+      correlationID: 'corr-x', // correlation honored despite no X-SSR-Request
+    });
+  });
+
   it('logs "Request received" once (not duplicated) when requestReceived logging is on', async () => {
     const request = createMockRequest({ requestID: 'req-log' });
     await run({ logging: { requestReceived: true } }, request);
