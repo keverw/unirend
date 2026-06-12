@@ -5,10 +5,13 @@ import { isPrivateIP } from 'range_check';
 /**
  * Normalized client identity for a request, resolved by the server before plugins run.
  *
- * The canonical IPs are `request.clientIP` (the real end user) and
- * `request.connectionIP` (the connecting IP); this frozen object mirrors both, alongside
- * correlation and forwarding metadata. `isIPFromHeader` is true when `clientIP`
- * came from a trusted `X-SSR-Original-IP` header rather than the connection.
+ * The canonical request accessors are `request.clientIP` (the real end user),
+ * `request.connectionIP` (the connecting IP), `request.userAgent` (the
+ * immediate-hop User-Agent), and `request.clientUserAgent` (the resolved real
+ * end-user User-Agent). This frozen object mirrors the resolved end-user values
+ * alongside correlation and forwarding metadata. `isIPFromHeader` is true when
+ * `clientIP` came from a trusted `X-SSR-Original-IP` header rather than the
+ * connection.
  */
 export interface ClientInfo {
   requestID: string; // Unique ID for this specific request (mirrors request.requestID)
@@ -139,9 +142,8 @@ export function registerClientInfoResolution(
     // getRequestID server option). Empty string only if getRequestID opted out.
     const requestID = request.requestID ?? '';
 
-    // User-Agent (direct value by default)
-    const uaHeader = request.headers['user-agent'];
-    let userAgent = typeof uaHeader === 'string' ? uaHeader : '';
+    // Resolved end-user User-Agent (direct value by default, seeded by server-utils)
+    let userAgent = request.clientUserAgent;
     let isUserAgentFromHeader = false;
 
     let isIPFromHeader = false;
@@ -207,6 +209,7 @@ export function registerClientInfoResolution(
 
         if (typeof forwardedUserAgentHeader === 'string') {
           userAgent = forwardedUserAgentHeader;
+          request.clientUserAgent = forwardedUserAgentHeader;
           isUserAgentFromHeader = true;
         }
 

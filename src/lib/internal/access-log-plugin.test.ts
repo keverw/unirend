@@ -275,13 +275,17 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
     // ctx.userAgent prefers the resolved clientInfo.userAgent (forwarded UA),
     // not the raw request header.
     expect(captured[0].userAgent).toBe('ForwardedUA/1.0');
+    expect(captured[0].request.userAgent).toBe('RawUA/9.9');
+    expect(captured[0].request.clientUserAgent).toBe('ForwardedUA/1.0');
   });
 
-  it('accessLog onRequest sees resolved clientInfo / clientIP / connectionIP', async () => {
+  it('accessLog onRequest sees resolved clientInfo / clientIP / connectionIP / userAgent', async () => {
     const captured: Array<{
       clientInfo: unknown;
       clientIP: string;
       connectionIP: string;
+      userAgent: string;
+      clientUserAgent: string;
     }> = [];
 
     server = serveAPI({
@@ -292,11 +296,15 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
             clientInfo?: unknown;
             clientIP: string;
             connectionIP: string;
+            userAgent: string;
+            clientUserAgent: string;
           };
           captured.push({
             clientInfo: r.clientInfo,
             clientIP: r.clientIP,
             connectionIP: r.connectionIP,
+            userAgent: r.userAgent,
+            clientUserAgent: r.clientUserAgent,
           });
         },
       },
@@ -310,13 +318,17 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
     expect(captured[0].clientInfo).toBeDefined();
     expect((captured[0].clientIP ?? '').length).toBeGreaterThan(0);
     expect(typeof captured[0].connectionIP).toBe('string');
+    expect(typeof captured[0].userAgent).toBe('string');
+    expect(typeof captured[0].clientUserAgent).toBe('string');
   });
 
-  it('clientInfo: false disables resolution (no ID headers, no clientInfo, clientIP == connectionIP)', async () => {
+  it('clientInfo: false disables resolution (no ID headers, no clientInfo, clientIP == connectionIP, userAgent is raw)', async () => {
     const captured: Array<{
       clientInfo: unknown;
       clientIP: string;
       connectionIP: string;
+      userAgent: string;
+      clientUserAgent: string;
     }> = [];
 
     server = serveAPI({
@@ -328,17 +340,23 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
             clientInfo?: unknown;
             clientIP: string;
             connectionIP: string;
+            userAgent: string;
+            clientUserAgent: string;
           };
           captured.push({
             clientInfo: r.clientInfo,
             clientIP: r.clientIP,
             connectionIP: r.connectionIP,
+            userAgent: r.userAgent,
+            clientUserAgent: r.clientUserAgent,
           });
         },
       },
     });
     await server.listen(port, 'localhost');
-    const response = await fetch(`http://localhost:${port}/api/nonexistent`);
+    const response = await fetch(`http://localhost:${port}/api/nonexistent`, {
+      headers: { 'user-agent': 'RawUA/disabled' },
+    });
     await response.text();
 
     expect(response.headers.get('x-request-id')).toBeNull();
@@ -346,6 +364,8 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
     expect(captured.length).toBeGreaterThan(0);
     expect(captured[0].clientInfo).toBeUndefined();
     expect(captured[0].clientIP).toBe(captured[0].connectionIP);
+    expect(captured[0].userAgent).toBe('RawUA/disabled');
+    expect(captured[0].clientUserAgent).toBe('RawUA/disabled');
   });
 
   it('logs at "info" level for 2xx responses by default', async () => {

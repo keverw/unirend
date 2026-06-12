@@ -132,7 +132,7 @@ const server = serveSSRWithHMR(sourcePaths, {
 
 **Configuration notes:**
 
-- **`bodyLimit` does not apply to multipart**: `fastifyOptions.bodyLimit` (a server-level option, see [Shared Server Configuration](./ssr.md#shared-server-configuration)) controls non-multipart request bodies (JSON, text, URL-encoded forms). It does not apply to file uploads, the multipart plugin registers its own streaming content-type parser, bypassing `bodyLimit`. Each `processFileUpload()` call must pass `maxSizePerFile`; `fileUploads.limits.fileSize` configures the server-level multipart parser default, which `maxSizePerFile` overrides for that upload handler.
+- **`bodyLimit` does not apply to multipart**: `fastifyOptions.bodyLimit` (a server-level option, see [Shared Server Configuration](./ssr.md#shared-server-configuration)) controls non-multipart request bodies (JSON, text, URL-encoded forms). It does not apply to file uploads, the multipart plugin registers its own streaming content-type parser, bypassing `bodyLimit`. Each `processFileUpload()` call must pass `maxSizePerFile`. `fileUploads.limits.fileSize` configures the server-level multipart parser default, which `maxSizePerFile` overrides for that upload handler.
 - **Global limits**: Set server-level multipart parser defaults for upload routes via `fileUploads.limits`
 - **Per-route limits**: `processFileUpload()` requires `maxSizePerFile` and can override the server-level file size default for that handler. It can also set route-specific field/file count limits (see [Configuration options](#configuration-options))
 - **Pre-validation with `allowedRoutes`**: Automatically rejects multipart requests to non-allowed routes before parsing (prevents bandwidth waste and DoS attacks)

@@ -748,12 +748,8 @@ export interface AccessLogRequestContext {
   ip: string;
   /** Connecting IP (`request.connectionIP`). */
   connectionIP: string;
-  /**
-   * Resolved end-user User-Agent (`clientInfo.userAgent` — the forwarded UA on a
-   * trusted SSR hop), falling back to the raw request header when `clientInfo` is
-   * disabled.
-   */
-  userAgent: string | undefined;
+  /** Resolved end-user User-Agent (`request.clientUserAgent`). */
+  userAgent: string;
   /** Server label string (e.g. `'SSR'`, `'API'`). Set via the `serverLabel` server option. */
   serverLabel: string;
   /** Whether the request is being handled as a static asset response. */
@@ -1095,13 +1091,15 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
   getConnectionIP?: (request: FastifyRequest) => string | Promise<string>;
   /**
    * Built-in client-identity config. On by default. Resolves
-   * `request.clientIP` (the real end user) and a frozen `request.clientInfo`
-   * from trusted forwarded SSR headers
-   * (`X-SSR-Original-IP`, `X-SSR-Forwarded-User-Agent`, `X-Correlation-ID`), and
-   * emits `X-Request-ID` / `X-Correlation-ID` response headers.
+   * `request.clientIP` (the real end user), `request.clientUserAgent` (the
+   * resolved end-user User-Agent), and a frozen `request.clientInfo` from trusted
+   * forwarded SSR headers (`X-SSR-Original-IP`,
+   * `X-SSR-Forwarded-User-Agent`, `X-Correlation-ID`), and emits
+   * `X-Request-ID` / `X-Correlation-ID` response headers.
    *
    * Pass `false` to disable resolution entirely (then `request.clientIP` equals
-   * `request.connectionIP` and `request.clientInfo` is undefined).
+   * `request.connectionIP`, `request.clientUserAgent` equals
+   * `request.userAgent`, and `request.clientInfo` is undefined).
    */
   clientInfo?: ClientInfoConfig | false;
   /**
@@ -1622,13 +1620,15 @@ export interface APIServerOptionsBase<M extends BaseMeta = BaseMeta> {
   getConnectionIP?: (request: FastifyRequest) => string | Promise<string>;
   /**
    * Built-in client-identity config. On by default. Resolves
-   * `request.clientIP` (the real end user) and a frozen `request.clientInfo`
-   * from trusted forwarded SSR headers
-   * (`X-SSR-Original-IP`, `X-SSR-Forwarded-User-Agent`, `X-Correlation-ID`), and
-   * emits `X-Request-ID` / `X-Correlation-ID` response headers.
+   * `request.clientIP` (the real end user), `request.clientUserAgent` (the
+   * resolved end-user User-Agent), and a frozen `request.clientInfo` from trusted
+   * forwarded SSR headers (`X-SSR-Original-IP`,
+   * `X-SSR-Forwarded-User-Agent`, `X-Correlation-ID`), and emits
+   * `X-Request-ID` / `X-Correlation-ID` response headers.
    *
    * Pass `false` to disable resolution entirely (then `request.clientIP` equals
-   * `request.connectionIP` and `request.clientInfo` is undefined).
+   * `request.connectionIP`, `request.clientUserAgent` equals
+   * `request.userAgent`, and `request.clientInfo` is undefined).
    */
   clientInfo?: ClientInfoConfig | false;
   /**
@@ -1958,13 +1958,15 @@ export interface StaticWebServerOptions {
   getConnectionIP?: (request: FastifyRequest) => string | Promise<string>;
   /**
    * Built-in client-identity config. On by default. Resolves
-   * `request.clientIP` (the real end user) and a frozen `request.clientInfo`
-   * from trusted forwarded SSR headers
-   * (`X-SSR-Original-IP`, `X-SSR-Forwarded-User-Agent`, `X-Correlation-ID`), and
-   * emits `X-Request-ID` / `X-Correlation-ID` response headers.
+   * `request.clientIP` (the real end user), `request.clientUserAgent` (the
+   * resolved end-user User-Agent), and a frozen `request.clientInfo` from trusted
+   * forwarded SSR headers (`X-SSR-Original-IP`,
+   * `X-SSR-Forwarded-User-Agent`, `X-Correlation-ID`), and emits
+   * `X-Request-ID` / `X-Correlation-ID` response headers.
    *
    * Pass `false` to disable resolution entirely (then `request.clientIP` equals
-   * `request.connectionIP` and `request.clientInfo` is undefined).
+   * `request.connectionIP`, `request.clientUserAgent` equals
+   * `request.userAgent`, and `request.clientInfo` is undefined).
    */
   clientInfo?: ClientInfoConfig | false;
   /**
@@ -2412,6 +2414,26 @@ declare module 'fastify' {
      * template variable.
      */
     clientIP: string;
+    /**
+     * Immediate-hop User-Agent header.
+     *
+     * This is the raw `User-Agent` request header normalized to a string, or
+     * `''` when absent. It is not changed by trusted SSR forwarding.
+     */
+    userAgent: string;
+    /**
+     * Resolved real end-user User-Agent.
+     *
+     * Starts as `userAgent`, then — when the `clientInfo` resolution is enabled
+     * (default) and the connection is trusted — is replaced with the original
+     * browser User-Agent forwarded by an SSR server
+     * (`X-SSR-Forwarded-User-Agent`). Equals `userAgent` for direct requests or
+     * when `clientInfo` is disabled.
+     *
+     * Available throughout the request lifecycle and as the access-log
+     * `{{userAgent}}` template variable.
+     */
+    clientUserAgent: string;
     /**
      * Normalized client identity (correlation ID, forwarded-source flags,
      * resolved User-Agent). Populated by client-info resolution when

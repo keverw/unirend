@@ -128,7 +128,7 @@ Use the mode parameter when a plugin is intended for a specific server shape:
 - **`ServerPlugin`** or **`ServerPlugin<'ssr' | 'api'>`**: envelope-capable SSR/API plugin. `pluginHost.api.*` and `pluginHost.pageDataHandler.*` are available.
 - **`ServerPlugin<'ssr'>`**: SSR-only plugin.
 - **`ServerPlugin<'api'>`**: API-server-only plugin.
-- **`ServerPlugin<'plain'>`**: plain web plugin for `servePlain()`, `StaticWebServer`, or APIServer with `apiEndpointPrefix: false`. Use raw routes such as `pluginHost.get/post/...`; envelope shortcuts are not available.
+- **`ServerPlugin<'plain'>`**: plain web plugin for `servePlain()`, `StaticWebServer`, or APIServer with `apiEndpointPrefix: false`. Use raw routes such as `pluginHost.get/post/...`. Envelope shortcuts are not available.
 - **`ServerPlugin<UnirendServerMode>`**: all-mode plugin. Use this for raw/shared plugins that only rely on the common host surface, such as hooks, decorators, Fastify plugin registration, cookies, CORS, static content, logging, or file upload parsing. This type does not expose `pluginHost.api.*` or `pluginHost.pageDataHandler.*` unless your code first narrows out plain mode.
 
 `StaticWebServer` also uses `ServerPlugin<'plain'>` for its public `plugins` option because it rides on APIServer with API handling disabled. `RedirectServer` uses the same plain APIServer machinery internally, but it does not expose a public `plugins` option.
@@ -773,7 +773,7 @@ pluginHost.post(
 
 ## File Upload Helpers
 
-When using `processFileUpload()` in your plugins, keep in mind that it returns an **envelope response** (API-friendly format). This works seamlessly when used in API routes registered via `pluginHost.api.*`. Multipart parsing can also be enabled on plain web servers, but raw `pluginHost.get/post/...` routes are responsible for choosing their own response shape; return the envelope intentionally or use lower-level Fastify multipart handling if you want a non-envelope response.
+When using `processFileUpload()` in your plugins, keep in mind that it returns an **envelope response** (API-friendly format). This works seamlessly when used in API routes registered via `pluginHost.api.*`. Multipart parsing can also be enabled on plain web servers, but raw `pluginHost.get/post/...` routes are responsible for choosing their own response shape. Return the envelope intentionally or use lower-level Fastify multipart handling if you want a non-envelope response.
 
 However, if you're using file upload helpers outside the standard API context (e.g., in a custom Fastify route registered with `pluginHost.get/post/...`), you'll need to extract the envelope and convert it to a Fastify reply:
 

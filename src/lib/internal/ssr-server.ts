@@ -1278,11 +1278,12 @@ export class SSRServer extends BaseServer {
                 headers.set('X-SSR-Request', 'true');
                 headers.set('X-SSR-Original-IP', request.clientIP);
 
-                // Forward the user agent if needed
-                const userAgent = request.headers['user-agent'];
-
-                if (typeof userAgent === 'string') {
-                  headers.set('X-SSR-Forwarded-User-Agent', userAgent);
+                // Forward the resolved end-user user agent if needed
+                if (request.clientUserAgent) {
+                  headers.set(
+                    'X-SSR-Forwarded-User-Agent',
+                    request.clientUserAgent,
+                  );
                 }
 
                 // Forward the correlation ID (which is the same as request ID at this point)

@@ -19,6 +19,8 @@ Unirend resolves client identity on every server (SSR, API, Static, Redirect). I
 
 - `request.connectionIP`: the connecting IP
 - `request.clientIP`: the resolved real end user
+- `request.userAgent`: the immediate-hop User-Agent header
+- `request.clientUserAgent`: the resolved real end-user User-Agent
 - `request.requestID`: the request ID (see [API Envelope Structure](./api-envelope-structure.md#request-id-handling))
 - `request.clientInfo`: a frozen object with the correlation ID, forwarded-source flags, and resolved User-Agent
 
@@ -28,7 +30,7 @@ It is built in and **on by default**, configured via the `clientInfo` server opt
 
 These answer different questions and are both always present:
 
-- **`request.connectionIP`**: the trusted transport/source IP — `request.ip` (after Fastify `fastifyOptions.trustProxy`) or the `getConnectionIP` resolver (e.g. `CF-Connecting-IP`). It's the base value for `clientIP`. Use it for connection-level decisions and debugging. Note it isn't necessarily the literal socket peer (a proxy/CDN/`trustProxy` may have rewritten it), and behind a CDN/proxy it can be a shared address — a poor key for per-user rate limiting; use `clientIP` for that.
+- **`request.connectionIP`**: the trusted transport/source IP, either `request.ip` (after Fastify `fastifyOptions.trustProxy`) or the `getConnectionIP` resolver (e.g. `CF-Connecting-IP`). It's the base value for `clientIP`. Use it for connection-level decisions and debugging. Note it isn't necessarily the literal socket peer (a proxy/CDN/`trustProxy` may have rewritten it), and behind a CDN/proxy it can be a shared address. That makes it a poor key for per-user rate limiting, so use `request.clientIP` for that.
 - **`request.clientIP`**: the **real end user**. It starts as `connectionIP`, then is replaced with the original browser IP forwarded by an SSR server (`X-SSR-Original-IP`) when client-info resolution is enabled (the default) and the connection is trusted. Use it for end-user attribution and per-user logic like rate limiting. It sees through CDNs / load balancers and the SSR → API hop.
 
 | Scenario                     | `connectionIP`  | `clientIP`            |
@@ -82,7 +84,9 @@ type ClientInfo = {
 };
 ```
 
-`clientInfo` is a frozen per-request snapshot. The canonical IP accessors are `request.clientIP` (real end user) and `request.connectionIP` (the connecting IP), and `clientInfo` mirrors both. `isIPFromHeader` tells you whether `clientIP` was recovered from a trusted forwarded header. When `clientInfo: false`, `request.clientInfo` is `undefined`. `correlationID` is the forwarded `X-Correlation-ID` (when trusted) or the request ID — never `null`. Edge case: if `getRequestID` opts out (so `request.requestID` is `undefined`), `clientInfo.requestID` and `clientInfo.correlationID` are both `''` here — empty strings, not `undefined`/`null`.
+`clientInfo` is a frozen per-request snapshot. The canonical request accessors are `request.clientIP` (real end user), `request.connectionIP` (the connecting IP), `request.userAgent` (the immediate-hop User-Agent), and `request.clientUserAgent` (the resolved real end-user User-Agent). `clientInfo` mirrors the resolved end-user values and adds correlation/forwarding metadata. `isIPFromHeader` tells you whether `clientIP` was recovered from a trusted forwarded header, and `isUserAgentFromHeader` does the same for `clientUserAgent`. When `clientInfo: false`, `request.clientInfo` is `undefined`. `correlationID` is the forwarded `X-Correlation-ID` (when trusted) or the request ID, never `null`. Edge case: if `getRequestID` opts out (so `request.requestID` is `undefined`), `clientInfo.requestID` and `clientInfo.correlationID` are both `''` here. They are empty strings, not `undefined`/`null`.
+
+TypeScript models `request.clientInfo` as optional because `clientInfo: false` disables the snapshot. `request.clientIP`, `request.connectionIP`, `request.userAgent`, and `request.clientUserAgent` remain plain strings and are always available.
 
 ## Forwarded Headers (SSR)
 
@@ -90,8 +94,8 @@ When the connection is trusted (`trustForwardedHeaders`), the framework honors t
 
 - `X-SSR-Request: "true"`: marks the request as an SSR-forwarded hop (`isFromSSRServerAPICall: true`). **Required** to honor the IP / User-Agent recovery below.
 - `X-SSR-Original-IP: <client-ip>`: original browser IP → `request.clientIP` (only when `X-SSR-Request: true`)
-- `X-SSR-Forwarded-User-Agent: <ua>`: original client User-Agent → `clientInfo.userAgent` (only when `X-SSR-Request: true`)
-- `X-Correlation-ID: <id>`: correlation ID for tracing (validated via `forwardedRequestIDValidator`). Honored from any trusted source **independently of `X-SSR-Request`**, since it's a standard cross-service tracing header — an upstream that isn't your SSR server can still propagate a trace ID. (It can therefore set `correlationID` while `isFromSSRServerAPICall` stays `false`.)
+- `X-SSR-Forwarded-User-Agent: <ua>`: original client User-Agent → `request.clientUserAgent` and `clientInfo.userAgent` (only when `X-SSR-Request: true`)
+- `X-Correlation-ID: <id>`: correlation ID for tracing (validated via `forwardedRequestIDValidator`). Honored from any trusted source **independently of `X-SSR-Request`**, since it's a standard cross-service tracing header. An upstream that isn't your SSR server can still propagate a trace ID. (It can therefore set `correlationID` while `isFromSSRServerAPICall` stays `false`.)
 
 The SSR server sets these automatically on its page-data fetches (forwarding `request.clientIP` and `request.requestID`). When the receiving API trusts them, both hops share the same correlation ID. `trustForwardedHeaders` is off by default. See [Deployment Note](#deployment-note) and [ssr.md](./ssr.md).
 
@@ -124,4 +128,4 @@ Empty headers are never emitted: if you opt out of request-ID generation via `ge
 
 ## Disabling
 
-Pass `clientInfo: false` to turn off resolution entirely. Then `request.clientIP` equals `request.connectionIP` (no SSR forwarding), `request.clientInfo` is `undefined`, and no `X-Request-ID` / `X-Correlation-ID` headers are emitted. The envelope `request_id` still works (it comes from the server, not this resolution).
+Pass `clientInfo: false` to turn off resolution entirely. Then `request.clientIP` equals `request.connectionIP` (no SSR forwarding), `request.userAgent` stays the raw `User-Agent` header or `''` when absent, `request.clientUserAgent` equals `request.userAgent`, `request.clientInfo` is `undefined`, and no `X-Request-ID` / `X-Correlation-ID` headers are emitted. The envelope `request_id` still works (it comes from the server, not this resolution).

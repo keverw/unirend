@@ -153,9 +153,15 @@ function buildRequestContext(
     // (e.g. when client-info resolution is disabled).
     ip: request.clientIP || request.connectionIP,
     connectionIP: request.connectionIP,
-    // Likewise prefer the resolved end-user User-Agent (clientInfo.userAgent —
-    // the forwarded UA on a trusted SSR hop); fall back to the raw header.
-    userAgent: request.clientInfo?.userAgent || request.headers['user-agent'],
+    // Prefer the resolved end-user User-Agent. It starts as the raw header and
+    // is overwritten by client-info resolution on trusted forwarded SSR hops.
+    // The header fallback only covers synthetic requests and disabled setup paths.
+    userAgent:
+      request.clientUserAgent ||
+      request.userAgent ||
+      (typeof request.headers['user-agent'] === 'string'
+        ? request.headers['user-agent']
+        : ''),
     serverLabel,
     isStaticAsset: request.isStaticAsset ?? false,
     request,

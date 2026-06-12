@@ -34,6 +34,8 @@ interface MockRequest {
   url: string;
   connectionIP: string;
   clientIP: string;
+  userAgent: string;
+  clientUserAgent: string;
   requestID?: string;
   headers: Record<string, string | undefined>;
   log: {
@@ -54,6 +56,8 @@ const createMockRequest = (
     connectionIP,
     // base clientIP == connectionIP (seeded by connection-IP decoration)
     clientIP: overrides.clientIP ?? connectionIP,
+    userAgent: overrides.userAgent ?? 'UA',
+    clientUserAgent: overrides.clientUserAgent ?? overrides.userAgent ?? 'UA',
     requestID: 'requestID' in overrides ? overrides.requestID : 'req-1',
     log: {
       info: mock(() => {}),
@@ -97,6 +101,8 @@ describe('registerClientInfoResolution', () => {
       isUserAgentFromHeader: false,
     });
     expect(request.clientIP).toBe('127.0.0.1'); // unchanged
+    expect(request.userAgent).toBe('UA'); // unchanged
+    expect(request.clientUserAgent).toBe('UA'); // unchanged
     expect(reply.header).toHaveBeenCalledWith('X-Request-ID', 'req-1');
     expect(reply.header).toHaveBeenCalledWith('X-Correlation-ID', 'req-1');
   });
@@ -121,6 +127,8 @@ describe('registerClientInfoResolution', () => {
     );
 
     expect(request.clientIP).toBe('1.2.3.4'); // real end user recovered
+    expect(request.userAgent).toBe('UA'); // immediate-hop UA unchanged
+    expect(request.clientUserAgent).toBe('UA-fwd');
     expect(request.clientInfo).toMatchObject({
       isFromSSRServerAPICall: true,
       connectionIP: '10.0.0.5',

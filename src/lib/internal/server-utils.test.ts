@@ -1333,19 +1333,28 @@ describe('registerConnectionIPDecoration', () => {
     return instance;
   };
 
-  const makeRequest = (ip: string) =>
-    ({ ip, connectionIP: '', clientIP: '' }) as unknown as FastifyRequest;
+  const makeRequest = (ip: string, userAgent = 'UA') =>
+    ({
+      ip,
+      headers: { 'user-agent': userAgent },
+      connectionIP: '',
+      clientIP: '',
+      userAgent: '',
+      clientUserAgent: '',
+    }) as unknown as FastifyRequest;
 
-  it('decorates connectionIP + clientIP and registers an onRequest hook', () => {
+  it('decorates connectionIP + clientIP + userAgent + clientUserAgent and registers an onRequest hook', () => {
     const f = createFakeFastify();
     registerConnectionIPDecoration(f as any, undefined);
 
     expect(f.decorateRequest).toHaveBeenCalledWith('connectionIP', '');
     expect(f.decorateRequest).toHaveBeenCalledWith('clientIP', '');
+    expect(f.decorateRequest).toHaveBeenCalledWith('userAgent', '');
+    expect(f.decorateRequest).toHaveBeenCalledWith('clientUserAgent', '');
     expect(f.addHook).toHaveBeenCalledWith('onRequest', expect.any(Function));
   });
 
-  it('defaults connectionIP (and base clientIP) to request.ip when no resolver', async () => {
+  it('defaults connectionIP, base clientIP, and userAgent when no resolver', async () => {
     const f = createFakeFastify();
     registerConnectionIPDecoration(f as any, undefined);
 
@@ -1355,6 +1364,8 @@ describe('registerConnectionIPDecoration', () => {
 
     expect((req as any).connectionIP).toBe('1.2.3.4');
     expect((req as any).clientIP).toBe('1.2.3.4');
+    expect((req as any).userAgent).toBe('UA');
+    expect((req as any).clientUserAgent).toBe('UA');
   });
 
   it('uses the return value of getConnectionIP when provided', async () => {
