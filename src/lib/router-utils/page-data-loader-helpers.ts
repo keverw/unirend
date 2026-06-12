@@ -3,6 +3,7 @@ import type {
   PageResponseEnvelope,
   RedirectInfo,
 } from '../api-envelope/api-envelope-types';
+import type { NormalizedHTTPResponse } from '../types';
 import type {
   LocalPageDataLoaderConfig,
   PageDataLoaderConfig,
@@ -93,7 +94,7 @@ export function processRedirectResponse(
 }
 
 export async function processAPIResponse(
-  response: Response,
+  response: NormalizedHTTPResponse,
   config: PageDataLoaderConfig,
   isDevelopment: boolean,
 ): Promise<PageResponseEnvelope> {

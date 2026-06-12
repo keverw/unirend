@@ -33,6 +33,7 @@ import type { DomainInfo } from './internal/domain-info';
 // resolve this when type-checking from source or running demos directly (the package
 // isn't in its own node_modules).
 import type { APIResponseHelpers } from 'unirend/api-envelope';
+import type { NodeAdapter } from 'lifecycleion/http-client-node';
 
 export type RenderType = 'ssg' | 'ssr';
 export type APIResponseHelpersClass = typeof APIResponseHelpers;
@@ -50,10 +51,10 @@ export interface RenderRequest {
 }
 
 /**
- * Context passed to the resolvePageDataFetch callback on each server-side
- * HTTP page-data fetch (i.e. when no internal short-circuit handler is registered).
+ * Context passed to the resolvePageDataRequestOptions callback before each server-side
+ * page-data HTTP request (i.e. separate-server deployments only).
  */
-export interface PageDataFetchContext {
+export interface PageDataRequestContext {
   /** Page type being requested (e.g. 'home', 'about', 'not-found') */
   pageType: string;
   /** The API base URL from the loader config */
@@ -63,40 +64,72 @@ export interface PageDataFetchContext {
 }
 
 /**
- * Return value from a resolvePageDataFetch callback.
+ * Overrides returned by a resolvePageDataRequestOptions callback.
  * All fields are optional — omitting a field keeps the original value.
  */
-export interface PageDataFetchOverrides {
+export interface PageDataRequestOptions {
   /**
    * Override the API base URL for this request.
-   * Useful for internal load-balancing, private hostnames, or per-region routing.
+   * Useful for internal routing or directing traffic to specific backends.
    */
   baseURL?: string;
   /**
-   * Undici Dispatcher to use for this fetch.
-   * Pass an `Agent` or `Pool` from `undici` to configure custom TLS (e.g. private CAs,
-   * client certificates) or connection pooling for internal networks.
+   * NodeAdapter from `lifecycleion/http-client-node` to use for this request.
+   * Provides TLS control: custom CA, mutual TLS, SNI servername override, and
+   * Unix socket routing. Required when connecting over a private network with
+   * a non-public CA or when dialing by IP address.
    *
    * @example
-   * import { Agent } from 'undici';
-   * const internalAgent = new Agent({ connect: { ca: myCA } });
-   * resolvePageDataFetch: () => ({ dispatcher: internalAgent })
+   * import { NodeAdapter } from 'lifecycleion/http-client-node';
+   * const adapter = new NodeAdapter({ ca: myCA, servername: 'api.internal' });
+   * resolvePageDataRequestOptions: () => ({ adapter })
    */
-  dispatcher?: unknown;
+  adapter?: NodeAdapter;
+  /**
+   * Additional request headers merged into the outgoing request after the
+   * standard forwarded headers, so they can override any of them.
+   * Useful for setting `Host` when dialing by IP so services that validate
+   * the host header see the logical hostname rather than the raw IP.
+   */
+  headers?: Record<string, string>;
 }
 
 /**
- * Callback for customizing server-side page-data HTTP fetches.
+ * Callback for customizing server-side page-data HTTP requests.
  *
- * Called once per page-data HTTP request — only on the server and only when no
- * internal short-circuit handler is registered for the page type.
+ * Called once per page-data request — only on the server and only in
+ * separate-server deployments (co-located handlers short-circuit in-process).
  *
  * If the callback throws or returns a rejected Promise, the request is treated
- * as a 500 internal server error and no fetch is attempted.
+ * as a 500 internal server error and no request is attempted.
  */
-export type ResolvePageDataFetch = (
-  context: PageDataFetchContext,
-) => PageDataFetchOverrides | Promise<PageDataFetchOverrides>;
+export type ResolvePageDataRequestOptions = (
+  context: PageDataRequestContext,
+) => PageDataRequestOptions | Promise<PageDataRequestOptions>;
+
+/**
+ * Minimal normalized HTTP response interface shared by both transport paths.
+ *
+ * - Server path: built by `pageDataServerFetch` wrapping lifecycleion's response.
+ * - Browser/fallback path: built by wrapping the native `fetch` `Response` in
+ *   `page-data-loader.ts`. `getSetCookie` is provided via `Headers.getSetCookie?.() ?? []`
+ *   since the method exists at runtime in Node 18+ and modern browsers but is not
+ *   typed in TypeScript's DOM lib.
+ *
+ * `type` remains optional — only the fetch path sets it (`'opaqueredirect'` signals
+ * a manual redirect); the server path omits it since lifecycleion doesn't follow redirects.
+ */
+export interface NormalizedHTTPResponse {
+  status: number;
+  headers: {
+    get(name: string): string | null;
+    /** Returns all Set-Cookie header values. */
+    getSetCookie(): string[];
+  };
+  /** Present on the fetch path; `'opaqueredirect'` indicates a manual redirect was detected. */
+  type?: string;
+  json(): Promise<unknown>;
+}
 
 /**
  * Helper object attached to SSR Fetch Request for server-only context
@@ -106,8 +139,21 @@ export interface SSRHelpers {
   /** Controlled reply to allow handlers to set headers/cookies in short-circuit path */
   controlledReply: ControlledReply;
   handlers: DataLoaderServerHandlerHelpers;
-  /** Optional callback for customizing server-side page-data HTTP fetches (URL rewriting, custom TLS dispatcher) */
-  resolvePageDataFetch?: ResolvePageDataFetch;
+  /** Optional callback for customizing server-side page-data requests (URL rewriting, custom TLS adapter) */
+  resolvePageDataRequestOptions?: ResolvePageDataRequestOptions;
+  /**
+   * Server-side HTTP transport for page-data requests.
+   * Provided by the framework using lifecycleion's HTTPClient + NodeAdapter.
+   * Accepts the resolved URL, forwarded headers, request body object, timeout,
+   * and optional NodeAdapter — returns a NormalizedHTTPResponse.
+   */
+  serverFetch?: (
+    url: string,
+    headers: Headers,
+    body: unknown,
+    timeoutMS: number,
+    adapter?: NodeAdapter,
+  ) => Promise<NormalizedHTTPResponse>;
 }
 
 /**
@@ -937,18 +983,18 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    */
   serverLabel?: string;
   /**
-   * Rewrite the API base URL or pass a custom Undici dispatcher for
-   * server-side page-data HTTP fetches (e.g. internal load balancing,
-   * private-network TLS). Only fires in separate-server deployments —
-   * co-located handlers on the same SSR server instance short-circuit
-   * in-process, bypassing this callback entirely.
+   * Rewrite the API base URL, set a custom NodeAdapter (for private-network
+   * TLS), or inject override headers (e.g. `Host` when dialing by IP).
+   * Only fires in separate-server deployments — co-located handlers on the
+   * same SSR server instance short-circuit in-process, bypassing this
+   * callback entirely.
    *
    * Return `{}` to leave defaults unchanged. Thrown errors or rejected
-   * Promises return a 500 immediately without attempting the fetch.
+   * Promises return a 500 immediately without attempting the request.
    *
    * See docs/ssr.md for details and examples.
    */
-  resolvePageDataFetch?: ResolvePageDataFetch;
+  resolvePageDataRequestOptions?: ResolvePageDataRequestOptions;
   /**
    * Timeout in milliseconds for the SSR render fetch request.
    * If the render takes longer than this, the request is aborted.

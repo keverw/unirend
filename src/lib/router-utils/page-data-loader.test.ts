@@ -1279,8 +1279,8 @@ describe('HTTP-backed page data loader', () => {
     expect(result.error?.details).toBeUndefined();
   });
 
-  describe('resolvePageDataFetch', () => {
-    it('rewrites the target URL when resolvePageDataFetch returns a baseURL', async () => {
+  describe('resolvePageDataRequestOptions', () => {
+    it('rewrites the target URL when resolvePageDataRequestOptions returns a baseURL', async () => {
       const baseURL = startServer(() =>
         Response.json(
           createPageEnvelope({
@@ -1291,7 +1291,7 @@ describe('HTTP-backed page data loader', () => {
       );
 
       // Config points somewhere else, that will not resolve on its own
-      // resolvePageDataFetch redirects it to the real server
+      // resolvePageDataRequestOptions redirects it to the real server
       const loader = createPageDataLoader(
         createDefaultPageDataLoaderConfig('http://original-api.internal:9999'),
         'home',
@@ -1304,7 +1304,7 @@ describe('HTTP-backed page data loader', () => {
         handlers: { hasHandler: () => false },
         fastifyRequest: {},
         controlledReply: {},
-        resolvePageDataFetch: () => ({ baseURL }),
+        resolvePageDataRequestOptions: () => ({ baseURL }),
       };
 
       const result = (await loader({
@@ -1316,16 +1316,26 @@ describe('HTTP-backed page data loader', () => {
       expect(result.data).toEqual({ rewritten: true });
     });
 
-    it('passes the dispatcher to the fetch call', async () => {
-      const fetchMock = mock(() =>
-        Promise.resolve(
-          Response.json(createPageEnvelope({ request_id: 'req_dispatcher' })),
-        ),
+    it('passes the adapter to serverFetch', async () => {
+      const sentinel = { type: 'fake-node-adapter' };
+      const envelope = createPageEnvelope({ request_id: 'req_adapter' });
+
+      const serverFetchMock = mock(
+        (
+          _url: string,
+          _headers: Headers,
+          _body: unknown,
+          _timeoutMS: number,
+          adapter?: unknown,
+        ) => {
+          expect(adapter).toBe(sentinel);
+          return Promise.resolve({
+            status: 200,
+            headers: { get: () => 'application/json', getSetCookie: () => [] },
+            json: () => Promise.resolve(envelope),
+          });
+        },
       );
-
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-      const sentinel = { type: 'fake-dispatcher' };
 
       const loader = createPageDataLoader(
         createDefaultPageDataLoaderConfig('https://api.example.com'),
@@ -1339,7 +1349,43 @@ describe('HTTP-backed page data loader', () => {
         handlers: { hasHandler: () => false },
         fastifyRequest: {},
         controlledReply: {},
-        resolvePageDataFetch: () => ({ dispatcher: sentinel }),
+        resolvePageDataRequestOptions: () => ({ adapter: sentinel }),
+        serverFetch: serverFetchMock,
+      };
+
+      const result = (await loader({
+        ...createArgs(),
+        request,
+      })) as Record<string, any>;
+
+      expect(result.status).toBe('success');
+      expect(serverFetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('merges override headers into the fetch call', async () => {
+      const fetchMock = mock(() =>
+        Promise.resolve(
+          Response.json(createPageEnvelope({ request_id: 'req_headers' })),
+        ),
+      );
+
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const loader = createPageDataLoader(
+        createDefaultPageDataLoaderConfig('https://api.example.com'),
+        'home',
+      );
+
+      const request = new Request('https://app.example.com/home');
+      (
+        request as Request & { SSRHelpers?: Record<string, unknown> }
+      ).SSRHelpers = {
+        handlers: { hasHandler: () => false },
+        fastifyRequest: {},
+        controlledReply: {},
+        resolvePageDataRequestOptions: () => ({
+          headers: { Host: 'api.internal', 'X-Custom': 'value' },
+        }),
       };
 
       const result = (await loader({
@@ -1354,23 +1400,143 @@ describe('HTTP-backed page data loader', () => {
         string,
         Record<string, unknown>,
       ];
-      expect(options.dispatcher).toBe(sentinel);
+      expect((options.headers as Headers).get('Host')).toBe('api.internal');
+      expect((options.headers as Headers).get('X-Custom')).toBe('value');
     });
 
-    it('rewrites URL and passes dispatcher together', async () => {
-      const baseURL = startServer(() =>
-        Response.json(
-          createPageEnvelope({ request_id: 'req_both', data: { both: true } }),
-        ),
+    it('rewrites URL and passes adapter together via serverFetch', async () => {
+      const adapter = { type: 'fake-node-adapter-both' };
+      const envelope = createPageEnvelope({
+        request_id: 'req_both',
+        data: { both: true },
+      });
+
+      let capturedURL = '';
+      let capturedAdapter: unknown;
+
+      const serverFetchMock = mock(
+        (
+          url: string,
+          _headers: Headers,
+          _body: unknown,
+          _timeoutMS: number,
+          adapterArg?: unknown,
+        ) => {
+          capturedURL = url;
+          capturedAdapter = adapterArg;
+          return Promise.resolve({
+            status: 200,
+            headers: { get: () => 'application/json', getSetCookie: () => [] },
+            json: () => Promise.resolve(envelope),
+          });
+        },
       );
 
-      const fetchMock = mock((url: string, opts: Record<string, unknown>) =>
-        originalFetch(url, opts as RequestInit),
+      const loader = createPageDataLoader(
+        createDefaultPageDataLoaderConfig('http://original-api.internal:9999'),
+        'home',
       );
 
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const rewrittenBaseURL = 'http://internal-api:8080';
+      const request = new Request('https://app.example.com/home');
+      (
+        request as Request & { SSRHelpers?: Record<string, unknown> }
+      ).SSRHelpers = {
+        handlers: { hasHandler: () => false },
+        fastifyRequest: {},
+        controlledReply: {},
+        resolvePageDataRequestOptions: () => ({
+          baseURL: rewrittenBaseURL,
+          adapter,
+        }),
+        serverFetch: serverFetchMock,
+      };
 
-      const dispatcher = { type: 'fake-dispatcher-both' };
+      const result = (await loader({
+        ...createArgs(),
+        request,
+      })) as Record<string, any>;
+
+      expect(result.status).toBe('success');
+      expect(result.data).toEqual({ both: true });
+      expect(capturedURL).toContain(rewrittenBaseURL);
+      expect(capturedAdapter).toBe(adapter);
+    });
+
+    it('passes pageType, original baseURL, and fastifyRequest to the resolver', async () => {
+      const envelope = createPageEnvelope({ request_id: 'req_ctx' });
+      const fakeFastifyRequest = { id: 'fastify-req-123' };
+      const configBaseURL = 'http://original-api.internal:9999';
+
+      let capturedPageType: unknown;
+      let capturedBaseURL: unknown;
+      let capturedFastifyRequest: unknown;
+
+      const serverFetchMock = mock(
+        (
+          _url: string,
+          _headers: Headers,
+          _body: unknown,
+          _timeoutMS: number,
+          _adapter?: unknown,
+        ) =>
+          Promise.resolve({
+            status: 200,
+            headers: { get: () => 'application/json', getSetCookie: () => [] },
+            json: () => Promise.resolve(envelope),
+          }),
+      );
+
+      const loader = createPageDataLoader(
+        createDefaultPageDataLoaderConfig(configBaseURL),
+        'about',
+      );
+
+      const request = new Request('https://app.example.com/about');
+      (
+        request as Request & { SSRHelpers?: Record<string, unknown> }
+      ).SSRHelpers = {
+        handlers: { hasHandler: () => false },
+        fastifyRequest: fakeFastifyRequest,
+        controlledReply: {},
+        resolvePageDataRequestOptions: (ctx: unknown) => {
+          const c = ctx as Record<string, unknown>;
+          capturedPageType = c.pageType;
+          capturedBaseURL = c.baseURL;
+          capturedFastifyRequest = c.fastifyRequest;
+          return {};
+        },
+        serverFetch: serverFetchMock,
+      };
+
+      await loader({ ...createArgs(), request });
+
+      expect(capturedPageType).toBe('about');
+      expect(capturedBaseURL).toBe(configBaseURL);
+      expect(capturedFastifyRequest).toBe(fakeFastifyRequest);
+    });
+
+    it('appends pageDataEndpoint and pageType to a baseURL that already has a path prefix', async () => {
+      const envelope = createPageEnvelope({ request_id: 'req_path_prefix' });
+
+      let capturedURL = '';
+
+      const serverFetchMock = mock(
+        (
+          url: string,
+          _headers: Headers,
+          _body: unknown,
+          _timeoutMS: number,
+          _adapter?: unknown,
+        ) => {
+          capturedURL = url;
+          return Promise.resolve({
+            status: 200,
+            headers: { get: () => 'application/json', getSetCookie: () => [] },
+            json: () => Promise.resolve(envelope),
+          });
+        },
+      );
 
       const loader = createPageDataLoader(
         createDefaultPageDataLoaderConfig('http://original-api.internal:9999'),
@@ -1384,7 +1550,11 @@ describe('HTTP-backed page data loader', () => {
         handlers: { hasHandler: () => false },
         fastifyRequest: {},
         controlledReply: {},
-        resolvePageDataFetch: () => ({ baseURL, dispatcher }),
+        // baseURL with a path prefix — endpoint and pageType should append cleanly
+        resolvePageDataRequestOptions: () => ({
+          baseURL: 'http://internal-api:8080/cluster-a',
+        }),
+        serverFetch: serverFetchMock,
       };
 
       const result = (await loader({
@@ -1393,14 +1563,66 @@ describe('HTTP-backed page data loader', () => {
       })) as Record<string, any>;
 
       expect(result.status).toBe('success');
-      expect(result.data).toEqual({ both: true });
-
-      const [, options] = fetchMock.mock.calls[0];
-
-      expect(options.dispatcher).toBe(dispatcher);
+      expect(capturedURL).toBe(
+        'http://internal-api:8080/cluster-a/api/v1/page_data/home',
+      );
     });
 
-    it('returns a 500 envelope when resolvePageDataFetch throws synchronously', async () => {
+    it('resolver receives raw baseURL while serverFetch receives fully assembled URL', async () => {
+      const configBaseURL = 'http://original-api.internal:9999';
+      const overrideBaseURL = 'http://internal-api:8080/cluster-a';
+      const envelope = createPageEnvelope({ request_id: 'req_assembled' });
+
+      let resolverReceivedBaseURL: unknown;
+      let serverFetchReceivedURL = '';
+
+      const serverFetchMock = mock(
+        (
+          url: string,
+          _headers: Headers,
+          _body: unknown,
+          _timeoutMS: number,
+          _adapter?: unknown,
+        ) => {
+          serverFetchReceivedURL = url;
+          return Promise.resolve({
+            status: 200,
+            headers: { get: () => 'application/json', getSetCookie: () => [] },
+            json: () => Promise.resolve(envelope),
+          });
+        },
+      );
+
+      const loader = createPageDataLoader(
+        createDefaultPageDataLoaderConfig(configBaseURL),
+        'home',
+      );
+
+      const request = new Request('https://app.example.com/home');
+      (
+        request as Request & { SSRHelpers?: Record<string, unknown> }
+      ).SSRHelpers = {
+        handlers: { hasHandler: () => false },
+        fastifyRequest: {},
+        controlledReply: {},
+        resolvePageDataRequestOptions: (ctx: unknown) => {
+          resolverReceivedBaseURL = (ctx as Record<string, unknown>).baseURL;
+          return { baseURL: overrideBaseURL };
+        },
+        serverFetch: serverFetchMock,
+      };
+
+      await loader({ ...createArgs(), request });
+
+      // Resolver gets the original config baseURL — not the assembled endpoint
+      expect(resolverReceivedBaseURL).toBe(configBaseURL);
+      // serverFetch gets the fully assembled URL with pageDataEndpoint + pageType
+      expect(serverFetchReceivedURL).toBe(
+        'http://internal-api:8080/cluster-a/api/v1/page_data/home',
+      );
+    });
+
+    it('returns a 500 envelope when resolvePageDataRequestOptions throws synchronously', async () => {
       const loader = createPageDataLoader(
         createDefaultPageDataLoaderConfig('https://api.example.com'),
         'home',
@@ -1413,7 +1635,7 @@ describe('HTTP-backed page data loader', () => {
         handlers: { hasHandler: () => false },
         fastifyRequest: {},
         controlledReply: {},
-        resolvePageDataFetch: () => {
+        resolvePageDataRequestOptions: () => {
           throw new Error('resolver failed');
         },
       };
@@ -1428,7 +1650,7 @@ describe('HTTP-backed page data loader', () => {
       expect(result.error?.code).toBe('internal_server_error');
     });
 
-    it('returns a 500 envelope when resolvePageDataFetch returns a rejected promise', async () => {
+    it('returns a 500 envelope when resolvePageDataRequestOptions returns a rejected promise', async () => {
       const loader = createPageDataLoader(
         createDefaultPageDataLoaderConfig('https://api.example.com'),
         'home',
@@ -1441,7 +1663,7 @@ describe('HTTP-backed page data loader', () => {
         handlers: { hasHandler: () => false },
         fastifyRequest: {},
         controlledReply: {},
-        resolvePageDataFetch: async () => {
+        resolvePageDataRequestOptions: async () => {
           await new Promise((resolve) => setTimeout(resolve, 1));
           throw new Error('async resolver failed');
         },
@@ -1472,7 +1694,7 @@ describe('HTTP-backed page data loader', () => {
         handlers: { hasHandler: () => false },
         fastifyRequest: {},
         controlledReply: {},
-        resolvePageDataFetch: () => {
+        resolvePageDataRequestOptions: () => {
           throw new Error('resolver boom');
         },
       };
@@ -1507,7 +1729,7 @@ describe('HTTP-backed page data loader', () => {
         },
         fastifyRequest: {},
         controlledReply: {},
-        resolvePageDataFetch: resolverMock,
+        resolvePageDataRequestOptions: resolverMock,
       };
 
       const result = (await loader({
@@ -1543,7 +1765,7 @@ describe('HTTP-backed page data loader', () => {
         handlers: { hasHandler: () => false },
         fastifyRequest,
         controlledReply: {},
-        resolvePageDataFetch: resolverMock,
+        resolvePageDataRequestOptions: resolverMock,
       };
 
       await loader({ ...createArgs(), request });

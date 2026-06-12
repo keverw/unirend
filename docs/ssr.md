@@ -37,10 +37,10 @@
     - [isStaticAsset](#isstaticasset)
   - [Page Data Loader Handlers and Versioning](#page-data-loader-handlers-and-versioning)
   - [Short-Circuit Data Handlers](#short-circuit-data-handlers)
-  - [Customizing Server-Side Page Data Fetches](#customizing-server-side-page-data-fetches)
+  - [Customizing Server-Side Page Data Requests](#customizing-server-side-page-data-requests)
     - [Callback Signature](#callback-signature)
     - [Example: URL Rewriting / Internal Load Balancing](#example-url-rewriting--internal-load-balancing)
-    - [Example: TLS Over a Private Network (Undici Agent)](#example-tls-over-a-private-network-undici-agent)
+    - [Example: TLS Over a Private Network (NodeAdapter)](#example-tls-over-a-private-network-nodeadapter)
   - [Custom API Routes](#custom-api-routes)
     - [API Route Handler Signature and Parameters:](#api-route-handler-signature-and-parameters)
   - [Param Source Parity (Data Loader vs API Routes):](#param-source-parity-data-loader-vs-api-routes)
@@ -1272,31 +1272,33 @@ server.pageDataHandler.register('profile', (request, reply) => {
 
 **Note:** The framework handles the architecture choice automatically - you don't need to change your handler code when switching between single-server and separate-server deployments.
 
-### Customizing Server-Side Page Data Fetches
+### Customizing Server-Side Page Data Requests
 
-For separate-server deployments — where SSR and API run in different processes — you can intercept the outgoing page-data HTTP fetch using the `resolvePageDataFetch` option on the SSR server. This is a sync or async callback that runs **server-side only** and lets you:
+For separate-server deployments — where SSR and API run in different processes — you can customize the outgoing page-data request using the `resolvePageDataRequestOptions` option on the SSR server. This is a sync or async callback that runs **server-side only** and lets you:
 
 - Rewrite the target URL (e.g., for internal load balancing or per-request host selection)
-- Supply a custom [Undici](https://undici.nodejs.org/) `Dispatcher` (e.g., for TLS over a private network using a private CA or client certificates)
+- Supply a `NodeAdapter` from `lifecycleion/http-client-node` for TLS over a private network (custom CA, mTLS, SNI override)
+- Inject or override request headers (e.g., set `Host` when dialing by IP so services that validate the host header see the right value)
 
-> **Note:** `resolvePageDataFetch` is only relevant when SSR and API are on separate servers. When page data handlers live on this same SSR server, they run in-process — no HTTP fetch happens and this callback is never invoked.
+> **Note:** `resolvePageDataRequestOptions` is only relevant when SSR and API are on separate servers. When page data handlers live on this same SSR server, they run in-process — no HTTP request is made and this callback is never invoked.
 
 #### Callback Signature
 
 ```ts
-type ResolvePageDataFetch = (context: {
+type ResolvePageDataRequestOptions = (context: {
   pageType: string; // e.g. 'home', 'about', 'not-found'
   baseURL: string; // the API base URL derived from INTERNAL_API_ENDPOINT or config
   fastifyRequest: FastifyRequest; // the live Fastify request for per-request decisions
-}) => PageDataFetchOverrides | Promise<PageDataFetchOverrides>;
+}) => PageDataRequestOptions | Promise<PageDataRequestOptions>;
 
-interface PageDataFetchOverrides {
-  baseURL?: string; // override the base URL for this fetch
-  dispatcher?: unknown; // Undici Dispatcher (Agent, Pool, etc.)
+interface PageDataRequestOptions {
+  baseURL?: string; // override the base URL for this request
+  adapter?: NodeAdapter; // from lifecycleion/http-client-node
+  headers?: Record<string, string>; // headers merged in after standard forwarded headers
 }
 ```
 
-Return an empty object (`{}`) to leave the defaults unchanged. If the callback throws or returns a rejected promise, the loader returns a 500 envelope immediately — no fetch is attempted. In development mode the error's `name`, `message`, and `stack` are included in `error.details` for debugging.
+Return an empty object (`{}`) to leave the defaults unchanged. If the callback throws or returns a rejected promise, the loader returns a 500 envelope immediately — no request is attempted. In development mode the error's `name`, `message`, and `stack` are included in `error.details` for debugging.
 
 #### Example: URL Rewriting / Internal Load Balancing
 
@@ -1309,7 +1311,7 @@ const apiServers = [
 
 serveSSRBuilt({
   // ...
-  resolvePageDataFetch() {
+  resolvePageDataRequestOptions() {
     // Pick a random server on each request for simple load balancing
     const baseURL = apiServers[Math.floor(Math.random() * apiServers.length)];
     return { baseURL };
@@ -1317,23 +1319,28 @@ serveSSRBuilt({
 });
 ```
 
-#### Example: TLS Over a Private Network (Undici Agent)
+#### Example: TLS Over a Private Network (NodeAdapter)
 
 ```ts
-import { Agent } from 'undici';
+import { NodeAdapter } from 'lifecycleion/http-client-node';
 import { readFileSync } from 'node:fs';
 
-const internalAgent = new Agent({
-  connect: {
-    ca: readFileSync('/etc/ssl/internal-ca.pem'),
-    // cert / key for mutual TLS if required
-  },
+const internalAdapter = new NodeAdapter({
+  ca: readFileSync('/etc/ssl/internal-ca.pem'),
+  // When baseURL targets an IP address, set servername to the cert's SAN so
+  // TLS hostname verification passes — it can't be inferred from a raw IP.
+  servername: 'api.internal',
+  // mtls: { cert, key } for mutual TLS if required
 });
 
 serveSSRBuilt({
   // ...
-  resolvePageDataFetch() {
-    return { dispatcher: internalAgent };
+  resolvePageDataRequestOptions() {
+    return {
+      baseURL: 'https://10.0.1.5:8443', // where to connect (IP skips DNS)
+      adapter: internalAdapter, // handles TLS — servername for cert verification
+      headers: { Host: 'api.internal' }, // what the backend sees for virtual-host routing
+    };
   },
 });
 ```

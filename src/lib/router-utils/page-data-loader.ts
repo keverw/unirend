@@ -185,8 +185,9 @@ import type {
   BaseMeta,
   APIResponseEnvelope,
 } from '../api-envelope/api-envelope-types';
-import type { SSRHelpers, PageDataFetchOverrides } from '../types';
+import type { SSRHelpers, PageDataRequestOptions } from '../types';
 import { getDevMode } from 'lifecycleion/dev-mode';
+import type { NodeAdapter } from 'lifecycleion/http-client-node';
 import {
   createBaseHeaders,
   createErrorResponse,
@@ -543,20 +544,19 @@ async function pageDataLoader({
         headers.set('Accept-Language', acceptLanguage);
       }
 
-      // Allow the server to rewrite the target URL or inject a custom Undici
-      // dispatcher (e.g. for TLS over a private network or internal load balancing).
-      // Errors from the resolver are caught and converted to 500 envelopes so a
-      // misconfigured resolver never causes an unhandled rejection.
+      // Allow the server to rewrite the target URL, inject a NodeAdapter (for
+      // private-network TLS), or override request headers (e.g. Host when
+      // dialing by IP). Errors are caught and converted to 500 envelopes.
       let effectiveEndpoint = apiEndpoint;
-      let fetchDispatcher: unknown = undefined;
+      let fetchAdapter: NodeAdapter | undefined = undefined;
 
-      if (SSRHelpers?.resolvePageDataFetch) {
+      if (SSRHelpers?.resolvePageDataRequestOptions) {
         // Assign to a local so TypeScript narrows the type after the truthy guard —
         // calling through the optional chain directly defeats ESLint's type resolution.
-        const resolve = SSRHelpers.resolvePageDataFetch;
+        const resolve = SSRHelpers.resolvePageDataRequestOptions;
 
         try {
-          const overrides: PageDataFetchOverrides = await resolve({
+          const overrides: PageDataRequestOptions = await resolve({
             pageType,
             baseURL: APIBaseURL,
             fastifyRequest: SSRHelpers.fastifyRequest,
@@ -566,19 +566,28 @@ async function pageDataLoader({
             effectiveEndpoint = `${overrides.baseURL}${pageDataEndpoint}/${pageType}`;
           }
 
-          fetchDispatcher = overrides.dispatcher;
+          fetchAdapter = overrides.adapter;
+
+          // Merge override headers after the standard forwarded headers so they
+          // can override any of them — e.g. set Host to a logical hostname when
+          // baseURL targets a raw IP and the service validates the Host header.
+          if (overrides.headers) {
+            for (const [name, value] of Object.entries(overrides.headers)) {
+              headers.set(name, value);
+            }
+          }
         } catch (resolveError) {
           if (DEBUG_PAGE_LOADER) {
             // eslint-disable-next-line no-console
             console.error(
-              `[pageDataLoader] resolvePageDataFetch threw for ${pageType}; returning 500`,
+              `[pageDataLoader] resolvePageDataRequestOptions threw for ${pageType}; returning 500`,
               resolveError,
             );
           }
 
           SSRHelpers?.fastifyRequest?.log?.error(
             { err: resolveError },
-            `[pageDataLoader] resolvePageDataFetch threw for ${pageType}; returning 500`,
+            `[pageDataLoader] resolvePageDataRequestOptions threw for ${pageType}; returning 500`,
           );
 
           return decorateWithSsrOnlyData(
@@ -604,18 +613,40 @@ async function pageDataLoader({
         }
       }
 
-      // Fetch page data from the API server (effectiveEndpoint may be rewritten by resolvePageDataFetch)
-      const response = await fetchWithTimeout(
-        effectiveEndpoint,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(requestBody),
-          redirect: 'manual', // Don't automatically follow redirects
-          ...(fetchDispatcher ? { dispatcher: fetchDispatcher } : {}),
-        },
-        config.timeoutMS ?? DEFAULT_TIMEOUT_MS,
-      );
+      // Send the page-data request — use the injected server transport when available
+      // (lifecycleion HTTPClient + NodeAdapter), otherwise fall back to fetch.
+      const timeoutMS = config.timeoutMS ?? DEFAULT_TIMEOUT_MS;
+      const response = SSRHelpers?.serverFetch
+        ? await SSRHelpers.serverFetch(
+            effectiveEndpoint,
+            headers,
+            requestBody,
+            timeoutMS,
+            fetchAdapter,
+          )
+        : await fetchWithTimeout(
+            effectiveEndpoint,
+            {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(requestBody),
+              redirect: 'manual', // Don't automatically follow redirects
+            },
+            timeoutMS,
+          ).then((raw) => ({
+            status: raw.status,
+            type: raw.type,
+            headers: {
+              get: (name: string) => raw.headers.get(name),
+              // getSetCookie() is available in Node 18+ and modern browsers but
+              // not typed in TypeScript's Headers lib — cast to access it.
+              getSetCookie: () =>
+                (
+                  raw.headers as Headers & { getSetCookie?(): string[] }
+                ).getSetCookie?.() ?? [],
+            },
+            json: () => raw.json(),
+          }));
 
       const result = await processAPIResponse(response, config, isDevelopment);
 

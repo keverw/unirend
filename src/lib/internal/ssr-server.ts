@@ -8,6 +8,7 @@ import type {
   SSRWithHMRPaths,
   StaticContentRouterOptions,
   SSRHelpers,
+  NormalizedHTTPResponse,
   PluginMetadata,
   APIResponseHelpersClass,
   SSRInternalAppConfig,
@@ -15,6 +16,8 @@ import type {
   SSRInternalAppConfigBuilt,
   AccessLogConfig,
 } from '../types';
+import { HTTPClient } from 'lifecycleion/http-client';
+import { NodeAdapter } from 'lifecycleion/http-client-node';
 import { AccessLogPlugin } from './access-log-plugin';
 import { deepFreeze } from './utils';
 import {
@@ -99,6 +102,113 @@ type ActiveSSRAppInternalState = {
 type SSRRequestInternalState = FastifyRequest & {
   activeSSRAppInternal?: ActiveSSRAppInternalState;
 };
+
+/**
+ * Server-side HTTP transport for page-data requests.
+ *
+ * Uses lifecycleion's HTTPClient rather than fetch so that forwarded headers
+ * (including Host) are sent at the transport level — the Fetch spec forbids
+ * setting Host on a Request object, so fetch silently drops it.
+ *
+ * When no adapter is provided, HTTPClient uses its built-in Node.js transport
+ * (http/https modules) — fine for standard setups. Pass a NodeAdapter from
+ * resolvePageDataRequestOptions when you need TLS control (custom CA, mTLS,
+ * SNI servername) or are dialing by IP address.
+ *
+ * The body is passed as an object and serialized once by lifecycleion — no
+ * JSON stringify/parse round-trip like the browser fetch path would require.
+ *
+ * Redirects are disabled: an unexpected redirect from an internal service is
+ * a misconfiguration worth surfacing, not silently following.
+ */
+async function pageDataServerFetch(
+  url: string,
+  headers: Headers,
+  body: unknown,
+  timeoutMS: number,
+  adapter?: NodeAdapter,
+): Promise<NormalizedHTTPResponse> {
+  // Headers object is iterable at runtime but TypeScript's DOM lib doesn't
+  // include [Symbol.iterator] on Headers without DOM.Iterable in the tsconfig.
+  const headersObj: Record<string, string> = {};
+  for (const [key, value] of headers as unknown as Iterable<[string, string]>) {
+    headersObj[key] = value;
+  }
+
+  // Always use NodeAdapter so Host and other restricted headers are sent at the
+  // transport level — FetchAdapter (the HTTPClient default) uses Node's fetch,
+  // which silently drops the Host header per the Fetch spec forbidden-header rules.
+  const client = new HTTPClient({
+    adapter: adapter ?? new NodeAdapter(),
+    // Headers sent at transport level — bypasses Fetch spec forbidden-header restrictions.
+    defaultHeaders: headersObj,
+    followRedirects: false,
+  });
+
+  // Send the request and wait for the full response.
+  const result = await client
+    .post<unknown>(url)
+    .json(body)
+    .timeout(timeoutMS)
+    .send();
+
+  // Surface transport-level failures as thrown errors so the caller can
+  // convert them to a 500 envelope without inspecting a status code.
+  if (result.isFailed) {
+    // When followRedirects is false, a 3xx response sets isFailed with status: 0
+    // and loses the original status code. Return a redirect response so
+    // processAPIResponse can build the redirectNotFollowed envelope with Location.
+    // type: 'opaqueredirect' triggers the existing redirect detection branch.
+    if (result.wasRedirectDetected) {
+      return {
+        status: 302,
+        type: 'opaqueredirect',
+        headers: {
+          get: (name: string) =>
+            name.toLowerCase() === 'location'
+              ? (result.detectedRedirectURL ?? null)
+              : null,
+          getSetCookie: () => [],
+        },
+        json: () => Promise.resolve(null),
+      };
+    }
+
+    if (result.isTimeout) {
+      throw new Error(`Request timeout after ${timeoutMS}ms`);
+    }
+
+    if (result.isNetworkError) {
+      throw new Error('Network error connecting to page data service');
+    }
+
+    // isParseError: response was received but JSON decoding failed
+    if (result.isParseError) {
+      throw new Error('Page data response could not be parsed as JSON');
+    }
+
+    throw new Error('Page data request failed');
+  }
+
+  // Wrap lifecycleion's response into NormalizedHTTPResponse so page-data-loader
+  // can handle both this path and the browser fetch path through the same interface.
+  return {
+    status: result.status,
+    headers: {
+      get: (name: string) => {
+        const val = result.headers[name.toLowerCase()];
+        return Array.isArray(val) ? (val[0] ?? null) : (val ?? null);
+      },
+      // set-cookie may be an array (multiple headers) or a single string.
+      getSetCookie: () => {
+        const val = result.headers['set-cookie'];
+        return Array.isArray(val) ? val : val ? [val] : [];
+      },
+    },
+    // body is already parsed by lifecycleion — return as-is, no re-parsing needed.
+    json: () => Promise.resolve(result.body),
+  };
+}
 
 /**
  * Internal server class for handling SSR rendering
@@ -1190,7 +1300,9 @@ export class SSRServer extends BaseServer {
             fastifyRequest: request,
             controlledReply: createControlledReply(request, reply),
             handlers: this.pageDataHandlers,
-            resolvePageDataFetch: this.sharedOptions.resolvePageDataFetch,
+            resolvePageDataRequestOptions:
+              this.sharedOptions.resolvePageDataRequestOptions,
+            serverFetch: pageDataServerFetch,
           } as const;
 
           try {
