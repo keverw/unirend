@@ -16,7 +16,7 @@ import type {
 import { APIResponseHelpers } from '../../../src/api-envelope';
 import type { BaseMeta } from '../../../src/api-envelope';
 import { loadBuildInfo } from '../../../src/build-info';
-import { clientInfo, cookies } from '../../../src/plugins';
+import { cookies } from '../../../src/plugins';
 import type { PageDataHandlerParams } from '../../../src/lib/internal/data-loader-server-handler-helpers';
 import { themePlugin } from './plugins/theme';
 import { pipeline } from 'stream/promises';
@@ -786,6 +786,11 @@ function createSharedConfig() {
       versioned: true,
       pageDataEndpoint: 'page_data',
     },
+    // Client identity (real client IP, correlation ID, forwarded SSR client info,
+    // X-Request-ID/X-Correlation-ID headers) is resolved automatically by the server, on by default.
+    // Configure via the clientInfo option (or pass false to disable); getConnectionIP
+    // customizes the connection peer.
+    clientInfo: { logging: { requestReceived: true } },
     fileUploads: {
       enabled: true,
       limits: { fileSize: 1, files: 10, fields: 10, fieldSize: 1024 },
@@ -1063,15 +1068,7 @@ export class SSRServerComponent extends BaseComponent {
           level: 'debug' as const,
         };
 
-        const SHARED_PLUGINS = [
-          clientInfo({
-            setResponseHeaders: true,
-            logging: { requestReceived: true },
-          }),
-          cookies(),
-          themePlugin(),
-          apiRoutesPlugin,
-        ];
+        const SHARED_PLUGINS = [cookies(), themePlugin(), apiRoutesPlugin];
 
         if (this.mode === 'hmr') {
           this.server = serveSSRWithHMR(

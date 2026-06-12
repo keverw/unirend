@@ -42,7 +42,7 @@ import {
 } from 'unirend/server';
 import type { SSRServer } from 'unirend/server';
 import { loadBuildInfo } from 'unirend/build-info';
-import { clientInfo, cookies } from 'unirend/plugins';
+import { cookies } from 'unirend/plugins';
 // import { APIResponseHelpers } from 'unirend/api-envelope'; // Uncomment when using custom error/404 handlers
 import path from 'path';
 import type { ServerMode } from './start';
@@ -127,6 +127,15 @@ export class SSRServerComponent extends BaseComponent {
         // Shared constructor options — customize these for your app
         const sharedConfig = {
           containerID: 'root' as const,
+          // Client identity (request ID, real client IP, correlation ID, and the
+          // X-Request-ID/X-Correlation-ID response headers) is resolved by the server on
+          // every request. Trusting forwarded SSR headers (to recover the original client
+          // across a separated SSR → API hop) is OFF by default — opt in with
+          // clientInfo.trustForwardedHeaders: 'local'.
+          // Configure or disable via the clientInfo option (and getConnectionIP / getRequestID).
+          // See: https://github.com/keverw/unirend/blob/master/docs/client-identity.md
+          // clientInfo: { /* trustForwardedHeaders, setResponseHeaders, ... */ },
+          // clientInfo: false, // disable resolution entirely
           apiEndpoints: {
             // Set apiEndpointPrefix to false to disable API handling entirely
             // (e.g. when running a separate dedicated API server).
@@ -251,8 +260,8 @@ export class SSRServerComponent extends BaseComponent {
             },
             {
               ...sharedConfig,
-              // See 'unirend/plugins' for built-in plugins (cors, domainValidation, cookies, clientInfo, etc.).
-              plugins: [clientInfo(), cookies(), themePlugin()],
+              // See 'unirend/plugins' for built-in plugins (cors, domainValidation, cookies, etc.).
+              plugins: [cookies(), themePlugin()],
               logging: loggingConfig,
             },
           );
@@ -262,8 +271,8 @@ export class SSRServerComponent extends BaseComponent {
           this.server = serveSSRBuilt(DIST_DIR, {
             ...sharedConfig,
             serverEntry: 'EntrySSR',
-            // See 'unirend/plugins' for built-in plugins (cors, domainValidation, cookies, clientInfo, etc.).
-            plugins: [clientInfo(), cookies(), themePlugin()],
+            // See 'unirend/plugins' for built-in plugins (cors, domainValidation, cookies, etc.).
+            plugins: [cookies(), themePlugin()],
             logging: loggingConfig,
           });
 

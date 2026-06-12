@@ -178,7 +178,8 @@ console.log('HTTP redirect server running on port 80');
 - `logging` - Framework-level logging options (same as APIServer/SSRServer)
 - `accessLog` - First-party access logging, same `AccessLogConfig` as SSR/API servers (templates, level config, `onRequest`/`onResponse` hooks). On by default (`events: 'finish'`, logs request completions); use `{ events: 'none' }` to disable, or provide config to customize. Also adjustable at runtime via `redirectServer.updateAccessLoggingConfig(partial)`. See [Access Logging](./ssr.md#access-logging).
 - `fastifyOptions` - Fastify server options (logger, trustProxy, etc.)
-- `getClientIP` - Custom resolver for `request.clientIP` (same as APIServer/SSRServer)
+- `getConnectionIP` - Custom resolver for `request.connectionIP` (the connecting IP; base for `request.clientIP`). Same as APIServer/SSRServer.
+- `clientInfo` - Client-identity resolution: the real end-user `request.clientIP` and `request.clientInfo`. On by default; pass `false` to disable. Same as APIServer/SSRServer — see [Client Identity](./client-identity.md)
 - `getRequestID` - Custom generator for `request.requestID` (available as the `{{requestID}}` access-log template variable and in hooks). Defaults to a ULID; returning `undefined` or an empty string opts out. Same as APIServer/SSRServer — see [ssr.md](./ssr.md#shared-server-configuration).
 - `closingHandler` - Custom `WebResponse` for requests received while `stop()` is closing the redirect server. If omitted, Unirend returns a default 503 HTML page.
 

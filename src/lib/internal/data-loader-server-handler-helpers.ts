@@ -194,8 +194,12 @@ export class DataLoaderServerHandlerHelpers {
             const requestBody = (request.body as Record<string, unknown>) || {};
 
             // Merge ssr_request_context into request.requestContext (SSR forwarding)
-            // SECURITY: Only trust ssr_request_context when request comes from a trusted SSR server
-            // This requires the clientInfo plugin to be registered and validates the source IP
+            // SECURITY: Only trust ssr_request_context when the request came from a
+            // trusted SSR server. isFromSSRServerAPICall is set by the built-in
+            // client-info resolution, and is only true when forwarded-header trust
+            // was opted in (clientInfo.trustForwardedHeaders — 'local'/true/function;
+            // deny by default). With the default config it is false, so this merge
+            // does not run unless you explicitly trust the SSR hop.
             const clientInfo = (
               request as { clientInfo?: { isFromSSRServerAPICall?: boolean } }
             ).clientInfo;

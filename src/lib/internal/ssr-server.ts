@@ -48,9 +48,10 @@ import {
   validateAndRegisterPlugin,
   validateNoHandlersWhenAPIDisabled,
   buildFastifyHTTPSOptions,
-  registerClientIPDecoration,
+  registerConnectionIPDecoration,
   registerRequestIDDecoration,
 } from './server-utils';
+import { registerClientInfoResolution } from './client-info-resolution';
 import { generateDefault500ErrorPage } from './error-page-utils';
 // See comment in static-content-cache.ts — cross-entry import via unirend/utils.
 import { StaticContentCache } from 'unirend/utils';
@@ -799,18 +800,28 @@ export class SSRServer extends BaseServer {
       });
 
       // Set request.requestID once per request, before access logging and
-      // plugins — available to access logs, plugins (clientInfo), handlers, and
-      // envelope helpers. Defaults to a ULID; customizable via getRequestID.
+      // plugins — available to access logs, handlers, and envelope helpers.
+      // Defaults to a ULID; customizable via getRequestID.
       registerRequestIDDecoration(
         this.fastifyInstance,
         this.sharedOptions.getRequestID,
       );
 
-      // Set request.clientIP once per request — available to plugins, hooks, and access logs.
-      registerClientIPDecoration(
+      // Set request.connectionIP (peer) and base request.clientIP once per
+      // request — available to plugins, hooks, and access logs.
+      registerConnectionIPDecoration(
         this.fastifyInstance,
-        this.sharedOptions.getClientIP,
+        this.sharedOptions.getConnectionIP,
       );
+
+      // Resolve real end-user identity (request.clientIP override + clientInfo)
+      // before access logging, unless disabled via clientInfo: false.
+      if (this.sharedOptions.clientInfo !== false) {
+        registerClientInfoResolution(
+          this.fastifyInstance,
+          this.sharedOptions.clientInfo ?? {},
+        );
+      }
 
       // Register access logging hooks. Config is read per request so
       // updateAccessLoggingConfig() changes take effect without a restart.

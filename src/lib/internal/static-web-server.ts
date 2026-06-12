@@ -283,8 +283,9 @@ export class StaticWebServer {
       fastifyOptions: this.options.fastifyOptions,
       logging: this.options.logging,
       accessLog: this.options.accessLog,
-      getClientIP: this.options.getClientIP,
+      getConnectionIP: this.options.getConnectionIP,
       getRequestID: this.options.getRequestID,
+      clientInfo: this.options.clientInfo,
       responseCompression: this.options.responseCompression,
       responseTimeHeader: this.options.responseTimeHeader,
       closingHandler: this.options.closingHandler

@@ -20,6 +20,10 @@ import type {
 } from './api-envelope/api-envelope-types';
 import type { UnirendContextValue } from './internal/UnirendContext';
 import type { DomainInfo } from './internal/domain-info';
+import type {
+  ClientInfo,
+  ClientInfoConfig,
+} from './internal/client-info-resolution';
 // NOTE: APIResponseHelpers uses a package-name import — do not change to a relative path.
 // `typeof APIResponseHelpers` captures the class constructor type, which has predicate methods
 // (isSuccessResponse, etc.). The `typeof` is the key: TypeScript 5.5 switched from structural
@@ -645,7 +649,15 @@ export interface AccessLogRequestContext {
   requestID: string | undefined;
   method: string;
   url: string;
+  /** Real end-user IP (`request.clientIP`), falling back to the connecting IP. */
   ip: string;
+  /** Connecting IP (`request.connectionIP`). */
+  connectionIP: string;
+  /**
+   * Resolved end-user User-Agent (`clientInfo.userAgent` — the forwarded UA on a
+   * trusted SSR hop), falling back to the raw request header when `clientInfo` is
+   * disabled.
+   */
   userAgent: string | undefined;
   /** Server label string (e.g. `'SSR'`, `'API'`). Set via the `serverLabel` server option. */
   serverLabel: string;
@@ -692,13 +704,13 @@ export interface AccessLogConfig {
   events?: 'start' | 'finish' | 'both' | 'none';
   /**
    * Template for finish/response log lines. Supports {{variable}} placeholders.
-   * Available variables: logSource, method, url, statusCode, responseTime, finishType, reqID, requestID, ip, userAgent, serverLabel, isStaticAsset
+   * Available variables: logSource, method, url, statusCode, responseTime, finishType, reqID, requestID, ip, connectionIP, userAgent, serverLabel, isStaticAsset
    * @default 'Request finished {{method}} {{url}} {{statusCode}} ({{responseTime}}ms)'
    */
   responseTemplate?: string;
   /**
    * Template for start/request log lines. Supports {{variable}} placeholders.
-   * Available variables: logSource, method, url, reqID, requestID, ip, userAgent, serverLabel, isStaticAsset
+   * Available variables: logSource, method, url, reqID, requestID, ip, connectionIP, userAgent, serverLabel, isStaticAsset
    * @default 'Request started {{method}} {{url}}'
    */
   requestTemplate?: string;
@@ -970,18 +982,31 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    */
   accessLog?: AccessLogConfig;
   /**
-   * Custom client IP resolver.
-   * When set, called once per request to populate `request.clientIP` — available
-   * throughout the entire request lifecycle (plugins, hooks, page data loader
-   * handlers, API route handlers, access log templates/hooks, etc.).
-   * When not set, `request.clientIP` falls back to `request.ip`
-   * (which reflects Fastify proxy handling when `fastifyOptions.trustProxy`
-   * is configured).
+   * Custom connection IP resolver.
+   * When set, called once per request to populate `request.connectionIP` — the
+   * connection-level IP, and the base for `request.clientIP`. Available
+   * throughout the request lifecycle (hooks, page data + API handlers) and as
+   * the access-log `{{connectionIP}}` variable. When not set,
+   * `request.connectionIP` falls back to `request.ip` (which reflects Fastify
+   * proxy handling when `fastifyOptions.trustProxy` is configured).
    *
    * Use this when behind Cloudflare, AWS ALB, or other CDNs that carry the
-   * real client IP in a custom header.
+   * connecting IP in a custom header. The real end user (including SSR
+   * forwarding) is `request.clientIP`; configure forwarding trust via the
+   * `clientInfo` option.
    */
-  getClientIP?: (request: FastifyRequest) => string | Promise<string>;
+  getConnectionIP?: (request: FastifyRequest) => string | Promise<string>;
+  /**
+   * Built-in client-identity config. On by default. Resolves
+   * `request.clientIP` (the real end user) and a frozen `request.clientInfo`
+   * from trusted forwarded SSR headers
+   * (`X-SSR-Original-IP`, `X-SSR-Forwarded-User-Agent`, `X-Correlation-ID`), and
+   * emits `X-Request-ID` / `X-Correlation-ID` response headers.
+   *
+   * Pass `false` to disable resolution entirely (then `request.clientIP` equals
+   * `request.connectionIP` and `request.clientInfo` is undefined).
+   */
+  clientInfo?: ClientInfoConfig | false;
   /**
    * Custom request ID generator.
    * Called once per request to populate `request.requestID` — the value the
@@ -1524,18 +1549,31 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    */
   accessLog?: AccessLogConfig;
   /**
-   * Custom client IP resolver.
-   * When set, called once per request to populate `request.clientIP` — available
-   * throughout the entire request lifecycle (plugins, hooks, page data loader
-   * handlers, API route handlers, access log templates/hooks, etc.).
-   * When not set, `request.clientIP` falls back to `request.ip`
-   * (which reflects Fastify proxy handling when `fastifyOptions.trustProxy`
-   * is configured).
+   * Custom connection IP resolver.
+   * When set, called once per request to populate `request.connectionIP` — the
+   * connection-level IP, and the base for `request.clientIP`. Available
+   * throughout the request lifecycle (hooks, page data + API handlers) and as
+   * the access-log `{{connectionIP}}` variable. When not set,
+   * `request.connectionIP` falls back to `request.ip` (which reflects Fastify
+   * proxy handling when `fastifyOptions.trustProxy` is configured).
    *
    * Use this when behind Cloudflare, AWS ALB, or other CDNs that carry the
-   * real client IP in a custom header.
+   * connecting IP in a custom header. The real end user (including SSR
+   * forwarding) is `request.clientIP`; configure forwarding trust via the
+   * `clientInfo` option.
    */
-  getClientIP?: (request: FastifyRequest) => string | Promise<string>;
+  getConnectionIP?: (request: FastifyRequest) => string | Promise<string>;
+  /**
+   * Built-in client-identity config. On by default. Resolves
+   * `request.clientIP` (the real end user) and a frozen `request.clientInfo`
+   * from trusted forwarded SSR headers
+   * (`X-SSR-Original-IP`, `X-SSR-Forwarded-User-Agent`, `X-Correlation-ID`), and
+   * emits `X-Request-ID` / `X-Correlation-ID` response headers.
+   *
+   * Pass `false` to disable resolution entirely (then `request.clientIP` equals
+   * `request.connectionIP` and `request.clientInfo` is undefined).
+   */
+  clientInfo?: ClientInfoConfig | false;
   /**
    * Custom request ID generator.
    * Called once per request to populate `request.requestID` — the value the
@@ -1697,18 +1735,31 @@ export interface StaticWebServerOptions {
    */
   accessLog?: AccessLogConfig;
   /**
-   * Custom client IP resolver.
-   * When set, called once per request to populate `request.clientIP` — available
-   * throughout the entire request lifecycle (plugins, hooks, page data loader
-   * handlers, API route handlers, access log templates/hooks, etc.).
-   * When not set, `request.clientIP` falls back to `request.ip`
-   * (which reflects Fastify proxy handling when `fastifyOptions.trustProxy`
-   * is configured).
+   * Custom connection IP resolver.
+   * When set, called once per request to populate `request.connectionIP` — the
+   * connection-level IP, and the base for `request.clientIP`. Available
+   * throughout the request lifecycle (hooks, page data + API handlers) and as
+   * the access-log `{{connectionIP}}` variable. When not set,
+   * `request.connectionIP` falls back to `request.ip` (which reflects Fastify
+   * proxy handling when `fastifyOptions.trustProxy` is configured).
    *
    * Use this when behind Cloudflare, AWS ALB, or other CDNs that carry the
-   * real client IP in a custom header.
+   * connecting IP in a custom header. The real end user (including SSR
+   * forwarding) is `request.clientIP`; configure forwarding trust via the
+   * `clientInfo` option.
    */
-  getClientIP?: (request: FastifyRequest) => string | Promise<string>;
+  getConnectionIP?: (request: FastifyRequest) => string | Promise<string>;
+  /**
+   * Built-in client-identity config. On by default. Resolves
+   * `request.clientIP` (the real end user) and a frozen `request.clientInfo`
+   * from trusted forwarded SSR headers
+   * (`X-SSR-Original-IP`, `X-SSR-Forwarded-User-Agent`, `X-Correlation-ID`), and
+   * emits `X-Request-ID` / `X-Correlation-ID` response headers.
+   *
+   * Pass `false` to disable resolution entirely (then `request.clientIP` equals
+   * `request.connectionIP` and `request.clientInfo` is undefined).
+   */
+  clientInfo?: ClientInfoConfig | false;
   /**
    * Custom request ID generator.
    * Called once per request to populate `request.requestID`, available as the
@@ -2128,17 +2179,38 @@ declare module 'fastify' {
      */
     setActiveSSRApp: (appKey: string) => void;
     /**
-     * Resolved client IP address.
+     * Resolved connection IP — the direct connection.
      *
-     * Set once per request by the framework using `getClientIP` (if provided)
-     * or falling back to `request.ip` (which reflects Fastify proxy handling
-     * when `fastifyOptions.trustProxy` is configured).
+     * Set once per request by the framework using `getConnectionIP` (if
+     * provided) or falling back to `request.ip` (which reflects Fastify proxy
+     * handling when `fastifyOptions.trustProxy` is configured). For debugging
+     * and "who connected to me" decisions. (For per-user rate limiting prefer
+     * `clientIP` — `connectionIP` can be a shared CDN/proxy address.)
      *
-     * Available throughout the entire request lifecycle, including plugins,
-     * hooks, page data loader handlers, API route handlers, and access log
-     * templates/hooks.
+     * Available throughout the request lifecycle and as the access-log
+     * `{{connectionIP}}` template variable.
+     */
+    connectionIP: string;
+    /**
+     * Resolved real end-user IP.
+     *
+     * Starts as `connectionIP`, then — when the `clientInfo` resolution is
+     * enabled (default) and the connection is trusted — is replaced with the
+     * original browser IP forwarded by an SSR server (`X-SSR-Original-IP`). Use
+     * this for end-user attribution and per-user logic like rate limiting; it
+     * sees through CDNs/load balancers and the SSR → API hop. Equals
+     * `connectionIP` for direct requests or when `clientInfo` is disabled.
+     *
+     * Available throughout the request lifecycle and as the access-log `{{ip}}`
+     * template variable.
      */
     clientIP: string;
+    /**
+     * Normalized client identity (correlation ID, forwarded-source flags,
+     * resolved User-Agent). Populated by client-info resolution when
+     * enabled (default); `undefined` when the `clientInfo` option is `false`.
+     */
+    clientInfo?: ClientInfo;
     /**
      * Unique request identifier, set once per request by the framework before
      * access logging and plugins run.

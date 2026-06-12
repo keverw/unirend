@@ -15,10 +15,11 @@ import {
   validateAndRegisterPlugin,
   validateNoHandlersWhenAPIDisabled,
   buildFastifyHTTPSOptions,
-  registerClientIPDecoration,
+  registerConnectionIPDecoration,
   registerRequestIDDecoration,
   computeDomainInfo,
 } from './server-utils';
+import { registerClientInfoResolution } from './client-info-resolution';
 import type {
   APIServerOptions,
   PluginMetadata,
@@ -260,18 +261,28 @@ export class APIServer extends BaseServer {
       });
 
       // Set request.requestID once per request, before access logging and
-      // plugins — available to access logs, plugins (clientInfo), handlers, and
-      // envelope helpers. Defaults to a ULID; customizable via getRequestID.
+      // plugins — available to access logs, handlers, and envelope helpers.
+      // Defaults to a ULID; customizable via getRequestID.
       registerRequestIDDecoration(
         this.fastifyInstance,
         this.options.getRequestID,
       );
 
-      // Set request.clientIP once per request — available to plugins, hooks, and access logs.
-      registerClientIPDecoration(
+      // Set request.connectionIP (peer) and base request.clientIP once per
+      // request — available to plugins, hooks, and access logs.
+      registerConnectionIPDecoration(
         this.fastifyInstance,
-        this.options.getClientIP,
+        this.options.getConnectionIP,
       );
+
+      // Resolve real end-user identity (request.clientIP override + clientInfo)
+      // before access logging, unless disabled via clientInfo: false.
+      if (this.options.clientInfo !== false) {
+        registerClientInfoResolution(
+          this.fastifyInstance,
+          this.options.clientInfo ?? {},
+        );
+      }
 
       // Register access logging hooks. Config is read per request so
       // updateAccessLoggingConfig() changes take effect without a restart.

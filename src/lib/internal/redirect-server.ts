@@ -13,6 +13,7 @@ import type {
   ResponseTimeHeaderOptions,
   WebClosingHandlerFn,
 } from '../types';
+import type { ClientInfoConfig } from './client-info-resolution';
 
 /**
  * Response configuration for invalid domain handler
@@ -125,18 +126,23 @@ export interface RedirectServerOptions {
   responseTimeHeader?: boolean | ResponseTimeHeaderOptions;
 
   /**
-   * Custom client IP resolver.
-   * When set, called once per request to populate `request.clientIP` — available
-   * throughout the entire request lifecycle (plugins, hooks, page data loader
-   * handlers, API route handlers, access log templates/hooks, etc.).
-   * When not set, `request.clientIP` falls back to `request.ip`
-   * (which reflects Fastify proxy handling when `fastifyOptions.trustProxy`
-   * is configured).
+   * Custom connection IP resolver.
+   * When set, called once per request to populate `request.connectionIP` (the
+   * peer, and the base for `request.clientIP`). When not set, falls back to
+   * `request.ip` (which reflects Fastify proxy handling when
+   * `fastifyOptions.trustProxy` is configured). Available as the access-log
+   * `{{connectionIP}}` variable.
    *
    * Use this when behind Cloudflare, AWS ALB, or other CDNs that carry the
-   * real client IP in a custom header.
+   * connecting IP in a custom header.
    */
-  getClientIP?: (request: FastifyRequest) => string | Promise<string>;
+  getConnectionIP?: (request: FastifyRequest) => string | Promise<string>;
+  /**
+   * Client-identity resolution config (real end-user IP + `clientInfo`).
+   * On by default; pass `false` to disable (then `request.clientIP` equals
+   * `request.connectionIP`). See [ssr.md](../../docs/ssr.md).
+   */
+  clientInfo?: ClientInfoConfig | false;
 
   /**
    * Custom request ID generator.
@@ -248,8 +254,9 @@ export class RedirectServer {
       closingHandler: options.closingHandler
         ? { web: options.closingHandler }
         : undefined,
-      getClientIP: options.getClientIP, // Pass through client IP resolver
+      getConnectionIP: options.getConnectionIP, // Pass through connection IP resolver
       getRequestID: options.getRequestID, // Pass through request ID generator
+      clientInfo: options.clientInfo, // Pass through client-info resolution config
       plugins: [
         (pluginHost) => {
           // Register redirect logic as an onRequest hook

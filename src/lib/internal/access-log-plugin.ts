@@ -149,8 +149,13 @@ function buildRequestContext(
     requestID: request.requestID,
     method: request.method,
     url: request.url,
-    ip: request.clientIP,
-    userAgent: request.headers['user-agent'],
+    // Prefer the resolved real end-user IP; fall back to the connecting IP
+    // (e.g. when client-info resolution is disabled).
+    ip: request.clientIP || request.connectionIP,
+    connectionIP: request.connectionIP,
+    // Likewise prefer the resolved end-user User-Agent (clientInfo.userAgent —
+    // the forwarded UA on a trusted SSR hop); fall back to the raw header.
+    userAgent: request.clientInfo?.userAgent || request.headers['user-agent'],
     serverLabel,
     isStaticAsset: request.isStaticAsset ?? false,
     request,

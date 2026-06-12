@@ -18,7 +18,6 @@ Some built-in plugins also cooperate with Unirend's internal hijacked/raw respon
 ## Catalog
 
 - [cors](built-in-plugins/cors.md)
-- [clientInfo](built-in-plugins/clientInfo.md)
 - [cookies](built-in-plugins/cookies.md)
 - [domainValidation](built-in-plugins/domainValidation.md)
 - [staticContent](built-in-plugins/staticContent.md)

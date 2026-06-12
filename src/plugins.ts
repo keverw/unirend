@@ -22,14 +22,6 @@ export {
   domainValidation,
 } from './lib/built-in-plugins/domain-validation';
 
-// Re-export client info plugin for request metadata extraction
-export {
-  type ClientInfoConfig,
-  type ClientInfoLoggingOptions,
-  type ClientInfo,
-  clientInfo,
-} from './lib/built-in-plugins/client-info';
-
 // Re-export cookies plugin for cookie parsing and signing
 export { type CookiesConfig, cookies } from './lib/built-in-plugins/cookies';
 

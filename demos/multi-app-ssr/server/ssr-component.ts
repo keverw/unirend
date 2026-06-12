@@ -10,7 +10,7 @@ import type {
   ServerPlugin,
   ServerRequest,
 } from '../../../src/server';
-import { clientInfo, cookies } from '../../../src/plugins';
+import { cookies } from '../../../src/plugins';
 import { escapeHTML } from '../../../src/utils';
 import path from 'path';
 import type { ServerMode } from './start';
@@ -311,11 +311,7 @@ export class MultiAppSSRServerComponent extends BaseComponent {
 
     this.startPromise = (async () => {
       try {
-        const SHARED_PLUGINS = [
-          clientInfo({ setResponseHeaders: true }),
-          cookies(),
-          cookieRoutingPlugin,
-        ];
+        const SHARED_PLUGINS = [cookies(), cookieRoutingPlugin];
 
         const loggingConfig = {
           logger: UnirendLifecycleionLoggerAdaptor(this.logger),

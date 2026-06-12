@@ -225,6 +225,58 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
     ).toBe(true);
   });
 
+  it('renders {{connectionIP}} and {{ip}} as non-empty IPs in access-log templates', async () => {
+    server = serveAPI({
+      logging: makeMockLoggingConfig(),
+      accessLog: { responseTemplate: 'CIP={{connectionIP}} IP={{ip}}' },
+    });
+    await server.listen(port, 'localhost');
+
+    const response = await fetch(`http://localhost:${port}/api/nonexistent`);
+    await response.text();
+
+    const accessLogs = logs.filter((log) => log.message.startsWith('CIP='));
+    expect(accessLogs.length).toBeGreaterThan(0);
+    // Both render to a non-empty IP (clientInfo resolution is on by default, so
+    // ip is the resolved real end user — here equal to the connection peer).
+    expect(accessLogs[0].message).not.toContain('CIP=???');
+    expect(accessLogs[0].message).not.toContain('IP=???');
+    const ctx = accessLogs[0].context as
+      | { connectionIP?: string; ip?: string }
+      | undefined;
+    expect(typeof ctx?.connectionIP).toBe('string');
+    expect((ctx?.connectionIP ?? '').length).toBeGreaterThan(0);
+  });
+
+  it('access-log userAgent reflects the resolved (forwarded) end-user UA', async () => {
+    const captured: AccessLogResponseContext[] = [];
+
+    server = serveAPI({
+      logging: makeMockLoggingConfig(),
+      clientInfo: { trustForwardedHeaders: () => true },
+      accessLog: {
+        onResponse: (ctx) => {
+          captured.push(ctx);
+        },
+      },
+    });
+    await server.listen(port, 'localhost');
+
+    const response = await fetch(`http://localhost:${port}/api/nonexistent`, {
+      headers: {
+        'x-ssr-request': 'true',
+        'x-ssr-forwarded-user-agent': 'ForwardedUA/1.0',
+        'user-agent': 'RawUA/9.9',
+      },
+    });
+    await response.text();
+
+    expect(captured.length).toBeGreaterThan(0);
+    // ctx.userAgent prefers the resolved clientInfo.userAgent (forwarded UA),
+    // not the raw request header.
+    expect(captured[0].userAgent).toBe('ForwardedUA/1.0');
+  });
+
   it('logs at "info" level for 2xx responses by default', async () => {
     server = serveAPI({
       logging: makeMockLoggingConfig(),

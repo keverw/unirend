@@ -1048,27 +1048,38 @@ export function validateAndRegisterPlugin(
 }
 
 /**
- * Decorates requests with a resolved client IP, set once per request.
- * Always sets clientIP to request.ip first (which respects fastifyOptions.trustProxy),
- * then overwrites it with the awaited return value of getClientIP if provided.
+ * Decorates requests with the resolved connection IP, set once per request.
+ * Always sets connectionIP to request.ip first (which respects
+ * fastifyOptions.trustProxy), then overwrites it with the awaited return value
+ * of getConnectionIP if provided (e.g. a CDN/proxy header like CF-Connecting-IP).
  *
- * If getClientIP throws or rejects, clientIP retains request.ip and the error
- * propagates as a normal 500.
+ * Also seeds request.clientIP = connectionIP as a base; the client-info
+ * resolution step (when enabled) refines clientIP with trusted forwarded SSR
+ * headers (X-SSR-Original-IP) to recover the real end user across hops.
+ *
+ * If getConnectionIP throws or rejects, connectionIP retains request.ip and the
+ * error propagates as a normal 500.
  */
-export function registerClientIPDecoration(
+export function registerConnectionIPDecoration(
   fastify: FastifyInstance,
-  getClientIP:
+  getConnectionIP:
     | ((request: FastifyRequest) => string | Promise<string>)
     | undefined,
 ): void {
+  fastify.decorateRequest('connectionIP', '');
+  // clientIP defaults to connectionIP; client-info resolution may override it.
   fastify.decorateRequest('clientIP', '');
 
   fastify.addHook('onRequest', async (request, _reply) => {
-    request.clientIP = request.ip;
+    request.connectionIP = request.ip;
 
-    if (getClientIP) {
-      request.clientIP = await getClientIP(request);
+    if (getConnectionIP) {
+      request.connectionIP = await getConnectionIP(request);
     }
+
+    // Base value — the real end user (clientIP) starts as the connecting IP
+    // and is refined by client-info resolution when forwarded headers are trusted.
+    request.clientIP = request.connectionIP;
   });
 }
 

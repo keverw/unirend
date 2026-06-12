@@ -85,6 +85,12 @@ export { serveRedirect, RedirectServer } from './lib/redirect';
 // Re-export Fastify request/reply types to avoid forcing consumers to import 'fastify'
 export type { FastifyRequest, FastifyReply } from 'fastify';
 export type { DomainInfo } from './lib/internal/domain-info';
+// Client-identity resolution (the `clientInfo` server option)
+export type {
+  ClientInfo,
+  ClientInfoConfig,
+  ClientInfoLoggingOptions,
+} from './lib/internal/client-info-resolution';
 export type {
   FastifyRequest as ServerRequest,
   FastifyReply as ServerReply,
