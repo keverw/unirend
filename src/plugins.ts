@@ -25,6 +25,8 @@ export {
 // Re-export client info plugin for request metadata extraction
 export {
   type ClientInfoConfig,
+  type ClientInfoLoggingOptions,
+  type ClientInfo,
   clientInfo,
 } from './lib/built-in-plugins/client-info';
 

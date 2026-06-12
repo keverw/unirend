@@ -49,6 +49,7 @@ import {
   validateNoHandlersWhenAPIDisabled,
   buildFastifyHTTPSOptions,
   registerClientIPDecoration,
+  registerRequestIDDecoration,
 } from './server-utils';
 import { generateDefault500ErrorPage } from './error-page-utils';
 // See comment in static-content-cache.ts — cross-entry import via unirend/utils.
@@ -796,6 +797,14 @@ export class SSRServer extends BaseServer {
         // middleware uses for multi-app routing.
         applyActiveApp('__default__');
       });
+
+      // Set request.requestID once per request, before access logging and
+      // plugins — available to access logs, plugins (clientInfo), handlers, and
+      // envelope helpers. Defaults to a ULID; customizable via getRequestID.
+      registerRequestIDDecoration(
+        this.fastifyInstance,
+        this.sharedOptions.getRequestID,
+      );
 
       // Set request.clientIP once per request — available to plugins, hooks, and access logs.
       registerClientIPDecoration(

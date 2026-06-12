@@ -233,6 +233,8 @@ interface StaticContentRouterOptions {
 }
 ```
 
+> The shape above is reproduced for convenience. The exported `StaticContentRouterOptions` type in the source is authoritative if the two ever diverge.
+
 ### Methods
 
 #### `getFile(resolvedPath: string, options?): Promise<FileResult>`

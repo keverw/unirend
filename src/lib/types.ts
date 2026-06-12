@@ -976,6 +976,20 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    */
   getClientIP?: (request: FastifyRequest) => string | Promise<string>;
   /**
+   * Custom request ID generator.
+   * Called once per request to populate `request.requestID` — the value the
+   * API/Page envelope helpers use for `request_id`, available throughout the
+   * request lifecycle (plugins, hooks, page data + API handlers, access log
+   * templates/hooks). When not set, the framework generates a ULID.
+   *
+   * Return a non-empty string to use it (e.g. adopt an upstream/proxy
+   * `X-Request-ID`). Returning `undefined` or an empty string opts out, leaving
+   * `requestID` unset so envelopes report `request_id: "unknown"`.
+   */
+  getRequestID?: (
+    request: FastifyRequest,
+  ) => string | undefined | Promise<string | undefined>;
+  /**
    * Label for this server instance, used in error log messages and access log templates.
    * Useful for distinguishing log output when running multiple server instances.
    * @default 'SSR'
@@ -1515,6 +1529,20 @@ export interface APIServerOptions<M extends BaseMeta = BaseMeta> {
    * real client IP in a custom header.
    */
   getClientIP?: (request: FastifyRequest) => string | Promise<string>;
+  /**
+   * Custom request ID generator.
+   * Called once per request to populate `request.requestID` — the value the
+   * API/Page envelope helpers use for `request_id`, available throughout the
+   * request lifecycle (plugins, hooks, page data + API handlers, access log
+   * templates/hooks). When not set, the framework generates a ULID.
+   *
+   * Return a non-empty string to use it (e.g. adopt an upstream/proxy
+   * `X-Request-ID`). Returning `undefined` or an empty string opts out, leaving
+   * `requestID` unset so envelopes report `request_id: "unknown"`.
+   */
+  getRequestID?: (
+    request: FastifyRequest,
+  ) => string | undefined | Promise<string | undefined>;
 }
 
 /**
@@ -1674,6 +1702,16 @@ export interface StaticWebServerOptions {
    * real client IP in a custom header.
    */
   getClientIP?: (request: FastifyRequest) => string | Promise<string>;
+  /**
+   * Custom request ID generator.
+   * Called once per request to populate `request.requestID`, available in
+   * access log templates/hooks and throughout the request lifecycle. When not
+   * set, the framework generates a ULID. Return a non-empty string to set it;
+   * `undefined` or an empty string opts out (`request_id` becomes "unknown").
+   */
+  getRequestID?: (
+    request: FastifyRequest,
+  ) => string | undefined | Promise<string | undefined>;
 
   /**
    * Custom handler for requests that arrive while the static server is shutting down.
@@ -2093,6 +2131,21 @@ declare module 'fastify' {
      * templates/hooks.
      */
     clientIP: string;
+    /**
+     * Unique request identifier, set once per request by the framework before
+     * access logging and plugins run.
+     *
+     * Defaults to a ULID (globally unique, safe across instances/restarts).
+     * Customizable via the `getRequestID` server option. The API/Page envelope
+     * helpers read this for the envelope `request_id` field, and it is available
+     * throughout the request lifecycle (access log hooks/templates, plugins,
+     * page data + API route handlers).
+     *
+     * Distinct from Fastify's `request.id` (an incremental per-process counter
+     * surfaced as the access log `reqID`). `undefined` only if a custom
+     * `getRequestID` opted out by returning `undefined` or an empty string.
+     */
+    requestID?: string;
     /**
      * Server label for this instance (e.g. `'SSR'`, `'API'`).
      *

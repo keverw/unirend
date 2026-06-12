@@ -1,4 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
+import { isValid as isValidULID } from 'ulid';
 import fastify from 'fastify';
 import type { FastifyReply, FastifyRequest, FastifyInstance } from 'fastify';
 import {
@@ -15,6 +16,7 @@ import {
   validateNoHandlersWhenAPIDisabled,
   buildFastifyHTTPSOptions,
   registerClientIPDecoration,
+  registerRequestIDDecoration,
   registerClosingResponseHook,
   resolveClosingResponse,
   sendClosingPayload,
@@ -1389,6 +1391,93 @@ describe('registerClientIPDecoration', () => {
 
     expect(handler(req, {})).rejects.toThrow('async lookup failed');
     expect((req as any).clientIP).toBe('1.2.3.4');
+  });
+});
+
+describe('registerRequestIDDecoration', () => {
+  const createFakeFastify = () => {
+    const hooks: Record<string, ((...args: unknown[]) => unknown)[]> = {};
+
+    const instance = {
+      decorateRequest: mock((_name: string, _value: unknown) => {}),
+      addHook: mock(
+        (name: string, handler: (...args: unknown[]) => unknown) => {
+          hooks[name] = hooks[name] ?? [];
+          hooks[name].push(handler);
+        },
+      ),
+      _hooks: hooks,
+    };
+
+    return instance;
+  };
+
+  const makeRequest = () => ({}) as unknown as FastifyRequest;
+
+  it('decorates requests with requestID and registers an onRequest hook', () => {
+    const f = createFakeFastify();
+    registerRequestIDDecoration(f as any, undefined);
+
+    expect(f.decorateRequest).toHaveBeenCalledWith('requestID', undefined);
+    expect(f.addHook).toHaveBeenCalledWith('onRequest', expect.any(Function));
+  });
+
+  it('generates a ULID by default when getRequestID is not provided', async () => {
+    const f = createFakeFastify();
+    registerRequestIDDecoration(f as any, undefined);
+
+    const handler = f._hooks['onRequest']?.[0];
+    const req = makeRequest();
+    await handler(req, {});
+
+    expect(isValidULID((req as any).requestID)).toBe(true);
+  });
+
+  it('uses the return value of getRequestID when provided', async () => {
+    const f = createFakeFastify();
+    registerRequestIDDecoration(f as any, () => 'upstream-id');
+
+    const handler = f._hooks['onRequest']?.[0];
+    const req = makeRequest();
+    await handler(req, {});
+
+    expect((req as any).requestID).toBe('upstream-id');
+  });
+
+  it('awaits async getRequestID resolvers', async () => {
+    const f = createFakeFastify();
+    registerRequestIDDecoration(
+      f as any,
+      async () => await Promise.resolve('async-id'),
+    );
+
+    const handler = f._hooks['onRequest']?.[0];
+    const req = makeRequest();
+    await handler(req, {});
+
+    expect((req as any).requestID).toBe('async-id');
+  });
+
+  it('opts out (leaves requestID undefined) when getRequestID returns undefined', async () => {
+    const f = createFakeFastify();
+    registerRequestIDDecoration(f as any, () => undefined);
+
+    const handler = f._hooks['onRequest']?.[0];
+    const req = makeRequest();
+    await handler(req, {});
+
+    expect((req as any).requestID).toBeUndefined();
+  });
+
+  it('treats an empty string from getRequestID as opt-out', async () => {
+    const f = createFakeFastify();
+    registerRequestIDDecoration(f as any, () => '');
+
+    const handler = f._hooks['onRequest']?.[0];
+    const req = makeRequest();
+    await handler(req, {});
+
+    expect((req as any).requestID).toBeUndefined();
   });
 });
 

@@ -143,7 +143,7 @@ export async function processAPIResponse(
   let isValidJSON = false;
 
   try {
-    responseData = (await response.json()) as unknown;
+    responseData = await response.json();
     isValidJSON = true;
   } catch {
     responseData = null;

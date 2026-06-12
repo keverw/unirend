@@ -155,6 +155,11 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - When not set, `request.clientIP` falls back to `request.ip` (which reflects Fastify proxy handling when `fastifyOptions.trustProxy` is configured).
   - If `getClientIP` throws, the error propagates as a 500 - there is no silent fallback to `request.ip`.
   - See [Access Logging](#access-logging) for proxy and external reverse proxy examples.
+- `getRequestID?: (request: FastifyRequest) => string | undefined | Promise<string | undefined>`
+  - Custom generator for `request.requestID` — the value the API/Page envelope helpers use for `request_id`. Set once per request before access logging and plugins run, so it is available in access log hooks/templates, plugins (including `clientInfo`), and all handlers.
+  - When not set, the framework generates a ULID (globally unique, safe across instances/restarts). Use the override to adopt an upstream/proxy `X-Request-ID` from a trusted header.
+  - Returning `undefined` or an empty string opts out: `request.requestID` is left unset and envelopes fall back to `request_id: "unknown"`. It does **not** auto-generate a ULID, so generate your own fallback if you want one.
+  - Distinct from the access log `reqID` (Fastify's incremental `request.id`).
 - `responseCompression?: boolean | ResponseCompressionOptions`
   - Enables built-in response compression for SSR HTML and API responses (default: `true`).
   - Negotiates `Accept-Encoding`, honors client `q` weights, uses `preferBrotli` to break ties when gzip and Brotli are equally preferred, and skips range responses and very small responses.
@@ -242,7 +247,9 @@ Logging behavior quick reference:
 - `loggerInstance`
   - Uses your provided pino/pino-compatible logger object.
 
-**Note:** `reqID` in Fastify's framework logs is the Fastify request identifier (`request.id`), which is an incremental counter by default. This is separate from `request.requestID` used by Unirend envelope helpers and the clientInfo plugin, which is a globally unique identifier (ULID) that's better for distributed systems (e.g., multiple servers behind a load balancer) and correlating requests across services.
+**Note:** `reqID` in Fastify's framework logs is the Fastify request identifier (`request.id`), which is an incremental counter by default. This is separate from `request.requestID`, which the server generates (a ULID by default, customizable via `getRequestID`) and the Unirend envelope helpers use for `request_id`. The ULID is better for distributed systems (e.g., multiple servers behind a load balancer) than the incremental `reqID`.
+
+The **correlation ID** is a separate value used to tie a single user action together across SSR → API hops. The SSR server automatically forwards `X-Correlation-ID` (set to the SSR request's `requestID`) on its page-data fetches; on the receiving server the `clientInfo` plugin reads that forwarded value into `request.clientInfo.correlationID`, falling back to that request's own `requestID` when nothing was forwarded. So each hop keeps its own unique `requestID`, while the correlation ID stays constant across the chain. `clientInfo` only reads `request.requestID` — it does not generate it.
 
 Example Unirend logger object (recommended path):
 
@@ -326,6 +333,8 @@ const server = serveSSRBuilt('./build', {
 - Dot notation is supported for nested properties (e.g. `{{replyInfo.headers['x-request-id']}}`).
 - Unknown variables are substituted as `???`.
 - Avoid logging sensitive data (auth tokens, passwords, PII) in templates, as access logs are typically written to files or external services.
+
+> **Real end-user IP/UA when writing to a sink:** the access-log `ip` / `userAgent` (template `{{ip}}` / `{{userAgent}}`, and `ctx.ip` / `ctx.userAgent` in hooks) are the **connection-level** values — `request.clientIP` and the raw `User-Agent` header. When the [`clientInfo`](./built-in-plugins/clientInfo.md) plugin is registered and you persist records to a DB or external sink, prefer `ctx.request.clientInfo.IPAddress` / `.userAgent` / `.correlationID` instead: they resolve to the real end user (the original browser behind an SSR → API hop) and tie the hops together. These are available in the `accessLog.onResponse` hook — not in `onRequest` or templates, since `clientInfo` runs after access logging registers. See [Relationship to `request.clientIP`](./built-in-plugins/clientInfo.md#relationship-to-requestclientip).
 
 ##### Additional Context in Log Output
 
@@ -515,13 +524,15 @@ server.updateAccessLoggingConfig({ level: 'debug' }); // change level only
 
 ##### Pattern: DB Request Tracing
 
-Use `onRequest` and `onResponse` hooks in `accessLog` for persistent request history (audit logs, analytics, debugging). Hooks fire independently of the `events` setting, so they run even when `events: 'none'`. Both hooks are awaited by the framework, so avoid blocking on slow work unless you want that behavior.
+Use the `onRequest` and `onResponse` hooks in `accessLog` for persistent request history (audit logs, analytics, debugging). Hooks fire independently of the `events` setting, so they run even when `events: 'none'`. Both hooks are awaited by the framework, so avoid blocking on slow work unless you want that behavior.
+
+`request.requestID` (the server-generated ULID used for the envelope `request_id`) is available in **both** hooks — the framework sets it before access logging and plugins run — so you can write an in-flight "pending" row keyed by it in `onRequest` and update that same row in `onResponse`. Read it off `ctx.request` (it is not an access-log template variable), and note it is distinct from `ctx.reqID` (Fastify's incremental counter).
 
 ```typescript
 const server = serveSSRBuilt('./build', {
   accessLog: {
     onRequest: async (ctx) => {
-      // requestID (ULID) is on the raw request - globally unique, safe across restarts/instances
+      // requestID (ULID) is already set by the server — globally unique, safe across instances/restarts.
       const requestID = (ctx.request as any).requestID;
 
       // Fire-and-forget - don't await so the request isn't held up by the DB write
@@ -563,8 +574,10 @@ const server = serveSSRBuilt('./build', {
 Considerations:
 
 - Use `requestID` (ULID via `ctx.request`) as the record key rather than `reqID` in the context (Fastify's incremental counter per process) - it's safe across multiple server instances and restarts.
+- For the client IP / User-Agent columns, prefer `ctx.request.clientInfo` (when the [`clientInfo`](./built-in-plugins/clientInfo.md) plugin is registered) over the connection-level `ctx.ip` / `ctx.userAgent`: `clientInfo.IPAddress` / `.userAgent` resolve to the real end user across an SSR → API hop, and `clientInfo.correlationID` ties the hops together. `clientInfo` is populated in `onResponse` (not `onRequest`). See [Relationship to `request.clientIP`](./built-in-plugins/clientInfo.md#relationship-to-requestclientip).
 - The framework awaits these hooks. If you do not want DB writes to hold up request handling or post-response cleanup, fire-and-forget inside the hook and attach `.catch()` or similar error handling so failures are not lost. Prefer `ctx.request.log` over `console.*` so the messages go through the server's configured logger.
-- `onResponse` covers both normal completion and client aborts via `ctx.finishType`, so you don't need a separate hook.
+- `onResponse` covers both normal completion and client aborts via `ctx.finishType`.
+- If you configure `getRequestID` to opt out (return `undefined`), `request.requestID` is unset in these hooks — guard for it or key on something else.
 - If writes to your primary store can fail, consider a local fallback queue with a background retry timer so data isn't silently lost. See [Resilient Write Queue](./patterns.md#resilient-write-queue) for the pattern.
 
 For augmenting finish/response event templates with custom fields set by plugins (user ID, tenant, etc.), use dot notation to access nested context properties (e.g. `{{requestContext.userID}}`). Note that start/request event templates run before plugin hooks, so plugin-set fields are not yet available there.

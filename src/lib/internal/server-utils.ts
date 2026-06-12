@@ -26,6 +26,7 @@ import { generateDefault503ClosingPage } from './error-page-utils';
 import { parseHostHeader, getDomain } from 'lifecycleion/domain-utils';
 import { sendRawErrorEnvelopeResponse } from './error-envelope-send';
 import type { DomainInfo } from './domain-info';
+import { ulid } from 'ulid';
 
 /**
  * Normalize an API prefix to ensure it has a leading slash and no trailing slash.
@@ -1067,6 +1068,40 @@ export function registerClientIPDecoration(
 
     if (getClientIP) {
       request.clientIP = await getClientIP(request);
+    }
+  });
+}
+
+/**
+ * Decorates requests with a unique request ID, set once per request in an early
+ * onRequest hook. Register this before access logging and user plugins so
+ * `request.requestID` is available everywhere: access log hooks/templates,
+ * plugins (e.g. clientInfo), page data + API route handlers, and the API/Page
+ * envelope helpers (which read it for `request_id`).
+ *
+ * Defaults to a ULID — globally unique and safe across instances/restarts.
+ * When `getRequestID` is provided, its return value is used instead; returning
+ * `undefined` or an empty string opts out (leaves `requestID` unset, so
+ * envelopes fall back to `"unknown"` unless you set it yourself). Use the
+ * override to adopt an upstream/proxy request ID from a trusted header.
+ */
+export function registerRequestIDDecoration(
+  fastify: FastifyInstance,
+  getRequestID:
+    | ((
+        request: FastifyRequest,
+      ) => string | undefined | Promise<string | undefined>)
+    | undefined,
+): void {
+  fastify.decorateRequest('requestID', undefined);
+
+  fastify.addHook('onRequest', async (request, _reply) => {
+    if (getRequestID) {
+      const id = await getRequestID(request);
+      request.requestID =
+        typeof id === 'string' && id.length > 0 ? id : undefined;
+    } else {
+      request.requestID = ulid();
     }
   });
 }

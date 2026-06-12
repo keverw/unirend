@@ -42,7 +42,7 @@ import {
 } from 'unirend/server';
 import type { SSRServer } from 'unirend/server';
 import { loadBuildInfo } from 'unirend/build-info';
-import { cookies } from 'unirend/plugins';
+import { clientInfo, cookies } from 'unirend/plugins';
 // import { APIResponseHelpers } from 'unirend/api-envelope'; // Uncomment when using custom error/404 handlers
 import path from 'path';
 import type { ServerMode } from './start';
@@ -252,7 +252,7 @@ export class SSRServerComponent extends BaseComponent {
             {
               ...sharedConfig,
               // See 'unirend/plugins' for built-in plugins (cors, domainValidation, cookies, clientInfo, etc.).
-              plugins: [cookies(), themePlugin()],
+              plugins: [clientInfo(), cookies(), themePlugin()],
               logging: loggingConfig,
             },
           );
@@ -263,7 +263,7 @@ export class SSRServerComponent extends BaseComponent {
             ...sharedConfig,
             serverEntry: 'EntrySSR',
             // See 'unirend/plugins' for built-in plugins (cors, domainValidation, cookies, clientInfo, etc.).
-            plugins: [cookies(), themePlugin()],
+            plugins: [clientInfo(), cookies(), themePlugin()],
             logging: loggingConfig,
           });
 

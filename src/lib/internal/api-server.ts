@@ -16,6 +16,7 @@ import {
   validateNoHandlersWhenAPIDisabled,
   buildFastifyHTTPSOptions,
   registerClientIPDecoration,
+  registerRequestIDDecoration,
   computeDomainInfo,
 } from './server-utils';
 import type {
@@ -257,6 +258,14 @@ export class APIServer extends BaseServer {
           ? deepFreeze(structuredClone(this.options.publicAppConfig))
           : undefined;
       });
+
+      // Set request.requestID once per request, before access logging and
+      // plugins — available to access logs, plugins (clientInfo), handlers, and
+      // envelope helpers. Defaults to a ULID; customizable via getRequestID.
+      registerRequestIDDecoration(
+        this.fastifyInstance,
+        this.options.getRequestID,
+      );
 
       // Set request.clientIP once per request — available to plugins, hooks, and access logs.
       registerClientIPDecoration(

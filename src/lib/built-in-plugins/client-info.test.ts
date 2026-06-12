@@ -41,6 +41,9 @@ const createMockRequest = (
     url: '/test',
     ip,
     clientIP: overrides.clientIP ?? ip,
+    // requestID is set by the server before plugins run; default it here so the
+    // plugin (which now reads request.requestID) has a value to reflect.
+    requestID: ulid(),
     log: {
       info: mock(() => {}),
       debug: mock(() => {}),
@@ -125,7 +128,6 @@ describe('clientInfo', () => {
     const pluginHost = createMockPluginHost();
     const options = createMockOptions();
     const plugin = clientInfo({
-      requestIDGenerator: () => 'req-log',
       logging: { requestReceived: true },
     });
 
@@ -134,7 +136,7 @@ describe('clientInfo', () => {
       .getHooks()
       .find((h) => h.event === 'onRequest');
 
-    const request = createMockRequest();
+    const request = createMockRequest({ requestID: 'req-log' });
     const reply = createMockReply();
     await onRequestHook?.handler(request, reply);
 
@@ -159,8 +161,7 @@ describe('clientInfo', () => {
     const pluginHost = createMockPluginHost();
     const options = createMockOptions();
     const plugin = clientInfo({
-      requestIDGenerator: () => 'req-fwd',
-      requestIDValidator: (id) => id === 'corr-fwd',
+      forwardedRequestIDValidator: (id) => id === 'corr-fwd',
       trustForwardedHeaders: () => true,
       logging: { forwardedClientInfo: true },
     });
@@ -171,6 +172,7 @@ describe('clientInfo', () => {
       .find((h) => h.event === 'onRequest');
 
     const request = createMockRequest({
+      requestID: 'req-fwd',
       ip: '10.0.0.9',
       clientIP: '10.0.0.99',
       headers: {
@@ -202,7 +204,6 @@ describe('clientInfo', () => {
     const pluginHost = createMockPluginHost();
     const options = createMockOptions();
     const plugin = clientInfo({
-      requestIDGenerator: () => 'req-warn',
       logging: { rejectedForwardedHeaders: true },
       // No trustForwardedHeaders => defaults to private IP check; we'll use a public IP
     });
@@ -213,6 +214,7 @@ describe('clientInfo', () => {
       .find((h) => h.event === 'onRequest');
 
     const request = createMockRequest({
+      requestID: 'req-warn',
       ip: '203.0.113.50',
       clientIP: '198.51.100.12',
       headers: {
@@ -234,16 +236,14 @@ describe('clientInfo', () => {
   it('sets requestID, correlationID (default), response headers, and clientInfo defaults', async () => {
     const pluginHost = createMockPluginHost();
     const options = createMockOptions();
-    const plugin = clientInfo({
-      requestIDGenerator: () => 'req-1',
-    });
+    const plugin = clientInfo();
 
     await plugin(pluginHost, options);
     const onRequestHook = pluginHost
       .getHooks()
       .find((h) => h.event === 'onRequest');
 
-    const request = createMockRequest({ ip: '203.0.113.10' });
+    const request = createMockRequest({ requestID: 'req-1', ip: '203.0.113.10' });
     const reply = createMockReply();
 
     await onRequestHook?.handler(request, reply);
@@ -264,9 +264,7 @@ describe('clientInfo', () => {
   it('uses request.clientIP for direct request IP normalization', async () => {
     const pluginHost = createMockPluginHost();
     const options = createMockOptions();
-    const plugin = clientInfo({
-      requestIDGenerator: () => 'req-client-ip',
-    });
+    const plugin = clientInfo();
 
     await plugin(pluginHost, options);
     const onRequestHook = pluginHost
@@ -289,8 +287,7 @@ describe('clientInfo', () => {
     const pluginHost = createMockPluginHost();
     const options = createMockOptions();
     const plugin = clientInfo({
-      requestIDGenerator: () => 'req-2',
-      requestIDValidator: (id) => id === 'corr-2',
+      forwardedRequestIDValidator: (id) => id === 'corr-2',
       trustForwardedHeaders: () => true,
     });
 
@@ -325,7 +322,6 @@ describe('clientInfo', () => {
     const pluginHost = createMockPluginHost();
     const options = createMockOptions();
     const plugin = clientInfo({
-      requestIDGenerator: () => 'req-3',
       // No trustForwardedHeaders provided; default is private IP check
     });
 
@@ -335,6 +331,7 @@ describe('clientInfo', () => {
       .find((h) => h.event === 'onRequest');
 
     const request = createMockRequest({
+      requestID: 'req-3',
       ip: '203.0.113.2', // public IP => not trusted
       headers: {
         'x-ssr-request': 'true',
@@ -361,8 +358,7 @@ describe('clientInfo', () => {
     const pluginHost = createMockPluginHost();
     const options = createMockOptions();
     const plugin = clientInfo({
-      requestIDGenerator: () => 'req-4',
-      requestIDValidator: () => false,
+      forwardedRequestIDValidator: () => false,
       trustForwardedHeaders: () => true,
     });
 
@@ -372,6 +368,7 @@ describe('clientInfo', () => {
       .find((h) => h.event === 'onRequest');
 
     const request = createMockRequest({
+      requestID: 'req-4',
       headers: {
         'x-ssr-request': 'true',
         'x-correlation-id': 'not-valid',
@@ -389,7 +386,6 @@ describe('clientInfo', () => {
     const pluginHost = createMockPluginHost();
     const options = createMockOptions();
     const plugin = clientInfo({
-      requestIDGenerator: () => 'req-5',
       setResponseHeaders: false,
     });
 
@@ -403,6 +399,31 @@ describe('clientInfo', () => {
     await onRequestHook?.handler(request, reply);
 
     // Should not set the request/correlation headers when disabled
+    expect(reply.header).not.toHaveBeenCalledWith(
+      'X-Request-ID',
+      expect.any(String),
+    );
+    expect(reply.header).not.toHaveBeenCalledWith(
+      'X-Correlation-ID',
+      expect.any(String),
+    );
+  });
+
+  it('does not emit empty X-Request-ID/X-Correlation-ID when requestID is opted out', async () => {
+    const pluginHost = createMockPluginHost();
+    const options = createMockOptions();
+    const plugin = clientInfo();
+
+    await plugin(pluginHost, options);
+    const onRequestHook = pluginHost
+      .getHooks()
+      .find((h) => h.event === 'onRequest');
+
+    // Simulate getRequestID opt-out: server left request.requestID unset
+    const request = createMockRequest({ requestID: undefined });
+    const reply = createMockReply();
+    await onRequestHook?.handler(request, reply);
+
     expect(reply.header).not.toHaveBeenCalledWith(
       'X-Request-ID',
       expect.any(String),
@@ -448,7 +469,7 @@ describe('clientInfo', () => {
   it('handles missing User-Agent header gracefully', async () => {
     const pluginHost = createMockPluginHost();
     const options = createMockOptions();
-    const plugin = clientInfo({ requestIDGenerator: () => 'req-no-ua' });
+    const plugin = clientInfo();
 
     await plugin(pluginHost, options);
     const onRequestHook = pluginHost
@@ -475,8 +496,7 @@ describe('clientInfo', () => {
     const plugin = clientInfo({
       logging: true,
       trustForwardedHeaders: () => true,
-      requestIDGenerator: () => 'req-log-all',
-      requestIDValidator: (id) => id === 'corr-all',
+      forwardedRequestIDValidator: (id) => id === 'corr-all',
     });
 
     await plugin(pluginHost, options);
@@ -532,7 +552,7 @@ describe('clientInfo', () => {
   it('when logging is undefined, does not log', async () => {
     const pluginHost = createMockPluginHost();
     const options = createMockOptions();
-    const plugin = clientInfo({ requestIDGenerator: () => 'req-no-log' });
+    const plugin = clientInfo();
 
     await plugin(pluginHost, options);
     const onRequestHook = pluginHost

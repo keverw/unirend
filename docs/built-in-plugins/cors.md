@@ -82,7 +82,7 @@ const server = serveSSRBuilt(buildDir, {
 - `allowedHeaders` (default: `["Content-Type", "Authorization", "X-Requested-With"]`): Allowed request headers
 - `exposedHeaders` (default: `[]`): Headers exposed to the client
 - `maxAge` (default: `86400` - 24 hours): Max age for preflight cache (in seconds)
-- `preflightContinue` (default: `false`): Whether to handle preflight OPTIONS requests automatically
+- `preflightContinue` (default: `false`): Controls whether the plugin short-circuits preflight OPTIONS requests. When `false` (default), the plugin fully handles the preflight and responds with `optionsSuccessStatus`. When `true`, CORS headers are still set but control passes to the next handler instead of ending the request.
 - `optionsSuccessStatus` (default: `204`): Status code for successful preflight responses
 - `allowPrivateNetwork` (default: `false`): Whether to allow private network requests (Chrome feature)
 - `credentialsAllowWildcardSubdomains` (default: `false`): Allow wildcard subdomain patterns (e.g., `"*.example.com"`, `"**.example.com"`) in `credentials` arrays. Apex domains never match wildcards, include the apex explicitly (e.g., `"https://example.com"`).

@@ -139,6 +139,16 @@ export interface RedirectServerOptions {
   getClientIP?: (request: FastifyRequest) => string | Promise<string>;
 
   /**
+   * Custom request ID generator.
+   * Called once per request to populate `request.requestID`, available in
+   * access log templates/hooks. When not set, the framework generates a ULID.
+   * Return a non-empty string to set it; `undefined` or an empty string opts out.
+   */
+  getRequestID?: (
+    request: FastifyRequest,
+  ) => string | undefined | Promise<string | undefined>;
+
+  /**
    * Custom handler for requests that arrive while the redirect server is shutting down.
    * If omitted, Unirend returns a default 503 HTML page.
    */
@@ -238,6 +248,7 @@ export class RedirectServer {
         ? { web: options.closingHandler }
         : undefined,
       getClientIP: options.getClientIP, // Pass through client IP resolver
+      getRequestID: options.getRequestID, // Pass through request ID generator
       plugins: [
         (pluginHost) => {
           // Register redirect logic as an onRequest hook

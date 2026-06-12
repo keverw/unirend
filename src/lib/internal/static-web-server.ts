@@ -284,6 +284,7 @@ export class StaticWebServer {
       logging: this.options.logging,
       accessLog: this.options.accessLog,
       getClientIP: this.options.getClientIP,
+      getRequestID: this.options.getRequestID,
       responseCompression: this.options.responseCompression,
       responseTimeHeader: this.options.responseTimeHeader,
       closingHandler: this.options.closingHandler

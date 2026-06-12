@@ -79,34 +79,30 @@ All response envelopes include these common properties:
 
 ### Request ID Handling
 
-The `request_id` field is automatically populated by the unirend response helpers. By default, it will be set to "unknown" unless you configure request ID generation in your SSR or API server plugins.
+The `request_id` field is automatically populated by the unirend response helpers from `request.requestID`, which **the server generates for every request** (a ULID by default) before any plugins or handlers run.
 
-Note:
+Customizing or opting out:
 
-- Server-side helpers intentionally default to `"unknown"` instead of generating a random ID when one is not present on the incoming `FastifyRequest`. This makes missing instrumentation obvious and avoids inventing server IDs that cannot be correlated across systems.
+- Pass the `getRequestID` server option (on SSR, API, Static, and Redirect servers) to control generation — e.g. adopt an upstream/proxy `X-Request-ID` from a trusted header. Returning `undefined` or an empty string opts out, in which case the helpers fall back to `"unknown"`.
+- The helpers default to `"unknown"` only when `request.requestID` is absent (i.e. you opted out). This makes missing instrumentation obvious and avoids inventing IDs that cannot be correlated across systems.
 - Separately, the page data loader has its own fallback request ID generator used only when transforming responses that are missing a `request_id` or when network/timeout errors occur. See the loader config option `generateFallbackRequestID` and the default described below.
 
-To set proper request IDs, add a plugin to your server that assigns a `requestID` property to the Fastify request object:
+> The built-in [`clientInfo`](built-in-plugins/clientInfo.md) plugin does **not** generate the request ID — it reads the server-generated `request.requestID` and layers a correlation ID and forwarded client info on top. Note `request_id` is a different value from the access log's `reqID` (Fastify's incremental `request.id`).
+
+Example — adopt an upstream request ID from a trusted proxy, otherwise generate one:
 
 ```typescript
-import type { ServerPlugin } from 'unirend/server';
 import { randomUUID } from 'crypto';
 
-// Example plugin for request ID generation
-const requestIdPlugin: ServerPlugin = async (pluginHost, options) => {
-  pluginHost.addHook('onRequest', async (request, reply) => {
-    // Always generate a unique request ID
-    (request as { requestID?: string }).requestID = randomUUID();
-  });
-
-  pluginHost.addHook('onSend', async (request, reply, payload) => {
-    reply.header('X-Request-ID', (request as { requestID?: string }).requestID);
-    return payload;
-  });
-};
+serveSSRBuilt('./build', {
+  getRequestID: (request) => {
+    const upstream = request.headers['x-request-id'];
+    // Generate a fallback yourself — returning undefined or an empty string opts
+    // out entirely (request_id becomes "unknown"), it does NOT auto-generate a ULID.
+    return typeof upstream === 'string' && upstream ? upstream : randomUUID();
+  },
+});
 ```
-
-The response helpers will automatically pick up this `requestID` value when creating envelope responses.
 
 ### 1. Page Response Envelope
 
@@ -776,7 +772,7 @@ Unirend’s `pageDataLoader` implements a consistent, envelope-first pattern acr
   - Local loaders support the same timeout behavior. Local loaders cannot set SSR cookies (no HTTP response path), and SSR‑only cookies are therefore unavailable in the local path.
 
 - Request ID
-  - If missing from responses, a fallback `request_id` is generated via `generateFallbackRequestID` (or a default generator). When using helpers on the server, `request_id` is sourced from `request.requestID` if your plugin sets it.
+  - If missing from responses, a fallback `request_id` is generated via `generateFallbackRequestID` (or a default generator). When using helpers on the server, `request_id` is sourced from the server-generated `request.requestID` (unless you opted out via `getRequestID`).
 
 See the README section “Data Loader Error Transformation and Additional Config” for configuration fields that influence this behavior.
 
@@ -798,7 +794,7 @@ For convenience, Unirend provides helper functions to construct and validate env
   - `await APIResponseHelpers.ensureMultipartBody(request, reply)` - For file uploads with multipart/form-data (POST/PUT/PATCH). Returns `true` when valid, otherwise sends an error envelope and returns `false`. On failure it uses the same raw/hijacked termination path as `sendErrorEnvelope()`, so normal Fastify `onSend` hooks do not run. Note: `processFileUpload()` validates Content-Type automatically, so `ensureMultipartBody` is typically only needed for advanced use cases (e.g., early validation before multipart parsing).
 - Type guards: `isSuccessResponse`, `isErrorResponse`, `isRedirectResponse`, `isPageResponse`, `isValidEnvelope`
 
-These helpers assume you set `request.requestID` via a plugin as described above, otherwise `request_id` defaults to `"unknown"`.
+The server sets `request.requestID` automatically (see above), so these helpers populate `request_id` out of the box; it defaults to `"unknown"` only if you opted out via `getRequestID`.
 
 ### Extending Helpers and Custom Meta
 
