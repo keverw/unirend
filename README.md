@@ -95,6 +95,7 @@ CLI note: The Unirend project generator (CLI) requires Bun for a simple, out‑o
   - [Parking Lot](#parking-lot)
 - [Build Info Utilities](#build-info-utilities)
 - [Utilities](#utilities)
+- [Related Projects](#related-projects)
 
 <!-- tocstop -->
 
@@ -341,7 +342,7 @@ function MyComponent() {
 
 All four context hooks, `usePublicAppConfig()`, `useRequestContext()`, `useCDNBaseURL()`, and `useDomainInfo()`, work on both server and client. See [Unirend Context](docs/unirend-context.md) for full hook documentation.
 
-**In Non-Component Code** (loaders, utilities, module-level) - access `window.__PUBLIC_APP_CONFIG__`, `window.__FRONTEND_REQUEST_CONTEXT__`, `window.__CDN_BASE_URL__`, and `window.__DOMAIN_INFO__` directly:
+**In Non-Component Code** (loaders, utilities, module-level), access `window.__PUBLIC_APP_CONFIG__`, `window.__FRONTEND_REQUEST_CONTEXT__`, `window.__CDN_BASE_URL__`, and `window.__DOMAIN_INFO__` directly:
 
 ```typescript
 // Non-component code runs outside React component tree, so use direct window access. For example in a data loader.
@@ -568,7 +569,7 @@ See setup recommendations and how the framework handles SSR vs client errors in 
 
 Unirend provides first-class support for file uploads with streaming validation, cleanup handlers, and proper error responses.
 
-**Key features:**
+**Key Features:**
 
 - Streaming validation with mid-stream abort if limits exceeded
 - Automatic cleanup handlers for partial uploads
@@ -689,3 +690,12 @@ import {
 ```
 
 See [docs/utilities.md](docs/utilities.md) for full API documentation.
+
+## Related Projects
+
+Unirend is part of a small ecosystem of focused, composable libraries I maintain. Each stands on its own, but they pair well together when building full-stack apps:
+
+- **[lifecycleion](https://github.com/keverw/lifecycleion)**: Lifecycle management, structured logging, retry logic, and other foundational utilities. Used internally by Unirend and a peer dependency (see [Installation](#installation)), but useful in your own server and application code as well.
+- **[strataline](https://github.com/keverw/strataline)**: A structured, phased migration system for PostgreSQL with resumable, checkpoint-based operations. Library-first, scaling from a single machine to distributed orchestration. A natural fit for the database layer behind your API handlers and page data loaders. It also ships a `LocalDevDBServer` helper that runs a persistent local PostgreSQL server from embedded binaries (no Docker or manual install needed), which pairs nicely with `dev-services-dashboard` below for managing your local stack.
+- **[form-context-react-zod](https://github.com/keverw/form-context-react-zod)**: A React form management library with Zod validation, supporting type-safe nested structures, array fields, and comprehensive error handling. Complements Unirend's frontend, especially when posting to API endpoints using the [API envelope](#api-envelope-structure) pattern.
+- **[dev-services-dashboard](https://github.com/keverw/dev-services-dashboard)**: A lightweight web dashboard for starting, stopping, and monitoring multiple local development services from a single interface. Handy for spinning up your full local stack (SSR/API servers, a strataline `LocalDevDBServer`, and more) while working on a Unirend project, all from one place with real-time logs.
