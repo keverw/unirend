@@ -483,10 +483,18 @@ export interface SafeRouteOptions {
   };
 }
 
+/**
+ * Handler for raw plugin routes (`pluginHost.get/post/...`).
+ *
+ * Mirrors Fastify's own handler contract (`Return | void | Promise<...>`): you
+ * can return the response payload synchronously, return nothing and dispatch via
+ * `reply.send()`, or return a promise. `async` is never required for handlers
+ * that don't await.
+ */
 export type RouteHandler = (
   request: FastifyRequest,
   reply: FastifyReply,
-) => void | Promise<unknown>;
+) => unknown;
 
 /**
  * WebSocket server configuration options
@@ -853,9 +861,8 @@ export interface ResponseTimeHeaderOptions {
 
 /**
  * Base options for SSR
- * @template M Custom meta type extending BaseMeta for error/notFound handlers
  */
-interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
+interface ServeSSROptions {
   /**
    * Response compression for non-streaming SSR HTML and API responses.
    * Negotiates `Accept-Encoding` and skips range or already-encoded replies.
@@ -994,7 +1001,7 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
      * - meta: Object containing metadata (page metadata required for page type)
      * - error: Object with { code, message, details? }
      */
-    errorHandler?: APIErrorHandlerFn<M>;
+    errorHandler?: APIErrorHandlerFn;
     /**
      * Custom handler for API requests that did not match any route (404)
      * If provided, overrides the built-in envelope handler for API routes
@@ -1017,7 +1024,7 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
      * - meta: Object containing metadata (page metadata required for page type)
      * - error: Object with { code: "not_found", message, details? }
      */
-    notFoundHandler?: APINotFoundHandlerFn<M>;
+    notFoundHandler?: APINotFoundHandlerFn;
   };
   /**
    * Custom handler for web requests that arrive while the server is shutting down.
@@ -1026,7 +1033,7 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
    * behavior for mixed SSR + API servers. Missing handlers fall back to
    * Unirend's default 503 response.
    */
-  closingHandler?: WebClosingHandlerFn | SplitClosingHandler<M>;
+  closingHandler?: WebClosingHandlerFn | SplitClosingHandler;
   /**
    * Enable WebSocket support on the server
    * @default false
@@ -1153,16 +1160,12 @@ interface ServeSSROptions<M extends BaseMeta = BaseMeta> {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface ServeSSRWithHMROptions<
-  M extends BaseMeta = BaseMeta,
-> extends ServeSSROptions<M> {
+export interface ServeSSRWithHMROptions extends ServeSSROptions {
   // Currently no development-specific options
   // This is a placeholder for any future development-specific options
 }
 
-export interface ServeSSRBuiltOptions<
-  M extends BaseMeta = BaseMeta,
-> extends ServeSSROptions<M> {
+export interface ServeSSRBuiltOptions extends ServeSSROptions {
   /**
    * Name of the server entry file to look for in the Vite manifest
    * Defaults to "EntrySSR" if not provided
@@ -1281,8 +1284,8 @@ export type SSRInternalAppConfig =
  * the main/default app. Instead, it falls back to framework default values (e.g.,
  * `containerID` defaults to `'root'`, error handler falls back to the framework's default 500 error page handler, etc).
  */
-export type RegisterHMRAppOptions<M extends BaseMeta = BaseMeta> = Pick<
-  ServeSSRWithHMROptions<M>,
+export type RegisterHMRAppOptions = Pick<
+  ServeSSRWithHMROptions,
   | 'publicAppConfig'
   | 'containerID'
   | 'get500ErrorPage'
@@ -1301,8 +1304,8 @@ export type RegisterHMRAppOptions<M extends BaseMeta = BaseMeta> = Pick<
  * the main/default app. Instead, it falls back to framework default values (e.g.,
  * `containerID` defaults to `'root'`, error handler falls back to the framework's default 500 error page handler, etc).
  */
-export type RegisterBuiltAppOptions<M extends BaseMeta = BaseMeta> = Pick<
-  ServeSSRBuiltOptions<M>,
+export type RegisterBuiltAppOptions = Pick<
+  ServeSSRBuiltOptions,
   | 'publicAppConfig'
   | 'containerID'
   | 'get500ErrorPage'
@@ -1339,16 +1342,16 @@ export interface APIErrorHandlerParams {
   APIResponseHelpers: APIResponseHelpersClass;
 }
 
-export type APIErrorHandlerFn<M extends BaseMeta = BaseMeta> = (
+export type APIErrorHandlerFn = (
   request: FastifyRequest,
   error: Error,
   isDevelopment: boolean,
   isPageData: boolean | undefined,
   params: APIErrorHandlerParams,
 ) =>
-  | APIErrorResponse<M>
-  | PageErrorResponse<M>
-  | Promise<APIErrorResponse<M> | PageErrorResponse<M>>;
+  | APIErrorResponse
+  | PageErrorResponse
+  | Promise<APIErrorResponse | PageErrorResponse>;
 
 /**
  * Error handler function type for web (non-API) requests
@@ -1362,14 +1365,14 @@ export type WebErrorHandlerFn = (
 /**
  * Not found handler function type for API/page requests
  */
-export type APINotFoundHandlerFn<M extends BaseMeta = BaseMeta> = (
+export type APINotFoundHandlerFn = (
   request: FastifyRequest,
   isPageData: boolean | undefined,
   params: APIErrorHandlerParams,
 ) =>
-  | APIErrorResponse<M>
-  | PageErrorResponse<M>
-  | Promise<APIErrorResponse<M> | PageErrorResponse<M>>;
+  | APIErrorResponse
+  | PageErrorResponse
+  | Promise<APIErrorResponse | PageErrorResponse>;
 
 /**
  * Not found handler function type for web (non-API) requests
@@ -1383,11 +1386,10 @@ export type WebNotFoundHandlerFn = (
  * Both handlers are optional - if a handler is missing or throws an error,
  * the error is logged to the Fastify logger and the server falls back to the default error response.
  *
- * @template M Custom meta type extending BaseMeta for API handlers
  */
-export interface SplitErrorHandler<M extends BaseMeta = BaseMeta> {
+export interface SplitErrorHandler {
   /** Handler for API requests (paths matching apiEndpointPrefix). If missing or throws, logs error and falls back to default. */
-  api?: APIErrorHandlerFn<M>;
+  api?: APIErrorHandlerFn;
   /** Handler for web requests (non-API paths). If missing or throws, logs error and falls back to default. */
   web?: WebErrorHandlerFn;
 }
@@ -1397,11 +1399,10 @@ export interface SplitErrorHandler<M extends BaseMeta = BaseMeta> {
  * Both handlers are optional - if a handler is missing or throws an error,
  * the error is logged to the Fastify logger and the server falls back to the default not found response.
  *
- * @template M Custom meta type extending BaseMeta for API handlers
  */
-export interface SplitNotFoundHandler<M extends BaseMeta = BaseMeta> {
+export interface SplitNotFoundHandler {
   /** Handler for API requests (paths matching apiEndpointPrefix). If missing or throws, logs error and falls back to default. */
-  api?: APINotFoundHandlerFn<M>;
+  api?: APINotFoundHandlerFn;
   /** Handler for web requests (non-API paths). If missing or throws, logs error and falls back to default. */
   web?: WebNotFoundHandlerFn;
 }
@@ -1413,14 +1414,14 @@ export interface SplitNotFoundHandler<M extends BaseMeta = BaseMeta> {
  * Params: (request, isPageData, params)
  * - params.APIResponseHelpers: The APIResponseHelpers class configured on this server
  */
-export type APIClosingHandlerFn<M extends BaseMeta = BaseMeta> = (
+export type APIClosingHandlerFn = (
   request: FastifyRequest,
   isPageData: boolean | undefined,
   params: APIErrorHandlerParams,
 ) =>
-  | APIErrorResponse<M>
-  | PageErrorResponse<M>
-  | Promise<APIErrorResponse<M> | PageErrorResponse<M>>;
+  | APIErrorResponse
+  | PageErrorResponse
+  | Promise<APIErrorResponse | PageErrorResponse>;
 
 /**
  * Closing handler function type for web (non-API) requests.
@@ -1435,11 +1436,10 @@ export type WebClosingHandlerFn = (
  * Both handlers are optional - if a handler is missing or throws an error,
  * the error is logged to the Fastify logger and the server falls back to the default 503 response.
  *
- * @template M Custom meta type extending BaseMeta for API handlers
  */
-export interface SplitClosingHandler<M extends BaseMeta = BaseMeta> {
+export interface SplitClosingHandler {
   /** Handler for API requests (paths matching apiEndpointPrefix). If missing or throws, falls back to default. */
-  api?: APIClosingHandlerFn<M>;
+  api?: APIClosingHandlerFn;
   /** Handler for web requests (non-API paths). If missing or throws, falls back to default. */
   web?: WebClosingHandlerFn;
 }
@@ -1495,9 +1495,8 @@ export type APIEndpointConfigWithoutAPI = Omit<
 
 /**
  * Shared options for configuring the API server
- * @template M Custom meta type extending BaseMeta for error/notFound handlers
  */
-export interface APIServerOptionsBase<M extends BaseMeta = BaseMeta> {
+export interface APIServerOptionsBase {
   /**
    * Optional safe-to-share app configuration object.
    * Cloned and frozen per request as `request.publicAppConfig`.
@@ -1663,9 +1662,8 @@ export interface APIServerOptionsBase<M extends BaseMeta = BaseMeta> {
  * split handlers can serve envelope responses for API paths and `WebResponse`
  * values for non-API paths.
  */
-export interface APIServerAPIOptions<
-  M extends BaseMeta = BaseMeta,
-> extends Omit<APIServerOptionsBase<M>, 'apiEndpoints' | 'plugins'> {
+export interface APIServerAPIOptions
+  extends Omit<APIServerOptionsBase, 'apiEndpoints' | 'plugins'> {
   plugins?: ServerPlugin<'api'>[];
   /**
    * Configuration for versioned API endpoints.
@@ -1686,7 +1684,7 @@ export interface APIServerAPIOptions<
    * web servers. The `api` handler returns an envelope and receives
    * `params.APIResponseHelpers`; the `web` handler returns `WebResponse`.
    */
-  errorHandler?: APIErrorHandlerFn<M> | SplitErrorHandler<M>;
+  errorHandler?: APIErrorHandlerFn | SplitErrorHandler;
   /**
    * Custom handler for requests that did not match any route.
    *
@@ -1698,7 +1696,7 @@ export interface APIServerAPIOptions<
    * web servers. The `api` handler returns an envelope and receives
    * `params.APIResponseHelpers`; the `web` handler returns `WebResponse`.
    */
-  notFoundHandler?: APINotFoundHandlerFn<M> | SplitNotFoundHandler<M>;
+  notFoundHandler?: APINotFoundHandlerFn | SplitNotFoundHandler;
   /**
    * Custom handler for requests that arrive while the server is shutting down.
    *
@@ -1706,7 +1704,7 @@ export interface APIServerAPIOptions<
    * provide separate `api` and `web` handlers. Missing handlers fall back to
    * Unirend's default 503 response for that request type.
    */
-  closingHandler?: APIClosingHandlerFn<M> | SplitClosingHandler<M>;
+  closingHandler?: APIClosingHandlerFn | SplitClosingHandler;
 }
 
 /**
@@ -1716,9 +1714,10 @@ export interface APIServerAPIOptions<
  * Unirend plugins/lifecycle/logging but without API envelope routing.
  * Function-form error/not-found/closing handlers return `WebResponse`.
  */
-export interface APIServerWebOptions<
-  M extends BaseMeta = BaseMeta,
-> extends Omit<APIServerOptionsBase<M>, 'apiEndpoints' | 'plugins'> {
+export interface APIServerWebOptions extends Omit<
+  APIServerOptionsBase,
+  'apiEndpoints' | 'plugins'
+> {
   plugins?: ServerPlugin<'plain'>[];
   /**
    * Disable API/page-data helper routing.
@@ -1801,9 +1800,7 @@ export interface PlainServerOptions extends Omit<
  * mode API/page-data helpers are disabled and function-form error handlers
  * return `WebResponse`.
  */
-export type APIServerOptions<M extends BaseMeta = BaseMeta> =
-  | APIServerAPIOptions<M>
-  | APIServerWebOptions<M>;
+export type APIServerOptions = APIServerAPIOptions | APIServerWebOptions;
 
 /**
  * Options for configuring the Static Web Server

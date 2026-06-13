@@ -26,7 +26,12 @@ import {
 import { Logger, ConsoleSink, LogLevel } from 'lifecycleion/logger';
 import { assertSupportedRuntime } from '../src/utils';
 import { serveAPI } from '../src/server';
-import type { APIServer, APIServerOptions } from '../src/server';
+import type {
+  APIServer,
+  APIServerOptions,
+  PluginHostInstance,
+  PluginOptions,
+} from '../src/server';
 import { staticContent } from '../src/plugins';
 import { APIResponseHelpers } from '../src/api-envelope';
 
@@ -206,7 +211,10 @@ class StaticContentDemoComponent extends BaseComponent {
             }),
 
             // API routes plugin
-            (fastify, pluginOptions) => {
+            (
+              fastify: PluginHostInstance<'api'>,
+              pluginOptions: PluginOptions<'api'>,
+            ) => {
               // eslint-disable-next-line no-console
               console.log(
                 '📦 Registering API routes with options:',
@@ -214,7 +222,7 @@ class StaticContentDemoComponent extends BaseComponent {
               );
 
               // Health check
-              fastify.get('/api/health', async (_request, _reply) => {
+              fastify.get('/api/health', (_request, _reply) => {
                 return {
                   status: 'healthy',
                   timestamp: new Date().toISOString(),
@@ -223,7 +231,7 @@ class StaticContentDemoComponent extends BaseComponent {
               });
 
               // Server info endpoint
-              fastify.get('/api/info', async (_request, _reply) => {
+              fastify.get('/api/info', (_request, _reply) => {
                 return {
                   name: 'Static Content Demo Server',
                   version: '1.0.0',
@@ -247,7 +255,7 @@ class StaticContentDemoComponent extends BaseComponent {
               });
 
               // Redirect root to static index
-              fastify.get('/', async (_request, reply) => {
+              fastify.get('/', (_request, reply) => {
                 return reply.redirect('/static/index.html');
               });
 

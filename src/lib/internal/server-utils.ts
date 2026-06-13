@@ -21,7 +21,6 @@ import type {
   WebClosingHandlerFn,
   SplitClosingHandler,
 } from '../types';
-import type { BaseMeta } from '../api-envelope/api-envelope-types';
 import type { CookieSerializeOptions } from '@fastify/cookie';
 import { DEFAULT_API_PREFIX, DEFAULT_PAGE_DATA_ENDPOINT } from './consts';
 import { generateDefault503ClosingPage } from './error-page-utils';
@@ -366,13 +365,13 @@ export function createDefaultWebClosingResponse(): WebResponse {
 
 type ClosingFunctionHandlerType = 'api' | 'web';
 
-type ClosingHandler<M extends BaseMeta = BaseMeta> =
-  | APIClosingHandlerFn<M>
+type ClosingHandler =
+  | APIClosingHandlerFn
   | WebClosingHandlerFn
-  | SplitClosingHandler<M>;
+  | SplitClosingHandler;
 
-interface ClosingResponseConfig<M extends BaseMeta = BaseMeta> {
-  handler?: ClosingHandler<M>;
+interface ClosingResponseConfig {
+  handler?: ClosingHandler;
   functionHandlerType: ClosingFunctionHandlerType;
   serverLabel: string;
   HelpersClass: APIResponseHelpersClass;
@@ -380,9 +379,7 @@ interface ClosingResponseConfig<M extends BaseMeta = BaseMeta> {
   pageDataEndpoint: string;
 }
 
-interface ClosingResponseContext<
-  M extends BaseMeta = BaseMeta,
-> extends ClosingResponseConfig<M> {
+interface ClosingResponseContext extends ClosingResponseConfig {
   request: FastifyRequest;
   reply: FastifyReply;
 }
@@ -392,7 +389,7 @@ interface ClosingResponseContext<
  * stopping. The resolver sets status/cache/content headers on the reply and
  * returns the body that the hook will pass to sendClosingPayload().
  */
-export async function resolveClosingResponse<M extends BaseMeta = BaseMeta>({
+export async function resolveClosingResponse({
   request,
   reply,
   handler,
@@ -401,7 +398,7 @@ export async function resolveClosingResponse<M extends BaseMeta = BaseMeta>({
   HelpersClass,
   apiPrefix,
   pageDataEndpoint,
-}: ClosingResponseContext<M>): Promise<unknown> {
+}: ClosingResponseContext): Promise<unknown> {
   // Closing responses need the same API/page-data classification as normal
   // errors so defaults and split handlers return the expected response shape.
   const { isAPI, isPageData } = classifyRequest(
@@ -412,7 +409,7 @@ export async function resolveClosingResponse<M extends BaseMeta = BaseMeta>({
 
   if (handler) {
     try {
-      if (isSplitHandler<Partial<SplitClosingHandler<M>>>(handler)) {
+      if (isSplitHandler<Partial<SplitClosingHandler>>(handler)) {
         // Split form lets mixed API + web servers customize each handler
         // independently. Missing handlers fall through to Unirend defaults.
         if (isAPI && handler.api) {
@@ -436,7 +433,7 @@ export async function resolveClosingResponse<M extends BaseMeta = BaseMeta>({
         // Function form follows the server's primary response type. APIServer
         // uses API envelopes, while non-API web requests fall through to the
         // default web response unless split form provides a web handler.
-        const apiHandler = handler as APIClosingHandlerFn<M>;
+        const apiHandler = handler as APIClosingHandlerFn;
         const apiResponse = await Promise.resolve(
           apiHandler(request, isPageData, {
             APIResponseHelpers: HelpersClass,

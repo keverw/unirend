@@ -19,7 +19,12 @@ import {
 import { Logger, ConsoleSink, LogLevel } from 'lifecycleion/logger';
 import { assertSupportedRuntime } from '../src/utils';
 import { serveAPI } from '../src/server';
-import type { APIServer, APIServerOptions } from '../src/server';
+import type {
+  APIServer,
+  APIServerOptions,
+  PluginHostInstance,
+  PluginOptions,
+} from '../src/server';
 // import { APIResponseHelpers } from '../src/api-envelope'; // Uncomment when using custom handlers
 
 const PORT = 3001;
@@ -78,7 +83,10 @@ class APIServerDemoComponent extends BaseComponent {
         const options: APIServerOptions = {
           plugins: [
             // Plugin demonstrating full wildcard support
-            (fastify, pluginOptions) => {
+            (
+              fastify: PluginHostInstance<'api'>,
+              pluginOptions: PluginOptions<'api'>,
+            ) => {
               // eslint-disable-next-line no-console
               console.log(
                 '📦 Registering API plugin with options:',
@@ -97,7 +105,7 @@ class APIServerDemoComponent extends BaseComponent {
               // });
 
               // API wildcard routes
-              fastify.get('/api/*', async (request, _reply) => {
+              fastify.get('/api/*', (request, _reply) => {
                 return {
                   message: 'API wildcard route',
                   path: request.url,
@@ -107,7 +115,7 @@ class APIServerDemoComponent extends BaseComponent {
               });
 
               // Specific API endpoints
-              fastify.get('/api/users', async (_request, _reply) => {
+              fastify.get('/api/users', (_request, _reply) => {
                 return {
                   users: [
                     { id: 1, name: 'Alice' },
@@ -116,7 +124,7 @@ class APIServerDemoComponent extends BaseComponent {
                 };
               });
 
-              fastify.post('/api/users', async (request, _reply) => {
+              fastify.post('/api/users', (request, _reply) => {
                 return {
                   message: 'User created',
                   user: request.body,
@@ -125,7 +133,7 @@ class APIServerDemoComponent extends BaseComponent {
               });
 
               // Health check
-              fastify.get('/health', async (_request, _reply) => {
+              fastify.get('/health', (_request, _reply) => {
                 return {
                   status: 'healthy',
                   timestamp: new Date().toISOString(),
@@ -134,11 +142,11 @@ class APIServerDemoComponent extends BaseComponent {
               });
 
               // Error testing routes
-              fastify.get('/api/error', async (_request, _reply) => {
+              fastify.get('/api/error', (_request, _reply) => {
                 throw new Error('This is a test error!');
               });
 
-              fastify.get('/api/error/500', async (_request, _reply) => {
+              fastify.get('/api/error/500', (_request, _reply) => {
                 const error = new Error('Custom 500 error') as Error & {
                   statusCode?: number;
                 };
@@ -146,7 +154,7 @@ class APIServerDemoComponent extends BaseComponent {
                 throw error;
               });
 
-              fastify.get('/api/error/400', async (_request, _reply) => {
+              fastify.get('/api/error/400', (_request, _reply) => {
                 const error = new Error('Bad request error') as Error & {
                   statusCode?: number;
                 };
@@ -156,12 +164,9 @@ class APIServerDemoComponent extends BaseComponent {
 
               // Page-data error route (to test envelope detection)
               // Note: page_data endpoints should always be under the API prefix
-              fastify.get(
-                '/api/v1/page_data/error',
-                async (_request, _reply) => {
-                  throw new Error('Page data error!');
-                },
-              );
+              fastify.get('/api/v1/page_data/error', (_request, _reply) => {
+                throw new Error('Page data error!');
+              });
             },
           ],
           // errorHandler: (request, error, isDevelopment, isPageData) => {

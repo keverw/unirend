@@ -1,4 +1,6 @@
 import type { FastifyInstance } from 'fastify';
+import type { WebSocketHandlerConfig } from './web-socket-server-helpers';
+import type { BaseMeta } from '../api-envelope/api-envelope-types';
 
 /**
  * Abstract base class for all server types in unirend
@@ -52,7 +54,9 @@ export abstract class BaseServer {
    * Register a WebSocket handler for the specified path
    * @throws Error if WebSocket support is not enabled on the server
    */
-  public abstract registerWebSocketHandler(config: unknown): void;
+  public abstract registerWebSocketHandler<M extends BaseMeta = BaseMeta>(
+    config: WebSocketHandlerConfig<M>,
+  ): void;
 
   /**
    * Get the list of active WebSocket clients (if enabled)

@@ -77,7 +77,7 @@ const _webModeRejectsEnvelopeFunctionTypeCheck = {
 const _plainServerOptionsTypeCheck = {
   plugins: [
     (pluginHost: PluginHostInstance<'plain'>) => {
-      pluginHost.get('/ok', async () => ({ ok: true }));
+      pluginHost.get('/ok', () => ({ ok: true }));
     },
   ],
   errorHandler: (_request: FastifyRequest, error: Error) => ({
@@ -105,9 +105,9 @@ const _plainServerRejectsSplitHandlerTypeCheck = {
 
 function _plainServerReturnTypeCheck(server: PlainServer): void {
   // @ts-expect-error PlainServer does not expose envelope API route helpers.
-  server.api;
+  void server.api;
   // @ts-expect-error PlainServer does not expose page-data route helpers.
-  server.pageDataHandler;
+  void server.pageDataHandler;
 }
 
 /**
@@ -396,7 +396,7 @@ describe('APIServer public methods', () => {
       expect(notFoundResponse.body).toContain('404 - Not Found');
     });
 
-    it('throws immediately when plugins use envelope shortcuts while API handling is disabled', async () => {
+    it('throws immediately when plugins use envelope shortcuts while API handling is disabled', () => {
       server = serveAPI({
         apiEndpoints: { apiEndpointPrefix: false },
         plugins: [
@@ -414,7 +414,7 @@ describe('APIServer public methods', () => {
       );
     });
 
-    it('throws immediately when plugins use page data shortcuts while API handling is disabled', async () => {
+    it('throws immediately when plugins use page data shortcuts while API handling is disabled', () => {
       server = serveAPI({
         apiEndpoints: { apiEndpointPrefix: false },
         plugins: [
@@ -436,7 +436,7 @@ describe('APIServer public methods', () => {
       server = servePlain({
         plugins: [
           (pluginHost: PluginHostInstance<'plain'>) => {
-            pluginHost.get('/hello', async () => ({ message: 'hello' }));
+            pluginHost.get('/hello', () => ({ message: 'hello' }));
           },
         ],
         notFoundHandler: (request) => ({

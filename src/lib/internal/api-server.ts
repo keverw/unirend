@@ -43,6 +43,7 @@ import { DataLoaderServerHandlerHelpers } from './data-loader-server-handler-hel
 import { APIRoutesServerHelpers } from './api-routes-server-helpers';
 import { WebSocketServerHelpers } from './web-socket-server-helpers';
 import type { WebSocketHandlerConfig } from './web-socket-server-helpers';
+import type { BaseMeta } from '../api-envelope/api-envelope-types';
 import { resolveFastifyLoggerConfig } from './logger-config-utils';
 import {
   registerFileUploadValidationHooks,
@@ -530,7 +531,9 @@ export class APIServer extends BaseServer {
    * @param config WebSocket handler configuration
    * @throws Error if WebSocket support is not enabled
    */
-  public registerWebSocketHandler(config: WebSocketHandlerConfig): void {
+  public registerWebSocketHandler<M extends BaseMeta = BaseMeta>(
+    config: WebSocketHandlerConfig<M>,
+  ): void {
     if (!this.webSocketHelpers) {
       throw new Error(
         "WebSocket support is not enabled. Set 'enableWebSockets: true' in APIServerOptions to use WebSocket handlers.",

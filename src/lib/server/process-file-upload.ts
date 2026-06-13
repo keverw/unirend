@@ -1122,10 +1122,7 @@ class FileUploadProcessor<T = unknown> {
 export async function processFileUpload<T = unknown>(
   config: FileUploadConfig<T>,
 ): Promise<UploadResult<T>> {
-  if (
-    !Number.isFinite(config.maxSizePerFile) ||
-    config.maxSizePerFile <= 0
-  ) {
+  if (!Number.isFinite(config.maxSizePerFile) || config.maxSizePerFile <= 0) {
     throw new Error(
       'processFileUpload requires maxSizePerFile to be a positive finite number',
     );

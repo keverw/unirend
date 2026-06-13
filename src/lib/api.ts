@@ -23,11 +23,13 @@ export type PlainServer = Omit<
  * const server = serveAPI({
  *   plugins: [
  *     async (fastify, options) => {
- *       // Full wildcard support - even root wildcards are allowed
- *       fastify.get('/api/*', async (request, reply) => {
+ *       // Full wildcard support - even root wildcards are allowed.
+ *       // Like Fastify, handlers can return the payload synchronously...
+ *       fastify.get('/api/*', (request, reply) => {
  *         return { message: 'API wildcard route' };
  *       });
  *
+ *       // ...or be async when you need to await something.
  *       fastify.get('*', async (request, reply) => {
  *         return { message: 'Catch-all route' };
  *       });
@@ -55,6 +57,11 @@ export function serveAPI(options: APIServerOptions = {}): APIServer {
  * This is a small wrapper around APIServer with API/page-data routing disabled.
  * Use plugins and raw `pluginHost.get/post/...` routes for content. Function-form
  * error, not-found, and closing handlers return `WebResponse`.
+ *
+ * Note: disabling envelope routing only affects HTTP routes. WebSocket upgrade
+ * rejection is a separate, mode-independent concern, so
+ * `registerWebSocketHandler()` still rejects with an `APIResponseEnvelope`
+ * (and accepts the optional `<M>` meta type) even on a plain server.
  *
  * @param options Configuration options for the plain web server
  * @returns PlainServer instance ready to be started

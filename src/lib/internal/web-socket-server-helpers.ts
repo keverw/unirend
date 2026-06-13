@@ -1,7 +1,10 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import websocket from '@fastify/websocket';
 import type { WebSocket } from 'ws';
-import type { APIResponseEnvelope } from '../api-envelope/api-envelope-types';
+import type {
+  APIResponseEnvelope,
+  BaseMeta,
+} from '../api-envelope/api-envelope-types';
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
 import type { APIResponseHelpersClass, WebSocketOptions } from '../types';
 import { getAPIResponseHelpersClass } from './api-response-helpers-utils';
@@ -61,8 +64,12 @@ function extractWebSocketParams(
 
 /**
  * WebSocket preValidation result - discriminated union
+ *
+ * @template M Custom envelope meta type for the rejection envelope. Defaults to
+ * `BaseMeta`; specify it (e.g. via `registerWebSocketHandler<MyMeta>(...)`) to
+ * type `meta` on the reject envelope, consistent with `server.api.*` routes.
  */
-export type WebSocketPreValidationResult =
+export type WebSocketPreValidationResult<M extends BaseMeta = BaseMeta> =
   | {
       /** Allow WebSocket upgrade */
       action: 'upgrade';
@@ -72,8 +79,14 @@ export type WebSocketPreValidationResult =
   | {
       /** Reject WebSocket upgrade with API envelope response */
       action: 'reject';
-      /** API envelope response to send when rejecting */
-      envelope: APIResponseEnvelope;
+      /**
+       * API envelope response to send when rejecting.
+       *
+       * The handshake rejection is intentionally mode-independent: it always
+       * uses an `APIResponseEnvelope`, even on a plain web server where HTTP
+       * envelope routing is disabled.
+       */
+      envelope: APIResponseEnvelope<unknown, M>;
     };
 
 /**
@@ -92,15 +105,21 @@ export interface WebSocketUpgradeInfo {
 
 /**
  * WebSocket handler configuration
+ *
+ * @template M Custom envelope meta type for the preValidation reject envelope.
+ * Defaults to `BaseMeta`; specify it per call via
+ * `registerWebSocketHandler<MyMeta>(...)`.
  */
-export interface WebSocketHandlerConfig {
+export interface WebSocketHandlerConfig<M extends BaseMeta = BaseMeta> {
   /** The WebSocket endpoint path */
   path: string;
   /** Optional preValidation function that returns upgrade/reject decision with optional envelope */
   preValidate?: (
     request: FastifyRequest,
     params: WebSocketHandlerParams,
-  ) => Promise<WebSocketPreValidationResult> | WebSocketPreValidationResult;
+  ) =>
+    | Promise<WebSocketPreValidationResult<M>>
+    | WebSocketPreValidationResult<M>;
   /** WebSocket connection handler */
   handler: (
     socket: WebSocket,

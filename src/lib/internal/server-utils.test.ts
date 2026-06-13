@@ -1348,7 +1348,7 @@ describe('buildFastifyHTTPSOptions', () => {
     expect(resolved).toBe(mockCtx);
   });
 
-  it('creates SNICallback that rejects when async sni errors without callback', async () => {
+  it('creates SNICallback that rejects when async sni errors without callback', () => {
     const config: HTTPSOptions = {
       key: 'k',
       cert: 'c',
@@ -1366,7 +1366,7 @@ describe('buildFastifyHTTPSOptions', () => {
 
     const returned = sniCallback('example.com') as Promise<unknown>;
     expect(returned).toBeInstanceOf(Promise);
-    await expect(returned).rejects.toThrow('no-cb error');
+    expect(returned).rejects.toThrow('no-cb error');
   });
 
   it('passes the correct servername to the sni function', () => {
