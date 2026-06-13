@@ -655,7 +655,7 @@ When preparing a new release:
 bun run build
 ```
 
-The build process uses the `update-docs` script defined in `package.json`. It updates TOCs (README, CHANGELOG, and API envelope doc) and runs `scripts/update-readme-version.ts` to synchronize the version number in the README with the one in `package.json`. Afterwards, you can publish the package to npm:
+The build process uses the `update-docs` script defined in `package.json`. It regenerates the TOCs for the README, the changelog, `unirend-php/README.md`, and every file under `docs/`, runs `scripts/update-readme-version.ts` to synchronize the version number in the README with the one in `package.json`, and formats the docs. Afterwards, you can publish the package to npm:
 
 ```bash
 # Publish to npm
