@@ -1,59 +1,73 @@
 import type { RenderType } from '../../types';
-
-/*
- * NOTE: This file uses @ts-expect-error on certain node type checks.
- * The underlying HTML parser returns node types like 'root' and 'directive',
- * which are not present in the outdated TypeScript types. These errors are
- * expected and safe to ignore, as the code works at runtime.
- */
+import type { CheerioAPI } from 'cheerio';
+import type { AnyNode, Comment, Document, Element, Text } from 'domhandler';
 
 // Define a lightweight type for directive nodes from the parser
 type DirectiveElement = { type: 'directive'; data: string };
+
+// domhandler types `node.type` as the `ElementType` string enum, so comparing
+// it directly to a string literal trips `no-unsafe-enum-comparison`. These
+// guards widen the discriminant to a plain string before comparing and return a
+// type predicate, so callers still narrow the node union correctly.
+const nodeType = (node: AnyNode): string => node.type;
+const isDocumentNode = (node: AnyNode): node is Document =>
+  nodeType(node) === 'root';
+const isDirectiveNode = (node: AnyNode): boolean =>
+  nodeType(node) === 'directive';
+const isCommentNode = (node: AnyNode): node is Comment =>
+  nodeType(node) === 'comment';
+const isTextNode = (node: AnyNode): node is Text => nodeType(node) === 'text';
+const isElementNode = (node: AnyNode): node is Element => {
+  const type = nodeType(node);
+  return type === 'tag' || type === 'script' || type === 'style';
+};
 
 // Development comment that should be preserved
 const DEVELOPMENT_COMMENT =
   'React hydration relies on data attributes. Do not remove them.';
 
 function formatNode(
-  el: cheerio.Element,
+  el: AnyNode,
   level = 0,
   isInRoot = false,
   containerID = 'root',
 ): string {
   const indent = isInRoot ? '' : '  '.repeat(level);
 
-  // @ts-expect-error: 'root' is a valid node type at runtime, but not in the types
-  if (el.type === 'root') {
-    // @ts-expect-error: 'children' exists on root node at runtime
-    const children = (el.children || []) as cheerio.Element[];
+  if (isDocumentNode(el)) {
+    const children = el.children;
 
     return children
-      .map((child: cheerio.Element) =>
-        formatNode(child, level, false, containerID),
-      )
+      .map((child) => formatNode(child, level, false, containerID))
       .filter(Boolean)
       .join('\n');
   }
 
-  // @ts-expect-error: 'directive' is a valid node type at runtime, but not in the types
-  if (el.type === 'directive') {
+  if (isDirectiveNode(el)) {
     const dir = el as unknown as DirectiveElement;
     return `${indent}<${dir.data}>`;
   }
 
   // Comment nodes
-  if (el.type === 'comment') {
+  if (isCommentNode(el)) {
     return `${indent}<!--${el.data}-->`;
   }
 
   // Text nodes
-  if (el.type === 'text') {
+  if (isTextNode(el)) {
     const text = el.data?.trim() ?? '';
     if (!text) {
       return '';
     }
 
     return `${indent}${text}`;
+  }
+
+  // Only element-like nodes (tag/script/style) remain past this point. Guard
+  // against any other node types (e.g. CDATA) which carry no tag info; this
+  // also narrows `el` to a domhandler Element for the property access below.
+  if (!isElementNode(el)) {
+    return '';
   }
 
   // Tag elements
@@ -137,7 +151,7 @@ function formatNode(
 }
 
 export function prettifyHTML(
-  $: cheerio.Root | cheerio.CheerioAPI,
+  $: CheerioAPI,
   containerID = 'root',
 ): string {
   let html = '';
@@ -233,8 +247,8 @@ export async function processTemplate(
     // AND validate that required markers are present
     $('*:not(script):not(style)')
       .contents()
-      .each((_index: number, node: cheerio.Element) => {
-        if (node.type === 'comment') {
+      .each((_index: number, node: AnyNode) => {
+        if (isCommentNode(node)) {
           const commentData = node.data?.trim() || '';
           const shouldKeep =
             commentData.startsWith('ss-') ||
