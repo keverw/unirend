@@ -26,7 +26,10 @@ import {
 } from './base-files/gitkeep-files-src';
 import { ensureViteEnv } from './templates-shared/ensure-vite-env';
 import { ensureViteConfig } from './templates-shared/vite-config';
-import { ensureAppTsConfig } from './templates-shared/app-tsconfig';
+import {
+  ensureAppTsConfig,
+  ensureAPITsConfig,
+} from './templates-shared/app-tsconfig';
 import { ensureAppPrettierConfig } from './templates-shared/app-prettier-config';
 import {
   ensureAppIndexHTML,
@@ -574,6 +577,11 @@ export async function createProjectSpecificFiles(
     // LifecycleManager. serve.ts takes the project name so the manager is named
     // `<projectName>-api-server` while the component keeps its generic
     // `api-server` name.
+    // App-level tsconfig: no Vite/client surface, so it's a minimal config that
+    // exists only to establish a project boundary for editor `@/`-vs-relative
+    // import resolution (see ensureAPITsConfig). It extends the repo-root config.
+    await ensureAPITsConfig(root, projectPath, log);
+
     await ensureAPIComponent(root, projectPath, projectName, log);
     await ensureAPIServe(root, projectPath, projectName, log);
 

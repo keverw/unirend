@@ -1662,8 +1662,10 @@ export interface APIServerOptionsBase {
  * split handlers can serve envelope responses for API paths and `WebResponse`
  * values for non-API paths.
  */
-export interface APIServerAPIOptions
-  extends Omit<APIServerOptionsBase, 'apiEndpoints' | 'plugins'> {
+export interface APIServerAPIOptions extends Omit<
+  APIServerOptionsBase,
+  'apiEndpoints' | 'plugins'
+> {
   plugins?: ServerPlugin<'api'>[];
   /**
    * Configuration for versioned API endpoints.

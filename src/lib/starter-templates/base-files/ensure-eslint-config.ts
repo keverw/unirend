@@ -11,6 +11,7 @@ import importPlugin from 'eslint-plugin-import';
 import unicorn from 'eslint-plugin-unicorn';
 import checkFile from 'eslint-plugin-check-file';
 import reactRefresh from 'eslint-plugin-react-refresh';
+import unirend from 'unirend/eslint-plugin';
 
 export default [
   eslint.configs.recommended,
@@ -44,6 +45,7 @@ export default [
     plugins: {
       import: importPlugin,
       unicorn,
+      unirend,
     },
     languageOptions: {
       parserOptions: {
@@ -274,6 +276,27 @@ export default [
       'import/newline-after-import': 'error',
       // Disallow unnecessary /index in import paths (prefer ./foo over ./foo/index)
       'import/no-useless-path-segments': ['error', { noUselessIndex: true }],
+      // Prefer the '@/' alias over relative imports that escape an app's
+      // project (tsconfig) boundary, e.g. into shared src/libs/*. Relative
+      // imports within the same app are left alone, matching the editor's
+      // 'project-relative' importModuleSpecifier setting. Autofixable.
+      'unirend/prefer-alias-imports': 'error',
+      // Block deep imports into Unirend internals. 'unirend/context' is a
+      // published subpath only so the client and server bundles resolve a
+      // single shared context singleton — it is not a public API. Use
+      // 'unirend/client' or 'unirend/server' instead.
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'unirend/context',
+              message:
+                'unirend/context is internal (the shared SSR context singleton) and not part of the public API. Import from unirend/client or unirend/server instead.',
+            },
+          ],
+        },
+      ],
       // Prevent function declarations inside blocks
       'no-inner-declarations': 'error',
       // Limit callback nesting to prevent callback hell

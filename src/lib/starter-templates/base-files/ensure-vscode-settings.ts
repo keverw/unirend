@@ -16,6 +16,12 @@ const defaultSettings = {
   'prettier.prettierPath': './node_modules/prettier',
   'prettier.requireConfig': true,
   'jestrunner.jestCommand': 'bun test',
+  // Auto-imports stay relative within an app, but switch to the `@/` alias when
+  // they'd reach outside the app's tsconfig directory (e.g. into shared
+  // src/libs/*). Each app ships its own tsconfig so this boundary lands on the
+  // app folder; see app-tsconfig.ts and the API tsconfig note.
+  'typescript.preferences.importModuleSpecifier': 'project-relative',
+  'javascript.preferences.importModuleSpecifier': 'project-relative',
 };
 
 interface VSCodeSettings {
