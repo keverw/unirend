@@ -55,7 +55,7 @@ export const dependencies = {
   lifecycleion: '^0.0.18',
   react: '^19.2.7',
   'react-dom': '^19.2.7',
-  'react-router': '^7.17.0',
+  'react-router': '^8.0.1',
   unirend: `^${PKG_VERSION}`,
 };
 

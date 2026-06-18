@@ -25,7 +25,7 @@ export function useDataLoaderEnvelopeError() {
 
   // We need to check all matches because the error could be in any child route
   for (const match of matches) {
-    const data = match.data as PageResponseEnvelope | undefined;
+    const data = match.loaderData as PageResponseEnvelope | undefined;
 
     if (data?.status === 'error') {
       errorResponse = data;

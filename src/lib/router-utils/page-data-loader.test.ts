@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import getPort from 'get-port';
 import { overrideDevMode } from 'lifecycleion/dev-mode';
+import { RouterContextProvider } from 'react-router';
 import type { LoaderFunctionArgs } from 'react-router';
 import {
   createDefaultLocalPageDataLoaderConfig,
@@ -16,7 +17,7 @@ function createArgs(
     request: new Request(path),
     url: new URL(path),
     params,
-    context: undefined,
+    context: new RouterContextProvider(),
     pattern: '',
   };
 }
