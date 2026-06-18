@@ -85,7 +85,12 @@ const sharedContextPlugin: Plugin = {
 // For a library published to NPM, we want EVERYTHING external so users install their own deps
 // This approach automatically stays in sync with package.json changes
 const baseConfig: Options = {
-  format: ['cjs', 'esm'],
+  // ESM only. The dist/context entry is a runtime singleton (one createContext()
+  // call shared by client + server). Shipping CJS alongside ESM would reintroduce
+  // the Node dual-package hazard: a consumer mixing require() and import would get
+  // two copies of the context module, two createContext() instances, and broken
+  // Provider/hook communication. ESM-only guarantees a single instance.
+  format: ['esm'],
   dts: true,
   splitting: false,
   sourcemap: true,
@@ -145,7 +150,6 @@ export default defineConfig([
     ...baseConfig,
     entry: ['src/cli.ts'],
     outDir: 'dist/cli',
-    format: ['esm'], // CLI only needs ESM since package.json has "type": "module"
     dts: false, // CLI is not consumed as a library so type definitions aren't needed
   },
 

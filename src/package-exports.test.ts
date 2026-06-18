@@ -7,7 +7,6 @@ import tsupConfig from '../tsup.config';
 type PackageExport = {
   types: string;
   import: string;
-  require: string;
 };
 
 type PackageJSON = {
@@ -49,7 +48,8 @@ const publicLibraryEntries = configs.filter(
 
 // Each public tsup entrypoint builds into dist/<subpath>/<entry-name>.*.
 // Package exports must mirror that layout so documented imports like
-// `unirend/build-info` resolve for ESM, CJS, and TypeScript consumers.
+// `unirend/build-info` resolve for ESM and TypeScript consumers. unirend is
+// ESM-only (see tsup.config.ts), so there is no CJS `require` condition.
 const expectedExports = Object.fromEntries(
   publicLibraryEntries.map((config) => {
     const outDir = config.outDir;
@@ -61,7 +61,6 @@ const expectedExports = Object.fromEntries(
       {
         types: `./${outDir}/${fileName}.d.ts`,
         import: `./${outDir}/${fileName}.js`,
-        require: `./${outDir}/${fileName}.cjs`,
       },
     ];
   }),
