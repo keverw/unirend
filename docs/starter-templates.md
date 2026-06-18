@@ -596,8 +596,10 @@ ESLint import resolver. Two layers keep imports consistent:
 
 The rule is autofixable (`severity: error`); run `lint:fix` to apply. It accepts
 `rootDir` (default `"src"`) and `prefix` (default `"@/"`) options if you change
-the alias. The plugin requires ESLint 9 flat config (already set up in the
-template) and resolves through the `unirend` dependency every project gets.
+the alias. It covers static `import`/`export … from` and dynamic `import()`
+specifiers; `require()` is out of scope since generated projects are ESM. The
+plugin requires ESLint 9 flat config (already set up in the template) and
+resolves through the `unirend` dependency every project gets.
 
 If you maintain your own ESLint config (or tooling that wraps Unirend), the
 plugin is a standalone export:

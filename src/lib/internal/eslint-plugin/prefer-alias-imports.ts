@@ -1,9 +1,5 @@
 import type { Rule } from 'eslint';
-import type {
-  ExportAllDeclaration,
-  ExportNamedDeclaration,
-  ImportDeclaration,
-} from 'estree';
+import type { Expression } from 'estree';
 import { dirname } from 'path';
 import { analyzeRelativeImport } from './analyze-import';
 import { findNearestTsconfigDir } from './find-tsconfig';
@@ -27,12 +23,6 @@ export interface PreferAliasImportsDeps {
   /** Locate the boundary directory for a given importing-file directory. */
   findBoundaryDir?: (fromDir: string) => string | null;
 }
-
-// The import/export node kinds that carry a module `source` we care about.
-type ImportOrExportNode =
-  | ImportDeclaration
-  | ExportNamedDeclaration
-  | ExportAllDeclaration;
 
 /**
  * Build the `prefer-alias-imports` ESLint rule.
@@ -86,10 +76,15 @@ export function createPreferAliasImportsRule(
         return {};
       }
 
-      const check = (node: ImportOrExportNode): void => {
-        const source = node.source;
-
-        if (!source || typeof source.value !== 'string') {
+      // Handles the module-specifier node of static imports/exports and
+      // dynamic import() alike. Non-string specifiers (e.g. `import(expr)`) and
+      // missing sources (`export { x }`) are skipped.
+      const checkSource = (source: Expression | null | undefined): void => {
+        if (
+          !source ||
+          source.type !== 'Literal' ||
+          typeof source.value !== 'string'
+        ) {
           return;
         }
 
@@ -123,9 +118,14 @@ export function createPreferAliasImportsRule(
       };
 
       return {
-        ImportDeclaration: check,
-        ExportNamedDeclaration: check,
-        ExportAllDeclaration: check,
+        ImportDeclaration: (node) => checkSource(node.source),
+        ExportNamedDeclaration: (node) => checkSource(node.source),
+        ExportAllDeclaration: (node) => checkSource(node.source),
+        // Dynamic import('...') — common for lazy/code-split routes. require()
+        // is intentionally out of scope: generated projects are ESM, and
+        // reliable require() detection needs identifier/shadowing guards for
+        // little practical gain.
+        ImportExpression: (node) => checkSource(node.source),
       };
     },
   };

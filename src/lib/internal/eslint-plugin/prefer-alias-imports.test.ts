@@ -46,6 +46,10 @@ ruleTester.run('prefer-alias-imports', rule, {
     { filename, code: "import react from 'react';" },
     // Escapes the boundary but lands outside src/ — no alias form, left alone.
     { filename, code: "import seed from '../../../../scripts/seed';" },
+    // Dynamic import within the boundary.
+    { filename, code: "const lazy = () => import('./Lazy');" },
+    // Dynamic import with a non-literal specifier — nothing to analyze.
+    { filename, code: 'const load = (name) => import(name);' },
   ],
   invalid: [
     {
@@ -65,6 +69,13 @@ ruleTester.run('prefer-alias-imports', rule, {
       filename,
       code: "export * from '../../../libs/format';",
       output: "export * from '@/libs/format';",
+      errors: 1,
+    },
+    {
+      // Dynamic import that escapes the boundary is flagged and fixed.
+      filename,
+      code: "const lazy = () => import('../../../libs/format');",
+      output: "const lazy = () => import('@/libs/format');",
       errors: 1,
     },
   ],
