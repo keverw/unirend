@@ -1081,7 +1081,7 @@ export class SSRServerComponent extends BaseComponent {
               ...sharedConfig,
               plugins: SHARED_PLUGINS,
               publicAppConfig: {
-                api_endpoint: 'http://localhost:3001',
+                api_endpoint: 'http://localhost:3000',
                 environment: 'development',
                 build: {
                   version: buildResult.info.version,
