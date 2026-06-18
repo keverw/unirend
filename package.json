@@ -53,6 +53,11 @@
       "types": "./dist/utils/utils.d.ts",
       "import": "./dist/utils/utils.js",
       "require": "./dist/utils/utils.cjs"
+    },
+    "./eslint-plugin": {
+      "types": "./dist/eslint-plugin/eslint-plugin.d.ts",
+      "import": "./dist/eslint-plugin/eslint-plugin.js",
+      "require": "./dist/eslint-plugin/eslint-plugin.cjs"
     }
   },
   "bin": {

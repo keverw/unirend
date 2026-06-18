@@ -151,4 +151,11 @@ export default defineConfig([
 
   // Public utilities (StaticContentCache, HTML helpers)
   { ...baseConfig, entry: ['src/utils.ts'], outDir: 'dist/utils' },
+
+  // ESLint plugin (prefer-alias-imports rule)
+  {
+    ...baseConfig,
+    entry: ['src/eslint-plugin.ts'],
+    outDir: 'dist/eslint-plugin',
+  },
 ]);

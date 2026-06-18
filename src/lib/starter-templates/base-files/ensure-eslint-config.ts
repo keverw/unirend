@@ -11,6 +11,7 @@ import importPlugin from 'eslint-plugin-import';
 import unicorn from 'eslint-plugin-unicorn';
 import checkFile from 'eslint-plugin-check-file';
 import reactRefresh from 'eslint-plugin-react-refresh';
+import unirend from 'unirend/eslint-plugin';
 
 export default [
   eslint.configs.recommended,
@@ -44,6 +45,7 @@ export default [
     plugins: {
       import: importPlugin,
       unicorn,
+      unirend,
     },
     languageOptions: {
       parserOptions: {
@@ -274,6 +276,11 @@ export default [
       'import/newline-after-import': 'error',
       // Disallow unnecessary /index in import paths (prefer ./foo over ./foo/index)
       'import/no-useless-path-segments': ['error', { noUselessIndex: true }],
+      // Prefer the '@/' alias over relative imports that escape an app's
+      // project (tsconfig) boundary, e.g. into shared src/libs/*. Relative
+      // imports within the same app are left alone, matching the editor's
+      // 'project-relative' importModuleSpecifier setting. Autofixable.
+      'unirend/prefer-alias-imports': 'error',
       // Prevent function declarations inside blocks
       'no-inner-declarations': 'error',
       // Limit callback nesting to prevent callback hell
