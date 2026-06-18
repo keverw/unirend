@@ -183,7 +183,7 @@
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
     "@fastify/formbody": "^8.0.2",
-    "@fastify/multipart": "^9.4.0",
+    "@fastify/multipart": "^10.0.0",
     "@fastify/websocket": "^11.2.0",
     "cheerio": "^1.2.0",
     "entities": "^8.0.0",
@@ -192,7 +192,11 @@
     "qs": "^6.15.2",
     "range_check": "^4.1.0",
     "semver": "^7.8.4",
-    "sort-package-json": "^3.7.1",
+    "sort-package-json": "^4.0.0",
     "ulid": "^3.0.2"
+  },
+  "overrides": {
+    "undici": "^7.28.0",
+    "esbuild": "^0.28.1"
   }
 }
