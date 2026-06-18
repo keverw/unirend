@@ -613,6 +613,12 @@ export default [
 ];
 ```
 
+The generated config also adds a `no-restricted-imports` guard against
+`unirend/context`. That subpath is published only so the client and server
+bundles resolve a single shared context singleton — it is not part of the
+public API. If you hit the error, import from `unirend/client` or
+`unirend/server` instead.
+
 ## Build Target: Bun vs. Node
 
 The `--target` flag (default `node`) controls what the **server bundle and run
