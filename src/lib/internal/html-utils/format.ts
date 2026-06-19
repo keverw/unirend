@@ -150,10 +150,7 @@ function formatNode(
   return `${indent}${openTag}</${tagName}>`;
 }
 
-export function prettifyHTML(
-  $: CheerioAPI,
-  containerID = 'root',
-): string {
+export function prettifyHTML($: CheerioAPI, containerID = 'root'): string {
   let html = '';
 
   for (const el of $.root().toArray()) {

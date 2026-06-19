@@ -1,4 +1,4 @@
-# Unirend v0.0.24
+# Unirend v0.1.0
 
 [![npm version](https://badge.fury.io/js/unirend.svg)](https://badge.fury.io/js/unirend)
 
@@ -8,7 +8,7 @@ Unirend helps you ship SEO-friendly pages and accurate social sharing previews b
 
 The focus is on small, focused building blocks rather than a heavyweight, all-in-one framework. Unirend keeps routing in React Router, builds on Vite, and gives you explicit server utilities for API routes, page data loaders, plugins, uploads, redirects, static serving, and production runtime behavior when your app needs them.
 
-> ⚠️ **Note:** This package is currently in active development and **not yet ready for production use.**
+> ⚠️ **Pre-1.0.0:** Unirend is maturing and usable, but still pre-1.0 — the core APIs are stabilizing yet may still change before 1.0.0. Pin a version and review release notes when upgrading.
 
 ## Installation
 

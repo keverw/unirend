@@ -13,6 +13,7 @@ import { ensureEslintConfig } from './base-files/ensure-eslint-config';
 import { ensureVSCodeExtensions } from './base-files/ensure-vscode-extensions';
 import { ensureVSCodeSettings } from './base-files/ensure-vscode-settings';
 import { ensureAgentsMD } from './base-files/ensure-agents-md';
+import { ensureClaudeMD } from './base-files/ensure-claude-md';
 import { ensureCspell } from './base-files/ensure-cspell';
 import { ensureCleanCspell } from './base-files/ensure-clean-cspell';
 import type { RepoConfig, ServerBuildTarget, LoggerFunction } from './types';
@@ -248,6 +249,9 @@ export async function ensureBaseFiles(
 
   // Ensure AGENTS.md exists (only creates if missing)
   await ensureAgentsMD(repoRoot, options?.log);
+
+  // Ensure CLAUDE.md exists — bridges Claude Code to AGENTS.md (only creates if missing)
+  await ensureClaudeMD(repoRoot, options?.log);
 
   // Return the resulting package.json state so callers can thread it onward
   // without re-reading the file.
