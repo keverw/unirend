@@ -22,6 +22,7 @@ import {
 import { registerClientInfoResolution } from './client-info-resolution';
 import type {
   APIServerOptions,
+  APIServerListenOptions,
   PluginMetadata,
   APIResponseHelpersClass,
   PluginOptions,
@@ -160,8 +161,10 @@ export class APIServer extends BaseServer {
    * @param host Host to bind to (default: "localhost")
    * @returns Promise that resolves when server is ready
    */
+  public async listen(port?: number, host?: string): Promise<void>;
+  public async listen(options: APIServerListenOptions): Promise<void>;
   public async listen(
-    port: number = 3000,
+    portOrOptions: number | APIServerListenOptions = 3000,
     host: string = 'localhost',
   ): Promise<void> {
     if (this._isListening) {
@@ -175,6 +178,8 @@ export class APIServer extends BaseServer {
         'APIServer is already starting. Please wait for the current startup to complete.',
       );
     }
+
+    const listenOptions = this.resolveListenOptions(portOrOptions, host);
 
     this._isStarting = true;
     this._isStopping = false;
@@ -436,10 +441,7 @@ export class APIServer extends BaseServer {
       );
 
       // Start the server
-      await this.fastifyInstance.listen({
-        port,
-        host: host || 'localhost',
-      });
+      await this.fastifyInstance.listen(listenOptions);
 
       this._isListening = true;
       this._isStarting = false;
@@ -566,6 +568,41 @@ export class APIServer extends BaseServer {
 
     // Return the underlying ws client set (Set<WebSocket>)
     return websocketServer.clients;
+  }
+
+  /**
+   * Resolve listen options from various input formats
+   * @private
+   */
+  private resolveListenOptions(
+    portOrOptions: number | APIServerListenOptions,
+    host: string,
+  ): APIServerListenOptions {
+    if (typeof portOrOptions === 'object') {
+      if ('path' in portOrOptions && portOrOptions.path !== undefined) {
+        if (portOrOptions.path.trim() === '') {
+          throw new Error('APIServer Unix socket listen path cannot be empty.');
+        }
+
+        return {
+          path: portOrOptions.path,
+          backlog: portOrOptions.backlog,
+          exclusive: portOrOptions.exclusive,
+        };
+      }
+
+      return {
+        port: portOrOptions.port ?? 3000,
+        host: portOrOptions.host || 'localhost',
+        backlog: portOrOptions.backlog,
+        exclusive: portOrOptions.exclusive,
+      };
+    }
+
+    return {
+      port: portOrOptions,
+      host: host || 'localhost',
+    };
   }
 
   /**

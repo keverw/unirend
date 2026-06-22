@@ -1895,6 +1895,29 @@ main().catch(console.error);
 
 > **🐳 Container Deployment:** For container deployments, see the [container binding note](#create-production-ssr-server) in the SSR section - the same advice applies to APIServer.
 
+### Unix Socket Listening
+
+`APIServer` and `servePlain()` can listen on a Unix domain socket instead of a TCP port:
+
+```typescript
+import { serveAPI } from 'unirend/server';
+
+const api = serveAPI();
+
+await api.listen({ path: '/tmp/my-api.sock' });
+```
+
+This is intended for same-host sidecar/internal service patterns where another
+server-side process talks to the API without exposing a TCP port. Browser fetch
+cannot connect directly to a Unix socket; use this for server-to-server traffic
+through a Node/Bun HTTP client or an adapter that supports socket paths located
+on the same server host or container.
+
+Generated API starter apps also support this mode with the
+`<APP_NAME>_SOCKET_PATH` environment variable, for example `API_SOCKET_PATH` for
+an app named `api`. When that variable is set, the generated component listens
+on the socket path instead of `<APP_NAME>_PORT`.
+
 ### API-Specific Options
 
 In addition to the [shared server configuration](#shared-server-configuration), the API server accepts:

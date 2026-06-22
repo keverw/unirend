@@ -11,7 +11,8 @@ export type PlainServer = Omit<
  *
  * This creates a JSON API server with plugin support and full wildcard route flexibility.
  * Unlike SSR servers, this allows plugins to register any wildcard routes including root wildcards.
- * Returns an APIServer instance that you can then start with .listen(port, host).
+ * Returns an APIServer instance that you can then start with .listen(port, host)
+ * or .listen({ path }) for Unix socket sidecar/internal deployments.
  *
  * @param options Configuration options for the API server
  * @returns APIServer instance ready to be started
@@ -43,8 +44,11 @@ export type PlainServer = Omit<
  *   })
  * });
  *
- * // Start the server
+ * // Start the server over TCP
  * await server.listen(3001, 'localhost');
+ *
+ * // Or listen on a Unix socket for same-host sidecar/internal traffic:
+ * // await server.listen({ path: '/tmp/my-api.sock' });
  * ```
  */
 export function serveAPI(options: APIServerOptions = {}): APIServer {

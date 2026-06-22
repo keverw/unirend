@@ -500,12 +500,15 @@ Start here:
 
 Environment variables the generated server reads:
 
-- `<APP>_PORT` is the port to listen on.
+- `<APP>_PORT` is the port to listen on. Default: `3001`.
+- `<APP>_SOCKET_PATH` is an optional Unix socket path. When set, the API server
+  listens on that socket instead of TCP.
 
 **Next steps checklist**
 
 - [ ] Register your API routes, page-data handlers, and plugins in `api-component.ts`.
-- [ ] Override `<APP>_PORT` if the default (`3000`) doesn't suit your setup.
+- [ ] Override `<APP>_PORT` if the default (`3001`) doesn't suit your setup, or
+      set `<APP>_SOCKET_PATH` for same-host sidecar/internal traffic.
 - [ ] Run `bun run generate:build-info` before production builds (the `<name>:build` script does this for you).
 - [ ] Add WebSocket handlers if needed (see [docs/websockets.md](websockets.md)).
 

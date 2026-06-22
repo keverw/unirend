@@ -39,7 +39,7 @@ const server = serveSSRBuilt('./build', {
   },
 });
 
-await server.listen({ port: 3000 });
+await server.listen(3000);
 ```
 
 Works identically with `serveAPI`, `StaticWebServer`, and `RedirectServer`.

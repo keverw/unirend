@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import getPort from 'get-port';
+import { request as httpRequest } from 'node:http';
+import { join } from 'node:path';
+import { createTempDir } from 'lifecycleion/tmp-dir';
+import type { TmpDir } from 'lifecycleion/tmp-dir';
 import { serveAPI, servePlain } from '../api';
 import type { APIServer } from './api-server';
 import { APIResponseHelpers } from '../../api-envelope';
@@ -110,6 +114,35 @@ function _plainServerReturnTypeCheck(server: PlainServer): void {
   void server.pageDataHandler;
 }
 
+function requestUnixSocket(
+  socketPath: string,
+  path: string,
+): Promise<{ statusCode: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      {
+        socketPath,
+        path,
+        method: 'GET',
+        headers: { host: 'localhost' },
+      },
+      (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          body += chunk;
+        });
+        res.on('end', () => {
+          resolve({ statusCode: res.statusCode ?? 0, body });
+        });
+      },
+    );
+
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 /**
  * Covers the public methods on APIServer that are not exercised by the
  * closing/logging test suites: updateAccessLoggingConfig, the `api` and
@@ -118,15 +151,22 @@ function _plainServerReturnTypeCheck(server: PlainServer): void {
 describe('APIServer public methods', () => {
   let server: APIServer | null = null;
   let port: number;
+  let tmpDir: TmpDir | null = null;
 
   beforeEach(async () => {
     port = await getPort();
+    tmpDir = null;
   });
 
   afterEach(async () => {
     if (server) {
       await server.stop();
       server = null;
+    }
+
+    if (tmpDir) {
+      await tmpDir.cleanup();
+      tmpDir = null;
     }
   });
 
@@ -217,6 +257,47 @@ describe('APIServer public methods', () => {
       }
       expect(caught).toBeDefined();
       expect(caught?.message).toContain('enableWebSockets');
+    });
+  });
+
+  describe('listen()', () => {
+    it('accepts object-form TCP listen options', async () => {
+      server = serveAPI();
+
+      await server.listen({ port, host: 'localhost' });
+
+      expect(server.isListening()).toBe(true);
+    });
+
+    it('listens on a Unix socket path', async () => {
+      tmpDir = await createTempDir({
+        prefix: 'unirend-api-server-socket-',
+        unsafeCleanup: true,
+      });
+      const socketPath = join(tmpDir.path, 'api.sock');
+      server = servePlain({
+        plugins: [
+          (pluginHost: PluginHostInstance<'plain'>) => {
+            pluginHost.get('/ping', () => ({ ok: true }));
+          },
+        ],
+      }) as APIServer;
+
+      await server.listen({ path: socketPath });
+      const response = await requestUnixSocket(socketPath, '/ping');
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({ ok: true });
+    });
+
+    it('rejects an empty Unix socket path', () => {
+      server = serveAPI();
+
+      expect(server.listen({ path: '   ' })).rejects.toThrow(
+        'APIServer Unix socket listen path cannot be empty.',
+      );
+
+      expect(server.isListening()).toBe(false);
     });
   });
 

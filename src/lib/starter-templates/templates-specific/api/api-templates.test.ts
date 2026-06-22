@@ -36,11 +36,20 @@ describe('ensureAPIComponent', () => {
     expect(src).toContain('API_PORT');
   });
 
+  test('interpolates appName-derived SOCKET_PATH env var into the source', async () => {
+    const mem: InMemoryDir = {};
+    await ensureAPIComponent(mem, 'src/apps/api', 'api');
+    const src = mem['src/apps/api/api-component.ts'] as string;
+    expect(src).toContain('API_SOCKET_PATH');
+    expect(src).toContain('await this.server.listen({ path: SOCKET_PATH })');
+  });
+
   test('uses a different appName to produce a different env var', async () => {
     const mem: InMemoryDir = {};
     await ensureAPIComponent(mem, 'src/apps/my-api', 'my-api');
     const src = mem['src/apps/my-api/api-component.ts'] as string;
     expect(src).toContain('MY_API_PORT');
+    expect(src).toContain('MY_API_SOCKET_PATH');
   });
 
   test('uses the correct projectPath prefix in the file path', async () => {

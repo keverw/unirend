@@ -21,6 +21,7 @@ import { buildAppEnvVarName } from '../../internal-utils';
  */
 function buildAPIComponentSrc(appName: string): string {
   const portEnvVarName = buildAppEnvVarName(appName, 'PORT');
+  const socketPathEnvVarName = buildAppEnvVarName(appName, 'SOCKET_PATH');
 
   return `import { BaseComponent } from 'lifecycleion/lifecycle-manager';
 import type { Logger } from 'lifecycleion/logger';
@@ -32,6 +33,7 @@ import { cookies } from 'unirend/plugins';
 // import { YourCustomAPIResponseHelpers } from './YourCustomAPIResponseHelpers';
 
 // Read port from ${portEnvVarName} env var, default 3001.
+// Set ${socketPathEnvVarName} to listen on a Unix domain socket instead of TCP.
 // Production HTTPS: use a reverse proxy (nginx, Caddy, etc.) for TLS termination,
 // or see https://github.com/keverw/unirend/blob/master/docs/https.md to handle it in code.
 //
@@ -42,6 +44,7 @@ import { cookies } from 'unirend/plugins';
 // use a separate HTTP_REDIRECT_PORT env var with a default. Then run both servers in the
 // same component in parallel, or add a dedicated redirect component.
 const PORT = parseInt(process.env['${portEnvVarName}'] ?? '3001', 10);
+const SOCKET_PATH = process.env['${socketPathEnvVarName}']?.trim();
 
 export class APIServerComponent extends BaseComponent {
   private server: APIServer | null = null;
@@ -351,12 +354,21 @@ export class APIServerComponent extends BaseComponent {
         //   },
         // });
 
-        // Start listening for requests
-        await this.server.listen(PORT, '0.0.0.0');
+        // Start listening for requests. Unix sockets are useful for sidecar or
+        // same-host private API processes; otherwise bind TCP for normal HTTP access.
+        if (SOCKET_PATH) {
+          await this.server.listen({ path: SOCKET_PATH });
 
-        this.logger.success('API server running at http://localhost:{{port}}', {
-          params: { port: PORT },
-        });
+          this.logger.success('API server listening on Unix socket {{path}}', {
+            params: { path: SOCKET_PATH },
+          });
+        } else {
+          await this.server.listen(PORT, '0.0.0.0');
+
+          this.logger.success('API server running at http://localhost:{{port}}', {
+            params: { port: PORT },
+          });
+        }
       } catch (error) {
         // Reset promises and references on failure so that startup can be retried.
         // We throw the error so it propagates to the caller.

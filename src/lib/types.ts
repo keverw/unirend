@@ -47,6 +47,33 @@ export type RenderType = 'ssg' | 'ssr';
 export type APIResponseHelpersClass = typeof APIResponseHelpers;
 type FastifyTrustProxyFunction = (address: string, hop: number) => boolean;
 
+export interface APIServerTCPListenOptions {
+  /** TCP port to bind to (default: 3000). */
+  port?: number;
+  /** TCP host to bind to (default: "localhost"). */
+  host?: string;
+  /** Maximum length of the queue of pending connections. */
+  backlog?: number;
+  /** Whether the underlying handle should be exclusive. */
+  exclusive?: boolean;
+  path?: never;
+}
+
+export interface APIServerUnixSocketListenOptions {
+  /** Unix domain socket path to bind to. */
+  path: string;
+  /** Maximum length of the queue of pending connections. */
+  backlog?: number;
+  /** Whether the underlying handle should be exclusive. */
+  exclusive?: boolean;
+  port?: never;
+  host?: never;
+}
+
+export type APIServerListenOptions =
+  | APIServerTCPListenOptions
+  | APIServerUnixSocketListenOptions;
+
 export interface RenderRequest {
   type: RenderType;
   fetchRequest: Request;

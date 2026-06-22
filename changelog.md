@@ -52,3 +52,9 @@ stabilizing. Still pre-1.0, future minor releases may include breaking changes u
 - ESM-only package on React Router 8, Vite 8, and Node >= 25.
 - Dependency upgrades and transitive security fixes; dropped the deprecated
   `@types/cheerio` stub in favor of cheerio's bundled types.
+
+## Unreleased
+
+- Added Unix socket listening support for `APIServer`/`servePlain()` via
+  `server.listen({ path })`, plus generated API starter support through
+  `<APP>_SOCKET_PATH`.
