@@ -25,11 +25,21 @@ export interface ProjectEntry {
   path: string;
   /** ISO timestamp when project was created */
   createdAt: string;
+  /**
+   * Unirend version that scaffolded this project. Optional because manifests
+   * generated before this field existed won't record it.
+   */
+  createdWith?: string;
 }
 
 export interface RepoConfig {
-  /** Config version for future compatibility */
-  version: string;
+  /** Manifest schema version, for parse compatibility */
+  manifestVersion: string;
+  /**
+   * Unirend version that ran `init`. Optional because manifests generated
+   * before this field existed won't record it.
+   */
+  createdWith?: string;
   /** Repository name */
   name: string;
   /** ISO timestamp when repository was created */

@@ -197,7 +197,8 @@ type InitRepoErrorCode =
   | 'unsafe_directory';
 
 interface RepoConfig {
-  version: string;           // config schema version
+  manifestVersion: string;   // manifest schema version
+  createdWith?: string;      // Unirend version that ran `init` (absent on legacy manifests)
   name: string;              // workspace name
   created: string;           // ISO timestamp
   projects: Record<string, ProjectEntry>;
@@ -207,6 +208,7 @@ interface ProjectEntry {
   templateID: TemplateID;    // 'ssg' | 'ssr' | 'api'
   path: string;              // relative path to the project
   createdAt: string;         // ISO timestamp
+  createdWith?: string;      // Unirend version that scaffolded the project (absent on legacy manifests)
 }
 ```
 

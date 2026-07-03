@@ -251,7 +251,7 @@ describe('createProject — error paths', () => {
         },
       }),
       [REPO_CONFIG_FILE]: JSON.stringify({
-        version: '1.0',
+        manifestVersion: '1.0',
         name: 'my-repo',
         created: new Date().toISOString(),
         projects: {},
@@ -314,7 +314,7 @@ describe('readRepoConfig', () => {
 
   test('returns found with parsed config when file is valid JSON', async () => {
     const config = {
-      version: '1.0',
+      manifestVersion: '1.0',
       name: 'my-repo',
       created: new Date().toISOString(),
       projects: {},
@@ -327,6 +327,29 @@ describe('readRepoConfig', () => {
     expect(result.status).toBe('found');
     if (result.status === 'found') {
       expect(result.config.name).toBe('my-repo');
+    }
+  });
+
+  test('normalizes a legacy manifest with `version` into `manifestVersion`', async () => {
+    // Manifest generated before the `version` → `manifestVersion` rename.
+    const legacyConfig = {
+      version: '1.0',
+      name: 'my-repo',
+      created: new Date().toISOString(),
+      projects: {},
+    };
+    const root: InMemoryDir = {
+      [REPO_CONFIG_FILE]: JSON.stringify(legacyConfig),
+    };
+
+    const result = await readRepoConfig(root);
+    expect(result.status).toBe('found');
+    if (result.status === 'found') {
+      expect(result.config.manifestVersion).toBe('1.0');
+      // Legacy key is dropped so a re-written manifest doesn't carry both.
+      expect((result.config as { version?: unknown }).version).toBeUndefined();
+      // The generating version genuinely isn't recorded for legacy manifests.
+      expect(result.config.createdWith).toBeUndefined();
     }
   });
 
@@ -387,7 +410,7 @@ describe('initRepo', () => {
 
   test('returns failure when called on an already-initialized repo', async () => {
     const config = {
-      version: '1.0',
+      manifestVersion: '1.0',
       name: 'existing-repo',
       created: new Date().toISOString(),
       projects: {},
