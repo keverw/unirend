@@ -9,6 +9,7 @@ describe('ensureCspell', () => {
     'Avenir',
     'bradlc',
     'Bstatus',
+    'bunx',
     'dbaeumer',
     'esbenp',
     'eslintcache',

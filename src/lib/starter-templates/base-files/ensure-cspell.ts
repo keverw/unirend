@@ -19,6 +19,7 @@ const defaultWords = [
   'Avenir',
   'bradlc',
   'Bstatus',
+  'bunx',
   'dbaeumer',
   'esbenp',
   'eslintcache',

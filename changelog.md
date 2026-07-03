@@ -65,3 +65,7 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 - The generator now ensures a root `README.md` and `LICENSE` as base files (only created when missing, like the other base files, so an existing one is never overwritten). The `README.md` is a generic workspace readme titled with the repo name, and the `LICENSE` is a placeholder that matches the generated `package.json` defaults (`"private": true`, `"license": "UNLICENSED"`), reserving all rights and reminding you to pick a real SPDX license before making the repo public.
 - The generated starter's `AGENTS.md` (and this repo's own) now spells out that the read-only git default is not absolute: a direct user request to branch, stage, or commit authorizes the agent to run that command. This keeps stricter agent tools from refusing an explicitly requested commit.
 - Added `Avenir`, `Bstatus`, and `phpunit` to the generated `cspell.json` word list, so a freshly generated project's `bun run spellcheck` no longer flags the sample words baked into the bundled `scripts/clean-cspell.ts`.
+
+## Unreleased
+
+- Added `bunx` to the generated `cspell.json` word list, so a freshly generated project's `bun run spellcheck` no longer flags the `bunx unirend create ...` commands in the generated `README.md`.
