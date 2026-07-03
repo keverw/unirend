@@ -73,9 +73,9 @@ For the core implementation of the `DatabaseConnectionManager` and the `Database
 
 A Unirend plugin can instantiate the database helper wrapper once and automatically decorate it directly on the request object (`request.db`). This makes the database connection available to all downstream route handlers, page data loaders, and middleware in a safe and uniform way.
 
+<!-- prettier-ignore -->
 > [!IMPORTANT]
-> **Server-Only Resources and Request Context:** In Unirend, the `request.requestContext` object is serialized and sent to the client (browser) during server-side rendering (SSR) so that the frontend can access the same state via `useRequestContext()`.
-> Server-only resources (like connection pools, database wrappers, or loggers) should never be stored in `requestContext` to prevent serialization crashes and security/credential exposure. Always decorate them directly on the `request` object (e.g. `request.db`).
+> **Server-Only Resources and Request Context:** In Unirend, the `request.requestContext` object is serialized and sent to the client (browser) during server-side rendering (SSR) so that the frontend can access the same state via `useRequestContext()`. Server-only resources (like connection pools, database wrappers, or loggers) should never be stored in `requestContext` to prevent serialization crashes and security/credential exposure. Always decorate them directly on the `request` object (e.g. `request.db`).
 
 ```typescript
 import { DatabaseHelper } from '../lib/db-helper'; // local file path (implementation copied from Lifecycleion docs)
@@ -250,6 +250,7 @@ export class WebServerComponent extends BaseComponent {
 }
 ```
 
+<!-- prettier-ignore -->
 > [!IMPORTANT]
 > **Availability of `this.lifecycle`:** The `this.lifecycle` reference is populated dynamically on registration. It is `undefined` inside the component's `constructor()`. Never access `this.lifecycle` or pass it to dependencies in the constructor. Always do so inside the `start()` hook or later.
 
@@ -259,9 +260,9 @@ The example follows the same start/stop coordination pattern as the demo server 
 
 For database-dependent routes, you can use the lifecycle state of the database component to implement a simple circuit-breaker middleware. If the database is currently stopped or stalled, the middleware can short-circuit the request and return an HTTP `503 Service Unavailable` error instead of allowing queries to fail or hang.
 
+<!-- prettier-ignore -->
 > [!WARNING]
-> **Global vs. Route-Specific Hooks:** Registering this health check as a global middleware/hook (e.g. via `pluginHost.addHook`) will reject _all_ incoming requests when the database is offline, including requests for static assets, public static files, or routes that do not interact with the database.
-> To avoid this, prefer route-specific helpers such as `ensureDatabase()` inside the `server.api.*` or `server.pageDataHandler.register(...)` handlers that actually query the database, or handle connection issues dynamically within your queries/loaders using `DatabaseHelper`.
+> **Global vs. Route-Specific Hooks:** Registering this health check as a global middleware/hook (e.g. via `pluginHost.addHook`) will reject _all_ incoming requests when the database is offline, including requests for static assets, public static files, or routes that do not interact with the database. To avoid this, prefer route-specific helpers such as `ensureDatabase()` inside the `server.api.*` or `server.pageDataHandler.register(...)` handlers that actually query the database, or handle connection issues dynamically within your queries/loaders using `DatabaseHelper`.
 
 ```typescript
 pluginHost.addHook('preHandler', async (request, reply) => {
@@ -370,6 +371,7 @@ server.api.post('users', async (request, reply, params) => {
 });
 ```
 
+<!-- prettier-ignore -->
 > [!IMPORTANT]
 > **Dependency Shutdowns and Stalls:** Since components stop in reverse dependency order, a Unirend web server component (which depends on the database connection manager) is stopped first.
 >

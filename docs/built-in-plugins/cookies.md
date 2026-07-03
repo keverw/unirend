@@ -89,11 +89,11 @@ Security notes:
 
 ### SameSite and Secure Matrix
 
-| sameSite option   | secure required?       | Sent on cross-site navigations (link/new tab)? | Sent on subrequests (iframe, fetch, POST)? | Notes                                                                                                                                                                                       |
-| ----------------- | ---------------------- | ---------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"strict"`        | No                     | No                                             | No                                         | Only sent when the address bar already matches the cookie’s site. Not sent when arriving from other sites or direct bookmark visits.                                                        |
-| `"lax"` (default) | No                     | Yes                                            | No                                         | Sent on cross-site navigations using safe methods (like GET via link/new tab or redirects). Not sent on **cross-site subrequests** (iframe, fetch, or form POST), good default for sessions |
-| `"none"`          | Yes (true or `"auto"`) | Yes                                            | Yes                                        | Required for cross-site use in embeds/third‑party contexts. Without Secure, browsers drop the cookie                                                                                        |
+| sameSite option | secure required? | Sent on cross-site navigations (link/new tab)? | Sent on subrequests (iframe, fetch, POST)? | Notes |
+| --- | --- | --- | --- | --- |
+| `"strict"` | No | No | No | Only sent when the address bar already matches the cookie’s site. Not sent when arriving from other sites or direct bookmark visits. |
+| `"lax"` (default) | No | Yes | No | Sent on cross-site navigations using safe methods (like GET via link/new tab or redirects). Not sent on **cross-site subrequests** (iframe, fetch, or form POST), good default for sessions |
+| `"none"` | Yes (true or `"auto"`) | Yes | Yes | Required for cross-site use in embeds/third‑party contexts. Without Secure, browsers drop the cookie |
 
 ### Recommended Patterns
 

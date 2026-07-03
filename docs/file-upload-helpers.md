@@ -510,19 +510,19 @@ processor: async (fileStream, metadata, context) => {
 
 This is the "at a glance" mapping clients usually care about:
 
-| Scenario                          | Typical HTTP | Typical `error.code`            |
-| --------------------------------- | -----------: | ------------------------------- |
-| File too large                    |          413 | `file_too_large`                |
-| Too many files                    |          413 | `file_max_files_exceeded`       |
-| MIME/type rejected                |          415 | `file_type_not_allowed`         |
-| Invalid content type              |          415 | `invalid_content_type`          |
-| Client disconnected               |          499 | `file_upload_connection_broken` |
-| Timeout                           |          408 | `file_upload_timeout`           |
-| Processor threw                   |          500 | `file_processor_error`          |
-| Batch aborted due to one failure  |          400 | `file_batch_upload_failed`      |
-| Nothing uploaded                  |          400 | `file_not_provided`             |
-| Unexpected upload failure         |          500 | `file_upload_failed`            |
-| `onComplete` failed after success |          500 | `file_upload_completion_failed` |
+| Scenario | Typical HTTP | Typical `error.code` |
+| --- | --: | --- |
+| File too large | 413 | `file_too_large` |
+| Too many files | 413 | `file_max_files_exceeded` |
+| MIME/type rejected | 415 | `file_type_not_allowed` |
+| Invalid content type | 415 | `invalid_content_type` |
+| Client disconnected | 499 | `file_upload_connection_broken` |
+| Timeout | 408 | `file_upload_timeout` |
+| Processor threw | 500 | `file_processor_error` |
+| Batch aborted due to one failure | 400 | `file_batch_upload_failed` |
+| Nothing uploaded | 400 | `file_not_provided` |
+| Unexpected upload failure | 500 | `file_upload_failed` |
+| `onComplete` failed after success | 500 | `file_upload_completion_failed` |
 
 **Note:** Errors are returned as full API envelopes (`status`, `status_code`, `request_id`, `error`, etc.). See [API envelope structure](./api-envelope-structure.md) for the full shape.
 

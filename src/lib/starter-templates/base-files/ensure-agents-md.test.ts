@@ -16,6 +16,19 @@ Guidelines and constraints for AI coding agents working in this repository.
 ## Language Style
 
 - **Use American English:** Use American English spelling in code, comments, documentation, tests, and generated text. Keep existing American spellings intact and do not rewrite them to another English locale.
+
+## Markdown & Prose Style
+
+- **Don't hard-wrap prose:** Prettier is set to \`proseWrap: 'never'\`, so write each paragraph as a single line and let the editor soft-wrap it. Don't add manual line breaks inside a paragraph.
+- **Avoid em dashes and semicolons in prose:** Don't use \`—\` or \`;\` in normal text. Write with commas, periods, or a cleaner sentence split so it reads naturally. When editing text that already has them, rewrite the sentence rather than swapping the character for a space. This does not apply to code fences, inline code, tables where the punctuation is literal content, URLs, or identifiers.
+- **Use title case for subheadings:** Apply APA-style title case, except for filenames, variable/function/method names, and product/brand names.
+- **Write GitHub alerts as a guarded two-line block:** Put the \`[!TYPE]\` marker alone on the first blockquote line, the body on the following \`>\` line, and a \`<!-- prettier-ignore -->\` comment directly above so \`proseWrap: 'never'\` doesn't collapse the marker into the body:
+
+  \`\`\`markdown
+  <!-- prettier-ignore -->
+  > [!IMPORTANT]
+  > Body text goes here on its own blockquote line.
+  \`\`\`
 `;
 
 describe('ensureAgentsMD', () => {

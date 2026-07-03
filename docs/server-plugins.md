@@ -272,8 +272,7 @@ Common hooks for logging:
 
 If your plugin uses `reply.hijack()` and writes directly to `reply.raw`, note that you are bypassing Fastify's normal `onSend` pipeline. That means `onSend`-driven behavior like response compression or plugin-added final headers will not run automatically unless the hijacked path applies equivalent logic itself before `writeHead(...)`.
 
-Most plugins do not need to care about this. It becomes relevant when you take
-over the raw response path yourself with `reply.hijack()`.
+Most plugins do not need to care about this. It becomes relevant when you take over the raw response path yourself with `reply.hijack()`.
 
 Request-level values attached in `onRequest`, like `requestID`, `clientIP`, `isDevelopment`, and `serverLabel`, are set on the request object before any hijacking occurs, so they are always available regardless of which response path is taken.
 
