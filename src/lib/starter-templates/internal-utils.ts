@@ -11,21 +11,105 @@ export function buildAppEnvVarName(appName: string, suffix: string): string {
 }
 
 /**
+ * Non-content entries that never count toward a directory being "non-empty".
+ * These are OS/cloud junk files plus git and config files that are fine to find
+ * in an otherwise-fresh repo. Matched case-insensitively against the lowercased
+ * entry name.
+ */
+const IGNORED_ENTRY_NAMES = new Set([
+  // Git (someone may have run `git init` but not added any files yet)
+  '.git',
+  '.gitignore',
+  '.gitattributes',
+  '.gitkeep',
+  // macOS
+  '.ds_store',
+  '.appledouble',
+  '.lsoverride',
+  '.spotlight-v100',
+  '.trashes',
+  '.fseventsd',
+  'icon\r',
+  // Windows
+  'thumbs.db',
+  'ehthumbs.db',
+  'desktop.ini',
+  // Linux
+  '.directory',
+  // Cloud
+  '.dropbox',
+  '.dropbox.attr',
+]);
+
+/**
+ * Glob-style junk patterns, tested against the lowercased entry name.
+ */
+const IGNORED_ENTRY_PATTERNS: RegExp[] = [
+  /^\._.*$/, // macOS AppleDouble resource forks (._*)
+  /^\.trash-.*$/, // Linux trash dirs (.Trash-*)
+];
+
+// Real content files that shouldn't block init, but are worth surfacing so the
+// user knows they were found and left untouched. Matched case-insensitively.
+// These predicates are also the source of truth for the base-file writers
+// (`ensureReadmeMD`/`ensureLicense`): they skip when a variant already exists,
+// so init never notices "left untouched" and then adds a conflicting duplicate.
+const README_ENTRY_PATTERN = /^readme\.md$/i;
+const LICENSE_ENTRY_PATTERN = /^license(\.md|\.txt)?$/i;
+
+/**
+ * Whether a directory entry is an existing README the generator should leave
+ * alone (matched case-insensitively, so `readme.md` counts on a case-sensitive
+ * filesystem).
+ */
+export function isReadmeEntry(entry: string): boolean {
+  return README_ENTRY_PATTERN.test(entry);
+}
+
+/**
+ * Whether a directory entry is an existing LICENSE the generator should leave
+ * alone: bare `LICENSE`, or `LICENSE.md`/`LICENSE.txt`, matched
+ * case-insensitively.
+ */
+export function isLicenseEntry(entry: string): boolean {
+  return LICENSE_ENTRY_PATTERN.test(entry);
+}
+
+function isIgnoredEntry(entry: string): boolean {
+  const lower = entry.toLowerCase();
+
+  if (IGNORED_ENTRY_NAMES.has(lower)) {
+    return true;
+  }
+
+  return IGNORED_ENTRY_PATTERNS.some((pattern) => pattern.test(lower));
+}
+
+function isNoticeEntry(entry: string): boolean {
+  return isReadmeEntry(entry) || isLicenseEntry(entry);
+}
+
+/**
  * Check if a directory is empty or "empty-ish" (safe to initialize as a new unirend repo).
  *
  * A directory is considered empty-ish if it:
  * - Is completely empty
- * - Has only .git and/or .gitignore (empty git repo, not yet in use)
+ * - Contains only ignorable entries: git/config files (.git, .gitignore,
+ *   .gitattributes, .gitkeep) and OS/cloud junk (.DS_Store, Thumbs.db, etc.)
+ * - Contains notice-only content (README.md, LICENSE) - these don't block init
+ *   but are surfaced via `notices` so the caller can log that they were left
+ *   untouched.
  *
- * A directory is NOT empty-ish if it:
- * - Contains other files/folders (suggests it's already in use)
+ * A directory is NOT empty-ish if it contains any other files/folders (source
+ * files, configs, etc.), which suggests it's already in use.
  *
  * @param dirPath - Directory to check
- * @returns Object with safe status and optional error message
+ * @returns Object with safe status, optional error message, and optional
+ *   notices (filenames of real content that was found but not blocking).
  */
 export async function isRepoDirEmptyish(
   dirPath: FileRoot,
-): Promise<{ safe: boolean; reason?: string }> {
+): Promise<{ safe: boolean; reason?: string; notices?: string[] }> {
   // List directory contents
   const entries = await vfsListDir(dirPath);
 
@@ -34,22 +118,36 @@ export async function isRepoDirEmptyish(
     return { safe: true };
   }
 
-  // Filter out .git and .gitignore (these are OK for an "empty" repo)
-  // as somebody might have ran `git init` but not added any files yet
-  const nonGitEntries = entries.filter(
-    (entry) => entry !== '.git' && entry !== '.gitignore',
-  );
+  // Partition entries: junk/git files are ignored outright, README/LICENSE are
+  // surfaced as notices but don't block, and anything else is blocking content.
+  const notices: string[] = [];
+  const blocking: string[] = [];
 
-  // If only .git/.gitignore exist (or directory is empty), it's safe
-  if (nonGitEntries.length === 0) {
-    return { safe: true };
+  for (const entry of entries) {
+    if (isIgnoredEntry(entry)) {
+      continue;
+    }
+
+    if (isNoticeEntry(entry)) {
+      notices.push(entry);
+      continue;
+    }
+
+    blocking.push(entry);
   }
 
-  // If other files/folders exist, it's unsafe (directory in use)
-  return {
-    safe: false,
-    reason: `Directory is not empty and not a unirend repository. Found: ${nonGitEntries.slice(0, 5).join(', ')}${nonGitEntries.length > 5 ? '...' : ''}`,
-  };
+  // If genuinely unexpected content exists, it's unsafe (directory in use). Only
+  // list the offending files, so the message never mentions ignored junk.
+  if (blocking.length > 0) {
+    return {
+      safe: false,
+      reason: `Directory is not empty and not a unirend repository. Found: ${blocking.slice(0, 5).join(', ')}${blocking.length > 5 ? '...' : ''}`,
+      ...(notices.length > 0 ? { notices } : {}),
+    };
+  }
+
+  // Only ignorable/notice entries remain, so it's safe to initialize.
+  return notices.length > 0 ? { safe: true, notices } : { safe: true };
 }
 
 /**

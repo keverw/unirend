@@ -741,8 +741,14 @@ async function initRepoInternal(
 
   // repoConfigState is `not_found` → proceed with a fresh init.
 
-  // Check if directory is empty or empty-ish (only .git/.gitignore)
+  // Check if directory is empty or empty-ish (only .git/.gitignore, OS junk, etc.)
   const emptyCheck = await isRepoDirEmptyish(dirPath);
+
+  // Surface real content (README.md, LICENSE) that was found but not blocking,
+  // so the user knows it was left untouched rather than silently ignored.
+  for (const noticeFile of emptyCheck.notices ?? []) {
+    log('info', `📄 Found ${noticeFile} and left it untouched.`);
+  }
 
   if (!emptyCheck.safe) {
     log('error', '❌ Cannot initialize repository in this directory');
@@ -750,7 +756,7 @@ async function initRepoInternal(
     log('info', '');
     log(
       'info',
-      'Please use an empty directory or a directory with only .git/.gitignore.',
+      'Please use an empty directory. Existing git/config files (.git, .gitignore, .gitattributes, .gitkeep), common OS/cloud junk (like .DS_Store or Thumbs.db), and a README.md/LICENSE are allowed, but other content is not.',
     );
 
     return {

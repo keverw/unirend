@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import {
   buildAppEnvVarName,
   isRepoDirEmptyish,
+  isReadmeEntry,
+  isLicenseEntry,
   isDirEmpty,
   appendMissingIgnoreEntries,
 } from './internal-utils';
@@ -67,6 +69,45 @@ describe('isRepoDirEmptyish', () => {
     });
   });
 
+  test('ignores OS/cloud junk files (case-insensitive) when deciding emptiness', async () => {
+    const root: InMemoryDir = {
+      '.DS_Store': '',
+      '._hidden': '',
+      'Thumbs.db': '',
+      'desktop.ini': '',
+      '.dropbox.attr': '',
+      '.gitattributes': '',
+    };
+    const res = await isRepoDirEmptyish(root);
+    expect(res).toEqual({ safe: true });
+  });
+
+  test('initializes with only .DS_Store + README.md, surfacing the README and not the junk', async () => {
+    const root: InMemoryDir = {
+      '.DS_Store': '',
+      'README.md': '# Hello',
+    };
+    const res = await isRepoDirEmptyish(root);
+    expect(res).toEqual({ safe: true, notices: ['README.md'] });
+    expect(res.notices).not.toContain('.DS_Store');
+  });
+
+  test('aborts on stray content while still surfacing notices and hiding junk', async () => {
+    const root: InMemoryDir = {
+      '.DS_Store': '',
+      'README.md': '# Hello',
+      'foo.ts': '',
+    };
+    const res = await isRepoDirEmptyish(root);
+    expect(res.safe).toBe(false);
+    expect(res.reason).toBe(
+      'Directory is not empty and not a unirend repository. Found: foo.ts',
+    );
+    expect(res.reason).not.toContain('.DS_Store');
+    expect(res.reason).not.toContain('README.md');
+    expect(res.notices).toEqual(['README.md']);
+  });
+
   test('truncates list of non-git entries in error message if > 5', async () => {
     const root: InMemoryDir = {
       'file1.txt': '',
@@ -81,6 +122,35 @@ describe('isRepoDirEmptyish', () => {
     expect(res.reason).toContain(
       'Found: file1.txt, file2.txt, file3.txt, file4.txt, file5.txt...',
     );
+  });
+});
+
+describe('isReadmeEntry', () => {
+  test('matches README.md case-insensitively', () => {
+    expect(isReadmeEntry('README.md')).toBe(true);
+    expect(isReadmeEntry('readme.md')).toBe(true);
+    expect(isReadmeEntry('ReadMe.MD')).toBe(true);
+  });
+
+  test('does not match non-README entries', () => {
+    expect(isReadmeEntry('README')).toBe(false);
+    expect(isReadmeEntry('README.txt')).toBe(false);
+    expect(isReadmeEntry('CONTRIBUTING.md')).toBe(false);
+  });
+});
+
+describe('isLicenseEntry', () => {
+  test('matches LICENSE and its .md/.txt variants case-insensitively', () => {
+    expect(isLicenseEntry('LICENSE')).toBe(true);
+    expect(isLicenseEntry('license')).toBe(true);
+    expect(isLicenseEntry('LICENSE.md')).toBe(true);
+    expect(isLicenseEntry('license.txt')).toBe(true);
+  });
+
+  test('does not match non-LICENSE entries', () => {
+    expect(isLicenseEntry('LICENSE.rst')).toBe(false);
+    expect(isLicenseEntry('LICENSES')).toBe(false);
+    expect(isLicenseEntry('COPYING')).toBe(false);
   });
 });
 

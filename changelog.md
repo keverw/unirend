@@ -6,6 +6,7 @@
 - [0.1.0 (June 19, 2026)](#010-june-19-2026)
 - [0.1.1 (July 3, 2026)](#011-july-3-2026)
 - [0.1.2 (July 3, 2026)](#012-july-3-2026)
+- [Unreleased](#unreleased)
 
 <!-- tocstop -->
 
@@ -57,3 +58,8 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 
 - Fixed a TypeScript error (`Property 'dir' does not exist on type 'ImportMeta'`) in the generated starter's `scripts/clean-cspell.ts`. It used the Bun-only `import.meta.dir`, whose type is only known to `@types/bun`. Generated projects rely on `@types/node` instead, so the script now uses the standard `import.meta.dirname` (supported by both Node and Bun at runtime).
 - Added an `@ts-ignore` (with an `eslint-disable-next-line @typescript-eslint/ban-ts-comment`) directly on the `import('current-build-info.ts')` line to suppress the "cannot find module" error. Because `current-build-info.ts` is generated at build time and gitignored, it may or may not exist at type-check time, and `@ts-ignore` silences the error either way, unlike an `@ts-expect-error`, which would itself fail as an "unused directive" whenever the file is present. The existing `@ts-expect-error` on the `IS_BUILT` line is unchanged, since that suppression is still needed. Applied to the generated SSR and API starters, the SSR demo, and the build-info docs.
+
+## Unreleased
+
+- The repo-init empty-directory check now ignores OS/cloud junk files, so `init`/`create` no longer aborts just because a directory contains things like a macOS `.DS_Store` (very common on Mac and in Dropbox folders). The ignore set is matched case-insensitively and covers macOS (`.DS_Store`, `._*`, `.AppleDouble`, `.LSOverride`, `.Spotlight-V100`, `.Trashes`, `.fseventsd`, `Icon\r`), Windows (`Thumbs.db`, `ehthumbs.db`, `Desktop.ini`), Linux (`.directory`, `.Trash-*`), and cloud (`.dropbox`, `.dropbox.attr`), plus git/config files (`.git`, `.gitignore`, `.gitattributes`, `.gitkeep`). `README.md` and `LICENSE` no longer block init either, but are logged as a notice so you know they were found and left untouched. Genuinely unexpected content (source files, other configs) still aborts with the existing error, which now lists only the offending files so the message never mentions ignored junk.
+- The generator now ensures a root `README.md` and `LICENSE` as base files (only created when missing, like the other base files, so an existing one is never overwritten). The `README.md` is a generic workspace readme titled with the repo name, and the `LICENSE` is a placeholder that matches the generated `package.json` defaults (`"private": true`, `"license": "UNLICENSED"`), reserving all rights and reminding you to pick a real SPDX license before making the repo public.

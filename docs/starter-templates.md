@@ -52,7 +52,8 @@ Unirend projects live inside a **workspace repo** that can hold multiple apps:
 my-workspace/
 ├── unirend-repo.json        # workspace marker + project registry
 ├── package.json             # shared scripts/deps for every app (private: true)
-├── tsconfig.json            # plus additional config files: prettier.config.js, eslint.config.js, cspell.json, .editorconfig, .vscode/ (settings.json, extensions.json), AGENTS.md
+├── README.md               # generic workspace readme + LICENSE (UNLICENSED placeholder)
+├── tsconfig.json            # plus additional config files: prettier.config.js, eslint.config.js, cspell.json, .editorconfig, .vscode/ (settings.json, extensions.json), AGENTS.md, CLAUDE.md
 ├── build-info.config.json   # (SSR/API only) build-info output manifest
 ├── scripts/
 │   └── generate-build-info.ts   # SSR/API only
@@ -106,7 +107,7 @@ bunx unirend init-repo ./my-workspace
 bunx unirend init-repo ./projects --name my-workspace
 ```
 
-The target directory must be empty or contain only `.git`/`.gitignore`. Because `create` auto-inits, `init-repo` is optional. Reach for it only when you want control over the workspace name or want to set up the repo as a separate step.
+The target directory must be empty, or contain only non-content entries: git/config files (`.git`, `.gitignore`, `.gitattributes`, `.gitkeep`) and common OS/cloud junk (like `.DS_Store`, `Thumbs.db`, or `.dropbox`). A `README.md` or `LICENSE` is also allowed and left untouched (init logs a notice when it finds one). Any other content aborts the init. Because `create` auto-inits, `init-repo` is optional. Reach for it only when you want control over the workspace name or want to set up the repo as a separate step.
 
 ### `create <type> <name> [path] [--target bun|node]`
 
@@ -464,11 +465,12 @@ The API template ships no `prettier.config.js`, `index.html`, or CSS. It has no 
 Whether you run `init-repo` or `create` (which auto-inits), Unirend ensures these shared workspace files exist at the repo root. They're created only if missing (merge-aware files like `.gitignore`, `.prettierignore`, `cspell.json`, and `package.json` are updated in place to add what's needed):
 
 - `unirend-repo.json` is the workspace marker and project registry.
-- `package.json` has shared scripts/deps, `private: true`.
+- `package.json` has shared scripts/deps, `private: true`, `license: UNLICENSED`.
+- `README.md` (generic workspace readme) and `LICENSE` (an `UNLICENSED`/all-rights-reserved placeholder that reminds you to pick a real license before making the repo public).
 - `tsconfig.json`, `prettier.config.js`, `eslint.config.js`, `cspell.json`, `.editorconfig`.
 - `.gitignore`, `.prettierignore`.
 - `.vscode/settings.json`, `.vscode/extensions.json`. The settings pin `importModuleSpecifier` to `project-relative`, so auto-imports stay relative within an app but switch to the `@/` alias when they reach into shared `src/libs/*` (the boundary is each app's own `tsconfig.json`).
-- `AGENTS.md`.
+- `AGENTS.md` and `CLAUDE.md` (bridges Claude Code to `AGENTS.md`).
 - `scripts/clean-cspell.ts`.
 - `.gitkeep` files for `scripts/`, `src/apps/`, `src/libs/`.
 
