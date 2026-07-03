@@ -6,7 +6,7 @@ const fileSrc = `import { readFile, writeFile, readdir } from 'fs/promises';
 import { join, relative } from 'path';
 import picomatch from 'picomatch';
 
-const REPO_ROOT = join(import.meta.dir, '..');
+const REPO_ROOT = join(import.meta.dirname, '..');
 
 // Standard binary file extensions to skip scanning
 const BINARY_EXTENSIONS = new Set([

@@ -51,3 +51,7 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 - The starter generator now deep-merges recommended `.vscode/settings.json` values, so re-running it fills missing sub-keys inside existing nested blocks (e.g. adding `editor.wordWrap` to a `[markdown]` block you already have) without overwriting any value you set.
 - Updated dependencies to their latest in-range versions (`fastify` 5.9.0, `vite` 8.1.3, `prettier` 3.9.4, `react-router` 8.1.0, `typescript-eslint`/`@typescript-eslint/*` 8.62.1, `@vitejs/plugin-react` 6.0.3, `picomatch` 4.0.5, `qs` 6.15.3, `semver` 7.8.5), and bumped the matching pins in the starter template's generated `package.json`.
 - Dropped the `undici` override: `cheerio` now resolves `undici` to a patched 7.28.0 on its own, so forcing it is no longer needed. Kept the `esbuild` override, which is still required because `tsup`/`vite` cap `esbuild` at `^0.27.0` and `bun audit` flags a low-severity Windows dev-server file-read advisory without it.
+
+## Unreleased
+
+- Fixed a TypeScript error (`Property 'dir' does not exist on type 'ImportMeta'`) in the generated starter's `scripts/clean-cspell.ts`. It used the Bun-only `import.meta.dir`, whose type is only known to `@types/bun`. Generated projects rely on `@types/node` instead, so the script now uses the standard `import.meta.dirname` (supported by both Node and Bun at runtime).
