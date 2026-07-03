@@ -7,6 +7,7 @@
 - [0.1.1 (July 3, 2026)](#011-july-3-2026)
 - [0.1.2 (July 3, 2026)](#012-july-3-2026)
 - [0.1.3 (July 3, 2026)](#013-july-3-2026)
+- [0.1.4 (July 3, 2026)](#014-july-3-2026)
 
 <!-- tocstop -->
 
@@ -66,7 +67,7 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 - The generated starter's `AGENTS.md` (and this repo's own) now spells out that the read-only git default is not absolute: a direct user request to branch, stage, or commit authorizes the agent to run that command. This keeps stricter agent tools from refusing an explicitly requested commit.
 - Added `Avenir`, `Bstatus`, and `phpunit` to the generated `cspell.json` word list, so a freshly generated project's `bun run spellcheck` no longer flags the sample words baked into the bundled `scripts/clean-cspell.ts`.
 
-## Unreleased
+## 0.1.4 (July 3, 2026)
 
 - **Breaking:** Renamed the `version` field in the generated `unirend-repo.json` manifest to `manifestVersion` (still `"1.0"`), making it clearer that the field is the manifest schema version rather than the tool or repo version. `readRepoConfig` normalizes legacy manifests on read, mapping an existing top-level `version` onto `manifestVersion` (and dropping the old key), so pre-rename manifests keep working and get migrated the next time a project is added.
 - The generated `unirend-repo.json` manifest now records a `createdWith` field holding the Unirend version that generated it, both at the repo level (the version that ran `init`) and on each project entry (the version that scaffolded that project). This is purely for debugging and traceability, since projects can be added incrementally across different Unirend releases. The field is optional on the exported `RepoConfig`/`ProjectEntry` types, since legacy manifests don't record which version created them.
