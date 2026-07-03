@@ -8,7 +8,7 @@ Unirend helps you ship SEO-friendly pages and accurate social sharing previews b
 
 The focus is on small, focused building blocks rather than a heavyweight, all-in-one framework. Unirend keeps routing in React Router, builds on Vite, and gives you explicit server utilities for API routes, page data loaders, plugins, uploads, redirects, static serving, and production runtime behavior when your app needs them.
 
-> ⚠️ **Pre-1.0.0:** Unirend is maturing and usable, but still pre-1.0 — the core APIs are stabilizing yet may still change before 1.0.0. Pin a version and review release notes when upgrading.
+> ⚠️ **Pre-1.0.0:** Unirend is maturing and usable, but still pre-1.0. The core APIs are stabilizing yet may still change before 1.0.0. Pin a version and review release notes when upgrading.
 
 ## Installation
 
@@ -632,7 +632,7 @@ bun run build
 bun test
 ```
 
-**Note:** Build and publish from macOS or Linux (e.g. WSL or CI). The build sets the POSIX executable bit on the CLI bin (`dist/cli/cli.js`); Windows can't set it, so a tarball packed on Windows would ship a broken `unirend` command. The build refuses to run on Windows to prevent that. (Tests and other tooling that import the build config still work on Windows — only an actual build is blocked.)
+**Note:** Build and publish from macOS or Linux (e.g. WSL or CI). The build sets the POSIX executable bit on the CLI bin (`dist/cli/cli.js`). Windows can't set it, so a tarball packed on Windows would ship a broken `unirend` command. The build refuses to run on Windows to prevent that. (Tests and other tooling that import the build config still work on Windows. Only an actual build is blocked.)
 
 When preparing a new release:
 

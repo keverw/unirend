@@ -53,7 +53,7 @@ const server = serveSSRWithHMR(
 // In handlers, use reply:ControlledReply to set cookies when @fastify/cookie is registered
 server.pageDataHandler.register('example', (request, reply) => {
   reply.setCookie?.('session', 'abc', { httpOnly: true, sameSite: 'lax' });
-  return /* envelope */;
+  return; /* envelope */
 });
 ```
 
@@ -213,7 +213,7 @@ server.pageDataHandler.register('login', (request, reply) => {
     signed: true,
   });
 
-  return /* envelope */;
+  return; /* envelope */
 });
 ```
 
@@ -250,7 +250,7 @@ server.pageDataHandler.register('profile', (request, reply) => {
     }
   }
 
-  return /* envelope */;
+  return; /* envelope */
 });
 ```
 

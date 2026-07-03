@@ -442,7 +442,7 @@ Plus, shared across the server templates and written once per workspace:
 
 As with SSR, `current-build-info.ts` is a gitignored artifact produced by `generate:build-info`, not scaffolded.
 
-The API template ships no `prettier.config.js`, `index.html`, or CSS — it has no Vite/client surface and uses the repo-root configs for those. It does ship a minimal app-level `tsconfig.json` (extends the repo root, drops the `vite/client` types). That config exists purely to establish a project boundary so editor auto-imports resolve shared `src/libs/*` modules through the `@/` alias rather than as long relative paths — matching the Vite templates. See [Workspace files](#workspace-files-shared-across-all-templates) for the `importModuleSpecifier` setting that drives this.
+The API template ships no `prettier.config.js`, `index.html`, or CSS. It has no Vite/client surface and uses the repo-root configs for those. It does ship a minimal app-level `tsconfig.json` (extends the repo root, drops the `vite/client` types). That config exists purely to establish a project boundary so editor auto-imports resolve shared `src/libs/*` modules through the `@/` alias rather than as long relative paths, matching the Vite templates. See [Workspace files](#workspace-files-shared-across-all-templates) for the `importModuleSpecifier` setting that drives this.
 
 ### API, Scripts
 
@@ -476,10 +476,10 @@ Whether you run `init-repo` or `create` (which auto-inits), Unirend ensures thes
 
 Generated projects import shared code through the `@/` alias (`@/*` → `./src/*`), wired up consistently in `tsconfig.json`, every app's `vite.config.ts`, and the ESLint import resolver. Two layers keep imports consistent:
 
-1. **Editor (auto-imports)** — `.vscode/settings.json` pins `importModuleSpecifier` to `project-relative`, so VSCode keeps imports relative _within_ an app but emits `@/…` once they cross the app boundary (the boundary is each app's own `tsconfig.json`).
-2. **Lint (hand-written/pasted)** — `eslint.config.js` enables `unirend/prefer-alias-imports` (from the `unirend/eslint-plugin` export). It flags a relative import only when it **escapes the importing file's nearest tsconfig directory** and the target lives under `src/` — e.g. a deep `../../../libs/format` from inside an app — and **autofixes** it to `@/libs/format`. Relative imports that stay within the same app, and targets outside `src/` (which have no alias form), are left alone. This deliberately mirrors the editor's `project-relative` boundary rather than a single static root, so `bun run lint:fix` and the editor agree.
+1. **Editor (auto-imports):** `.vscode/settings.json` pins `importModuleSpecifier` to `project-relative`, so VSCode keeps imports relative _within_ an app but emits `@/…` once they cross the app boundary (the boundary is each app's own `tsconfig.json`).
+2. **Lint (hand-written/pasted):** `eslint.config.js` enables `unirend/prefer-alias-imports` (from the `unirend/eslint-plugin` export). It flags a relative import only when it **escapes the importing file's nearest tsconfig directory** and the target lives under `src/`, for example a deep `../../../libs/format` from inside an app, and **autofixes** it to `@/libs/format`. Relative imports that stay within the same app, and targets outside `src/` (which have no alias form), are left alone. This deliberately mirrors the editor's `project-relative` boundary rather than a single static root, so `bun run lint:fix` and the editor agree.
 
-The rule is autofixable (`severity: error`); run `lint:fix` to apply. It accepts `rootDir` (default `"src"`) and `prefix` (default `"@/"`) options if you change the alias. It covers static `import`/`export … from` and dynamic `import()` specifiers; `require()` is out of scope since generated projects are ESM. The plugin requires ESLint 9 flat config (already set up in the template) and resolves through the `unirend` dependency every project gets.
+The rule is autofixable (`severity: error`). Run `lint:fix` to apply. It accepts `rootDir` (default `"src"`) and `prefix` (default `"@/"`) options if you change the alias. It covers static `import`/`export … from` and dynamic `import()` specifiers. `require()` is out of scope since generated projects are ESM. The plugin requires ESLint 9 flat config (already set up in the template) and resolves through the `unirend` dependency every project gets.
 
 If you maintain your own ESLint config (or tooling that wraps Unirend), the plugin is a standalone export:
 
@@ -494,7 +494,7 @@ export default [
 ];
 ```
 
-The generated config also adds a `no-restricted-imports` guard against `unirend/context`. That subpath is published only so the client and server bundles resolve a single shared context singleton — it is not part of the public API. If you hit the error, import from `unirend/client` or `unirend/server` instead.
+The generated config also adds a `no-restricted-imports` guard against `unirend/context`. That subpath is published only so the client and server bundles resolve a single shared context singleton. It is not part of the public API. If you hit the error, import from `unirend/client` or `unirend/server` instead.
 
 ## Build Target: Bun vs. Node
 

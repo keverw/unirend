@@ -1286,7 +1286,7 @@ server.pageDataHandler.register('profile', (request, reply) => {
     sameSite: 'lax',
   });
 
-  return /* envelope */;
+  return; /* envelope */
 });
 ```
 
@@ -1950,7 +1950,7 @@ const api = serveAPI();
 await api.listen({ path: '/tmp/my-api.sock' });
 ```
 
-This is intended for same-host sidecar/internal service patterns where another server-side process talks to the API without exposing a TCP port. Browser fetch cannot connect directly to a Unix socket; use this for server-to-server traffic through a Node/Bun HTTP client or an adapter that supports socket paths located on the same server host or container.
+This is intended for same-host sidecar/internal service patterns where another server-side process talks to the API without exposing a TCP port. Browser fetch cannot connect directly to a Unix socket. Use this for server-to-server traffic through a Node/Bun HTTP client or an adapter that supports socket paths located on the same server host or container.
 
 Generated API starter apps also support this mode with the `<APP_NAME>_SOCKET_PATH` environment variable, for example `API_SOCKET_PATH` for an app named `api`. When that variable is set, the generated component listens on the socket path instead of `<APP_NAME>_PORT`.
 
