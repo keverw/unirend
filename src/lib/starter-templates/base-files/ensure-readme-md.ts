@@ -28,7 +28,7 @@ By default this scaffolds the app, installs dependencies, and formats the code. 
 
 ## Related Tooling
 
-As you build, unirend pairs with a few complementary libraries (PostgreSQL migrations, React forms, local dev-service management). See unirend's [related projects](https://github.com/keverw/unirend#related-projects).
+As you build, Unirend pairs with a few complementary libraries (PostgreSQL migrations, React forms, local dev-service management). See Unirend's [related projects](https://github.com/keverw/unirend#related-projects).
 
 ## License
 
