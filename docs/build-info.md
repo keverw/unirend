@@ -102,10 +102,16 @@ import { loadBuildInfo } from 'unirend/build-info';
 // @ts-expect-error IS_BUILT is a build-time constant injected via bun build --define; not declared in TypeScript source
 const isBuilt = typeof IS_BUILT !== 'undefined' && IS_BUILT === true;
 
-const { info } = await loadBuildInfo(
-  isBuilt,
-  () => import('./current-build-info.ts'),
-);
+const { info } = await loadBuildInfo(isBuilt, () => {
+  // current-build-info.ts is generated at build time and is gitignored, so it
+  // may or may not exist during type-checking. The ts-ignore directive below
+  // silences the "cannot find module" error when the file is missing, without
+  // also failing lint as an "unused directive" when the file is present (unlike
+  // the expect-error directive, which requires an error to actually occur).
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore: Dynamic import for build info, only used in bundled server
+  return import('./current-build-info.ts');
+});
 
 // info: BuildInfo
 ```
@@ -165,10 +171,16 @@ async function main(mode: Mode) {
   // @ts-expect-error IS_BUILT is a build-time constant injected via bun build --define; not declared in TypeScript source
   const isBuilt = typeof IS_BUILT !== 'undefined' && IS_BUILT === true;
 
-  const buildResult = await loadBuildInfo(
-    isBuilt,
-    () => import('./current-build-info.ts'),
-  );
+  const buildResult = await loadBuildInfo(isBuilt, () => {
+    // current-build-info.ts is generated at build time and is gitignored, so it
+    // may or may not exist during type-checking. The ts-ignore directive below
+    // silences the "cannot find module" error when the file is missing, without
+    // also failing lint as an "unused directive" when the file is present (unlike
+    // the expect-error directive, which requires an error to actually occur).
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore: Dynamic import for build info, only used in bundled server
+    return import('./current-build-info.ts');
+  });
 
   const sharedConfig = {
     publicAppConfig: {

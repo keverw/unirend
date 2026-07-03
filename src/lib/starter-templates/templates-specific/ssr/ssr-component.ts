@@ -120,6 +120,13 @@ export class SSRServerComponent extends BaseComponent {
         const buildResult = await loadBuildInfo(isBuilt, () => {
           // When bundling the server (e.g. bun build --target=node),
           // this is inlined at bundle time, unless externalized.
+          // current-build-info.ts is generated at build time and is gitignored, so it
+          // may or may not exist during type-checking. The ts-ignore directive below
+          // silences the "cannot find module" error when the file is missing, without
+          // also failing lint as an "unused directive" when the file is present (unlike
+          // the expect-error directive, which requires an error to actually occur).
+          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+          // @ts-ignore: Dynamic import for build info, only used in bundled server
           return import('../current-build-info.ts');
         });
 
