@@ -20,6 +20,7 @@ import { ensureCspell } from './base-files/ensure-cspell';
 import { ensureCleanCspell } from './base-files/ensure-clean-cspell';
 import type { RepoConfig, ServerBuildTarget, LoggerFunction } from './types';
 import type { TemplateID } from './consts';
+import { PKG_VERSION } from '../../version';
 import { vfsListDir } from './vfs';
 import type { FileRoot } from './vfs';
 import {
@@ -98,7 +99,8 @@ import { ensureSSRComponent } from './templates-specific/ssr/ssr-component';
 
 export function createRepoConfigObject(name: string): RepoConfig {
   return {
-    version: '1.0',
+    manifestVersion: '1.0',
+    createdWith: PKG_VERSION,
     name,
     created: new Date().toISOString(),
     projects: {},
@@ -119,6 +121,7 @@ export function addProjectToRepo(
         templateID,
         path: relativePath,
         createdAt: new Date().toISOString(),
+        createdWith: PKG_VERSION,
       },
     },
   };

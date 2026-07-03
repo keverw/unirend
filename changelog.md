@@ -68,4 +68,6 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 
 ## Unreleased
 
+- **Breaking:** Renamed the `version` field in the generated `unirend-repo.json` manifest to `manifestVersion` (still `"1.0"`), making it clearer that the field is the manifest schema version rather than the tool or repo version. `readRepoConfig` normalizes legacy manifests on read, mapping an existing top-level `version` onto `manifestVersion` (and dropping the old key), so pre-rename manifests keep working and get migrated the next time a project is added.
+- The generated `unirend-repo.json` manifest now records a `createdWith` field holding the Unirend version that generated it, both at the repo level (the version that ran `init`) and on each project entry (the version that scaffolded that project). This is purely for debugging and traceability, since projects can be added incrementally across different Unirend releases. The field is optional on the exported `RepoConfig`/`ProjectEntry` types, since legacy manifests don't record which version created them.
 - Added `bunx` to the generated `cspell.json` word list, so a freshly generated project's `bun run spellcheck` no longer flags the `bunx unirend create ...` commands in the generated `README.md`.

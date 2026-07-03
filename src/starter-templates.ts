@@ -697,7 +697,29 @@ export async function readRepoConfig(
     }
   }
 
-  return { status: 'found', config: result.data };
+  return { status: 'found', config: normalizeRepoConfig(result.data) };
+}
+
+/**
+ * Backfill fields that legacy `unirend-repo.json` manifests may be missing, so a
+ * config returned by {@link readRepoConfig} always satisfies the current
+ * `RepoConfig` type. Manifests generated before the `version` → `manifestVersion`
+ * rename carry a top-level `version` instead, which we map over (and drop) so a
+ * re-written manifest doesn't keep both keys. `createdWith` is left absent when a
+ * legacy manifest lacks it, since the generating version genuinely isn't recorded.
+ */
+function normalizeRepoConfig(raw: RepoConfig): RepoConfig {
+  const legacy = raw as RepoConfig & { version?: unknown };
+  const config: RepoConfig & { version?: unknown } = { ...legacy };
+
+  if (typeof config.manifestVersion !== 'string') {
+    config.manifestVersion =
+      typeof legacy.version === 'string' ? legacy.version : '1.0';
+  }
+
+  delete config.version;
+
+  return config;
 }
 
 /**
