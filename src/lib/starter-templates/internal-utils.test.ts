@@ -126,25 +126,29 @@ describe('isRepoDirEmptyish', () => {
 });
 
 describe('isReadmeEntry', () => {
-  test('matches README.md case-insensitively', () => {
+  test('matches bare README and its .md/.txt/.markdown variants case-insensitively', () => {
     expect(isReadmeEntry('README.md')).toBe(true);
     expect(isReadmeEntry('readme.md')).toBe(true);
     expect(isReadmeEntry('ReadMe.MD')).toBe(true);
+    expect(isReadmeEntry('README')).toBe(true);
+    expect(isReadmeEntry('README.txt')).toBe(true);
+    expect(isReadmeEntry('readme.markdown')).toBe(true);
   });
 
   test('does not match non-README entries', () => {
-    expect(isReadmeEntry('README')).toBe(false);
-    expect(isReadmeEntry('README.txt')).toBe(false);
+    expect(isReadmeEntry('README.rst')).toBe(false);
+    expect(isReadmeEntry('READMEs')).toBe(false);
     expect(isReadmeEntry('CONTRIBUTING.md')).toBe(false);
   });
 });
 
 describe('isLicenseEntry', () => {
-  test('matches LICENSE and its .md/.txt variants case-insensitively', () => {
+  test('matches bare LICENSE and its .md/.txt/.markdown variants case-insensitively', () => {
     expect(isLicenseEntry('LICENSE')).toBe(true);
     expect(isLicenseEntry('license')).toBe(true);
     expect(isLicenseEntry('LICENSE.md')).toBe(true);
     expect(isLicenseEntry('license.txt')).toBe(true);
+    expect(isLicenseEntry('LICENSE.markdown')).toBe(true);
   });
 
   test('does not match non-LICENSE entries', () => {

@@ -54,13 +54,21 @@ const IGNORED_ENTRY_PATTERNS: RegExp[] = [
 // These predicates are also the source of truth for the base-file writers
 // (`ensureReadmeMD`/`ensureLicense`): they skip when a variant already exists,
 // so init never notices "left untouched" and then adds a conflicting duplicate.
-const README_ENTRY_PATTERN = /^readme\.md$/i;
-const LICENSE_ENTRY_PATTERN = /^license(\.md|\.txt)?$/i;
+// README and LICENSE share one optional-extension set so the two predicates
+// stay symmetric: a bare name, or a `.md`/`.txt`/`.markdown` variant, matched
+// case-insensitively (so `readme.md` counts on a case-sensitive filesystem).
+const DOC_ENTRY_EXTENSIONS = '(?:\\.md|\\.txt|\\.markdown)?';
+const README_ENTRY_PATTERN = new RegExp(`^readme${DOC_ENTRY_EXTENSIONS}$`, 'i');
+const LICENSE_ENTRY_PATTERN = new RegExp(
+  `^license${DOC_ENTRY_EXTENSIONS}$`,
+  'i',
+);
 
 /**
  * Whether a directory entry is an existing README the generator should leave
- * alone (matched case-insensitively, so `readme.md` counts on a case-sensitive
- * filesystem).
+ * alone: bare `README`, or a `.md`/`.txt`/`.markdown` variant. Kept in step with
+ * {@link isLicenseEntry} so any existing readme both avoids blocking init and
+ * stops a duplicate `README.md` from being generated.
  */
 export function isReadmeEntry(entry: string): boolean {
   return README_ENTRY_PATTERN.test(entry);
@@ -68,8 +76,7 @@ export function isReadmeEntry(entry: string): boolean {
 
 /**
  * Whether a directory entry is an existing LICENSE the generator should leave
- * alone: bare `LICENSE`, or `LICENSE.md`/`LICENSE.txt`, matched
- * case-insensitively.
+ * alone: bare `LICENSE`, or a `.md`/`.txt`/`.markdown` variant.
  */
 export function isLicenseEntry(entry: string): boolean {
   return LICENSE_ENTRY_PATTERN.test(entry);

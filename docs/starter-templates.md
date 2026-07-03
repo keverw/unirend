@@ -107,7 +107,7 @@ bunx unirend init-repo ./my-workspace
 bunx unirend init-repo ./projects --name my-workspace
 ```
 
-The target directory must be empty, or contain only non-content entries: git/config files (`.git`, `.gitignore`, `.gitattributes`, `.gitkeep`) and common OS/cloud junk (like `.DS_Store`, `Thumbs.db`, or `.dropbox`). A `README.md` or `LICENSE` is also allowed and left untouched (init logs a notice when it finds one). Any other content aborts the init. Because `create` auto-inits, `init-repo` is optional. Reach for it only when you want control over the workspace name or want to set up the repo as a separate step.
+The target directory must be empty, or contain only non-content entries: git/config files (`.git`, `.gitignore`, `.gitattributes`, `.gitkeep`) and common OS/cloud junk (like `.DS_Store`, `Thumbs.db`, or `.dropbox`). A README or LICENSE is also allowed and left untouched, including common variants like `README.txt` or `LICENSE.md` (init logs a notice when it finds one). Any other content aborts the init. Because `create` auto-inits, `init-repo` is optional. Reach for it only when you want control over the workspace name or want to set up the repo as a separate step.
 
 ### `create <type> <name> [path] [--target bun|node]`
 

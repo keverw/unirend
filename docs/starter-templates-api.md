@@ -155,7 +155,7 @@ console.log(Object.keys(root)); // every generated file path
 
 ## `initRepo(dirPath, options?): Promise<InitRepoResult>`
 
-Initializes a workspace repo without creating a project. Mirrors the CLI's `init-repo`. The directory must be empty, or contain only non-content entries: git/config files (`.git`, `.gitignore`, `.gitattributes`, `.gitkeep`) and common OS/cloud junk (like `.DS_Store`, `Thumbs.db`, or `.dropbox`). A `README.md` or `LICENSE` is also allowed and left untouched. Any other content aborts the init.
+Initializes a workspace repo without creating a project. Mirrors the CLI's `init-repo`. The directory must be empty, or contain only non-content entries: git/config files (`.git`, `.gitignore`, `.gitattributes`, `.gitkeep`) and common OS/cloud junk (like `.DS_Store`, `Thumbs.db`, or `.dropbox`). A README or LICENSE is also allowed and left untouched, including common variants like `README.txt` or `LICENSE.md`. Any other content aborts the init.
 
 ```typescript
 import { initRepo } from 'unirend/starter-templates';

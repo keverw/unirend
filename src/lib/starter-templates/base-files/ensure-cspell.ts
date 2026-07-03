@@ -16,7 +16,9 @@ export interface EnsureCspellOptions {
 }
 
 const defaultWords = [
+  'Avenir',
   'bradlc',
+  'Bstatus',
   'dbaeumer',
   'esbenp',
   'eslintcache',
@@ -25,6 +27,7 @@ const defaultWords = [
   'jestrunner',
   'jmbeach',
   'Lifecycleion',
+  'phpunit',
   'treemap',
   'Unirend',
 ];
