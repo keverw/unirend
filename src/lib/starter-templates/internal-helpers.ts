@@ -14,12 +14,19 @@ import { ensureVSCodeExtensions } from './base-files/ensure-vscode-extensions';
 import { ensureVSCodeSettings } from './base-files/ensure-vscode-settings';
 import { ensureAgentsMD } from './base-files/ensure-agents-md';
 import { ensureClaudeMD } from './base-files/ensure-claude-md';
+import { ensureReadmeMD } from './base-files/ensure-readme-md';
+import { ensureLicense } from './base-files/ensure-license';
 import { ensureCspell } from './base-files/ensure-cspell';
 import { ensureCleanCspell } from './base-files/ensure-clean-cspell';
 import type { RepoConfig, ServerBuildTarget, LoggerFunction } from './types';
 import type { TemplateID } from './consts';
+import { vfsListDir } from './vfs';
 import type { FileRoot } from './vfs';
-import { buildAppEnvVarName } from './internal-utils';
+import {
+  buildAppEnvVarName,
+  isReadmeEntry,
+  isLicenseEntry,
+} from './internal-utils';
 import {
   APPS_GIT_KEEP_FILE_SRC,
   LIBS_GIT_KEEP_FILE_SRC,
@@ -252,6 +259,21 @@ export async function ensureBaseFiles(
 
   // Ensure CLAUDE.md exists — bridges Claude Code to AGENTS.md (only creates if missing)
   await ensureClaudeMD(repoRoot, options?.log);
+
+  // Scan the repo root once to see whether a README/LICENSE already exists in
+  // any recognized variant (e.g. lowercase readme.md, or LICENSE.md), then pass
+  // the result down so the writers below don't each re-list the directory and
+  // don't add a duplicate next to the user's own file.
+  const rootEntries = await vfsListDir(repoRoot);
+  const hasReadme = rootEntries.some(isReadmeEntry);
+  const hasLicense = rootEntries.some(isLicenseEntry);
+
+  // Ensure README.md exists — generic workspace readme (only creates if missing)
+  await ensureReadmeMD(repoRoot, repoName, hasReadme, options?.log);
+
+  // Ensure LICENSE exists — placeholder matching the UNLICENSED/private defaults
+  // (only creates if missing)
+  await ensureLicense(repoRoot, hasLicense, options?.log);
 
   // Return the resulting package.json state so callers can thread it onward
   // without re-reading the file.

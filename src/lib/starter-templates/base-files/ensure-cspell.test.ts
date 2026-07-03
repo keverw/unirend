@@ -6,7 +6,9 @@ import type { LogLevel } from '../types';
 describe('ensureCspell', () => {
   const createLog = (): Array<{ level: LogLevel; message: string }> => [];
   const expectedDefaultWords = [
+    'Avenir',
     'bradlc',
+    'Bstatus',
     'dbaeumer',
     'esbenp',
     'eslintcache',
@@ -15,6 +17,7 @@ describe('ensureCspell', () => {
     'jestrunner',
     'jmbeach',
     'Lifecycleion',
+    'phpunit',
     'treemap',
     'Unirend',
   ];
