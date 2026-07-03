@@ -9,8 +9,9 @@ Guidelines and constraints for AI coding agents working in this repository.
 ## Git Workflow
 
 - **Use Git as Read-Only / Non-Destructive:** Treat Git as read-only by default. Use Git for inspection unless a command is explicitly allowed below.
-- **Do Not Modify Repository State:** Do not stage changes, commit changes, discard local changes, reset state, clean files, or switch branches (e.g., do not run \`git add\`, \`git commit\`, \`git checkout\`, \`git reset\`, \`git clean\`, etc.). The human developer is the peer programmer who will review all changes, provide feedback, and handle normal staging, committing, and checkout actions manually.
+- **Do Not Modify Repository State:** Do not stage changes, commit changes, discard local changes, reset state, clean files, or switch branches (e.g., do not run \`git add\`, \`git commit\`, \`git checkout\`, \`git reset\`, \`git clean\`, etc.). The human developer is the peer programmer who will review all changes, provide feedback, and handle normal staging, committing, and checkout actions manually. This default is not absolute. The explicit exceptions below take precedence when they apply, so treat a direct user request to branch, stage, or commit as authorization to run that command.
 - **Exception for Renames:** \`git mv\` is allowed for intentional file renames, including case-only renames on case-insensitive filesystems. This command updates Git's index, but is acceptable because it preserves Git's view of the move during refactors.
+- **Exception for User-Requested Branching/Committing:** Creating new branches (\`git checkout -b\`, \`git switch -c\`), staging files (\`git add\`), and committing changes (\`git commit\`) are allowed when the user explicitly requests the agent to perform them during the conversation.
 
 ## Language Style
 
