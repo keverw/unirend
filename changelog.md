@@ -4,7 +4,7 @@
 
 - [0.0.1 (July 10, 2025)](#001-july-10-2025)
 - [0.1.0 (June 19, 2026)](#010-june-19-2026)
-- [Unreleased](#unreleased)
+- [0.1.1 (July 3, 2026)](#011-july-3-2026)
 
 <!-- tocstop -->
 
@@ -41,7 +41,7 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 - ESM-only package on React Router 8, Vite 8, and Node >= 25.
 - Dependency upgrades and transitive security fixes; dropped the deprecated `@types/cheerio` stub in favor of cheerio's bundled types.
 
-## Unreleased
+## 0.1.1 (July 3, 2026)
 
 - Added Unix socket listening support for `APIServer`/`servePlain()` via `server.listen({ path })`, plus generated API starter support through `<APP>_SOCKET_PATH`.
 - Fixed the published `unirend` CLI failing to run via `bunx`/`npx` (silent exit 1): the built `dist/cli/cli.js` now starts with a `#!/usr/bin/env bun` shebang and is marked executable, so package managers can execute the `bin`. A post-build guard fails the build if the shebang or executable bit ever goes missing again. Builds now require a POSIX host (macOS/Linux); building on Windows is refused so a tarball can't ship the CLI without its executable bit.
