@@ -60,9 +60,11 @@
     - [Shared Resources](#shared-resources)
     - [Per-App Resources](#per-app-resources)
     - [Resource Considerations](#resource-considerations)
+    - [Error Page Patterns](#error-page-patterns)
     - [Validation](#validation)
 - [Standalone API (APIServer)](#standalone-api-apiserver)
   - [Basic Usage](#basic-usage)
+  - [Unix Socket Listening](#unix-socket-listening)
   - [API-Specific Options](#api-specific-options)
   - [API Error Handlers](#api-error-handlers)
     - [JSON-Only (SSR Compatible)](#json-only-ssr-compatible)
@@ -1840,6 +1842,47 @@ These resources are configured independently for each app:
 - Each static content cache (prod mode) uses ~50MB of memory
 - **HMR Ports (dev mode)**: Each app's Vite instance gets a unique HMR WebSocket port automatically assigned as `port + 1000 + index` (e.g., if server runs on port 3000, HMR ports are 4000, 4001, 4002, etc.). No manual configuration needed.
 - **Recommendation**: Limit to 3-5 apps per server instance for optimal performance
+
+#### Error Page Patterns
+
+The starter template ships an app-agnostic `get500ErrorPage` that reads the theme preference from the request and stays neutral, so it works as-is for any app. When you run multiple apps, two patterns are worth knowing.
+
+**Detecting the active app inside the handler.** The handler receives the Fastify request, and the request is fully decorated by the time an error is handled. You can read `request.activeSSRApp` to find out which app is being served and branch on it, without needing any extra wiring:
+
+```typescript
+function get500ErrorPage(request, error, isDevelopment) {
+  const appKey = request.activeSSRApp; // e.g. "admin", "marketing", or "__default__"
+  // Adjust branding, title, or "Go Home" link based on appKey
+}
+```
+
+Keep in mind that `activeSSRApp` reflects wherever the request was when it failed. If something crashed before your middleware called `request.setActiveSSRApp(appKey)`, the request is still on `__default__`, so treat that as the "unknown app" case rather than assuming your app was selected.
+
+**Reusing one `get500ErrorPage` function across apps with an override argument.** If you'd rather pass the app identity in explicitly instead of reading it off the request, give your shared function an optional argument and pass a different label wherever each app is set up. This keeps a single source of truth for the markup while letting each app brand its own page, and the label removes the need to branch on `request.activeSSRApp` inside the handler. It does not change which handler runs, though: the error handler still selects the app from `request.activeSSRApp`, so a failure before your middleware calls `setActiveSSRApp` invokes the base config's handler, not your app's wrapper. Keep the base config's page neutral for exactly that case.
+
+The base app takes the option through its serve function (`serveSSRBuilt` or `serveSSRWithHMR`), and each additional app takes it through the matching register call (`registerBuiltApp` or `registerHMRApp`):
+
+```typescript
+// Shared function with an optional label override
+function get500ErrorPage(request, error, isDevelopment, appLabel?: string) {
+  const label = appLabel ?? request.activeSSRApp;
+  // ...brand the page with `label`
+}
+
+// Base app: pass the label through the serve function's options
+const server = serveSSRBuilt('./build', {
+  get500ErrorPage: (req, err, dev) => get500ErrorPage(req, err, dev, 'Main'),
+});
+
+// Additional app: pass its own label through the register call
+server.registerBuiltApp('admin', './build-admin', {
+  get500ErrorPage: (req, err, dev) => get500ErrorPage(req, err, dev, 'Admin'),
+});
+```
+
+**The default app as a catch-all.** Both single-app and multi-app servers always have a `__default__` app built from the base config you pass to `serveSSRWithHMR` or the production serve function. That makes the base config's `get500ErrorPage` a natural place for a neutral fallback page that covers early failures and any request that never selected an app. Register branded handlers on the individual apps, and let `__default__` stay generic.
+
+**Previewing per-app error pages while testing.** With more than one app it's awkward to trigger each app's branded 500 through normal routing. A simple approach is to have your `setActiveSSRApp` middleware honor an override query in development, for example `?__app=admin`, so you can force the active app for a request and see its error page. Gate this behind the same development-only flag as the demo error routes (the starter template exposes those through `ENABLE_TEST_ROUTES` in `consts.ts`) so it never affects production traffic.
 
 #### Validation
 

@@ -4,6 +4,7 @@
 
 - [0.0.1 (July 10, 2025)](#001-july-10-2025)
 - [0.1.0 (June 19, 2026)](#010-june-19-2026)
+- [Unreleased](#unreleased)
 
 <!-- tocstop -->
 
