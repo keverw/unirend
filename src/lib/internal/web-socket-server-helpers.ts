@@ -118,8 +118,7 @@ export interface WebSocketHandlerConfig<M extends BaseMeta = BaseMeta> {
     request: FastifyRequest,
     params: WebSocketHandlerParams,
   ) =>
-    | Promise<WebSocketPreValidationResult<M>>
-    | WebSocketPreValidationResult<M>;
+    Promise<WebSocketPreValidationResult<M>> | WebSocketPreValidationResult<M>;
   /** WebSocket connection handler */
   handler: (
     socket: WebSocket,

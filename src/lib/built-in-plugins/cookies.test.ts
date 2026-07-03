@@ -87,8 +87,7 @@ describe('cookies plugin', () => {
     await plugin(host, options);
 
     const info = host._decorations?.cookiePluginInfo as
-      | { signingSecretProvided: boolean; algorithm: string }
-      | undefined;
+      { signingSecretProvided: boolean; algorithm: string } | undefined;
 
     expect(info).toBeDefined();
     expect(info?.signingSecretProvided).toBe(true);
@@ -104,8 +103,7 @@ describe('cookies plugin', () => {
     await plugin(host, options);
 
     const info = host._decorations?.cookiePluginInfo as
-      | { signingSecretProvided: boolean; algorithm: string }
-      | undefined;
+      { signingSecretProvided: boolean; algorithm: string } | undefined;
 
     expect(info).toBeDefined();
     expect(info?.signingSecretProvided).toBe(false);

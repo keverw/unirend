@@ -2174,8 +2174,7 @@ describe('cors', () => {
   describe('applyCORSHeaders decorator', () => {
     it('calls applyCORSActualResponseHeaders when the decorator is invoked', async () => {
       let capturedDecorator:
-        | ((...args: unknown[]) => Promise<void>)
-        | undefined;
+        ((...args: unknown[]) => Promise<void>) | undefined;
 
       const capturingHost = {
         decorateRequest: mock(

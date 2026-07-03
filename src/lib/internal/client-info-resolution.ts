@@ -86,9 +86,7 @@ export interface ClientInfoConfig {
    * @default false
    */
   trustForwardedHeaders?:
-    | boolean
-    | 'local'
-    | ((request: FastifyRequest) => boolean);
+    boolean | 'local' | ((request: FastifyRequest) => boolean);
   /** Optional logging configuration */
   logging?: boolean | ClientInfoLoggingOptions;
 }

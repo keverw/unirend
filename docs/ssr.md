@@ -1174,12 +1174,8 @@ Request body shape (from data loader):
 
 ```json
 {
-  "route_params": {
-    /* dynamic segments */
-  },
-  "query_params": {
-    /* URL query params */
-  },
+  "route_params": {/* dynamic segments */},
+  "query_params": {/* URL query params */},
   "request_path": "/some/path",
   "original_url": "https://example.com/some/path?x=1"
 }
@@ -2244,9 +2240,7 @@ import type { SSRServer } from 'unirend/server';
 let server: SSRServer | null = null;
 
 async function main() {
-  server = serveSSRBuilt('./build', {
-    /* options */
-  });
+  server = serveSSRBuilt('./build', {/* options */});
 
   await server.listen(3000, 'localhost');
   console.log('Server running on http://localhost:3000');

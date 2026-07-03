@@ -245,8 +245,7 @@ export function ContextDemo() {
                     <code className="context-badge">
                       {String(
                         (requestContext.get('__debug_initialCdnBaseURL') as
-                          | string
-                          | undefined) ?? '(not configured)',
+                          string | undefined) ?? '(not configured)',
                       )}
                     </code>
                   </div>
@@ -255,8 +254,7 @@ export function ContextDemo() {
                     <code className="context-badge">
                       {String(
                         (requestContext.get('__debug_initialDomainInfo') as
-                          | string
-                          | undefined) ?? 'null',
+                          string | undefined) ?? 'null',
                       )}
                     </code>
                   </div>

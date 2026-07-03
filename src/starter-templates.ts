@@ -294,8 +294,7 @@ export async function createProject(
     // project name produces different script names and can sidestep a clash.
     if (rootPkgStatus.status === 'found') {
       const existingScripts = rootPkgStatus.data.scripts as
-        | Record<string, unknown>
-        | undefined;
+        Record<string, unknown> | undefined;
 
       const conflicts = findScriptConflicts(
         existingScripts,
@@ -707,8 +706,7 @@ export async function readRepoConfig(
  * the auto-init without re-reading package.json.
  */
 type InitRepoInternalResult =
-  | (InitRepoSuccess & { packageJSON: RootPackageJSONState })
-  | InitRepoFailure;
+  (InitRepoSuccess & { packageJSON: RootPackageJSONState }) | InitRepoFailure;
 
 /**
  * Internal repo-init core. Public {@link initRepo} is a thin wrapper over this.

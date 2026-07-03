@@ -366,9 +366,7 @@ export function createDefaultWebClosingResponse(): WebResponse {
 type ClosingFunctionHandlerType = 'api' | 'web';
 
 type ClosingHandler =
-  | APIClosingHandlerFn
-  | WebClosingHandlerFn
-  | SplitClosingHandler;
+  APIClosingHandlerFn | WebClosingHandlerFn | SplitClosingHandler;
 
 interface ClosingResponseConfig {
   handler?: ClosingHandler;
@@ -835,8 +833,7 @@ export function createControlledInstance(
       ),
     getDecoration: <T = unknown>(property: string): T | undefined =>
       (fastifyInstance as unknown as Record<string, unknown>)[property] as
-        | T
-        | undefined,
+        T | undefined,
     route: (opts: SafeRouteOptions) => {
       // Prevent catch-all routes that would conflict with SSR
       if (opts.url === '*' || opts.url.includes('*')) {
@@ -1069,8 +1066,7 @@ export function validateAndRegisterPlugin(
 export function registerConnectionIPDecoration(
   fastify: FastifyInstance,
   getConnectionIP:
-    | ((request: FastifyRequest) => string | Promise<string>)
-    | undefined,
+    ((request: FastifyRequest) => string | Promise<string>) | undefined,
 ): void {
   fastify.decorateRequest('connectionIP', '');
   // clientIP defaults to connectionIP; client-info resolution may override it.

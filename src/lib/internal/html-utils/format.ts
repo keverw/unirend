@@ -161,8 +161,7 @@ export function prettifyHTML($: CheerioAPI, containerID = 'root'): string {
 }
 
 export type ProcessTemplateResult =
-  | { success: true; html: string }
-  | { success: false; error: string };
+  { success: true; html: string } | { success: false; error: string };
 
 export async function processTemplate(
   html: string,

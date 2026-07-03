@@ -1842,8 +1842,7 @@ describe('processFileUpload', () => {
       const originalRemoveListener =
         (
           (request.raw as any).removeListener as
-            | ((...args: any[]) => any)
-            | undefined
+            ((...args: any[]) => any) | undefined
         )?.bind(request.raw) || (() => {});
 
       request.raw.on = function (event: string, handler: any) {

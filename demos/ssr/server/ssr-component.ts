@@ -262,9 +262,7 @@ function registerPageDataHandlers(server: SSRServer) {
 
       const reqWithClient = request as FastifyRequest & {
         clientInfo?:
-          | { requestID?: string }
-          | Record<string, unknown>
-          | undefined;
+          { requestID?: string } | Record<string, unknown> | undefined;
       };
 
       return DemoResponseHelpers.createPageSuccessResponse({

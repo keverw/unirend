@@ -242,8 +242,7 @@ describe('registerAccessLogHooks (via APIServer accessLog config)', () => {
     expect(accessLogs[0].message).not.toContain('CIP=???');
     expect(accessLogs[0].message).not.toContain('IP=???');
     const ctx = accessLogs[0].context as
-      | { connectionIP?: string; ip?: string }
-      | undefined;
+      { connectionIP?: string; ip?: string } | undefined;
     expect(typeof ctx?.connectionIP).toBe('string');
     expect((ctx?.connectionIP ?? '').length).toBeGreaterThan(0);
   });
@@ -814,8 +813,7 @@ describe('AccessLogPlugin onRequestAbort', () => {
       logs,
       request,
       abortHook: hooks.onRequestAbort?.[0] as
-        | ((req: typeof request) => Promise<void>)
-        | undefined,
+        ((req: typeof request) => Promise<void>) | undefined,
     };
   }
 

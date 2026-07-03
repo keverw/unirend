@@ -110,8 +110,7 @@ export interface APIErrorResponse<M extends BaseMeta = BaseMeta> {
  * @template M - Additional meta properties (extends BaseMeta)
  */
 export type APIResponseEnvelope<T = unknown, M extends BaseMeta = BaseMeta> =
-  | APISuccessResponse<T, M>
-  | APIErrorResponse<M>;
+  APISuccessResponse<T, M> | APIErrorResponse<M>;
 
 // --- Page Response Envelope (for SSR/data loaders) ---
 
@@ -175,6 +174,4 @@ export interface PageRedirectResponse<M extends BaseMeta = BaseMeta> {
  * @template M - Additional meta properties (extends BaseMeta)
  */
 export type PageResponseEnvelope<T = unknown, M extends BaseMeta = BaseMeta> =
-  | PageSuccessResponse<T, M>
-  | PageErrorResponse<M>
-  | PageRedirectResponse<M>;
+  PageSuccessResponse<T, M> | PageErrorResponse<M> | PageRedirectResponse<M>;

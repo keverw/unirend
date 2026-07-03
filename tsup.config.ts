@@ -156,7 +156,7 @@ export default defineConfig([
   // Bun runtime at startup, so `#!/usr/bin/env bun` keeps `unirend --help` exiting
   // 0 wherever Bun is installed. The shebang lives ONLY in the build output (banner
   // below), not in src/cli.ts, and only on this CLI entry — never on the library
-  // bundles. onSuccess chmods +x and asserts both invariants so this can't regress.
+  // bundles. onSuccess runs chmod +x and asserts both invariants so this can't regress.
   {
     ...baseConfig,
     entry: ['src/cli.ts'],
