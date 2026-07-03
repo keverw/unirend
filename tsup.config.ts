@@ -1,8 +1,12 @@
 import { defineConfig } from 'tsup';
 import type { Options } from 'tsup';
-import { readFileSync } from 'fs';
+import { chmodSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
 import type { Plugin } from 'esbuild';
+
+// Shebang prepended to the built CLI so package managers can execute the `bin`.
+// Bun (not Node) because src/cli.ts enforces a Bun runtime at startup.
+const CLI_SHEBANG = '#!/usr/bin/env bun';
 
 // Read package.json to get all dependencies
 const packageJSON = JSON.parse(
@@ -145,12 +149,70 @@ export default defineConfig([
     outDir: 'dist/config-vite',
   },
 
-  // CLI entry point (no shebang - run with bun/node)
+  // CLI entry point. The `bin` field points package managers (bunx/npx and the
+  // .bin/ symlink) at dist/cli/cli.js, so the built file needs a shebang on line 1
+  // and the executable bit — otherwise the kernel has no interpreter to hand it to
+  // and it exits 1 silently. The interpreter is Bun (not Node): the CLI enforces a
+  // Bun runtime at startup, so `#!/usr/bin/env bun` keeps `unirend --help` exiting
+  // 0 wherever Bun is installed. The shebang lives ONLY in the build output (banner
+  // below), not in src/cli.ts, and only on this CLI entry — never on the library
+  // bundles. onSuccess chmods +x and asserts both invariants so this can't regress.
   {
     ...baseConfig,
     entry: ['src/cli.ts'],
     outDir: 'dist/cli',
     dts: false, // CLI is not consumed as a library so type definitions aren't needed
+    banner: { js: CLI_SHEBANG },
+    onSuccess: async () => {
+      // Builds (and therefore publishes) must run on a POSIX system. The bin
+      // needs the executable bit set on dist/cli/cli.js so it works when a
+      // consumer on macOS/Linux symlinks it into node_modules/.bin. Windows does
+      // not model that bit (its package-manager shims parse the shebang instead),
+      // so a tarball packed on Windows would ship the CLI without the exec bit
+      // and break for every *nix consumer. Fail the build here — not at module
+      // load — so importing this config (e.g. from src/package-exports.test.ts)
+      // still works on Windows and only an actual build is refused.
+      if (process.platform === 'win32') {
+        throw new Error(
+          'unirend must be built on macOS or Linux, not Windows: the published ' +
+            'CLI bin (dist/cli/cli.js) needs the POSIX executable bit, which ' +
+            'Windows cannot set. Build/publish from a *nix environment (e.g. WSL ' +
+            'or CI).',
+        );
+      }
+
+      const cliPath = join(process.cwd(), 'dist/cli/cli.js');
+
+      // Make the bin executable so it works when symlinked into .bin/.
+      chmodSync(cliPath, 0o755);
+
+      // Regression guard: fail the build loudly if the shebang or the executable
+      // bit ever goes missing again.
+      const firstLine = readFileSync(cliPath, 'utf-8').split('\n', 1)[0];
+
+      if (firstLine !== CLI_SHEBANG) {
+        throw new Error(
+          `Build guard: dist/cli/cli.js must start with "${CLI_SHEBANG}" ` +
+            `but starts with "${firstLine}". The bin cannot be executed by ` +
+            `bunx/npx without a shebang on line 1.`,
+        );
+      }
+
+      // Defense-in-depth: normally this can't fail because chmodSync above just
+      // set 0o755 (and would have thrown on error). We keep it anyway — it reads
+      // back the bit as it actually landed on disk, so it still catches umask or
+      // filesystem quirks (network/overlay mounts) and any future Bun/Node chmod
+      // behavior change, and it documents the executable bit as a hard build
+      // invariant rather than an incidental side effect of the chmod above.
+      const isExecutable = (statSync(cliPath).mode & 0o111) !== 0;
+
+      if (!isExecutable) {
+        throw new Error(
+          'Build guard: dist/cli/cli.js is not executable. The bin cannot be ' +
+            'run when symlinked into .bin/ without the executable bit.',
+        );
+      }
+    },
   },
 
   // Public utilities (StaticContentCache, HTML helpers)

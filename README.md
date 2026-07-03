@@ -645,6 +645,8 @@ bun run build
 bun test
 ```
 
+**Note:** Build and publish from macOS or Linux (e.g. WSL or CI). The build sets the POSIX executable bit on the CLI bin (`dist/cli/cli.js`); Windows can't set it, so a tarball packed on Windows would ship a broken `unirend` command. The build refuses to run on Windows to prevent that. (Tests and other tooling that import the build config still work on Windows — only an actual build is blocked.)
+
 When preparing a new release:
 
 1. Update the version in `package.json`
