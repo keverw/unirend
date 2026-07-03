@@ -5,6 +5,7 @@
 - [0.0.1 (July 10, 2025)](#001-july-10-2025)
 - [0.1.0 (June 19, 2026)](#010-june-19-2026)
 - [0.1.1 (July 3, 2026)](#011-july-3-2026)
+- [0.1.2 (July 3, 2026)](#012-july-3-2026)
 
 <!-- tocstop -->
 
@@ -52,7 +53,7 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 - Updated dependencies to their latest in-range versions (`fastify` 5.9.0, `vite` 8.1.3, `prettier` 3.9.4, `react-router` 8.1.0, `typescript-eslint`/`@typescript-eslint/*` 8.62.1, `@vitejs/plugin-react` 6.0.3, `picomatch` 4.0.5, `qs` 6.15.3, `semver` 7.8.5), and bumped the matching pins in the starter template's generated `package.json`.
 - Dropped the `undici` override: `cheerio` now resolves `undici` to a patched 7.28.0 on its own, so forcing it is no longer needed. Kept the `esbuild` override, which is still required because `tsup`/`vite` cap `esbuild` at `^0.27.0` and `bun audit` flags a low-severity Windows dev-server file-read advisory without it.
 
-## Unreleased
+## 0.1.2 (July 3, 2026)
 
 - Fixed a TypeScript error (`Property 'dir' does not exist on type 'ImportMeta'`) in the generated starter's `scripts/clean-cspell.ts`. It used the Bun-only `import.meta.dir`, whose type is only known to `@types/bun`. Generated projects rely on `@types/node` instead, so the script now uses the standard `import.meta.dirname` (supported by both Node and Bun at runtime).
 - Added an `@ts-ignore` (with an `eslint-disable-next-line @typescript-eslint/ban-ts-comment`) directly on the `import('current-build-info.ts')` line to suppress the "cannot find module" error. Because `current-build-info.ts` is generated at build time and gitignored, it may or may not exist at type-check time, and `@ts-ignore` silences the error either way, unlike an `@ts-expect-error`, which would itself fail as an "unused directive" whenever the file is present. The existing `@ts-expect-error` on the `IS_BUILT` line is unchanged, since that suppression is still needed. Applied to the generated SSR and API starters, the SSR demo, and the build-info docs.
