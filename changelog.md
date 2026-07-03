@@ -65,3 +65,6 @@ stabilizing. Still pre-1.0, future minor releases may include breaking changes u
   A post-build guard fails the build if the shebang or executable bit ever goes
   missing again. Builds now require a POSIX host (macOS/Linux); building on
   Windows is refused so a tarball can't ship the CLI without its executable bit.
+- Set `proseWrap: 'never'` in the repo-root Prettier config and the generated
+  starter's root `prettier.config.js`, so Prettier no longer reflows prose in
+  Markdown and similar files.
