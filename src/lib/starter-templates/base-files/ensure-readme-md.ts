@@ -26,6 +26,10 @@ bunx unirend create ssr my-app
 
 By default this scaffolds the app, installs dependencies, and formats the code. Each app gets its own \`package.json\` scripts prefixed with the app name (for example \`my-app:dev\` and \`my-app:serve:dev\`), which you run from the workspace root.
 
+## Related Tooling
+
+As you build, unirend pairs with a few complementary libraries (PostgreSQL migrations, React forms, local dev-service management). See unirend's [related projects](https://github.com/keverw/unirend#related-projects).
+
 ## License
 
 This workspace is private by default. Its \`package.json\` sets \`"private": true\` and \`"license": "UNLICENSED"\`, so all rights are reserved. See [LICENSE](./LICENSE) before making this repository public or sharing it outside your team.

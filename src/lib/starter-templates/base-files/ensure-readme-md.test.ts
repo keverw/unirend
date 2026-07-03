@@ -15,6 +15,9 @@ describe('ensureReadmeMD', () => {
     expect(typeof contents).toBe('string');
     expect(contents).toContain('# my-workspace');
     expect(contents).toContain('scaffolded with [unirend]');
+    expect(contents).toContain(
+      '[related projects](https://github.com/keverw/unirend#related-projects)',
+    );
     expect(contents).toContain('See [LICENSE](./LICENSE)');
   });
 
