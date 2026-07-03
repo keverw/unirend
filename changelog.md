@@ -59,3 +59,9 @@ stabilizing. Still pre-1.0, future minor releases may include breaking changes u
 - Added Unix socket listening support for `APIServer`/`servePlain()` via
   `server.listen({ path })`, plus generated API starter support through
   `<APP>_SOCKET_PATH`.
+- Fixed the published `unirend` CLI failing to run via `bunx`/`npx` (silent
+  exit 1): the built `dist/cli/cli.js` now starts with a `#!/usr/bin/env bun`
+  shebang and is marked executable, so package managers can execute the `bin`.
+  A post-build guard fails the build if the shebang or executable bit ever goes
+  missing again. Builds now require a POSIX host (macOS/Linux); building on
+  Windows is refused so a tarball can't ship the CLI without its executable bit.
