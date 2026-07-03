@@ -253,8 +253,7 @@ export function useDomainInfo(): DomainInfo | null {
  * ```
  */
 export function useRequestContextObjectRaw():
-  | Record<string, unknown>
-  | undefined {
+  Record<string, unknown> | undefined {
   const context = useContext(UnirendContext);
   const [rawContext, setRawContext] = useState<
     Record<string, unknown> | undefined

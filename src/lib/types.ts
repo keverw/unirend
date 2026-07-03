@@ -71,8 +71,7 @@ export interface APIServerUnixSocketListenOptions {
 }
 
 export type APIServerListenOptions =
-  | APIServerTCPListenOptions
-  | APIServerUnixSocketListenOptions;
+  APIServerTCPListenOptions | APIServerUnixSocketListenOptions;
 
 export interface RenderRequest {
   type: RenderType;
@@ -247,9 +246,7 @@ export interface RenderErrorResult extends RenderResultBase {
  * Union type for all possible render results
  */
 export type RenderResult =
-  | RenderPageResult
-  | RenderResponseResult
-  | RenderErrorResult;
+  RenderPageResult | RenderResponseResult | RenderErrorResult;
 
 /**
  * Required paths for SSR development server (with HMR)
@@ -648,12 +645,7 @@ export interface PluginOptions<
  * Log levels supported by the Unirend logger adapter.
  */
 export type UnirendLoggerLevel =
-  | 'trace'
-  | 'debug'
-  | 'info'
-  | 'warn'
-  | 'error'
-  | 'fatal';
+  'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
 
 /**
  * Logger function signature used by Unirend logger object methods.
@@ -1297,8 +1289,7 @@ export interface SSRInternalAppConfigBuilt extends SSRInternalAppConfigBase {
  * Union type for internal app storage (discriminated by presence of paths vs buildDir)
  */
 export type SSRInternalAppConfig =
-  | SSRInternalAppConfigHMR
-  | SSRInternalAppConfigBuilt;
+  SSRInternalAppConfigHMR | SSRInternalAppConfigBuilt;
 
 /**
  * Options for registering additional dev apps via registerHMRApp().

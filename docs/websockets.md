@@ -47,26 +47,20 @@ const ssr = serveSSRWithHMR(
   },
   {
     enableWebSockets: true,
-    webSocketOptions: {
-      /* optional */
-    },
+    webSocketOptions: {/* optional */},
   },
 );
 
 // SSR (prod)
 const ssrProd = serveSSRBuilt('./build', {
   enableWebSockets: true,
-  webSocketOptions: {
-    /* optional */
-  },
+  webSocketOptions: {/* optional */},
 });
 
 // API server
 const api = serveAPI({
   enableWebSockets: true,
-  webSocketOptions: {
-    /* optional */
-  },
+  webSocketOptions: {/* optional */},
 });
 ```
 

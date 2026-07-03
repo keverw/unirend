@@ -197,9 +197,7 @@ When an error occurs, the response will have `status: "error"` and include an `e
   "request_timestamp": "2026-04-08T14:23:01.412Z",
   "type": "api", // or "page"
   "data": null,
-  "meta": {
-    /* standard meta fields */
-  },
+  "meta": {/* standard meta fields */},
   "error": {
     "code": "invalid_input",
     "message": "The provided input is invalid",
@@ -897,8 +895,7 @@ export class AppResponseHelpers extends APIResponseHelpers {
   }) {
     const userID = (params.request as any).user?.id as string | undefined;
     const workspaceID = (params.request as any).workspace?.id as
-      | string
-      | undefined;
+      string | undefined;
 
     const mergedMeta: AppMeta = {
       ...(params.meta as Partial<AppMeta>),

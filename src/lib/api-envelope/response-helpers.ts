@@ -567,8 +567,7 @@ export class APIResponseHelpers {
   /** Determines if envelope is an error response */
   public static isErrorResponse<M extends BaseMeta = BaseMeta>(
     response:
-      | APIResponseEnvelope<unknown, M>
-      | PageResponseEnvelope<unknown, M>,
+      APIResponseEnvelope<unknown, M> | PageResponseEnvelope<unknown, M>,
   ): response is APIErrorResponse<M> | PageErrorResponse<M> {
     return response.status === 'error';
   }
@@ -576,8 +575,7 @@ export class APIResponseHelpers {
   /** Determines if envelope is a redirect response */
   public static isRedirectResponse<M extends BaseMeta = BaseMeta>(
     response:
-      | APIResponseEnvelope<unknown, M>
-      | PageResponseEnvelope<unknown, M>,
+      APIResponseEnvelope<unknown, M> | PageResponseEnvelope<unknown, M>,
   ): response is PageRedirectResponse<M> {
     return response.status === 'redirect';
   }
