@@ -198,6 +198,12 @@ export default defineConfig([
         );
       }
 
+      // Defense-in-depth: normally this can't fail because chmodSync above just
+      // set 0o755 (and would have thrown on error). We keep it anyway — it reads
+      // back the bit as it actually landed on disk, so it still catches umask or
+      // filesystem quirks (network/overlay mounts) and any future Bun/Node chmod
+      // behavior change, and it documents the executable bit as a hard build
+      // invariant rather than an incidental side effect of the chmod above.
       const isExecutable = (statSync(cliPath).mode & 0o111) !== 0;
 
       if (!isExecutable) {
