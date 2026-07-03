@@ -261,10 +261,10 @@ The `staticContent()` function accepts an optional second parameter for a custom
 staticContent(config, name?)
 ```
 
-| Parameter | Type     | Description                                                       |
-| --------- | -------- | ----------------------------------------------------------------- |
-| `config`  | `object` | Static content configuration (required)                           |
-| `name`    | `string` | Optional custom name for debugging and plugin dependency tracking |
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `config` | `object` | Static content configuration (required) |
+| `name` | `string` | Optional custom name for debugging and plugin dependency tracking |
 
 **Example:**
 
@@ -279,10 +279,10 @@ If no name is provided, a unique ID is automatically generated (e.g., `static-co
 
 ### File Mappings
 
-| Option           | Type                                     | Description                             |
-| ---------------- | ---------------------------------------- | --------------------------------------- |
-| `singleAssetMap` | `Record<string, string>`                 | Exact URL → absolute file path mappings |
-| `folderMap`      | `Record<string, string \| FolderConfig>` | URL prefix → directory mappings         |
+| Option | Type | Description |
+| --- | --- | --- |
+| `singleAssetMap` | `Record<string, string>` | Exact URL → absolute file path mappings |
+| `folderMap` | `Record<string, string \| FolderConfig>` | URL prefix → directory mappings |
 
 **FolderConfig type:**
 
@@ -314,14 +314,14 @@ folderMap: {
 
 These options control **server-side in-memory caching** to reduce disk I/O operations:
 
-| Option                | Type     | Default                    | Description                                |
-| --------------------- | -------- | -------------------------- | ------------------------------------------ |
-| `smallFileMaxSize`    | `number` | `5 * 1024 * 1024` (5 MB)   | Max file size for content-based ETags      |
-| `cacheEntries`        | `number` | `100`                      | Max entries in ETag/content LRU caches     |
-| `contentCacheMaxSize` | `number` | `50 * 1024 * 1024` (50 MB) | Max total size of content cache            |
-| `statCacheEntries`    | `number` | `250`                      | Max entries in file stat cache             |
-| `negativeCacheTtl`    | `number` | `30 * 1000` (30s)          | TTL for 404/error cache entries (ms)       |
-| `positiveCacheTtl`    | `number` | `3600 * 1000` (1h)         | TTL for successful file cache entries (ms) |
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `smallFileMaxSize` | `number` | `5 * 1024 * 1024` (5 MB) | Max file size for content-based ETags |
+| `cacheEntries` | `number` | `100` | Max entries in ETag/content LRU caches |
+| `contentCacheMaxSize` | `number` | `50 * 1024 * 1024` (50 MB) | Max total size of content cache |
+| `statCacheEntries` | `number` | `250` | Max entries in file stat cache |
+| `negativeCacheTtl` | `number` | `30 * 1000` (30s) | TTL for 404/error cache entries (ms) |
+| `positiveCacheTtl` | `number` | `3600 * 1000` (1h) | TTL for successful file cache entries (ms) |
 
 **Note:** This caches file stats, content, and ETags **in server memory** to avoid repeated disk reads. This is separate from browser/CDN caching controlled by HTTP headers (see below).
 
@@ -344,11 +344,11 @@ staticContent({
 
 These options control **HTTP Cache-Control headers** sent to browsers/CDNs:
 
-| Option                  | Type                                    | Default                                 | Description                                                    |
-| ----------------------- | --------------------------------------- | --------------------------------------- | -------------------------------------------------------------- |
-| `cacheControl`          | `string`                                | `'public, max-age=0, must-revalidate'`  | Default Cache-Control header                                   |
-| `immutableCacheControl` | `string`                                | `'public, max-age=31536000, immutable'` | Cache-Control for fingerprinted files                          |
-| `compression`           | `boolean \| ResponseCompressionOptions` | `true`                                  | Compress buffered static responses when the client supports it |
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `cacheControl` | `string` | `'public, max-age=0, must-revalidate'` | Default Cache-Control header |
+| `immutableCacheControl` | `string` | `'public, max-age=31536000, immutable'` | Cache-Control for fingerprinted files |
+| `compression` | `boolean \| ResponseCompressionOptions` | `true` | Compress buffered static responses when the client supports it |
 
 **Note:** These headers tell **browsers and CDNs** how long to cache files. This is separate from server memory caching (above) which reduces disk I/O.
 

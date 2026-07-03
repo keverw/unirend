@@ -124,10 +124,10 @@ To handle this, define `IS_BUILT` and mark the import as external when compiling
   ```bash
   bun build serve-hmr.ts --outfile build/serve-hmr.js --target=node --external vite --define 'IS_BUILT=false' --external "$(pwd)/current-build-info.ts"
   ```
+  <!-- prettier-ignore -->
   > [!IMPORTANT]
   > The `--external` dynamic import exclusion requires an **absolute path** match because Bun resolves imports to their absolute paths before checking the external list. Using `$(pwd)/...` ensures the resolved absolute path matches.
-- **From source** (running directly under Bun without bundling, e.g., `ssr:serve:dev`):
-  No bundler is involved, so `IS_BUILT` is undefined at runtime, `isBuilt` resolves to `mode === 'built'` (falls back to `false` in HMR), and `loadBuildInfo` safely falls back to defaults without attempting the import.
+- **From source** (running directly under Bun without bundling, e.g., `ssr:serve:dev`): No bundler is involved, so `IS_BUILT` is undefined at runtime, `isBuilt` resolves to `mode === 'built'` (falls back to `false` in HMR), and `loadBuildInfo` safely falls back to defaults without attempting the import.
 
 **Load Statuses:**
 

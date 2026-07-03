@@ -1,7 +1,6 @@
 # unirend/php-static-server
 
-[![Packagist Version](https://img.shields.io/packagist/v/unirend/php-static-server)](https://packagist.org/packages/unirend/php-static-server)
-[![Packagist Downloads](https://img.shields.io/packagist/dt/unirend/php-static-server)](https://packagist.org/packages/unirend/php-static-server)
+[![Packagist Version](https://img.shields.io/packagist/v/unirend/php-static-server)](https://packagist.org/packages/unirend/php-static-server) [![Packagist Downloads](https://img.shields.io/packagist/dt/unirend/php-static-server)](https://packagist.org/packages/unirend/php-static-server)
 
 **Current version:** `0.0.2`
 
@@ -77,20 +76,20 @@ $server->serve();
 
 ## Options
 
-| Option                  | Type             | Default                                 | Description                                                                                                                                                                       |
-| ----------------------- | ---------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `buildDir`              | `string`         | required                                | Absolute path to your SSG build directory                                                                                                                                         |
-| `pageMapPath`           | `string`         | `'page-map.json'`                       | Path to page map, relative to `buildDir`                                                                                                                                          |
-| `singleAssets`          | `array`          | `[]`                                    | Map individual files (favicon, robots.txt, etc.), merged with page map, takes precedence on conflicts with page map and asset folders                                             |
-| `assetFolders`          | `array`          | `[]`                                    | URL prefix → directory mappings for asset folders                                                                                                                                 |
-| `notFoundPage`          | `string\|null`   | `null`                                  | Custom 404 page path, relative to `buildDir`                                                                                                                                      |
-| `errorPage`             | `string\|null`   | `null`                                  | Custom 500 page path, relative to `buildDir`                                                                                                                                      |
-| `cacheControl`          | `string`         | `'public, max-age=0, must-revalidate'`  | Cache-Control for HTML pages                                                                                                                                                      |
-| `immutableCacheControl` | `string`         | `'public, max-age=31536000, immutable'` | Cache-Control for hashed assets                                                                                                                                                   |
-| `detectImmutableAssets` | `bool`           | `true`                                  | Auto-detect content-hashed filenames                                                                                                                                              |
-| `isDevelopment`         | `bool`           | `false`                                 | Show stack traces in default 500 error page HTML                                                                                                                                  |
-| `logErrors`             | `bool`           | `true`                                  | Enable `error_log()` as the fallback when no `onError` hook is set (or when the hook throws)                                                                                      |
-| `onError`               | `callable\|null` | `null`                                  | Custom error hook called with `(\Throwable $e, string $context)`. Fires regardless of `logErrors`. If the hook throws, falls back to `error_log()` only if `logErrors` is `true`. |
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `buildDir` | `string` | required | Absolute path to your SSG build directory |
+| `pageMapPath` | `string` | `'page-map.json'` | Path to page map, relative to `buildDir` |
+| `singleAssets` | `array` | `[]` | Map individual files (favicon, robots.txt, etc.), merged with page map, takes precedence on conflicts with page map and asset folders |
+| `assetFolders` | `array` | `[]` | URL prefix → directory mappings for asset folders |
+| `notFoundPage` | `string\|null` | `null` | Custom 404 page path, relative to `buildDir` |
+| `errorPage` | `string\|null` | `null` | Custom 500 page path, relative to `buildDir` |
+| `cacheControl` | `string` | `'public, max-age=0, must-revalidate'` | Cache-Control for HTML pages |
+| `immutableCacheControl` | `string` | `'public, max-age=31536000, immutable'` | Cache-Control for hashed assets |
+| `detectImmutableAssets` | `bool` | `true` | Auto-detect content-hashed filenames |
+| `isDevelopment` | `bool` | `false` | Show stack traces in default 500 error page HTML |
+| `logErrors` | `bool` | `true` | Enable `error_log()` as the fallback when no `onError` hook is set (or when the hook throws) |
+| `onError` | `callable\|null` | `null` | Custom error hook called with `(\Throwable $e, string $context)`. Fires regardless of `logErrors`. If the hook throws, falls back to `error_log()` only if `logErrors` is `true`. |
 
 ### `singleAssets`
 

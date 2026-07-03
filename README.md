@@ -8,7 +8,7 @@ Unirend helps you ship SEO-friendly pages and accurate social sharing previews b
 
 The focus is on small, focused building blocks rather than a heavyweight, all-in-one framework. Unirend keeps routing in React Router, builds on Vite, and gives you explicit server utilities for API routes, page data loaders, plugins, uploads, redirects, static serving, and production runtime behavior when your app needs them.
 
-> ⚠️ **Pre-1.0.0:** Unirend is maturing and usable, but still pre-1.0 — the core APIs are stabilizing yet may still change before 1.0.0. Pin a version and review release notes when upgrading.
+> ⚠️ **Pre-1.0.0:** Unirend is maturing and usable, but still pre-1.0. The core APIs are stabilizing yet may still change before 1.0.0. Pin a version and review release notes when upgrading.
 
 ## Installation
 
@@ -101,30 +101,18 @@ CLI note: The Unirend project generator (CLI) requires Bun for a simple, out‑o
 
 ## Starter Templates & CLI
 
-The fastest way to start is the `unirend` CLI, which scaffolds a working SSG,
-SSR, or API project so you can skip the manual setup below:
+The fastest way to start is the `unirend` CLI, which scaffolds a working SSG, SSR, or API project so you can skip the manual setup below:
 
 ```bash
 # Recommended: bunx downloads unirend if it isn't installed
 bunx unirend create ssg my-blog
 ```
 
-The command above sets up a workspace repo that supports multiple projects in one workspace,
-writes the project files into `src/apps/my-blog`, wires up `package.json`
-scripts, and installs dependencies. You can initialize the repo explicitly with
-`bunx unirend init-repo`, or let `create` set it up automatically with the
-default name (`unirend-projects`) if it isn't there yet. The CLI requires Bun, and generated projects
-target Node by default.
+The command above sets up a workspace repo that supports multiple projects in one workspace, writes the project files into `src/apps/my-blog`, wires up `package.json` scripts, and installs dependencies. You can initialize the repo explicitly with `bunx unirend init-repo`, or let `create` set it up automatically with the default name (`unirend-projects`) if it isn't there yet. The CLI requires Bun, and generated projects target Node by default.
 
-See [docs/starter-templates.md](docs/starter-templates.md) for the full CLI
-reference, the available templates, and what each one generates (with a
-files-to-customize list and next-steps checklist per template). The same
-generator is available as a library for integrating into other tools. See
-[docs/starter-templates-api.md](docs/starter-templates-api.md).
+See [docs/starter-templates.md](docs/starter-templates.md) for the full CLI reference, the available templates, and what each one generates (with a files-to-customize list and next-steps checklist per template). The same generator is available as a library for integrating into other tools. See [docs/starter-templates-api.md](docs/starter-templates-api.md).
 
-The rest of this README covers the framework APIs (data loaders, error handling,
-file uploads, and more) as well as the manual setup steps. This is useful whether
-you're using the CLI templates or building from scratch.
+The rest of this README covers the framework APIs (data loaders, error handling, file uploads, and more) as well as the manual setup steps. This is useful whether you're using the CLI templates or building from scratch.
 
 ## Common Setup for SSG (Static Site Generation) or SSR (Server-Side Rendering)
 
@@ -315,8 +303,7 @@ Tip: Always include `--target node` and `--external vite` when building for the 
 
 Note: If you prefer a pure-Node toolchain without Bun, explore compiling or bundling your server with tools like `tsc`, `esbuild`, `rollup`, or `tsup`, or use vanilla JavaScript, then run with `node`. These alternatives are not covered in depth here to keep the setup simple and easy out of the box.
 
-**Note on `ssr:serve:dev-node`**:
-Running Vite HMR under Bun can sometimes stall graceful shutdown or suffer from WebSocket connection hang/stall issues on file reload/restart (due to upstream issues like [oven-sh/bun#5951](https://github.com/oven-sh/bun/issues/5951)). Running the dev server under Node with `ssr:serve:dev-node` avoids these issues by compiling the server wrapper (`serve-hmr.ts`) targeting Node and running it with `node`.
+**Note on `ssr:serve:dev-node`**: Running Vite HMR under Bun can sometimes stall graceful shutdown or suffer from WebSocket connection hang/stall issues on file reload/restart (due to upstream issues like [oven-sh/bun#5951](https://github.com/oven-sh/bun/issues/5951)). Running the dev server under Node with `ssr:serve:dev-node` avoids these issues by compiling the server wrapper (`serve-hmr.ts`) targeting Node and running it with `node`.
 
 - **Why the external flags?** When compiling the dev/HMR server wrapper with `bun build`, you must define `--define 'IS_BUILT=false'` (to mirror the behavior of running directly from source, ensuring the build-info loader resolves to `false` and doesn't attempt to load the file at runtime) and externalize the build info file using `--external "$(pwd)/current-build-info.ts"`. Even though the code branches on a compile-time constant `IS_BUILT` (meaning `current-build-info.ts` is never imported at runtime), Bun's compiler parses and attempts to resolve all dynamic imports at build-time. If the `current-build-info.ts` file doesn't exist on disk (which is common on fresh checkouts before a production build has run), the compilation will fail. Marking the absolute path as external prevents Bun from trying to resolve and bundle it at build-time.
 
@@ -645,7 +632,7 @@ bun run build
 bun test
 ```
 
-**Note:** Build and publish from macOS or Linux (e.g. WSL or CI). The build sets the POSIX executable bit on the CLI bin (`dist/cli/cli.js`); Windows can't set it, so a tarball packed on Windows would ship a broken `unirend` command. The build refuses to run on Windows to prevent that. (Tests and other tooling that import the build config still work on Windows — only an actual build is blocked.)
+**Note:** Build and publish from macOS or Linux (e.g. WSL or CI). The build sets the POSIX executable bit on the CLI bin (`dist/cli/cli.js`). Windows can't set it, so a tarball packed on Windows would ship a broken `unirend` command. The build refuses to run on Windows to prevent that. (Tests and other tooling that import the build config still work on Windows. Only an actual build is blocked.)
 
 When preparing a new release:
 

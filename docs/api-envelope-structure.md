@@ -65,17 +65,17 @@ The application uses two envelope types, `api` and `page`, each with success, er
 
 All response envelopes include these common properties:
 
-| Property            | Type    | Description                                                                         |
-| ------------------- | ------- | ----------------------------------------------------------------------------------- |
-| `status`            | string  | Either "success", "error", or "redirect"                                            |
-| `status_code`       | integer | HTTP status code (200, 301, 302, 400, 401, etc.)                                    |
-| `request_id`        | string  | Unique identifier for the request (for tracing/debugging)                           |
-| `request_timestamp` | string  | ISO 8601 UTC timestamp of when the server received the request (omitted if not set) |
-| `type`              | string  | Either "page" or "api" depending on endpoint type                                   |
-| `data`              | object  | Main payload (null if error or redirect)                                            |
-| `meta`              | object  | User-Definable Metadata about the request and context                               |
-| `error`             | object  | Error details (only present for error responses)                                    |
-| `redirect`          | object  | Redirect details (only present for redirect status)                                 |
+| Property | Type | Description |
+| --- | --- | --- |
+| `status` | string | Either "success", "error", or "redirect" |
+| `status_code` | integer | HTTP status code (200, 301, 302, 400, 401, etc.) |
+| `request_id` | string | Unique identifier for the request (for tracing/debugging) |
+| `request_timestamp` | string | ISO 8601 UTC timestamp of when the server received the request (omitted if not set) |
+| `type` | string | Either "page" or "api" depending on endpoint type |
+| `data` | object | Main payload (null if error or redirect) |
+| `meta` | object | User-Definable Metadata about the request and context |
+| `error` | object | Error details (only present for error responses) |
+| `redirect` | object | Redirect details (only present for redirect status) |
 
 ### Request ID Handling
 
@@ -154,8 +154,7 @@ Used for SSR routes and data loaders. Includes required page metadata for SEO.
 
 ### 2. API Response Envelope
 
-Used for AJAX/fetch API endpoints. Does not require page metadata.
-This is the suggested standard, the page data loader can pickup on these for authentication required, and try to convert them to frontend errors. However, if you have a form or something submitted by fetch/xmlhttprequest request, you are expected to handle the returned API response envelope yourself, either when successfully or when erroring.
+Used for AJAX/fetch API endpoints. Does not require page metadata. This is the suggested standard, the page data loader can pickup on these for authentication required, and try to convert them to frontend errors. However, if you have a form or something submitted by fetch/xmlhttprequest request, you are expected to handle the returned API response envelope yourself, either when successfully or when erroring.
 
 ```json
 {
@@ -559,25 +558,25 @@ When a user attempts to access a protected resource without being authenticated 
 
 Unirend recognizes these standard error codes for special handling by the framework:
 
-| Code                            | Status | Description                                        | Special Behavior                                                                                                                                                                                                                                                                                 |
-| ------------------------------- | ------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `authentication_required`       | 401    | User must log in to access this resource           | Page data loader automatically redirects to login with return URL                                                                                                                                                                                                                                |
-| `invalid_content_type`          | 415    | Request Content-Type header is invalid or missing  | Used by `ensureJSONBody`, `ensureURLEncodedBody`, `ensureMultipartBody`, and `processFileUpload()`. Note: `processFileUpload()` validates Content-Type automatically, so `ensureMultipartBody` is typically only needed for advanced use cases (e.g., early validation before multipart parsing) |
-| `invalid_request_body_format`   | 400    | Request body format is invalid (not valid object)  | Used by `ensureJSONBody` and `ensureURLEncodedBody` helpers                                                                                                                                                                                                                                      |
-| `invalid_page_data_body_fields` | 400    | Page data request body has invalid fields          | Framework returns this when page data loader POST body fields are invalid                                                                                                                                                                                                                        |
-| `file_too_large`                | 413    | Uploaded file exceeded size limit during streaming | Used by `processFileUpload()` when file size exceeds `maxSizePerFile`                                                                                                                                                                                                                            |
-| `file_type_not_allowed`         | 415    | File MIME type is not allowed for this endpoint    | Used by `processFileUpload()` when file type not in `allowedMimeTypes`                                                                                                                                                                                                                           |
-| `file_upload_connection_broken` | 499    | Client disconnected during file upload             | Used by `processFileUpload()` when client connection is lost mid-upload                                                                                                                                                                                                                          |
-| `file_upload_timeout`           | 408    | File upload exceeded timeout limit                 | Used by `processFileUpload()` when upload exceeds `timeoutMS`                                                                                                                                                                                                                                    |
-| `file_processor_error`          | 500    | Failed to process file                             | Used by `processFileUpload()` when processor function throws an error. Error details sanitized in production mode.                                                                                                                                                                               |
-| `file_not_provided`             | 400    | No file(s) provided in upload request              | Used by `processFileUpload()` when upload request contains no file data (works for both single and batch uploads)                                                                                                                                                                                |
-| `file_max_files_exceeded`       | 413    | Number of files exceeds maximum allowed            | Used by `processFileUpload()` when batch upload exceeds `maxFiles` limit                                                                                                                                                                                                                         |
-| `file_batch_upload_failed`      | 400    | One or more files in batch upload failed           | Used by `processFileUpload()` when a file in a batch upload fails (fail-fast behavior). Details include `triggerReason` indicating what caused the failure (e.g., `MIME_TYPE_REJECTED`, `SIZE_EXCEEDED`, `PROCESSOR_ERROR`)                                                                      |
-| `file_upload_failed`            | 500    | An unexpected error occurred during file upload    | Used by `processFileUpload()` when an unknown/unexpected error occurs. Error details sanitized in production mode.                                                                                                                                                                               |
-| `file_upload_completion_failed` | 500    | Files uploaded but post-processing failed          | Used by `processFileUpload()` when files upload successfully but the `onComplete` callback throws an error (e.g., atomic move failed, transaction commit failed). Error details sanitized in production mode.                                                                                    |
-| `multipart_not_allowed`         | 400    | Multipart uploads not allowed on this endpoint     | Returned when `fileUploads.allowedRoutes` is configured and a multipart request is sent to a non-allowed route                                                                                                                                                                                   |
-| `websocket_handler_not_found`   | 404    | No WebSocket handler registered for this path      | Used by WebSocket server when a client connects to a path with no registered handler                                                                                                                                                                                                             |
-| `websocket_validation_error`    | 500    | WebSocket pre-validation hook failed               | Used by WebSocket server when the `preValidation` hook throws an error during connection upgrade                                                                                                                                                                                                 |
+| Code | Status | Description | Special Behavior |
+| --- | --- | --- | --- |
+| `authentication_required` | 401 | User must log in to access this resource | Page data loader automatically redirects to login with return URL |
+| `invalid_content_type` | 415 | Request Content-Type header is invalid or missing | Used by `ensureJSONBody`, `ensureURLEncodedBody`, `ensureMultipartBody`, and `processFileUpload()`. Note: `processFileUpload()` validates Content-Type automatically, so `ensureMultipartBody` is typically only needed for advanced use cases (e.g., early validation before multipart parsing) |
+| `invalid_request_body_format` | 400 | Request body format is invalid (not valid object) | Used by `ensureJSONBody` and `ensureURLEncodedBody` helpers |
+| `invalid_page_data_body_fields` | 400 | Page data request body has invalid fields | Framework returns this when page data loader POST body fields are invalid |
+| `file_too_large` | 413 | Uploaded file exceeded size limit during streaming | Used by `processFileUpload()` when file size exceeds `maxSizePerFile` |
+| `file_type_not_allowed` | 415 | File MIME type is not allowed for this endpoint | Used by `processFileUpload()` when file type not in `allowedMimeTypes` |
+| `file_upload_connection_broken` | 499 | Client disconnected during file upload | Used by `processFileUpload()` when client connection is lost mid-upload |
+| `file_upload_timeout` | 408 | File upload exceeded timeout limit | Used by `processFileUpload()` when upload exceeds `timeoutMS` |
+| `file_processor_error` | 500 | Failed to process file | Used by `processFileUpload()` when processor function throws an error. Error details sanitized in production mode. |
+| `file_not_provided` | 400 | No file(s) provided in upload request | Used by `processFileUpload()` when upload request contains no file data (works for both single and batch uploads) |
+| `file_max_files_exceeded` | 413 | Number of files exceeds maximum allowed | Used by `processFileUpload()` when batch upload exceeds `maxFiles` limit |
+| `file_batch_upload_failed` | 400 | One or more files in batch upload failed | Used by `processFileUpload()` when a file in a batch upload fails (fail-fast behavior). Details include `triggerReason` indicating what caused the failure (e.g., `MIME_TYPE_REJECTED`, `SIZE_EXCEEDED`, `PROCESSOR_ERROR`) |
+| `file_upload_failed` | 500 | An unexpected error occurred during file upload | Used by `processFileUpload()` when an unknown/unexpected error occurs. Error details sanitized in production mode. |
+| `file_upload_completion_failed` | 500 | Files uploaded but post-processing failed | Used by `processFileUpload()` when files upload successfully but the `onComplete` callback throws an error (e.g., atomic move failed, transaction commit failed). Error details sanitized in production mode. |
+| `multipart_not_allowed` | 400 | Multipart uploads not allowed on this endpoint | Returned when `fileUploads.allowedRoutes` is configured and a multipart request is sent to a non-allowed route |
+| `websocket_handler_not_found` | 404 | No WebSocket handler registered for this path | Used by WebSocket server when a client connects to a path with no registered handler |
+| `websocket_validation_error` | 500 | WebSocket pre-validation hook failed | Used by WebSocket server when the `preValidation` hook throws an error during connection upgrade |
 
 **Recommended conventional codes** (no special framework handling, but follow HTTP semantics):
 

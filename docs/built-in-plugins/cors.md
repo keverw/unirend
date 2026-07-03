@@ -226,16 +226,11 @@ cors({
 
 ## Hijacked Responses
 
-Most plugin authors do not need to think about this section. It matters when an
-internal feature or advanced plugin uses `reply.hijack()` /
-`reply.raw.writeHead(...)` and therefore bypasses Fastify's normal send path.
+Most plugin authors do not need to think about this section. It matters when an internal feature or advanced plugin uses `reply.hijack()` / `reply.raw.writeHead(...)` and therefore bypasses Fastify's normal send path.
 
-In those cases, Fastify's normal `onSend` pipeline will not run for that
-response.
+In those cases, Fastify's normal `onSend` pipeline will not run for that response.
 
-When the `cors` plugin is registered, it decorates the request with an internal
-`request.applyCORSHeaders(reply)` helper. Hijacked/raw paths that need CORS
-headers should feature-detect that helper and call it before `writeHead(...)`:
+When the `cors` plugin is registered, it decorates the request with an internal `request.applyCORSHeaders(reply)` helper. Hijacked/raw paths that need CORS headers should feature-detect that helper and call it before `writeHead(...)`:
 
 ```ts
 await request.applyCORSHeaders?.(reply);
@@ -243,20 +238,13 @@ reply.hijack();
 reply.raw.writeHead(statusCode, reply.getHeaders());
 ```
 
-Apply the helper before `reply.hijack()`, not after. If CORS/header logic
-throws while Fastify still owns the reply, the normal error path can still run.
+Apply the helper before `reply.hijack()`, not after. If CORS/header logic throws while Fastify still owns the reply, the normal error path can still run.
 
-If the `cors` plugin is not registered, that helper will be absent and nothing
-extra needs to happen. Likewise, if your code stays on Fastify's normal managed
-response path and does not switch to `reply.hijack()` / raw `writeHead(...)`,
-the plugin's ordinary hook flow is enough.
+If the `cors` plugin is not registered, that helper will be absent and nothing extra needs to happen. Likewise, if your code stays on Fastify's normal managed response path and does not switch to `reply.hijack()` / raw `writeHead(...)`, the plugin's ordinary hook flow is enough.
 
 Fastify `reply.hijack()` bypasses the normal `onSend` pipeline. For ordinary CORS-managed responses that is fine, because the plugin applies actual-response headers during `onRequest`. But a raw/hijacked path that ends the response with `reply.raw.writeHead(...)` must make sure those headers are on the reply before it snapshots `reply.getHeaders()`.
 
-Unirend's built-in static content cache does this by calling the plugin's shared
-header helper before each raw `writeHead(...)`. If you build your own internal
-hijacked response path, follow the same pattern instead of assuming the CORS
-plugin's normal hook flow will run after hijack.
+Unirend's built-in static content cache does this by calling the plugin's shared header helper before each raw `writeHead(...)`. If you build your own internal hijacked response path, follow the same pattern instead of assuming the CORS plugin's normal hook flow will run after hijack.
 
 ## Advanced Configuration
 

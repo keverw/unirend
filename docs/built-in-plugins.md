@@ -1,4 +1,4 @@
-# Built-in Plugins
+# Built-In Plugins
 
 <!-- toc -->
 

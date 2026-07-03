@@ -1,3 +1,4 @@
+import { isPlainObject } from 'lifecycleion/is-plain-object';
 import { vfsReadJSON, vfsWriteJSON } from '../vfs';
 import type { FileRoot } from '../vfs';
 import type { LoggerFunction } from '../types';
@@ -22,10 +23,45 @@ const defaultSettings = {
   // app folder; see app-tsconfig.ts and the API tsconfig note.
   'typescript.preferences.importModuleSpecifier': 'project-relative',
   'javascript.preferences.importModuleSpecifier': 'project-relative',
+  // Prettier uses proseWrap: 'never', so Markdown paragraphs are single long
+  // lines; soft-wrap them in the editor (Markdown only) for readability.
+  '[markdown]': {
+    'editor.wordWrap': 'on',
+  },
 };
 
 interface VSCodeSettings {
   [key: string]: unknown;
+}
+
+/**
+ * Recursively add keys from `defaults` that are missing in `target`, without
+ * overwriting anything the user already set. Nested plain objects (e.g. the
+ * `[markdown]` scope or `editor.codeActionsOnSave`) are merged key-by-key so a
+ * pre-existing block just gains the missing sub-keys. Returns true if anything
+ * was added.
+ */
+function mergeMissing(
+  target: Record<string, unknown>,
+  defaults: Record<string, unknown>,
+): boolean {
+  let didChange = false;
+
+  for (const [key, value] of Object.entries(defaults)) {
+    if (!(key in target)) {
+      target[key] = value;
+      didChange = true;
+    } else if (isPlainObject(target[key]) && isPlainObject(value)) {
+      if (mergeMissing(target[key], value)) {
+        didChange = true;
+      }
+    }
+
+    // Otherwise the key exists with a non-object (or mismatched) value: leave
+    // the user's value untouched.
+  }
+
+  return didChange;
 }
 
 /**
@@ -59,8 +95,10 @@ export async function ensureVSCodeSettings(
         );
       }
 
-      // File doesn't exist, create it
-      settingsData = { ...defaultSettings };
+      // File doesn't exist, create it. Deep-clone so nested blocks (e.g.
+      // [markdown], editor.codeActionsOnSave) don't share references with the
+      // module-level defaultSettings.
+      settingsData = structuredClone(defaultSettings);
 
       await vfsWriteJSON(repoRoot, filePath, settingsData);
 
@@ -74,13 +112,8 @@ export async function ensureVSCodeSettings(
     // File exists, merge settings
     settingsData = readResult.data as VSCodeSettings;
 
-    // Add missing settings (only if key doesn't exist)
-    for (const [key, value] of Object.entries(defaultSettings)) {
-      if (!(key in settingsData)) {
-        settingsData[key] = value;
-        didChange = true;
-      }
-    }
+    // Add missing settings recursively (only fills gaps, never overwrites)
+    didChange = mergeMissing(settingsData, defaultSettings);
 
     if (didChange) {
       await vfsWriteJSON(repoRoot, filePath, settingsData);

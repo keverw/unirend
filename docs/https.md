@@ -189,15 +189,13 @@ console.log('HTTP redirect server running on port 80');
 - `getRequestID` - Custom generator for `request.requestID` (available as the `{{requestID}}` access-log template variable and in hooks). Defaults to a ULID. Returning `undefined` or an empty string opts out. Same as APIServer/SSRServer. See [ssr.md](./ssr.md#shared-server-configuration).
 - `closingHandler` - Custom `WebResponse` for requests received while `stop()` is closing the redirect server. If omitted, Unirend returns a default 503 HTML page.
 
-**Domain Validation:**
-The `allowedDomains` option supports wildcard patterns:
+**Domain Validation:** The `allowedDomains` option supports wildcard patterns:
 
 - `'example.com'` - Exact match only
 - `'*.example.com'` - Direct subdomains only (`api.example.com` ✅, `app.api.example.com` ❌)
 - `'**.example.com'` - All subdomains including nested (`api.example.com` ✅, `app.api.example.com` ✅)
 
-**Why validate domains?**
-Without validation, your redirect server becomes an **open redirect** - anyone can use it to redirect to any domain by manipulating the `Host` header:
+**Why validate domains?** Without validation, your redirect server becomes an **open redirect** - anyone can use it to redirect to any domain by manipulating the `Host` header:
 
 ```http
 GET / HTTP/1.1
@@ -264,8 +262,7 @@ invalidDomainHandler: (request, domain) => ({
 
 All invalid domain responses return HTTP 403 status code with `Cache-Control: no-store` to prevent caching of error responses.
 
-**Advanced Domain Handling:**
-The `RedirectServer` handles basic HTTP→HTTPS redirects with optional domain validation. For additional domain handling features on your **main HTTPS application server** (SSR or API server), use the [domainValidation plugin](./built-in-plugins/domainValidation.md):
+**Advanced Domain Handling:** The `RedirectServer` handles basic HTTP→HTTPS redirects with optional domain validation. For additional domain handling features on your **main HTTPS application server** (SSR or API server), use the [domainValidation plugin](./built-in-plugins/domainValidation.md):
 
 - `wwwHandling: 'add'` - Redirect `example.com` → `www.example.com`
 - `wwwHandling: 'remove'` - Redirect `www.example.com` → `example.com`
