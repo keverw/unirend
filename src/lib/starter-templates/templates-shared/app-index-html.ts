@@ -232,7 +232,7 @@ function buildIndexHTMLSrc(title: string): string {
       </div>
     </noscript>
     <div id="root"><!--ss-outlet--></div>
-    <script type="module" src="./EntryClient.tsx"></script>
+    <script type="module" src="/EntryClient.tsx"></script>
   </body>
 </html>
 `;

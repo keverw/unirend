@@ -121,7 +121,7 @@ Between both SSG (Static Site Generation) and SSR (Server-Side Rendering), there
 ### Prepare Client Frontend
 
 1. Create a Vite + React project, like normal. Define your routes using React Router's `RouteObject[]` format.
-2. Rename your module in the `index.html` file to something like `EntryClient` and update the reference.
+2. Rename your module in the `index.html` file to something like `EntryClient` and update the reference. Use a root-absolute path (`/src/EntryClient.tsx`), not a relative one (`./EntryClient.tsx`), so nested routes like `/blog/:slug` still resolve the entry against the app root instead of the current URL.
 3. In your client entry point, use `mountApp` instead of `createRoot`, passing your routes directly:
 
 ```typescript
