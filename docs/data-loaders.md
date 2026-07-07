@@ -345,6 +345,12 @@ When API responses don’t follow the Page Envelope, the loader converts them us
     - description: "The redirect target is not allowed for security reasons."
     - code: "unsafe_redirect"
     - message: "Unsafe redirect blocked"
+  - `httpError`
+    - Used for a non-envelope JSON response whose HTTP status is not 404 or 500 (the status is preserved on the resulting Page error).
+    - title: "Error"
+    - description: "An unexpected error occurred."
+    - code: "http_error"
+    - message: "HTTP Error" (used as a prefix, the loader appends the status code, so the default renders as "HTTP Error: 418")
 
 ### `connectionErrorMessages`
 

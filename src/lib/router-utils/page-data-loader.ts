@@ -94,6 +94,13 @@
  *       message: 'Sorry, this redirect is not allowed for security reasons.',
  *       code: 'unsafe_redirect', // Standard error code (can be customized)
  *     },
+ *     httpError: {
+ *       title: 'Error | MyApp',
+ *       description: 'An unexpected error occurred.',
+ *       // Used as a prefix; the loader appends the status code (e.g. "HTTP Error: 418")
+ *       message: 'HTTP Error',
+ *       code: 'http_error', // Standard error code (can be customized)
+ *     },
  *   },
  *   // Optional: Configure allowed redirect origins for security
  *   allowedRedirectOrigins: [

@@ -280,7 +280,7 @@ class StaticContentDemoComponent extends BaseComponent {
               return APIResponseHelpers.createAPIErrorResponse({
                 request,
                 statusCode: 500,
-                errorCode: 'internal_error',
+                errorCode: 'internal_server_error',
                 errorMessage: isDevelopment
                   ? error.message
                   : 'An internal error occurred',

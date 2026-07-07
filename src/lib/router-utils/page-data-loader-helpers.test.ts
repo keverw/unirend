@@ -65,6 +65,12 @@ const baseConfig: PageDataLoaderConfig = {
       code: 'unsafe_redirect',
       message: 'Unsafe redirect blocked',
     },
+    httpError: {
+      title: 'Error',
+      description: 'An unexpected error occurred.',
+      code: 'http_error',
+      message: 'HTTP Error',
+    },
   },
 };
 
@@ -344,7 +350,7 @@ describe('processAPIResponse', () => {
           site_info: { current_year: 2026 },
         },
         error: {
-          code: 'permission_denied',
+          code: 'access_denied',
           message: 'Forbidden',
           details: {
             required_role: 'admin',
@@ -376,7 +382,7 @@ describe('processAPIResponse', () => {
         data: null,
         meta: {},
         error: {
-          code: 'internal_error',
+          code: 'internal_server_error',
           message: 'Server blew up',
           details: {
             stack: 'trace',
@@ -491,6 +497,37 @@ describe('processAPIResponse', () => {
     expect(result.status).toBe('error');
     expect(result.error?.code).toBe('http_error');
     expect(result.error?.message).toBe('HTTP Error: 418');
+  });
+
+  it('applies a custom httpError errorDefault to non-envelope JSON responses', async () => {
+    const response = new Response(JSON.stringify({ message: 'teapot' }), {
+      status: 418,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const customConfig = {
+      ...baseConfig,
+      errorDefaults: {
+        ...baseConfig.errorDefaults,
+        httpError: {
+          title: 'Upstream Error',
+          description: 'The upstream service returned an error.',
+          code: 'upstream_http_error',
+          message: 'Upstream failure',
+        },
+      },
+    };
+
+    const result = await processAPIResponse(response, customConfig, false);
+    expect(result.status).toBe('error');
+    // Code and message prefix come from the customized httpError default;
+    // the loader still appends the status code to the message.
+    expect(result.error?.code).toBe('upstream_http_error');
+    expect(result.error?.message).toBe('Upstream failure: 418');
+    // title/description flow through to the page metadata
+    expect(result.meta?.page?.title).toBe('Upstream Error');
   });
 
   it('returns a custom handler result directly when it is not a redirect', async () => {

@@ -302,7 +302,7 @@ function registerPageDataHandlers(server: SSRServer) {
       return DemoResponseHelpers.createPageErrorResponse<DemoMeta>({
         request,
         statusCode: 500,
-        errorCode: 'internal_error',
+        errorCode: 'internal_server_error',
         errorMessage:
           'This is a simulated 500 error response (not a thrown error)',
         pageMetadata: {

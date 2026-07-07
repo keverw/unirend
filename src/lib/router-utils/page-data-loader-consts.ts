@@ -61,6 +61,14 @@ export const DEFAULT_ERROR_DEFAULTS: ErrorDefaults = {
     message: 'Unsafe redirect blocked',
     code: 'unsafe_redirect',
   },
+  httpError: {
+    title: 'Error',
+    description: 'An unexpected error occurred.',
+    // Used as a prefix. The loader appends the HTTP status code, so the default
+    // renders as "HTTP Error: 418" for a non-envelope 418 response, for example.
+    message: 'HTTP Error',
+    code: 'http_error',
+  },
 } as const;
 
 export const DEFAULT_CONNECTION_ERROR_MESSAGES = {
