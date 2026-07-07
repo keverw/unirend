@@ -422,13 +422,26 @@ export async function processAPIResponse(
               ssrOnlyData,
             );
           } else {
-            // Generic error for any other status code
+            // Generic error for any other status code. Falls back to the
+            // hard-coded defaults if a custom errorDefaults object omits
+            // httpError (errorDefaults is overridden as a whole object).
+            const httpError = config.errorDefaults.httpError;
+            const httpErrorCode = httpError?.code ?? 'http_error';
+            const httpErrorMessage = `${httpError?.message ?? 'HTTP Error'}: ${statusCode}`;
+
             return decorateWithSsrOnlyData(
               createErrorResponse(
                 config,
                 statusCode,
-                'http_error',
-                `HTTP Error: ${statusCode}`,
+                httpErrorCode,
+                httpErrorMessage,
+                undefined,
+                httpError
+                  ? {
+                      title: httpError.title,
+                      description: httpError.description,
+                    }
+                  : undefined,
               ),
               ssrOnlyData,
             );

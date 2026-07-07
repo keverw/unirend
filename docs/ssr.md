@@ -1999,7 +1999,7 @@ const server = serveAPI({
       return params.APIResponseHelpers.createPageErrorResponse({
         request,
         statusCode: 500,
-        errorCode: 'internal_error',
+        errorCode: 'internal_server_error',
         errorMessage: isDevelopment ? error.message : 'Internal server error',
         pageMetadata: {
           title: 'Server Error',
@@ -2012,7 +2012,7 @@ const server = serveAPI({
     return params.APIResponseHelpers.createAPIErrorResponse({
       request,
       statusCode: 500,
-      errorCode: 'internal_error',
+      errorCode: 'internal_server_error',
       errorMessage: isDevelopment ? error.message : 'Internal server error',
       errorDetails: isDevelopment ? { stack: error.stack } : undefined,
     });
@@ -2183,7 +2183,7 @@ const server = serveAPI({
       params.APIResponseHelpers.createAPIErrorResponse({
         request,
         statusCode: 500,
-        errorCode: 'internal_error',
+        errorCode: 'internal_server_error',
         errorMessage: isDev ? error.message : 'Internal server error',
         errorDetails: isDev ? { stack: error.stack } : undefined,
       }),

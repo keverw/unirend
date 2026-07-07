@@ -26,6 +26,9 @@
   - [Authentication Required Errors](#authentication-required-errors)
   - [Error Codes](#error-codes)
     - [Standard Error Codes](#standard-error-codes)
+    - [Data Loader Error Codes](#data-loader-error-codes)
+    - [Internal Diagnostic Codes](#internal-diagnostic-codes)
+    - [Customizing or Localizing Framework Messages](#customizing-or-localizing-framework-messages)
     - [Application-Specific Error Codes](#application-specific-error-codes)
 - [Authentication](#authentication)
 - [Redirects in API/Page Responses](#redirects-in-apipage-responses)
@@ -514,7 +517,7 @@ When errors occur for traditional API endpoints:
     }
   },
   "error": {
-    "code": "permission_denied",
+    "code": "access_denied",
     "message": "You do not have permission to perform this action.",
     "details": {
       "required_role": "admin"
@@ -575,13 +578,50 @@ Unirend recognizes these standard error codes for special handling by the framew
 | `multipart_not_allowed` | 400 | Multipart uploads not allowed on this endpoint | Returned when `fileUploads.allowedRoutes` is configured and a multipart request is sent to a non-allowed route |
 | `websocket_handler_not_found` | 404 | No WebSocket handler registered for this path | Used by WebSocket server when a client connects to a path with no registered handler |
 | `websocket_validation_error` | 500 | WebSocket pre-validation hook failed | Used by WebSocket server when the `preValidation` hook throws an error during connection upgrade |
+| `internal_server_error` | 500 | Unhandled error thrown by an API route handler or page-data endpoint | Default code the JSON envelope error handler emits for uncaught 500s on API/page-data requests. Error `details` include the stack in development and are omitted in production. Errors thrown while rendering an SSR HTML page route instead produce an HTML 500 error page, not this envelope (customize it with the SSR `get500ErrorPage` option). |
+| `request_error` | non-500 | A thrown error carried a non-500 `statusCode` | The same JSON envelope error handler emits this instead of `internal_server_error` for any thrown error whose `statusCode` is set and is not 500 (for example a thrown 503). |
+| `service_unavailable` | 503 | Request arrived while the server is shutting down | Emitted by the framework's graceful-shutdown response for requests received while the server is closing. |
 
-**Recommended conventional codes** (no special framework handling, but follow HTTP semantics):
+**Recommended conventional codes** (follow HTTP semantics). These have no special framework handling, but the names below match what Unirend's own server error handler and page data loader emit, so reusing them keeps your handlers consistent with the framework:
 
 - `not_found` (404) - Requested resource does not exist
-- `permission_denied` (403) - User lacks permission to access resource
+- `access_denied` (403) - User lacks permission to access resource
 - `invalid_input` (400) - Validation errors on user input
-- `internal_error` (500) - Server encountered an unexpected error
+- `internal_server_error` (500) - Server encountered an unexpected error
+
+#### Data Loader Error Codes
+
+These codes are produced by the **page data loader** when it transforms an upstream API error (or a network, timeout, or redirect problem) into a page error envelope for your route components. Your API does not send these. The loader generates them, and every title, message, and code is configurable through the loader's `errorDefaults` (see [Data Loader Error Transformation and Additional Config](./data-loaders.md#data-loader-error-transformation-and-additional-config)).
+
+| Code | Status | When the loader emits it |
+| --- | --- | --- |
+| `not_found` | 404 | Upstream returned a 404 |
+| `access_denied` | 403 | Upstream returned a 403 |
+| `internal_server_error` | 500 | Upstream 500, network failure, or request timeout |
+| `unknown_error` | upstream | Fallback when an upstream API error has no `code` of its own |
+| `invalid_response` | 500 | Upstream response was not a valid envelope or had an unexpected format |
+| `invalid_redirect` | 400 | Redirect envelope was missing its `target` |
+| `unsafe_redirect` | 400 | Redirect `target` was blocked by `allowedRedirectOrigins` |
+| `api_redirect_not_followed` | upstream 3xx | Upstream returned an HTTP 3xx redirect, which the loader does not follow (see [HTTP-Level Redirects (Blocked)](#1-http-level-redirects-blocked)) |
+| `http_error` | passthrough | Upstream returned a non-envelope JSON body with an HTTP status other than 404 or 500. The loader appends the status code to `errorDefaults.httpError.message` (so the default renders as `HTTP Error: 418`). |
+
+Note that `access_denied` (403) is distinct from `authentication_required` (401). A 403 means the user is authenticated but not permitted, so the loader renders a page error with the `access_denied` code above. A 401 means the user is not authenticated, so the loader does not render an error code at all. It issues a redirect to `loginURL` instead (see [Authentication Required Redirects](#authentication-required-redirects)). That is why the loader's `errorDefaults.authRequired` only carries a `title` and `description` and has no `code`. To render 401 as an error page instead of redirecting, register a `statusCodeHandler` for `401`.
+
+#### Internal Diagnostic Codes
+
+These codes are **not** returned to clients as `error.code`. The framework attaches them to thrown `Error` objects as diagnostic metadata that shows up in the server logs. The client still receives a normal `internal_server_error` (or a WebSocket error) envelope, whose development `details` carry only the error `stack`, not these codes. The one exception is `handler_timeout`, which the page data loader also copies into its development error `details`. They exist to help you pinpoint a handler bug:
+
+- `handler_returned_false_without_sending` - A page-data or API handler returned `false` (the "I already sent the response" signal) without actually sending anything.
+- `invalid_handler_response` - A handler resolved to a value that is not a valid response envelope.
+- `handler_timeout` - A handler exceeded the configured `timeoutMS`.
+- `websocket_invalid_prevalidation_envelope` - A WebSocket `preValidation` hook resolved to a value that is not a valid error envelope.
+
+#### Customizing or Localizing Framework Messages
+
+The framework codes above ship with English default messages. If you need different wording, translated copy (for example Spanish), or different codes, override the framework's defaults in one of two places rather than editing them at every call site:
+
+1. **A custom response helpers class** (server side). Subclass `APIResponseHelpers`, override the creators or add your own, and register it via the `APIResponseHelpersClass` option on the SSR/API servers. Every server-produced envelope, including the built-in error fallbacks, then flows through your class, so you can localize the `message` or remap the `code` in one spot. See [Server-Wide Custom Helpers Class](#server-wide-custom-helpers-class).
+2. **Custom loader error handling** (page/data-loader side). Provide `errorDefaults` to localize the loader's default titles, messages, and codes, and register `statusCodeHandlers` (for example a `404` or `503` handler) to detect a specific upstream response and return your own localized page error envelope. See [Data Loader Error Transformation and Additional Config](./data-loaders.md#data-loader-error-transformation-and-additional-config).
 
 #### Application-Specific Error Codes
 
@@ -773,7 +813,7 @@ Unirend’s `pageDataLoader` implements a consistent, envelope-first pattern acr
 - Request ID
   - If missing from responses, a fallback `request_id` is generated via `generateFallbackRequestID` (or a default generator). When using helpers on the server, `request_id` is sourced from the server-generated `request.requestID` (unless you opted out via `getRequestID`).
 
-See the README section “Data Loader Error Transformation and Additional Config” for configuration fields that influence this behavior.
+See [Data Loader Error Transformation and Additional Config](./data-loaders.md#data-loader-error-transformation-and-additional-config) for configuration fields that influence this behavior.
 
 ## Helper Utilities
 

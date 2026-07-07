@@ -68,6 +68,12 @@ const baseConfig: PageDataLoaderConfig = {
       code: 'unsafe_redirect',
       message: 'Unsafe redirect blocked',
     },
+    httpError: {
+      title: 'Error',
+      description: 'An unexpected error occurred.',
+      code: 'http_error',
+      message: 'HTTP Error',
+    },
   },
 };
 

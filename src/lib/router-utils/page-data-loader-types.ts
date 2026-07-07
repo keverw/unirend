@@ -33,6 +33,7 @@ export interface ErrorDefaults {
   invalidRedirect: FullErrorDefinition;
   redirectNotFollowed: FullErrorDefinition;
   unsafeRedirect: FullErrorDefinition;
+  httpError: FullErrorDefinition;
 }
 
 /**
