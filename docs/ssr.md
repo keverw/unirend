@@ -1836,7 +1836,7 @@ These resources are configured independently for each app:
 
 - Each Vite instance (dev mode) uses ~50-100MB of memory
 - Each static content cache (prod mode) uses ~50MB of memory
-- **HMR Ports (dev mode)**: Each app's Vite instance gets a unique HMR WebSocket port automatically assigned as `port + 1000 + index` (e.g., if server runs on port 3000, HMR ports are 4000, 4001, 4002, etc.). No manual configuration needed.
+- **HMR transport (dev mode)**: Each app's Vite instance shares the main HTTP server for its HMR WebSocket rather than opening a separate port. Apps are disambiguated by a unique path (`/__hmr/<appKey>`), and the browser connects back to the page's own port automatically. No separate HMR ports are allocated, so there is nothing to configure. When `enableWebSockets` is on, Vite HMR and your WebSocket handlers coexist on the same port: HMR upgrades (subprotocol `vite-hmr`/`vite-ping`) go to Vite, all other upgrades go to your handlers.
 - **Recommendation**: Limit to 3-5 apps per server instance for optimal performance
 
 #### Error Page Patterns
@@ -2319,5 +2319,7 @@ process.on('SIGTERM', () => {
 Both `SSRServer` and `APIServer` support WebSockets. Enable with `enableWebSockets: true` and register handlers via `server.registerWebSocketHandler({ path, preValidate?, handler })`.
 
 WebSocket registration is a server-level API, not a plugin-host method. It remains available when APIServer is used in plain web mode (`apiEndpoints.apiEndpointPrefix: false`). If a WebSocket `preValidate` handler rejects an upgrade, the rejection response is still an API envelope. Plain web mode only disables API/page-data route helpers such as `server.api.*`, `pluginHost.api.*`, and `pageDataHandler.*`. If you want a root-mounted API server with envelopes everywhere, use `apiEndpointPrefix: "/"` instead of plain mode.
+
+Because Vite HMR shares the main HTTP server in development (see [HMR transport](#resource-considerations)), Vite HMR and your own WebSocket handlers coexist on one port. The `demos/ssr-ws-chat` demo is a single-page SSR app with an echo chat over a WebSocket: run `bun run ssr-ws-chat:serve:dev`, open http://localhost:3005, then edit `components/EditMeBanner.tsx` to watch HMR update the page while the chat (owned by a separate module) stays connected on the same port.
 
 See full guide and examples: [WebSockets](./websockets.md).

@@ -79,6 +79,10 @@ import {
   registerResponseTimeHeader,
   registerResponseTimeHijackPatch,
 } from './response-time-header';
+import { EventEmitter } from 'node:events';
+import type { IncomingMessage } from 'node:http';
+import type { Duplex } from 'node:stream';
+import { hmrPathForApp, isViteHMRUpgrade } from './hmr-upgrade-utils';
 
 type SSRServerConfigDev = {
   mode: 'development';
@@ -238,6 +242,17 @@ export class SSRServer extends BaseServer {
   private apiRoutes!: APIRoutesServerHelpers;
   private webSocketHelpers: WebSocketServerHelpers | null = null;
   private registeredPlugins: PluginMetadata[] = [];
+
+  // When both WebSockets and Vite HMR are active, @fastify/websocket is bound
+  // to this private proxy emitter instead of the real HTTP server so it does
+  // not compete with Vite's shared HMR listener over the "upgrade" event.
+  // wsUpgradeDispatcher is the single real-server listener that routes Vite
+  // HMR upgrades to Vite and forwards the rest to the proxy. Both are null
+  // unless WebSockets are enabled in development (HMR) mode.
+  private wsUpgradeProxy: EventEmitter | null = null;
+  private wsUpgradeDispatcher:
+    ((req: IncomingMessage, socket: Duplex, head: Buffer) => void) | null =
+    null;
 
   // Cookie forwarding policy (computed from options for quick checks)
   private cookieAllowList?: Set<string>;
@@ -509,6 +524,7 @@ export class SSRServer extends BaseServer {
         // Ignore cleanup errors for stale instances
       }
 
+      this.teardownWSUpgradeDispatcher();
       this.fastifyInstance = null;
     }
 
@@ -661,8 +677,18 @@ export class SSRServer extends BaseServer {
 
       // Register WebSocket plugin if enabled
       if (this.webSocketHelpers) {
+        // In development, Vite's HMR WebSocket shares the same HTTP server, and
+        // @fastify/websocket otherwise grabs every "upgrade" unconditionally.
+        // Bind it to a private proxy emitter so the two don't collide; a
+        // dispatcher installed after Vite starts feeds it the non-HMR upgrades.
+        // In built/production mode there is no Vite, so it binds directly.
+        if (this.serverMode === 'development') {
+          this.wsUpgradeProxy = new EventEmitter();
+        }
+
         await this.webSocketHelpers.registerWebSocketPlugin(
           this.fastifyInstance,
+          this.wsUpgradeProxy ?? undefined,
         );
       }
 
@@ -998,16 +1024,39 @@ export class SSRServer extends BaseServer {
           ([_, app]) => 'sourcePaths' in app,
         );
 
+        // Shared by the HMR wiring and the WebSocket upgrade dispatcher below.
+        const httpServer = this.fastifyInstance?.server;
+
+        // The effective HMR paths the browser connects to, used by the upgrade
+        // dispatcher to tell Vite HMR sockets apart from application WebSockets.
+        // Vite joins the resolved dev `base` with our per-app path, so we record
+        // that same joined value (not just hmrPath) to match Vite's own listener
+        // even when an app configures a non-root base. Stays empty when there
+        // are no dev apps, which makes the dispatcher forward every upgrade to
+        // @fastify/websocket.
+        const hmrPaths = new Set<string>();
+
         if (devApps.length > 0) {
-          // Create Vite instances for all dev apps in parallel
-          // Each instance needs a unique HMR port to avoid conflicts
+          // Create Vite instances for all dev apps in parallel.
+          //
+          // Rather than allocating a dedicated HMR WebSocket port per app
+          // using the main port + 1000 (e.g., 4000 + 1000 = 5000),
+          // (which collided with macOS AirPlay on 5000 when the app used port
+          // 4000, or with other Unirend projects' main ports), each app's Vite
+          // instance shares the main Fastify HTTP server for its HMR WebSocket
+          // and is disambiguated by a unique path. Vite's shared-server
+          // listener only claims upgrades whose subprotocol is
+          // "vite-hmr"/"vite-ping" AND whose pathname matches this app's
+          // hmrPath, so multiple apps coexist on one port and the browser
+          // client connects back to the page's own port automatically (no HMR
+          // port is injected into the client).
           await Promise.all(
-            devApps.map(async ([appKey, appConfig], index) => {
+            devApps.map(async ([appKey, appConfig]) => {
               const devApp = appConfig as SSRInternalAppConfigHMR;
 
-              // Auto-assign HMR port: base port + index offset
-              // Use port + 1000 + index to avoid conflicts with main server port
-              const hmrPort = port + 1000 + index;
+              // Unique per-app HMR path on the shared server, URL-safe and
+              // consistent between the server listener and the injected client.
+              const hmrPath = hmrPathForApp(appKey);
 
               devApp.viteDevServer = await (
                 await import('vite')
@@ -1015,16 +1064,24 @@ export class SSRServer extends BaseServer {
                 configFile: devApp.sourcePaths.viteConfig,
                 server: {
                   middlewareMode: true,
-                  hmr: {
-                    // Auto-assign unique HMR port for each app
-                    port: hmrPort,
+                  ws: {
+                    // Share the main HTTP server instead of opening a port.
+                    server: httpServer,
+                    path: hmrPath,
                   },
                 },
                 appType: 'custom',
               });
 
+              // Vite derives the client's HMR URL as posix.join(base, path);
+              // record the same value so the dispatcher matches what actually
+              // arrives on the wire.
+              const base = devApp.viteDevServer.config.base || '/';
+              const effectiveHmrPath = path.posix.join(base, hmrPath);
+              hmrPaths.add(effectiveHmrPath);
+
               this.fastifyInstance?.log.debug(
-                `Created Vite dev server for app "${appKey}" with HMR port ${hmrPort}`,
+                `Created Vite dev server for app "${appKey}" with shared HMR at path ${effectiveHmrPath}`,
               );
             }),
           );
@@ -1081,6 +1138,37 @@ export class SSRServer extends BaseServer {
               reply.hijack();
             }
           });
+        }
+
+        // Install the WebSocket upgrade dispatcher whenever WebSockets are
+        // enabled in development (i.e. wsUpgradeProxy was created), independent
+        // of the dev app count. @fastify/websocket is bound to that private
+        // proxy, so without this dispatcher forwarding real-server upgrades to
+        // it, application WebSocket handlers would never fire. Vite HMR upgrades
+        // (matching subprotocol AND a configured HMR path) are left for Vite's
+        // own listener; everything else is forwarded to the proxy. With no dev
+        // apps hmrPaths is empty, so every upgrade is forwarded. Guarding this
+        // on wsUpgradeProxy (not devApps.length) keeps it consistent with the
+        // proxy binding so application WebSockets can't be silently orphaned.
+        if (this.wsUpgradeProxy && httpServer) {
+          const proxy = this.wsUpgradeProxy;
+
+          this.wsUpgradeDispatcher = (req, socket, head) => {
+            if (
+              isViteHMRUpgrade(
+                req.headers['sec-websocket-protocol'],
+                req.url,
+                hmrPaths,
+              )
+            ) {
+              // Vite's own shared-server listener handles these.
+              return;
+            }
+
+            proxy.emit('upgrade', req, socket, head);
+          };
+
+          httpServer.on('upgrade', this.wsUpgradeDispatcher);
         }
       }
       // Production Server Middleware (Production Only)
@@ -1609,6 +1697,7 @@ export class SSRServer extends BaseServer {
           );
         }
 
+        this.teardownWSUpgradeDispatcher();
         this.fastifyInstance = null;
       }
 
@@ -1665,6 +1754,7 @@ export class SSRServer extends BaseServer {
         this._isStopping = false;
       }
 
+      this.teardownWSUpgradeDispatcher();
       this.fastifyInstance = null;
     }
 
@@ -1838,6 +1928,25 @@ export class SSRServer extends BaseServer {
 
     // Return the underlying ws client set (Set<WebSocket>)
     return websocketServer.clients;
+  }
+
+  /**
+   * Detach the shared-HMR upgrade dispatcher (development + WebSockets only)
+   * and drop the proxy reference. Vite removes its own "upgrade" listener when
+   * its dev server closes, so this only needs to clear the dispatcher we added.
+   * Safe to call when nothing was installed.
+   * @private
+   */
+  private teardownWSUpgradeDispatcher(): void {
+    if (this.wsUpgradeDispatcher && this.fastifyInstance) {
+      this.fastifyInstance.server.removeListener(
+        'upgrade',
+        this.wsUpgradeDispatcher,
+      );
+    }
+
+    this.wsUpgradeDispatcher = null;
+    this.wsUpgradeProxy = null;
   }
 
   /**
