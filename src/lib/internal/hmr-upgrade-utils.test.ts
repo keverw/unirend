@@ -68,6 +68,17 @@ describe('isViteHMRUpgrade()', () => {
     expect(isViteHMRUpgrade('vite-hmr', undefined, hmrPaths)).toBe(false);
   });
 
+  it('forwards everything when there are no configured HMR paths', () => {
+    // Mirrors a dev server with WebSockets enabled but no Vite dev apps: the
+    // dispatcher must forward every upgrade (even Vite subprotocols) to
+    // @fastify/websocket, since Vite has no listener to claim them.
+    const empty = new Set<string>();
+    expect(isViteHMRUpgrade('vite-hmr', '/__hmr/__default__', empty)).toBe(
+      false,
+    );
+    expect(isViteHMRUpgrade('vite-ping', '/anything', empty)).toBe(false);
+  });
+
   it('routes application and unknown subprotocols to the app handlers', () => {
     expect(isViteHMRUpgrade('chat', '/__hmr/__default__', hmrPaths)).toBe(
       false,
