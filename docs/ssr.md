@@ -2320,4 +2320,6 @@ Both `SSRServer` and `APIServer` support WebSockets. Enable with `enableWebSocke
 
 WebSocket registration is a server-level API, not a plugin-host method. It remains available when APIServer is used in plain web mode (`apiEndpoints.apiEndpointPrefix: false`). If a WebSocket `preValidate` handler rejects an upgrade, the rejection response is still an API envelope. Plain web mode only disables API/page-data route helpers such as `server.api.*`, `pluginHost.api.*`, and `pageDataHandler.*`. If you want a root-mounted API server with envelopes everywhere, use `apiEndpointPrefix: "/"` instead of plain mode.
 
+Because Vite HMR shares the main HTTP server in development (see [HMR transport](#resource-considerations)), Vite HMR and your own WebSocket handlers coexist on one port. The `demos/ssr-ws-chat` demo is a single-page SSR app with an echo chat over a WebSocket: run `bun run ssr-ws-chat:serve:dev`, open http://localhost:3005, then edit `components/EditMeBanner.tsx` to watch HMR update the page while the chat (owned by a separate module) stays connected on the same port.
+
 See full guide and examples: [WebSockets](./websockets.md).

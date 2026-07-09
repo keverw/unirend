@@ -107,6 +107,7 @@
     "api-static-demo": "bun run demos/api-static-content-demo.ts dev",
     "ws-demo": "bun run demos/ws-server-demo.ts dev",
     "ws-test": "bun run scripts/test-ws-build.ts",
+    "ssr-ws-chat:serve:dev": "bun run demos/ssr-ws-chat/serve-hmr.ts dev",
     "run-dist-cli": "bun ./dist/cli/cli.js",
     "run-dev-cli": "bun run src/cli.ts",
     "test-cli-delegate-newer": "UNIREND_DELEGATED_FROM=99.99.99 bun run src/cli.ts version",
