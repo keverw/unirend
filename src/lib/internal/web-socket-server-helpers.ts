@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { EventEmitter } from 'node:events';
 import websocket from '@fastify/websocket';
 import type { WebSocket } from 'ws';
 import type {
@@ -18,6 +19,13 @@ interface FastifyWebSocketPluginOptions {
     clientTracking: boolean;
     perMessageDeflate: boolean;
     maxPayload: number;
+    /**
+     * Optional server for @fastify/websocket to listen on for "upgrade" events
+     * instead of the raw Fastify HTTP server. In development, Unirend passes a
+     * private proxy emitter here so @fastify/websocket does not compete with
+     * Vite's HMR WebSocket over the shared HTTP server's "upgrade" event.
+     */
+    server?: EventEmitter;
   };
   preClose?: (done: () => void) => void;
 }
@@ -149,6 +157,7 @@ export class WebSocketServerHelpers {
    */
   public async registerWebSocketPlugin(
     fastify: FastifyInstance,
+    listenServer?: EventEmitter,
   ): Promise<void> {
     const pluginOptions: FastifyWebSocketPluginOptions = {
       options: {
@@ -157,6 +166,13 @@ export class WebSocketServerHelpers {
         maxPayload: this.webSocketOptions.maxPayload ?? 100 * 1024 * 1024, // 100MB default
       },
     };
+
+    // When provided, @fastify/websocket listens for "upgrade" events on this
+    // emitter instead of the raw HTTP server. Used in development so it does
+    // not fight Vite's shared-server HMR listener (see SSRServer for details).
+    if (listenServer) {
+      pluginOptions.options.server = listenServer;
+    }
 
     // Add preClose handler if provided
     if (this.webSocketOptions.preClose) {
@@ -184,7 +200,13 @@ export class WebSocketServerHelpers {
       };
     }
 
-    await fastify.register(websocket, pluginOptions);
+    // @fastify/websocket types the `server` option as a Node http/https Server,
+    // but the plugin only attaches/removes an "upgrade" listener on it, so the
+    // EventEmitter proxy satisfies its actual contract. Cast at this boundary.
+    await fastify.register(
+      websocket,
+      pluginOptions as unknown as Parameters<typeof fastify.register>[1],
+    );
   }
 
   /**

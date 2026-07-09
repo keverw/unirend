@@ -1836,7 +1836,7 @@ These resources are configured independently for each app:
 
 - Each Vite instance (dev mode) uses ~50-100MB of memory
 - Each static content cache (prod mode) uses ~50MB of memory
-- **HMR Ports (dev mode)**: Each app's Vite instance gets a unique HMR WebSocket port automatically assigned as `port + 1000 + index` (e.g., if server runs on port 3000, HMR ports are 4000, 4001, 4002, etc.). No manual configuration needed.
+- **HMR transport (dev mode)**: Each app's Vite instance shares the main HTTP server for its HMR WebSocket rather than opening a separate port. Apps are disambiguated by a unique path (`/__hmr/<appKey>`), and the browser connects back to the page's own port automatically. No separate HMR ports are allocated, so there is nothing to configure. When `enableWebSockets` is on, Vite HMR and your WebSocket handlers coexist on the same port: HMR upgrades (subprotocol `vite-hmr`/`vite-ping`) go to Vite, all other upgrades go to your handlers.
 - **Recommendation**: Limit to 3-5 apps per server instance for optimal performance
 
 #### Error Page Patterns
