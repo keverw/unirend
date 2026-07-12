@@ -736,6 +736,34 @@ describe('template head baseline merge', () => {
     ).toBeUndefined();
   });
 
+  it('should let a page override a template meta keyed by http-equiv', async () => {
+    const withHTTPEquiv = templateHTML.replace(
+      '<meta name="theme-color" content="#ffffff" />',
+      `<meta http-equiv="content-security-policy" content="default-src *" />`,
+    );
+
+    const processed = await processTemplate(withHTTPEquiv, 'ssr', false, false);
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    // What UnirendHead serializes for <meta httpEquiv="content-security-policy" ... />.
+    const html = await injectContent(
+      processed.html,
+      `<meta http-equiv="content-security-policy" content="default-src 'self'" />`,
+      '<div>App</div>',
+    );
+    const $ = cheerio.load(html);
+
+    expect($('meta[http-equiv="content-security-policy"]').length).toBe(1);
+    expect(
+      $('meta[http-equiv="content-security-policy"]').attr('content'),
+    ).toBe("default-src 'self'");
+    expect($('meta[name="viewport"]').length).toBe(1);
+  });
+
   it('should treat template metas sharing an identity as one group', async () => {
     // The standard light/dark pair: two metas, one identity. A page overriding theme-color
     // replaces the identity, so both template copies go. The client reconciler relies on this

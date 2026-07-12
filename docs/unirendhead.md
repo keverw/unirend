@@ -120,7 +120,7 @@ import { UnirendHead } from 'unirend/client';
 </UnirendHead>;
 ```
 
-**Props on child elements** map directly to HTML attributes, pass any valid attribute you would use on the native HTML tag.
+**Props on child elements** map directly to HTML attributes, pass any valid attribute you would use on the native HTML tag. The two React prop spellings that are not simply the attribute name are translated for you: `className` becomes `class`, and `httpEquiv` becomes `http-equiv`. Spellings that differ only by case, like `charSet` or `crossOrigin`, need no translation, since HTML matches attribute names case-insensitively.
 
 ### Supported Tags
 
@@ -198,7 +198,11 @@ Overriding works on the identity, not on individual tags, so a page that overrid
 
 A page declaring `<meta name="theme-color" content="#page" />` replaces both, and both come back when it navigates away. If you want to override only one variant, you are really replacing the pair, so declare both variants on the page.
 
-The reason the page-owned tags are stripped unconditionally, rather than kept as a baseline, is that pages routinely set them for themselves. If the template's copy were left in the document, it would sit ahead of the page's own tag in document order, and a client-side navigation appends React's hoisted tag after it rather than replacing a node React does not own, leaving the stale template value to win. `og:site_name` is exempt because it names the site, not the page, so no page is expected to redeclare it.
+The page-owned tags are stripped unconditionally rather than kept as a baseline. For the metas among them (`description`, `og:*`, `twitter:*`) that is a decision about ownership, not a limitation: the reconciliation described above could hold a template default for them just as it does for `viewport`. They are excluded because they describe the individual page, so a template-supplied default would put a generic, stale description or `og:title` on every page that forgot to set its own, which is worse for a crawler than serving none at all. Site-wide SEO defaults belong in a shared layout's `UnirendHead`, where they behave like any other page-declared tag and are inherited by the pages under it.
+
+`<title>` is stripped for a second, mechanical reason: unlike metas it is not part of the reconciled template baseline. A template `<title>` left in the head would sit ahead of the one React hoists on a client-side navigation, and React appends its hoisted tag rather than replacing a node it does not own, so the stale template title would keep winning: both `document.title` and crawlers read the first `<title>` in the document.
+
+`og:site_name` is exempt from the `og:` rule because it names the site, not the page, so no page is expected to redeclare it.
 
 <!-- prettier-ignore -->
 > [!IMPORTANT]
@@ -257,11 +261,15 @@ Since the `rootProviders` wrapper component sits above the entire app tree (incl
 
 During `renderToString`, `UnirendHead` reads a collector object from React context (provided by `UnirendHeadProvider`, which Unirend wraps your app with automatically). Each `<UnirendHead>` instance pushes its tags into the collector synchronously. After rendering, the collected data is serialized to HTML strings, and `<html>` / `<body>` attributes are merged into the template tags, while `<title>`/`<meta>`/`<link>` are injected into the `<!--ss-head-->` slot.
 
+The template's own head tags are merged against the page's at the same time, following the ownership rules in [Template Tags vs Page Tags](#template-tags-vs-page-tags). The tags `UnirendHead` manages for every page are dropped from the template when it is first loaded, and the template's remaining metas are matched against the page's by identity, with a page's version replacing the template's so the served head never carries both.
+
 `UnirendHead` renders `null` on the server, the tags never appear in the rendered body HTML, only in `<head>` via the injection.
 
 ### Client-Side
 
 On the client the context collector is `null`, so `UnirendHead` renders its children as real DOM elements. React 19 automatically hoists `<title>`, `<meta>`, and `<link>` tags to `<head>` when rendered inside components, no portal or effect needed. `<html>` and `<body>` attributes are managed by a client-side stack registry that applies them to the DOM on mount/update and restores the original template attributes on unmount.
+
+The template's own metas are reconciled by that same registry, because React only manages the tags it hoists and will not touch a node it did not create. A template meta is taken out of the head while a mounted page overrides its identity, and put back once none does, so an override survives a client-side navigation in both directions rather than only holding on the server-rendered page. The template's metas in the served head carry a `data-unirend-template-meta` attribute so the client can tell them apart from the ones React hoists.
 
 ### Anti-Flicker & Attribute Hydration
 
@@ -293,3 +301,5 @@ To keep the baseline clean and static, Unirend uses two reconciliation strategie
      }
    </script>
    ```
+
+The template's `<meta>` baseline is captured the same two ways, and is what the client restores when a page stops overriding a template meta. With a server-injected page it comes from `window.__UNIREND_TEMPLATE_METAS__`, which describes `index.html` as you authored it, including the metas the server left out of this page's head because the page overrides them. Without one (Vite's dev server, or a client-only SPA build) it is read from the live DOM before React hoists anything, where `index.html`'s metas are still the only ones present.

@@ -832,6 +832,22 @@ function toTitleText(children: ReactNode): string {
 }
 
 /**
+ * React prop names whose HTML attribute is not just the prop lowercased, so writing them out
+ * verbatim would produce an attribute that doesn't exist.
+ *
+ * Only the ones that differ by more than case belong here. HTML attribute names are matched
+ * case-insensitively, so React spellings like `charSet` or `crossOrigin` already land on the
+ * right attribute on their own. `className` and `httpEquiv` do not: `class` is a different word,
+ * and `http-equiv` carries a hyphen. An unmapped `httpEquiv` would be serialized as an
+ * `httpEquiv=""` attribute, which no parser reads as `http-equiv` — so the tag would not do its
+ * job, and it could not be matched against the template's `http-equiv` baseline either.
+ */
+const REACT_PROP_TO_HTML_ATTRIBUTE: Record<string, string> = {
+  className: 'class',
+  httpEquiv: 'http-equiv',
+};
+
+/**
  * Converts React element properties into standard HTML attribute key-value records.
  */
 function toHeadAttributes(
@@ -845,8 +861,9 @@ function toHeadAttributes(
       continue;
     }
 
-    // Map React's className prop to standard HTML class attribute
-    const normKey = key === 'className' ? 'class' : key;
+    // Map React prop spellings onto their real HTML attribute names (className -> class,
+    // httpEquiv -> http-equiv); everything else is already the attribute name.
+    const normKey = REACT_PROP_TO_HTML_ATTRIBUTE[key] ?? key;
 
     // Handle React style objects by serializing them to a standard inline style string.
     if (normKey === 'style' && typeof value === 'object') {

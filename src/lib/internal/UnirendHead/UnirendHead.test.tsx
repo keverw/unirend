@@ -124,6 +124,26 @@ describe('UnirendHead SSR Collection & Merging', () => {
     expect(collector.htmlAttrs['data-theme']).toBe('dark');
   });
 
+  it('maps httpEquiv onto the http-equiv attribute', () => {
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          <meta httpEquiv="refresh" content="30" />
+        </UnirendHead>
+      </UnirendHeadProvider>,
+    );
+
+    // Left as-is, this serializes to an httpEquiv="" attribute, which no parser reads as
+    // http-equiv: the tag would do nothing, and it could never match the template's
+    // http-equiv baseline to override it. Unlike charSet or crossOrigin, the two spellings
+    // differ by a hyphen, so HTML's case-insensitive attribute matching doesn't save it.
+    expect(collector.metas).toEqual([
+      { 'http-equiv': 'refresh', content: '30' },
+    ]);
+  });
+
   it('merges multiple html tags within the same UnirendHead component', () => {
     const collector = createEmptyCollector();
 
@@ -1004,6 +1024,20 @@ describe('UnirendHead Client-side Helpers', () => {
         '(prefers-color-scheme: light)',
         '(prefers-color-scheme: dark)',
       ]);
+    });
+
+    it('overrides a template http-equiv meta declared with React httpEquiv spelling', () => {
+      const keys = getMetaKeysFromChildren([
+        <meta
+          key="a"
+          httpEquiv="content-security-policy"
+          content="default-src 'self'"
+        />,
+      ]);
+
+      // Must key on the HTML attribute, or the page's meta would never be seen as overriding
+      // the template's http-equiv baseline.
+      expect(keys).toEqual(['http-equiv=content-security-policy']);
     });
 
     it('falls back to reading the head when no baseline global was injected (pure SPA)', () => {
