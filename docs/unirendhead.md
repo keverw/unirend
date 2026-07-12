@@ -11,6 +11,7 @@
     - [Preloading Images](#preloading-images)
   - [Tag Merging and Overrides](#tag-merging-and-overrides)
   - [Template Tags vs Page Tags](#template-tags-vs-page-tags)
+    - [Overriding a Template Meta](#overriding-a-template-meta)
   - [Shared Layout & Error Component Pattern](#shared-layout--error-component-pattern)
   - [Global Provider Pattern (Theme, Language, Etc.)](#global-provider-pattern-theme-language-etc)
 - [How It Works](#how-it-works)
@@ -170,46 +171,35 @@ If multiple `<UnirendHead>` components are rendered in the same tree (e.g. in la
 
 ### Template Tags vs Page Tags
 
-Your `index.html` can carry head tags of its own. The split is by ownership: tags that describe **the page** belong to `UnirendHead`, and tags that describe **the document or the site** belong to the template.
+Use `UnirendHead` for tags that describe the current page. Keep tags that describe the document or site in `index.html`.
 
-**Owned by `UnirendHead`, and always stripped from the template:**
+| Put in `UnirendHead`        | Keep in `index.html`                |
+| --------------------------- | ----------------------------------- |
+| `<title>`                   | `<meta charset>`                    |
+| `<meta name="description">` | `<meta name="viewport">`            |
+| `<meta property="og:*">`    | `<meta name="theme-color">`         |
+| `<meta name="twitter:*">`   | `<meta name="robots">`              |
+|                             | `<meta property="og:site_name">`    |
+|                             | Icons, links, and other custom tags |
 
-| Tag                         | Notes                                   |
-| --------------------------- | --------------------------------------- |
-| `<title>`                   | Set it per page.                        |
-| `<meta name="description">` | Set it per page.                        |
-| `<meta property="og:*">`    | OpenGraph, except `og:site_name` below. |
-| `<meta name="twitter:*">`   | Twitter cards.                          |
+Unirend strips page-owned tags from the template, even when the current page does not declare replacements. This prevents a generic description or social preview from becoming stale page metadata. The exception is `og:site_name`, which describes the site and remains part of the template.
 
-These are removed from the served page whether or not the page declares its own, so a page that sets none is served without them. Set them in the page itself, and in your error components too, since a standalone error page renders outside the normal layout.
+Set page-owned tags on every page that needs them, including standalone error components that render outside the normal layout.
 
-Be careful about trying to supply these from a layout as a "default" a page then overrides. `<meta>` tags **accumulate** across `<UnirendHead>` instances rather than overriding by name (see [Tag Merging and Overrides](#tag-merging-and-overrides)), so a layout that sets `description` and a page that also sets it produce two `description` metas, not one. A layout is the right place for a meta only when every page under it should carry that exact tag and none of them redeclares it. `<title>` is the exception: it is last-write-wins, so a layout title genuinely does act as a default that a page's own title replaces.
+Layouts can set metadata shared by all their pages, but a nested page should not declare another meta with the same identity. `<meta>` tags accumulate across `UnirendHead` instances, so setting `description` in both a layout and a page produces two description tags rather than replacing the layout value. Put a meta in a layout only when its nested pages will use that exact value without redeclaring it. Titles are different because the last title wins, so a layout title can act as a default, but a layout description meta cannot act as a default that pages replace.
 
-**Owned by the template, and served as-is:** everything else. `<meta name="viewport">`, `<meta charset>`, `<meta name="theme-color">`, `<meta name="robots">`, `<meta property="og:site_name">`, `<link rel="icon">`, and anything custom you add all pass through untouched, and you do not redeclare them per page.
+#### Overriding a Template Meta
 
-A page can still override a template-owned tag by declaring a `<meta>` with the same `name`, `property`, or `http-equiv` through `UnirendHead`. The page's version wins and the template's copy is dropped, so the served head never carries both, and navigating to a page that doesn't override it brings the template's version back. This mirrors how `<html>` and `<body>` attributes already work: the template's `<html lang="en">` is a baseline, and a page rendering `<html lang="fr" />` overrides it for as long as it is mounted.
+A page can override a template meta by declaring the same `name`, `property`, or `http-equiv` in `UnirendHead`. The page's version replaces the template version in SSR, SSG, and client-side navigation. The template version returns when no mounted page overrides it.
 
-The override holds in SSR, SSG, and across client-side navigation alike. On the server the template's copy is removed from the rendered head. On the client, `UnirendHead` reconciles the template's metas as pages mount and unmount, taking one out of the head while a page overrides it and putting it back when nothing does, so an override can't strand the baseline or end up sitting next to it. The template's meta baseline is carried to the client for this in `window.__UNIREND_TEMPLATE_METAS__`, alongside the `window.__UNIREND_TEMPLATE_ATTRS__` baseline described in [Anti-Flicker & Attribute Hydration](#anti-flicker--attribute-hydration), and the template's metas in the served head are tagged with a `data-unirend-template-meta` attribute so the client can tell them apart from the ones React hoists.
-
-Overriding works on the identity, not on individual tags, so a page that overrides a `name` replaces every template meta carrying it. That matters for the light/dark `theme-color` pattern, where one identity covers two tags:
+An override replaces every template meta with that identity. For example, consider a light and dark `theme-color` pair:
 
 ```html
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fff" />
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000" />
 ```
 
-A page declaring `<meta name="theme-color" content="#page" />` replaces both, and both come back when it navigates away. If you want to override only one variant, you are really replacing the pair, so declare both variants on the page.
-
-The page-owned tags are stripped unconditionally rather than kept as a baseline. For the metas among them (`description`, `og:*`, `twitter:*`) that is a decision about ownership, not a limitation: the reconciliation described above could hold a template default for them just as it does for `viewport`. They are excluded because they describe the individual page, so a template-supplied default would put a generic, stale description or `og:title` on every page that forgot to set its own, which is worse for a crawler than serving none at all.
-
-`<title>` is stripped for a second, mechanical reason: unlike metas it is not part of the reconciled template baseline, so nothing on the client manages it. React only owns the tags it renders and will not remove a `<title>` that was already in the head, so keeping the template's would leave the document with two of them once a page renders its own, which is invalid and leaves crawler behavior undefined.
-
-It is worth knowing that React hoists `<title>` and `<meta>` by different rules, because it explains why the two are handled differently here:
-
-- A hoisted `<meta>` is **appended** to the end of `<head>`. A template meta declared earlier in the document would therefore come first, and consumers that read the first match would get the template's stale value rather than the page's. This is precisely what the reconciliation above prevents, by taking the template's meta out of the head while a page overrides it.
-- A hoisted `<title>` is **inserted before** the first existing `<title>`. React deliberately jumps ahead of one it finds, so the page's title would win on the document even with the template's still present. The problem there is not a stale value, it is the duplicate element.
-
-`og:site_name` is exempt from the `og:` rule because it names the site, not the page, so no page is expected to redeclare it.
+A page that declares `theme-color` replaces both template tags. To retain separate light and dark variants, declare both on the page. Both template tags return when the override unmounts.
 
 <!-- prettier-ignore -->
 > [!IMPORTANT]
