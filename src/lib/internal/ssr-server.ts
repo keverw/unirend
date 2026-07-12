@@ -290,6 +290,7 @@ export class SSRServer extends BaseServer {
             clientFolderName: config.options.clientFolderName || 'client',
             serverFolderName: config.options.serverFolderName || 'server',
             containerID: config.options.containerID,
+            templateSlots: config.options.templateSlots,
             get500ErrorPage: config.options.get500ErrorPage,
           }
         : {
@@ -303,6 +304,7 @@ export class SSRServer extends BaseServer {
             clientFolderName: config.options.clientFolderName || 'client',
             serverFolderName: config.options.serverFolderName || 'server',
             containerID: config.options.containerID,
+            templateSlots: config.options.templateSlots,
             get500ErrorPage: config.options.get500ErrorPage,
           };
 
@@ -415,6 +417,7 @@ export class SSRServer extends BaseServer {
       clientFolderName: opts.clientFolderName || 'client',
       serverFolderName: opts.serverFolderName || 'server',
       containerID: opts.containerID,
+      templateSlots: opts.templateSlots,
       get500ErrorPage: opts.get500ErrorPage,
     };
 
@@ -481,6 +484,7 @@ export class SSRServer extends BaseServer {
       clientFolderName: opts.clientFolderName || 'client',
       serverFolderName: opts.serverFolderName || 'server',
       containerID: opts.containerID,
+      templateSlots: opts.templateSlots,
       get500ErrorPage: opts.get500ErrorPage,
     };
 
@@ -2177,6 +2181,7 @@ export class SSRServer extends BaseServer {
       getDevMode(), // runtime behavior (dev comment)
       isDevServer, // asset serving strategy (CDN rewriting)
       containerID,
+      appConfig.templateSlots, // extra inline head scripts / body-prepend HTML
     );
 
     // For SSR, throw error if processing fails

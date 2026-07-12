@@ -879,6 +879,62 @@ export interface ResponseTimeHeaderOptions {
 }
 
 /**
+ * Extra content spliced into an app's HTML template when it is processed.
+ *
+ * This is an escape hatch for content that every page of an app needs but that
+ * isn't worth an HTML template file of its own. The intended case is a monorepo
+ * where several apps share one boilerplate (a theme flash-prevention script, a
+ * no-JavaScript warning, an analytics snippet) and each app wants the shared copy,
+ * or a small variant of it, without maintaining a near-duplicate index.html per app.
+ *
+ * Nothing here is required. Slots only add to a template, never rewrite what it
+ * already contains, so hard-coding this content in index.html instead stays just as
+ * valid. An app that sets no slots is served exactly the HTML its template describes,
+ * with no leftover placeholder or blank line.
+ *
+ * Every field is raw, trusted content that is emitted verbatim: it comes from your
+ * own server config, so it is never escaped. Do not build any of it from user input.
+ *
+ * Slots are baked into the processed template, which is cached per app, so they
+ * cannot vary per request. Anything request-specific belongs in requestContext
+ * or publicAppConfig, which are injected per request as globals that a slotted
+ * script can read.
+ */
+export interface TemplateSlots {
+  /**
+   * Inline scripts appended to the end of `<head>`, in array order, after the
+   * template's own inline scripts.
+   *
+   * Each entry is JavaScript source, not HTML: unirend wraps it in a `<script>`
+   * tag, so these are inline-only by construction. Passing a `<script>` tag
+   * yourself is rejected. To load an external script, use `bodyAppend`.
+   *
+   * They run in the same position as the template's inline scripts, meaning after
+   * unirend's context globals, so `window.__FRONTEND_REQUEST_CONTEXT__` and
+   * `window.__PUBLIC_APP_CONFIG__` are already readable.
+   */
+  headInlineScripts?: string[];
+  /**
+   * Raw HTML placed at the start of `<body>`, before the container element. Meant
+   * for content that must exist without JavaScript, such as a `<noscript>` block.
+   *
+   * Any `<script>` in here stays exactly where you put it, unlike scripts written
+   * directly in the template's body, which unirend relocates to after the
+   * container element.
+   */
+  bodyPrepend?: string;
+  /**
+   * Raw HTML placed at the end of `<body>`, after the container element and after
+   * the client entry script. Useful for anything that should load last, such as a
+   * third-party widget or an analytics snippet.
+   *
+   * Like `bodyPrepend`, this is emitted exactly as authored, and neither slot
+   * touches the container element, so hydration is unaffected.
+   */
+  bodyAppend?: string;
+}
+
+/**
  * Base options for SSR
  */
 interface ServeSSROptions {
@@ -910,6 +966,11 @@ interface ServeSSROptions {
    * This element will be formatted inline to prevent hydration issues
    */
   containerID?: string;
+  /**
+   * Extra content spliced into this app's HTML template: inline head scripts and
+   * raw HTML prepended to the body. See {@link TemplateSlots}.
+   */
+  templateSlots?: TemplateSlots;
   /**
    * Optional safe-to-share app configuration object.
    * Cloned and frozen per request. On SSR, exposed to React via
@@ -1243,6 +1304,8 @@ interface SSRInternalAppConfigBase {
   serverFolderName?: string;
   /** Root element ID for React mounting (default: "root") */
   containerID?: string;
+  /** Extra inline head scripts / body-prepend HTML spliced into the template */
+  templateSlots?: TemplateSlots;
   /** Custom 500 error page generator */
   get500ErrorPage?: (
     request: FastifyRequest,
@@ -1306,6 +1369,7 @@ export type RegisterHMRAppOptions = Pick<
   ServeSSRWithHMROptions,
   | 'publicAppConfig'
   | 'containerID'
+  | 'templateSlots'
   | 'get500ErrorPage'
   | 'clientFolderName'
   | 'serverFolderName'
@@ -1326,6 +1390,7 @@ export type RegisterBuiltAppOptions = Pick<
   ServeSSRBuiltOptions,
   | 'publicAppConfig'
   | 'containerID'
+  | 'templateSlots'
   | 'get500ErrorPage'
   | 'clientFolderName'
   | 'serverFolderName'

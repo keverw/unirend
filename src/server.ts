@@ -31,6 +31,7 @@ export type {
   RenderResult,
   ServeSSRWithHMROptions,
   ServeSSRBuiltOptions,
+  TemplateSlots,
   SSGOptions,
   SSGReport,
   SSGPageReport,
