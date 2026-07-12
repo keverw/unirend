@@ -1,6 +1,11 @@
-import { TAB_SPACES } from '../consts';
+import {
+  TAB_SPACES,
+  TEMPLATE_META_MARKER_ATTRIBUTE,
+  TEMPLATE_METAS_GLOBAL,
+} from '../consts';
 import { getDevMode } from 'lifecycleion/dev-mode';
 import { escapeHTMLAttr, decodeHTML, HTML_BOOLEAN_ATTRIBUTES } from './escape';
+import { getMetaKey } from './meta-key';
 
 // Prettify all head tags: each tag (<title>, <meta>, <link>, etc.) on its own line, indented
 export function prettifyHeadTags(head: string, indent = TAB_SPACES): string {
@@ -140,25 +145,6 @@ function findHeadTags(html: string, tagName: string): HeadTagMatch[] {
 }
 
 /**
- * The attribute that identifies a <meta> tag for override purposes, matching what head
- * managers conventionally key on: `name`, `property` (OpenGraph), or `http-equiv`.
- *
- * Returns null for metas carrying none of these (e.g. <meta charset>). Those are not
- * something a page can override by name, so they always survive from the template.
- */
-function getMetaKey(attrs: Record<string, string>): string | null {
-  for (const attr of ['name', 'property', 'http-equiv'] as const) {
-    const value = attrs[attr];
-
-    if (value) {
-      return `${attr}=${value.toLowerCase()}`;
-    }
-  }
-
-  return null;
-}
-
-/**
  * Expand a removal range to swallow the whole line when the tag sits alone on it, so
  * dropping a tag doesn't leave a blank indented line behind.
  */
@@ -183,24 +169,42 @@ function expandToWholeLine(
   return range;
 }
 
+export interface TemplateMetaMergeResult {
+  /** The template with overridden metas removed and the surviving ones marked. */
+  template: string;
+  /**
+   * Every identifiable meta the template declares, including the ones removed just above.
+   * This is the baseline the client restores from, so it has to describe the template as
+   * authored, not the head as served for this particular page.
+   */
+  baseline: Array<Record<string, string>>;
+}
+
 /**
- * Drop the template's baseline <meta> tags that this page redeclares through UnirendHead.
+ * Merge the template's <meta> baseline with the metas this page declares through UnirendHead.
  *
  * The template's metas are a baseline: they're served as-is unless the page declares the same
  * tag, in which case the page's version wins and the template's copy is removed so the served
  * head doesn't end up with both. Metas the page never mentions (viewport, theme-color, robots,
  * and anything else the app puts in index.html) pass through untouched.
  *
- * The tags UnirendHead manages for every page (<title>, description) are already gone by now —
- * processTemplate() strips those, since that rule doesn't depend on the page.
+ * The surviving template metas are marked so the client can tell them apart from the ones React
+ * hoists, and the full baseline is returned so the client can put back a meta this page
+ * overrode once the user navigates to a page that doesn't. Between them, those two let
+ * UnirendHead keep the override contract true across client-side navigation instead of only on
+ * the server-rendered page.
+ *
+ * The tags UnirendHead manages for every page (<title>, description, og:*, twitter:*) are
+ * already gone by now — processTemplate() strips those, since that rule doesn't depend on the
+ * page and its output is cached across pages.
  *
  * Runs against the template before any rendered body content is spliced in, so the string
  * surgery here can never touch React's markup or its hydration markers.
  */
-export function stripOverriddenHeadTags(
+export function mergeTemplateMetas(
   template: string,
   headContent: string,
-): string {
+): TemplateMetaMergeResult {
   const pageMetaKeys = new Set<string>();
 
   for (const meta of findHeadTags(headContent, 'meta')) {
@@ -211,28 +215,47 @@ export function stripOverriddenHeadTags(
     }
   }
 
-  if (pageMetaKeys.size === 0) {
-    return template;
-  }
-
-  const removalRanges: Array<{ start: number; end: number }> = [];
+  const baseline: Array<Record<string, string>> = [];
+  const edits: Array<{ start: number; end: number; replacement: string }> = [];
 
   for (const meta of findHeadTags(template, 'meta')) {
     const key = getMetaKey(meta.attrs);
 
-    if (key !== null && pageMetaKeys.has(key)) {
-      removalRanges.push(expandToWholeLine(template, meta));
+    // Metas with no identifying attribute (<meta charset>) can't be overridden by name, so
+    // they're not part of the baseline and are left exactly as the template wrote them.
+    if (key === null) {
+      continue;
     }
+
+    baseline.push(meta.attrs);
+
+    if (pageMetaKeys.has(key)) {
+      const { start, end } = expandToWholeLine(template, meta);
+      edits.push({ start, end, replacement: '' });
+      continue;
+    }
+
+    // Mark the survivor. The marker goes just before the tag's closing '>' (or before the '/'
+    // of a self-closing '/>'), so the rest of the tag is preserved byte for byte.
+    const tag = template.slice(meta.start, meta.end);
+    const insertAt = meta.end - (tag.endsWith('/>') ? 2 : 1);
+
+    edits.push({
+      start: insertAt,
+      end: insertAt,
+      replacement: ` ${TEMPLATE_META_MARKER_ATTRIBUTE}`,
+    });
   }
 
   let result = template;
 
-  // Remove from the end first so earlier offsets stay valid.
-  for (const range of [...removalRanges].sort((a, b) => b.start - a.start)) {
-    result = result.slice(0, range.start) + result.slice(range.end);
+  // Apply from the end first so earlier offsets stay valid.
+  for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
+    result =
+      result.slice(0, edit.start) + edit.replacement + result.slice(edit.end);
   }
 
-  return result;
+  return { template: result, baseline };
 }
 
 export interface InjectContentOptions {
@@ -257,10 +280,11 @@ export async function injectContent(
   // Prettify all head tags with consistent indentation
   const compactedHead = prettifyHeadTags(headContent);
 
-  // Drop the template's baseline metas this page redeclares, so the page's versions are the
-  // only ones served. Done before the body is spliced in, while the template still holds
+  // Merge the template's meta baseline with the page's own metas, so the page's versions are
+  // the only ones served. Done before the body is spliced in, while the template still holds
   // nothing but markers where the rendered markup will go.
-  const mergedTemplate = stripOverriddenHeadTags(template, headContent);
+  const { template: mergedTemplate, baseline: templateMetas } =
+    mergeTemplateMetas(template, headContent);
 
   // Use cheerio to find React Router's hydration script in the rendered body content.
   // StaticRouterProvider (server) renders window.__staticRouterHydrationData as a React child,
@@ -402,6 +426,20 @@ export async function injectContent(
   // 4. Push the global variable declaration script into the contextScripts list.
   contextScripts.push(
     `<script>window.__UNIREND_TEMPLATE_ATTRS__=${safeTemplateAttrsJSON};</script>`,
+  );
+
+  // Inject the template's <meta> baseline for the same reason: the client reconciles template
+  // metas across navigations, and it needs the baseline as the template authored it. The metas
+  // this page overrides are absent from the served head, so the DOM alone can't describe it —
+  // without this the client would have nothing to restore when the user navigates to a page
+  // that doesn't override them.
+  const safeTemplateMetasJSON = JSON.stringify(templateMetas).replace(
+    /</g,
+    '\\u003c',
+  );
+
+  contextScripts.push(
+    `<script>window.${TEMPLATE_METAS_GLOBAL}=${safeTemplateMetasJSON};</script>`,
   );
 
   // Router hydration data last — only needed once the client module runs, order relative

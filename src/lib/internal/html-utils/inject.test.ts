@@ -67,7 +67,8 @@ describe('injectContent', () => {
       '<script>globalThis.__lifecycleion_is_dev__=false;</script>\n' +
       '<script>window.__CDN_BASE_URL__="";</script>\n' +
       '<script>window.__DOMAIN_INFO__=null;</script>\n' +
-      '<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>' +
+      '<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>\n' +
+      '<script>window.__UNIREND_TEMPLATE_METAS__=[];</script>' +
       '</head><body><div>Hello World</div></body></html>';
 
     expect(await injectContent(template, headContent, bodyContent)).toBe(
@@ -80,7 +81,7 @@ describe('injectContent', () => {
       '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
 
     const expected =
-      '<!DOCTYPE html><html><head><script>globalThis.__lifecycleion_is_dev__=false;</script>\n<script>window.__CDN_BASE_URL__="";</script>\n<script>window.__DOMAIN_INFO__=null;</script>\n<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script></head><body></body></html>';
+      '<!DOCTYPE html><html><head><script>globalThis.__lifecycleion_is_dev__=false;</script>\n<script>window.__CDN_BASE_URL__="";</script>\n<script>window.__DOMAIN_INFO__=null;</script>\n<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>\n<script>window.__UNIREND_TEMPLATE_METAS__=[];</script></head><body></body></html>';
 
     expect(await injectContent(template, '', '')).toBe(expected);
   });
@@ -99,7 +100,8 @@ describe('injectContent', () => {
       '<script>globalThis.__lifecycleion_is_dev__=false;</script>\n' +
       '<script>window.__CDN_BASE_URL__="";</script>\n' +
       '<script>window.__DOMAIN_INFO__=null;</script>\n' +
-      '<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>' +
+      '<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>\n' +
+      '<script>window.__UNIREND_TEMPLATE_METAS__=[];</script>' +
       '</body></html>';
 
     expect(await injectContent(template, headContent, bodyContent)).toBe(
@@ -672,6 +674,66 @@ describe('template head baseline merge', () => {
     );
     expect(html).toContain('const tpl =');
     expect($('title').text()).toBe('Page Title');
+  });
+
+  it('should ship the full template meta baseline to the client, including overridden ones', async () => {
+    const processed = await processTemplate(templateHTML, 'ssr', false, false);
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    // This page overrides theme-color, so it is absent from the served head.
+    const html = await injectContent(
+      processed.html,
+      '<meta name="theme-color" content="#page" />',
+      '<div>App</div>',
+    );
+
+    const globalMatch = html.match(
+      /window\.__UNIREND_TEMPLATE_METAS__=(\[.*?\]);/,
+    );
+
+    expect(globalMatch).not.toBeNull();
+
+    const baseline = JSON.parse(globalMatch?.[1] ?? '[]') as Array<
+      Record<string, string>
+    >;
+    const names = baseline.map((attrs) => attrs.name ?? attrs.property);
+
+    // The baseline must describe index.html as authored, not the head as served: theme-color
+    // is in it even though the server stripped it for this page. Without that the client would
+    // have nothing to put back when the user navigates to a page that doesn't override it.
+    expect(names).toContain('theme-color');
+    expect(names).toContain('viewport');
+    expect(names).toContain('og:site_name');
+
+    // Metas with no identifying attribute can't be overridden, so they're not part of it.
+    expect(names).not.toContain(undefined);
+
+    const $ = cheerio.load(html);
+
+    // The served theme-color is the page's and carries no marker — it's React's to manage.
+    expect($('meta[name="theme-color"]').length).toBe(1);
+    expect($('meta[name="theme-color"]').attr('content')).toBe('#page');
+    expect(
+      $('meta[name="theme-color"]').attr('data-unirend-template-meta'),
+    ).toBeUndefined();
+
+    // The template metas left in the head are marked, so the client can tell which nodes are
+    // its own to reconcile and which were hoisted by React.
+    expect(
+      $('meta[name="viewport"]').attr('data-unirend-template-meta'),
+    ).toBeDefined();
+    expect($('meta[name="viewport"]').attr('content')).toBe(
+      'width=device-width, initial-scale=1.0',
+    );
+
+    // Marking must not touch a meta that can't be overridden.
+    expect(
+      $('meta[charset]').attr('data-unirend-template-meta'),
+    ).toBeUndefined();
   });
 
   it('should not treat a "</head>" string inside an inline script as the end of the head', async () => {
