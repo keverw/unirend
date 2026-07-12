@@ -228,8 +228,12 @@ export async function processTemplate(
     //
     // <title> is not part of that reconciled baseline, so nothing manages it on the client.
     // React won't remove a <title> already sitting in the head, so keeping the template's would
-    // leave two in the document once a page renders its own, and a document takes its title
-    // from the first in tree order — the stale one.
+    // leave two in the document once a page renders its own: invalid, and undefined behavior
+    // for crawlers. Note React hoists the two tags by different rules (mountHoistable): a meta
+    // is appended to the end of the head, so an earlier template meta would come first and its
+    // stale value would win — which is what the client reconciliation exists to prevent — while
+    // a title is inserted *before* any existing one, so the page's title would win regardless.
+    // The objection to keeping a template <title> is the duplicate element, not a stale value.
     //
     // Every other template meta (viewport, charset, theme-color, robots, apple-*, anything
     // custom) is a baseline that survives untouched. A page can still override one by

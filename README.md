@@ -162,7 +162,7 @@ mountApp('root', routes, {
 
 **Managing `<title>`, `<meta>`, and `<link>` tags:** Use `UnirendHead` from `unirend/client`, Unirend's built-in document head manager. It works identically in SSR, SSG, and SPA mode and injects into the `<!--ss-head-->` slot on the server.
 
-`UnirendHead` owns the per-page SEO tags: `<title>`, `<meta name="description">`, and the OpenGraph and Twitter card tags. The template's copies of those are stripped when the page is served, so you set them per page instead. Every other head tag in your `index.html` (`<meta name="viewport">`, `<meta charset>`, `<meta name="theme-color">`, `<meta property="og:site_name">`, `<link rel="icon">`, and anything custom) is a baseline that is served as-is, and a page can override one by declaring a `<meta>` with the same `name`, `property`, or `http-equiv`. See [docs/unirendhead.md](docs/unirendhead.md#template-tags-vs-page-tags) for the full rules.
+`UnirendHead` owns the per-page SEO tags (`<title>`, `description`, and the OpenGraph and Twitter card tags), so you set those per page rather than in `index.html`. Every other head tag in your template, `<meta name="viewport">` included, is served as-is. See [Template Tags vs Page Tags](docs/unirendhead.md#template-tags-vs-page-tags) for the full rules.
 
 ```tsx
 import { UnirendHead } from 'unirend/client';

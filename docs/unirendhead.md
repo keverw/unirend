@@ -202,7 +202,12 @@ A page declaring `<meta name="theme-color" content="#page" />` replaces both, an
 
 The page-owned tags are stripped unconditionally rather than kept as a baseline. For the metas among them (`description`, `og:*`, `twitter:*`) that is a decision about ownership, not a limitation: the reconciliation described above could hold a template default for them just as it does for `viewport`. They are excluded because they describe the individual page, so a template-supplied default would put a generic, stale description or `og:title` on every page that forgot to set its own, which is worse for a crawler than serving none at all.
 
-`<title>` is stripped for a second, mechanical reason: unlike metas it is not part of the reconciled template baseline, so nothing on the client manages it. React only owns the tags it renders and will not remove a `<title>` that was already sitting in the head, so keeping the template's would leave the document with two of them once a page renders its own. A document takes its title from the first `<title>` in tree order, so the stale template one would win.
+`<title>` is stripped for a second, mechanical reason: unlike metas it is not part of the reconciled template baseline, so nothing on the client manages it. React only owns the tags it renders and will not remove a `<title>` that was already in the head, so keeping the template's would leave the document with two of them once a page renders its own, which is invalid and leaves crawler behavior undefined.
+
+It is worth knowing that React hoists `<title>` and `<meta>` by different rules, because it explains why the two are handled differently here:
+
+- A hoisted `<meta>` is **appended** to the end of `<head>`. A template meta declared earlier in the document would therefore come first, and consumers that read the first match would get the template's stale value rather than the page's. This is precisely what the reconciliation above prevents, by taking the template's meta out of the head while a page overrides it.
+- A hoisted `<title>` is **inserted before** the first existing `<title>`. React deliberately jumps ahead of one it finds, so the page's title would win on the document even with the template's still present. The problem there is not a stale value, it is the duplicate element.
 
 `og:site_name` is exempt from the `og:` rule because it names the site, not the page, so no page is expected to redeclare it.
 
