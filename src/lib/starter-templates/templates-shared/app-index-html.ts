@@ -32,9 +32,8 @@ function buildIndexHTMLSrc(title: string): string {
     <meta charset="UTF-8" />
     <!-- UnirendHead owns the per-page SEO tags: <title>, <meta name="description">, and the
          OpenGraph/Twitter card tags. This title is stripped when the page is served, so set
-         those per page with UnirendHead (or in a shared layout for site-wide defaults) rather
-         than here. Every other tag below is a baseline and is served as-is unless a page
-         overrides it. -->
+         those in each page (and in your error components) with UnirendHead rather than here.
+         Every other tag below is a baseline and is served as-is unless a page overrides it. -->
     <title>${title}</title>
     <!--ss-head-->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />

@@ -181,7 +181,9 @@ Your `index.html` can carry head tags of its own. The split is by ownership: tag
 | `<meta property="og:*">`    | OpenGraph, except `og:site_name` below. |
 | `<meta name="twitter:*">`   | Twitter cards.                          |
 
-These are removed from the served page whether or not the page declares its own, so a page that sets none is served without them. Site-wide SEO defaults belong in a shared layout's `UnirendHead` (see [Shared Layout & Error Component Pattern](#shared-layout--error-component-pattern)), not in `index.html`.
+These are removed from the served page whether or not the page declares its own, so a page that sets none is served without them. Set them in the page itself, and in your error components too, since a standalone error page renders outside the normal layout.
+
+Be careful about trying to supply these from a layout as a "default" a page then overrides. `<meta>` tags **accumulate** across `<UnirendHead>` instances rather than overriding by name (see [Tag Merging and Overrides](#tag-merging-and-overrides)), so a layout that sets `description` and a page that also sets it produce two `description` metas, not one. A layout is the right place for a meta only when every page under it should carry that exact tag and none of them redeclares it. `<title>` is the exception: it is last-write-wins, so a layout title genuinely does act as a default that a page's own title replaces.
 
 **Owned by the template, and served as-is:** everything else. `<meta name="viewport">`, `<meta charset>`, `<meta name="theme-color">`, `<meta name="robots">`, `<meta property="og:site_name">`, `<link rel="icon">`, and anything custom you add all pass through untouched, and you do not redeclare them per page.
 
@@ -198,9 +200,9 @@ Overriding works on the identity, not on individual tags, so a page that overrid
 
 A page declaring `<meta name="theme-color" content="#page" />` replaces both, and both come back when it navigates away. If you want to override only one variant, you are really replacing the pair, so declare both variants on the page.
 
-The page-owned tags are stripped unconditionally rather than kept as a baseline. For the metas among them (`description`, `og:*`, `twitter:*`) that is a decision about ownership, not a limitation: the reconciliation described above could hold a template default for them just as it does for `viewport`. They are excluded because they describe the individual page, so a template-supplied default would put a generic, stale description or `og:title` on every page that forgot to set its own, which is worse for a crawler than serving none at all. Site-wide SEO defaults belong in a shared layout's `UnirendHead`, where they behave like any other page-declared tag and are inherited by the pages under it.
+The page-owned tags are stripped unconditionally rather than kept as a baseline. For the metas among them (`description`, `og:*`, `twitter:*`) that is a decision about ownership, not a limitation: the reconciliation described above could hold a template default for them just as it does for `viewport`. They are excluded because they describe the individual page, so a template-supplied default would put a generic, stale description or `og:title` on every page that forgot to set its own, which is worse for a crawler than serving none at all.
 
-`<title>` is stripped for a second, mechanical reason: unlike metas it is not part of the reconciled template baseline. A template `<title>` left in the head would sit ahead of the one React hoists on a client-side navigation, and React appends its hoisted tag rather than replacing a node it does not own, so the stale template title would keep winning: both `document.title` and crawlers read the first `<title>` in the document.
+`<title>` is stripped for a second, mechanical reason: unlike metas it is not part of the reconciled template baseline, so nothing on the client manages it. React only owns the tags it renders and will not remove a `<title>` that was already sitting in the head, so keeping the template's would leave the document with two of them once a page renders its own. A document takes its title from the first `<title>` in tree order, so the stale template one would win.
 
 `og:site_name` is exempt from the `og:` rule because it names the site, not the page, so no page is expected to redeclare it.
 

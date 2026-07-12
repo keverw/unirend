@@ -218,12 +218,18 @@ export async function processTemplate(
       $('body').prepend(`<!-- ${DEVELOPMENT_COMMENT} -->\n`);
     }
 
-    // Drop the head tags UnirendHead owns per page. Their template copies are always removed,
-    // even when a page declares nothing: a surviving copy would sit ahead of the page's own
-    // tag in document order, and on client-side navigation React 19 appends its hoisted
-    // <title>/<meta> to <head> rather than replacing a node it doesn't own — so the stale
-    // template value would keep winning, since both the tab title and crawlers read the first
-    // match. Site-wide SEO defaults belong in a shared layout's UnirendHead, not the template.
+    // Drop the head tags UnirendHead owns per page. Their template copies go even when a page
+    // declares nothing of its own, for two different reasons.
+    //
+    // The metas (description, og:*, twitter:*) could technically be kept as a baseline — the
+    // client reconciles template metas, so an override would be restored on navigation just
+    // like viewport's. They're excluded because they describe the individual page: a template
+    // default would put a stale, generic description on every page that forgot to set one.
+    //
+    // <title> is not part of that reconciled baseline, so nothing manages it on the client.
+    // React won't remove a <title> already sitting in the head, so keeping the template's would
+    // leave two in the document once a page renders its own, and a document takes its title
+    // from the first in tree order — the stale one.
     //
     // Every other template meta (viewport, charset, theme-color, robots, apple-*, anything
     // custom) is a baseline that survives untouched. A page can still override one by
