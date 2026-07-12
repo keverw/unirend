@@ -929,7 +929,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
 
 The reason to reach for it is reuse. In a monorepo maintaining several apps or running multiple apps off one SSR server, the boilerplate that belongs at the edges of every page tends to be identical: a theme flash-prevention script, a no-JavaScript warning, an analytics snippet, a support chat widget. Slots let you export that boilerplate once and hand it to every app, or hand a variant to one app, without maintaining a near-duplicate `index.html` per app.
 
-It is available on `serveSSRDev()`, `serveSSRBuilt()`, `registerHMRApp()`, and `registerBuiltApp()`, so both single-app and [multi-app](#multi-app-ssr-support) servers can use it. Like every other per-app option, it does **not** inherit from the default app: each app that wants slots passes them.
+It is available on `serveSSRWithHMR()`, `serveSSRBuilt()`, `registerHMRApp()`, and `registerBuiltApp()`, so both single-app and [multi-app](#multi-app-ssr-support) servers can use it. Like every other per-app option, it does **not** inherit from the default app: each app that wants slots passes them.
 
 | Slot | Lands | Typical use |
 | --- | --- | --- |

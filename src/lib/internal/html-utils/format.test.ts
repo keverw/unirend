@@ -1285,6 +1285,42 @@ describe('processTemplate templateSlots', () => {
     }
   });
 
+  it('should reject a headInlineScripts entry containing an ss- marker', async () => {
+    // The head is emitted before the body, so this literal would be the document's first
+    // occurrence of the marker and would take the injection meant for the real outlet,
+    // swallowing the rendered page into a JS string and leaving the real outlet empty.
+    const outletResult = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { headInlineScripts: [`const tpl = "<!--ss-outlet-->";`] },
+    );
+
+    expect(outletResult.success).toBe(false);
+
+    if (!outletResult.success) {
+      expect(outletResult.error).toContain('headInlineScripts[0]');
+      expect(outletResult.error).toContain('ss-outlet');
+    }
+
+    const headResult = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { headInlineScripts: [`const tpl = "<!--ss-head-->";`] },
+    );
+
+    expect(headResult.success).toBe(false);
+
+    if (!headResult.success) {
+      expect(headResult.error).toContain('ss-head');
+    }
+  });
+
   it('should reject bodyPrepend containing an ss- marker', async () => {
     const outletResult = await processTemplate(
       baseHTML,

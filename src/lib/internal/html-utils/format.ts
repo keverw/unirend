@@ -100,6 +100,17 @@ function validateTemplateSlots(
   containerID: string,
   load: CheerioLoad,
 ): string | null {
+  // Every slot is checked, not just the body ones. injectContent() locates each marker with a
+  // single plain string replace, so the first literal occurrence anywhere in the document wins,
+  // whether or not a parser would see a comment node there. A head inline script is the worst
+  // case: the head is emitted before the body, so JS source containing the characters
+  // "<!--ss-outlet-->" would take the replacement and receive the entire rendered page, leaving
+  // the real outlet empty. This is also why the check runs on raw text rather than a parse.
+  const markerIn = (value: string): string | null =>
+    ['ss-head', 'ss-outlet'].find((marker) =>
+      new RegExp(`<!--\\s*${marker}\\s*-->`).test(value),
+    ) ?? null;
+
   for (const [index, script] of (slots.headInlineScripts ?? []).entries()) {
     if (typeof script !== 'string') {
       return `templateSlots.headInlineScripts[${index}] must be a string of JavaScript source.`;
@@ -111,6 +122,12 @@ function validateTemplateSlots(
     // the same hazard, and is why the check is on the raw text rather than a parse.
     if (/<\/?script\b/i.test(script)) {
       return `templateSlots.headInlineScripts[${index}] contains a <script> tag. Pass JavaScript source only — unirend wraps it in a <script> tag for you. If the script needs a literal "</script>" inside a string, escape it as "<\\/script>".`;
+    }
+
+    const scriptMarker = markerIn(script);
+
+    if (scriptMarker) {
+      return `templateSlots.headInlineScripts[${index}] contains the <!--${scriptMarker}--> marker, which belongs to the template itself. It would take the injection meant for the template's own marker.`;
     }
   }
 
@@ -131,15 +148,10 @@ function validateTemplateSlots(
     // The body slots are spliced in after marker validation and comment cleanup, so a marker
     // here would survive to injectContent() and be treated as the real one. A second
     // ss-outlet in particular would get a full copy of the rendered page injected into it.
-    //
-    // Matched against the raw text rather than the parsed tree on purpose. injectContent()
-    // finds the markers with a plain string replace, so it would substitute into the literal
-    // characters even where a parser sees no comment node, such as inside a <script> or
-    // <style> in the slot. The raw check is the one that matches how the marker is consumed.
-    for (const marker of ['ss-head', 'ss-outlet']) {
-      if (new RegExp(`<!--\\s*${marker}\\s*-->`).test(value)) {
-        return `templateSlots.${name} contains the <!--${marker}--> marker, which belongs to the template itself. Injected content would be duplicated into it.`;
-      }
+    const bodyMarker = markerIn(value);
+
+    if (bodyMarker) {
+      return `templateSlots.${name} contains the <!--${bodyMarker}--> marker, which belongs to the template itself. Injected content would be duplicated into it.`;
     }
 
     // A second element with the container's ID would be ambiguous for both the prettifier's
