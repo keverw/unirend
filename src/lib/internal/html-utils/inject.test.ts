@@ -764,6 +764,91 @@ describe('template head baseline merge', () => {
     expect($('meta[name="viewport"]').length).toBe(1);
   });
 
+  // HTML allows whitespace before the '>' of a closing tag, so </script > and </head > are
+  // valid closes. A scanner matching only the exact strings would run a script's body past its
+  // real close (swallowing the metas after it), or miss the end of the head and walk into the
+  // body. processTemplate() never emits these spellings, so this guards the scanner rather
+  // than the pipeline, and injectContent() is exported.
+  const closingTagSpellings = [
+    { name: 'a script closed with whitespace', script: '</script >' },
+    { name: 'a script closed normally', script: '</script>' },
+  ];
+
+  for (const spelling of closingTagSpellings) {
+    it(`should merge template metas that follow ${spelling.name}`, async () => {
+      const template = [
+        '<!DOCTYPE html><html><head>',
+        '<!--ss-head-->',
+        `<script>const marker = 1;${spelling.script}`,
+        '<meta name="description" content="Template description" />',
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+        '<!--context-scripts-injection-point-->',
+        '</head><body><!--ss-outlet--></body></html>',
+      ].join('\n');
+
+      const html = await injectContent(
+        template,
+        '<meta name="description" content="Page description" />',
+        '<div>App</div>',
+      );
+      const $ = cheerio.load(html);
+
+      // The scan has to reach past the script: the page's description replaces the template's
+      // rather than being served next to it, and the viewport beyond it survives.
+      expect($('meta[name="description"]').length).toBe(1);
+      expect($('meta[name="description"]').attr('content')).toBe(
+        'Page description',
+      );
+      expect($('meta[name="viewport"]').length).toBe(1);
+    });
+  }
+
+  it('should stop at a head closed with whitespace and never touch the body', async () => {
+    const template = [
+      '<!DOCTYPE html><html><head>',
+      '<!--ss-head-->',
+      '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+      '<!--context-scripts-injection-point-->',
+      '</head >',
+      '<body><!--ss-outlet-->',
+      // Invalid, but it must be left strictly alone rather than marked or removed as if it
+      // were part of the template's head baseline.
+      '<meta name="viewport" content="body-meta" />',
+      '</body></html>',
+    ].join('\n');
+
+    const html = await injectContent(
+      template,
+      '<meta name="viewport" content="page" />',
+      '<div>App</div>',
+    );
+
+    // The body's meta is untouched: not marked, and not removed as an overridden baseline.
+    expect(html).toContain('<meta name="viewport" content="body-meta" />');
+    expect(html).not.toContain(
+      '<meta name="viewport" content="body-meta" data-unirend-template-meta',
+    );
+
+    // The head's own viewport is overridden by the page's, as normal. Asserted on the tag,
+    // not the raw text: the baseline global script in the head legitimately carries the
+    // template's value in its JSON.
+    const headHTML = html.slice(0, html.indexOf('</head >'));
+    expect(headHTML).toContain('<meta name="viewport" content="page" />');
+    expect(headHTML).not.toContain(
+      '<meta name="viewport" content="width=device-width',
+    );
+
+    // And it is not in the baseline the client would restore from twice over.
+    const globalMatch = html.match(
+      /window\.__UNIREND_TEMPLATE_METAS__=(\[.*?\]);/,
+    );
+    const baseline = JSON.parse(globalMatch?.[1] ?? '[]') as Array<
+      Record<string, string>
+    >;
+    expect(baseline).toHaveLength(1);
+    expect(baseline[0].content).toBe('width=device-width, initial-scale=1.0');
+  });
+
   it('should treat template metas sharing an identity as one group', async () => {
     // The standard light/dark pair: two metas, one identity. A page overriding theme-color
     // replaces the identity, so both template copies go. The client reconciler relies on this

@@ -25,6 +25,64 @@ interface HeadTagMatch {
 }
 
 /**
+ * Match a closing tag for `tagName` at `index`, returning the index just past its '>', or -1.
+ *
+ * HTML allows whitespace between the tag name and the '>' of a closing tag, so `</script >`
+ * closes a script just as `</script>` does. Matching the exact string only would end a script
+ * one character too late (missing its real close and swallowing the rest of the head) or, for
+ * `</head >`, fail to notice the head ended at all and carry the scan into the body.
+ */
+function matchClosingTagAt(
+  html: string,
+  lower: string,
+  index: number,
+  tagName: string,
+): number {
+  const prefix = `</${tagName}`;
+
+  if (!lower.startsWith(prefix, index)) {
+    return -1;
+  }
+
+  let i = index + prefix.length;
+
+  while (i < html.length && /\s/.test(html[i])) {
+    i++;
+  }
+
+  return html[i] === '>' ? i + 1 : -1;
+}
+
+/**
+ * Find the next real closing tag for `tagName` at or after `from`. Skips text that only starts
+ * like one, such as `</scripts>`, which does not close a script.
+ */
+function findClosingTag(
+  html: string,
+  lower: string,
+  from: number,
+  tagName: string,
+): number {
+  let i = from;
+
+  for (;;) {
+    const found = lower.indexOf(`</${tagName}`, i);
+
+    if (found === -1) {
+      return -1;
+    }
+
+    const end = matchClosingTagAt(html, lower, found, tagName);
+
+    if (end !== -1) {
+      return end;
+    }
+
+    i = found + 2;
+  }
+}
+
+/**
  * Scan forward from the '<' of an opening tag to the index just past its closing '>',
  * ignoring any '>' that sits inside a quoted attribute value (e.g. content="scale > 1").
  * Returns -1 when the tag is never closed.
@@ -88,7 +146,7 @@ function findHeadTags(html: string, tagName: string): HeadTagMatch[] {
       continue;
     }
 
-    if (lower.startsWith('</head>', i)) {
+    if (matchClosingTagAt(html, lower, i, 'head') !== -1) {
       break;
     }
 
@@ -112,15 +170,15 @@ function findHeadTags(html: string, tagName: string): HeadTagMatch[] {
     // Skip a script or style along with its whole body: its contents are raw text, and only
     // the matching closing tag ends it.
     if (foundName === 'script' || foundName === 'style') {
-      const closeIndex = lower.indexOf(`</${foundName}>`, tagEnd);
+      const closeEnd = findClosingTag(html, lower, tagEnd, foundName);
 
       // An unterminated script/style means the rest of the document is its body,
       // so there are no further head tags to find.
-      if (closeIndex === -1) {
+      if (closeEnd === -1) {
         break;
       }
 
-      i = closeIndex + foundName.length + 3;
+      i = closeEnd;
       continue;
     }
 
