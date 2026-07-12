@@ -30,12 +30,18 @@ function buildIndexHTMLSrc(title: string): string {
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- UnirendHead owns the per-page SEO tags: <title>, <meta name="description">, and the
+         OpenGraph/Twitter card tags. This title is stripped when the page is served, so set
+         those in each page (and in your error components) with UnirendHead rather than here.
+         Every other tag below is a baseline and is served as-is unless a page overrides it. -->
     <title>${title}</title>
     <!--ss-head-->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <!-- Ideally you would do a complete favicon and shortcut icon package - see https://realfavicongenerator.net/-->
     <!-- Note: Browsers and services automatically request /favicon.ico by default, even without a <link> tag.
          Consider placing a favicon.ico in your public directory for maximum compatibility. -->
+    <!-- Keep this: without a viewport meta, mobile browsers render at desktop width and
+         scale down, so responsive CSS never takes effect. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- Flash prevention: applies the correct theme class before the page renders.
          Cookie is preferred over __FRONTEND_REQUEST_CONTEXT__ — the cookie reflects the

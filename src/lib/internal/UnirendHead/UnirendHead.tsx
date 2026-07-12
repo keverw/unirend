@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import { UnirendHeadContext } from './context';
 import type { HeadCollector } from './context';
 import { HTML_BOOLEAN_ATTRIBUTES } from '../html-utils/escape';
+import { getMetaKey, getMetaKeyFromElement } from '../html-utils/meta-key';
+import { TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
 
 /**
  * Framework-native document head manager.
@@ -62,6 +64,17 @@ export function UnirendHead({ children }: { children?: ReactNode }) {
   const bodyAttrs =
     collector === null ? getTagAttributesFromChildren(children, 'body') : null;
 
+  // Which template metas this instance overrides.
+  const metaKeys = collector === null ? getMetaKeysFromChildren(children) : [];
+
+  if (collector === null) {
+    // Deliberately in the render phase, not an effect. In pure SPA mode the baseline has to be
+    // read from the head before React commits and hoists this component's own metas into it,
+    // or those would be mistaken for the template's. It only reads the DOM and builds detached
+    // elements, and it runs at most once, so repeating it during a re-render changes nothing.
+    captureTemplateMetas();
+  }
+
   // Use useLayoutEffect in client browser environments to avoid flash of layout changes.
   // We fall back to useEffect during server-side/Node render runs to prevent React from
   // printing console warnings about using useLayoutEffect on the server (neither effect actually
@@ -87,6 +100,7 @@ export function UnirendHead({ children }: { children?: ReactNode }) {
       registrationRef.current = {
         html: htmlAttrs,
         body: bodyAttrs,
+        metaKeys,
         markerRef,
       };
       registeredList.push(registrationRef.current);
@@ -106,10 +120,12 @@ export function UnirendHead({ children }: { children?: ReactNode }) {
       if (
         !areRecordsEqual(prev.html, htmlAttrs) ||
         !areRecordsEqual(prev.body, bodyAttrs) ||
+        !areKeyListsEqual(prev.metaKeys, metaKeys) ||
         hasMarkerChanged
       ) {
         prev.html = htmlAttrs;
         prev.body = bodyAttrs;
+        prev.metaKeys = metaKeys;
         updateDOM();
       }
     }
@@ -169,6 +185,7 @@ export function UnirendHead({ children }: { children?: ReactNode }) {
 interface RegisteredAttrs {
   html: Record<string, string> | null;
   body: Record<string, string> | null;
+  metaKeys: string[];
   markerRef: React.RefObject<HTMLTemplateElement | null>;
 }
 
@@ -180,6 +197,189 @@ const registeredList: RegisteredAttrs[] = [];
 // Clean baseline attributes preserved from index.html (established on first mount).
 let initialHTMLAttrs: Record<string, string> | null = null;
 let initialBodyAttrs: Record<string, string> | null = null;
+
+// The template's <meta> baseline from index.html, grouped by meta identity. The elements held
+// for a key are ones this module owns outright: either the marked nodes the server left in the
+// head, or detached nodes built from the baseline for metas the server stripped because the
+// landing page overrides them. React's hoisted metas are never in here and are never touched.
+//
+// A key maps to a list, not a single node, because one identity can legitimately cover several
+// template metas — the standard light/dark pair being the obvious case:
+//
+//   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fff" />
+//   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000" />
+//
+// A page declaring theme-color overrides the identity, so it replaces both, exactly as the
+// server's merge already does. Collapsing the group to a single node would leave one template
+// copy stranded in the head next to the page's override, and restore only one on the way back.
+let templateMetaNodes: Map<string, HTMLMetaElement[]> | null = null;
+
+/**
+ * Build a detached <meta> for a template baseline entry the server stripped from the served
+ * head, so it's ready to put back the moment no page is overriding it any more.
+ */
+function createTemplateMeta(attrs: Record<string, string>): HTMLMetaElement {
+  const element = document.createElement('meta');
+
+  for (const [key, value] of Object.entries(attrs)) {
+    element.setAttribute(key, value);
+  }
+
+  element.setAttribute(TEMPLATE_META_MARKER_ATTRIBUTE, '');
+
+  return element;
+}
+
+/**
+ * Capture the template's meta baseline once, so template metas can be reconciled against the
+ * pages that override them for as long as the app is running.
+ *
+ * Two sources, mirroring how captureInitialAttrs() handles html/body attributes:
+ *
+ * - SSR/SSG: the server sends the baseline as index.html authored it, and marks the metas it
+ *   left in the head. The DOM alone is not enough here, because a meta the current page
+ *   overrides was stripped from the served head and would otherwise be lost for good the
+ *   moment the user navigates to a page that doesn't override it.
+ * - Pure SPA: nothing was server-injected, so index.html's own metas are still the only ones
+ *   in the head and can be read straight from it.
+ */
+function captureTemplateMetas(): void {
+  if (templateMetaNodes !== null || typeof document === 'undefined') {
+    return;
+  }
+
+  /* eslint-disable @typescript-eslint/naming-convention */
+  const customWindow = window as typeof window & {
+    __UNIREND_TEMPLATE_METAS__?: Array<Record<string, string>>;
+  };
+  /* eslint-enable @typescript-eslint/naming-convention */
+
+  const baseline = customWindow.__UNIREND_TEMPLATE_METAS__;
+  const nodes = new Map<string, HTMLMetaElement[]>();
+
+  const track = (key: string, element: HTMLMetaElement) => {
+    const group = nodes.get(key);
+
+    if (group) {
+      group.push(element);
+    } else {
+      nodes.set(key, [element]);
+    }
+  };
+
+  if (baseline) {
+    const marked = new Map<string, HTMLMetaElement[]>();
+
+    for (const element of Array.from(
+      document.head.querySelectorAll<HTMLMetaElement>(
+        `meta[${TEMPLATE_META_MARKER_ATTRIBUTE}]`,
+      ),
+    )) {
+      const key = getMetaKeyFromElement(element);
+
+      if (key !== null) {
+        const group = marked.get(key);
+
+        if (group) {
+          group.push(element);
+        } else {
+          marked.set(key, [element]);
+        }
+      }
+    }
+
+    for (const attrs of baseline) {
+      const key = getMetaKey(attrs);
+
+      if (key === null) {
+        continue;
+      }
+
+      // The server strips a key's template metas all together or not at all, so a key that has
+      // any marked node in the head has all of them: adopt that group once and move on.
+      const servedGroup = marked.get(key);
+
+      if (servedGroup) {
+        if (!nodes.has(key)) {
+          nodes.set(key, servedGroup);
+        }
+
+        continue;
+      }
+
+      // Nothing marked for this key means the server stripped it because the page overrides it.
+      // Build the element now and hold it detached until that stops being true.
+      track(key, createTemplateMeta(attrs));
+    }
+  } else {
+    for (const element of Array.from(
+      document.head.querySelectorAll<HTMLMetaElement>('meta'),
+    )) {
+      const key = getMetaKeyFromElement(element);
+
+      if (key !== null) {
+        track(key, element);
+      }
+    }
+  }
+
+  templateMetaNodes = nodes;
+}
+
+/**
+ * Bring the template's metas in line with what the mounted pages currently declare: a template
+ * meta steps aside while a page overrides it, and comes back once nothing does.
+ *
+ * This is the half of the override contract that the server can't provide. The server only
+ * renders one page, so without this a template meta stripped for the landing page would never
+ * return, and one left in the head would sit alongside the meta React hoists on the next
+ * navigation (ahead of it in document order, so the stale template value would win).
+ *
+ * Every template meta sharing an identity moves together, matching the server's merge: a page
+ * declaring theme-color replaces the template's whole theme-color set, media variants included.
+ */
+function reconcileTemplateMetas(declaredKeys: Set<string>): void {
+  if (templateMetaNodes === null) {
+    return;
+  }
+
+  for (const [key, group] of templateMetaNodes) {
+    const isOverridden = declaredKeys.has(key);
+
+    for (const node of group) {
+      if (isOverridden && node.isConnected) {
+        node.remove();
+      } else if (!isOverridden && !node.isConnected) {
+        document.head.appendChild(node);
+      }
+    }
+  }
+}
+
+/**
+ * The distinct meta identities a single UnirendHead's children declare, used to decide which
+ * template metas are currently overridden. Deduplicated, since a page declaring the same meta
+ * twice overrides the template's copy exactly once.
+ */
+function getMetaKeysFromChildren(children: ReactNode): string[] {
+  const keys = new Set<string>();
+
+  React.Children.forEach(children, (child) => {
+    if (!React.isValidElement(child) || child.type !== 'meta') {
+      return;
+    }
+
+    const key = getMetaKey(
+      toHeadAttributes(child.props as Record<string, unknown>),
+    );
+
+    if (key !== null) {
+      keys.add(key);
+    }
+  });
+
+  return Array.from(keys);
+}
 
 /**
  * Capture original document baseline attributes from index.html template on first mount.
@@ -442,6 +642,7 @@ function updateDOM(): void {
 
   const htmlStack: Array<Record<string, string>> = [];
   const bodyStack: Array<Record<string, string>> = [];
+  const declaredMetaKeys = new Set<string>();
 
   for (const item of sortedRegistrations) {
     if (item.html) {
@@ -451,10 +652,42 @@ function updateDOM(): void {
     if (item.body) {
       bodyStack.push(item.body);
     }
+
+    for (const key of item.metaKeys) {
+      declaredMetaKeys.add(key);
+    }
   }
 
   applyAttributes(document.documentElement, initialHTMLAttrs || {}, htmlStack);
   applyAttributes(document.body, initialBodyAttrs || {}, bodyStack);
+  reconcileTemplateMetas(declaredMetaKeys);
+}
+
+/**
+ * Compares two meta key lists as sets. Overriding is a set membership question, so reordering
+ * a page's metas doesn't change which template metas step aside.
+ *
+ * Compared as sets rather than by length and membership, which would call
+ * ['viewport', 'theme-color'] equal to ['viewport', 'viewport'] — same length, and every key of
+ * the second is in the first. Skipping the update on that would leave the theme-color baseline
+ * detached even though the page had stopped overriding it. The lists are already deduplicated
+ * at collection, so this is belt and braces.
+ */
+function areKeyListsEqual(a: string[], b: string[]): boolean {
+  const setA = new Set(a);
+  const setB = new Set(b);
+
+  if (setA.size !== setB.size) {
+    return false;
+  }
+
+  for (const key of setA) {
+    if (!setB.has(key)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -599,6 +832,22 @@ function toTitleText(children: ReactNode): string {
 }
 
 /**
+ * React prop names whose HTML attribute is not just the prop lowercased, so writing them out
+ * verbatim would produce an attribute that doesn't exist.
+ *
+ * Only the ones that differ by more than case belong here. HTML attribute names are matched
+ * case-insensitively, so React spellings like `charSet` or `crossOrigin` already land on the
+ * right attribute on their own. `className` and `httpEquiv` do not: `class` is a different word,
+ * and `http-equiv` carries a hyphen. An unmapped `httpEquiv` would be serialized as an
+ * `httpEquiv=""` attribute, which no parser reads as `http-equiv` — so the tag would not do its
+ * job, and it could not be matched against the template's `http-equiv` baseline either.
+ */
+const REACT_PROP_TO_HTML_ATTRIBUTE: Record<string, string> = {
+  className: 'class',
+  httpEquiv: 'http-equiv',
+};
+
+/**
  * Converts React element properties into standard HTML attribute key-value records.
  */
 function toHeadAttributes(
@@ -612,8 +861,9 @@ function toHeadAttributes(
       continue;
     }
 
-    // Map React's className prop to standard HTML class attribute
-    const normKey = key === 'className' ? 'class' : key;
+    // Map React prop spellings onto their real HTML attribute names (className -> class,
+    // httpEquiv -> http-equiv); everything else is already the attribute name.
+    const normKey = REACT_PROP_TO_HTML_ATTRIBUTE[key] ?? key;
 
     // Handle React style objects by serializing them to a standard inline style string.
     if (normKey === 'style' && typeof value === 'object') {
@@ -752,6 +1002,14 @@ export const _test = {
   },
   getRegisteredList: () => registeredList,
   updateDOM,
+  captureTemplateMetas,
+  reconcileTemplateMetas,
+  areKeyListsEqual,
+  getMetaKeysFromChildren,
+  getTemplateMetaNodes: () => templateMetaNodes,
+  resetTemplateMetas: () => {
+    templateMetaNodes = null;
+  },
 };
 
 /**

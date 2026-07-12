@@ -1,6 +1,11 @@
-import { TAB_SPACES } from '../consts';
+import {
+  TAB_SPACES,
+  TEMPLATE_META_MARKER_ATTRIBUTE,
+  TEMPLATE_METAS_GLOBAL,
+} from '../consts';
 import { getDevMode } from 'lifecycleion/dev-mode';
 import { escapeHTMLAttr, decodeHTML, HTML_BOOLEAN_ATTRIBUTES } from './escape';
+import { getMetaKey } from './meta-key';
 
 // Prettify all head tags: each tag (<title>, <meta>, <link>, etc.) on its own line, indented
 export function prettifyHeadTags(head: string, indent = TAB_SPACES): string {
@@ -11,6 +16,304 @@ export function prettifyHeadTags(head: string, indent = TAB_SPACES): string {
     .map((line) => indent + line.trim())
     .join('\n')
     .trim();
+}
+
+interface HeadTagMatch {
+  start: number;
+  end: number;
+  attrs: Record<string, string>;
+}
+
+/**
+ * Match a closing tag for `tagName` at `index`, returning the index just past its '>', or -1.
+ *
+ * HTML allows whitespace between the tag name and the '>' of a closing tag, so `</script >`
+ * closes a script just as `</script>` does. Matching the exact string only would end a script
+ * one character too late (missing its real close and swallowing the rest of the head) or, for
+ * `</head >`, fail to notice the head ended at all and carry the scan into the body.
+ */
+function matchClosingTagAt(
+  html: string,
+  lower: string,
+  index: number,
+  tagName: string,
+): number {
+  const prefix = `</${tagName}`;
+
+  if (!lower.startsWith(prefix, index)) {
+    return -1;
+  }
+
+  let i = index + prefix.length;
+
+  while (i < html.length && /\s/.test(html[i])) {
+    i++;
+  }
+
+  return html[i] === '>' ? i + 1 : -1;
+}
+
+/**
+ * Find the next real closing tag for `tagName` at or after `from`. Skips text that only starts
+ * like one, such as `</scripts>`, which does not close a script.
+ */
+function findClosingTag(
+  html: string,
+  lower: string,
+  from: number,
+  tagName: string,
+): number {
+  let i = from;
+
+  for (;;) {
+    const found = lower.indexOf(`</${tagName}`, i);
+
+    if (found === -1) {
+      return -1;
+    }
+
+    const end = matchClosingTagAt(html, lower, found, tagName);
+
+    if (end !== -1) {
+      return end;
+    }
+
+    i = found + 2;
+  }
+}
+
+/**
+ * Scan forward from the '<' of an opening tag to the index just past its closing '>',
+ * ignoring any '>' that sits inside a quoted attribute value (e.g. content="scale > 1").
+ * Returns -1 when the tag is never closed.
+ */
+function findTagEnd(html: string, tagStart: number): number {
+  let isInDoubleQuote = false;
+  let isInSingleQuote = false;
+
+  for (let i = tagStart; i < html.length; i++) {
+    const char = html[i];
+
+    if (char === '"' && !isInSingleQuote) {
+      isInDoubleQuote = !isInDoubleQuote;
+    } else if (char === "'" && !isInDoubleQuote) {
+      isInSingleQuote = !isInSingleQuote;
+    } else if (char === '>' && !isInDoubleQuote && !isInSingleQuote) {
+      return i + 1;
+    }
+  }
+
+  return -1;
+}
+
+/**
+ * Find opening tags with the given name, stopping at </head> when it's present so we never
+ * reach into the body.
+ *
+ * Every opening tag is consumed as a whole, quote-aware unit, not just the tag being looked
+ * for, and comment and script/style bodies are skipped wholesale. That means the substrings
+ * this scanner treats as significant ('</head>', '<!--', '<script', '<style') are only ever
+ * recognized in real markup positions — one sitting inside another tag's attribute value,
+ * as in <link title="a </head> b">, is passed over with the tag that contains it instead of
+ * cutting the scan short and hiding the metas beyond it.
+ *
+ * For the same reason the end of the head is recognized during the scan rather than looked up
+ * ahead of it: only </script> closes a script, so an inline script may legally hold the text
+ * "</head>" in a string, and searching for it up front would stop the scan early.
+ */
+function findHeadTags(html: string, tagName: string): HeadTagMatch[] {
+  const lower = html.toLowerCase();
+  const matches: HeadTagMatch[] = [];
+
+  let i = 0;
+
+  while (i < html.length) {
+    // Anything that isn't the start of a tag or comment is text, and text can't contain a
+    // significant substring — a bare '<' in text is not valid HTML.
+    if (html[i] !== '<') {
+      i++;
+      continue;
+    }
+
+    if (html.startsWith('<!--', i)) {
+      const commentEnd = html.indexOf('-->', i + 4);
+
+      if (commentEnd === -1) {
+        break;
+      }
+
+      i = commentEnd + 3;
+      continue;
+    }
+
+    if (matchClosingTagAt(html, lower, i, 'head') !== -1) {
+      break;
+    }
+
+    const nameMatch = /^<([a-z][a-z0-9-]*)/i.exec(html.slice(i, i + 32));
+
+    if (!nameMatch) {
+      // A closing tag or stray '<'. Closing tags carry no attributes, so there's nothing
+      // inside them that could be mistaken for markup.
+      i++;
+      continue;
+    }
+
+    const foundName = nameMatch[1].toLowerCase();
+    const tagEnd = findTagEnd(html, i + nameMatch[0].length);
+
+    // Unterminated tag — nothing further can be parsed.
+    if (tagEnd === -1) {
+      break;
+    }
+
+    // Skip a script or style along with its whole body: its contents are raw text, and only
+    // the matching closing tag ends it.
+    if (foundName === 'script' || foundName === 'style') {
+      const closeEnd = findClosingTag(html, lower, tagEnd, foundName);
+
+      // An unterminated script/style means the rest of the document is its body,
+      // so there are no further head tags to find.
+      if (closeEnd === -1) {
+        break;
+      }
+
+      i = closeEnd;
+      continue;
+    }
+
+    if (foundName === tagName) {
+      const attrStart = i + nameMatch[0].length;
+
+      matches.push({
+        start: i,
+        end: tagEnd,
+        // tagEnd sits past the '>', and a self-closing tag ends in '/>', so trim both back
+        // off before parsing the attributes.
+        attrs: parseAttributesString(
+          html.slice(attrStart, tagEnd - 1).replace(/\/$/, ''),
+        ),
+      });
+    }
+
+    i = tagEnd;
+  }
+
+  return matches;
+}
+
+/**
+ * Expand a removal range to swallow the whole line when the tag sits alone on it, so
+ * dropping a tag doesn't leave a blank indented line behind.
+ */
+function expandToWholeLine(
+  html: string,
+  range: { start: number; end: number },
+): { start: number; end: number } {
+  const lineStart = html.lastIndexOf('\n', range.start - 1) + 1;
+  let lineEnd = html.indexOf('\n', range.end);
+
+  if (lineEnd === -1) {
+    lineEnd = html.length;
+  }
+
+  const before = html.slice(lineStart, range.start);
+  const after = html.slice(range.end, lineEnd);
+
+  if (before.trim() === '' && after.trim() === '') {
+    return { start: lineStart, end: Math.min(lineEnd + 1, html.length) };
+  }
+
+  return range;
+}
+
+export interface TemplateMetaMergeResult {
+  /** The template with overridden metas removed and the surviving ones marked. */
+  template: string;
+  /**
+   * Every identifiable meta the template declares, including the ones removed just above.
+   * This is the baseline the client restores from, so it has to describe the template as
+   * authored, not the head as served for this particular page.
+   */
+  baseline: Array<Record<string, string>>;
+}
+
+/**
+ * Merge the template's <meta> baseline with the metas this page declares through UnirendHead.
+ *
+ * The template's metas are a baseline: they're served as-is unless the page declares the same
+ * tag, in which case the page's version wins and the template's copy is removed so the served
+ * head doesn't end up with both. Metas the page never mentions (viewport, theme-color, robots,
+ * and anything else the app puts in index.html) pass through untouched.
+ *
+ * The surviving template metas are marked so the client can tell them apart from the ones React
+ * hoists, and the full baseline is returned so the client can put back a meta this page
+ * overrode once the user navigates to a page that doesn't. Between them, those two let
+ * UnirendHead keep the override contract true across client-side navigation instead of only on
+ * the server-rendered page.
+ *
+ * The tags UnirendHead manages for every page (<title>, description, og:*, twitter:*) are
+ * already gone by now — processTemplate() strips those, since that rule doesn't depend on the
+ * page and its output is cached across pages.
+ *
+ * Runs against the template before any rendered body content is spliced in, so the string
+ * surgery here can never touch React's markup or its hydration markers.
+ */
+export function mergeTemplateMetas(
+  template: string,
+  headContent: string,
+): TemplateMetaMergeResult {
+  const pageMetaKeys = new Set<string>();
+
+  for (const meta of findHeadTags(headContent, 'meta')) {
+    const key = getMetaKey(meta.attrs);
+
+    if (key !== null) {
+      pageMetaKeys.add(key);
+    }
+  }
+
+  const baseline: Array<Record<string, string>> = [];
+  const edits: Array<{ start: number; end: number; replacement: string }> = [];
+
+  for (const meta of findHeadTags(template, 'meta')) {
+    const key = getMetaKey(meta.attrs);
+
+    // Metas with no identifying attribute (<meta charset>) can't be overridden by name, so
+    // they're not part of the baseline and are left exactly as the template wrote them.
+    if (key === null) {
+      continue;
+    }
+
+    baseline.push(meta.attrs);
+
+    if (pageMetaKeys.has(key)) {
+      const { start, end } = expandToWholeLine(template, meta);
+      edits.push({ start, end, replacement: '' });
+      continue;
+    }
+
+    // Mark the survivor. The marker goes just before the tag's closing '>' (or before the '/'
+    // of a self-closing '/>'), so the rest of the tag is preserved byte for byte.
+    const tag = template.slice(meta.start, meta.end);
+    const insertAt = meta.end - (tag.endsWith('/>') ? 2 : 1);
+
+    edits.push({
+      start: insertAt,
+      end: insertAt,
+      replacement: ` ${TEMPLATE_META_MARKER_ATTRIBUTE}`,
+    });
+  }
+
+  let result = template;
+
+  // Apply from the end first so earlier offsets stay valid.
+  for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
+    result =
+      result.slice(0, edit.start) + edit.replacement + result.slice(edit.end);
+  }
+
+  return { template: result, baseline };
 }
 
 export interface InjectContentOptions {
@@ -34,6 +337,12 @@ export async function injectContent(
   const { context, CDNBaseURL, domainInfo, htmlAttrs, bodyAttrs } = options;
   // Prettify all head tags with consistent indentation
   const compactedHead = prettifyHeadTags(headContent);
+
+  // Merge the template's meta baseline with the page's own metas, so the page's versions are
+  // the only ones served. Done before the body is spliced in, while the template still holds
+  // nothing but markers where the rendered markup will go.
+  const { template: mergedTemplate, baseline: templateMetas } =
+    mergeTemplateMetas(template, headContent);
 
   // Use cheerio to find React Router's hydration script in the rendered body content.
   // StaticRouterProvider (server) renders window.__staticRouterHydrationData as a React child,
@@ -91,7 +400,7 @@ export async function injectContent(
   // Start with head and body replacement
   // The <!--ss-outlet--> marker should be directly replaced with the content
   // without any additional or changed comments/whitespace that could cause hydration issues
-  let result = template
+  let result = mergedTemplate
     .replace('<!--ss-head-->', compactedHead)
     .replace('<!--ss-outlet-->', cleanBodyContent);
 
@@ -154,8 +463,8 @@ export async function injectContent(
   // knows the clean, unmodified attributes from the original index.html template.
 
   // 1. Locate the opening <html> and <body> tags in the raw HTML template string.
-  const htmlTagMatch = findOpeningTag(template, 'html');
-  const bodyTagMatch = findOpeningTag(template, 'body');
+  const htmlTagMatch = findOpeningTag(mergedTemplate, 'html');
+  const bodyTagMatch = findOpeningTag(mergedTemplate, 'body');
 
   // 2. Parse their raw HTML attribute strings (e.g. 'class="foo" lang="en"') into key-value records.
   const templateHTMLAttrs = htmlTagMatch
@@ -177,6 +486,20 @@ export async function injectContent(
     `<script>window.__UNIREND_TEMPLATE_ATTRS__=${safeTemplateAttrsJSON};</script>`,
   );
 
+  // Inject the template's <meta> baseline for the same reason: the client reconciles template
+  // metas across navigations, and it needs the baseline as the template authored it. The metas
+  // this page overrides are absent from the served head, so the DOM alone can't describe it —
+  // without this the client would have nothing to restore when the user navigates to a page
+  // that doesn't override them.
+  const safeTemplateMetasJSON = JSON.stringify(templateMetas).replace(
+    /</g,
+    '\\u003c',
+  );
+
+  contextScripts.push(
+    `<script>window.${TEMPLATE_METAS_GLOBAL}=${safeTemplateMetasJSON};</script>`,
+  );
+
   // Router hydration data last — only needed once the client module runs, order relative
   // to other head scripts doesn't matter since all head scripts run before any module script
   for (const script of routerHydrationScripts) {
@@ -185,9 +508,9 @@ export async function injectContent(
 
   // Replace the placeholder with all context scripts (or remove if none).
   const hasMarkers =
-    template.includes('<!--ss-head-->') ||
-    template.includes('<!--ss-outlet-->') ||
-    template.includes('<!--context-scripts-injection-point-->');
+    mergedTemplate.includes('<!--ss-head-->') ||
+    mergedTemplate.includes('<!--ss-outlet-->') ||
+    mergedTemplate.includes('<!--context-scripts-injection-point-->');
 
   if (hasMarkers) {
     if (result.includes('<!--context-scripts-injection-point-->')) {

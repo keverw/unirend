@@ -10,6 +10,8 @@
   - [Supported Tags](#supported-tags)
     - [Preloading Images](#preloading-images)
   - [Tag Merging and Overrides](#tag-merging-and-overrides)
+  - [Template Tags vs Page Tags](#template-tags-vs-page-tags)
+    - [Overriding a Template Meta](#overriding-a-template-meta)
   - [Shared Layout & Error Component Pattern](#shared-layout--error-component-pattern)
   - [Global Provider Pattern (Theme, Language, Etc.)](#global-provider-pattern-theme-language-etc)
 - [How It Works](#how-it-works)
@@ -119,7 +121,7 @@ import { UnirendHead } from 'unirend/client';
 </UnirendHead>;
 ```
 
-**Props on child elements** map directly to HTML attributes, pass any valid attribute you would use on the native HTML tag.
+**Props on child elements** map directly to HTML attributes, pass any valid attribute you would use on the native HTML tag. The two React prop spellings that are not simply the attribute name are translated for you: `className` becomes `class`, and `httpEquiv` becomes `http-equiv`. Spellings that differ only by case, like `charSet` or `crossOrigin`, need no translation, since HTML matches attribute names case-insensitively.
 
 ### Supported Tags
 
@@ -166,6 +168,42 @@ If multiple `<UnirendHead>` components are rendered in the same tree (e.g. in la
 - **`<meta>` and `<link>`**: **Accumulate**. All tags from all `<UnirendHead>` instances are collected and rendered.
 - **`<html>` and `<body>` class names (`class` or `className`)**: **Merge (accumulate)**. If the layout sets `<html className="font-sans" />` and the page sets `<html className="dark" />`, the result is `<html class="font-sans dark">`.
 - **`<html>` and `<body>` styles (`style`)**: **Merge (concatenate)**. If both specify styles, they are concatenated together (separated by a semicolon). Because CSS inline rules evaluate in the order they are defined ("last declaration wins"), this allows nested pages/components to safely override specific inline properties from parent templates or layouts. To prevent clobbering external style mutations on the client (such as modal scroll locks), the client parses and reconciles calculated style properties key-by-key, using a lightweight, quote-aware semicolon-splitting parser that safely supports complex style values (like data URLs, calc values, or inline SVGs) without introducing a heavy CSS parser library dependency.
+
+### Template Tags vs Page Tags
+
+Use `UnirendHead` for tags that describe the current page. Keep tags that describe the document or site in `index.html`.
+
+| Put in `UnirendHead`        | Keep in `index.html`                |
+| --------------------------- | ----------------------------------- |
+| `<title>`                   | `<meta charset>`                    |
+| `<meta name="description">` | `<meta name="viewport">`            |
+| `<meta property="og:*">`    | `<meta name="theme-color">`         |
+| `<meta name="twitter:*">`   | `<meta name="robots">`              |
+|                             | `<meta property="og:site_name">`    |
+|                             | Icons, links, and other custom tags |
+
+Unirend strips page-owned tags from the template, even when the current page does not declare replacements. This prevents a generic description or social preview from becoming stale page metadata. The exception is `og:site_name`, which describes the site and remains part of the template.
+
+Set page-owned tags on every page that needs them, including standalone error components that render outside the normal layout.
+
+Layouts can set metadata shared by all their pages, but a nested page should not declare another meta with the same identity. `<meta>` tags accumulate across `UnirendHead` instances, so setting `description` in both a layout and a page produces two description tags rather than replacing the layout value. Put a meta in a layout only when its nested pages will use that exact value without redeclaring it. Titles are different because the last title wins, so a layout title can act as a default, but a layout description meta cannot act as a default that pages replace.
+
+#### Overriding a Template Meta
+
+A page can override a template meta by declaring the same `name`, `property`, or `http-equiv` in `UnirendHead`. The page's version replaces the template version in SSR, SSG, and client-side navigation. The template version returns when no mounted page overrides it.
+
+An override replaces every template meta with that identity. For example, consider a light and dark `theme-color` pair:
+
+```html
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#fff" />
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000" />
+```
+
+A page that declares `theme-color` replaces both template tags. To retain separate light and dark variants, declare both on the page. Both template tags return when the override unmounts.
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> Keep `<meta name="viewport">` in your `index.html`. It is template-owned, and without it mobile browsers render the page at desktop width and scale it down, so responsive CSS never takes effect regardless of your media queries.
 
 ### Shared Layout & Error Component Pattern
 
@@ -220,11 +258,15 @@ Since the `rootProviders` wrapper component sits above the entire app tree (incl
 
 During `renderToString`, `UnirendHead` reads a collector object from React context (provided by `UnirendHeadProvider`, which Unirend wraps your app with automatically). Each `<UnirendHead>` instance pushes its tags into the collector synchronously. After rendering, the collected data is serialized to HTML strings, and `<html>` / `<body>` attributes are merged into the template tags, while `<title>`/`<meta>`/`<link>` are injected into the `<!--ss-head-->` slot.
 
+The template's own head tags are merged against the page's at the same time, following the ownership rules in [Template Tags vs Page Tags](#template-tags-vs-page-tags). The tags `UnirendHead` manages for every page are dropped from the template when it is first loaded, and the template's remaining metas are matched against the page's by identity, with a page's version replacing the template's so the served head never carries both.
+
 `UnirendHead` renders `null` on the server, the tags never appear in the rendered body HTML, only in `<head>` via the injection.
 
 ### Client-Side
 
 On the client the context collector is `null`, so `UnirendHead` renders its children as real DOM elements. React 19 automatically hoists `<title>`, `<meta>`, and `<link>` tags to `<head>` when rendered inside components, no portal or effect needed. `<html>` and `<body>` attributes are managed by a client-side stack registry that applies them to the DOM on mount/update and restores the original template attributes on unmount.
+
+The template's own metas are reconciled by that same registry, because React only manages the tags it hoists and will not touch a node it did not create. A template meta is taken out of the head while a mounted page overrides its identity, and put back once none does, so an override survives a client-side navigation in both directions rather than only holding on the server-rendered page. The template's metas in the served head carry a `data-unirend-template-meta` attribute so the client can tell them apart from the ones React hoists.
 
 ### Anti-Flicker & Attribute Hydration
 
@@ -256,3 +298,5 @@ To keep the baseline clean and static, Unirend uses two reconciliation strategie
      }
    </script>
    ```
+
+The template's `<meta>` baseline is captured the same two ways, and is what the client restores when a page stops overriding a template meta. With a server-injected page it comes from `window.__UNIREND_TEMPLATE_METAS__`, which describes `index.html` as you authored it, including the metas the server left out of this page's head because the page overrides them. Without one (Vite's dev server, or a client-only SPA build) it is read from the live DOM before React hoists anything, where `index.html`'s metas are still the only ones present.

@@ -193,6 +193,7 @@ describe('processTemplate', () => {
     expect(result.success).toBe(true);
 
     if (result.success) {
+      // UnirendHead owns the title, so the template's copy always goes.
       expect(result.html).not.toContain('<title>');
       expect(result.html).not.toContain('Test Title');
     }
@@ -244,14 +245,19 @@ describe('processTemplate', () => {
     }
   });
 
-  it('should remove meta tags except apple-mobile-web-app-title', async () => {
+  it('should remove only the metas UnirendHead manages, keeping the rest as a baseline', async () => {
     const html = `
       <html>
         <head>
           <!--ss-head-->
           <meta name="description" content="Test">
+          <meta property="og:title" content="OG Title">
+          <meta property="og:image" content="/og.png">
+          <meta name="twitter:card" content="summary">
+          <meta property="og:site_name" content="My App">
           <meta name="apple-mobile-web-app-title" content="App">
           <meta name="viewport" content="width=device-width">
+          <meta name="theme-color" content="#fff">
         </head>
         <body>
           <div id="root"><!--ss-outlet-->Content</div>
@@ -264,8 +270,19 @@ describe('processTemplate', () => {
     expect(result.success).toBe(true);
 
     if (result.success) {
+      // Per-page SEO is UnirendHead's to set, so the template's copies go.
       expect(result.html).not.toContain('name="description"');
-      expect(result.html).not.toContain('name="viewport"');
+      expect(result.html).not.toContain('property="og:title"');
+      expect(result.html).not.toContain('property="og:image"');
+      expect(result.html).not.toContain('name="twitter:card"');
+
+      // og:site_name describes the site, not the page, so it stays as a baseline.
+      expect(result.html).toContain('property="og:site_name"');
+
+      // Everything document-level is template-owned and survives. Dropping viewport here
+      // is what left every page rendering as a scaled-down desktop layout on phones.
+      expect(result.html).toContain('name="viewport"');
+      expect(result.html).toContain('name="theme-color"');
       expect(result.html).toContain('name="apple-mobile-web-app-title"');
     }
   });
@@ -605,11 +622,11 @@ describe('processTemplate', () => {
     expect(result.success).toBe(true);
 
     if (result.success) {
-      // Should remove title and description meta
+      // Should remove the tags UnirendHead manages (title and description)
       expect(result.html).not.toContain('<title>');
       expect(result.html).not.toContain('name="description"');
 
-      // Should keep apple-mobile-web-app-title
+      // Should keep the rest of the template's head baseline
       expect(result.html).toContain('name="apple-mobile-web-app-title"');
 
       // Should remove regular comment but keep ss- comment

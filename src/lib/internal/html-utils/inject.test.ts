@@ -1,6 +1,7 @@
 import { describe, expect, it, spyOn } from 'bun:test';
 import * as cheerio from 'cheerio';
 import { prettifyHeadTags, injectContent } from './inject';
+import { processTemplate } from './format';
 import { TAB_SPACES } from '../consts';
 
 describe('prettifyHeadTags', () => {
@@ -66,7 +67,8 @@ describe('injectContent', () => {
       '<script>globalThis.__lifecycleion_is_dev__=false;</script>\n' +
       '<script>window.__CDN_BASE_URL__="";</script>\n' +
       '<script>window.__DOMAIN_INFO__=null;</script>\n' +
-      '<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>' +
+      '<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>\n' +
+      '<script>window.__UNIREND_TEMPLATE_METAS__=[];</script>' +
       '</head><body><div>Hello World</div></body></html>';
 
     expect(await injectContent(template, headContent, bodyContent)).toBe(
@@ -79,7 +81,7 @@ describe('injectContent', () => {
       '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
 
     const expected =
-      '<!DOCTYPE html><html><head><script>globalThis.__lifecycleion_is_dev__=false;</script>\n<script>window.__CDN_BASE_URL__="";</script>\n<script>window.__DOMAIN_INFO__=null;</script>\n<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script></head><body></body></html>';
+      '<!DOCTYPE html><html><head><script>globalThis.__lifecycleion_is_dev__=false;</script>\n<script>window.__CDN_BASE_URL__="";</script>\n<script>window.__DOMAIN_INFO__=null;</script>\n<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>\n<script>window.__UNIREND_TEMPLATE_METAS__=[];</script></head><body></body></html>';
 
     expect(await injectContent(template, '', '')).toBe(expected);
   });
@@ -98,7 +100,8 @@ describe('injectContent', () => {
       '<script>globalThis.__lifecycleion_is_dev__=false;</script>\n' +
       '<script>window.__CDN_BASE_URL__="";</script>\n' +
       '<script>window.__DOMAIN_INFO__=null;</script>\n' +
-      '<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>' +
+      '<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>\n' +
+      '<script>window.__UNIREND_TEMPLATE_METAS__=[];</script>' +
       '</body></html>';
 
     expect(await injectContent(template, headContent, bodyContent)).toBe(
@@ -497,5 +500,507 @@ describe('injectContent', () => {
     expect(result).toContain('const b = "<body>";');
     expect(result).toContain('body { content: "<body>"; }');
     expect(result).toContain('<body class="x">');
+  });
+});
+
+describe('template head baseline merge', () => {
+  // A template carrying the head tags an app actually ships in index.html: the tags
+  // UnirendHead manages per page (title, description, og:title), and the document-level
+  // tags it doesn't (viewport, theme-color, charset, plus the site-wide og:site_name).
+  const templateHTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Template Title</title>
+    <!--ss-head-->
+    <meta name="description" content="Template description" />
+    <meta property="og:title" content="Template OG Title" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta property="og:site_name" content="My App" />
+  </head>
+  <body>
+    <div id="root"><!--ss-outlet--></div>
+  </body>
+</html>`;
+
+  // What UnirendHead serializes for a page that sets a title and a description.
+  const pageHead = [
+    '<title>Page Title</title>',
+    '<meta name="description" content="Page description" />',
+  ].join('\n');
+
+  // processTemplate() runs on all three paths, so each one has to merge identically.
+  const renderPaths = [
+    { name: 'SSR dev', mode: 'ssr', isDevelopment: true, isDevServer: true },
+    {
+      name: 'SSR built',
+      mode: 'ssr',
+      isDevelopment: false,
+      isDevServer: false,
+    },
+    { name: 'SSG', mode: 'ssg', isDevelopment: false, isDevServer: false },
+  ] as const;
+
+  async function renderHead(path: (typeof renderPaths)[number], head: string) {
+    const processed = await processTemplate(
+      templateHTML,
+      path.mode,
+      path.isDevelopment,
+      path.isDevServer,
+    );
+
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    const html = await injectContent(processed.html, head, '<div>App</div>');
+    return cheerio.load(html);
+  }
+
+  for (const path of renderPaths) {
+    describe(path.name, () => {
+      it('should serve the page SEO tags and the template baseline, one of each', async () => {
+        const $ = await renderHead(path, pageHead);
+
+        // The page's title and description are the only ones served — the template's
+        // copies are gone rather than sitting alongside them.
+        expect($('title').length).toBe(1);
+        expect($('title').text()).toBe('Page Title');
+        expect($('meta[name="description"]').length).toBe(1);
+        expect($('meta[name="description"]').attr('content')).toBe(
+          'Page description',
+        );
+
+        // The template's viewport survives. Losing this is what made every page render
+        // as a scaled-down desktop layout on phones.
+        expect($('meta[name="viewport"]').length).toBe(1);
+        expect($('meta[name="viewport"]').attr('content')).toBe(
+          'width=device-width, initial-scale=1.0',
+        );
+
+        // Document-level metas the page never mentions pass through untouched.
+        expect($('meta[name="theme-color"]').length).toBe(1);
+        expect($('meta[name="theme-color"]').attr('content')).toBe('#ffffff');
+        expect($('meta[charset]').length).toBe(1);
+      });
+
+      it('should drop the page-owned SEO tags from the template while keeping the site-wide ones', async () => {
+        const $ = await renderHead(path, '');
+
+        // UnirendHead owns these, so the template's copies go even when the page declares
+        // nothing. A surviving template tag would sit ahead of the one React hoists on a
+        // later client-side navigation, and the stale value would win.
+        expect($('title').length).toBe(0);
+        expect($('meta[name="description"]').length).toBe(0);
+        expect($('meta[property="og:title"]').length).toBe(0);
+        expect($('meta[name="twitter:card"]').length).toBe(0);
+
+        // og:site_name describes the site rather than the page, so it stays a template
+        // baseline like viewport does.
+        expect($('meta[property="og:site_name"]').length).toBe(1);
+        expect($('meta[property="og:site_name"]').attr('content')).toBe(
+          'My App',
+        );
+
+        expect($('meta[name="viewport"]').length).toBe(1);
+        expect($('meta[name="theme-color"]').length).toBe(1);
+        expect($('meta[charset]').length).toBe(1);
+      });
+
+      it('should serve the page OpenGraph tags without duplicating the template copies', async () => {
+        const $ = await renderHead(
+          path,
+          [
+            '<meta property="og:title" content="Page OG Title" />',
+            '<meta name="twitter:card" content="summary_large_image" />',
+          ].join('\n'),
+        );
+
+        expect($('meta[property="og:title"]').length).toBe(1);
+        expect($('meta[property="og:title"]').attr('content')).toBe(
+          'Page OG Title',
+        );
+        expect($('meta[name="twitter:card"]').length).toBe(1);
+        expect($('meta[name="twitter:card"]').attr('content')).toBe(
+          'summary_large_image',
+        );
+      });
+
+      it('should override a template meta declared by property rather than name', async () => {
+        const $ = await renderHead(
+          path,
+          '<meta property="og:site_name" content="Page Site Name" />',
+        );
+
+        expect($('meta[property="og:site_name"]').length).toBe(1);
+        expect($('meta[property="og:site_name"]').attr('content')).toBe(
+          'Page Site Name',
+        );
+
+        // A page overriding an og: tag must not disturb the name-keyed baseline.
+        expect($('meta[name="viewport"]').length).toBe(1);
+        expect($('meta[name="theme-color"]').length).toBe(1);
+      });
+    });
+  }
+
+  it('should not mistake markup inside an inline script for a head tag', async () => {
+    const withScript = templateHTML.replace(
+      '<!--ss-head-->',
+      '<!--ss-head-->\n    <script>\n      const tpl = \'<meta name="viewport" content="nope" /><title>nope</title>\';\n    </script>',
+    );
+
+    const processed = await processTemplate(withScript, 'ssr', false, false);
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    const html = await injectContent(
+      processed.html,
+      pageHead,
+      '<div>App</div>',
+    );
+    const $ = cheerio.load(html);
+
+    // The real viewport meta is untouched and the script's string literal survives intact.
+    expect($('meta[name="viewport"]').attr('content')).toBe(
+      'width=device-width, initial-scale=1.0',
+    );
+    expect(html).toContain('const tpl =');
+    expect($('title').text()).toBe('Page Title');
+  });
+
+  it('should ship the full template meta baseline to the client, including overridden ones', async () => {
+    const processed = await processTemplate(templateHTML, 'ssr', false, false);
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    // This page overrides theme-color, so it is absent from the served head.
+    const html = await injectContent(
+      processed.html,
+      '<meta name="theme-color" content="#page" />',
+      '<div>App</div>',
+    );
+
+    const globalMatch = html.match(
+      /window\.__UNIREND_TEMPLATE_METAS__=(\[.*?\]);/,
+    );
+
+    expect(globalMatch).not.toBeNull();
+
+    const baseline = JSON.parse(globalMatch?.[1] ?? '[]') as Array<
+      Record<string, string>
+    >;
+    const names = baseline.map((attrs) => attrs.name ?? attrs.property);
+
+    // The baseline must describe index.html as authored, not the head as served: theme-color
+    // is in it even though the server stripped it for this page. Without that the client would
+    // have nothing to put back when the user navigates to a page that doesn't override it.
+    expect(names).toContain('theme-color');
+    expect(names).toContain('viewport');
+    expect(names).toContain('og:site_name');
+
+    // Metas with no identifying attribute can't be overridden, so they're not part of it.
+    expect(names).not.toContain(undefined);
+
+    const $ = cheerio.load(html);
+
+    // The served theme-color is the page's and carries no marker — it's React's to manage.
+    expect($('meta[name="theme-color"]').length).toBe(1);
+    expect($('meta[name="theme-color"]').attr('content')).toBe('#page');
+    expect(
+      $('meta[name="theme-color"]').attr('data-unirend-template-meta'),
+    ).toBeUndefined();
+
+    // The template metas left in the head are marked, so the client can tell which nodes are
+    // its own to reconcile and which were hoisted by React.
+    expect(
+      $('meta[name="viewport"]').attr('data-unirend-template-meta'),
+    ).toBeDefined();
+    expect($('meta[name="viewport"]').attr('content')).toBe(
+      'width=device-width, initial-scale=1.0',
+    );
+
+    // Marking must not touch a meta that can't be overridden.
+    expect(
+      $('meta[charset]').attr('data-unirend-template-meta'),
+    ).toBeUndefined();
+  });
+
+  it('should let a page override a template meta keyed by http-equiv', async () => {
+    const withHTTPEquiv = templateHTML.replace(
+      '<meta name="theme-color" content="#ffffff" />',
+      `<meta http-equiv="content-security-policy" content="default-src *" />`,
+    );
+
+    const processed = await processTemplate(withHTTPEquiv, 'ssr', false, false);
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    // What UnirendHead serializes for <meta httpEquiv="content-security-policy" ... />.
+    const html = await injectContent(
+      processed.html,
+      `<meta http-equiv="content-security-policy" content="default-src 'self'" />`,
+      '<div>App</div>',
+    );
+    const $ = cheerio.load(html);
+
+    expect($('meta[http-equiv="content-security-policy"]').length).toBe(1);
+    expect(
+      $('meta[http-equiv="content-security-policy"]').attr('content'),
+    ).toBe("default-src 'self'");
+    expect($('meta[name="viewport"]').length).toBe(1);
+  });
+
+  // HTML allows whitespace before the '>' of a closing tag, so </script > and </head > are
+  // valid closes. A scanner matching only the exact strings would run a script's body past its
+  // real close (swallowing the metas after it), or miss the end of the head and walk into the
+  // body. processTemplate() never emits these spellings, so this guards the scanner rather
+  // than the pipeline, and injectContent() is exported.
+  const closingTagSpellings = [
+    { name: 'a script closed with whitespace', script: '</script >' },
+    { name: 'a script closed normally', script: '</script>' },
+  ];
+
+  for (const spelling of closingTagSpellings) {
+    it(`should merge template metas that follow ${spelling.name}`, async () => {
+      const template = [
+        '<!DOCTYPE html><html><head>',
+        '<!--ss-head-->',
+        `<script>const marker = 1;${spelling.script}`,
+        '<meta name="description" content="Template description" />',
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+        '<!--context-scripts-injection-point-->',
+        '</head><body><!--ss-outlet--></body></html>',
+      ].join('\n');
+
+      const html = await injectContent(
+        template,
+        '<meta name="description" content="Page description" />',
+        '<div>App</div>',
+      );
+      const $ = cheerio.load(html);
+
+      // The scan has to reach past the script: the page's description replaces the template's
+      // rather than being served next to it, and the viewport beyond it survives.
+      expect($('meta[name="description"]').length).toBe(1);
+      expect($('meta[name="description"]').attr('content')).toBe(
+        'Page description',
+      );
+      expect($('meta[name="viewport"]').length).toBe(1);
+    });
+  }
+
+  it('should stop at a head closed with whitespace and never touch the body', async () => {
+    const template = [
+      '<!DOCTYPE html><html><head>',
+      '<!--ss-head-->',
+      '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+      '<!--context-scripts-injection-point-->',
+      '</head >',
+      '<body><!--ss-outlet-->',
+      // Invalid, but it must be left strictly alone rather than marked or removed as if it
+      // were part of the template's head baseline.
+      '<meta name="viewport" content="body-meta" />',
+      '</body></html>',
+    ].join('\n');
+
+    const html = await injectContent(
+      template,
+      '<meta name="viewport" content="page" />',
+      '<div>App</div>',
+    );
+
+    // The body's meta is untouched: not marked, and not removed as an overridden baseline.
+    expect(html).toContain('<meta name="viewport" content="body-meta" />');
+    expect(html).not.toContain(
+      '<meta name="viewport" content="body-meta" data-unirend-template-meta',
+    );
+
+    // The head's own viewport is overridden by the page's, as normal. Asserted on the tag,
+    // not the raw text: the baseline global script in the head legitimately carries the
+    // template's value in its JSON.
+    const headHTML = html.slice(0, html.indexOf('</head >'));
+    expect(headHTML).toContain('<meta name="viewport" content="page" />');
+    expect(headHTML).not.toContain(
+      '<meta name="viewport" content="width=device-width',
+    );
+
+    // And it is not in the baseline the client would restore from twice over.
+    const globalMatch = html.match(
+      /window\.__UNIREND_TEMPLATE_METAS__=(\[.*?\]);/,
+    );
+    const baseline = JSON.parse(globalMatch?.[1] ?? '[]') as Array<
+      Record<string, string>
+    >;
+    expect(baseline).toHaveLength(1);
+    expect(baseline[0].content).toBe('width=device-width, initial-scale=1.0');
+  });
+
+  it('should treat template metas sharing an identity as one group', async () => {
+    // The standard light/dark pair: two metas, one identity. A page overriding theme-color
+    // replaces the identity, so both template copies go. The client reconciler relies on this
+    // being all-or-nothing per key, and this pins the server to the same rule.
+    const withPair = templateHTML.replace(
+      '<meta name="theme-color" content="#ffffff" />',
+      [
+        '<meta name="theme-color" media="(prefers-color-scheme: light)" content="#fff" />',
+        '    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000" />',
+      ].join('\n'),
+    );
+
+    const processed = await processTemplate(withPair, 'ssr', false, false);
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    // A page that doesn't override it gets both, untouched.
+    const untouched = cheerio.load(
+      await injectContent(processed.html, pageHead, '<div>App</div>'),
+    );
+    expect(untouched('meta[name="theme-color"]').length).toBe(2);
+
+    // A page that overrides it gets only its own — neither template copy is left behind.
+    const html = await injectContent(
+      processed.html,
+      '<meta name="theme-color" content="#page" />',
+      '<div>App</div>',
+    );
+    const $ = cheerio.load(html);
+
+    expect($('meta[name="theme-color"]').length).toBe(1);
+    expect($('meta[name="theme-color"]').attr('content')).toBe('#page');
+
+    // Both are still in the baseline the client restores from, media attribute included.
+    const globalMatch = html.match(
+      /window\.__UNIREND_TEMPLATE_METAS__=(\[.*?\]);/,
+    );
+    const baseline = JSON.parse(globalMatch?.[1] ?? '[]') as Array<
+      Record<string, string>
+    >;
+    const themeColors = baseline.filter(
+      (attrs) => attrs.name === 'theme-color',
+    );
+
+    expect(themeColors).toHaveLength(2);
+    expect(themeColors.map((attrs) => attrs.media)).toEqual([
+      '(prefers-color-scheme: light)',
+      '(prefers-color-scheme: dark)',
+    ]);
+  });
+
+  it('should not treat a "</head>" string inside an inline script as the end of the head', async () => {
+    // Only </script> closes a script, so this is a legal inline script and the metas after
+    // it are still in the head. A template written by hand can order things this way;
+    // processTemplate() happens to relocate head scripts to the end of the head, so this
+    // guards the scanner rather than the pipeline.
+    const template = [
+      '<!DOCTYPE html><html><head>',
+      '<!--ss-head-->',
+      '<script>const marker = "</head>";</script>',
+      '<meta name="description" content="Template description" />',
+      '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+      '<!--context-scripts-injection-point-->',
+      '</head><body><!--ss-outlet--></body></html>',
+    ].join('\n');
+
+    const html = await injectContent(
+      template,
+      '<meta name="description" content="Page description" />',
+      '<div>App</div>',
+    );
+    const $ = cheerio.load(html);
+
+    // The scan must reach past the script: the template's description is overridden rather
+    // than served next to the page's, and the viewport beyond it is left alone.
+    expect($('meta[name="description"]').length).toBe(1);
+    expect($('meta[name="description"]').attr('content')).toBe(
+      'Page description',
+    );
+    expect($('meta[name="viewport"]').length).toBe(1);
+    expect(html).toContain('const marker =');
+  });
+
+  // The scanner treats '</head>', '<!--', '<script' and '<style' as significant. Each of
+  // these puts one inside another tag's attribute value, ahead of the metas, where it is
+  // just text: it must be passed over with the tag that contains it rather than cutting the
+  // scan short and leaving the metas beyond it undiscovered (which would serve the
+  // template's description alongside the page's instead of overriding it).
+  const decoyAttributeValues = [
+    { name: 'a closing head tag', value: 'a </head> b' },
+    { name: 'a comment opener', value: 'a <!-- b' },
+    { name: 'a script opener', value: 'a <script> b' },
+    { name: 'a style opener', value: 'a <style> b' },
+  ];
+
+  for (const decoy of decoyAttributeValues) {
+    it(`should not act on ${decoy.name} inside another tag's attribute value`, async () => {
+      const template = [
+        '<!DOCTYPE html><html><head>',
+        '<!--ss-head-->',
+        `<link rel="preload" as="image" href="/hero.jpg" title="${decoy.value}" />`,
+        '<meta name="description" content="Template description" />',
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+        '<!--context-scripts-injection-point-->',
+        '</head><body><!--ss-outlet--></body></html>',
+      ].join('\n');
+
+      const html = await injectContent(
+        template,
+        '<meta name="description" content="Page description" />',
+        '<div>App</div>',
+      );
+      const $ = cheerio.load(html);
+
+      expect($('meta[name="description"]').length).toBe(1);
+      expect($('meta[name="description"]').attr('content')).toBe(
+        'Page description',
+      );
+      expect($('meta[name="viewport"]').length).toBe(1);
+
+      // The decoy tag itself is left exactly as it was.
+      expect($('link[rel="preload"]').attr('title')).toBe(decoy.value);
+    });
+  }
+
+  it('should keep a template meta whose value contains a bare angle bracket', async () => {
+    const withBracket = templateHTML.replace(
+      '<meta name="theme-color" content="#ffffff" />',
+      '<meta name="rating" content="a > b" />',
+    );
+
+    const processed = await processTemplate(withBracket, 'ssr', false, false);
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    const html = await injectContent(
+      processed.html,
+      pageHead,
+      '<div>App</div>',
+    );
+    const $ = cheerio.load(html);
+
+    // A '>' inside an attribute value must not end the tag early and swallow the
+    // metas that follow it.
+    expect($('meta[name="rating"]').length).toBe(1);
+    expect($('meta[name="viewport"]').length).toBe(1);
+    expect($('meta[property="og:site_name"]').length).toBe(1);
   });
 });

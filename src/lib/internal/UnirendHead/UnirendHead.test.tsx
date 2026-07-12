@@ -5,6 +5,7 @@ import { renderToString } from 'react-dom/server';
 import { UnirendHead, _test } from './UnirendHead';
 import { UnirendHeadProvider } from './UnirendHeadProvider';
 import type { HeadCollector } from './context';
+import { TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
 
 function createEmptyCollector(): HeadCollector {
   return {
@@ -123,6 +124,26 @@ describe('UnirendHead SSR Collection & Merging', () => {
     expect(collector.htmlAttrs['data-theme']).toBe('dark');
   });
 
+  it('maps httpEquiv onto the http-equiv attribute', () => {
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          <meta httpEquiv="refresh" content="30" />
+        </UnirendHead>
+      </UnirendHeadProvider>,
+    );
+
+    // Left as-is, this serializes to an httpEquiv="" attribute, which no parser reads as
+    // http-equiv: the tag would do nothing, and it could never match the template's
+    // http-equiv baseline to override it. Unlike charSet or crossOrigin, the two spellings
+    // differ by a hyphen, so HTML's case-insensitive attribute matching doesn't save it.
+    expect(collector.metas).toEqual([
+      { 'http-equiv': 'refresh', content: '30' },
+    ]);
+  });
+
   it('merges multiple html tags within the same UnirendHead component', () => {
     const collector = createEmptyCollector();
 
@@ -153,6 +174,12 @@ describe('UnirendHead Client-side Helpers', () => {
     parseStyleString,
     getRegisteredList,
     updateDOM,
+    captureTemplateMetas,
+    reconcileTemplateMetas,
+    areKeyListsEqual,
+    getMetaKeysFromChildren,
+    getTemplateMetaNodes,
+    resetTemplateMetas,
   } = _test;
 
   function createMockElement(initialAttrs: Record<string, string> = {}) {
@@ -557,12 +584,14 @@ describe('UnirendHead Client-side Helpers', () => {
       getRegisteredList().push({
         html: { lang: 'es' },
         body: null,
+        metaKeys: [],
         markerRef: { current: markerB },
       });
 
       getRegisteredList().push({
         html: { lang: 'en' },
         body: null,
+        metaKeys: [],
         markerRef: { current: markerA },
       });
 
@@ -610,11 +639,13 @@ describe('UnirendHead Client-side Helpers', () => {
       const regB = {
         html: { lang: 'es' },
         body: null,
+        metaKeys: [],
         markerRef: { current: null as any },
       };
       const regA = {
         html: { lang: 'en' },
         body: null,
+        metaKeys: [],
         markerRef: { current: null as any },
       };
 
@@ -677,6 +708,364 @@ describe('UnirendHead Client-side Helpers', () => {
       // In server-rendered mode, it must defer template marker to avoid hydration mismatches
       expect(html).not.toContain('<template');
       expect(html).toContain('<div>Child</div>');
+    });
+  });
+
+  describe('template meta reconciliation', () => {
+    let originalWindow: unknown;
+    let originalDocument: unknown;
+
+    // Minimal stand-in for the parts of the head this code touches. The suite has no DOM, and
+    // the existing helpers here mock document the same way.
+    function createMockHead() {
+      const children: any[] = [];
+
+      return {
+        children,
+        appendChild(element: any) {
+          children.push(element);
+          element.isConnected = true;
+          return element;
+        },
+        querySelectorAll(selector: string) {
+          const isMarkerQuery = selector.includes('[');
+
+          return children.filter(
+            (child) =>
+              child.tagName === 'META' &&
+              (!isMarkerQuery ||
+                child.hasAttribute(TEMPLATE_META_MARKER_ATTRIBUTE)),
+          );
+        },
+      };
+    }
+
+    function createMockMeta(head: any, attrs: Record<string, string> = {}) {
+      const store: Record<string, string> = { ...attrs };
+
+      const element: any = {
+        tagName: 'META',
+        isConnected: false,
+        getAttribute: (key: string) => (key in store ? store[key] : null),
+        setAttribute: (key: string, value: string) => {
+          store[key] = value;
+        },
+        hasAttribute: (key: string) => key in store,
+        remove: () => {
+          const index = head.children.indexOf(element);
+
+          if (index !== -1) {
+            head.children.splice(index, 1);
+          }
+
+          element.isConnected = false;
+        },
+      };
+
+      return element;
+    }
+
+    /**
+     * Stand up a served page: `served` is what's in the head (template metas carry the marker,
+     * the way injectContent writes them), and `baseline` is the global the server ships,
+     * describing index.html as authored.
+     */
+    function setupPage(options: {
+      served: Array<Record<string, string>>;
+      baseline?: Array<Record<string, string>>;
+    }) {
+      const head = createMockHead();
+
+      for (const attrs of options.served) {
+        head.appendChild(createMockMeta(head, attrs));
+      }
+
+      const mockDocument = {
+        head,
+        createElement: () => createMockMeta(head),
+      } as any;
+
+      /* eslint-disable @typescript-eslint/naming-convention */
+      const mockWindow = {
+        __UNIREND_TEMPLATE_METAS__: options.baseline,
+      } as any;
+      /* eslint-enable @typescript-eslint/naming-convention */
+
+      (globalThis as any).document = mockDocument;
+      (globalThis as any).window = mockWindow;
+
+      return head;
+    }
+
+    const metasInHead = (head: any, name: string) =>
+      head.children.filter((child: any) => child.getAttribute('name') === name);
+
+    beforeEach(() => {
+      originalWindow = (globalThis as any).window;
+      originalDocument = (globalThis as any).document;
+      resetTemplateMetas();
+    });
+
+    afterEach(() => {
+      (globalThis as any).window = originalWindow;
+      (globalThis as any).document = originalDocument;
+      resetTemplateMetas();
+    });
+
+    it('restores a template meta when the page overriding it navigates away', () => {
+      // Landing page overrides theme-color, so the server stripped the template's copy from
+      // the served head and only the page's (unmarked, React-hydrated) meta is present.
+      const head = setupPage({
+        served: [
+          { name: 'theme-color', content: '#page' },
+          {
+            name: 'viewport',
+            content: 'width=device-width',
+            [TEMPLATE_META_MARKER_ATTRIBUTE]: '',
+          },
+        ],
+        baseline: [
+          { name: 'theme-color', content: '#template' },
+          { name: 'viewport', content: 'width=device-width' },
+        ],
+      });
+
+      captureTemplateMetas();
+
+      // While the page overrides it, the template's copy stays out of the head.
+      reconcileTemplateMetas(new Set(['name=theme-color']));
+      expect(metasInHead(head, 'theme-color')).toHaveLength(1);
+      expect(metasInHead(head, 'theme-color')[0].getAttribute('content')).toBe(
+        '#page',
+      );
+
+      // Navigating to a page that declares no theme-color: React unmounts its meta, and the
+      // template's baseline has to come back rather than leaving the page with none at all.
+      metasInHead(head, 'theme-color')[0].remove();
+      reconcileTemplateMetas(new Set());
+
+      expect(metasInHead(head, 'theme-color')).toHaveLength(1);
+      expect(metasInHead(head, 'theme-color')[0].getAttribute('content')).toBe(
+        '#template',
+      );
+    });
+
+    it('removes the template meta when a page starts overriding it', () => {
+      // Landing page overrides nothing, so the template's theme-color is in the served head.
+      const head = setupPage({
+        served: [
+          {
+            name: 'theme-color',
+            content: '#template',
+            [TEMPLATE_META_MARKER_ATTRIBUTE]: '',
+          },
+          {
+            name: 'viewport',
+            content: 'width=device-width',
+            [TEMPLATE_META_MARKER_ATTRIBUTE]: '',
+          },
+        ],
+        baseline: [
+          { name: 'theme-color', content: '#template' },
+          { name: 'viewport', content: 'width=device-width' },
+        ],
+      });
+
+      captureTemplateMetas();
+      reconcileTemplateMetas(new Set());
+      expect(metasInHead(head, 'theme-color')).toHaveLength(1);
+
+      // Navigate to a page that declares theme-color: React appends its own, and the template's
+      // has to step aside. Otherwise both are served, the template's first, and since consumers
+      // read the first match the override would silently do nothing.
+      head.appendChild(
+        createMockMeta(head, { name: 'theme-color', content: '#page' }),
+      );
+      reconcileTemplateMetas(new Set(['name=theme-color']));
+
+      expect(metasInHead(head, 'theme-color')).toHaveLength(1);
+      expect(metasInHead(head, 'theme-color')[0].getAttribute('content')).toBe(
+        '#page',
+      );
+    });
+
+    it('leaves template metas no page declares alone', () => {
+      const head = setupPage({
+        served: [
+          {
+            name: 'viewport',
+            content: 'width=device-width',
+            [TEMPLATE_META_MARKER_ATTRIBUTE]: '',
+          },
+        ],
+        baseline: [{ name: 'viewport', content: 'width=device-width' }],
+      });
+
+      captureTemplateMetas();
+      reconcileTemplateMetas(new Set(['name=description']));
+      reconcileTemplateMetas(
+        new Set(['name=description', 'property=og:title']),
+      );
+
+      // Nothing overrides viewport, so it is never touched across any navigation.
+      expect(metasInHead(head, 'viewport')).toHaveLength(1);
+    });
+
+    it('never adopts a meta React hoisted, only the marked template ones', () => {
+      const head = setupPage({
+        served: [
+          { name: 'description', content: '#page' },
+          {
+            name: 'viewport',
+            content: 'width=device-width',
+            [TEMPLATE_META_MARKER_ATTRIBUTE]: '',
+          },
+        ],
+        baseline: [{ name: 'viewport', content: 'width=device-width' }],
+      });
+
+      captureTemplateMetas();
+
+      // description is not in the template baseline, so it is React's to manage and this module
+      // must not hold a reference to it or remove it.
+      const nodes = getTemplateMetaNodes();
+      expect(nodes).not.toBeNull();
+      expect(Array.from(nodes?.keys() ?? [])).toEqual(['name=viewport']);
+
+      reconcileTemplateMetas(new Set(['name=description']));
+      expect(metasInHead(head, 'description')).toHaveLength(1);
+    });
+
+    it('treats a repeated meta key as overriding once, so a stale key set is never held', () => {
+      // A page can declare the same meta twice (two conditional branches both rendering it).
+      const keys = getMetaKeysFromChildren([
+        <meta key="a" name="viewport" content="a" />,
+        <meta key="b" name="viewport" content="b" />,
+      ]);
+
+      expect(keys).toEqual(['name=viewport']);
+    });
+
+    it('does not call a duplicate-padded key set equal to a different one', () => {
+      // Comparing by length and membership alone would call these equal: same length, and every
+      // key of the second is present in the first. The registry would then skip the update and
+      // leave the theme-color baseline detached even though the page stopped overriding it.
+      expect(
+        areKeyListsEqual(
+          ['name=viewport', 'name=theme-color'],
+          ['name=viewport', 'name=viewport'],
+        ),
+      ).toBe(false);
+
+      // Order still doesn't matter, since overriding is a set membership question.
+      expect(
+        areKeyListsEqual(
+          ['name=viewport', 'name=theme-color'],
+          ['name=theme-color', 'name=viewport'],
+        ),
+      ).toBe(true);
+    });
+
+    it('moves every template meta sharing an identity together, media variants included', () => {
+      // The standard light/dark pair: two template metas, one identity. A page declaring
+      // theme-color overrides that identity, so both have to step aside — and both have to come
+      // back. Tracking only one would strand the other in the head beside the page's override
+      // (ahead of it in document order, so the stale template value would win).
+      const light = {
+        name: 'theme-color',
+        media: '(prefers-color-scheme: light)',
+        content: '#fff',
+        [TEMPLATE_META_MARKER_ATTRIBUTE]: '',
+      };
+      const dark = {
+        name: 'theme-color',
+        media: '(prefers-color-scheme: dark)',
+        content: '#000',
+        [TEMPLATE_META_MARKER_ATTRIBUTE]: '',
+      };
+
+      const head = setupPage({
+        served: [light, dark],
+        baseline: [
+          {
+            name: 'theme-color',
+            media: '(prefers-color-scheme: light)',
+            content: '#fff',
+          },
+          {
+            name: 'theme-color',
+            media: '(prefers-color-scheme: dark)',
+            content: '#000',
+          },
+        ],
+      });
+
+      captureTemplateMetas();
+      reconcileTemplateMetas(new Set());
+      expect(metasInHead(head, 'theme-color')).toHaveLength(2);
+
+      // Page overrides theme-color: both template copies leave the head.
+      head.appendChild(
+        createMockMeta(head, { name: 'theme-color', content: '#page' }),
+      );
+      reconcileTemplateMetas(new Set(['name=theme-color']));
+
+      const overridden = metasInHead(head, 'theme-color');
+      expect(overridden).toHaveLength(1);
+      expect(overridden[0].getAttribute('content')).toBe('#page');
+
+      // Navigate away: React unmounts its meta and the template's whole set returns.
+      overridden[0].remove();
+      reconcileTemplateMetas(new Set());
+
+      const restored = metasInHead(head, 'theme-color');
+      expect(restored).toHaveLength(2);
+      expect(restored.map((meta: any) => meta.getAttribute('media'))).toEqual([
+        '(prefers-color-scheme: light)',
+        '(prefers-color-scheme: dark)',
+      ]);
+    });
+
+    it('overrides a template http-equiv meta declared with React httpEquiv spelling', () => {
+      const keys = getMetaKeysFromChildren([
+        <meta
+          key="a"
+          httpEquiv="content-security-policy"
+          content="default-src 'self'"
+        />,
+      ]);
+
+      // Must key on the HTML attribute, or the page's meta would never be seen as overriding
+      // the template's http-equiv baseline.
+      expect(keys).toEqual(['http-equiv=content-security-policy']);
+    });
+
+    it('falls back to reading the head when no baseline global was injected (pure SPA)', () => {
+      // No server injection, so index.html's metas are still the only ones in the head. This
+      // capture happens in the render phase, before React commits and hoists any page metas.
+      const head = setupPage({
+        served: [
+          { name: 'viewport', content: 'width=device-width' },
+          { name: 'theme-color', content: '#template' },
+        ],
+        baseline: undefined,
+      });
+
+      captureTemplateMetas();
+
+      const nodes = getTemplateMetaNodes();
+      expect(nodes).not.toBeNull();
+      expect(Array.from(nodes?.keys() ?? [])).toEqual([
+        'name=viewport',
+        'name=theme-color',
+      ]);
+
+      reconcileTemplateMetas(new Set(['name=theme-color']));
+      expect(metasInHead(head, 'theme-color')).toHaveLength(0);
+      expect(metasInHead(head, 'viewport')).toHaveLength(1);
+
+      reconcileTemplateMetas(new Set());
+      expect(metasInHead(head, 'theme-color')).toHaveLength(1);
     });
   });
 });
