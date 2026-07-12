@@ -112,7 +112,17 @@ function validateTemplateSlots(
       new RegExp(`<!--\\s*${marker}\\s*-->`).test(value),
     ) ?? null;
 
-  for (const [index, script] of (slots.headInlineScripts ?? []).entries()) {
+  const headInlineScripts = slots.headInlineScripts ?? [];
+
+  // Guarded explicitly because the natural mistake is passing the bare string a single script
+  // wants to be. TypeScript catches that, but a JavaScript caller would otherwise reach
+  // .entries() on a string and get a TypeError about the implementation rather than a word
+  // about their config.
+  if (!Array.isArray(headInlineScripts)) {
+    return 'templateSlots.headInlineScripts must be an array of JavaScript source strings. Wrap a single script in an array.';
+  }
+
+  for (const [index, script] of headInlineScripts.entries()) {
     if (typeof script !== 'string') {
       return `templateSlots.headInlineScripts[${index}] must be a string of JavaScript source.`;
     }

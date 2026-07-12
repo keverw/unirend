@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import * as cheerio from 'cheerio';
 import { prettifyHTML, processTemplate } from './format';
+import type { TemplateSlots } from '../../types';
 
 // Helper: split output by new lines (trim the trailing \n added by prettifyHTML)
 // and assert that each expected line appears in the output **in the given order**.
@@ -1408,6 +1409,28 @@ describe('processTemplate templateSlots', () => {
       expect(result.html.indexOf('EntryClient.tsx')).toBeGreaterThan(
         containerIndex,
       );
+    }
+  });
+
+  it('should reject headInlineScripts passed as a bare string', async () => {
+    // The natural mistake for a JavaScript caller, who gets no type error. Without the guard
+    // this surfaces as a TypeError about .entries() rather than a word about their config.
+    const badSlots: unknown = { headInlineScripts: 'console.log("oops");' };
+
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      badSlots as TemplateSlots,
+    );
+
+    expect(result.success).toBe(false);
+
+    if (!result.success) {
+      expect(result.error).toContain('must be an array');
+      expect(result.error).not.toContain('entries');
     }
   });
 
