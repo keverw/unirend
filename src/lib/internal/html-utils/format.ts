@@ -26,6 +26,42 @@ const isElementNode = (node: AnyNode): node is Element => {
 const DEVELOPMENT_COMMENT =
   'React hydration relies on data attributes. Do not remove them.';
 
+// <meta> tags UnirendHead manages per page, and so strips from the template: the page's
+// content metadata (description) and its social preview tags (OpenGraph, Twitter cards),
+// all of which describe the specific page rather than the document as a whole.
+//
+// Keep this to tags a page is expected to set for itself. Anything matched here is gone from
+// the served head unless the page declares it, so document-level tags that every page shares
+// (viewport, charset, theme-color, robots, apple-*) must never be added.
+const UNIREND_HEAD_MANAGED_META_NAMES = new Set(['description']);
+const UNIREND_HEAD_MANAGED_META_PREFIXES = ['og:', 'twitter:'];
+
+// Exemptions from the prefixes above: social tags that describe the site rather than the
+// page, and so are a normal thing to set once in index.html. They stay as a template
+// baseline, and a page can still override one by declaring it, like any other baseline meta.
+const UNIREND_HEAD_TEMPLATE_OWNED_METAS = new Set(['og:site_name']);
+
+/**
+ * Whether a <meta> tag's identifying value (its `name` or `property`) is one UnirendHead
+ * manages per page. Matched against either attribute, since OpenGraph is conventionally
+ * written as `property="og:title"` and Twitter cards as `name="twitter:card"`, but both
+ * spellings appear in the wild for either family.
+ */
+function isUnirendHeadManagedMeta(identifier: string): boolean {
+  const normalized = identifier.toLowerCase();
+
+  if (UNIREND_HEAD_TEMPLATE_OWNED_METAS.has(normalized)) {
+    return false;
+  }
+
+  return (
+    UNIREND_HEAD_MANAGED_META_NAMES.has(normalized) ||
+    UNIREND_HEAD_MANAGED_META_PREFIXES.some((prefix) =>
+      normalized.startsWith(prefix),
+    )
+  );
+}
+
 function formatNode(
   el: AnyNode,
   level = 0,
@@ -178,17 +214,28 @@ export async function processTemplate(
     const cheerio = await import('cheerio');
     const $ = cheerio.load(html);
 
-    // Remove title tags from head
-    $('head title').remove();
-
     if (isDevelopment) {
       $('body').prepend(`<!-- ${DEVELOPMENT_COMMENT} -->\n`);
     }
 
-    // Remove meta tags except apple-mobile-web-app-title
-    $('meta[name]').each((_, el) => {
-      const name = $(el).attr('name');
-      if (name !== 'apple-mobile-web-app-title') {
+    // Drop the head tags UnirendHead owns per page. Their template copies are always removed,
+    // even when a page declares nothing: a surviving copy would sit ahead of the page's own
+    // tag in document order, and on client-side navigation React 19 appends its hoisted
+    // <title>/<meta> to <head> rather than replacing a node it doesn't own — so the stale
+    // template value would keep winning, since both the tab title and crawlers read the first
+    // match. Site-wide SEO defaults belong in a shared layout's UnirendHead, not the template.
+    //
+    // Every other template meta (viewport, charset, theme-color, robots, apple-*, anything
+    // custom) is a baseline that survives untouched. A page can still override one by
+    // declaring the same tag, but that's decided per page in injectContent(): processTemplate()
+    // runs once per template and its output is cached, so it can't know what any given page
+    // will declare.
+    $('head title').remove();
+
+    $('meta[name], meta[property]').each((_, el) => {
+      const identifier = $(el).attr('name') ?? $(el).attr('property');
+
+      if (identifier && isUnirendHeadManagedMeta(identifier)) {
         $(el).remove();
       }
     });

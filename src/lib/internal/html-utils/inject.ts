@@ -13,6 +13,206 @@ export function prettifyHeadTags(head: string, indent = TAB_SPACES): string {
     .trim();
 }
 
+interface HeadTagMatch {
+  start: number;
+  end: number;
+  attrs: Record<string, string>;
+}
+
+/**
+ * Find opening tags with the given name, stopping at </head> when it's present so we never
+ * reach into the body. Quote-aware, so a '>' inside an attribute value (e.g.
+ * content="scale > 1") doesn't end the tag early, and script/style bodies are skipped so
+ * markup mentioned inside an inline script isn't mistaken for a real tag.
+ */
+function findHeadTags(html: string, tagName: string): HeadTagMatch[] {
+  const lower = html.toLowerCase();
+  const headEnd = lower.indexOf('</head>');
+  const limit = headEnd === -1 ? html.length : headEnd;
+  const openPrefix = `<${tagName}`;
+  const matches: HeadTagMatch[] = [];
+
+  let i = 0;
+
+  while (i < limit) {
+    if (html.startsWith('<!--', i)) {
+      const commentEnd = html.indexOf('-->', i + 4);
+
+      if (commentEnd === -1) {
+        break;
+      }
+
+      i = commentEnd + 3;
+      continue;
+    }
+
+    const skipTag = (['script', 'style'] as const).find((tag) => {
+      if (!lower.startsWith(`<${tag}`, i)) {
+        return false;
+      }
+
+      const charAfterName = html[i + tag.length + 1];
+      return !charAfterName || /[\s/>]/.test(charAfterName);
+    });
+
+    if (skipTag) {
+      const closeIndex = lower.indexOf(`</${skipTag}>`, i);
+
+      // An unterminated script/style means the rest of the document is its body,
+      // so there are no further head tags to find.
+      if (closeIndex === -1) {
+        break;
+      }
+
+      i = closeIndex + skipTag.length + 3;
+      continue;
+    }
+
+    if (!lower.startsWith(openPrefix, i)) {
+      i++;
+      continue;
+    }
+
+    // Guard against prefix collisions (e.g. <title> when looking for <ti>)
+    const nextChar = html[i + openPrefix.length];
+
+    if (nextChar && !/[\s/>]/.test(nextChar)) {
+      i++;
+      continue;
+    }
+
+    const attrStart = i + openPrefix.length;
+    let isInDoubleQuote = false;
+    let isInSingleQuote = false;
+    let j = attrStart;
+
+    while (j < html.length) {
+      const char = html[j];
+
+      if (char === '"' && !isInSingleQuote) {
+        isInDoubleQuote = !isInDoubleQuote;
+      } else if (char === "'" && !isInDoubleQuote) {
+        isInSingleQuote = !isInSingleQuote;
+      } else if (char === '>' && !isInDoubleQuote && !isInSingleQuote) {
+        matches.push({
+          start: i,
+          end: j + 1,
+          attrs: parseAttributesString(html.slice(attrStart, j)),
+        });
+
+        break;
+      }
+
+      j++;
+    }
+
+    // Unterminated tag — nothing more to scan
+    if (j >= html.length) {
+      break;
+    }
+
+    i = j + 1;
+  }
+
+  return matches;
+}
+
+/**
+ * The attribute that identifies a <meta> tag for override purposes, matching what head
+ * managers conventionally key on: `name`, `property` (OpenGraph), or `http-equiv`.
+ *
+ * Returns null for metas carrying none of these (e.g. <meta charset>). Those are not
+ * something a page can override by name, so they always survive from the template.
+ */
+function getMetaKey(attrs: Record<string, string>): string | null {
+  for (const attr of ['name', 'property', 'http-equiv'] as const) {
+    const value = attrs[attr];
+
+    if (value) {
+      return `${attr}=${value.toLowerCase()}`;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Expand a removal range to swallow the whole line when the tag sits alone on it, so
+ * dropping a tag doesn't leave a blank indented line behind.
+ */
+function expandToWholeLine(
+  html: string,
+  range: { start: number; end: number },
+): { start: number; end: number } {
+  const lineStart = html.lastIndexOf('\n', range.start - 1) + 1;
+  let lineEnd = html.indexOf('\n', range.end);
+
+  if (lineEnd === -1) {
+    lineEnd = html.length;
+  }
+
+  const before = html.slice(lineStart, range.start);
+  const after = html.slice(range.end, lineEnd);
+
+  if (before.trim() === '' && after.trim() === '') {
+    return { start: lineStart, end: Math.min(lineEnd + 1, html.length) };
+  }
+
+  return range;
+}
+
+/**
+ * Drop the template's baseline <meta> tags that this page redeclares through UnirendHead.
+ *
+ * The template's metas are a baseline: they're served as-is unless the page declares the same
+ * tag, in which case the page's version wins and the template's copy is removed so the served
+ * head doesn't end up with both. Metas the page never mentions (viewport, theme-color, robots,
+ * and anything else the app puts in index.html) pass through untouched.
+ *
+ * The tags UnirendHead manages for every page (<title>, description) are already gone by now —
+ * processTemplate() strips those, since that rule doesn't depend on the page.
+ *
+ * Runs against the template before any rendered body content is spliced in, so the string
+ * surgery here can never touch React's markup or its hydration markers.
+ */
+export function stripOverriddenHeadTags(
+  template: string,
+  headContent: string,
+): string {
+  const pageMetaKeys = new Set<string>();
+
+  for (const meta of findHeadTags(headContent, 'meta')) {
+    const key = getMetaKey(meta.attrs);
+
+    if (key !== null) {
+      pageMetaKeys.add(key);
+    }
+  }
+
+  if (pageMetaKeys.size === 0) {
+    return template;
+  }
+
+  const removalRanges: Array<{ start: number; end: number }> = [];
+
+  for (const meta of findHeadTags(template, 'meta')) {
+    const key = getMetaKey(meta.attrs);
+
+    if (key !== null && pageMetaKeys.has(key)) {
+      removalRanges.push(expandToWholeLine(template, meta));
+    }
+  }
+
+  let result = template;
+
+  // Remove from the end first so earlier offsets stay valid.
+  for (const range of [...removalRanges].sort((a, b) => b.start - a.start)) {
+    result = result.slice(0, range.start) + result.slice(range.end);
+  }
+
+  return result;
+}
+
 export interface InjectContentOptions {
   context?: {
     app?: Record<string, unknown>;
@@ -34,6 +234,11 @@ export async function injectContent(
   const { context, CDNBaseURL, domainInfo, htmlAttrs, bodyAttrs } = options;
   // Prettify all head tags with consistent indentation
   const compactedHead = prettifyHeadTags(headContent);
+
+  // Drop the template's baseline metas this page redeclares, so the page's versions are the
+  // only ones served. Done before the body is spliced in, while the template still holds
+  // nothing but markers where the rendered markup will go.
+  const mergedTemplate = stripOverriddenHeadTags(template, headContent);
 
   // Use cheerio to find React Router's hydration script in the rendered body content.
   // StaticRouterProvider (server) renders window.__staticRouterHydrationData as a React child,
@@ -91,7 +296,7 @@ export async function injectContent(
   // Start with head and body replacement
   // The <!--ss-outlet--> marker should be directly replaced with the content
   // without any additional or changed comments/whitespace that could cause hydration issues
-  let result = template
+  let result = mergedTemplate
     .replace('<!--ss-head-->', compactedHead)
     .replace('<!--ss-outlet-->', cleanBodyContent);
 
@@ -154,8 +359,8 @@ export async function injectContent(
   // knows the clean, unmodified attributes from the original index.html template.
 
   // 1. Locate the opening <html> and <body> tags in the raw HTML template string.
-  const htmlTagMatch = findOpeningTag(template, 'html');
-  const bodyTagMatch = findOpeningTag(template, 'body');
+  const htmlTagMatch = findOpeningTag(mergedTemplate, 'html');
+  const bodyTagMatch = findOpeningTag(mergedTemplate, 'body');
 
   // 2. Parse their raw HTML attribute strings (e.g. 'class="foo" lang="en"') into key-value records.
   const templateHTMLAttrs = htmlTagMatch
@@ -185,9 +390,9 @@ export async function injectContent(
 
   // Replace the placeholder with all context scripts (or remove if none).
   const hasMarkers =
-    template.includes('<!--ss-head-->') ||
-    template.includes('<!--ss-outlet-->') ||
-    template.includes('<!--context-scripts-injection-point-->');
+    mergedTemplate.includes('<!--ss-head-->') ||
+    mergedTemplate.includes('<!--ss-outlet-->') ||
+    mergedTemplate.includes('<!--context-scripts-injection-point-->');
 
   if (hasMarkers) {
     if (result.includes('<!--context-scripts-injection-point-->')) {

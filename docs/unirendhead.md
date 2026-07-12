@@ -10,6 +10,7 @@
   - [Supported Tags](#supported-tags)
     - [Preloading Images](#preloading-images)
   - [Tag Merging and Overrides](#tag-merging-and-overrides)
+  - [Template Tags vs Page Tags](#template-tags-vs-page-tags)
   - [Shared Layout & Error Component Pattern](#shared-layout--error-component-pattern)
   - [Global Provider Pattern (Theme, Language, Etc.)](#global-provider-pattern-theme-language-etc)
 - [How It Works](#how-it-works)
@@ -166,6 +167,31 @@ If multiple `<UnirendHead>` components are rendered in the same tree (e.g. in la
 - **`<meta>` and `<link>`**: **Accumulate**. All tags from all `<UnirendHead>` instances are collected and rendered.
 - **`<html>` and `<body>` class names (`class` or `className`)**: **Merge (accumulate)**. If the layout sets `<html className="font-sans" />` and the page sets `<html className="dark" />`, the result is `<html class="font-sans dark">`.
 - **`<html>` and `<body>` styles (`style`)**: **Merge (concatenate)**. If both specify styles, they are concatenated together (separated by a semicolon). Because CSS inline rules evaluate in the order they are defined ("last declaration wins"), this allows nested pages/components to safely override specific inline properties from parent templates or layouts. To prevent clobbering external style mutations on the client (such as modal scroll locks), the client parses and reconciles calculated style properties key-by-key, using a lightweight, quote-aware semicolon-splitting parser that safely supports complex style values (like data URLs, calc values, or inline SVGs) without introducing a heavy CSS parser library dependency.
+
+### Template Tags vs Page Tags
+
+Your `index.html` can carry head tags of its own. The split is by ownership: tags that describe **the page** belong to `UnirendHead`, and tags that describe **the document or the site** belong to the template.
+
+**Owned by `UnirendHead`, and always stripped from the template:**
+
+| Tag                         | Notes                                   |
+| --------------------------- | --------------------------------------- |
+| `<title>`                   | Set it per page.                        |
+| `<meta name="description">` | Set it per page.                        |
+| `<meta property="og:*">`    | OpenGraph, except `og:site_name` below. |
+| `<meta name="twitter:*">`   | Twitter cards.                          |
+
+These are removed from the served page whether or not the page declares its own, so a page that sets none is served without them. Site-wide SEO defaults belong in a shared layout's `UnirendHead` (see [Shared Layout & Error Component Pattern](#shared-layout--error-component-pattern)), not in `index.html`.
+
+**Owned by the template, and served as-is:** everything else. `<meta name="viewport">`, `<meta charset>`, `<meta name="theme-color">`, `<meta name="robots">`, `<meta property="og:site_name">`, `<link rel="icon">`, and anything custom you add all pass through untouched, and you do not redeclare them per page.
+
+A page can still override a template-owned tag by declaring a `<meta>` with the same `name`, `property`, or `http-equiv` through `UnirendHead`. The page's version wins and the template's copy is dropped, so the served head never carries both. This mirrors how `<html>` and `<body>` attributes already work: the template's `<html lang="en">` is a baseline, and a page rendering `<html lang="fr" />` overrides it.
+
+The reason the page-owned tags are stripped unconditionally, rather than kept as a baseline, is that pages routinely set them for themselves. If the template's copy were left in the document, it would sit ahead of the page's own tag in document order, and a client-side navigation appends React's hoisted tag after it rather than replacing a node React does not own, leaving the stale template value to win. `og:site_name` is exempt because it names the site, not the page, so no page is expected to redeclare it.
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> Keep `<meta name="viewport">` in your `index.html`. It is template-owned, and without it mobile browsers render the page at desktop width and scale it down, so responsive CSS never takes effect regardless of your media queries.
 
 ### Shared Layout & Error Component Pattern
 

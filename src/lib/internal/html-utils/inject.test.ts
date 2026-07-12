@@ -1,6 +1,7 @@
 import { describe, expect, it, spyOn } from 'bun:test';
 import * as cheerio from 'cheerio';
 import { prettifyHeadTags, injectContent } from './inject';
+import { processTemplate } from './format';
 import { TAB_SPACES } from '../consts';
 
 describe('prettifyHeadTags', () => {
@@ -497,5 +498,206 @@ describe('injectContent', () => {
     expect(result).toContain('const b = "<body>";');
     expect(result).toContain('body { content: "<body>"; }');
     expect(result).toContain('<body class="x">');
+  });
+});
+
+describe('template head baseline merge', () => {
+  // A template carrying the head tags an app actually ships in index.html: the tags
+  // UnirendHead manages per page (title, description, og:title), and the document-level
+  // tags it doesn't (viewport, theme-color, charset, plus the site-wide og:site_name).
+  const templateHTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Template Title</title>
+    <!--ss-head-->
+    <meta name="description" content="Template description" />
+    <meta property="og:title" content="Template OG Title" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta property="og:site_name" content="My App" />
+  </head>
+  <body>
+    <div id="root"><!--ss-outlet--></div>
+  </body>
+</html>`;
+
+  // What UnirendHead serializes for a page that sets a title and a description.
+  const pageHead = [
+    '<title>Page Title</title>',
+    '<meta name="description" content="Page description" />',
+  ].join('\n');
+
+  // processTemplate() runs on all three paths, so each one has to merge identically.
+  const renderPaths = [
+    { name: 'SSR dev', mode: 'ssr', isDevelopment: true, isDevServer: true },
+    {
+      name: 'SSR built',
+      mode: 'ssr',
+      isDevelopment: false,
+      isDevServer: false,
+    },
+    { name: 'SSG', mode: 'ssg', isDevelopment: false, isDevServer: false },
+  ] as const;
+
+  async function renderHead(path: (typeof renderPaths)[number], head: string) {
+    const processed = await processTemplate(
+      templateHTML,
+      path.mode,
+      path.isDevelopment,
+      path.isDevServer,
+    );
+
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    const html = await injectContent(processed.html, head, '<div>App</div>');
+    return cheerio.load(html);
+  }
+
+  for (const path of renderPaths) {
+    describe(path.name, () => {
+      it('should serve the page SEO tags and the template baseline, one of each', async () => {
+        const $ = await renderHead(path, pageHead);
+
+        // The page's title and description are the only ones served — the template's
+        // copies are gone rather than sitting alongside them.
+        expect($('title').length).toBe(1);
+        expect($('title').text()).toBe('Page Title');
+        expect($('meta[name="description"]').length).toBe(1);
+        expect($('meta[name="description"]').attr('content')).toBe(
+          'Page description',
+        );
+
+        // The template's viewport survives. Losing this is what made every page render
+        // as a scaled-down desktop layout on phones.
+        expect($('meta[name="viewport"]').length).toBe(1);
+        expect($('meta[name="viewport"]').attr('content')).toBe(
+          'width=device-width, initial-scale=1.0',
+        );
+
+        // Document-level metas the page never mentions pass through untouched.
+        expect($('meta[name="theme-color"]').length).toBe(1);
+        expect($('meta[name="theme-color"]').attr('content')).toBe('#ffffff');
+        expect($('meta[charset]').length).toBe(1);
+      });
+
+      it('should drop the page-owned SEO tags from the template while keeping the site-wide ones', async () => {
+        const $ = await renderHead(path, '');
+
+        // UnirendHead owns these, so the template's copies go even when the page declares
+        // nothing. A surviving template tag would sit ahead of the one React hoists on a
+        // later client-side navigation, and the stale value would win.
+        expect($('title').length).toBe(0);
+        expect($('meta[name="description"]').length).toBe(0);
+        expect($('meta[property="og:title"]').length).toBe(0);
+        expect($('meta[name="twitter:card"]').length).toBe(0);
+
+        // og:site_name describes the site rather than the page, so it stays a template
+        // baseline like viewport does.
+        expect($('meta[property="og:site_name"]').length).toBe(1);
+        expect($('meta[property="og:site_name"]').attr('content')).toBe(
+          'My App',
+        );
+
+        expect($('meta[name="viewport"]').length).toBe(1);
+        expect($('meta[name="theme-color"]').length).toBe(1);
+        expect($('meta[charset]').length).toBe(1);
+      });
+
+      it('should serve the page OpenGraph tags without duplicating the template copies', async () => {
+        const $ = await renderHead(
+          path,
+          [
+            '<meta property="og:title" content="Page OG Title" />',
+            '<meta name="twitter:card" content="summary_large_image" />',
+          ].join('\n'),
+        );
+
+        expect($('meta[property="og:title"]').length).toBe(1);
+        expect($('meta[property="og:title"]').attr('content')).toBe(
+          'Page OG Title',
+        );
+        expect($('meta[name="twitter:card"]').length).toBe(1);
+        expect($('meta[name="twitter:card"]').attr('content')).toBe(
+          'summary_large_image',
+        );
+      });
+
+      it('should override a template meta declared by property rather than name', async () => {
+        const $ = await renderHead(
+          path,
+          '<meta property="og:site_name" content="Page Site Name" />',
+        );
+
+        expect($('meta[property="og:site_name"]').length).toBe(1);
+        expect($('meta[property="og:site_name"]').attr('content')).toBe(
+          'Page Site Name',
+        );
+
+        // A page overriding an og: tag must not disturb the name-keyed baseline.
+        expect($('meta[name="viewport"]').length).toBe(1);
+        expect($('meta[name="theme-color"]').length).toBe(1);
+      });
+    });
+  }
+
+  it('should not mistake markup inside an inline script for a head tag', async () => {
+    const withScript = templateHTML.replace(
+      '<!--ss-head-->',
+      '<!--ss-head-->\n    <script>\n      const tpl = \'<meta name="viewport" content="nope" /><title>nope</title>\';\n    </script>',
+    );
+
+    const processed = await processTemplate(withScript, 'ssr', false, false);
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    const html = await injectContent(
+      processed.html,
+      pageHead,
+      '<div>App</div>',
+    );
+    const $ = cheerio.load(html);
+
+    // The real viewport meta is untouched and the script's string literal survives intact.
+    expect($('meta[name="viewport"]').attr('content')).toBe(
+      'width=device-width, initial-scale=1.0',
+    );
+    expect(html).toContain('const tpl =');
+    expect($('title').text()).toBe('Page Title');
+  });
+
+  it('should keep a template meta whose value contains a bare angle bracket', async () => {
+    const withBracket = templateHTML.replace(
+      '<meta name="theme-color" content="#ffffff" />',
+      '<meta name="rating" content="a > b" />',
+    );
+
+    const processed = await processTemplate(withBracket, 'ssr', false, false);
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    const html = await injectContent(
+      processed.html,
+      pageHead,
+      '<div>App</div>',
+    );
+    const $ = cheerio.load(html);
+
+    // A '>' inside an attribute value must not end the tag early and swallow the
+    // metas that follow it.
+    expect($('meta[name="rating"]').length).toBe(1);
+    expect($('meta[name="viewport"]').length).toBe(1);
+    expect($('meta[property="og:site_name"]').length).toBe(1);
   });
 });
