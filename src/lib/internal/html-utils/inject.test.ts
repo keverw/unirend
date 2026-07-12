@@ -706,6 +706,48 @@ describe('template head baseline merge', () => {
     expect(html).toContain('const marker =');
   });
 
+  // The scanner treats '</head>', '<!--', '<script' and '<style' as significant. Each of
+  // these puts one inside another tag's attribute value, ahead of the metas, where it is
+  // just text: it must be passed over with the tag that contains it rather than cutting the
+  // scan short and leaving the metas beyond it undiscovered (which would serve the
+  // template's description alongside the page's instead of overriding it).
+  const decoyAttributeValues = [
+    { name: 'a closing head tag', value: 'a </head> b' },
+    { name: 'a comment opener', value: 'a <!-- b' },
+    { name: 'a script opener', value: 'a <script> b' },
+    { name: 'a style opener', value: 'a <style> b' },
+  ];
+
+  for (const decoy of decoyAttributeValues) {
+    it(`should not act on ${decoy.name} inside another tag's attribute value`, async () => {
+      const template = [
+        '<!DOCTYPE html><html><head>',
+        '<!--ss-head-->',
+        `<link rel="preload" as="image" href="/hero.jpg" title="${decoy.value}" />`,
+        '<meta name="description" content="Template description" />',
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+        '<!--context-scripts-injection-point-->',
+        '</head><body><!--ss-outlet--></body></html>',
+      ].join('\n');
+
+      const html = await injectContent(
+        template,
+        '<meta name="description" content="Page description" />',
+        '<div>App</div>',
+      );
+      const $ = cheerio.load(html);
+
+      expect($('meta[name="description"]').length).toBe(1);
+      expect($('meta[name="description"]').attr('content')).toBe(
+        'Page description',
+      );
+      expect($('meta[name="viewport"]').length).toBe(1);
+
+      // The decoy tag itself is left exactly as it was.
+      expect($('link[rel="preload"]').attr('title')).toBe(decoy.value);
+    });
+  }
+
   it('should keep a template meta whose value contains a bare angle bracket', async () => {
     const withBracket = templateHTML.replace(
       '<meta name="theme-color" content="#ffffff" />',

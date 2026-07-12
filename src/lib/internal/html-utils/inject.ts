@@ -20,24 +20,58 @@ interface HeadTagMatch {
 }
 
 /**
+ * Scan forward from the '<' of an opening tag to the index just past its closing '>',
+ * ignoring any '>' that sits inside a quoted attribute value (e.g. content="scale > 1").
+ * Returns -1 when the tag is never closed.
+ */
+function findTagEnd(html: string, tagStart: number): number {
+  let isInDoubleQuote = false;
+  let isInSingleQuote = false;
+
+  for (let i = tagStart; i < html.length; i++) {
+    const char = html[i];
+
+    if (char === '"' && !isInSingleQuote) {
+      isInDoubleQuote = !isInDoubleQuote;
+    } else if (char === "'" && !isInDoubleQuote) {
+      isInSingleQuote = !isInSingleQuote;
+    } else if (char === '>' && !isInDoubleQuote && !isInSingleQuote) {
+      return i + 1;
+    }
+  }
+
+  return -1;
+}
+
+/**
  * Find opening tags with the given name, stopping at </head> when it's present so we never
- * reach into the body. Quote-aware, so a '>' inside an attribute value (e.g.
- * content="scale > 1") doesn't end the tag early, and script/style bodies are skipped so
- * markup mentioned inside an inline script isn't mistaken for a real tag.
+ * reach into the body.
  *
- * The end of the head is recognized during the scan rather than looked up ahead of it: only
- * </script> closes a script, so an inline script may legally hold the text "</head>" in a
- * string, and searching for it up front would stop the scan early and miss the metas that
- * follow the script.
+ * Every opening tag is consumed as a whole, quote-aware unit, not just the tag being looked
+ * for, and comment and script/style bodies are skipped wholesale. That means the substrings
+ * this scanner treats as significant ('</head>', '<!--', '<script', '<style') are only ever
+ * recognized in real markup positions — one sitting inside another tag's attribute value,
+ * as in <link title="a </head> b">, is passed over with the tag that contains it instead of
+ * cutting the scan short and hiding the metas beyond it.
+ *
+ * For the same reason the end of the head is recognized during the scan rather than looked up
+ * ahead of it: only </script> closes a script, so an inline script may legally hold the text
+ * "</head>" in a string, and searching for it up front would stop the scan early.
  */
 function findHeadTags(html: string, tagName: string): HeadTagMatch[] {
   const lower = html.toLowerCase();
-  const openPrefix = `<${tagName}`;
   const matches: HeadTagMatch[] = [];
 
   let i = 0;
 
   while (i < html.length) {
+    // Anything that isn't the start of a tag or comment is text, and text can't contain a
+    // significant substring — a bare '<' in text is not valid HTML.
+    if (html[i] !== '<') {
+      i++;
+      continue;
+    }
+
     if (html.startsWith('<!--', i)) {
       const commentEnd = html.indexOf('-->', i + 4);
 
@@ -49,17 +83,31 @@ function findHeadTags(html: string, tagName: string): HeadTagMatch[] {
       continue;
     }
 
-    const skipTag = (['script', 'style'] as const).find((tag) => {
-      if (!lower.startsWith(`<${tag}`, i)) {
-        return false;
-      }
+    if (lower.startsWith('</head>', i)) {
+      break;
+    }
 
-      const charAfterName = html[i + tag.length + 1];
-      return !charAfterName || /[\s/>]/.test(charAfterName);
-    });
+    const nameMatch = /^<([a-z][a-z0-9-]*)/i.exec(html.slice(i, i + 32));
 
-    if (skipTag) {
-      const closeIndex = lower.indexOf(`</${skipTag}>`, i);
+    if (!nameMatch) {
+      // A closing tag or stray '<'. Closing tags carry no attributes, so there's nothing
+      // inside them that could be mistaken for markup.
+      i++;
+      continue;
+    }
+
+    const foundName = nameMatch[1].toLowerCase();
+    const tagEnd = findTagEnd(html, i + nameMatch[0].length);
+
+    // Unterminated tag — nothing further can be parsed.
+    if (tagEnd === -1) {
+      break;
+    }
+
+    // Skip a script or style along with its whole body: its contents are raw text, and only
+    // the matching closing tag ends it.
+    if (foundName === 'script' || foundName === 'style') {
+      const closeIndex = lower.indexOf(`</${foundName}>`, tagEnd);
 
       // An unterminated script/style means the rest of the document is its body,
       // so there are no further head tags to find.
@@ -67,60 +115,25 @@ function findHeadTags(html: string, tagName: string): HeadTagMatch[] {
         break;
       }
 
-      i = closeIndex + skipTag.length + 3;
+      i = closeIndex + foundName.length + 3;
       continue;
     }
 
-    // The real end of the head: reached only outside comments, scripts and styles, and
-    // outside any tag's attributes (an opening tag below is consumed whole).
-    if (lower.startsWith('</head>', i)) {
-      break;
+    if (foundName === tagName) {
+      const attrStart = i + nameMatch[0].length;
+
+      matches.push({
+        start: i,
+        end: tagEnd,
+        // tagEnd sits past the '>', and a self-closing tag ends in '/>', so trim both back
+        // off before parsing the attributes.
+        attrs: parseAttributesString(
+          html.slice(attrStart, tagEnd - 1).replace(/\/$/, ''),
+        ),
+      });
     }
 
-    if (!lower.startsWith(openPrefix, i)) {
-      i++;
-      continue;
-    }
-
-    // Guard against prefix collisions (e.g. <title> when looking for <ti>)
-    const nextChar = html[i + openPrefix.length];
-
-    if (nextChar && !/[\s/>]/.test(nextChar)) {
-      i++;
-      continue;
-    }
-
-    const attrStart = i + openPrefix.length;
-    let isInDoubleQuote = false;
-    let isInSingleQuote = false;
-    let j = attrStart;
-
-    while (j < html.length) {
-      const char = html[j];
-
-      if (char === '"' && !isInSingleQuote) {
-        isInDoubleQuote = !isInDoubleQuote;
-      } else if (char === "'" && !isInDoubleQuote) {
-        isInSingleQuote = !isInSingleQuote;
-      } else if (char === '>' && !isInDoubleQuote && !isInSingleQuote) {
-        matches.push({
-          start: i,
-          end: j + 1,
-          attrs: parseAttributesString(html.slice(attrStart, j)),
-        });
-
-        break;
-      }
-
-      j++;
-    }
-
-    // Unterminated tag — nothing more to scan
-    if (j >= html.length) {
-      break;
-    }
-
-    i = j + 1;
+    i = tagEnd;
   }
 
   return matches;
