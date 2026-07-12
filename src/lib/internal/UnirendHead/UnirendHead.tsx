@@ -198,11 +198,21 @@ const registeredList: RegisteredAttrs[] = [];
 let initialHTMLAttrs: Record<string, string> | null = null;
 let initialBodyAttrs: Record<string, string> | null = null;
 
-// The template's <meta> baseline from index.html, keyed by meta identity. The element held for
-// a key is one this module owns outright: either the marked node the server left in the head,
-// or a detached node built from the baseline for a meta the server stripped because the landing
-// page overrides it. React's hoisted metas are never in here and are never touched.
-let templateMetaNodes: Map<string, HTMLMetaElement> | null = null;
+// The template's <meta> baseline from index.html, grouped by meta identity. The elements held
+// for a key are ones this module owns outright: either the marked nodes the server left in the
+// head, or detached nodes built from the baseline for metas the server stripped because the
+// landing page overrides them. React's hoisted metas are never in here and are never touched.
+//
+// A key maps to a list, not a single node, because one identity can legitimately cover several
+// template metas — the standard light/dark pair being the obvious case:
+//
+//   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fff" />
+//   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000" />
+//
+// A page declaring theme-color overrides the identity, so it replaces both, exactly as the
+// server's merge already does. Collapsing the group to a single node would leave one template
+// copy stranded in the head next to the page's override, and restore only one on the way back.
+let templateMetaNodes: Map<string, HTMLMetaElement[]> | null = null;
 
 /**
  * Build a detached <meta> for a template baseline entry the server stripped from the served
@@ -245,10 +255,20 @@ function captureTemplateMetas(): void {
   /* eslint-enable @typescript-eslint/naming-convention */
 
   const baseline = customWindow.__UNIREND_TEMPLATE_METAS__;
-  const nodes = new Map<string, HTMLMetaElement>();
+  const nodes = new Map<string, HTMLMetaElement[]>();
+
+  const track = (key: string, element: HTMLMetaElement) => {
+    const group = nodes.get(key);
+
+    if (group) {
+      group.push(element);
+    } else {
+      nodes.set(key, [element]);
+    }
+  };
 
   if (baseline) {
-    const marked = new Map<string, HTMLMetaElement>();
+    const marked = new Map<string, HTMLMetaElement[]>();
 
     for (const element of Array.from(
       document.head.querySelectorAll<HTMLMetaElement>(
@@ -258,7 +278,13 @@ function captureTemplateMetas(): void {
       const key = getMetaKeyFromElement(element);
 
       if (key !== null) {
-        marked.set(key, element);
+        const group = marked.get(key);
+
+        if (group) {
+          group.push(element);
+        } else {
+          marked.set(key, [element]);
+        }
       }
     }
 
@@ -269,9 +295,21 @@ function captureTemplateMetas(): void {
         continue;
       }
 
-      // No marked node for a baseline entry means the server stripped it because this page
-      // overrides it. Build it now and hold it detached until that stops being true.
-      nodes.set(key, marked.get(key) ?? createTemplateMeta(attrs));
+      // The server strips a key's template metas all together or not at all, so a key that has
+      // any marked node in the head has all of them: adopt that group once and move on.
+      const servedGroup = marked.get(key);
+
+      if (servedGroup) {
+        if (!nodes.has(key)) {
+          nodes.set(key, servedGroup);
+        }
+
+        continue;
+      }
+
+      // Nothing marked for this key means the server stripped it because the page overrides it.
+      // Build the element now and hold it detached until that stops being true.
+      track(key, createTemplateMeta(attrs));
     }
   } else {
     for (const element of Array.from(
@@ -280,7 +318,7 @@ function captureTemplateMetas(): void {
       const key = getMetaKeyFromElement(element);
 
       if (key !== null) {
-        nodes.set(key, element);
+        track(key, element);
       }
     }
   }
@@ -296,29 +334,35 @@ function captureTemplateMetas(): void {
  * renders one page, so without this a template meta stripped for the landing page would never
  * return, and one left in the head would sit alongside the meta React hoists on the next
  * navigation (ahead of it in document order, so the stale template value would win).
+ *
+ * Every template meta sharing an identity moves together, matching the server's merge: a page
+ * declaring theme-color replaces the template's whole theme-color set, media variants included.
  */
 function reconcileTemplateMetas(declaredKeys: Set<string>): void {
   if (templateMetaNodes === null) {
     return;
   }
 
-  for (const [key, node] of templateMetaNodes) {
+  for (const [key, group] of templateMetaNodes) {
     const isOverridden = declaredKeys.has(key);
 
-    if (isOverridden && node.isConnected) {
-      node.remove();
-    } else if (!isOverridden && !node.isConnected) {
-      document.head.appendChild(node);
+    for (const node of group) {
+      if (isOverridden && node.isConnected) {
+        node.remove();
+      } else if (!isOverridden && !node.isConnected) {
+        document.head.appendChild(node);
+      }
     }
   }
 }
 
 /**
- * The meta identities a single UnirendHead's children declare, used to decide which template
- * metas are currently overridden.
+ * The distinct meta identities a single UnirendHead's children declare, used to decide which
+ * template metas are currently overridden. Deduplicated, since a page declaring the same meta
+ * twice overrides the template's copy exactly once.
  */
 function getMetaKeysFromChildren(children: ReactNode): string[] {
-  const keys: string[] = [];
+  const keys = new Set<string>();
 
   React.Children.forEach(children, (child) => {
     if (!React.isValidElement(child) || child.type !== 'meta') {
@@ -330,11 +374,11 @@ function getMetaKeysFromChildren(children: ReactNode): string[] {
     );
 
     if (key !== null) {
-      keys.push(key);
+      keys.add(key);
     }
   });
 
-  return keys;
+  return Array.from(keys);
 }
 
 /**
@@ -620,17 +664,30 @@ function updateDOM(): void {
 }
 
 /**
- * Compares two meta key lists for order-insensitive equality. Overriding is a set membership
- * question, so a reordering doesn't change which template metas step aside.
+ * Compares two meta key lists as sets. Overriding is a set membership question, so reordering
+ * a page's metas doesn't change which template metas step aside.
+ *
+ * Compared as sets rather than by length and membership, which would call
+ * ['viewport', 'theme-color'] equal to ['viewport', 'viewport'] — same length, and every key of
+ * the second is in the first. Skipping the update on that would leave the theme-color baseline
+ * detached even though the page had stopped overriding it. The lists are already deduplicated
+ * at collection, so this is belt and braces.
  */
 function areKeyListsEqual(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) {
+  const setA = new Set(a);
+  const setB = new Set(b);
+
+  if (setA.size !== setB.size) {
     return false;
   }
 
-  const seen = new Set(a);
+  for (const key of setA) {
+    if (!setB.has(key)) {
+      return false;
+    }
+  }
 
-  return b.every((key) => seen.has(key));
+  return true;
 }
 
 /**
@@ -930,6 +987,8 @@ export const _test = {
   updateDOM,
   captureTemplateMetas,
   reconcileTemplateMetas,
+  areKeyListsEqual,
+  getMetaKeysFromChildren,
   getTemplateMetaNodes: () => templateMetaNodes,
   resetTemplateMetas: () => {
     templateMetaNodes = null;

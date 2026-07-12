@@ -156,6 +156,8 @@ describe('UnirendHead Client-side Helpers', () => {
     updateDOM,
     captureTemplateMetas,
     reconcileTemplateMetas,
+    areKeyListsEqual,
+    getMetaKeysFromChildren,
     getTemplateMetaNodes,
     resetTemplateMetas,
   } = _test;
@@ -912,6 +914,96 @@ describe('UnirendHead Client-side Helpers', () => {
 
       reconcileTemplateMetas(new Set(['name=description']));
       expect(metasInHead(head, 'description')).toHaveLength(1);
+    });
+
+    it('treats a repeated meta key as overriding once, so a stale key set is never held', () => {
+      // A page can declare the same meta twice (two conditional branches both rendering it).
+      const keys = getMetaKeysFromChildren([
+        <meta key="a" name="viewport" content="a" />,
+        <meta key="b" name="viewport" content="b" />,
+      ]);
+
+      expect(keys).toEqual(['name=viewport']);
+    });
+
+    it('does not call a duplicate-padded key set equal to a different one', () => {
+      // Comparing by length and membership alone would call these equal: same length, and every
+      // key of the second is present in the first. The registry would then skip the update and
+      // leave the theme-color baseline detached even though the page stopped overriding it.
+      expect(
+        areKeyListsEqual(
+          ['name=viewport', 'name=theme-color'],
+          ['name=viewport', 'name=viewport'],
+        ),
+      ).toBe(false);
+
+      // Order still doesn't matter, since overriding is a set membership question.
+      expect(
+        areKeyListsEqual(
+          ['name=viewport', 'name=theme-color'],
+          ['name=theme-color', 'name=viewport'],
+        ),
+      ).toBe(true);
+    });
+
+    it('moves every template meta sharing an identity together, media variants included', () => {
+      // The standard light/dark pair: two template metas, one identity. A page declaring
+      // theme-color overrides that identity, so both have to step aside — and both have to come
+      // back. Tracking only one would strand the other in the head beside the page's override
+      // (ahead of it in document order, so the stale template value would win).
+      const light = {
+        name: 'theme-color',
+        media: '(prefers-color-scheme: light)',
+        content: '#fff',
+        [TEMPLATE_META_MARKER_ATTRIBUTE]: '',
+      };
+      const dark = {
+        name: 'theme-color',
+        media: '(prefers-color-scheme: dark)',
+        content: '#000',
+        [TEMPLATE_META_MARKER_ATTRIBUTE]: '',
+      };
+
+      const head = setupPage({
+        served: [light, dark],
+        baseline: [
+          {
+            name: 'theme-color',
+            media: '(prefers-color-scheme: light)',
+            content: '#fff',
+          },
+          {
+            name: 'theme-color',
+            media: '(prefers-color-scheme: dark)',
+            content: '#000',
+          },
+        ],
+      });
+
+      captureTemplateMetas();
+      reconcileTemplateMetas(new Set());
+      expect(metasInHead(head, 'theme-color')).toHaveLength(2);
+
+      // Page overrides theme-color: both template copies leave the head.
+      head.appendChild(
+        createMockMeta(head, { name: 'theme-color', content: '#page' }),
+      );
+      reconcileTemplateMetas(new Set(['name=theme-color']));
+
+      const overridden = metasInHead(head, 'theme-color');
+      expect(overridden).toHaveLength(1);
+      expect(overridden[0].getAttribute('content')).toBe('#page');
+
+      // Navigate away: React unmounts its meta and the template's whole set returns.
+      overridden[0].remove();
+      reconcileTemplateMetas(new Set());
+
+      const restored = metasInHead(head, 'theme-color');
+      expect(restored).toHaveLength(2);
+      expect(restored.map((meta: any) => meta.getAttribute('media'))).toEqual([
+        '(prefers-color-scheme: light)',
+        '(prefers-color-scheme: dark)',
+      ]);
     });
 
     it('falls back to reading the head when no baseline global was injected (pure SPA)', () => {

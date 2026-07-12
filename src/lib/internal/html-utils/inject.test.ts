@@ -736,6 +736,60 @@ describe('template head baseline merge', () => {
     ).toBeUndefined();
   });
 
+  it('should treat template metas sharing an identity as one group', async () => {
+    // The standard light/dark pair: two metas, one identity. A page overriding theme-color
+    // replaces the identity, so both template copies go. The client reconciler relies on this
+    // being all-or-nothing per key, and this pins the server to the same rule.
+    const withPair = templateHTML.replace(
+      '<meta name="theme-color" content="#ffffff" />',
+      [
+        '<meta name="theme-color" media="(prefers-color-scheme: light)" content="#fff" />',
+        '    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000" />',
+      ].join('\n'),
+    );
+
+    const processed = await processTemplate(withPair, 'ssr', false, false);
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    // A page that doesn't override it gets both, untouched.
+    const untouched = cheerio.load(
+      await injectContent(processed.html, pageHead, '<div>App</div>'),
+    );
+    expect(untouched('meta[name="theme-color"]').length).toBe(2);
+
+    // A page that overrides it gets only its own — neither template copy is left behind.
+    const html = await injectContent(
+      processed.html,
+      '<meta name="theme-color" content="#page" />',
+      '<div>App</div>',
+    );
+    const $ = cheerio.load(html);
+
+    expect($('meta[name="theme-color"]').length).toBe(1);
+    expect($('meta[name="theme-color"]').attr('content')).toBe('#page');
+
+    // Both are still in the baseline the client restores from, media attribute included.
+    const globalMatch = html.match(
+      /window\.__UNIREND_TEMPLATE_METAS__=(\[.*?\]);/,
+    );
+    const baseline = JSON.parse(globalMatch?.[1] ?? '[]') as Array<
+      Record<string, string>
+    >;
+    const themeColors = baseline.filter(
+      (attrs) => attrs.name === 'theme-color',
+    );
+
+    expect(themeColors).toHaveLength(2);
+    expect(themeColors.map((attrs) => attrs.media)).toEqual([
+      '(prefers-color-scheme: light)',
+      '(prefers-color-scheme: dark)',
+    ]);
+  });
+
   it('should not treat a "</head>" string inside an inline script as the end of the head', async () => {
     // Only </script> closes a script, so this is a legal inline script and the metas after
     // it are still in the head. A template written by hand can order things this way;

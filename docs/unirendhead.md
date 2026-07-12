@@ -189,6 +189,15 @@ A page can still override a template-owned tag by declaring a `<meta>` with the 
 
 The override holds in SSR, SSG, and across client-side navigation alike. On the server the template's copy is removed from the rendered head. On the client, `UnirendHead` reconciles the template's metas as pages mount and unmount, taking one out of the head while a page overrides it and putting it back when nothing does, so an override can't strand the baseline or end up sitting next to it. The template's meta baseline is carried to the client for this in `window.__UNIREND_TEMPLATE_METAS__`, alongside the `window.__UNIREND_TEMPLATE_ATTRS__` baseline described in [Anti-Flicker & Attribute Hydration](#anti-flicker--attribute-hydration), and the template's metas in the served head are tagged with a `data-unirend-template-meta` attribute so the client can tell them apart from the ones React hoists.
 
+Overriding works on the identity, not on individual tags, so a page that overrides a `name` replaces every template meta carrying it. That matters for the light/dark `theme-color` pattern, where one identity covers two tags:
+
+```html
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#fff" />
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000" />
+```
+
+A page declaring `<meta name="theme-color" content="#page" />` replaces both, and both come back when it navigates away. If you want to override only one variant, you are really replacing the pair, so declare both variants on the page.
+
 The reason the page-owned tags are stripped unconditionally, rather than kept as a baseline, is that pages routinely set them for themselves. If the template's copy were left in the document, it would sit ahead of the page's own tag in document order, and a client-side navigation appends React's hoisted tag after it rather than replacing a node React does not own, leaving the stale template value to win. `og:site_name` is exempt because it names the site, not the page, so no page is expected to redeclare it.
 
 <!-- prettier-ignore -->
