@@ -209,6 +209,63 @@ describe('prettifyHTML', () => {
     // Nested markup is serialized, but no indentation or line breaks are introduced.
     expect(result).toContain('<pre>plain <strong>bold</strong>\n  next</pre>');
   });
+
+  it('should not emit a closing tag for void elements inside a <pre>', () => {
+    // HTML5 parses a stray `</br>` as another <br> start tag, so `<br></br>` would re-parse
+    // into two line breaks and the content would grow on every round trip.
+    const $ = cheerio.load('<pre>a<br>b<img src="x.png">c</pre>');
+    const result = prettifyHTML($);
+
+    expect(result).toContain('<pre>a<br>b<img src="x.png">c</pre>');
+    expect(result).not.toContain('</br>');
+    expect(result).not.toContain('</img>');
+  });
+
+  it('should re-escape entities in text so escaped markup stays inert', () => {
+    // The parser hands text back decoded. Emitting it raw would turn an author's escaped
+    // &lt;b&gt; back into a live <b> tag, and an encoded </pre> into a real closing tag.
+    const $ = cheerio.load(
+      '<pre>&lt;b&gt;safe&lt;/b&gt;</pre><p>Tom &amp; Jerry</p>',
+    );
+    const result = prettifyHTML($);
+
+    expect(result).toContain('<pre>&lt;b&gt;safe&lt;/b&gt;</pre>');
+    expect(result).toContain('Tom &amp; Jerry');
+    expect(result).not.toContain('<b>safe</b>');
+  });
+
+  it('should re-escape attribute values', () => {
+    // An unescaped double quote here would close the attribute early and inject markup.
+    const $ = cheerio.load('<div data-x="a&quot;b &amp; c">t</div>');
+    const result = prettifyHTML($);
+
+    expect(result).toContain('data-x="a&quot;b &amp; c"');
+  });
+
+  it('should NOT escape the contents of raw-text elements', () => {
+    // These were never decoded by the parser. Encoding them would corrupt the code they hold:
+    // `a && b` would become `a &amp;&amp; b` and stop being valid JavaScript.
+    const $ = cheerio.load(
+      '<script>if (a && b < c) x();</script><style>a > b { color: red }</style>',
+    );
+    const result = prettifyHTML($);
+
+    expect(result).toContain('if (a && b < c) x();');
+    expect(result).toContain('a > b { color: red }');
+    expect(result).not.toContain('&amp;&amp;');
+  });
+
+  it('should keep markup inside <noscript> intact', () => {
+    // The parser treats <noscript> as raw text, handing back one text node of source
+    // characters. Escaping it would render literal, visible "&lt;div&gt;" on the page.
+    const $ = cheerio.load(
+      '<body><noscript><div class="warn">Enable JS</div></noscript></body>',
+    );
+    const result = prettifyHTML($);
+
+    expect(result).toContain('<div class="warn">Enable JS</div>');
+    expect(result).not.toContain('&lt;div');
+  });
 });
 
 describe('processTemplate', () => {

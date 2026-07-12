@@ -29,6 +29,20 @@ export function escapeHTML(str: string): string {
 }
 
 /**
+ * Escapes a string for safe insertion as HTML text content.
+ *
+ * Only `&`, `<`, and `>` are significant between tags. Quotes are not, so unlike
+ * {@link escapeHTML} they're left alone, which keeps ordinary prose readable in the
+ * served markup instead of peppering it with `&quot;`.
+ *
+ * @param str - The string to escape
+ * @returns The escaped string safe for insertion as element text
+ */
+export function escapeHTMLText(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
  * Escapes a string for safe insertion into double-quoted HTML attributes.
  *
  * Converts the following characters to HTML entities:

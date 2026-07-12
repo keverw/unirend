@@ -1,6 +1,7 @@
 import type { RenderType, TemplateSlots } from '../../types';
 import type { CheerioAPI } from 'cheerio';
 import type { AnyNode, Comment, Document, Element, Text } from 'domhandler';
+import { escapeHTMLAttr, escapeHTMLText } from './escape';
 
 // cheerio's load(), narrowed to the fragment-parsing call validateTemplateSlots() makes.
 // Passed in rather than imported so the dynamic import in processTemplate() stays the only
@@ -180,6 +181,71 @@ function validateTemplateSlots(
 // changes the value the user submits. They're serialized byte-for-byte instead.
 const WHITESPACE_SENSITIVE_TAGS = new Set(['pre', 'textarea', 'listing']);
 
+// Void elements have no children and no end tag. Emitting one is not a cosmetic slip: HTML5
+// parses a stray `</br>` as another `<br>` start tag, so serializing a single <br> as
+// `<br></br>` re-parses into two line breaks, and the content grows on every round trip.
+const VOID_TAGS = new Set([
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'param',
+  'source',
+  'track',
+  'wbr',
+]);
+
+// Elements whose children the HTML parser does NOT treat as markup, handing back a single text
+// node holding the source characters as-is. Their text must be emitted raw: entity-encoding it
+// would corrupt the content, turning `a && b` in a script into `a &amp;&amp; b`, or the markup
+// inside a <noscript> into literal, visible `&lt;div&gt;` on the page.
+//
+// <title> and <textarea> are deliberately absent. The parser DOES decode entities in those, so
+// they behave like normal text and have to be re-encoded on the way out.
+const RAW_TEXT_TAGS = new Set([
+  'script',
+  'style',
+  'noscript',
+  'iframe',
+  'noembed',
+  'noframes',
+  'xmp',
+  'plaintext',
+]);
+
+/**
+ * Whether a text node sits directly inside an element whose contents the parser kept raw, and
+ * so must be written back out without escaping.
+ */
+function isRawText(node: AnyNode): boolean {
+  const parent = node.parent;
+
+  return (
+    parent !== null &&
+    isElementNode(parent) &&
+    RAW_TEXT_TAGS.has(parent.name.toLowerCase())
+  );
+}
+
+/**
+ * Serializes an element's attributes.
+ *
+ * Values are re-encoded because the parser handed them over decoded. Writing one back raw would
+ * at best mangle it (`a &amp; b` collapsing to `a & b`) and at worst let a value containing a
+ * double quote close the attribute early and inject markup into the tag.
+ */
+function serializeAttributes(el: Element): string {
+  return Object.entries(el.attribs || {})
+    .map(([key, val]) => (val === '' ? key : `${key}="${escapeHTMLAttr(val)}"`))
+    .join(' ');
+}
+
 /**
  * Serializes a node exactly as parsed, with no trimming, indentation, or line breaks added.
  * Used for the contents of whitespace-sensitive elements, where the formatting IS the content.
@@ -190,17 +256,22 @@ function serializeVerbatim(el: AnyNode): string {
   }
 
   if (isTextNode(el)) {
-    return el.data ?? '';
+    const text = el.data ?? '';
+
+    return isRawText(el) ? text : escapeHTMLText(text);
   }
 
   if (!isElementNode(el)) {
     return '';
   }
 
-  const attrs = Object.entries(el.attribs || {})
-    .map(([key, val]) => (val === '' ? key : `${key}="${val}"`))
-    .join(' ');
+  const attrs = serializeAttributes(el);
   const openTag = attrs ? `<${el.name} ${attrs}>` : `<${el.name}>`;
+
+  if (VOID_TAGS.has(el.name)) {
+    return openTag;
+  }
+
   const children = (el.children ?? []).map(serializeVerbatim).join('');
 
   return `${openTag}${children}</${el.name}>`;
@@ -240,7 +311,11 @@ function formatNode(
       return '';
     }
 
-    return `${indent}${text}`;
+    // Re-encode, since the parser handed this back decoded. Emitting it raw would turn an
+    // author's escaped `&lt;b&gt;` back into a live <b> tag. Raw-text elements (script, style,
+    // noscript) are the exception: their contents were never decoded, and encoding them now
+    // would break the code or markup they hold.
+    return `${indent}${isRawText(el) ? text : escapeHTMLText(text)}`;
   }
 
   // Only element-like nodes (tag/script/style) remain past this point. Guard
@@ -253,9 +328,7 @@ function formatNode(
   // Tag elements
   const tag = el;
   const tagName = tag.name;
-  const attrs = Object.entries(tag.attribs || {})
-    .map(([key, val]) => (val === '' ? key : `${key}="${val}"`))
-    .join(' ');
+  const attrs = serializeAttributes(tag);
   const openTag = attrs ? `<${tagName} ${attrs}>` : `<${tagName}>`;
 
   // Whitespace-sensitive elements are emitted exactly as authored: the open tag gets the
@@ -277,23 +350,6 @@ function formatNode(
     tagName === 'div' &&
     'id' in tag.attribs &&
     tag.attribs['id'] === containerID;
-
-  const selfClosingTags = new Set([
-    'area',
-    'base',
-    'br',
-    'col',
-    'embed',
-    'hr',
-    'img',
-    'input',
-    'link',
-    'meta',
-    'param',
-    'source',
-    'track',
-    'wbr',
-  ]);
 
   if (tag.children && tag.children.length > 0) {
     // Different handling for root element - keep content on a single line for hydration
@@ -336,7 +392,7 @@ function formatNode(
   }
 
   // Self-closing tags
-  if (selfClosingTags.has(tagName)) {
+  if (VOID_TAGS.has(tagName)) {
     return `${indent}<${tagName}${attrs ? ` ${attrs}` : ''}/>`;
   }
 
