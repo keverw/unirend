@@ -674,6 +674,38 @@ describe('template head baseline merge', () => {
     expect($('title').text()).toBe('Page Title');
   });
 
+  it('should not treat a "</head>" string inside an inline script as the end of the head', async () => {
+    // Only </script> closes a script, so this is a legal inline script and the metas after
+    // it are still in the head. A template written by hand can order things this way;
+    // processTemplate() happens to relocate head scripts to the end of the head, so this
+    // guards the scanner rather than the pipeline.
+    const template = [
+      '<!DOCTYPE html><html><head>',
+      '<!--ss-head-->',
+      '<script>const marker = "</head>";</script>',
+      '<meta name="description" content="Template description" />',
+      '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+      '<!--context-scripts-injection-point-->',
+      '</head><body><!--ss-outlet--></body></html>',
+    ].join('\n');
+
+    const html = await injectContent(
+      template,
+      '<meta name="description" content="Page description" />',
+      '<div>App</div>',
+    );
+    const $ = cheerio.load(html);
+
+    // The scan must reach past the script: the template's description is overridden rather
+    // than served next to the page's, and the viewport beyond it is left alone.
+    expect($('meta[name="description"]').length).toBe(1);
+    expect($('meta[name="description"]').attr('content')).toBe(
+      'Page description',
+    );
+    expect($('meta[name="viewport"]').length).toBe(1);
+    expect(html).toContain('const marker =');
+  });
+
   it('should keep a template meta whose value contains a bare angle bracket', async () => {
     const withBracket = templateHTML.replace(
       '<meta name="theme-color" content="#ffffff" />',

@@ -24,17 +24,20 @@ interface HeadTagMatch {
  * reach into the body. Quote-aware, so a '>' inside an attribute value (e.g.
  * content="scale > 1") doesn't end the tag early, and script/style bodies are skipped so
  * markup mentioned inside an inline script isn't mistaken for a real tag.
+ *
+ * The end of the head is recognized during the scan rather than looked up ahead of it: only
+ * </script> closes a script, so an inline script may legally hold the text "</head>" in a
+ * string, and searching for it up front would stop the scan early and miss the metas that
+ * follow the script.
  */
 function findHeadTags(html: string, tagName: string): HeadTagMatch[] {
   const lower = html.toLowerCase();
-  const headEnd = lower.indexOf('</head>');
-  const limit = headEnd === -1 ? html.length : headEnd;
   const openPrefix = `<${tagName}`;
   const matches: HeadTagMatch[] = [];
 
   let i = 0;
 
-  while (i < limit) {
+  while (i < html.length) {
     if (html.startsWith('<!--', i)) {
       const commentEnd = html.indexOf('-->', i + 4);
 
@@ -66,6 +69,12 @@ function findHeadTags(html: string, tagName: string): HeadTagMatch[] {
 
       i = closeIndex + skipTag.length + 3;
       continue;
+    }
+
+    // The real end of the head: reached only outside comments, scripts and styles, and
+    // outside any tag's attributes (an opening tag below is consumed whole).
+    if (lower.startsWith('</head>', i)) {
+      break;
     }
 
     if (!lower.startsWith(openPrefix, i)) {
