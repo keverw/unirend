@@ -928,8 +928,10 @@ export interface TemplateSlots {
    * the client entry script. Useful for anything that should load last, such as a
    * third-party widget or an analytics snippet.
    *
-   * Like `bodyPrepend`, this is emitted exactly as authored, and neither slot
-   * touches the container element, so hydration is unaffected.
+   * Like `bodyPrepend`, its scripts and comments are left alone, and neither slot
+   * touches the container element, so hydration is unaffected. Both are re-indented
+   * to match the surrounding document, as the template's own markup is, except for
+   * whitespace-sensitive elements (`<pre>`, `<textarea>`), which are kept exact.
    */
   bodyAppend?: string;
 }

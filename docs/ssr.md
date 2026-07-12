@@ -971,7 +971,8 @@ server.registerBuiltApp('admin', BUILD_DIR_ADMIN, {
 
 - `headInlineScripts` entries are **JavaScript source, not HTML**. Unirend wraps each one in a `<script>` tag, so they are inline-only by construction. Passing a `<script>` tag is rejected at startup. To load an external script, use `bodyAppend` (as above) or put a `<script src>` in the template itself.
 - They run **after** unirend's context globals, in the same position as inline scripts written in the template's head. That means `window.__FRONTEND_REQUEST_CONTEXT__` and `window.__PUBLIC_APP_CONFIG__` are already readable, which is what makes a slotted theme script work.
-- A `<script>` inside `bodyPrepend` or `bodyAppend` **stays where you put it**. Scripts written directly in the template's body are relocated to after the container element, but slot content is emitted as authored, comments and all.
+- A `<script>` inside `bodyPrepend` or `bodyAppend` **stays where you put it**. Scripts written directly in the template's body are relocated to after the container element, but slot content is not, and its comments survive rather than being stripped the way the template's are.
+- Slot HTML is re-indented to match the surrounding document, exactly as the template's own markup is. Whitespace-sensitive elements (`<pre>`, `<textarea>`) are exempt and kept byte-for-byte, so their content is never reformatted.
 - Neither body slot may contain the container element's ID or an `<!--ss-head-->` / `<!--ss-outlet-->` marker. Both are rejected at startup rather than producing a broken page: a duplicate `ss-outlet` would receive a second copy of the rendered page, and a duplicate container ID would give the app two mount points.
 - Blank `headInlineScripts` entries are skipped, so a shared slots object can use a conditional like `isProd ? analytics : ''` without leaving an empty `<script></script>` behind.
 

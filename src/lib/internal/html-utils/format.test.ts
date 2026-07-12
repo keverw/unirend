@@ -171,6 +171,44 @@ describe('prettifyHTML', () => {
     expect(result).toContain('<root>');
     expect(result).toContain('test');
   });
+
+  it('should preserve whitespace inside <pre> verbatim', () => {
+    // Indentation is content inside a <pre>. Trimming the text node or re-indenting it
+    // would visibly change the rendered page.
+    const $ = cheerio.load(
+      '<pre>line one\n    indented two\n\nblank above</pre>',
+    );
+    const result = prettifyHTML($);
+
+    expect(result).toContain(
+      '<pre>line one\n    indented two\n\nblank above</pre>',
+    );
+  });
+
+  it('should preserve whitespace inside <textarea> verbatim', () => {
+    // Whitespace here is the value the user submits.
+    const $ = cheerio.load('<textarea name="note">  keep   me  </textarea>');
+    const result = prettifyHTML($);
+
+    expect(result).toContain('<textarea name="note">  keep   me  </textarea>');
+  });
+
+  it('should keep a leading newline inside <pre>', () => {
+    // The parser drops a newline directly after the open tag, so it has to be re-added or a
+    // <pre> starting with a blank line would lose one on every round trip.
+    const $ = cheerio.load('<pre>\n\nstarts blank</pre>');
+    const result = prettifyHTML($);
+
+    expect(result).toContain('<pre>\n\nstarts blank</pre>');
+  });
+
+  it('should still format elements nested inside a <pre>', () => {
+    const $ = cheerio.load('<pre>plain <strong>bold</strong>\n  next</pre>');
+    const result = prettifyHTML($);
+
+    // Nested markup is serialized, but no indentation or line breaks are introduced.
+    expect(result).toContain('<pre>plain <strong>bold</strong>\n  next</pre>');
+  });
 });
 
 describe('processTemplate', () => {
@@ -1225,6 +1263,37 @@ describe('processTemplate templateSlots', () => {
       expect(
         result.html.indexOf('React hydration relies on data attributes'),
       ).toBeLessThan(result.html.indexOf('<noscript>'));
+    }
+  });
+
+  it('should preserve whitespace-sensitive content in a body slot, same as in the template', async () => {
+    const html = `
+      <html>
+        <head><!--ss-head--></head>
+        <body>
+          <pre id="from-template">line one
+    indented two</pre>
+          <div id="root"><!--ss-outlet--></div>
+        </body>
+      </html>
+    `;
+
+    const result = await processTemplate(html, 'ssr', false, false, 'root', {
+      bodyPrepend: `<pre id="from-slot">line one
+    indented two</pre>`,
+    });
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // A slot is not a special case: whitespace-sensitive content survives wherever it is
+      // written, so slot content and template content behave the same way.
+      expect(result.html).toContain(
+        '<pre id="from-slot">line one\n    indented two</pre>',
+      );
+      expect(result.html).toContain(
+        '<pre id="from-template">line one\n    indented two</pre>',
+      );
     }
   });
 

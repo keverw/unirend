@@ -174,6 +174,38 @@ function validateTemplateSlots(
   return null;
 }
 
+// Elements whose text content is significant to the rendered output. The prettifier trims text
+// nodes and adds indentation, which is invisible for normal markup but is content for these:
+// re-indenting the body of a <pre> visibly changes the page, and doing it to a <textarea>
+// changes the value the user submits. They're serialized byte-for-byte instead.
+const WHITESPACE_SENSITIVE_TAGS = new Set(['pre', 'textarea', 'listing']);
+
+/**
+ * Serializes a node exactly as parsed, with no trimming, indentation, or line breaks added.
+ * Used for the contents of whitespace-sensitive elements, where the formatting IS the content.
+ */
+function serializeVerbatim(el: AnyNode): string {
+  if (isCommentNode(el)) {
+    return `<!--${el.data}-->`;
+  }
+
+  if (isTextNode(el)) {
+    return el.data ?? '';
+  }
+
+  if (!isElementNode(el)) {
+    return '';
+  }
+
+  const attrs = Object.entries(el.attribs || {})
+    .map(([key, val]) => (val === '' ? key : `${key}="${val}"`))
+    .join(' ');
+  const openTag = attrs ? `<${el.name} ${attrs}>` : `<${el.name}>`;
+  const children = (el.children ?? []).map(serializeVerbatim).join('');
+
+  return `${openTag}${children}</${el.name}>`;
+}
+
 function formatNode(
   el: AnyNode,
   level = 0,
@@ -225,6 +257,20 @@ function formatNode(
     .map(([key, val]) => (val === '' ? key : `${key}="${val}"`))
     .join(' ');
   const openTag = attrs ? `<${tagName} ${attrs}>` : `<${tagName}>`;
+
+  // Whitespace-sensitive elements are emitted exactly as authored: the open tag gets the
+  // surrounding indentation, but nothing is added inside it.
+  //
+  // The leading newline is re-added because the HTML parser drops one that directly follows the
+  // open tag ("<pre>\nfoo" parses to the text "foo"). Without putting it back, a <pre> whose
+  // content legitimately starts with a blank line would lose it a little more on every
+  // parse/serialize round trip.
+  if (WHITESPACE_SENSITIVE_TAGS.has(tagName)) {
+    const inner = (tag.children ?? []).map(serializeVerbatim).join('');
+    const leadingNewline = inner.startsWith('\n') ? '\n' : '';
+
+    return `${indent}${openTag}${leadingNewline}${inner}</${tagName}>`;
+  }
 
   // Special handling for container element to prevent whitespace nodes
   const isRoot =
