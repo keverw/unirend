@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import * as cheerio from 'cheerio';
 import { prettifyHTML, processTemplate } from './format';
+import type { TemplateSlots } from '../../types';
 
 // Helper: split output by new lines (trim the trailing \n added by prettifyHTML)
 // and assert that each expected line appears in the output **in the given order**.
@@ -170,6 +171,101 @@ describe('prettifyHTML', () => {
     expect(result).toContain("<?xml version='1.0'?>");
     expect(result).toContain('<root>');
     expect(result).toContain('test');
+  });
+
+  it('should preserve whitespace inside <pre> verbatim', () => {
+    // Indentation is content inside a <pre>. Trimming the text node or re-indenting it
+    // would visibly change the rendered page.
+    const $ = cheerio.load(
+      '<pre>line one\n    indented two\n\nblank above</pre>',
+    );
+    const result = prettifyHTML($);
+
+    expect(result).toContain(
+      '<pre>line one\n    indented two\n\nblank above</pre>',
+    );
+  });
+
+  it('should preserve whitespace inside <textarea> verbatim', () => {
+    // Whitespace here is the value the user submits.
+    const $ = cheerio.load('<textarea name="note">  keep   me  </textarea>');
+    const result = prettifyHTML($);
+
+    expect(result).toContain('<textarea name="note">  keep   me  </textarea>');
+  });
+
+  it('should keep a leading newline inside <pre>', () => {
+    // The parser drops a newline directly after the open tag, so it has to be re-added or a
+    // <pre> starting with a blank line would lose one on every round trip.
+    const $ = cheerio.load('<pre>\n\nstarts blank</pre>');
+    const result = prettifyHTML($);
+
+    expect(result).toContain('<pre>\n\nstarts blank</pre>');
+  });
+
+  it('should still format elements nested inside a <pre>', () => {
+    const $ = cheerio.load('<pre>plain <strong>bold</strong>\n  next</pre>');
+    const result = prettifyHTML($);
+
+    // Nested markup is serialized, but no indentation or line breaks are introduced.
+    expect(result).toContain('<pre>plain <strong>bold</strong>\n  next</pre>');
+  });
+
+  it('should not emit a closing tag for void elements inside a <pre>', () => {
+    // HTML5 parses a stray `</br>` as another <br> start tag, so `<br></br>` would re-parse
+    // into two line breaks and the content would grow on every round trip.
+    const $ = cheerio.load('<pre>a<br>b<img src="x.png">c</pre>');
+    const result = prettifyHTML($);
+
+    expect(result).toContain('<pre>a<br>b<img src="x.png">c</pre>');
+    expect(result).not.toContain('</br>');
+    expect(result).not.toContain('</img>');
+  });
+
+  it('should re-escape entities in text so escaped markup stays inert', () => {
+    // The parser hands text back decoded. Emitting it raw would turn an author's escaped
+    // &lt;b&gt; back into a live <b> tag, and an encoded </pre> into a real closing tag.
+    const $ = cheerio.load(
+      '<pre>&lt;b&gt;safe&lt;/b&gt;</pre><p>Tom &amp; Jerry</p>',
+    );
+    const result = prettifyHTML($);
+
+    expect(result).toContain('<pre>&lt;b&gt;safe&lt;/b&gt;</pre>');
+    expect(result).toContain('Tom &amp; Jerry');
+    expect(result).not.toContain('<b>safe</b>');
+  });
+
+  it('should re-escape attribute values', () => {
+    // An unescaped double quote here would close the attribute early and inject markup.
+    const $ = cheerio.load('<div data-x="a&quot;b &amp; c">t</div>');
+    const result = prettifyHTML($);
+
+    expect(result).toContain('data-x="a&quot;b &amp; c"');
+  });
+
+  it('should NOT escape the contents of raw-text elements', () => {
+    // These were never decoded by the parser. Encoding them would corrupt the code they hold:
+    // `a && b` would become `a &amp;&amp; b` and stop being valid JavaScript.
+    const $ = cheerio.load(
+      '<script>if (a && b < c) x();</script><style>a > b { color: red }</style>',
+    );
+    const result = prettifyHTML($);
+
+    expect(result).toContain('if (a && b < c) x();');
+    expect(result).toContain('a > b { color: red }');
+    expect(result).not.toContain('&amp;&amp;');
+  });
+
+  it('should keep markup inside <noscript> intact', () => {
+    // The parser treats <noscript> as raw text, handing back one text node of source
+    // characters. Escaping it would render literal, visible "&lt;div&gt;" on the page.
+    const $ = cheerio.load(
+      '<body><noscript><div class="warn">Enable JS</div></noscript></body>',
+    );
+    const result = prettifyHTML($);
+
+    expect(result).toContain('<div class="warn">Enable JS</div>');
+    expect(result).not.toContain('&lt;div');
   });
 });
 
@@ -878,6 +974,63 @@ describe('processTemplate with CDN placeholder injection', () => {
     }
   });
 
+  it('should NOT add placeholder to protocol-relative URLs', async () => {
+    const html = `
+      <html>
+        <head>
+          <!--ss-head-->
+          <link rel="stylesheet" href="//fonts.vendor.com/font.css" />
+        </head>
+        <body>
+          <div id="root"><!--ss-outlet-->Content</div>
+          <script src="//widget.vendor.com/w.js"></script>
+          <script src="/assets/main.js"></script>
+        </body>
+      </html>
+    `;
+
+    const result = await processTemplate(html, 'ssr', false, false, 'root');
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // A protocol-relative URL starts with a slash but points at another origin. Prefixing
+      // it would yield "https://cdn.example.com//widget.vendor.com/w.js", so it stays as-is.
+      expect(result.html).toContain('src="//widget.vendor.com/w.js"');
+      expect(result.html).toContain('href="//fonts.vendor.com/font.css"');
+
+      // The genuinely local asset alongside them is still rewritten.
+      expect(result.html).toContain(
+        'src="__CDN__INJECTION__POINT__/assets/main.js"',
+      );
+    }
+  });
+
+  it('should NOT add placeholder to fully-qualified external URLs', async () => {
+    const html = `
+      <html>
+        <head>
+          <!--ss-head-->
+          <link rel="stylesheet" href="https://fonts.vendor.com/font.css" />
+        </head>
+        <body>
+          <div id="root"><!--ss-outlet-->Content</div>
+          <script src="https://analytics.vendor.com/a.js"></script>
+        </body>
+      </html>
+    `;
+
+    const result = await processTemplate(html, 'ssr', false, false, 'root');
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain('src="https://analytics.vendor.com/a.js"');
+      expect(result.html).toContain('href="https://fonts.vendor.com/font.css"');
+      expect(result.html).not.toContain('__CDN__INJECTION__POINT__');
+    }
+  });
+
   it('should NOT add placeholder to external URLs', async () => {
     const html = `
       <html>
@@ -967,6 +1120,829 @@ describe('processTemplate with CDN placeholder injection', () => {
       expect(result.html).toContain('src="/assets/vendor.js"');
       expect(result.html).toContain('href="/assets/styles.css"');
       expect(result.html).not.toContain('__CDN__INJECTION__POINT__');
+    }
+  });
+});
+
+describe('processTemplate templateSlots', () => {
+  const baseHTML = `
+      <html>
+        <head>
+          <!--ss-head-->
+          <meta charset="utf-8">
+        </head>
+        <body>
+          <div id="root"><!--ss-outlet--></div>
+          <script type="module" src="/EntryClient.tsx"></script>
+        </body>
+      </html>
+    `;
+
+  it('should produce identical output to no slots when the option is omitted', async () => {
+    const withoutSlots = await processTemplate(baseHTML, 'ssr', false, false);
+    const withEmptySlots = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {},
+    );
+
+    expect(withoutSlots.success).toBe(true);
+    expect(withEmptySlots.success).toBe(true);
+
+    if (withoutSlots.success && withEmptySlots.success) {
+      // An app with no slots must be byte-for-byte what it was before slots existed. Nothing
+      // is inserted, so there is no placeholder left behind and no stray blank line.
+      expect(withEmptySlots.html).toBe(withoutSlots.html);
+    }
+  });
+
+  it('should wrap headInlineScripts in script tags and place them at the end of head', async () => {
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        headInlineScripts: ['console.log("first");', 'console.log("second");'],
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // The prettifier puts a script's source on its own indented line, so the tag and its
+      // body are asserted separately rather than as one string.
+      expect(result.html).toContain('<script>');
+      expect(result.html).toContain('console.log("first");');
+      expect(result.html).toContain('console.log("second");');
+
+      // Slotted scripts go through the same relocation as the template's own head scripts,
+      // so they land after the context placeholder and can read the context globals.
+      const contextIndex = result.html.indexOf(
+        '<!--context-scripts-injection-point-->',
+      );
+      const firstIndex = result.html.indexOf('console.log("first");');
+      const secondIndex = result.html.indexOf('console.log("second");');
+
+      expect(contextIndex).toBeGreaterThan(-1);
+      expect(firstIndex).toBeGreaterThan(contextIndex);
+      // Array order is preserved.
+      expect(secondIndex).toBeGreaterThan(firstIndex);
+
+      // ...and still inside the head, not spilled into the body.
+      expect(secondIndex).toBeLessThan(result.html.indexOf('</head>'));
+    }
+  });
+
+  it('should place slotted head scripts after the template own inline scripts', async () => {
+    const html = `
+      <html>
+        <head>
+          <!--ss-head-->
+          <script>window.templateScript = true;</script>
+        </head>
+        <body>
+          <div id="root"><!--ss-outlet--></div>
+        </body>
+      </html>
+    `;
+
+    const result = await processTemplate(html, 'ssr', false, false, 'root', {
+      headInlineScripts: ['window.slottedScript = true;'],
+    });
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html.indexOf('window.slottedScript')).toBeGreaterThan(
+        result.html.indexOf('window.templateScript'),
+      );
+    }
+  });
+
+  it('should skip blank headInlineScripts entries rather than emit an empty script tag', async () => {
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        headInlineScripts: ['', '   ', 'console.log("real");'],
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).not.toContain('<script></script>');
+      expect(result.html).toContain('console.log("real");');
+    }
+  });
+
+  it('should reject a headInlineScripts entry containing a script tag', async () => {
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        headInlineScripts: ['<script>console.log("nested");</script>'],
+      },
+    );
+
+    expect(result.success).toBe(false);
+
+    if (!result.success) {
+      expect(result.error).toContain('headInlineScripts[0]');
+      expect(result.error).toContain('JavaScript source only');
+    }
+  });
+
+  it('should reject a headInlineScripts entry with a literal closing script tag in a string', async () => {
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        // Would terminate the wrapper early and dump the rest into the document as markup.
+        headInlineScripts: ['const s = "</script>";'],
+      },
+    );
+
+    expect(result.success).toBe(false);
+
+    if (!result.success) {
+      expect(result.error).toContain('headInlineScripts[0]');
+    }
+  });
+
+  it('should prepend bodyPrepend before the container element', async () => {
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        bodyPrepend: '<noscript><p>JavaScript is required.</p></noscript>',
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain('JavaScript is required.');
+
+      const noscriptIndex = result.html.indexOf('<noscript>');
+      const bodyIndex = result.html.indexOf('<body>');
+      const containerIndex = result.html.indexOf('<div id="root">');
+
+      expect(noscriptIndex).toBeGreaterThan(bodyIndex);
+      expect(noscriptIndex).toBeLessThan(containerIndex);
+    }
+  });
+
+  it('should keep the development comment first in body when bodyPrepend is set', async () => {
+    const result = await processTemplate(baseHTML, 'ssr', true, true, 'root', {
+      bodyPrepend: '<noscript><p>JavaScript is required.</p></noscript>',
+    });
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(
+        result.html.indexOf('React hydration relies on data attributes'),
+      ).toBeLessThan(result.html.indexOf('<noscript>'));
+    }
+  });
+
+  it('should keep escaped content in a body slot escaped', async () => {
+    // A slot author who writes &lt;script&gt; wants to SHOW those characters, not run them.
+    // The slot is parsed and re-serialized, so the entities have to survive the round trip:
+    // emitting the parser's decoded text raw would turn the escape back into live markup.
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        bodyPrepend:
+          '<p>Never paste a &lt;script&gt; you do not trust. Tom &amp; Jerry.</p>',
+        bodyAppend: '<p>5 &lt; 6 &amp;&amp; 6 &gt; 5</p>',
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain(
+        'Never paste a &lt;script&gt; you do not trust. Tom &amp; Jerry.',
+      );
+      expect(result.html).toContain('5 &lt; 6 &amp;&amp; 6 &gt; 5');
+
+      // The decisive assertion: no live <script> element was ever created from the escaped text.
+      expect(result.html).not.toContain('<p>Never paste a <script>');
+      expect(result.html.match(/<script/g) ?? []).toHaveLength(
+        // Only the template's own client entry script.
+        1,
+      );
+    }
+  });
+
+  it('should keep escaped attribute values in a body slot escaped', async () => {
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        bodyPrepend: '<div data-note="a &quot;quoted&quot; &amp; sign">x</div>',
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // An unescaped quote here would close the attribute early and inject into the tag.
+      expect(result.html).toContain(
+        'data-note="a &quot;quoted&quot; &amp; sign"',
+      );
+    }
+  });
+
+  it('should still treat unescaped markup in a body slot as real markup', async () => {
+    // The other half of the contract: escaped stays escaped, raw stays raw. A slot is HTML,
+    // so a real tag written as a real tag must keep working, or <noscript> blocks would break.
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { bodyPrepend: '<noscript><b>Enable JavaScript</b></noscript>' },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain('<b>Enable JavaScript</b>');
+      expect(result.html).not.toContain('&lt;b&gt;');
+    }
+  });
+
+  it('should preserve whitespace-sensitive content in a body slot, same as in the template', async () => {
+    const html = `
+      <html>
+        <head><!--ss-head--></head>
+        <body>
+          <pre id="from-template">line one
+    indented two</pre>
+          <div id="root"><!--ss-outlet--></div>
+        </body>
+      </html>
+    `;
+
+    const result = await processTemplate(html, 'ssr', false, false, 'root', {
+      bodyPrepend: `<pre id="from-slot">line one
+    indented two</pre>`,
+    });
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // A slot is not a special case: whitespace-sensitive content survives wherever it is
+      // written, so slot content and template content behave the same way.
+      expect(result.html).toContain(
+        '<pre id="from-slot">line one\n    indented two</pre>',
+      );
+      expect(result.html).toContain(
+        '<pre id="from-template">line one\n    indented two</pre>',
+      );
+    }
+  });
+
+  it('should preserve a style tag and comments inside bodyPrepend', async () => {
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        bodyPrepend: `<noscript>
+        <style>.warn { color: red; }</style>
+        <!-- warning icon -->
+        <div class="warn">No JS</div>
+      </noscript>`,
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // Slot content is emitted as authored. Unlike template comments, which are stripped
+      // unless ss- prefixed, a comment in a slot survives.
+      expect(result.html).toContain('.warn { color: red; }');
+      expect(result.html).toContain('<!-- warning icon -->');
+      expect(result.html).toContain('No JS');
+    }
+  });
+
+  it('should not relocate a script inside bodyPrepend to after the container', async () => {
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        bodyPrepend: '<script>window.stayPut = true;</script>',
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // A <script> written in the template body is moved to after the container element.
+      // One written in a slot is not: it stays where it was placed.
+      const slotScriptIndex = result.html.indexOf('window.stayPut');
+      const containerIndex = result.html.indexOf('<div id="root">');
+
+      expect(slotScriptIndex).toBeGreaterThan(-1);
+      expect(slotScriptIndex).toBeLessThan(containerIndex);
+
+      // The template's own body script is still relocated after the container.
+      expect(result.html.indexOf('EntryClient.tsx')).toBeGreaterThan(
+        containerIndex,
+      );
+    }
+  });
+
+  it('should accept headInlineScripts as a bare string', async () => {
+    // One script is the common case, so it can be passed directly rather than wrapped in a
+    // single-element array.
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { headInlineScripts: 'console.log("just one");' },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain('console.log("just one");');
+
+      // Placed exactly where an array of one would be: after the context globals.
+      expect(result.html.indexOf('console.log("just one");')).toBeGreaterThan(
+        result.html.indexOf('<!--context-scripts-injection-point-->'),
+      );
+    }
+  });
+
+  it('should treat a bare string and a single-element array identically', async () => {
+    const asString = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        headInlineScripts: 'console.log("same");',
+      },
+    );
+
+    const asArray = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        headInlineScripts: ['console.log("same");'],
+      },
+    );
+
+    expect(asString.success).toBe(true);
+    expect(asArray.success).toBe(true);
+
+    if (asString.success && asArray.success) {
+      expect(asString.html).toBe(asArray.html);
+    }
+  });
+
+  it('should report a string headInlineScripts without an array index', async () => {
+    // "headInlineScripts[0]" would be nonsense for a caller who passed a plain string.
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { headInlineScripts: '<script>nested</script>' },
+    );
+
+    expect(result.success).toBe(false);
+
+    if (!result.success) {
+      expect(result.error).toContain(
+        'templateSlots.headInlineScripts contains',
+      );
+      expect(result.error).not.toContain('[0]');
+    }
+  });
+
+  it('should reject headInlineScripts that is neither a string nor an array', async () => {
+    // A JavaScript caller gets no type error, so this has to fail with a message about the
+    // config rather than a TypeError from somewhere inside the implementation.
+    const badSlots: unknown = { headInlineScripts: { src: 'nope.js' } };
+
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      badSlots as TemplateSlots,
+    );
+
+    expect(result.success).toBe(false);
+
+    if (!result.success) {
+      expect(result.error).toContain(
+        'must be a string of JavaScript source, or an array of them',
+      );
+      expect(result.error).not.toContain('entries');
+    }
+  });
+
+  it('should reject a headInlineScripts entry containing an ss- marker', async () => {
+    // The head is emitted before the body, so this literal would be the document's first
+    // occurrence of the marker and would take the injection meant for the real outlet,
+    // swallowing the rendered page into a JS string and leaving the real outlet empty.
+    const outletResult = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { headInlineScripts: [`const tpl = "<!--ss-outlet-->";`] },
+    );
+
+    expect(outletResult.success).toBe(false);
+
+    if (!outletResult.success) {
+      expect(outletResult.error).toContain('headInlineScripts[0]');
+      expect(outletResult.error).toContain('ss-outlet');
+    }
+
+    const headResult = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { headInlineScripts: [`const tpl = "<!--ss-head-->";`] },
+    );
+
+    expect(headResult.success).toBe(false);
+
+    if (!headResult.success) {
+      expect(headResult.error).toContain('ss-head');
+    }
+  });
+
+  it('should reject bodyPrepend containing an ss- marker', async () => {
+    const outletResult = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { bodyPrepend: '<div><!--ss-outlet--></div>' },
+    );
+
+    expect(outletResult.success).toBe(false);
+
+    if (!outletResult.success) {
+      expect(outletResult.error).toContain('ss-outlet');
+    }
+
+    const headResult = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { bodyPrepend: '<div><!--ss-head--></div>' },
+    );
+
+    expect(headResult.success).toBe(false);
+
+    if (!headResult.success) {
+      expect(headResult.error).toContain('ss-head');
+    }
+  });
+
+  it('should reject a marker written with the --!> comment terminator', async () => {
+    // HTML ends a comment on `--!>` as well as `-->`, so this reads past a regex looking only
+    // for the canonical spelling. It parses to a comment whose data is "ss-outlet", which the
+    // prettifier then writes back out as a real <!--ss-outlet-->, ahead of the container, where
+    // injectContent()'s single string replace would inject the whole page into it.
+    for (const bodyPrepend of [
+      '<div><!--ss-outlet--!></div>',
+      '<div><!--ss-head--!></div>',
+    ]) {
+      const result = await processTemplate(
+        baseHTML,
+        'ssr',
+        false,
+        false,
+        'root',
+        { bodyPrepend },
+      );
+
+      expect(result.success).toBe(false);
+    }
+  });
+
+  it('should reject a marker the parser cannot see, inside a slot script or style', async () => {
+    // The mirror of the case above. A parser sees no comment node inside raw-text elements, but
+    // injectContent() finds the marker with a plain string replace, so the literal characters
+    // are live to it wherever they sit. This is why the raw check is kept alongside the parsed
+    // one rather than replaced by it.
+    const inScript = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { bodyPrepend: '<script>const t = "<!--ss-outlet-->";</script>' },
+    );
+
+    expect(inScript.success).toBe(false);
+
+    if (!inScript.success) {
+      expect(inScript.error).toContain('ss-outlet');
+    }
+
+    const inStyle = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { bodyPrepend: '<style>/* <!--ss-outlet--> */</style>' },
+    );
+
+    expect(inStyle.success).toBe(false);
+  });
+
+  it('should reject bodyPrepend that declares the container ID', async () => {
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        bodyPrepend: '<div id="root">duplicate</div>',
+      },
+    );
+
+    expect(result.success).toBe(false);
+
+    if (!result.success) {
+      expect(result.error).toContain('id="root"');
+    }
+  });
+
+  it('should reject the container ID however the attribute is spelled', async () => {
+    // The check parses the slot rather than pattern-matching it, so every spelling HTML
+    // allows for the same attribute is caught, not just the double-quoted one.
+    const spellings = [
+      '<div id=root>unquoted</div>',
+      "<div id='root'>single quoted</div>",
+      '<div ID="root">uppercase attribute name</div>',
+      '<div id = "root">spaces around equals</div>',
+      '<div class="wrap"><span id=root>nested</span></div>',
+    ];
+
+    for (const bodyPrepend of spellings) {
+      const result = await processTemplate(
+        baseHTML,
+        'ssr',
+        false,
+        false,
+        'root',
+        { bodyPrepend },
+      );
+
+      expect(result.success).toBe(false);
+
+      if (!result.success) {
+        expect(result.error).toContain('id="root"');
+      }
+    }
+  });
+
+  it('should not treat an id that merely contains the container ID as a conflict', async () => {
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { bodyPrepend: '<div id="root-banner">not the container</div>' },
+    );
+
+    expect(result.success).toBe(true);
+  });
+
+  it('should handle a container ID with regex metacharacters', async () => {
+    // containerID is caller-supplied and interpolated into no regex, so characters that
+    // would be special in a pattern (".", "+") are matched literally.
+    const html = `
+      <html>
+        <head><!--ss-head--></head>
+        <body>
+          <div id="app.v1+beta"><!--ss-outlet--></div>
+        </body>
+      </html>
+    `;
+
+    const conflict = await processTemplate(
+      html,
+      'ssr',
+      false,
+      false,
+      'app.v1+beta',
+      { bodyPrepend: '<div id="app.v1+beta">duplicate</div>' },
+    );
+
+    expect(conflict.success).toBe(false);
+
+    // "." must not act as a wildcard: this ID differs only at those positions.
+    const allowed = await processTemplate(
+      html,
+      'ssr',
+      false,
+      false,
+      'app.v1+beta',
+      { bodyPrepend: '<div id="appXv1+beta">different element</div>' },
+    );
+
+    expect(allowed.success).toBe(true);
+  });
+
+  it('should check bodyPrepend against a custom container ID', async () => {
+    const html = `
+      <html>
+        <head><!--ss-head--></head>
+        <body>
+          <div id="my-app"><!--ss-outlet--></div>
+        </body>
+      </html>
+    `;
+
+    const conflict = await processTemplate(
+      html,
+      'ssr',
+      false,
+      false,
+      'my-app',
+      {
+        bodyPrepend: '<div id="my-app">duplicate</div>',
+      },
+    );
+
+    expect(conflict.success).toBe(false);
+
+    // The default container ID is not special: "root" is fine when the app mounts elsewhere.
+    const allowed = await processTemplate(html, 'ssr', false, false, 'my-app', {
+      bodyPrepend: '<div id="root">unrelated</div>',
+    });
+
+    expect(allowed.success).toBe(true);
+  });
+
+  it('should append bodyAppend at the end of body, after the client entry script', async () => {
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        bodyAppend: '<div id="widget-mount">widget</div>',
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      const widgetIndex = result.html.indexOf('widget-mount');
+      const containerIndex = result.html.indexOf('<div id="root">');
+      const entryIndex = result.html.indexOf('EntryClient.tsx');
+      const bodyCloseIndex = result.html.indexOf('</body>');
+
+      expect(widgetIndex).toBeGreaterThan(containerIndex);
+      // Lands after the relocated body scripts, so it really is the last thing in <body>.
+      expect(widgetIndex).toBeGreaterThan(entryIndex);
+      expect(widgetIndex).toBeLessThan(bodyCloseIndex);
+    }
+  });
+
+  it('should reject bodyAppend containing a marker or the container ID', async () => {
+    const markerResult = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { bodyAppend: '<div><!--ss-outlet--></div>' },
+    );
+
+    expect(markerResult.success).toBe(false);
+
+    if (!markerResult.success) {
+      expect(markerResult.error).toContain('bodyAppend');
+      expect(markerResult.error).toContain('ss-outlet');
+    }
+
+    const containerResult = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { bodyAppend: '<div id="root">duplicate</div>' },
+    );
+
+    expect(containerResult.success).toBe(false);
+
+    if (!containerResult.success) {
+      expect(containerResult.error).toContain('bodyAppend');
+    }
+  });
+
+  it('should leave the container element untouched when body slots are used', async () => {
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        bodyPrepend: '<noscript><p>No JS</p></noscript>',
+        bodyAppend: '<div id="widget-mount">widget</div>',
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // The container stays on one line with no whitespace text nodes around the outlet,
+      // which is what keeps hydration from mismatching.
+      expect(result.html).toContain('<div id="root"><!--ss-outlet--></div>');
+    }
+  });
+
+  it('should apply all slots together', async () => {
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        headInlineScripts: ['document.documentElement.classList.add("dark");'],
+        bodyPrepend: '<noscript><p>No JS</p></noscript>',
+        bodyAppend: '<div id="widget-mount">widget</div>',
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain(
+        'document.documentElement.classList.add("dark");',
+      );
+      expect(result.html).toContain('<noscript>');
+      expect(result.html).toContain('No JS');
+      expect(result.html).toContain('widget-mount');
     }
   });
 });

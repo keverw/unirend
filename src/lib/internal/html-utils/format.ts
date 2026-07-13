@@ -1,6 +1,16 @@
-import type { RenderType } from '../../types';
+import type { RenderType, TemplateSlots } from '../../types';
 import type { CheerioAPI } from 'cheerio';
 import type { AnyNode, Comment, Document, Element, Text } from 'domhandler';
+import { escapeHTMLAttr, escapeHTMLText } from './escape';
+
+// cheerio's load(), narrowed to the fragment-parsing call validateTemplateSlots() makes.
+// Passed in rather than imported so the dynamic import in processTemplate() stays the only
+// place cheerio is pulled in, keeping it out of client bundles.
+type CheerioLoad = (
+  content: string,
+  options: null,
+  isDocument: false,
+) => CheerioAPI;
 
 // Define a lightweight type for directive nodes from the parser
 type DirectiveElement = { type: 'directive'; data: string };
@@ -62,6 +72,285 @@ function isUnirendHeadManagedMeta(identifier: string): boolean {
   );
 }
 
+/**
+ * Whether an asset URL points at something this app serves, and so should be rewritten to
+ * the CDN placeholder.
+ *
+ * Root-relative is the marker of a local asset ("/assets/main.js"), but a leading slash on
+ * its own isn't enough: a protocol-relative URL ("//cdn.vendor.com/w.js", still used by some
+ * third-party embeds) also starts with one while pointing at another origin entirely.
+ * Prefixing it would produce "https://cdn.example.com//cdn.vendor.com/w.js", so it's treated
+ * as external, along with every fully-qualified URL.
+ */
+function isLocalAssetURL(url: string): boolean {
+  return url.startsWith('/') && !url.startsWith('//');
+}
+
+/**
+ * Normalizes the headInlineScripts slot, which takes one script as a plain string or several
+ * as an array, to the array the rest of the code works with.
+ *
+ * @returns The scripts, or null when the value is neither a string nor an array, which
+ * validateTemplateSlots() turns into an error. Both callers go through here so the validated
+ * scripts and the emitted ones can never be a different list.
+ */
+function toHeadInlineScripts(
+  value: TemplateSlots['headInlineScripts'],
+): string[] | null {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (typeof value === 'string') {
+    return [value];
+  }
+
+  return Array.isArray(value) ? value : null;
+}
+
+/**
+ * Validates templateSlots before any of it reaches the document.
+ *
+ * These slots are raw, trusted content emitted verbatim, so the checks here aren't about
+ * escaping — they're about the ways slot content can silently corrupt the pipeline that
+ * runs around it. Each one is a mistake that would otherwise produce broken HTML at
+ * request time rather than a clear failure at startup.
+ *
+ * @returns An error message, or null when the slots are usable.
+ */
+function validateTemplateSlots(
+  slots: TemplateSlots,
+  containerID: string,
+  load: CheerioLoad,
+): string | null {
+  const MARKERS = ['ss-head', 'ss-outlet'];
+
+  // Two checks, because a slot can smuggle a marker past either one alone.
+  //
+  // The raw check catches the marker's literal characters wherever they sit, including places a
+  // parser sees no comment node at all, such as inside a <script> or <style> in the slot.
+  // injectContent() locates each marker with a single plain string replace, so those characters
+  // are live to it regardless of what they parsed as.
+  const rawMarkerIn = (value: string): string | null =>
+    MARKERS.find((marker) =>
+      new RegExp(`<!--\\s*${marker}\\s*-->`).test(value),
+    ) ?? null;
+
+  // The parsed check catches the reverse: a comment the raw check does not recognize, but which
+  // the prettifier re-emits in the canonical spelling that injectContent() then matches. HTML
+  // ends a comment on `--!>` as well as `-->`, so `<!--ss-outlet--!>` reads past the raw regex,
+  // parses to a comment whose data is "ss-outlet", and is written back out as a real
+  // `<!--ss-outlet-->`. Pattern-matching every spelling the tokenizer accepts is a losing game,
+  // so this asks the parser instead.
+  const parsedMarkerIn = (nodes: AnyNode[]): string | null => {
+    for (const node of nodes) {
+      if (isCommentNode(node)) {
+        const data = node.data?.trim() ?? '';
+
+        if (MARKERS.includes(data)) {
+          return data;
+        }
+      }
+
+      const children =
+        isElementNode(node) || isDocumentNode(node) ? node.children : null;
+
+      if (children) {
+        const found = parsedMarkerIn(children);
+
+        if (found) {
+          return found;
+        }
+      }
+    }
+
+    return null;
+  };
+
+  const headInlineScripts = toHeadInlineScripts(slots.headInlineScripts);
+
+  if (headInlineScripts === null) {
+    return 'templateSlots.headInlineScripts must be a string of JavaScript source, or an array of them.';
+  }
+
+  // A single script is passed as a plain string, so an index would be meaningless noise in the
+  // error when that's what the caller did.
+  const isSingle = typeof slots.headInlineScripts === 'string';
+  const scriptLabel = (index: number): string =>
+    isSingle
+      ? 'templateSlots.headInlineScripts'
+      : `templateSlots.headInlineScripts[${index}]`;
+
+  for (const [index, script] of headInlineScripts.entries()) {
+    if (typeof script !== 'string') {
+      return `${scriptLabel(index)} must be a string of JavaScript source.`;
+    }
+
+    // The entry is wrapped in a <script> tag, so a tag in the source would either nest
+    // (invalid) or, for a closing tag, terminate the wrapper early and dump the rest of
+    // the script into the document as markup. A literal `</script` inside a JS string is
+    // the same hazard, and is why the check is on the raw text rather than a parse.
+    if (/<\/?script\b/i.test(script)) {
+      return `${scriptLabel(index)} contains a <script> tag. Pass JavaScript source only — unirend wraps it in a <script> tag for you. If the script needs a literal "</script>" inside a string, escape it as "<\\/script>".`;
+    }
+
+    // Raw check only: this is JavaScript source, not HTML, so it is never parsed. Only the
+    // literal characters injectContent() searches for can do any harm here.
+    const scriptMarker = rawMarkerIn(script);
+
+    if (scriptMarker) {
+      return `${scriptLabel(index)} contains the <!--${scriptMarker}--> marker, which belongs to the template itself. It would take the injection meant for the template's own marker.`;
+    }
+  }
+
+  const htmlSlots: [name: string, value: string | undefined][] = [
+    ['bodyPrepend', slots.bodyPrepend],
+    ['bodyAppend', slots.bodyAppend],
+  ];
+
+  for (const [name, value] of htmlSlots) {
+    if (value === undefined) {
+      continue;
+    }
+
+    if (typeof value !== 'string') {
+      return `templateSlots.${name} must be a string of HTML.`;
+    }
+
+    const fragment = load(value, null, false);
+
+    // The body slots are spliced in after marker validation and comment cleanup, so a marker
+    // here would survive to injectContent() and be treated as the real one. A second
+    // ss-outlet in particular would get a full copy of the rendered page injected into it.
+    // Checked both ways, since either alone can be walked around: see rawMarkerIn/parsedMarkerIn.
+    const bodyMarker =
+      rawMarkerIn(value) ?? parsedMarkerIn(fragment.root().toArray());
+
+    if (bodyMarker) {
+      return `templateSlots.${name} contains the <!--${bodyMarker}--> marker, which belongs to the template itself. Injected content would be duplicated into it.`;
+    }
+
+    // A second element with the container's ID would be ambiguous for both the prettifier's
+    // hydration-safe inline formatting and the client's getElementById() mount.
+    //
+    // Parsed rather than pattern-matched, because the attribute has too many spellings for a
+    // regex to chase: `id=root` unquoted, single-quoted, `ID=` in any case, extra whitespace
+    // around the `=`. The parser normalizes all of them, and it sidesteps having to escape
+    // regex metacharacters in containerID, which is caller-supplied.
+    const hasContainerID = fragment('*')
+      .toArray()
+      .some((el) => isElementNode(el) && el.attribs?.['id'] === containerID);
+
+    if (hasContainerID) {
+      return `templateSlots.${name} declares id="${containerID}", which is the container element's ID. The app would have two mount points.`;
+    }
+  }
+
+  return null;
+}
+
+// Elements whose text content is significant to the rendered output. The prettifier trims text
+// nodes and adds indentation, which is invisible for normal markup but is content for these:
+// re-indenting the body of a <pre> visibly changes the page, and doing it to a <textarea>
+// changes the value the user submits. They're serialized byte-for-byte instead.
+const WHITESPACE_SENSITIVE_TAGS = new Set(['pre', 'textarea', 'listing']);
+
+// Void elements have no children and no end tag. Emitting one is not a cosmetic slip: HTML5
+// parses a stray `</br>` as another `<br>` start tag, so serializing a single <br> as
+// `<br></br>` re-parses into two line breaks, and the content grows on every round trip.
+const VOID_TAGS = new Set([
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'param',
+  'source',
+  'track',
+  'wbr',
+]);
+
+// Elements whose children the HTML parser does NOT treat as markup, handing back a single text
+// node holding the source characters as-is. Their text must be emitted raw: entity-encoding it
+// would corrupt the content, turning `a && b` in a script into `a &amp;&amp; b`, or the markup
+// inside a <noscript> into literal, visible `&lt;div&gt;` on the page.
+//
+// <title> and <textarea> are deliberately absent. The parser DOES decode entities in those, so
+// they behave like normal text and have to be re-encoded on the way out.
+const RAW_TEXT_TAGS = new Set([
+  'script',
+  'style',
+  'noscript',
+  'iframe',
+  'noembed',
+  'noframes',
+  'xmp',
+  'plaintext',
+]);
+
+/**
+ * Whether a text node sits directly inside an element whose contents the parser kept raw, and
+ * so must be written back out without escaping.
+ */
+function isRawText(node: AnyNode): boolean {
+  const parent = node.parent;
+
+  return (
+    parent !== null &&
+    isElementNode(parent) &&
+    RAW_TEXT_TAGS.has(parent.name.toLowerCase())
+  );
+}
+
+/**
+ * Serializes an element's attributes.
+ *
+ * Values are re-encoded because the parser handed them over decoded. Writing one back raw would
+ * at best mangle it (`a &amp; b` collapsing to `a & b`) and at worst let a value containing a
+ * double quote close the attribute early and inject markup into the tag.
+ */
+function serializeAttributes(el: Element): string {
+  return Object.entries(el.attribs || {})
+    .map(([key, val]) => (val === '' ? key : `${key}="${escapeHTMLAttr(val)}"`))
+    .join(' ');
+}
+
+/**
+ * Serializes a node exactly as parsed, with no trimming, indentation, or line breaks added.
+ * Used for the contents of whitespace-sensitive elements, where the formatting IS the content.
+ */
+function serializeVerbatim(el: AnyNode): string {
+  if (isCommentNode(el)) {
+    return `<!--${el.data}-->`;
+  }
+
+  if (isTextNode(el)) {
+    const text = el.data ?? '';
+
+    return isRawText(el) ? text : escapeHTMLText(text);
+  }
+
+  if (!isElementNode(el)) {
+    return '';
+  }
+
+  const attrs = serializeAttributes(el);
+  const openTag = attrs ? `<${el.name} ${attrs}>` : `<${el.name}>`;
+
+  if (VOID_TAGS.has(el.name)) {
+    return openTag;
+  }
+
+  const children = (el.children ?? []).map(serializeVerbatim).join('');
+
+  return `${openTag}${children}</${el.name}>`;
+}
+
 function formatNode(
   el: AnyNode,
   level = 0,
@@ -96,7 +385,11 @@ function formatNode(
       return '';
     }
 
-    return `${indent}${text}`;
+    // Re-encode, since the parser handed this back decoded. Emitting it raw would turn an
+    // author's escaped `&lt;b&gt;` back into a live <b> tag. Raw-text elements (script, style,
+    // noscript) are the exception: their contents were never decoded, and encoding them now
+    // would break the code or markup they hold.
+    return `${indent}${isRawText(el) ? text : escapeHTMLText(text)}`;
   }
 
   // Only element-like nodes (tag/script/style) remain past this point. Guard
@@ -109,33 +402,28 @@ function formatNode(
   // Tag elements
   const tag = el;
   const tagName = tag.name;
-  const attrs = Object.entries(tag.attribs || {})
-    .map(([key, val]) => (val === '' ? key : `${key}="${val}"`))
-    .join(' ');
+  const attrs = serializeAttributes(tag);
   const openTag = attrs ? `<${tagName} ${attrs}>` : `<${tagName}>`;
+
+  // Whitespace-sensitive elements are emitted exactly as authored: the open tag gets the
+  // surrounding indentation, but nothing is added inside it.
+  //
+  // The leading newline is re-added because the HTML parser drops one that directly follows the
+  // open tag ("<pre>\nfoo" parses to the text "foo"). Without putting it back, a <pre> whose
+  // content legitimately starts with a blank line would lose it a little more on every
+  // parse/serialize round trip.
+  if (WHITESPACE_SENSITIVE_TAGS.has(tagName)) {
+    const inner = (tag.children ?? []).map(serializeVerbatim).join('');
+    const leadingNewline = inner.startsWith('\n') ? '\n' : '';
+
+    return `${indent}${openTag}${leadingNewline}${inner}</${tagName}>`;
+  }
 
   // Special handling for container element to prevent whitespace nodes
   const isRoot =
     tagName === 'div' &&
     'id' in tag.attribs &&
     tag.attribs['id'] === containerID;
-
-  const selfClosingTags = new Set([
-    'area',
-    'base',
-    'br',
-    'col',
-    'embed',
-    'hr',
-    'img',
-    'input',
-    'link',
-    'meta',
-    'param',
-    'source',
-    'track',
-    'wbr',
-  ]);
 
   if (tag.children && tag.children.length > 0) {
     // Different handling for root element - keep content on a single line for hydration
@@ -178,7 +466,7 @@ function formatNode(
   }
 
   // Self-closing tags
-  if (selfClosingTags.has(tagName)) {
+  if (VOID_TAGS.has(tagName)) {
     return `${indent}<${tagName}${attrs ? ` ${attrs}` : ''}/>`;
   }
 
@@ -205,6 +493,7 @@ export async function processTemplate(
   isDevelopment: boolean,
   isDevServer: boolean,
   containerID = 'root',
+  templateSlots?: TemplateSlots,
 ): Promise<ProcessTemplateResult> {
   try {
     // isDevelopment = runtime behavior (dev comment injection)
@@ -214,8 +503,18 @@ export async function processTemplate(
     const cheerio = await import('cheerio');
     const $ = cheerio.load(html);
 
-    if (isDevelopment) {
-      $('body').prepend(`<!-- ${DEVELOPMENT_COMMENT} -->\n`);
+    // Validate before any slot content reaches the document, but after cheerio is available,
+    // since the container-ID check parses each slot rather than pattern-matching it.
+    if (templateSlots) {
+      const slotsError = validateTemplateSlots(
+        templateSlots,
+        containerID,
+        cheerio.load,
+      );
+
+      if (slotsError) {
+        return { success: false, error: slotsError };
+      }
     }
 
     // Drop the head tags UnirendHead owns per page. Their template copies go even when a page
@@ -260,17 +559,39 @@ export async function processTemplate(
     if (!isDevServer) {
       $('script[src]').each((_, el) => {
         const src = $(el).attr('src');
-        if (src && src.startsWith('/')) {
+        if (src && isLocalAssetURL(src)) {
           $(el).attr('src', `__CDN__INJECTION__POINT__${src}`);
         }
       });
 
       $('link[href]').each((_, el) => {
         const href = $(el).attr('href');
-        if (href && href.startsWith('/')) {
+        if (href && isLocalAssetURL(href)) {
           $(el).attr('href', `__CDN__INJECTION__POINT__${href}`);
         }
       });
+    }
+
+    // Append the configured inline head scripts to <head> before scripts are collected below,
+    // so they're picked up by the same relocation as the template's own: they end up after the
+    // context globals and can read __FRONTEND_REQUEST_CONTEXT__, which is the whole point of a
+    // slotted theme flash-prevention script. Appending puts them after the template's scripts
+    // in document order, and the collection preserves that order.
+    //
+    // Wrapping happens here rather than in the caller so the slot value stays plain JS source:
+    // validateTemplateSlots() has already rejected any entry carrying a <script> tag, so the
+    // wrapper can't be terminated early. It has also already rejected a value that is neither a
+    // string nor an array, so the normalizer cannot return null by this point.
+    for (const script of toHeadInlineScripts(
+      templateSlots?.headInlineScripts,
+    ) ?? []) {
+      const source = script.trim();
+
+      // Skip blank entries instead of emitting an empty <script></script>. Lets a shared slots
+      // object use a conditional (`isProd ? analytics : ''`) without leaving a stray tag behind.
+      if (source) {
+        $('head').append(`<script>${source}</script>`);
+      }
     }
 
     // Collect head and body scripts separately so we can control insertion order.
@@ -370,6 +691,30 @@ export async function processTemplate(
       if (bodyScripts.length > 0) {
         $('body').append(bodyScripts.join('\n'));
       }
+    }
+
+    // Splice in the configured body content: bodyPrepend lands before the container element,
+    // bodyAppend after everything, including the body scripts just relocated above. Neither
+    // touches the container itself, so hydration is unaffected.
+    //
+    // This runs last, after script collection and comment cleanup, and that ordering is the
+    // contract: a <script> written in the template's body is relocated to after the container,
+    // but one written here is not, and comments here survive rather than being stripped as
+    // non-ss- comments. Slot content is emitted as authored. It also means the marker
+    // validation above can't be fooled by a marker in this content, which is instead rejected
+    // outright by validateTemplateSlots().
+    if (templateSlots?.bodyAppend) {
+      $('body').append(templateSlots.bodyAppend);
+    }
+
+    if (templateSlots?.bodyPrepend) {
+      $('body').prepend(templateSlots.bodyPrepend);
+    }
+
+    // Prepended after the slot content so the note stays the first thing in <body>, which is
+    // where a developer reading source expects it. Nothing below it depends on the position.
+    if (isDevelopment) {
+      $('body').prepend(`<!-- ${DEVELOPMENT_COMMENT} -->\n`);
     }
 
     return {

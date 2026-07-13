@@ -28,6 +28,7 @@
   - [Construction](#construction)
   - [SSR Options](#ssr-options)
   - [Options (Prod-Only)](#options-prod-only)
+  - [Template Slots](#template-slots)
   - [Header and Cookies Forwarding](#header-and-cookies-forwarding)
   - [Reading Server Decorations](#reading-server-decorations)
   - [Environment Flag in Handlers](#environment-flag-in-handlers)
@@ -858,6 +859,8 @@ In addition to the [shared server configuration](#shared-server-configuration), 
   - Within a request, read the config via `usePublicAppConfig()` in components (available on both server and client). Each request receives a deep-cloned, deep-frozen snapshot, so mutations inside a request are isolated and do not affect other requests. If you hold a reference to the object (or a sub-object within it) that you passed here, you can mutate it between requests and the next clone will pick up the change. Updates are global (all subsequent requests, not a specific user). Use `requestContext` for per-user or per-request values.
 - `containerID?: string`
   - Client container element ID (default `"root"`).
+- `templateSlots?: { headInlineScripts?: string | string[]; bodyPrepend?: string; bodyAppend?: string }`
+  - Extra content spliced into this app's HTML template. See [Template Slots](#template-slots).
 - `ssrRenderTimeout?: number`
   - Timeout in milliseconds for the SSR render fetch request. If the render takes longer than this, the request is aborted and a 500 error page is returned.
   - Default: `5000` (5 seconds). Increase for pages with slow data loaders or complex rendering.
@@ -919,6 +922,66 @@ In addition to the [shared server configuration](#shared-server-configuration), 
     - `folderMap` prefixes are normalized to ensure both leading and trailing slash, so `/assets` and `assets/` are treated as `/assets/`.
     - The incoming request URL is normalized to ensure a leading slash before matching.
     - The relative path slice is guarded against accidental leading `/` to prevent absolute path resolution on POSIX.
+
+### Template Slots
+
+`templateSlots` lets an app add content to its HTML template from server config instead of from the template file.
+
+The reason to reach for it is reuse. In a monorepo maintaining several apps or running multiple apps off one SSR server, the boilerplate that belongs at the edges of every page tends to be identical: a theme flash-prevention script, a no-JavaScript warning, an analytics snippet, a support chat widget. Slots let you export that boilerplate once and hand it to every app, or hand a variant to one app, without maintaining a near-duplicate `index.html` per app.
+
+It is available on `serveSSRWithHMR()`, `serveSSRBuilt()`, `registerHMRApp()`, and `registerBuiltApp()`, so both single-app and [multi-app](#multi-app-ssr-support) servers can use it. Like every other per-app option, it does **not** inherit from the default app: each app that wants slots passes them.
+
+| Slot | Lands | Typical use |
+| --- | --- | --- |
+| `headInlineScripts` | End of `<head>`, after unirend's context globals | Useful for theme flash prevention or feature flags |
+| `bodyPrepend` | Start of `<body>`, before the container element | `<noscript>` warning |
+| `bodyAppend` | End of `<body>`, after the container and the client entry script | Analytics, support chat widget |
+
+```typescript
+// shared/template-slots.ts
+import type { TemplateSlots } from 'unirend/server';
+
+export const sharedSlots: TemplateSlots = {
+  headInlineScripts: [
+    // Applies the theme class before first paint, so there's no flash of the wrong theme.
+    `(function () {
+      const pref = window.__FRONTEND_REQUEST_CONTEXT__?.themePreference || 'auto';
+      const dark = pref === 'dark' || (pref === 'auto' &&
+        window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (dark) document.documentElement.classList.add('dark');
+    })();`,
+  ],
+  bodyPrepend: `<noscript><p>This page needs JavaScript to run.</p></noscript>`,
+  bodyAppend: `<script async src="https://analytics.example.com/script.js"></script>`,
+};
+```
+
+```typescript
+// Every app gets the shared boilerplate; the admin app opts out of analytics.
+const server = serveSSRBuilt(BUILD_DIR_STOREFRONT, {
+  templateSlots: sharedSlots,
+});
+
+server.registerBuiltApp('admin', BUILD_DIR_ADMIN, {
+  templateSlots: { ...sharedSlots, bodyAppend: undefined },
+});
+```
+
+**How the slots behave**
+
+- `headInlineScripts` entries are **JavaScript source, not HTML**. Unirend wraps each one in a `<script>` tag, so they are inline-only by construction. Passing a `<script>` tag is rejected at startup. To load an external script, use `bodyAppend` (as above) or put a `<script src>` in the template itself.
+- `headInlineScripts` takes a single script as a plain string, or several as an array. `headInlineScripts: theme` and `headInlineScripts: [theme]` produce identical output, so there is no need to wrap a lone script in an array.
+- They run **after** unirend's context globals, in the same position as inline scripts written in the template's head. That means `window.__FRONTEND_REQUEST_CONTEXT__` and `window.__PUBLIC_APP_CONFIG__` are already readable, which is what makes a slotted theme script work.
+- A `<script>` inside `bodyPrepend` or `bodyAppend` **stays where you put it**. Scripts written directly in the template's body are relocated to after the container element, but slot content is not, and its comments survive rather than being stripped the way the template's are.
+- Slot HTML is re-indented to match the surrounding document, exactly as the template's own markup is. Whitespace-sensitive elements (`<pre>`, `<textarea>`) are exempt and kept byte-for-byte, so their content is never reformatted.
+- Neither body slot may contain the container element's ID or an `<!--ss-head-->` / `<!--ss-outlet-->` marker. Both are rejected at startup rather than producing a broken page: a duplicate `ss-outlet` would receive a second copy of the rendered page, and a duplicate container ID would give the app two mount points.
+- Blank `headInlineScripts` entries are skipped, so a shared slots object can use a conditional like `isProd ? analytics : ''` without leaving an empty `<script></script>` behind.
+
+<!-- prettier-ignore -->
+> [!NOTE]
+> Slots are baked into the processed template, which is cached per app, so they cannot vary per request. Anything request-specific belongs in `requestContext` or `publicAppConfig`, which are injected per request as context globals your slotted scripts can read.
+
+Nothing here is required. Slots only add to a template, never rewrite what it already contains, so hard-coding this content in `index.html` instead stays just as valid. An app that sets no slots is served exactly the HTML its template describes, with no leftover placeholder or blank line.
 
 ### Header and Cookies Forwarding
 
