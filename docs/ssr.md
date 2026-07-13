@@ -983,7 +983,10 @@ server.registerBuiltApp('admin', BUILD_DIR_ADMIN, {
 
 <!-- prettier-ignore -->
 > [!IMPORTANT]
-> Slots are applied by unirend's SSR and SSG pipeline, which is what processes the template. They are **not** applied when `index.html` is served directly by Vite, as the `<project>:spa-dev` script the starter generates does. That script runs bare `vite`, so unirend is not in the request path at all: none of the template processing runs, no context globals are injected, and the `ss-` markers are left in place as inert comments. This is not specific to slots, but it is easy to hit, because a slotted theme script is exactly the kind of thing you would go looking for in a dev server. Use `<project>:serve:dev` to see slots, and treat `spa-dev` as a client-only view of the app that skips the server entirely.
+> Slots are an **SSR-only** option, applied by the SSR server as it processes the template. Two places they do not reach:
+>
+> - **SSG.** `generateSSG()` runs the same template processing but takes no `templateSlots`, so a static build ignores them. Hard-code the content in `index.html` for SSG apps.
+> - **Vite serving `index.html` directly**, as the `<project>:spa-dev` script the starter generates does. It runs bare `vite`, so unirend is not in the request path at all: no template processing runs, no context globals are injected, and the `ss-` markers stay put as inert comments. This is not specific to slots, but it is easy to hit, because a slotted theme script is exactly the thing you would go looking for in a dev server, and it reads `window.__FRONTEND_REQUEST_CONTEXT__`, which `spa-dev` never defines either. Use `<project>:serve:dev` to see slots, and treat `spa-dev` as a client-only view that skips the server entirely.
 
 Nothing here is required. Slots only add to a template, never rewrite what it already contains, so hard-coding this content in `index.html` instead stays just as valid. An app that sets no slots is served exactly the HTML its template describes, with no leftover placeholder or blank line.
 
