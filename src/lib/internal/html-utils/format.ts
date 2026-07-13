@@ -123,16 +123,49 @@ function validateTemplateSlots(
   containerID: string,
   load: CheerioLoad,
 ): string | null {
-  // Every slot is checked, not just the body ones. injectContent() locates each marker with a
-  // single plain string replace, so the first literal occurrence anywhere in the document wins,
-  // whether or not a parser would see a comment node there. A head inline script is the worst
-  // case: the head is emitted before the body, so JS source containing the characters
-  // "<!--ss-outlet-->" would take the replacement and receive the entire rendered page, leaving
-  // the real outlet empty. This is also why the check runs on raw text rather than a parse.
-  const markerIn = (value: string): string | null =>
-    ['ss-head', 'ss-outlet'].find((marker) =>
+  const MARKERS = ['ss-head', 'ss-outlet'];
+
+  // Two checks, because a slot can smuggle a marker past either one alone.
+  //
+  // The raw check catches the marker's literal characters wherever they sit, including places a
+  // parser sees no comment node at all, such as inside a <script> or <style> in the slot.
+  // injectContent() locates each marker with a single plain string replace, so those characters
+  // are live to it regardless of what they parsed as.
+  const rawMarkerIn = (value: string): string | null =>
+    MARKERS.find((marker) =>
       new RegExp(`<!--\\s*${marker}\\s*-->`).test(value),
     ) ?? null;
+
+  // The parsed check catches the reverse: a comment the raw check does not recognize, but which
+  // the prettifier re-emits in the canonical spelling that injectContent() then matches. HTML
+  // ends a comment on `--!>` as well as `-->`, so `<!--ss-outlet--!>` reads past the raw regex,
+  // parses to a comment whose data is "ss-outlet", and is written back out as a real
+  // `<!--ss-outlet-->`. Pattern-matching every spelling the tokenizer accepts is a losing game,
+  // so this asks the parser instead.
+  const parsedMarkerIn = (nodes: AnyNode[]): string | null => {
+    for (const node of nodes) {
+      if (isCommentNode(node)) {
+        const data = node.data?.trim() ?? '';
+
+        if (MARKERS.includes(data)) {
+          return data;
+        }
+      }
+
+      const children =
+        isElementNode(node) || isDocumentNode(node) ? node.children : null;
+
+      if (children) {
+        const found = parsedMarkerIn(children);
+
+        if (found) {
+          return found;
+        }
+      }
+    }
+
+    return null;
+  };
 
   const headInlineScripts = toHeadInlineScripts(slots.headInlineScripts);
 
@@ -161,7 +194,9 @@ function validateTemplateSlots(
       return `${scriptLabel(index)} contains a <script> tag. Pass JavaScript source only — unirend wraps it in a <script> tag for you. If the script needs a literal "</script>" inside a string, escape it as "<\\/script>".`;
     }
 
-    const scriptMarker = markerIn(script);
+    // Raw check only: this is JavaScript source, not HTML, so it is never parsed. Only the
+    // literal characters injectContent() searches for can do any harm here.
+    const scriptMarker = rawMarkerIn(script);
 
     if (scriptMarker) {
       return `${scriptLabel(index)} contains the <!--${scriptMarker}--> marker, which belongs to the template itself. It would take the injection meant for the template's own marker.`;
@@ -182,10 +217,14 @@ function validateTemplateSlots(
       return `templateSlots.${name} must be a string of HTML.`;
     }
 
+    const fragment = load(value, null, false);
+
     // The body slots are spliced in after marker validation and comment cleanup, so a marker
     // here would survive to injectContent() and be treated as the real one. A second
     // ss-outlet in particular would get a full copy of the rendered page injected into it.
-    const bodyMarker = markerIn(value);
+    // Checked both ways, since either alone can be walked around: see rawMarkerIn/parsedMarkerIn.
+    const bodyMarker =
+      rawMarkerIn(value) ?? parsedMarkerIn(fragment.root().toArray());
 
     if (bodyMarker) {
       return `templateSlots.${name} contains the <!--${bodyMarker}--> marker, which belongs to the template itself. Injected content would be duplicated into it.`;
@@ -198,7 +237,6 @@ function validateTemplateSlots(
     // regex to chase: `id=root` unquoted, single-quoted, `ID=` in any case, extra whitespace
     // around the `=`. The parser normalizes all of them, and it sidesteps having to escape
     // regex metacharacters in containerID, which is caller-supplied.
-    const fragment = load(value, null, false);
     const hasContainerID = fragment('*')
       .toArray()
       .some((el) => isElementNode(el) && el.attribs?.['id'] === containerID);

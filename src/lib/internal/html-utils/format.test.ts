@@ -1580,6 +1580,60 @@ describe('processTemplate templateSlots', () => {
     }
   });
 
+  it('should reject a marker written with the --!> comment terminator', async () => {
+    // HTML ends a comment on `--!>` as well as `-->`, so this reads past a regex looking only
+    // for the canonical spelling. It parses to a comment whose data is "ss-outlet", which the
+    // prettifier then writes back out as a real <!--ss-outlet-->, ahead of the container, where
+    // injectContent()'s single string replace would inject the whole page into it.
+    for (const bodyPrepend of [
+      '<div><!--ss-outlet--!></div>',
+      '<div><!--ss-head--!></div>',
+    ]) {
+      const result = await processTemplate(
+        baseHTML,
+        'ssr',
+        false,
+        false,
+        'root',
+        { bodyPrepend },
+      );
+
+      expect(result.success).toBe(false);
+    }
+  });
+
+  it('should reject a marker the parser cannot see, inside a slot script or style', async () => {
+    // The mirror of the case above. A parser sees no comment node inside raw-text elements, but
+    // injectContent() finds the marker with a plain string replace, so the literal characters
+    // are live to it wherever they sit. This is why the raw check is kept alongside the parsed
+    // one rather than replaced by it.
+    const inScript = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { bodyPrepend: '<script>const t = "<!--ss-outlet-->";</script>' },
+    );
+
+    expect(inScript.success).toBe(false);
+
+    if (!inScript.success) {
+      expect(inScript.error).toContain('ss-outlet');
+    }
+
+    const inStyle = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { bodyPrepend: '<style>/* <!--ss-outlet--> */</style>' },
+    );
+
+    expect(inStyle.success).toBe(false);
+  });
+
   it('should reject bodyPrepend that declares the container ID', async () => {
     const result = await processTemplate(
       baseHTML,
