@@ -1324,6 +1324,82 @@ describe('processTemplate templateSlots', () => {
     }
   });
 
+  it('should keep escaped content in a body slot escaped', async () => {
+    // A slot author who writes &lt;script&gt; wants to SHOW those characters, not run them.
+    // The slot is parsed and re-serialized, so the entities have to survive the round trip:
+    // emitting the parser's decoded text raw would turn the escape back into live markup.
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        bodyPrepend:
+          '<p>Never paste a &lt;script&gt; you do not trust. Tom &amp; Jerry.</p>',
+        bodyAppend: '<p>5 &lt; 6 &amp;&amp; 6 &gt; 5</p>',
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain(
+        'Never paste a &lt;script&gt; you do not trust. Tom &amp; Jerry.',
+      );
+      expect(result.html).toContain('5 &lt; 6 &amp;&amp; 6 &gt; 5');
+
+      // The decisive assertion: no live <script> element was ever created from the escaped text.
+      expect(result.html).not.toContain('<p>Never paste a <script>');
+      expect(result.html.match(/<script/g) ?? []).toHaveLength(
+        // Only the template's own client entry script.
+        1,
+      );
+    }
+  });
+
+  it('should keep escaped attribute values in a body slot escaped', async () => {
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        bodyPrepend: '<div data-note="a &quot;quoted&quot; &amp; sign">x</div>',
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // An unescaped quote here would close the attribute early and inject into the tag.
+      expect(result.html).toContain(
+        'data-note="a &quot;quoted&quot; &amp; sign"',
+      );
+    }
+  });
+
+  it('should still treat unescaped markup in a body slot as real markup', async () => {
+    // The other half of the contract: escaped stays escaped, raw stays raw. A slot is HTML,
+    // so a real tag written as a real tag must keep working, or <noscript> blocks would break.
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { bodyPrepend: '<noscript><b>Enable JavaScript</b></noscript>' },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain('<b>Enable JavaScript</b>');
+      expect(result.html).not.toContain('&lt;b&gt;');
+    }
+  });
+
   it('should preserve whitespace-sensitive content in a body slot, same as in the template', async () => {
     const html = `
       <html>
