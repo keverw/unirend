@@ -9,7 +9,7 @@
 - [0.1.3 (July 3, 2026)](#013-july-3-2026)
 - [0.1.4 (July 3, 2026)](#014-july-3-2026)
 - [0.1.5 (July 8, 2026)](#015-july-8-2026)
-- [Unreleased](#unreleased)
+- [0.1.6 (July 12, 2026)](#016-july-12-2026)
 
 <!-- tocstop -->
 
@@ -83,7 +83,7 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 - The generated starter's `index.html` (and the SSR/SSG/multi-app demos) now loads the client entry with a root-absolute `src="/EntryClient.tsx"` instead of the relative `src="./EntryClient.tsx"`. With the relative path, deep routes like `/blog/:slug` resolve the entry against the current URL (for example `/blog/EntryClient.tsx`) and fail to load. The root-absolute path always points at the app root regardless of route depth.
 - Documented the full set of framework-emitted error codes in `docs/api-envelope-structure.md`. Added the server error-handler codes (`internal_server_error`, `request_error`, `service_unavailable`), a new "Data Loader Error Codes" table for the codes the page data loader generates when transforming upstream errors (`access_denied`, `unknown_error`, `invalid_response`, `invalid_redirect`, `unsafe_redirect`, `api_redirect_not_followed`), an "Internal Diagnostic Codes" note for the error-object annotations that are not returned as client `error.code` (`handler_timeout`, `invalid_handler_response`, `handler_returned_false_without_sending`, `websocket_invalid_prevalidation_envelope`), and a "Customizing or Localizing Framework Messages" section covering the two override points (a custom `APIResponseHelpersClass` and the loader's `errorDefaults`/`statusCodeHandlers`). Also aligned the "Recommended conventional codes" list with the names the framework actually emits (`access_denied` instead of `permission_denied`, `internal_server_error` instead of `internal_error`), and updated the `docs/ssr.md` custom error-handler examples and the SSR/static-content demos to use `internal_server_error` so their sample codes match the framework.
 
-## Unreleased
+## 0.1.6 (July 12, 2026)
 
 - Fixed template processing stripping nearly every named `<meta>` tag from `index.html`, including `<meta name="viewport">`. Only `apple-mobile-web-app-title` survived, so pages shipped without a viewport meta and mobile browsers laid them out at desktop width and scaled down, defeating responsive CSS. The starter templates ship a viewport meta and were affected. Applies to SSR (dev and built) and SSG alike.
 
