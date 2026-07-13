@@ -87,6 +87,28 @@ function isLocalAssetURL(url: string): boolean {
 }
 
 /**
+ * Normalizes the headInlineScripts slot, which takes one script as a plain string or several
+ * as an array, to the array the rest of the code works with.
+ *
+ * @returns The scripts, or null when the value is neither a string nor an array, which
+ * validateTemplateSlots() turns into an error. Both callers go through here so the validated
+ * scripts and the emitted ones can never be a different list.
+ */
+function toHeadInlineScripts(
+  value: TemplateSlots['headInlineScripts'],
+): string[] | null {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (typeof value === 'string') {
+    return [value];
+  }
+
+  return Array.isArray(value) ? value : null;
+}
+
+/**
  * Validates templateSlots before any of it reaches the document.
  *
  * These slots are raw, trusted content emitted verbatim, so the checks here aren't about
@@ -112,19 +134,23 @@ function validateTemplateSlots(
       new RegExp(`<!--\\s*${marker}\\s*-->`).test(value),
     ) ?? null;
 
-  const headInlineScripts = slots.headInlineScripts ?? [];
+  const headInlineScripts = toHeadInlineScripts(slots.headInlineScripts);
 
-  // Guarded explicitly because the natural mistake is passing the bare string a single script
-  // wants to be. TypeScript catches that, but a JavaScript caller would otherwise reach
-  // .entries() on a string and get a TypeError about the implementation rather than a word
-  // about their config.
-  if (!Array.isArray(headInlineScripts)) {
-    return 'templateSlots.headInlineScripts must be an array of JavaScript source strings. Wrap a single script in an array.';
+  if (headInlineScripts === null) {
+    return 'templateSlots.headInlineScripts must be a string of JavaScript source, or an array of them.';
   }
+
+  // A single script is passed as a plain string, so an index would be meaningless noise in the
+  // error when that's what the caller did.
+  const isSingle = typeof slots.headInlineScripts === 'string';
+  const scriptLabel = (index: number): string =>
+    isSingle
+      ? 'templateSlots.headInlineScripts'
+      : `templateSlots.headInlineScripts[${index}]`;
 
   for (const [index, script] of headInlineScripts.entries()) {
     if (typeof script !== 'string') {
-      return `templateSlots.headInlineScripts[${index}] must be a string of JavaScript source.`;
+      return `${scriptLabel(index)} must be a string of JavaScript source.`;
     }
 
     // The entry is wrapped in a <script> tag, so a tag in the source would either nest
@@ -132,13 +158,13 @@ function validateTemplateSlots(
     // the script into the document as markup. A literal `</script` inside a JS string is
     // the same hazard, and is why the check is on the raw text rather than a parse.
     if (/<\/?script\b/i.test(script)) {
-      return `templateSlots.headInlineScripts[${index}] contains a <script> tag. Pass JavaScript source only — unirend wraps it in a <script> tag for you. If the script needs a literal "</script>" inside a string, escape it as "<\\/script>".`;
+      return `${scriptLabel(index)} contains a <script> tag. Pass JavaScript source only — unirend wraps it in a <script> tag for you. If the script needs a literal "</script>" inside a string, escape it as "<\\/script>".`;
     }
 
     const scriptMarker = markerIn(script);
 
     if (scriptMarker) {
-      return `templateSlots.headInlineScripts[${index}] contains the <!--${scriptMarker}--> marker, which belongs to the template itself. It would take the injection meant for the template's own marker.`;
+      return `${scriptLabel(index)} contains the <!--${scriptMarker}--> marker, which belongs to the template itself. It would take the injection meant for the template's own marker.`;
     }
   }
 
@@ -516,8 +542,11 @@ export async function processTemplate(
     //
     // Wrapping happens here rather than in the caller so the slot value stays plain JS source:
     // validateTemplateSlots() has already rejected any entry carrying a <script> tag, so the
-    // wrapper can't be terminated early.
-    for (const script of templateSlots?.headInlineScripts ?? []) {
+    // wrapper can't be terminated early. It has also already rejected a value that is neither a
+    // string nor an array, so the normalizer cannot return null by this point.
+    for (const script of toHeadInlineScripts(
+      templateSlots?.headInlineScripts,
+    ) ?? []) {
       const source = script.trim();
 
       // Skip blank entries instead of emitting an empty <script></script>. Lets a shared slots

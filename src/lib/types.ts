@@ -902,8 +902,9 @@ export interface ResponseTimeHeaderOptions {
  */
 export interface TemplateSlots {
   /**
-   * Inline scripts appended to the end of `<head>`, in array order, after the
-   * template's own inline scripts.
+   * Inline scripts appended to the end of `<head>`, after the template's own inline
+   * scripts. Pass a single script as a string, or several as an array, in which case
+   * they are emitted in array order.
    *
    * Each entry is JavaScript source, not HTML: unirend wraps it in a `<script>`
    * tag, so these are inline-only by construction. Passing a `<script>` tag
@@ -913,7 +914,7 @@ export interface TemplateSlots {
    * unirend's context globals, so `window.__FRONTEND_REQUEST_CONTEXT__` and
    * `window.__PUBLIC_APP_CONFIG__` are already readable.
    */
-  headInlineScripts?: string[];
+  headInlineScripts?: string | string[];
   /**
    * Raw HTML placed at the start of `<body>`, before the container element. Meant
    * for content that must exist without JavaScript, such as a `<noscript>` block.

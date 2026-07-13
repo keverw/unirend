@@ -1412,10 +1412,86 @@ describe('processTemplate templateSlots', () => {
     }
   });
 
-  it('should reject headInlineScripts passed as a bare string', async () => {
-    // The natural mistake for a JavaScript caller, who gets no type error. Without the guard
-    // this surfaces as a TypeError about .entries() rather than a word about their config.
-    const badSlots: unknown = { headInlineScripts: 'console.log("oops");' };
+  it('should accept headInlineScripts as a bare string', async () => {
+    // One script is the common case, so it can be passed directly rather than wrapped in a
+    // single-element array.
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { headInlineScripts: 'console.log("just one");' },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain('console.log("just one");');
+
+      // Placed exactly where an array of one would be: after the context globals.
+      expect(result.html.indexOf('console.log("just one");')).toBeGreaterThan(
+        result.html.indexOf('<!--context-scripts-injection-point-->'),
+      );
+    }
+  });
+
+  it('should treat a bare string and a single-element array identically', async () => {
+    const asString = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        headInlineScripts: 'console.log("same");',
+      },
+    );
+
+    const asArray = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        headInlineScripts: ['console.log("same");'],
+      },
+    );
+
+    expect(asString.success).toBe(true);
+    expect(asArray.success).toBe(true);
+
+    if (asString.success && asArray.success) {
+      expect(asString.html).toBe(asArray.html);
+    }
+  });
+
+  it('should report a string headInlineScripts without an array index', async () => {
+    // "headInlineScripts[0]" would be nonsense for a caller who passed a plain string.
+    const result = await processTemplate(
+      baseHTML,
+      'ssr',
+      false,
+      false,
+      'root',
+      { headInlineScripts: '<script>nested</script>' },
+    );
+
+    expect(result.success).toBe(false);
+
+    if (!result.success) {
+      expect(result.error).toContain(
+        'templateSlots.headInlineScripts contains',
+      );
+      expect(result.error).not.toContain('[0]');
+    }
+  });
+
+  it('should reject headInlineScripts that is neither a string nor an array', async () => {
+    // A JavaScript caller gets no type error, so this has to fail with a message about the
+    // config rather than a TypeError from somewhere inside the implementation.
+    const badSlots: unknown = { headInlineScripts: { src: 'nope.js' } };
 
     const result = await processTemplate(
       baseHTML,
@@ -1429,7 +1505,9 @@ describe('processTemplate templateSlots', () => {
     expect(result.success).toBe(false);
 
     if (!result.success) {
-      expect(result.error).toContain('must be an array');
+      expect(result.error).toContain(
+        'must be a string of JavaScript source, or an array of them',
+      );
       expect(result.error).not.toContain('entries');
     }
   });
