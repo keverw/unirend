@@ -981,6 +981,10 @@ server.registerBuiltApp('admin', BUILD_DIR_ADMIN, {
 > [!NOTE]
 > Slots are baked into the processed template, which is cached per app, so they cannot vary per request. Anything request-specific belongs in `requestContext` or `publicAppConfig`, which are injected per request as context globals your slotted scripts can read.
 
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> Slots are applied by unirend's SSR and SSG pipeline, which is what processes the template. They are **not** applied when `index.html` is served directly by Vite, as the `<project>:spa-dev` script the starter generates does. That script runs bare `vite`, so unirend is not in the request path at all: none of the template processing runs, no context globals are injected, and the `ss-` markers are left in place as inert comments. This is not specific to slots, but it is easy to hit, because a slotted theme script is exactly the kind of thing you would go looking for in a dev server. Use `<project>:serve:dev` to see slots, and treat `spa-dev` as a client-only view of the app that skips the server entirely.
+
 Nothing here is required. Slots only add to a template, never rewrite what it already contains, so hard-coding this content in `index.html` instead stays just as valid. An app that sets no slots is served exactly the HTML its template describes, with no leftover placeholder or blank line.
 
 ### Header and Cookies Forwarding
