@@ -452,7 +452,7 @@ await server.listen(3000);
 console.log('Static server running at http://localhost:3000');
 ```
 
-> **Note:** All file paths (`pageMapPath`, `notFoundPage`, `errorPage`, `singleAssets` values, `assetFolders` values) are resolved relative to `buildDir`.
+> **Note:** All file paths (`pageMapPath`, `notFoundPage`, `errorPage`, `singleAssets` values, `assetFolders` values) are resolved relative to `buildDir`. A leading slash on a `singleAssets` or `assetFolders` value is treated as relative too, and values that resolve outside `buildDir` through `..` segments or symlinks are rejected.
 
 > **💡 Tip:** Error pages are automatically detected from the page map by filename and served with proper status codes. Use `{ type: 'ssg', path: '/404', filename: '404.html' }` for 404 pages (server is healthy, React shell is fine) and `{ type: 'html', filename: '500.html' }` for server error pages (self-contained, no external deps, no React bundle). See [HTML Pages](#html-pages) and [Error Pages](#error-pages).
 

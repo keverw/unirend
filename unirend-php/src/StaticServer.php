@@ -289,17 +289,31 @@ class StaticServer
 
         // 3. Merge user-provided singleAssets (can override page-map entries)
         foreach ($this->options['singleAssets'] as $urlPath => $filePath) {
-            // Ensure a leading slash on the URL key, matching the Node.js
-            // StaticWebServer — a key of 'robots.txt' must serve /robots.txt
-            // instead of silently never matching any request.
-            $urlKey = str_starts_with($urlPath, '/')
-                ? $urlPath
-                : '/' . $urlPath;
-            // Use realpath to safely resolve paths (handles leading slashes, prevents traversal)
-            $resolved = realpath($buildDir . '/' . ltrim($filePath, '/'));
+            // Same key rule as the Node.js StaticWebServer and the
+            // assetFolders prefixes: collapse repeated slashes and ensure a
+            // leading slash, so 'robots.txt' serves /robots.txt and
+            // '/icons//logo.svg' serves the URL browsers actually request.
+            $collapsed = preg_replace('#/+#', '/', $urlPath);
+            $urlKey = str_starts_with($collapsed, '/')
+                ? $collapsed
+                : '/' . $collapsed;
+            $resolved = $this->resolveBuildRelativePath(
+                $filePath,
+                'singleAssets',
+            );
             if ($resolved !== false) {
                 $assetMap[$urlKey] = $resolved;
             }
+        }
+
+        // Validate every folder mount at startup, matching the Node.js
+        // StaticWebServer. Missing folders keep their existing request-time
+        // 404 behavior, while traversal and existing symlink escapes throw.
+        foreach ($this->options['assetFolders'] as $folderConfig) {
+            $fsPath = is_array($folderConfig)
+                ? $folderConfig['path']
+                : $folderConfig;
+            $this->resolveBuildRelativePath($fsPath, 'assetFolders');
         }
 
         // 4. Load error pages — same priority chain as Node version:
@@ -436,8 +450,9 @@ class StaticServer
                     ? $folderConfig['path']
                     : $folderConfig;
 
-                $assetDir = realpath(
-                    $this->options['buildDir'] . '/' . $fsRelPath,
+                $assetDir = $this->resolveBuildRelativePath(
+                    $fsRelPath,
+                    'assetFolders',
                 );
 
                 // A missing folder or a file that isn't in it falls through
@@ -505,6 +520,77 @@ class StaticServer
             : null;
 
         return (bool) ($perFolderDetect ?? $normalizedPrefix === '/assets');
+    }
+
+    /**
+     * Resolve a user-configured path relative to buildDir and reject an
+     * existing path that resolves outside it. Leading URL-style slashes are
+     * treated as relative, matching the Node.js StaticWebServer.
+     */
+    private function resolveBuildRelativePath(
+        string $configuredPath,
+        string $optionName,
+    ): string|false {
+        $relativePath = ltrim($configuredPath, '/');
+        $separatorPattern =
+            DIRECTORY_SEPARATOR === '\\' ? '#[\\\\/]+#' : '#/+#';
+        $depth = 0;
+
+        if (
+            DIRECTORY_SEPARATOR === '\\' &&
+            (preg_match('#^[A-Za-z]:[\\\\/]#', $relativePath) === 1 ||
+                str_starts_with($relativePath, '\\'))
+        ) {
+            throw new \InvalidArgumentException(
+                "StaticServer: {$optionName} values must resolve within buildDir",
+            );
+        }
+
+        foreach (preg_split($separatorPattern, $relativePath) ?: [] as $part) {
+            if ($part === '' || $part === '.') {
+                continue;
+            }
+
+            if ($part === '..') {
+                if ($depth === 0) {
+                    throw new \InvalidArgumentException(
+                        "StaticServer: {$optionName} values must resolve within buildDir",
+                    );
+                }
+                $depth--;
+                continue;
+            }
+
+            $depth++;
+        }
+
+        $buildRoot = realpath($this->options['buildDir']);
+        $resolved = realpath($this->options['buildDir'] . '/' . $relativePath);
+
+        if ($buildRoot === false || $resolved === false) {
+            return false;
+        }
+
+        $normalizedRoot = str_replace('\\', '/', $buildRoot);
+        $normalizedPath = str_replace('\\', '/', $resolved);
+
+        if (DIRECTORY_SEPARATOR === '\\') {
+            $normalizedRoot = strtolower($normalizedRoot);
+            $normalizedPath = strtolower($normalizedPath);
+        }
+
+        $rootPrefix = rtrim($normalizedRoot, '/') . '/';
+        $isWithinBuild =
+            $normalizedPath === $normalizedRoot ||
+            str_starts_with($normalizedPath, $rootPrefix);
+
+        if (!$isWithinBuild) {
+            throw new \InvalidArgumentException(
+                "StaticServer: {$optionName} values must resolve within buildDir",
+            );
+        }
+
+        return $resolved;
     }
 
     /**

@@ -393,6 +393,23 @@ class StaticServerTest extends TestCase
         $this->assertArrayNotHasKey('robots.txt', $pageMap);
     }
 
+    public function testBuildMapsSingleAssetsKeyCollapsesSlashes(): void
+    {
+        // Matches the Node.js StaticWebServer and the assetFolders prefix
+        // rule: '//robots.txt' keys the URL a browser can actually request.
+        $server = new StaticServer([
+            'buildDir' => $this->buildDir,
+            'singleAssets' => ['//robots.txt' => 'robots.txt'],
+        ]);
+
+        $this->callBuildMaps($server);
+
+        $pageMap = $this->getProperty($server, 'pageMap');
+
+        $this->assertArrayHasKey('/robots.txt', $pageMap);
+        $this->assertArrayNotHasKey('//robots.txt', $pageMap);
+    }
+
     public function testBuildMapsSingleAssetsOverridePageMap(): void
     {
         $server = new StaticServer([
@@ -404,6 +421,38 @@ class StaticServerTest extends TestCase
         $pageMap = $this->getProperty($server, 'pageMap');
 
         $this->assertStringEndsWith('about.html', $pageMap['/']);
+    }
+
+    public function testBuildMapsRejectsSingleAssetOutsideBuildDir(): void
+    {
+        $server = new StaticServer([
+            'buildDir' => $this->buildDir,
+            'singleAssets' => [
+                '/outside' => '../build-error-pages/custom-404.html',
+            ],
+        ]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage(
+            'singleAssets values must resolve within buildDir',
+        );
+
+        $this->callBuildMaps($server);
+    }
+
+    public function testBuildMapsRejectsMissingSingleAssetOutsideBuildDir(): void
+    {
+        $server = new StaticServer([
+            'buildDir' => $this->buildDir,
+            'singleAssets' => ['/outside' => '../does-not-exist.txt'],
+        ]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage(
+            'singleAssets values must resolve within buildDir',
+        );
+
+        $this->callBuildMaps($server);
     }
 
     public function testBuildMapsThrowsOnMissingPageMap(): void
@@ -470,6 +519,21 @@ class StaticServerTest extends TestCase
 
         $this->assertSame(200, http_response_code());
         $this->assertStringContainsString('Home page fixture', $output);
+    }
+
+    public function testBuildMapsRejectsAssetFolderOutsideBuildDir(): void
+    {
+        $server = new StaticServer([
+            'buildDir' => $this->buildDir,
+            'assetFolders' => ['/outside' => '../static-assets/images'],
+        ]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage(
+            'assetFolders values must resolve within buildDir',
+        );
+
+        $this->callBuildMaps($server);
     }
 
     public function testDispatchServesAboutPage(): void

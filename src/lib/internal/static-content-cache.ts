@@ -1382,7 +1382,13 @@ export class StaticContentCache {
         continue;
       }
 
-      const normalizedKey = key.startsWith('/') ? key : '/' + key;
+      // Same key rule as folder prefixes (normalizePrefix): collapse
+      // repeated slashes and ensure a leading slash, so '/robots//txt' and
+      // 'robots.txt' both key the URL a browser can actually request.
+      const collapsed = key.replace(/\/+/g, '/');
+      const normalizedKey = collapsed.startsWith('/')
+        ? collapsed
+        : '/' + collapsed;
       normalized.set(normalizedKey, value);
     }
 

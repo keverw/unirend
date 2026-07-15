@@ -958,7 +958,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
     - `immutableCacheControl?: string`: Cache‑Control for hashed/immutable assets
     - `compression?: boolean | ResponseCompressionOptions`: Compression settings for buffered static responses. When omitted, inherits the server-level `responseCompression` setting.
   - Path matching notes:
-    - `singleAssetMap` keys are normalized to include a leading slash (you may provide with or without it).
+    - `singleAssetMap` keys are normalized like folder prefixes: a leading slash is ensured (you may provide with or without it) and repeated slashes are collapsed, so the key always matches a URL a browser can actually request.
     - `folderMap` prefixes are normalized to ensure both leading and trailing slash, so `/assets` and `assets/` are treated as `/assets/`.
     - The incoming request URL is normalized to ensure a leading slash before matching.
     - The relative path slice is guarded against accidental leading `/` to prevent absolute path resolution on POSIX.

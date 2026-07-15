@@ -107,24 +107,20 @@ class StaticWebServerComponent extends BaseComponent {
 
     this.startPromise = (async () => {
       try {
-        // Normalize declarations the way the SSR server and the
-        // check-public-assets script do — trim, collapse repeated slashes,
-        // ensure one leading slash (folders also drop a trailing slash) — so
-        // an entry like '/icons//logo.svg' that passes CI serves at the URL
-        // browsers actually request instead of 404ing only on this server.
-        const normalizePublicPath = (entry: string) =>
-          \`/\${entry.trim().replace(/\\/+/g, '/').replace(/^\\//, '')}\`;
-
         this.server = new StaticWebServer({
           buildDir: BUILD_DIR,
           pageMapPath: 'page-map.json',
           // public/ files and subfolders (declared in consts.ts), mapped from
           // URL to path relative to BUILD_DIR — public/ content keeps its
-          // name, so the URL doubles as the relative path.
+          // name, so each entry doubles as both. The server normalizes both
+          // sides itself (URL keys get a leading slash and collapsed
+          // slashes, paths resolve relative to BUILD_DIR either way), so
+          // only whitespace is trimmed here, matching the SSR server and
+          // the check:public-assets script, which trim too.
           singleAssets: Object.fromEntries(
             PUBLIC_FILES.map((urlPath) => {
-              const normalized = normalizePublicPath(urlPath);
-              return [normalized, normalized.slice(1)];
+              const entry = urlPath.trim();
+              return [entry, entry];
             }),
           ),
           // Immutable-asset detection defaults per folder, like the SSR server:
@@ -135,11 +131,8 @@ class StaticWebServerComponent extends BaseComponent {
             '/assets': 'assets',
             ...Object.fromEntries(
               PUBLIC_FOLDERS.map((urlPrefix) => {
-                const normalized = normalizePublicPath(urlPrefix).replace(
-                  /\\/$/,
-                  '',
-                );
-                return [normalized, normalized.slice(1)];
+                const entry = urlPrefix.trim();
+                return [entry, entry];
               }),
             ),
           },

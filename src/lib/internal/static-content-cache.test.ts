@@ -837,6 +837,35 @@ describe('StaticContentCache', () => {
       }
     });
 
+    it('collapses repeated slashes in singleAssetMap keys (same rule as folder prefixes)', async () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/icons//logo.svg': '/path/to/logo.svg' },
+      });
+
+      const req = createMockRequest('/icons/logo.svg');
+      const { reply } = createMockReply();
+      const fileContent = Buffer.from('<svg/>');
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      // The browser requests the collapsed URL, so the key must serve there
+      const result = await cache.handleRequest(
+        '/icons/logo.svg',
+        req as FastifyRequest,
+        reply as FastifyReply,
+      );
+
+      expect(result.served).toBe(true);
+    });
+
     it('serves files from folderMap', async () => {
       const cache = new StaticContentCache({
         folderMap: { '/assets': '/path/to/assets' },

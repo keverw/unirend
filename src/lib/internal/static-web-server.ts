@@ -10,6 +10,7 @@ import type {
 import { readJSONFile, readHTMLFile } from './fs-utils';
 import { escapeHTML } from './html-utils/escape';
 import type { FastifyRequest } from 'fastify';
+import fs from 'node:fs';
 import path from 'path';
 
 /**
@@ -48,6 +49,70 @@ function createDefault500HTML(isDevelopment: boolean, error?: Error): string {
   ${isDevelopment && error ? `<pre>${escapeHTML(error.stack || 'No stack trace available')}</pre>` : ''}
 </body>
 </html>`;
+}
+
+/**
+ * Resolve a user-configured path relative to buildDir without allowing it to
+ * traverse outside that directory. Leading URL-style slashes are treated as
+ * relative for parity with the PHP static server.
+ */
+function resolveBuildRelativePath(
+  buildDir: string,
+  configuredPath: string,
+  optionName: 'singleAssets' | 'assetFolders',
+): string {
+  const buildRoot = path.resolve(buildDir);
+  const resolvedPath = path.resolve(
+    buildRoot,
+    configuredPath.replace(/^\/+/, ''),
+  );
+  const canonicalBuildRoot = realpathWithMissingTail(buildRoot);
+  const canonicalResolvedPath = realpathWithMissingTail(resolvedPath);
+  const relativePath = path.relative(canonicalBuildRoot, canonicalResolvedPath);
+
+  if (
+    relativePath === '..' ||
+    relativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativePath)
+  ) {
+    throw new TypeError(
+      `StaticWebServerOptions.${optionName} values must resolve within buildDir`,
+    );
+  }
+
+  return canonicalResolvedPath;
+}
+
+/**
+ * Resolve symlinks in the nearest existing ancestor, then append any missing
+ * tail segments. This preserves missing-path behavior while preventing an
+ * existing symlink from hiding an escape outside buildDir.
+ */
+function realpathWithMissingTail(targetPath: string): string {
+  let candidate = targetPath;
+  const missingSegments: string[] = [];
+
+  for (;;) {
+    try {
+      return path.resolve(
+        fs.realpathSync.native(candidate),
+        ...missingSegments,
+      );
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+        throw error;
+      }
+
+      const parent = path.dirname(candidate);
+      if (parent === candidate) {
+        throw error;
+      }
+
+      missingSegments.unshift(path.basename(candidate));
+      candidate = parent;
+    }
+  }
 }
 
 /**
@@ -294,7 +359,11 @@ export class StaticWebServer {
             : (folderConfig.detectImmutableAssets ?? shouldDetectByDefault);
 
         folderMap[urlPrefix] = {
-          path: path.resolve(this.options.buildDir, fsPath),
+          path: resolveBuildRelativePath(
+            this.options.buildDir,
+            fsPath,
+            'assetFolders',
+          ),
           detectImmutableAssets: shouldDetectImmutable,
         };
       }
@@ -529,12 +598,19 @@ export class StaticWebServer {
     }
 
     // Merge in user-provided singleAssets (can override page-map assets)
-    // Paths are resolved relative to buildDir for consistency
+    // Paths are resolved relative to buildDir for consistency. Leading
+    // slashes are stripped so the value is ALWAYS relative, like the PHP
+    // static server: with path.resolve alone a leading slash would silently
+    // escape to an absolute path outside the build.
     if (this.options.singleAssets) {
       for (const [urlPath, filePath] of Object.entries(
         this.options.singleAssets,
       )) {
-        singleAssetMap[urlPath] = path.resolve(this.options.buildDir, filePath);
+        singleAssetMap[urlPath] = resolveBuildRelativePath(
+          this.options.buildDir,
+          filePath,
+          'singleAssets',
+        );
       }
     }
 

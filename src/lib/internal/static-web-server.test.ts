@@ -377,6 +377,77 @@ describe('StaticWebServer', () => {
       expect(server.listen(testPort)).rejects.toThrow('Invalid page map entry');
     });
 
+    it('rejects a singleAssets value that resolves outside buildDir', () => {
+      setReadFileMock({ 'page-map.json': VALID_PAGE_MAP });
+      server = makeServer({ singleAssets: { '/secret': '../secret.txt' } });
+
+      expect(server.listen(testPort)).rejects.toThrow(
+        'singleAssets values must resolve within buildDir',
+      );
+    });
+
+    it('rejects an assetFolders value that resolves outside buildDir', () => {
+      setReadFileMock({ 'page-map.json': VALID_PAGE_MAP });
+      server = makeServer({ assetFolders: { '/secret': '../secret' } });
+
+      expect(server.listen(testPort)).rejects.toThrow(
+        'assetFolders values must resolve within buildDir',
+      );
+    });
+
+    it('rejects singleAssets and assetFolders paths through an outside symlink', async () => {
+      (fs.promises as { readFile: unknown }).readFile = originalReadFile;
+
+      const symlinkBuildDir = await createTempDir({
+        prefix: 'unirend-static-symlink-build-',
+        unsafeCleanup: true,
+      });
+      const symlinkOutsideDir = await createTempDir({
+        prefix: 'unirend-static-symlink-outside-',
+        unsafeCleanup: true,
+      });
+
+      try {
+        fs.writeFileSync(
+          path.join(symlinkBuildDir.path, 'page-map.json'),
+          JSON.stringify({ '/': 'index.html' }),
+        );
+        fs.writeFileSync(
+          path.join(symlinkBuildDir.path, 'index.html'),
+          '<html></html>',
+        );
+        fs.writeFileSync(
+          path.join(symlinkOutsideDir.path, 'secret.txt'),
+          'secret',
+        );
+        fs.symlinkSync(
+          symlinkOutsideDir.path,
+          path.join(symlinkBuildDir.path, 'link'),
+          'dir',
+        );
+
+        server = new StaticWebServer({
+          buildDir: symlinkBuildDir.path,
+          singleAssets: { '/secret': 'link/secret.txt' },
+        });
+        expect(server.listen(testPort)).rejects.toThrow(
+          'singleAssets values must resolve within buildDir',
+        );
+
+        server = new StaticWebServer({
+          buildDir: symlinkBuildDir.path,
+          assetFolders: { '/secret': 'link' },
+        });
+        expect(server.listen(testPort)).rejects.toThrow(
+          'assetFolders values must resolve within buildDir',
+        );
+      } finally {
+        await symlinkBuildDir.cleanup();
+        await symlinkOutsideDir.cleanup();
+        (fs.promises as { readFile: unknown }).readFile = mockReadFile;
+      }
+    });
+
     it('starts the server successfully with a valid page map', async () => {
       setReadFileMock({ 'page-map.json': VALID_PAGE_MAP });
       server = makeServer();
@@ -1146,6 +1217,65 @@ describe('StaticWebServer', () => {
         );
       } finally {
         await detectionTmpDir.cleanup();
+        (fs.promises as { readFile: unknown }).readFile = mockReadFile;
+      }
+    });
+
+    it('normalizes singleAssets/assetFolders keys and values (leading slashes, collapsed slashes)', async () => {
+      (fs.promises as { readFile: unknown }).readFile = originalReadFile;
+
+      const normalizeTmpDir = await createTempDir({
+        prefix: 'unirend-static-normalize-',
+        unsafeCleanup: true,
+      });
+
+      try {
+        const tempBuildDir = normalizeTmpDir.path;
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'page-map.json'),
+          JSON.stringify({ '/': 'index.html' }),
+        );
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'index.html'),
+          '<html></html>',
+        );
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'robots.txt'),
+          'User-agent: *',
+        );
+        fs.mkdirSync(path.join(tempBuildDir, 'icons'));
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'icons', 'logo.svg'),
+          '<svg/>',
+        );
+
+        server = new StaticWebServer({
+          buildDir: tempBuildDir,
+          pageMapPath: 'page-map.json',
+          // Key without a leading slash, value WITH one: the key gets the
+          // slash added, and the value stays relative to buildDir instead of
+          // escaping to an absolute path via path.resolve.
+          singleAssets: { 'robots.txt': '/robots.txt' },
+          // Repeated slashes in the key collapse; leading slash in the value
+          // is relative to buildDir, like the PHP static server.
+          assetFolders: { '//icons': '/icons' },
+        });
+
+        await server.listen(testPort);
+
+        const robotsResponse = await fetch(
+          `http://localhost:${testPort}/robots.txt`,
+        );
+        expect(robotsResponse.status).toBe(200);
+        expect(await robotsResponse.text()).toBe('User-agent: *');
+
+        const logoResponse = await fetch(
+          `http://localhost:${testPort}/icons/logo.svg`,
+        );
+        expect(logoResponse.status).toBe(200);
+        expect(await logoResponse.text()).toBe('<svg/>');
+      } finally {
+        await normalizeTmpDir.cleanup();
         (fs.promises as { readFile: unknown }).readFile = mockReadFile;
       }
     });
