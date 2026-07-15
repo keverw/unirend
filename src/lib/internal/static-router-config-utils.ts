@@ -154,7 +154,9 @@ export function validatePublicFolders(
 
 /**
  * Shared validation for `publicFiles`/`publicFolders` entries: type, null
- * bytes, backslashes, `..` segments, and the reserved `.vite` directory.
+ * bytes, backslashes, `..` segments, URL-unsafe characters (anything a
+ * browser would percent-encode, which could never match the raw-URL matcher),
+ * and the reserved `.vite` directory.
  * Returns the entry trimmed and with a leading slash.
  */
 function validateCommonPublicEntry(
@@ -200,6 +202,24 @@ function validateCommonPublicEntry(
     );
   }
 
+  // Reject characters browsers never send raw in a request path. The static
+  // router matches the raw, undecoded URL, so an entry like '/og image.png'
+  // would pass every other check (and the boot existence check — the file is
+  // on disk) yet never match the browser's '/og%20image.png' request,
+  // recreating exactly the silent production 404 these options exist to
+  // prevent. Allowed: the RFC 3986 path character set minus '%' (the router
+  // does not percent-decode, so an encoded entry cannot match either), plus
+  // '[', ']', and '|', which the WHATWG URL path percent-encode set leaves
+  // raw — a browser really does request '/icon[1].png' verbatim. '^' is NOT
+  // in that group: the serializer turns '/a^b' into '/a%5Eb'.
+  const unsafeMatch = /[^A-Za-z0-9\-._~!$&'()*+,;=:@/[\]|]/.exec(trimmed);
+
+  if (unsafeMatch) {
+    throw new Error(
+      `Invalid ${optionName} entry for ${appLabel}: ${JSON.stringify(trimmed)} contains ${JSON.stringify(unsafeMatch[0])}, which browsers percent-encode in request URLs, so this entry could never match a request. Rename the file in public/ to use URL-safe characters (letters, digits, and -._~).`,
+    );
+  }
+
   const normalized = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
 
   // Reserved-path checks compare case-insensitively (here and in the
@@ -212,6 +232,37 @@ function validateCommonPublicEntry(
   }
 
   return normalized;
+}
+
+/**
+ * Normalize a custom `folderMap` prefix the way `StaticContentCache` will
+ * mount it: collapse repeated slashes, ensure a leading slash, and strip a
+ * trailing one (except for bare `/`). Both the root-mount guard and the
+ * shadow check must see the mounted form, not the raw key — otherwise keys
+ * like `'//x'` or `'x/'` dodge comparisons against normalized declarations.
+ */
+function normalizeFolderPrefixKey(prefix: string): string {
+  const collapsed = (prefix || '/').replace(/\/+/g, '/');
+  const withLead = collapsed.startsWith('/') ? collapsed : `/${collapsed}`;
+
+  return withLead.length > 1 && withLead.endsWith('/')
+    ? withLead.slice(0, -1)
+    : withLead;
+}
+
+/**
+ * Resolve a path for identity comparison, following symlinks when the path
+ * exists on disk. `path.resolve` alone lets a symlink to a protected
+ * directory dodge same-directory checks.
+ */
+function resolveRealPath(target: string): string {
+  try {
+    return fs.realpathSync(target);
+  } catch {
+    // Path doesn't exist (yet) — fall back to lexical resolution so the
+    // comparison still normalizes '.' segments and relative paths.
+    return path.resolve(target);
+  }
 }
 
 /**
@@ -237,9 +288,9 @@ export function assertNoRootFolderMount(
   }
 
   for (const [prefix, config] of Object.entries(folderMap)) {
-    // Mirror StaticContentCache's prefix normalization (collapse slashes) so
-    // '', '/', and '//' are all caught.
-    const normalizedPrefix = (prefix || '/').replace(/\/+/g, '/');
+    // Mirror StaticContentCache's prefix normalization so '', '/', and '//'
+    // are all caught.
+    const normalizedPrefix = normalizeFolderPrefixKey(prefix);
 
     if (normalizedPrefix === '/') {
       throw new Error(
@@ -251,7 +302,9 @@ export function assertNoRootFolderMount(
 
     const folderPath = typeof config === 'string' ? config : config.path;
 
-    if (path.resolve(folderPath) === path.resolve(clientRootDir)) {
+    // Compare real paths so a symlink to the client build root cannot dodge
+    // the guard.
+    if (resolveRealPath(folderPath) === resolveRealPath(clientRootDir)) {
       throw new Error(
         `Invalid staticContentRouter for ${appLabel}: folderMap prefix "${prefix}" points at the client build root (${clientRootDir}). ` +
           `This would expose /index.html and /.vite/manifest.json. ` +
@@ -460,17 +513,15 @@ export function findShadowedPublicPaths(
   }
 
   if (customConfig.folderMap && publicPaths.publicFolders) {
-    // Index the custom folderMap by normalized prefix (leading slash, no
-    // trailing slash, so '/x', 'x', and '/x/' all count as the same mount),
+    // Index the custom folderMap by normalized prefix (collapsed slashes,
+    // leading slash, no trailing slash, so '/x', 'x', '/x/', and '//x' all
+    // count as the same mount — the cache collapses repeated slashes too),
     // keeping the full config value for the intent check below.
     const customFolders = new Map(
-      Object.entries(customConfig.folderMap).map(([prefix, config]) => {
-        const withLead = prefix.startsWith('/') ? prefix : `/${prefix}`;
-        const normalized = withLead.endsWith('/')
-          ? withLead.slice(0, -1)
-          : withLead;
-        return [normalized, config];
-      }),
+      Object.entries(customConfig.folderMap).map(([prefix, config]) => [
+        normalizeFolderPrefixKey(prefix),
+        config,
+      ]),
     );
 
     shadowed.push(
@@ -496,7 +547,7 @@ export function findShadowedPublicPaths(
           typeof customEntry === 'string' ? customEntry : customEntry.path;
         const declaredPath = path.join(clientRootDir, ...entry.split('/'));
         const isSameDirectory =
-          path.resolve(customPath) === path.resolve(declaredPath);
+          resolveRealPath(customPath) === resolveRealPath(declaredPath);
         const doesEnableDetection =
           typeof customEntry !== 'string' &&
           customEntry.detectImmutableAssets === true;
@@ -580,7 +631,8 @@ export async function assertPublicPathsExist(
     throw new Error(
       `publicFiles/publicFolders for ${appLabel} declare paths that do not exist in the client build dir (${clientRootDir}):\n` +
         missing.map((m) => `  - ${m}`).join('\n') +
-        `\nEither remove the entries or ensure the paths exist in the app's public/ directory and rebuild.`,
+        `\nEither remove the entries or ensure the paths exist in the app's public/ directory and rebuild. ` +
+        `If a custom staticContentRouter entry intentionally serves one of these URLs from another directory, remove the duplicate publicFiles/publicFolders declaration instead.`,
     );
   }
 }

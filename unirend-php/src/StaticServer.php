@@ -381,7 +381,9 @@ class StaticServer
         // 3. Asset folders — prefix-matched, immutable cache detection. The
         //    longest matching prefix wins so a nested mount like
         //    '/images/generated' takes precedence over '/images' regardless
-        //    of declaration order, and prefixes only match on path-segment
+        //    of declaration order (ties, i.e. keys normalizing to the same
+        //    mount, go to the last-declared entry like Node's Map.set), and
+        //    prefixes only match on path-segment
         //    boundaries so '/images/generated' does not capture
         //    '/images/generated-other/...' — both matching the Node.js
         //    package, whose cache normalizes prefixes with a trailing slash.
@@ -391,8 +393,15 @@ class StaticServer
 
             foreach (array_keys($this->options['assetFolders']) as $urlPrefix) {
                 // Normalize like resolveDetectImmutable: 'assets', '/assets',
-                // and '/assets/' all mean the same mount.
-                $prefix = '/' . trim((string) $urlPrefix, '/');
+                // and '/assets/' all mean the same mount, and repeated
+                // slashes collapse ('/images//generated' → '/images/generated')
+                // to match Node's normalizePrefix.
+                $prefix =
+                    '/' .
+                    trim(
+                        (string) preg_replace('#/+#', '/', (string) $urlPrefix),
+                        '/',
+                    );
 
                 // Boundary match: the request path must BE the prefix or
                 // continue with '/'. A '/' prefix mounts everything.
@@ -401,10 +410,13 @@ class StaticServer
                     $path === $prefix ||
                     str_starts_with($path, $prefix . '/');
 
+                // '>=' so that when two keys normalize to the same mount
+                // the last-declared entry wins, matching Node's Map.set
+                // overwrite semantics.
                 if (
                     $isMatch &&
                     ($matchedPrefix === null ||
-                        strlen($prefix) > strlen($matchedPrefix))
+                        strlen($prefix) >= strlen($matchedPrefix))
                 ) {
                     $matchedKey = (string) $urlPrefix;
                     $matchedPrefix = $prefix;
@@ -479,7 +491,9 @@ class StaticServer
         string $urlPrefix,
         string|array $folderConfig,
     ): bool {
-        $normalizedPrefix = '/' . trim($urlPrefix, '/');
+        // Collapse repeated slashes too, matching Node's normalizePrefix.
+        $normalizedPrefix =
+            '/' . trim((string) preg_replace('#/+#', '/', $urlPrefix), '/');
         $perFolderDetect = is_array($folderConfig)
             ? $folderConfig['detectImmutableAssets'] ?? null
             : null;

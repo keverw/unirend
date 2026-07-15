@@ -1511,7 +1511,17 @@ export class StaticContentCache {
    *
    * Hash must be at least 6 characters of Vite/Rollup's base64url alphabet
    * (alphanumerics plus `_` and `-` — e.g. `index-CRJ_nHAW.css` is a real
-   * Vite 8 output name).
+   * Vite 8 output name) and must contain at least one digit or uppercase
+   * letter.
+   *
+   * The digit/uppercase requirement is a DELIBERATE tradeoff. A real hash
+   * can come out all-lowercase (~0.075% of 8-char base64url draws, e.g.
+   * `chunk-abcdefgh.js`); such a file merely falls back to must-revalidate
+   * and self-heals on the next build. Dropping the requirement would make
+   * ordinary names like `chunk-vendors.js` or `apple-touch-icon.png` read
+   * as hashes and serve stale content as immutable for a year — the
+   * dangerous direction. An all-lowercase hash and an English word are the
+   * same character class, so no filename-only rule can separate them.
    *
    * @param filePath The file path to check
    * @returns True if the file appears to be fingerprinted
@@ -1522,9 +1532,11 @@ export class StaticContentCache {
     // Check for fingerprint patterns:
     // 1. .{hash}.{ext} pattern (e.g., main.CTpDmzGw.js)
     // 2. -{hash}.{ext} pattern (e.g., chunk-CRJ_nHAW.js)
+    // The lookahead requires a digit or uppercase letter somewhere in the
+    // run so hyphenated lowercase words don't read as hashes.
     return (
-      /\.[A-Za-z0-9_-]{6,}\./.test(fileBasename) ||
-      /-[A-Za-z0-9_-]{6,}\./.test(fileBasename)
+      /\.(?=[A-Za-z0-9_-]*[A-Z0-9])[A-Za-z0-9_-]{6,}\./.test(fileBasename) ||
+      /-(?=[A-Za-z0-9_-]*[A-Z0-9])[A-Za-z0-9_-]{6,}\./.test(fileBasename)
     );
   }
 

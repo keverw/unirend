@@ -1693,6 +1693,88 @@ describe('StaticContentCache', () => {
       expect(sentData.headers['Cache-Control']).toContain('immutable');
     });
 
+    it('does not detect all-lowercase word runs as hashes', async () => {
+      const cache = new StaticContentCache({
+        folderMap: {
+          '/assets': { path: '/path/to/assets', detectImmutableAssets: true },
+        },
+        cacheControl: 'public, max-age=0, must-revalidate',
+        immutableCacheControl: 'public, max-age=31536000, immutable',
+      });
+
+      const fileContent = Buffer.from('data');
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      // Kebab-case and underscore names with 6+ chars but no digit or
+      // uppercase letter are ordinary filenames, not build fingerprints.
+      // chunk-abcdefgh.js pins the ACCEPTED miss: a rare all-lowercase real
+      // hash (~0.075% of 8-char base64url draws) is indistinguishable from a
+      // word and deliberately falls back to must-revalidate — the benign
+      // direction, unlike caching chunk-vendors.js as immutable for a year.
+      for (const name of [
+        'apple-touch-icon.png',
+        'some-multi-word.txt',
+        'my-file_name.png',
+        'chunk-vendors.js',
+        'chunk-abcdefgh.js',
+      ]) {
+        const req = createMockRequest(`/assets/${name}`);
+        const { reply, sentData } = createMockReply();
+
+        await cache.handleRequest(
+          `/assets/${name}`,
+          req as FastifyRequest,
+          reply as FastifyReply,
+        );
+
+        expect(sentData.headers['Cache-Control']).not.toContain('immutable');
+        expect(sentData.headers['Cache-Control']).toContain('must-revalidate');
+      }
+    });
+
+    it('stays off by default for string-shorthand folderMap entries', async () => {
+      const cache = new StaticContentCache({
+        folderMap: {
+          '/extra': '/path/to/extra',
+        },
+        cacheControl: 'public, max-age=0, must-revalidate',
+        immutableCacheControl: 'public, max-age=31536000, immutable',
+      });
+
+      const req = createMockRequest('/extra/main.a1b2c3d4.js');
+      const { reply, sentData } = createMockReply();
+      const fileContent = Buffer.from('console.log("test")');
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      await cache.handleRequest(
+        '/extra/main.a1b2c3d4.js',
+        req as FastifyRequest,
+        reply as FastifyReply,
+      );
+
+      // Hash-looking name, but detection was never enabled for this folder
+      expect(sentData.headers['Cache-Control']).not.toContain('immutable');
+      expect(sentData.headers['Cache-Control']).toContain('must-revalidate');
+    });
+
     it('does not detect short hashes (< 6 characters)', async () => {
       const cache = new StaticContentCache({
         folderMap: {

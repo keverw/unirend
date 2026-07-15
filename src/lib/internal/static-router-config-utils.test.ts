@@ -151,6 +151,47 @@ describe('validatePublicFiles()', () => {
       '/favicon.svg',
     ]);
   });
+
+  it('rejects characters browsers percent-encode (they could never match the raw-URL matcher)', () => {
+    // '/og image.png' would pass the boot existence check but the browser
+    // requests '/og%20image.png', so it would 404 silently in production.
+    expect(() => validatePublicFiles(['/og image.png'], 'the app')).toThrow(
+      /percent-encode/,
+    );
+    expect(() => validatePublicFiles(['/file%20name.png'], 'the app')).toThrow(
+      /percent-encode/,
+    );
+    expect(() => validatePublicFiles(['/notes#1.txt'], 'the app')).toThrow(
+      /percent-encode/,
+    );
+    expect(() => validatePublicFiles(['/what?.txt'], 'the app')).toThrow(
+      /percent-encode/,
+    );
+    expect(() => validatePublicFiles(['/héllo.png'], 'the app')).toThrow(
+      /percent-encode/,
+    );
+    expect(() => validatePublicFolders(['/my docs'], 'the app')).toThrow(
+      /percent-encode/,
+    );
+  });
+
+  it('allows the URL-safe punctuation browsers send raw', () => {
+    expect(
+      validatePublicFiles(
+        ["/apple-touch-icon.png", "/file's_(v2)~final,ok.txt"],
+        'the app',
+      ),
+    ).toEqual(['/apple-touch-icon.png', "/file's_(v2)~final,ok.txt"]);
+    // The WHATWG URL path percent-encode set leaves these raw too, so a
+    // browser really requests '/icon[1].png' verbatim.
+    expect(
+      validatePublicFiles(['/icon[1].png', '/a|b.txt'], 'the app'),
+    ).toEqual(['/icon[1].png', '/a|b.txt']);
+    // '^' is NOT left raw — the serializer encodes '/a^b' as '/a%5Eb'.
+    expect(() => validatePublicFiles(['/a^b.txt'], 'the app')).toThrow(
+      /percent-encode/,
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -282,6 +323,33 @@ describe('assertNoRootFolderMount()', () => {
     expect(() =>
       assertNoRootFolderMount(undefined, CLIENT_ROOT, 'the default app'),
     ).not.toThrow();
+  });
+
+  it('rejects a symlink that resolves to the client build root', async () => {
+    // path.resolve alone would let a symlinked directory dodge the guard and
+    // expose /index.html and /.vite/manifest.json.
+    const tmpDir = await createTempDir({
+      prefix: 'unirend-root-mount-',
+      unsafeCleanup: true,
+    });
+
+    try {
+      const realRoot = path.join(tmpDir.path, 'client');
+      const link = path.join(tmpDir.path, 'client-link');
+
+      await fs.promises.mkdir(realRoot);
+      await fs.promises.symlink(realRoot, link);
+
+      expect(() =>
+        assertNoRootFolderMount(
+          { '/static': { path: link } },
+          realRoot,
+          'the default app',
+        ),
+      ).toThrow(/client build root/);
+    } finally {
+      await tmpDir.cleanup();
+    }
   });
 });
 
@@ -478,6 +546,18 @@ describe('findShadowedPublicPaths()', () => {
     expect(
       findShadowedPublicPaths(
         { folderMap: { '/.well-known/': '/elsewhere' } },
+        { publicFolders: ['/.well-known'] },
+        clientRoot,
+      ),
+    ).toEqual(['/.well-known']);
+  });
+
+  it('counts folderMap keys with repeated slashes (the cache collapses them)', () => {
+    // '//.well-known' normalizes to the same mount as '/.well-known' inside
+    // StaticContentCache, so it shadows the declaration and must warn.
+    expect(
+      findShadowedPublicPaths(
+        { folderMap: { '//.well-known': '/elsewhere' } },
         { publicFolders: ['/.well-known'] },
         clientRoot,
       ),

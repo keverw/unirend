@@ -577,6 +577,53 @@ class StaticServerTest extends TestCase
         $this->assertStringContainsString('boundary sibling fixture', $output);
     }
 
+    public function testDispatchCollapsesRepeatedSlashesInPrefixKey(): void
+    {
+        // A config key with doubled slashes normalizes to a single-slash
+        // mount and still serves (mirrors Node's normalizePrefix).
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/images/generated/pic.txt';
+
+        $server = new StaticServer([
+            'buildDir' => realpath(__DIR__ . '/fixtures/static-assets'),
+            'assetFolders' => [
+                '/images//generated' => 'generated-images',
+            ],
+        ]);
+
+        $output = $this->capture($server);
+
+        $this->assertSame(200, http_response_code());
+        $this->assertStringContainsString(
+            'separate generated-images fixture',
+            $output,
+        );
+    }
+
+    public function testDispatchDuplicateMountLastDeclaredWins(): void
+    {
+        // Two keys that normalize to the same mount — the last-declared
+        // entry wins, matching Node's Map.set overwrite semantics.
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/images/generated/pic.txt';
+
+        $server = new StaticServer([
+            'buildDir' => realpath(__DIR__ . '/fixtures/static-assets'),
+            'assetFolders' => [
+                '/images/generated' => 'images/generated',
+                'images/generated/' => 'generated-images',
+            ],
+        ]);
+
+        $output = $this->capture($server);
+
+        $this->assertSame(200, http_response_code());
+        $this->assertStringContainsString(
+            'separate generated-images fixture',
+            $output,
+        );
+    }
+
     public function testDispatchAssetFolderReturns404ForMissingFile(): void
     {
         $_SERVER['REQUEST_METHOD'] = 'GET';

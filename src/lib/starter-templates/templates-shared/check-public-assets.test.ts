@@ -174,6 +174,8 @@ describe('check-public-assets script behavior', () => {
     expect(exitCode).toBe(1);
     expect(output).toContain('missing from public/');
     expect(output).toContain('/favicon.svg');
+    // SSR apps validate declarations at boot, so predict the boot failure
+    expect(output).toContain('the built server refuses to boot on these');
   });
 
   test('fails when a public/ file is not declared (the production 404 case)', async () => {
@@ -193,6 +195,222 @@ describe('check-public-assets script behavior', () => {
     expect(output).toContain('present in public/ but not declared');
     expect(output).toContain('/favicon.svg');
     expect(output).toContain('/icons/logo.png');
+  });
+
+  test('counts a declared symlinked file as present', async () => {
+    // readdir dirents report symlinks as neither file nor directory — the
+    // listing must stat through the link so a symlinked robots.txt is not
+    // reported as "missing from public/".
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/robots.txt'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+    });
+
+    const sharedFile = path.join(repoDir, 'shared-robots.txt');
+    await fs.promises.writeFile(sharedFile, 'User-agent: *');
+    await fs.promises.symlink(
+      sharedFile,
+      path.join(repoDir, 'src', 'apps', 'web', 'public', 'robots.txt'),
+    );
+
+    const { exitCode, output } = await runCheck();
+    expect(output).toContain('public-assets check passed');
+    expect(exitCode).toBe(0);
+  });
+
+  test('reports an undeclared symlinked file as undeclared', async () => {
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/robots.txt'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: { 'robots.txt': 'User-agent: *' },
+    });
+
+    const sharedFile = path.join(repoDir, 'shared-extra.txt');
+    await fs.promises.writeFile(sharedFile, 'extra');
+    await fs.promises.symlink(
+      sharedFile,
+      path.join(repoDir, 'src', 'apps', 'web', 'public', 'extra.txt'),
+    );
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('present in public/ but not declared');
+    expect(output).toContain('/extra.txt');
+  });
+
+  test('recurses into symlinked directories and reports their undeclared files', async () => {
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/robots.txt'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: { 'robots.txt': 'User-agent: *' },
+    });
+
+    const sharedDir = path.join(repoDir, 'shared-icons');
+    await fs.promises.mkdir(sharedDir);
+    await fs.promises.writeFile(path.join(sharedDir, 'logo.png'), 'png');
+    await fs.promises.symlink(
+      sharedDir,
+      path.join(repoDir, 'src', 'apps', 'web', 'public', 'icons'),
+    );
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('present in public/ but not declared');
+    expect(output).toContain('/icons/logo.png');
+  });
+
+  test('reports a symlinked directory cycle as an error instead of recursing forever', async () => {
+    // public/loop -> public/ would recurse until path-length or resource
+    // exhaustion without the ancestry guard — and Vite's public copier has
+    // no such guard, so the cycle must fail the check, not be skipped.
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/robots.txt'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: { 'robots.txt': 'User-agent: *' },
+    });
+
+    const publicDir = path.join(repoDir, 'src', 'apps', 'web', 'public');
+    await fs.promises.symlink(publicDir, path.join(publicDir, 'loop'));
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('symlinked directory cycle');
+    expect(output).toContain('/loop');
+  });
+
+  test('allows raw URL path characters like [, ], and | but not ^', async () => {
+    // The WHATWG URL path percent-encode set leaves [, ], and | raw, so
+    // '/icon[1].png' is requested verbatim and matches the raw-URL router.
+    // '^' is encoded ('/a^b' serializes as '/a%5Eb'), so it stays rejected.
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/icon[1].png', '/a|b.txt'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: { 'icon[1].png': 'png', 'a|b.txt': 'txt' },
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(output).toContain('public-assets check passed');
+    expect(exitCode).toBe(0);
+
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/a^b.txt'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: { 'a^b.txt': 'txt' },
+    });
+
+    const rejected = await runCheck();
+    expect(rejected.exitCode).toBe(1);
+    expect(rejected.output).toContain('percent-encode');
+  });
+
+  test('reports a dangling symlink as an error (the Vite build fails on it)', async () => {
+    // Vite's public copier stats each entry when copying, so a broken link
+    // fails the build — the check must predict that, not silently skip it.
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/robots.txt'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: { 'robots.txt': 'User-agent: *' },
+    });
+
+    const publicDir = path.join(repoDir, 'src', 'apps', 'web', 'public');
+    await fs.promises.symlink(
+      path.join(repoDir, 'does-not-exist.txt'),
+      path.join(publicDir, 'broken.txt'),
+    );
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('dangling symlink');
+    expect(output).toContain('/broken.txt');
+  });
+
+  test('lists both sibling symlinks to the same directory (aliases are distinct URL trees)', async () => {
+    // Cycle detection must track recursion ancestry only — a global visited
+    // set would list the shared directory once and hide the second alias's
+    // undeclared files (or report its declared files as missing).
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/robots.txt'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: { 'robots.txt': 'User-agent: *' },
+    });
+
+    const sharedDir = path.join(repoDir, 'shared-assets');
+    await fs.promises.mkdir(sharedDir);
+    await fs.promises.writeFile(path.join(sharedDir, 'logo.png'), 'png');
+
+    const publicDir = path.join(repoDir, 'src', 'apps', 'web', 'public');
+    await fs.promises.symlink(sharedDir, path.join(publicDir, 'alias-a'));
+    await fs.promises.symlink(sharedDir, path.join(publicDir, 'alias-b'));
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('present in public/ but not declared');
+    expect(output).toContain('/alias-a/logo.png');
+    expect(output).toContain('/alias-b/logo.png');
+  });
+
+  test('fails on entries with URL-unsafe characters (SSR wording)', async () => {
+    // The server rejects these at boot: browsers request '/og image.png' as
+    // '/og%20image.png', so the declared key could never match.
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/og image.png'];\n" +
+        "export const PUBLIC_FOLDERS = ['/my docs'];\n",
+      publicFiles: { 'og image.png': 'png', 'my docs/readme.txt': 'hi' },
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('percent-encode');
+    expect(output).toContain('the server rejects it at boot');
+    expect(output).toContain('Rename the file in public/');
+    expect(output).toContain('Rename the folder in public/');
+  });
+
+  test('fails on entries with URL-unsafe characters (SSG wording)', async () => {
+    await writeApp({
+      templateID: 'ssg',
+      constsSrc:
+        "export const PUBLIC_FILES = ['/og image.png'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: { 'og image.png': 'png' },
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('percent-encode');
+    expect(output).toContain('requests for it just 404');
+    expect(output).not.toContain('rejects it at boot');
+  });
+
+  test('flags URL-unsafe filenames under a declared folder', async () => {
+    // The folder declaration itself is valid, so no boot check catches this:
+    // the file is served by URL and 404s on the percent-encoded request.
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/robots.txt'];\n" +
+        "export const PUBLIC_FOLDERS = ['/docs'];\n",
+      publicFiles: {
+        'robots.txt': 'User-agent: *',
+        'docs/og image.png': 'png',
+        'docs/fine.png': 'png',
+      },
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('covered by PUBLIC_FOLDERS');
+    expect(output).toContain('/docs/og image.png');
+    expect(output).toContain('percent-encode');
+    expect(output).not.toContain('/docs/fine.png');
   });
 
   test('fails on "." segments in either array (browsers normalize them away)', async () => {
@@ -227,6 +445,8 @@ describe('check-public-assets script behavior', () => {
     expect(output).toContain(
       'PUBLIC_FOLDERS entry "/.well\\\\known" contains a "." or ".." segment, backslash, or null byte',
     );
+    // SSR apps get the boot-time prediction (SSG apps get a 404 one)
+    expect(output).toContain('the server rejects it at boot');
   });
 
   test('fails on slash-collapsed and case-variant reserved paths', async () => {
@@ -286,6 +506,7 @@ describe('check-public-assets script behavior', () => {
     const { exitCode, output } = await runCheck();
     expect(exitCode).toBe(1);
     expect(output).toContain('"/.well-known" is missing from public/');
+    expect(output).toContain('the built server refuses to boot on this');
   });
 
   test('fails when a PUBLIC_FOLDERS entry is actually a file', async () => {
@@ -352,6 +573,27 @@ describe('check-public-assets script behavior', () => {
     expect(output).toContain('collides with the build');
     expect(output).toContain('/ASSETS/logo.png');
     expect(output).not.toContain('Add them to PUBLIC_FILES');
+  });
+
+  test('fails when public/assets is a bare file, with file (not folder) advice', async () => {
+    // The same output-dir collision, but the offender is a FILE named
+    // public/assets — the advice must not tell the user to rename a folder.
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/robots.txt'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: {
+        'robots.txt': 'User-agent: *',
+        assets: 'not a folder',
+      },
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('collides with the build');
+    expect(output).toContain('Rename the file');
+    expect(output).toContain('PUBLIC_FILES');
+    expect(output).not.toContain('Rename the folder');
   });
 
   test('fails when PUBLIC_FILES declares generated /assets content', async () => {
@@ -463,6 +705,47 @@ describe('check-public-assets script behavior', () => {
     expect(exitCode).toBe(1);
     expect(output).toContain('exposes build internals');
     expect(output).toContain('in an SSG app it collides with the build output');
+  });
+
+  test('ssg apps get request-time 404 wording for missing declared files', async () => {
+    // The SSG static server does no boot-time validation, so "the built
+    // server refuses to boot" would be a wrong prediction — it just 404s.
+    await writeApp({
+      templateID: 'ssg',
+      constsSrc:
+        "export const PUBLIC_FILES = ['/favicon.svg'];\n" +
+        "export const PUBLIC_FOLDERS = ['/.well-known'];\n",
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('missing from public/');
+    expect(output).toContain(
+      'these 404 in production — the SSG static server has no boot check',
+    );
+    expect(output).toContain(
+      'requests under it 404 in production — the SSG static server has no boot check',
+    );
+    expect(output).not.toContain('refuses to boot');
+  });
+
+  test('ssg apps get request-time 404 wording for invalid entries', async () => {
+    await writeApp({
+      templateID: 'ssg',
+      constsSrc:
+        "export const PUBLIC_FILES = ['/icons\\\\logo.png'];\n" +
+        "export const PUBLIC_FOLDERS = ['/assets'];\n",
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain(
+      'the SSG static server does no boot-time validation, so requests for it just 404',
+    );
+    expect(output).toContain(
+      'the SSG static server does no boot-time validation, so requests under it just 404',
+    );
+    expect(output).not.toContain('rejects it at boot');
   });
 
   test('skips api projects (no public-file surface)', async () => {
