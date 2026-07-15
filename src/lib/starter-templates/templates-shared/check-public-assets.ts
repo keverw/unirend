@@ -44,10 +44,12 @@ const rootDir = process.cwd();
 
 /**
  * Paths that must never be exposed as public assets: the raw HTML template
- * (serving it would bypass SSR / collide with the built index.html) and Vite
- * build metadata. The server rejects these in publicFiles too — catching
- * them here fails CI before anything boots. Case-insensitive, matching the
- * server: on case-insensitive filesystems /INDEX.HTML is the same file.
+ * and Vite build metadata. For SSR apps, serving the template would bypass
+ * SSR and the server rejects the declaration at boot. For SSG apps there is
+ * no boot check, but a public/index.html collides with the built index.html
+ * at build time and with the generated homepage after that — catching it
+ * here in CI is the only guard. Case-insensitive, matching the SSR server:
+ * on case-insensitive filesystems /INDEX.HTML is the same file.
  */
 function isReservedPublicPath(urlPath: string): boolean {
   const lowered = urlPath.toLowerCase();
@@ -183,7 +185,7 @@ async function main() {
         );
       } else if (isReservedPublicPath(withLead)) {
         problems.push(
-          \`\${name}: PUBLIC_FILES entry \${JSON.stringify(entry)} exposes build internals (the HTML template or Vite metadata) — the server rejects it at boot. Remove it.\`,
+          \`\${name}: PUBLIC_FILES entry \${JSON.stringify(entry)} exposes build internals (the HTML template or Vite metadata) — the SSR server rejects it at boot, and in an SSG app it collides with the build output. Remove it.\`,
         );
       } else if (
         withLead.toLowerCase() === '/assets' ||
@@ -226,7 +228,8 @@ async function main() {
         );
       } else if (
         isReservedPublicPath(trimmedSlash) ||
-        trimmedSlash.toLowerCase() === '/assets'
+        trimmedSlash.toLowerCase() === '/assets' ||
+        trimmedSlash.toLowerCase().startsWith('/assets/')
       ) {
         problems.push(
           \`\${name}: PUBLIC_FOLDERS entry \${JSON.stringify(entry)} is reserved (/assets is served by default; .vite is build metadata) — the server rejects it at boot. Remove it.\`,

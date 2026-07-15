@@ -1338,13 +1338,16 @@ export interface ServeSSRBuiltOptions extends ServeSSROptions {
    * (apps must be registered before `listen()`), each against its own build
    * dir.
    *
-   * Entries with `..` segments, null bytes, backslashes, or trailing slashes
-   * are rejected at config time, as are `/index.html` (the raw HTML template —
-   * SSR serves it, not the static router), anything under `.vite/` (build
-   * metadata), and anything under `/assets/` (Vite's generated output, already
-   * served by the default mount — a single-asset entry would shadow it and
-   * lose the immutable header). `staticContentRouter.singleAssetMap` is the
-   * deliberate escape hatch if you truly need to expose those.
+   * Entries with `.`/`..` segments, null bytes, backslashes, or trailing
+   * slashes are rejected at config time, as are `/index.html` (the raw HTML
+   * template — SSR serves it, not the static router), anything under `.vite/`
+   * (build metadata), and anything under `/assets/` (Vite's generated output,
+   * already served by the default mount — a single-asset entry would shadow
+   * it and lose the immutable header). Repeated slashes are collapsed and
+   * reserved names compare case-insensitively, so variants like
+   * `/assets//x.js` or `/INDEX.HTML` cannot dodge these checks.
+   * `staticContentRouter.singleAssetMap` is the deliberate escape hatch if
+   * you truly need to expose those.
    *
    * @example
    * publicFiles: ['/favicon.svg', '/favicon.ico', '/robots.txt']
@@ -1369,9 +1372,12 @@ export interface ServeSSRBuiltOptions extends ServeSSROptions {
    * `publicFiles` for the details — the same check covers both options).
    *
    * Bare `/` is rejected (never mount the client build root — it exposes
-   * `/index.html` and `.vite/`), as are `.vite` itself, `/assets` (already
-   * the default mount), `..` segments, null bytes, and backslashes. A
-   * trailing slash is tolerated and stripped.
+   * `/index.html` and `.vite/`), as are `.vite` itself, `/assets` and
+   * anything under it (already the default mount, and a nested mount would
+   * win on longest-prefix and lose the immutable header), `.`/`..` segments,
+   * null bytes, and backslashes. A trailing slash is tolerated and stripped,
+   * repeated slashes are collapsed, and reserved names compare
+   * case-insensitively.
    *
    * @example
    * publicFolders: ['/.well-known']

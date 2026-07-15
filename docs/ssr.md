@@ -931,12 +931,12 @@ In addition to the [shared server configuration](#shared-server-configuration), 
   - `/index.html`, anything under `.vite/`, and anything under `/assets/` are also rejected. The template is served through SSR, not as a raw file, the `.vite` directory is build metadata, and `/assets` is Vite's generated output, already served by the default mount (a single-asset entry would shadow it and lose the immutable header). A nested `index.html` (e.g. `/docs/index.html`) is fine. If you truly need to expose these, `staticContentRouter.singleAssetMap` remains the deliberate escape hatch.
   - Cannot be combined with `staticContentRouter: false`. If a CDN serves these files, pass `undefined` here but keep the list declared in your app's consts so the drift check still runs. See [CDN Deployments](#cdn-deployments) for an env-gated setup.
 - `publicFolders?: string[]`
-  - Declares subfolders of `public/` to serve whole, e.g. `['/.well-known']` — every file inside is served without listing each one in `publicFiles`.
+  - Declares subfolders of `public/` to serve whole, e.g. `['/.well-known']`, so every file inside is served without listing each one in `publicFiles`.
   - Shorthand for `staticContentRouter.folderMap` mounts resolved against the client build root. An explicit `folderMap` prefix for the same path wins (with the same boot-time shadow warning, unless it points at the same directory, see the next bullet).
-  - Unlike `publicFiles`, a folder mount resolves requests against the disk per request rather than from a fixed list — prefer `publicFiles` for individual files and reserve this for folders with many or changing files.
+  - Unlike `publicFiles`, a folder mount resolves requests against the disk per request rather than from a fixed list. Prefer `publicFiles` for individual files and reserve this for folders with many or changing files.
   - Folder mounts never get immutable-asset detection, since `public/` content is copied verbatim, not fingerprinted. If a `public/` subfolder genuinely holds fingerprinted files, declare it here AND mount it via `staticContentRouter.folderMap` with `detectImmutableAssets: true` pointing at the same directory. The `folderMap` entry wins (adding the detection), the declaration keeps the templates' `check:public-assets` drift script covering the folder, and the shadow warning recognizes that exact combination as intentional and stays quiet. A duplicate that changes nothing (same directory without enabling detection) still warns.
   - At startup, every declared folder must exist as a directory in the client build dir, failing loudly at boot otherwise.
-  - Bare `/` is rejected (mounting the client build root exposes `/index.html` and `.vite/`), as are `/assets` (already the default mount), `.vite`, `.` and `..` segments, null bytes, and backslashes. A trailing slash is tolerated and stripped, repeated slashes are collapsed before the checks (so `//` counts as the root and `/assets//` as `/assets`), and reserved names compare case-insensitively.
+  - Bare `/` is rejected (mounting the client build root exposes `/index.html` and `.vite/`), as are `/assets` and anything under it (already the default mount, and a nested mount would win on longest-prefix and lose the immutable header), `.vite`, `.` and `..` segments, null bytes, and backslashes. A trailing slash is tolerated and stripped, repeated slashes are collapsed before the checks (so `//` counts as the root and `/assets//` as `/assets`), and reserved names compare case-insensitively.
   - Cannot be combined with `staticContentRouter: false`. If a CDN serves these folders, pass `undefined` here but keep the list declared in your app's consts so the drift check still runs. See [CDN Deployments](#cdn-deployments) for an env-gated setup.
 - `staticContentRouter?: StaticContentRouterOptions | false`
   - Serves static assets (images, CSS, JS) in production. Not related to React Router’s StaticRouter.
@@ -947,7 +947,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
   - Options (StaticContentRouterOptions):
     - `singleAssetMap?: Record<string, string>`: Exact URL → absolute file path
     - `folderMap?: Record<string, string | FolderConfig>`: URL prefix → directory path (or folder config)
-      - `FolderConfig`: `{ path: string; detectImmutableAssets?: boolean }`
+      - `FolderConfig`: `{ path: string; detectImmutableAssets?: boolean }`. Detection is a filename heuristic (a hash-like segment before the extension), so verbatim names like `some-multi-word.txt` can look hashed. Only enable it for folders that genuinely contain fingerprinted files.
     - `smallFileMaxSize?: number`: Inline/ETag cut‑off for small assets
     - `cacheEntries?: number`: Max entries in in‑memory caches
     - `contentCacheMaxSize?: number`: Max total bytes for content cache

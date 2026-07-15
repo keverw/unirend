@@ -305,12 +305,13 @@ describe('check-public-assets script behavior', () => {
     await writeApp({
       constsSrc:
         'export const PUBLIC_FILES = [];\n' +
-        "export const PUBLIC_FOLDERS = ['/assets', '/.vite', '/'];\n",
+        "export const PUBLIC_FOLDERS = ['/assets', '/assets/foo', '/.vite', '/'];\n",
     });
 
     const { exitCode, output } = await runCheck();
     expect(exitCode).toBe(1);
     expect(output).toContain('is reserved');
+    expect(output).toContain('"/assets/foo" is reserved');
     expect(output).toContain('mounts the whole public/ root');
   });
 
@@ -445,6 +446,23 @@ describe('check-public-assets script behavior', () => {
     const { exitCode, output } = await runCheck();
     expect(exitCode).toBe(1);
     expect(output).toContain('does not export a PUBLIC_FOLDERS string array');
+  });
+
+  test('checks ssg apps too, with SSG-appropriate reserved-path guidance', async () => {
+    // SSG apps have no boot-time reserved check (that is SSR-only), so this
+    // CI check is their only guard — and the message explains the SSG
+    // failure mode (build collision) rather than just the SSR one.
+    await writeApp({
+      templateID: 'ssg',
+      constsSrc:
+        "export const PUBLIC_FILES = ['/index.html'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('exposes build internals');
+    expect(output).toContain('in an SSG app it collides with the build output');
   });
 
   test('skips api projects (no public-file surface)', async () => {

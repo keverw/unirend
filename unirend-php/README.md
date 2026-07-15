@@ -108,7 +108,7 @@ Map individual URLs to files, useful for `robots.txt`, `favicon.ico`, etc.
 
 Map URL prefixes to asset directories. Files with content hashes in their names (e.g. `app.abc123ef.js`) automatically get immutable `Cache-Control` headers when detection is on for that folder.
 
-Detection resolves per folder, mirroring `StaticWebServer` from the Node.js package: the per-folder value if you set one, otherwise the name-based default. That default is on for `/assets` (Vite's hashed build output) and off for every other folder, since those usually hold verbatim `public/` files where a name that merely looks hashed must not get a year-long immutable header. There is no top-level flag, so passing `detectImmutableAssets` at the top level throws.
+Detection resolves per folder, mirroring `StaticWebServer` from the Node.js package: the per-folder value if you set one, otherwise the name-based default. That default is on for `/assets` (Vite's hashed build output) and off for every other folder, since those usually hold verbatim `public/` files where a name that merely looks hashed must not get a year-long immutable header. There is no top-level flag, so passing `detectImmutableAssets` at the top level throws. Detection is a filename heuristic, so a verbatim name like `some-multi-word.txt` can look hashed. Only opt a folder in when it genuinely contains fingerprinted files.
 
 ```php
 'assetFolders' => [

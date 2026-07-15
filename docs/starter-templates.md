@@ -475,7 +475,7 @@ Whether you run `init-repo` or `create` (which auto-inits), Unirend ensures thes
 - `.vscode/settings.json`, `.vscode/extensions.json`. The settings pin `importModuleSpecifier` to `project-relative`, so auto-imports stay relative within an app but switch to the `@/` alias when they reach into shared `src/libs/*` (the boundary is each app's own `tsconfig.json`).
 - `AGENTS.md` and `CLAUDE.md` (bridges Claude Code to `AGENTS.md`).
 - `scripts/clean-cspell.ts`.
-- `scripts/check-public-assets.ts` verifies each Vite app's `PUBLIC_FILES`/`PUBLIC_FOLDERS` (in `consts.ts`) against the files actually in its `public/` folder, in both directions — files under a declared folder are covered automatically. It runs as `bun run check:public-assets`, is chained into `bun run check` so drift fails CI, and no-ops in repos without SSR/SSG apps.
+- `scripts/check-public-assets.ts` verifies each Vite app's `PUBLIC_FILES`/`PUBLIC_FOLDERS` (in `consts.ts`) against the files actually in its `public/` folder, in both directions (files under a declared folder are covered automatically). It runs as `bun run check:public-assets`, is chained into `bun run check` so drift fails CI, and no-ops in repos without SSR/SSG apps.
 - `.gitkeep` files for `scripts/`, `src/apps/`, `src/libs/`.
 
 ## Import Alias Enforcement (`@/`)

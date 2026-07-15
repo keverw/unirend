@@ -94,10 +94,13 @@ export function validatePublicFiles(
  * `.well-known`, `/.well-known`, and `/.well-known/` are equivalent.
  *
  * Rejects (throws): non-strings, empty strings, null bytes, backslashes,
- * `..` segments, bare `/` (the root-mount guard exists for a reason — mount
- * the root and you expose `/index.html` and `.vite/`), anything under
- * `.vite/`, and `/assets` (already the default mount — customize it via
- * `staticContentRouter.folderMap` instead).
+ * `.`/`..` segments, bare `/` (the root-mount guard exists for a reason —
+ * mount the root and you expose `/index.html` and `.vite/`), anything under
+ * `.vite/`, and `/assets` or anything under it (already the default mount,
+ * and a nested mount would win on longest-prefix and lose the immutable
+ * header). The error points anyone customizing the mount at
+ * `folderMap['/assets']` WITH `detectImmutableAssets: true`, so the escape
+ * hatch does not read as an invitation to recreate the footgun.
  *
  * @param entries - The raw `publicFolders` array from app config
  * @param appLabel - App identifier used in error messages
@@ -132,11 +135,16 @@ export function validatePublicFolders(
       );
     }
 
-    // Case-insensitive for the same reason as the file checks above.
-    if (normalized.toLowerCase() === '/assets') {
+    // Case-insensitive for the same reason as the file checks above. Subpaths
+    // are rejected too: folder mounts resolve by longest prefix, so a
+    // '/assets/foo' mount would beat the default '/assets' mount for those
+    // requests and serve hashed bundles without the immutable header.
+    const loweredFolder = normalized.toLowerCase();
+
+    if (loweredFolder === '/assets' || loweredFolder.startsWith('/assets/')) {
       throw new Error(
-        `Invalid publicFolders entry for ${appLabel}: /assets is already served by default. ` +
-          `To customize it, configure staticContentRouter.folderMap['/assets'] instead.`,
+        `Invalid publicFolders entry for ${appLabel}: ${JSON.stringify(entry)} is under /assets, which is already served by default. ` +
+          `If you truly need to customize that mount, configure staticContentRouter.folderMap['/assets'] with detectImmutableAssets: true, so hashed bundles keep their immutable headers.`,
       );
     }
 

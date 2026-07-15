@@ -599,7 +599,7 @@ const server = new StaticWebServer({
 });
 ```
 
-Files with content hashes (e.g., `app-abc123.js`) automatically get long cache headers (`max-age=31536000, immutable`). Detection resolves per folder: a `{ path, detectImmutableAssets }` value if you set one, otherwise the name-based default matching the SSR server behavior, on by default for `/assets` (Vite's hashed output), off by default for every other folder, since verbatim files with hash-looking names must not be cached as immutable. There is no top-level flag.
+Files with content hashes (e.g., `app-abc123.js`) automatically get long cache headers (`max-age=31536000, immutable`). Detection resolves per folder: a `{ path, detectImmutableAssets }` value if you set one, otherwise the name-based default matching the SSR server behavior, on by default for `/assets` (Vite's hashed output), off by default for every other folder, since verbatim files with hash-looking names must not be cached as immutable. There is no top-level flag. Detection is a filename heuristic, so a verbatim name like `some-multi-word.txt` can look hashed. Only opt a folder in when it genuinely contains fingerprinted files.
 
 ##### Development Mode
 

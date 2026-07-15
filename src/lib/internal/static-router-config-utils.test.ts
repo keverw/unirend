@@ -204,6 +204,15 @@ describe('validatePublicFolders()', () => {
     );
   });
 
+  it('rejects subpaths of /assets (longest-prefix matching would beat the default mount)', () => {
+    expect(() => validatePublicFolders(['/assets/foo'], 'the app')).toThrow(
+      /already served by default/,
+    );
+    expect(() => validatePublicFolders(['/ASSETS/foo'], 'the app')).toThrow(
+      /already served by default/,
+    );
+  });
+
   it('rejects .vite', () => {
     expect(() => validatePublicFolders(['/.vite'], 'the app')).toThrow(
       /build metadata/,
