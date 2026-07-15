@@ -289,10 +289,16 @@ class StaticServer
 
         // 3. Merge user-provided singleAssets (can override page-map entries)
         foreach ($this->options['singleAssets'] as $urlPath => $filePath) {
+            // Ensure a leading slash on the URL key, matching the Node.js
+            // StaticWebServer — a key of 'robots.txt' must serve /robots.txt
+            // instead of silently never matching any request.
+            $urlKey = str_starts_with($urlPath, '/')
+                ? $urlPath
+                : '/' . $urlPath;
             // Use realpath to safely resolve paths (handles leading slashes, prevents traversal)
             $resolved = realpath($buildDir . '/' . ltrim($filePath, '/'));
             if ($resolved !== false) {
-                $assetMap[$urlPath] = $resolved;
+                $assetMap[$urlKey] = $resolved;
             }
         }
 

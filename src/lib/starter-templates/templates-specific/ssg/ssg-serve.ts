@@ -107,6 +107,14 @@ class StaticWebServerComponent extends BaseComponent {
 
     this.startPromise = (async () => {
       try {
+        // Normalize declarations the way the SSR server and the
+        // check-public-assets script do — trim, collapse repeated slashes,
+        // ensure one leading slash (folders also drop a trailing slash) — so
+        // an entry like '/icons//logo.svg' that passes CI serves at the URL
+        // browsers actually request instead of 404ing only on this server.
+        const normalizePublicPath = (entry: string) =>
+          \`/\${entry.trim().replace(/\\/+/g, '/').replace(/^\\//, '')}\`;
+
         this.server = new StaticWebServer({
           buildDir: BUILD_DIR,
           pageMapPath: 'page-map.json',
@@ -114,10 +122,10 @@ class StaticWebServerComponent extends BaseComponent {
           // URL to path relative to BUILD_DIR — public/ content keeps its
           // name, so the URL doubles as the relative path.
           singleAssets: Object.fromEntries(
-            PUBLIC_FILES.map((urlPath) => [
-              urlPath,
-              urlPath.replace(/^\\//, ''),
-            ]),
+            PUBLIC_FILES.map((urlPath) => {
+              const normalized = normalizePublicPath(urlPath);
+              return [normalized, normalized.slice(1)];
+            }),
           ),
           // Immutable-asset detection defaults per folder, like the SSR server:
           // on for /assets (Vite's hashed output folder), off for public folders
@@ -126,10 +134,13 @@ class StaticWebServerComponent extends BaseComponent {
           assetFolders: {
             '/assets': 'assets',
             ...Object.fromEntries(
-              PUBLIC_FOLDERS.map((urlPrefix) => [
-                urlPrefix,
-                urlPrefix.replace(/^\\//, ''),
-              ]),
+              PUBLIC_FOLDERS.map((urlPrefix) => {
+                const normalized = normalizePublicPath(urlPrefix).replace(
+                  /\\/$/,
+                  '',
+                );
+                return [normalized, normalized.slice(1)];
+              }),
             ),
           },
           // This level controls the adapter's gate — what Fastify passes to the Lifecycleion

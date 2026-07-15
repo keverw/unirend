@@ -376,6 +376,23 @@ class StaticServerTest extends TestCase
         $this->assertStringEndsWith('robots.txt', $pageMap['/robots.txt']);
     }
 
+    public function testBuildMapsSingleAssetsKeyGetsLeadingSlash(): void
+    {
+        // Matches the Node.js StaticWebServer: a key of 'robots.txt' serves
+        // /robots.txt instead of silently never matching any request.
+        $server = new StaticServer([
+            'buildDir' => $this->buildDir,
+            'singleAssets' => ['robots.txt' => 'robots.txt'],
+        ]);
+
+        $this->callBuildMaps($server);
+
+        $pageMap = $this->getProperty($server, 'pageMap');
+
+        $this->assertArrayHasKey('/robots.txt', $pageMap);
+        $this->assertArrayNotHasKey('robots.txt', $pageMap);
+    }
+
     public function testBuildMapsSingleAssetsOverridePageMap(): void
     {
         $server = new StaticServer([
