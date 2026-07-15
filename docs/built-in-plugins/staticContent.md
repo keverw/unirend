@@ -431,6 +431,8 @@ When `detectImmutableAssets: true`, the plugin detects fingerprinted filenames:
 - Pattern: `.{hash}.{ext}` (e.g., `main.CTpDmzGw.js`)
 - Pattern: `-{hash}.{ext}` (e.g., `chunk-a1b2c3d4.css`)
 
+The hash must be at least 6 characters of the base64url alphabet, alphanumerics plus `_` and `-`, matching what Vite/Rollup actually emit (e.g. `index-CRJ_nHAW.css`).
+
 Detected files receive the `immutableCacheControl` header (default: 1 year, immutable).
 
 ## SSR Server Default Behavior

@@ -62,8 +62,11 @@ describe('ensurePackageJSON', () => {
       expect(pkg.scripts['cspell:clean']).toBeDefined();
       expect(pkg.scripts['cspell:clean:fix']).toBeDefined();
       expect(pkg.scripts['list-outdated-packages']).toBe('bun outdated');
+      expect(pkg.scripts['check:public-assets']).toBe(
+        'bun run scripts/check-public-assets.ts',
+      );
       expect(pkg.scripts.check).toBe(
-        'bun audit && bun run type-check && bun run lint && bun run spellcheck && bun test --pass-with-no-tests',
+        'bun audit && bun run type-check && bun run lint && bun run spellcheck && bun run check:public-assets && bun test --pass-with-no-tests',
       );
     });
   });

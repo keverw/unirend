@@ -93,6 +93,15 @@ class FileServerTest extends TestCase
         $this->assertTrue(FileServer::isImmutableAsset('main.MixedCase123.js'));
     }
 
+    public function testDetectsBase64urlHashes(): void
+    {
+        // Vite/Rollup hashes use the base64url alphabet, which includes
+        // '_' and '-' (mirrors the Node.js regression fix)
+        $this->assertTrue(FileServer::isImmutableAsset('index-CRJ_nHAW.css'));
+        $this->assertTrue(FileServer::isImmutableAsset('main.CRJ_nHAW.js'));
+        $this->assertTrue(FileServer::isImmutableAsset('chunk-a_b-c_d1.js'));
+    }
+
     public function testNonHashedFileIsNotImmutable(): void
     {
         $this->assertFalse(FileServer::isImmutableAsset('app.js'));

@@ -119,6 +119,74 @@ class StaticServerTest extends TestCase
         $this->assertInstanceOf(StaticServer::class, $server);
     }
 
+    public function testConstructorAcceptsPerFolderAssetConfig(): void
+    {
+        // Mirrors StaticWebServer's { path, detectImmutableAssets? } form
+        $server = new StaticServer([
+            'buildDir' => $this->buildDir,
+            'assetFolders' => [
+                '/assets' => 'assets',
+                '/downloads' => [
+                    'path' => 'downloads',
+                    'detectImmutableAssets' => true,
+                ],
+            ],
+        ]);
+
+        $this->assertInstanceOf(StaticServer::class, $server);
+    }
+
+    public function testConstructorRejectsFolderConfigWithoutPath(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('require a string "path"');
+
+        new StaticServer([
+            'buildDir' => $this->buildDir,
+            'assetFolders' => [
+                '/assets' => ['detectImmutableAssets' => true],
+            ],
+        ]);
+    }
+
+    public function testConstructorRejectsNonBoolFolderDetectFlag(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('"detectImmutableAssets" must be a bool');
+
+        new StaticServer([
+            'buildDir' => $this->buildDir,
+            'assetFolders' => [
+                '/assets' => [
+                    'path' => 'assets',
+                    'detectImmutableAssets' => 'yes',
+                ],
+            ],
+        ]);
+    }
+
+    public function testConstructorRejectsRemovedTopLevelDetectFlag(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('set it per folder');
+
+        new StaticServer([
+            'buildDir' => $this->buildDir,
+            'detectImmutableAssets' => true,
+        ]);
+    }
+
+    public function testConstructorRejectsNonStringNonArrayFolderValue(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('values must be strings or');
+
+        new StaticServer([
+            'buildDir' => $this->buildDir,
+            'assetFolders' => ['/assets' => 42],
+        ]);
+    }
+
     public function testConstructorRejectsNonCallableOnError(): void
     {
         $this->expectException(\InvalidArgumentException::class);
@@ -220,6 +288,77 @@ class StaticServerTest extends TestCase
 
         $this->assertNotNull($errorHtml);
         $this->assertStringContainsString('500 fixture', $errorHtml);
+    }
+
+    public function testBuildMapsLoadsCustomNotFoundPageOption(): void
+    {
+        // The build-error-pages fixture has an empty page map, so the chain
+        // skips (a) and the notFoundPage option (b) wins over the default
+        // 404.html also present in the fixture (c).
+        $server = new StaticServer([
+            'buildDir' => realpath(__DIR__ . '/fixtures/build-error-pages'),
+            'notFoundPage' => 'custom-404.html',
+        ]);
+        $this->callBuildMaps($server);
+
+        $notFoundHtml = $this->getProperty($server, 'notFoundHtml');
+
+        $this->assertNotNull($notFoundHtml);
+        $this->assertStringContainsString(
+            'custom notFoundPage option fixture',
+            $notFoundHtml,
+        );
+    }
+
+    public function testBuildMapsLoadsCustomErrorPageOption(): void
+    {
+        $server = new StaticServer([
+            'buildDir' => realpath(__DIR__ . '/fixtures/build-error-pages'),
+            'errorPage' => 'custom-500.html',
+        ]);
+        $this->callBuildMaps($server);
+
+        $errorHtml = $this->getProperty($server, 'errorHtml');
+
+        $this->assertNotNull($errorHtml);
+        $this->assertStringContainsString(
+            'custom errorPage option fixture',
+            $errorHtml,
+        );
+    }
+
+    public function testBuildMapsFallsBackToDefault404HtmlInBuildDir(): void
+    {
+        // No page-map entry and no notFoundPage option — step (c) picks up
+        // 404.html sitting in buildDir.
+        $server = new StaticServer([
+            'buildDir' => realpath(__DIR__ . '/fixtures/build-error-pages'),
+        ]);
+        $this->callBuildMaps($server);
+
+        $notFoundHtml = $this->getProperty($server, 'notFoundHtml');
+
+        $this->assertNotNull($notFoundHtml);
+        $this->assertStringContainsString(
+            'default 404.html fixture',
+            $notFoundHtml,
+        );
+    }
+
+    public function testBuildMapsFallsBackToDefault500HtmlInBuildDir(): void
+    {
+        $server = new StaticServer([
+            'buildDir' => realpath(__DIR__ . '/fixtures/build-error-pages'),
+        ]);
+        $this->callBuildMaps($server);
+
+        $errorHtml = $this->getProperty($server, 'errorHtml');
+
+        $this->assertNotNull($errorHtml);
+        $this->assertStringContainsString(
+            'default 500.html fixture',
+            $errorHtml,
+        );
     }
 
     public function testBuildMapsSingleAssetsAddToPageMap(): void
@@ -367,6 +506,75 @@ class StaticServerTest extends TestCase
 
         $this->assertSame(200, http_response_code());
         $this->assertStringContainsString('fixture: hashed asset', $output);
+    }
+
+    public function testDispatchServesAssetFolderWithPerFolderConfig(): void
+    {
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/assets/app.abc123ef.js';
+
+        $server = new StaticServer([
+            'buildDir' => $this->buildDir,
+            'assetFolders' => [
+                '/assets' => [
+                    'path' => 'assets',
+                    'detectImmutableAssets' => false,
+                ],
+            ],
+        ]);
+
+        $output = $this->capture($server);
+
+        $this->assertSame(200, http_response_code());
+        $this->assertStringContainsString('fixture: hashed asset', $output);
+    }
+
+    public function testDispatchNestedAssetFolderWinsByLongestPrefix(): void
+    {
+        // The shallow mount is declared first — without longest-prefix
+        // matching it would swallow requests meant for the nested mount.
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/images/generated/pic.txt';
+
+        $server = new StaticServer([
+            'buildDir' => realpath(__DIR__ . '/fixtures/static-assets'),
+            'assetFolders' => [
+                '/images' => 'images',
+                '/images/generated' => 'generated-images',
+            ],
+        ]);
+
+        $output = $this->capture($server);
+
+        // The nested mount points at a different directory than the shallow
+        // one reaches, so first-match would serve 'wrong shadow content'
+        // from images/generated/pic.txt instead.
+        $this->assertSame(200, http_response_code());
+        $this->assertStringContainsString(
+            'separate generated-images fixture',
+            $output,
+        );
+    }
+
+    public function testDispatchNestedMountMatchesOnSegmentBoundaryOnly(): void
+    {
+        // '/images/generated' must not capture '/images/generated-other/...'
+        // — that request belongs to the shallow '/images' mount.
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/images/generated-other/pic.txt';
+
+        $server = new StaticServer([
+            'buildDir' => realpath(__DIR__ . '/fixtures/static-assets'),
+            'assetFolders' => [
+                '/images' => 'images',
+                '/images/generated' => 'generated-images',
+            ],
+        ]);
+
+        $output = $this->capture($server);
+
+        $this->assertSame(200, http_response_code());
+        $this->assertStringContainsString('boundary sibling fixture', $output);
     }
 
     public function testDispatchAssetFolderReturns404ForMissingFile(): void
@@ -827,6 +1035,145 @@ class StaticServerTest extends TestCase
             $notFoundHtml,
         );
         $this->assertStringContainsString('404 fixture', $notFoundHtml);
+    }
+
+    // -------------------------------------------------------------------------
+    // resolveDetectImmutable — per-folder immutable detection resolution
+    // -------------------------------------------------------------------------
+
+    public function testResolveDetectDefaultsOnForAssets(): void
+    {
+        $this->assertTrue(
+            StaticServer::resolveDetectImmutable('/assets', 'assets'),
+        );
+    }
+
+    public function testResolveDetectDefaultsOffForOtherFolders(): void
+    {
+        $this->assertFalse(
+            StaticServer::resolveDetectImmutable('/images', 'images'),
+        );
+        $this->assertFalse(
+            StaticServer::resolveDetectImmutable('/.well-known', '.well-known'),
+        );
+    }
+
+    public function testResolveDetectNormalizesAssetsPrefix(): void
+    {
+        // 'assets', '/assets', and '/assets/' are the same mount for the default
+        $this->assertTrue(
+            StaticServer::resolveDetectImmutable('assets', 'assets'),
+        );
+        $this->assertTrue(
+            StaticServer::resolveDetectImmutable('/assets/', 'assets'),
+        );
+    }
+
+    public function testResolveDetectPerFolderValueWinsOverDefault(): void
+    {
+        // Explicit opt-out on /assets
+        $this->assertFalse(
+            StaticServer::resolveDetectImmutable('/assets', [
+                'path' => 'assets',
+                'detectImmutableAssets' => false,
+            ]),
+        );
+
+        // Explicit opt-in on a non-assets folder
+        $this->assertTrue(
+            StaticServer::resolveDetectImmutable('/downloads', [
+                'path' => 'downloads',
+                'detectImmutableAssets' => true,
+            ]),
+        );
+    }
+
+    public function testResolveDetectConfigArrayWithoutFlagUsesDefault(): void
+    {
+        $this->assertTrue(
+            StaticServer::resolveDetectImmutable('/assets', [
+                'path' => 'assets',
+            ]),
+        );
+        $this->assertFalse(
+            StaticServer::resolveDetectImmutable('/downloads', [
+                'path' => 'downloads',
+            ]),
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // parseRequestBody — pure body-parsing half of requestBody()
+    // -------------------------------------------------------------------------
+
+    public function testParseRequestBodyDecodesJsonObject(): void
+    {
+        $body = StaticServer::parseRequestBody(
+            'application/json',
+            '{"name": "Kevin", "ok": true}',
+            [],
+        );
+
+        $this->assertSame(['name' => 'Kevin', 'ok' => true], $body);
+    }
+
+    public function testParseRequestBodyDecodesJsonWithCharsetSuffix(): void
+    {
+        $body = StaticServer::parseRequestBody(
+            'application/json; charset=utf-8',
+            '{"ok": true}',
+            [],
+        );
+
+        $this->assertSame(['ok' => true], $body);
+    }
+
+    public function testParseRequestBodyReturnsEmptyForMalformedJson(): void
+    {
+        $body = StaticServer::parseRequestBody(
+            'application/json',
+            '{not json',
+            [],
+        );
+
+        $this->assertSame([], $body);
+    }
+
+    public function testParseRequestBodyReturnsEmptyForEmptyJsonBody(): void
+    {
+        $body = StaticServer::parseRequestBody('application/json', '', []);
+
+        $this->assertSame([], $body);
+    }
+
+    public function testParseRequestBodyReturnsEmptyForJsonScalar(): void
+    {
+        // Valid JSON but not an array/object — normalized to empty
+        $body = StaticServer::parseRequestBody('application/json', '"hi"', []);
+
+        $this->assertSame([], $body);
+    }
+
+    public function testParseRequestBodyFallsBackToPostForFormData(): void
+    {
+        $post = ['name' => 'Kevin'];
+
+        $body = StaticServer::parseRequestBody(
+            'application/x-www-form-urlencoded',
+            '',
+            $post,
+        );
+
+        $this->assertSame($post, $body);
+    }
+
+    public function testParseRequestBodyIgnoresPostForJsonRequests(): void
+    {
+        $body = StaticServer::parseRequestBody('application/json', '{"a": 1}', [
+            'stale' => 'post data',
+        ]);
+
+        $this->assertSame(['a' => 1], $body);
     }
 
     // -------------------------------------------------------------------------

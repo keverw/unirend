@@ -420,6 +420,16 @@ describe('ensureSSRComponent', () => {
     expect('src/apps/other/server/ssr-component.ts' in mem).toBe(true);
   });
 
+  test('wires PUBLIC_FILES into the built-mode server config', async () => {
+    const mem: InMemoryDir = {};
+    await ensureSSRComponent(mem, 'src/apps/my-app', 'my-app');
+    const src = mem['src/apps/my-app/server/ssr-component.ts'] as string;
+    expect(src).toContain(
+      "import { ENABLE_TEST_ROUTES, PUBLIC_FILES, PUBLIC_FOLDERS } from '../consts';",
+    );
+    expect(src).toContain('publicFiles: PUBLIC_FILES,');
+  });
+
   test('logs info when file is created', async () => {
     const mem: InMemoryDir = {};
     const { log, calls } = makeLogger();

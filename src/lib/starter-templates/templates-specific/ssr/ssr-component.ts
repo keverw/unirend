@@ -45,7 +45,7 @@ import { loadBuildInfo } from 'unirend/build-info';
 import { cookies } from 'unirend/plugins';
 import path from 'path';
 import type { ServerMode } from './start';
-import { ENABLE_TEST_ROUTES } from '../consts';
+import { ENABLE_TEST_ROUTES, PUBLIC_FILES, PUBLIC_FOLDERS } from '../consts';
 import { themePlugin } from './plugins/theme';
 import { get500ErrorPage } from './get-500-error-page.ts';
 
@@ -278,6 +278,11 @@ export class SSRServerComponent extends BaseComponent {
           this.server = serveSSRBuilt(DIST_DIR, {
             ...sharedConfig,
             serverEntry: 'EntrySSR',
+            // public/ files and subfolders (declared in consts.ts) —
+            // production only, because in HMR mode Vite's dev server serves
+            // public/ itself. Undeclared public/ files 404 on the built server.
+            publicFiles: PUBLIC_FILES,
+            publicFolders: PUBLIC_FOLDERS,
             // See 'unirend/plugins' for built-in plugins (cors, domainValidation, cookies, etc.).
             plugins: [cookies(), themePlugin()],
             logging: loggingConfig,

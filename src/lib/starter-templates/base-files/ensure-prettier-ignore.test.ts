@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, rm } from 'fs/promises';
-import { tmpdir } from 'os';
+import { mkdir } from 'fs/promises';
 import { join } from 'path';
+import { createTempDir } from 'lifecycleion/tmp-dir';
 import { ensurePrettierIgnore } from './ensure-prettier-ignore';
 import type { InMemoryDir } from '../vfs';
 import type { LogLevel } from '../types';
@@ -245,23 +245,27 @@ describe('ensurePrettierIgnore', () => {
   });
 
   test('wraps read errors when an existing .prettierignore cannot be read as a file', async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), 'unirend-prettierignore-'));
+    // unsafeCleanup: the directory is non-empty by the time cleanup runs
+    const tmpDir = await createTempDir({
+      prefix: 'unirend-prettierignore-',
+      unsafeCleanup: true,
+    });
 
     try {
       // Put a directory where the helper expects the .prettierignore file. That
       // reliably makes vfsReadText return a read error instead of ENOENT, so
       // this exercises the error branch without OS-specific permission setup.
-      await mkdir(join(tempRoot, '.prettierignore'));
+      await mkdir(join(tmpDir.path, '.prettierignore'));
 
       // The helper should keep its public error shape while wrapping the
       // lower-level filesystem problem.
       expect(
-        ensurePrettierIgnore(tempRoot, {
+        ensurePrettierIgnore(tmpDir.path, {
           templateEntries: ['.unirend-ssg.json'],
         }),
       ).rejects.toThrow('Failed to ensure .prettierignore');
     } finally {
-      await rm(tempRoot, { recursive: true, force: true });
+      await tmpDir.cleanup();
     }
   });
 });

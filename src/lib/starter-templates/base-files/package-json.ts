@@ -16,8 +16,9 @@ const defaultScripts = {
   'cspell:clean': 'bun run scripts/clean-cspell.ts',
   'cspell:clean:fix': 'bun run scripts/clean-cspell.ts --write',
   'list-outdated-packages': 'bun outdated',
+  'check:public-assets': 'bun run scripts/check-public-assets.ts',
   check:
-    'bun audit && bun run type-check && bun run lint && bun run spellcheck && bun test --pass-with-no-tests',
+    'bun audit && bun run type-check && bun run lint && bun run spellcheck && bun run check:public-assets && bun test --pass-with-no-tests',
 };
 
 export const devDependencies = {

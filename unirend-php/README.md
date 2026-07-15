@@ -27,6 +27,8 @@ Serve [Unirend](https://github.com/keverw/unirend) SSG output on shared hosting 
 - [`.htaccess`](#htaccess)
 - [Local Development](#local-development)
 - [Versioning](#versioning)
+- [Changelog](#changelog)
+  - [0.1.0 (July 15, 2026)](#010-july-15-2026)
 - [Contributing to unirend-php](#contributing-to-unirend-php)
   - [Running Tests](#running-tests)
   - [Running the Demo Locally](#running-the-demo-locally)
@@ -81,12 +83,11 @@ $server->serve();
 | `buildDir` | `string` | required | Absolute path to your SSG build directory |
 | `pageMapPath` | `string` | `'page-map.json'` | Path to page map, relative to `buildDir` |
 | `singleAssets` | `array` | `[]` | Map individual files (favicon, robots.txt, etc.), merged with page map, takes precedence on conflicts with page map and asset folders |
-| `assetFolders` | `array` | `[]` | URL prefix → directory mappings for asset folders |
+| `assetFolders` | `array` | `[]` | URL prefix → directory mappings for asset folders. A value can also be a `['path' => ..., 'detectImmutableAssets' => ...]` array to set immutable detection per folder |
 | `notFoundPage` | `string\|null` | `null` | Custom 404 page path, relative to `buildDir` |
 | `errorPage` | `string\|null` | `null` | Custom 500 page path, relative to `buildDir` |
 | `cacheControl` | `string` | `'public, max-age=0, must-revalidate'` | Cache-Control for HTML pages |
 | `immutableCacheControl` | `string` | `'public, max-age=31536000, immutable'` | Cache-Control for hashed assets |
-| `detectImmutableAssets` | `bool` | `true` | Auto-detect content-hashed filenames |
 | `isDevelopment` | `bool` | `false` | Show stack traces in default 500 error page HTML |
 | `logErrors` | `bool` | `true` | Enable `error_log()` as the fallback when no `onError` hook is set (or when the hook throws) |
 | `onError` | `callable\|null` | `null` | Custom error hook called with `(\Throwable $e, string $context)`. Fires regardless of `logErrors`. If the hook throws, falls back to `error_log()` only if `logErrors` is `true`. |
@@ -105,11 +106,17 @@ Map individual URLs to files, useful for `robots.txt`, `favicon.ico`, etc.
 
 ### `assetFolders`
 
-Map URL prefixes to asset directories. Files with content hashes in their names (e.g. `app.abc123ef.js`) automatically get immutable `Cache-Control` headers.
+Map URL prefixes to asset directories. Files with content hashes in their names (e.g. `app.abc123ef.js`) automatically get immutable `Cache-Control` headers when detection is on for that folder.
+
+Detection resolves per folder, mirroring `StaticWebServer` from the Node.js package: the per-folder value if you set one, otherwise the name-based default. That default is on for `/assets` (Vite's hashed build output) and off for every other folder, since those usually hold verbatim `public/` files where a name that merely looks hashed must not get a year-long immutable header. There is no top-level flag, so passing `detectImmutableAssets` at the top level throws.
 
 ```php
 'assetFolders' => [
     '/assets' => 'assets',
+    // Per-folder config: opt another folder of hashed files into detection
+    '/downloads' => ['path' => 'downloads', 'detectImmutableAssets' => true],
+    // Verbatim files: plain string, detection off by default
+    '/.well-known' => '.well-known',
 ],
 ```
 
@@ -267,6 +274,16 @@ php -S localhost:8080 index.php
 ## Versioning
 
 This package is versioned independently from the `unirend` npm package. It targets a specific use case (PHP shared hosting) and changes less frequently, so version numbers will not match between the two.
+
+## Changelog
+
+Runs oldest to newest. The `0.0.x` line was early iteration that was not logged per version, so entries start at `0.1.0`.
+
+### 0.1.0 (July 15, 2026)
+
+- **Breaking:** Immutable-asset detection now resolves per folder, and the top-level `detectImmutableAssets` option is removed (the constructor throws if it is passed, pointing at the replacement). An `assetFolders` value can be a `['path' => ..., 'detectImmutableAssets' => ...]` array as well as a plain string, and detection is the per-folder value if given, otherwise a name-based default matching `StaticWebServer` from the `unirend` npm package: on for `/assets` (Vite's hashed build output), off for every other folder. Previously the top-level flag defaulted to `true` and applied to every folder, so a folder of verbatim `public/` files with a name that merely looks hashed was served with a year-long immutable header. Configs that mount only `/assets` keep identical behavior with no flag at all.
+- Fixed immutable-asset detection missing fingerprinted files whose hash contains `_` or `-`. Vite/Rollup hashes use the base64url alphabet, but detection only accepted alphanumerics, so a file like `index-CRJ_nHAW.css` was served with `must-revalidate` instead of the immutable Cache-Control header. Same fix applied as the `unirend` npm package, whose detection had the identical gap.
+- `assetFolders` mounts now resolve by longest matching URL prefix instead of declaration order, and prefixes only match on path-segment boundaries. Previously the first prefix that matched won, so a shallow mount like `/images` declared before a nested one like `/images/generated` swallowed every request meant for the nested mount, serving the wrong file or returning 404, and a raw prefix match let `/images/generated` capture `/images/generated-other/...` requests that belong to the shallow mount. Matches the `unirend` npm package, whose cache had the same ordering fix and already matched on boundaries.
 
 ## Contributing to unirend-php
 

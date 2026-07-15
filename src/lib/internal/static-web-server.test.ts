@@ -230,6 +230,53 @@ describe('StaticWebServer', () => {
         }),
       ).toThrow(TypeError);
     });
+
+    it('accepts a per-folder assetFolders config object', () => {
+      expect(() =>
+        makeServer({
+          assetFolders: {
+            '/assets': 'assets',
+            '/.well-known': {
+              path: '.well-known',
+              detectImmutableAssets: false,
+            },
+          },
+        }),
+      ).not.toThrow();
+    });
+
+    it('throws TypeError if an assetFolders config object has no path', () => {
+      expect(() =>
+        makeServer({
+          assetFolders: {
+            '/assets': {} as unknown as string,
+          },
+        }),
+      ).toThrow(TypeError);
+    });
+
+    it('throws TypeError if a per-folder detectImmutableAssets is not a boolean', () => {
+      // Guards plain-JS callers: the string "false" would stay truthy and
+      // silently enable immutable caching.
+      expect(() =>
+        makeServer({
+          assetFolders: {
+            '/assets': {
+              path: 'assets',
+              detectImmutableAssets: 'false',
+            } as unknown as string,
+          },
+        }),
+      ).toThrow(/detectImmutableAssets must be a boolean/);
+    });
+
+    it('rejects the removed top-level detectImmutableAssets option', () => {
+      expect(() =>
+        makeServer({
+          detectImmutableAssets: true,
+        } as unknown as Parameters<typeof makeServer>[0]),
+      ).toThrow(/set it per folder/);
+    });
   });
 
   // ─── isListening() ──────────────────────────────────────────────────────────
@@ -989,6 +1036,116 @@ describe('StaticWebServer', () => {
         expect(notModifiedResponse.body.length).toBe(0);
       } finally {
         await compressionTmpDir.cleanup();
+        (fs.promises as { readFile: unknown }).readFile = mockReadFile;
+      }
+    });
+
+    it('defaults immutable detection on for /assets and off for other folders', async () => {
+      (fs.promises as { readFile: unknown }).readFile = originalReadFile;
+
+      const detectionTmpDir = await createTempDir({
+        prefix: 'unirend-static-detection-',
+        unsafeCleanup: true,
+      });
+
+      try {
+        const tempBuildDir = detectionTmpDir.path;
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'page-map.json'),
+          JSON.stringify({ '/': 'index.html' }),
+        );
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'index.html'),
+          '<html></html>',
+        );
+        // Hash-looking filenames in both folders — only /assets should get
+        // the immutable header by default.
+        fs.mkdirSync(path.join(tempBuildDir, 'assets'));
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'assets', 'app-CRJ_nHAW.js'),
+          'js',
+        );
+        fs.mkdirSync(path.join(tempBuildDir, 'extra'));
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'extra', 'file-CRJ_nHAW.js'),
+          'js',
+        );
+
+        server = new StaticWebServer({
+          buildDir: tempBuildDir,
+          pageMapPath: 'page-map.json',
+          assetFolders: {
+            '/assets': 'assets',
+            '/extra': 'extra',
+          },
+        });
+
+        await server.listen(testPort);
+
+        const assetResponse = await fetch(
+          `http://localhost:${testPort}/assets/app-CRJ_nHAW.js`,
+        );
+        expect(assetResponse.status).toBe(200);
+        expect(assetResponse.headers.get('cache-control')).toContain(
+          'immutable',
+        );
+
+        const extraResponse = await fetch(
+          `http://localhost:${testPort}/extra/file-CRJ_nHAW.js`,
+        );
+        expect(extraResponse.status).toBe(200);
+        expect(extraResponse.headers.get('cache-control')).not.toContain(
+          'immutable',
+        );
+      } finally {
+        await detectionTmpDir.cleanup();
+        (fs.promises as { readFile: unknown }).readFile = mockReadFile;
+      }
+    });
+
+    it('a per-folder detectImmutableAssets opts a non-assets folder into detection', async () => {
+      (fs.promises as { readFile: unknown }).readFile = originalReadFile;
+
+      const detectionTmpDir = await createTempDir({
+        prefix: 'unirend-static-detection-top-',
+        unsafeCleanup: true,
+      });
+
+      try {
+        const tempBuildDir = detectionTmpDir.path;
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'page-map.json'),
+          JSON.stringify({ '/': 'index.html' }),
+        );
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'index.html'),
+          '<html></html>',
+        );
+        fs.mkdirSync(path.join(tempBuildDir, 'extra'));
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'extra', 'file-CRJ_nHAW.js'),
+          'js',
+        );
+
+        server = new StaticWebServer({
+          buildDir: tempBuildDir,
+          pageMapPath: 'page-map.json',
+          assetFolders: {
+            '/extra': { path: 'extra', detectImmutableAssets: true },
+          },
+        });
+
+        await server.listen(testPort);
+
+        const extraResponse = await fetch(
+          `http://localhost:${testPort}/extra/file-CRJ_nHAW.js`,
+        );
+        expect(extraResponse.status).toBe(200);
+        expect(extraResponse.headers.get('cache-control')).toContain(
+          'immutable',
+        );
+      } finally {
+        await detectionTmpDir.cleanup();
         (fs.promises as { readFile: unknown }).readFile = mockReadFile;
       }
     });

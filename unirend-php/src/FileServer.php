@@ -223,8 +223,11 @@ class FileServer
         // Check for fingerprint patterns:
         // 1. .{hash}.{ext} pattern (e.g., main.CTpDmzGw.js)
         // 2. -{hash}.{ext} pattern (e.g., chunk-CTpDmzGw.js)
-        return (bool) (preg_match('/\.[A-Za-z0-9]{6,}\./', $basename) ||
-            preg_match('/-[A-Za-z0-9]{6,}\./', $basename));
+        // Vite/Rollup hashes use the base64url alphabet, so '_' and '-' are
+        // valid hash characters (e.g. index-CRJ_nHAW.css) — mirrors the
+        // Node.js StaticContentCache detection.
+        return (bool) (preg_match('/\.[A-Za-z0-9_-]{6,}\./', $basename) ||
+            preg_match('/-[A-Za-z0-9_-]{6,}\./', $basename));
     }
 
     /**

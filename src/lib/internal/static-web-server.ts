@@ -195,17 +195,42 @@ export class StaticWebServer {
         Array.isArray(options.assetFolders)
       ) {
         throw new TypeError(
-          'StaticWebServerOptions.assetFolders must be a Record<string, string>',
+          'StaticWebServerOptions.assetFolders must be a Record<string, string | { path, detectImmutableAssets? }>',
         );
       }
 
-      for (const [urlPrefix, fsPath] of Object.entries(options.assetFolders)) {
+      for (const [urlPrefix, folderConfig] of Object.entries(
+        options.assetFolders,
+      )) {
+        const fsPath =
+          typeof folderConfig === 'string' ? folderConfig : folderConfig?.path;
+
         if (typeof urlPrefix !== 'string' || typeof fsPath !== 'string') {
           throw new TypeError(
-            'StaticWebServerOptions.assetFolders keys and values must be strings',
+            'StaticWebServerOptions.assetFolders values must be strings or { path, detectImmutableAssets? } config objects',
+          );
+        }
+
+        // Guard plain-JS callers: a non-boolean like the string "false" would
+        // stay truthy and silently enable year-long immutable caching.
+        if (
+          typeof folderConfig !== 'string' &&
+          folderConfig.detectImmutableAssets !== undefined &&
+          typeof folderConfig.detectImmutableAssets !== 'boolean'
+        ) {
+          throw new TypeError(
+            'StaticWebServerOptions.assetFolders detectImmutableAssets must be a boolean when set',
           );
         }
       }
+    }
+
+    // The top-level flag was removed in favor of per-folder config — fail
+    // loudly on upgrade instead of silently ignoring the caller's intent.
+    if ('detectImmutableAssets' in options) {
+      throw new TypeError(
+        'StaticWebServerOptions: the top-level detectImmutableAssets option was removed — set it per folder via assetFolders: { path, detectImmutableAssets }. Without it, /assets defaults on and other folders default off.',
+      );
     }
 
     this.options = options;
@@ -245,14 +270,32 @@ export class StaticWebServer {
       string | { path: string; detectImmutableAssets: boolean }
     > = {};
 
-    // Paths are resolved relative to buildDir for consistency
+    // Paths are resolved relative to buildDir for consistency. Immutable
+    // detection resolves per folder: an explicit per-folder config wins,
+    // otherwise a name-based default matching the SSR server behavior, on
+    // for /assets (Vite's hashed build output), off for everything else, since
+    // other folders usually hold verbatim public/ files where a name that
+    // merely looks hashed must not get a year-long immutable header.
     if (this.options.assetFolders) {
-      for (const [urlPrefix, fsPath] of Object.entries(
+      for (const [urlPrefix, folderConfig] of Object.entries(
         this.options.assetFolders,
       )) {
+        const fsPath =
+          typeof folderConfig === 'string' ? folderConfig : folderConfig.path;
+
+        // Normalize the mount prefix ('assets', '/assets', '/assets/' are the
+        // same mount) purely for the default below.
+        const normalizedPrefix = `/${urlPrefix.replace(/^\/+|\/+$/g, '')}`;
+        const shouldDetectByDefault = normalizedPrefix === '/assets';
+
+        const shouldDetectImmutable =
+          typeof folderConfig === 'string'
+            ? shouldDetectByDefault
+            : (folderConfig.detectImmutableAssets ?? shouldDetectByDefault);
+
         folderMap[urlPrefix] = {
           path: path.resolve(this.options.buildDir, fsPath),
-          detectImmutableAssets: this.options.detectImmutableAssets ?? true,
+          detectImmutableAssets: shouldDetectImmutable,
         };
       }
     }

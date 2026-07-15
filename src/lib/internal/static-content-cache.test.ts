@@ -868,6 +868,44 @@ describe('StaticContentCache', () => {
       }
     });
 
+    it('resolves nested folder mounts by longest matching prefix, not insertion order', async () => {
+      // The shallow mount is inserted first — without longest-prefix
+      // matching it would swallow requests meant for the nested mount.
+      const cache = new StaticContentCache({
+        folderMap: {
+          '/images': '/path/to/images',
+          '/images/generated': '/path/to/generated-images',
+        },
+      });
+
+      const req = createMockRequest('/images/generated/chart.png');
+      const { reply } = createMockReply();
+      const fileContent = Buffer.from('png');
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      const result = await cache.handleRequest(
+        '/images/generated/chart.png',
+        req as FastifyRequest,
+        reply as FastifyReply,
+      );
+
+      expect(result.served).toBe(true);
+
+      // The file must resolve under the nested mount's directory
+      expect(mockFs.stat).toHaveBeenCalledWith(
+        '/path/to/generated-images/chart.png',
+      );
+    });
+
     it('strips query strings from URLs', async () => {
       const cache = new StaticContentCache({
         singleAssetMap: { '/test.txt': '/path/to/test.txt' },
@@ -1617,6 +1655,37 @@ describe('StaticContentCache', () => {
 
       await cache.handleRequest(
         '/assets/chunk-abc123.js',
+        req as FastifyRequest,
+        reply as FastifyReply,
+      );
+
+      expect(sentData.headers['Cache-Control']).toContain('immutable');
+    });
+
+    it('detects base64url hashes containing _ or - (Vite 8 output)', async () => {
+      const cache = new StaticContentCache({
+        folderMap: {
+          '/assets': { path: '/path/to/assets', detectImmutableAssets: true },
+        },
+        immutableCacheControl: 'public, max-age=31536000, immutable',
+      });
+
+      const req = createMockRequest('/assets/index-CRJ_nHAW.css');
+      const { reply, sentData } = createMockReply();
+      const fileContent = Buffer.from('body{}');
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      await cache.handleRequest(
+        '/assets/index-CRJ_nHAW.css',
         req as FastifyRequest,
         reply as FastifyReply,
       );

@@ -1311,11 +1311,20 @@ export class StaticContentCache {
     if (this.singleAssetMap.has(url)) {
       resolved = this.singleAssetMap.get(url) as string;
     }
-    // 2. If not matched, try folderMap (URL prefix → directory)
+    // 2. If not matched, try folderMap (URL prefix → directory). The longest
+    // matching prefix wins so a nested mount like '/images/generated/' takes
+    // precedence over '/images/' regardless of map insertion order.
     else {
-      const folder = Array.from(this.folderMap.keys()).find((prefix) =>
-        url.startsWith(prefix),
-      );
+      let folder: string | undefined;
+
+      for (const prefix of this.folderMap.keys()) {
+        if (
+          url.startsWith(prefix) &&
+          (folder === undefined || prefix.length > folder.length)
+        ) {
+          folder = prefix;
+        }
+      }
 
       if (folder) {
         // Get resolved base folder and config
@@ -1498,9 +1507,11 @@ export class StaticContentCache {
    *
    * Detects common build tool fingerprinting patterns:
    * - .{hash}.{ext} format (e.g., main.a1b2c3d4.js, styles.CTpDmzGw.css)
-   * - -{hash}.{ext} format (e.g., chunk-a1b2c3d4.js, vendor-5f8e9a2b.js)
+   * - -{hash}.{ext} format (e.g., chunk-a1b2c3d4.js, vendor-CRJ_nHAW.css)
    *
-   * Hash must be at least 6 alphanumeric characters
+   * Hash must be at least 6 characters of Vite/Rollup's base64url alphabet
+   * (alphanumerics plus `_` and `-` — e.g. `index-CRJ_nHAW.css` is a real
+   * Vite 8 output name).
    *
    * @param filePath The file path to check
    * @returns True if the file appears to be fingerprinted
@@ -1510,10 +1521,10 @@ export class StaticContentCache {
 
     // Check for fingerprint patterns:
     // 1. .{hash}.{ext} pattern (e.g., main.CTpDmzGw.js)
-    // 2. -{hash}.{ext} pattern (e.g., chunk-CTpDmzGw.js)
+    // 2. -{hash}.{ext} pattern (e.g., chunk-CRJ_nHAW.js)
     return (
-      /\.[A-Za-z0-9]{6,}\./.test(fileBasename) ||
-      /-[A-Za-z0-9]{6,}\./.test(fileBasename)
+      /\.[A-Za-z0-9_-]{6,}\./.test(fileBasename) ||
+      /-[A-Za-z0-9_-]{6,}\./.test(fileBasename)
     );
   }
 
