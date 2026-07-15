@@ -448,6 +448,49 @@ describe('StaticWebServer', () => {
       }
     });
 
+    it('reports a contextual configuration error for a symlink cycle', async () => {
+      (fs.promises as { readFile: unknown }).readFile = originalReadFile;
+
+      const symlinkCycleBuildDir = await createTempDir({
+        prefix: 'unirend-static-symlink-cycle-',
+        unsafeCleanup: true,
+      });
+
+      try {
+        fs.writeFileSync(
+          path.join(symlinkCycleBuildDir.path, 'page-map.json'),
+          JSON.stringify({ '/': 'index.html' }),
+        );
+        fs.writeFileSync(
+          path.join(symlinkCycleBuildDir.path, 'index.html'),
+          '<html></html>',
+        );
+        fs.symlinkSync('loop', path.join(symlinkCycleBuildDir.path, 'loop'));
+
+        server = new StaticWebServer({
+          buildDir: symlinkCycleBuildDir.path,
+          singleAssets: { '/loop': 'loop/file.txt' },
+        });
+
+        try {
+          await server.listen(testPort);
+          throw new Error('Expected listen() to reject');
+        } catch (error) {
+          expect(error).toBeInstanceOf(TypeError);
+          expect((error as Error).message).toContain(
+            'StaticWebServerOptions.singleAssets value "loop/file.txt"',
+          );
+          expect((error as Error).message).toContain('ELOOP');
+          expect(((error as Error).cause as NodeJS.ErrnoException).code).toBe(
+            'ELOOP',
+          );
+        }
+      } finally {
+        await symlinkCycleBuildDir.cleanup();
+        (fs.promises as { readFile: unknown }).readFile = mockReadFile;
+      }
+    });
+
     it('starts the server successfully with a valid page map', async () => {
       setReadFileMock({ 'page-map.json': VALID_PAGE_MAP });
       server = makeServer();

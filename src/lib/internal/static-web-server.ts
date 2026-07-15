@@ -66,8 +66,21 @@ function resolveBuildRelativePath(
     buildRoot,
     configuredPath.replace(/^\/+/, ''),
   );
-  const canonicalBuildRoot = realpathWithMissingTail(buildRoot);
-  const canonicalResolvedPath = realpathWithMissingTail(resolvedPath);
+  let canonicalBuildRoot: string;
+  let canonicalResolvedPath: string;
+
+  try {
+    canonicalBuildRoot = realpathWithMissingTail(buildRoot);
+    canonicalResolvedPath = realpathWithMissingTail(resolvedPath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    const codeSuffix = code ? ` (${code})` : '';
+    throw new TypeError(
+      `StaticWebServerOptions.${optionName} value ${JSON.stringify(configuredPath)} could not be resolved safely within buildDir${codeSuffix}`,
+      { cause: error },
+    );
+  }
+
   const relativePath = path.relative(canonicalBuildRoot, canonicalResolvedPath);
 
   if (
