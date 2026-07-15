@@ -437,14 +437,14 @@ async function main() {
       // The offender can also be a bare FILE named public/assets (listed as
       // exactly '/assets'), which collides with the output dir the same way
       // — say file vs folder correctly in the advice.
-      const assetsIsFile = inAssetsDir.every(
+      const isAssetsFile = inAssetsDir.every(
         (entry) => entry.toLowerCase() === '/assets',
       );
 
       problems.push(
-        \`\${name}: public/assets\${assetsIsFile ? '' : '/'} collides with the build's fingerprinted asset output dir — Vite copies it into client/\${assetsIsFile ? '' : 'assets'} next to the hashed bundles:\\n\` +
+        \`\${name}: public/assets\${isAssetsFile ? '' : '/'} collides with the build's fingerprinted asset output dir — Vite copies it into client/\${isAssetsFile ? '' : 'assets'} next to the hashed bundles:\\n\` +
           inAssetsDir.map((entry) => \`  - \${entry}\`).join('\\n') +
-          (assetsIsFile
+          (isAssetsFile
             ? \`\\n  Rename the file (e.g. public/assets.txt) and declare it via PUBLIC_FILES.\`
             : \`\\n  Rename the folder (e.g. public/static/) and declare it via PUBLIC_FOLDERS.\`),
       );

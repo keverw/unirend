@@ -11,6 +11,7 @@ describe('ensureCspell', () => {
     'Bstatus',
     'bunx',
     'dbaeumer',
+    'dirents',
     'esbenp',
     'eslintcache',
     'firsttris',
@@ -21,6 +22,7 @@ describe('ensureCspell', () => {
     'phpunit',
     'treemap',
     'Unirend',
+    'WHATWG',
   ];
 
   const sortWords = (words: string[]): string[] =>

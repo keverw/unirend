@@ -21,6 +21,7 @@ const defaultWords = [
   'Bstatus',
   'bunx',
   'dbaeumer',
+  'dirents',
   'esbenp',
   'eslintcache',
   'firsttris',
@@ -31,6 +32,7 @@ const defaultWords = [
   'phpunit',
   'treemap',
   'Unirend',
+  'WHATWG',
 ];
 
 const defaultIgnorePaths = [
