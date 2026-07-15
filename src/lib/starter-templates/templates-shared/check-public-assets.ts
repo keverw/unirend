@@ -98,59 +98,63 @@ async function listPublicFiles(
 
   seenDirs.add(realDir);
 
-  let entries;
-
+  // The finally-release keeps every exit path (including the ENOENT return
+  // below, when the directory vanishes between realpath and readdir) from
+  // leaking ancestry state — only the branch currently being walked counts
+  // as a cycle, so other branches must see this directory released.
   try {
-    entries = await fs.readdir(dir, { withFileTypes: true });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return [];
+    let entries;
+
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return [];
+      }
+
+      throw error;
     }
 
-    throw error;
-  }
+    const files: string[] = [];
 
-  const files: string[] = [];
+    for (const entry of entries) {
+      let isDirectory = entry.isDirectory();
+      let isFile = entry.isFile();
 
-  for (const entry of entries) {
-    let isDirectory = entry.isDirectory();
-    let isFile = entry.isFile();
+      // readdir dirents report symlinks as neither file nor directory, which
+      // would silently drop symlinked assets from the listing. Stat through
+      // the link and classify by its target instead. A dangling symlink is
+      // reported, not skipped: Vite's public copier stats each entry and the
+      // build fails on the same broken link.
+      if (entry.isSymbolicLink()) {
+        try {
+          const stat = await fs.stat(path.join(dir, entry.name));
+          isDirectory = stat.isDirectory();
+          isFile = stat.isFile();
+        } catch {
+          dangling?.push(\`\${prefix}/\${entry.name}\`);
+        }
+      }
 
-    // readdir dirents report symlinks as neither file nor directory, which
-    // would silently drop symlinked assets from the listing. Stat through
-    // the link and classify by its target instead. A dangling symlink is
-    // reported, not skipped: Vite's public copier stats each entry and the
-    // build fails on the same broken link.
-    if (entry.isSymbolicLink()) {
-      try {
-        const stat = await fs.stat(path.join(dir, entry.name));
-        isDirectory = stat.isDirectory();
-        isFile = stat.isFile();
-      } catch {
-        dangling?.push(\`\${prefix}/\${entry.name}\`);
+      if (isDirectory) {
+        files.push(
+          ...(await listPublicFiles(
+            path.join(dir, entry.name),
+            \`\${prefix}/\${entry.name}\`,
+            seenDirs,
+            cycles,
+            dangling,
+          )),
+        );
+      } else if (isFile) {
+        files.push(\`\${prefix}/\${entry.name}\`);
       }
     }
 
-    if (isDirectory) {
-      files.push(
-        ...(await listPublicFiles(
-          path.join(dir, entry.name),
-          \`\${prefix}/\${entry.name}\`,
-          seenDirs,
-          cycles,
-          dangling,
-        )),
-      );
-    } else if (isFile) {
-      files.push(\`\${prefix}/\${entry.name}\`);
-    }
+    return files;
+  } finally {
+    seenDirs.delete(realDir);
   }
-
-  // Release this directory for other branches — only the ancestry of the
-  // branch currently being walked counts as a cycle.
-  seenDirs.delete(realDir);
-
-  return files;
 }
 
 async function main() {
