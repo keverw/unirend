@@ -1705,6 +1705,17 @@ If you started from the SSR starter template (which puts source at the folder ro
 
 **If you use the build info option:** add an entry to `build-info.config.json` for each new app's `current-build-info.ts` output path, and add those paths to `.gitignore` and `.prettierignore` so the generated files are excluded.
 
+**Keep the public-assets check covering every app:** the repo-level `check:public-assets` script finds each app's declared `publicFiles`/`publicFolders` lists through the project's `public-assets.config.json`. The scaffolded file has a single `default` entry pointing at the project root's `consts.ts` and `public/`, so add an entry for each additional app, and update the `default` entry's paths (or rename its key) if you moved the default app's source into a subfolder as recommended above. In the layout from this section, that looks like:
+
+```json
+{
+  "app-a": { "publicDir": "app-a/public", "constsFile": "app-a/consts.ts" },
+  "app-b": { "publicDir": "app-b/public", "constsFile": "app-b/consts.ts" }
+}
+```
+
+The keys are just labels used in the check's error messages. Every field is optional and defaults to the single-app convention. `filesExport`/`foldersExport` override the export names read from the consts file (default `PUBLIC_FILES`/`PUBLIC_FOLDERS`), which lets several apps share one consts module with per-app arrays. Deleting the file opts the whole project out of the check (the script logs the skip).
+
 ### Usage Example
 
 #### Production Mode
@@ -1878,7 +1889,7 @@ Two guardrails keep this from failing silently:
 - **Startup existence check**: In built mode, every declared file and folder is verified to exist in the client build dir at boot. A typo or a bad build throws a clear error listing the missing paths instead of 404ing in production.
 - **Root-mount guard**: A `staticContentRouter` `folderMap` prefix of `/` (or a folder resolving to the client build root) is rejected at config time, as is a bare `/` in `publicFolders`. It would stat the disk on every page request and expose `/index.html` and `/.vite/manifest.json`, so it is an error rather than a pattern.
 
-Projects generated from the starter templates declare these lists as `PUBLIC_FILES` and `PUBLIC_FOLDERS` in each app's `consts.ts`, and the repo-level `bun run check:public-assets` script (part of `bun run check`) fails CI when the lists drift from the actual `public/` folder in either direction (files under a declared folder are covered automatically). See [Starter Templates](./starter-templates.md).
+Projects generated from the starter templates declare these lists as `PUBLIC_FILES` and `PUBLIC_FOLDERS` in each app's `consts.ts`, and the repo-level `bun run check:public-assets` script (part of `bun run check`) fails CI when the lists drift from the actual `public/` folder in either direction (files under a declared folder are covered automatically). The script locates each app's lists through the `public-assets.config.json` scaffolded next to `consts.ts`, and [multi-app projects](#multi-app-ssr-support) declare one entry per app there. See [Starter Templates](./starter-templates.md).
 
 #### CDN Deployments
 

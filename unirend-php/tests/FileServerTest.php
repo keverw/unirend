@@ -129,7 +129,9 @@ class FileServerTest extends TestCase
     {
         // A 6+ char run with no digit or uppercase letter is treated as an
         // ordinary word, not a content hash (mirrors the Node.js heuristic)
-        $this->assertFalse(FileServer::isImmutableAsset('apple-touch-icon.png'));
+        $this->assertFalse(
+            FileServer::isImmutableAsset('apple-touch-icon.png'),
+        );
         $this->assertFalse(FileServer::isImmutableAsset('some-multi-word.txt'));
         $this->assertFalse(FileServer::isImmutableAsset('my-file_name.png'));
         $this->assertFalse(FileServer::isImmutableAsset('logo-small.png'));

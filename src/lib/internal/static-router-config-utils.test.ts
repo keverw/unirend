@@ -178,7 +178,7 @@ describe('validatePublicFiles()', () => {
   it('allows the URL-safe punctuation browsers send raw', () => {
     expect(
       validatePublicFiles(
-        ["/apple-touch-icon.png", "/file's_(v2)~final,ok.txt"],
+        ['/apple-touch-icon.png', "/file's_(v2)~final,ok.txt"],
         'the app',
       ),
     ).toEqual(['/apple-touch-icon.png', "/file's_(v2)~final,ok.txt"]);

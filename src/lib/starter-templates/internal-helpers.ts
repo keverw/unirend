@@ -45,6 +45,7 @@ import {
   APP_INDEX_HTML_CSPELL_WORDS,
 } from './templates-shared/app-index-html';
 import { ensureAppConsts } from './templates-shared/app-consts';
+import { ensurePublicAssetsConfig } from './templates-shared/public-assets-config';
 import { ensureAppIndexCSS } from './templates-shared/app-index-css';
 import { ensureAppEntryClient } from './templates-shared/app-entry-client';
 import { ensureAppEntryServer } from './templates-shared/app-entry-server';
@@ -517,6 +518,7 @@ export async function createProjectSpecificFiles(
     await ensureAppEntryClient(root, projectPath, log);
     await ensureAppEntryServer(root, projectPath, 'ssg', log);
     await ensureAppConsts(root, projectPath, 'ssg', projectName, log);
+    await ensurePublicAssetsConfig(root, projectPath, log);
 
     // Shared public/ directory files (SSG, SSR).
     await ensureAppPublicRobots(root, projectPath, log);
@@ -562,6 +564,7 @@ export async function createProjectSpecificFiles(
     await ensureAppEntryClient(root, projectPath, log);
     await ensureAppEntryServer(root, projectPath, 'ssr', log);
     await ensureAppConsts(root, projectPath, 'ssr', projectName, log);
+    await ensurePublicAssetsConfig(root, projectPath, log);
 
     // Shared public/ directory files (SSG, SSR).
     await ensureAppPublicRobots(root, projectPath, log);

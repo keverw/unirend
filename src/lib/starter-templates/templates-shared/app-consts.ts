@@ -64,10 +64,13 @@ function buildConstsSrc(templateID: ConstsTemplateID, appName: string): string {
 // list in sync still keeps local preview faithful to what such a host would
 // serve.
 // \`bun run check:public-assets\` (part of \`bun run check\`) fails on drift
-// in either direction.`
+// in either direction. It finds these lists via public-assets.config.json
+// next to this file.`
       : `${publicFilesCommentBase}
 // Keep this in sync with the public/ folder — \`bun run check:public-assets\`
-// (part of \`bun run check\`) fails on drift in either direction.`;
+// (part of \`bun run check\`) fails on drift in either direction. It finds
+// these lists via public-assets.config.json next to this file (multi-app
+// projects add an entry per app there).`;
 
   return `${header}
 export const ENABLE_TEST_ROUTES = true;

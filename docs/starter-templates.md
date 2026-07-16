@@ -56,7 +56,7 @@ my-workspace/
 ├── tsconfig.json            # plus additional config files: prettier.config.js, eslint.config.js, cspell.json, .editorconfig, .vscode/ (settings.json, extensions.json), AGENTS.md, CLAUDE.md
 ├── build-info.config.json   # (SSR/API only) build-info output manifest
 ├── scripts/
-│   ├── check-public-assets.ts   # verifies PUBLIC_FILES/PUBLIC_FOLDERS ↔ public/ sync (part of `bun run check`)
+│   ├── check-public-assets.ts   # verifies declared public-asset lists ↔ public/ sync per app (part of `bun run check`)
 │   └── generate-build-info.ts   # SSR/API only
 └── src/
     ├── apps/
@@ -210,7 +210,7 @@ Start here:
 - **`components/error-pages/ApplicationError.tsx`, `GenericError.tsx`, `NotFound.tsx`** are the React error and 404 UI. Swap these out with your own branded error pages.
 - **`error-pages/500.html`** is the self-contained static 500 page (no React bundle), so it works even when the asset pipeline is down.
 - **`index.html`** is the HTML template (title, meta, the `<!--ss-head-->` / `<!--ss-outlet-->` markers). Customize `<title>`, favicons, etc.
-- **`consts.ts`** has toggles like `ENABLE_TEST_ROUTES` (the error-demo routes) and the `PUBLIC_FILES`/`PUBLIC_FOLDERS` lists. These drive the bundled `serve.ts`, which serves only declared `public/` content (the PHP companion follows the same model with its own config, and a plain static host or CDN serves the whole build output regardless). Add an entry whenever you drop a file into `public/` (or declare a whole subfolder in `PUBLIC_FOLDERS`) so local preview stays faithful. The `check:public-assets` script (part of `bun run check`) fails on drift in either direction.
+- **`consts.ts`** has toggles like `ENABLE_TEST_ROUTES` (the error-demo routes) and the `PUBLIC_FILES`/`PUBLIC_FOLDERS` lists. These drive the bundled `serve.ts`, which serves only declared `public/` content (the PHP companion follows the same model with its own config, and a plain static host or CDN serves the whole build output regardless). Add an entry whenever you drop a file into `public/` (or declare a whole subfolder in `PUBLIC_FOLDERS`) so local preview stays faithful. The `check:public-assets` script (part of `bun run check`) fails on drift in either direction, and finds these lists via the app's `public-assets.config.json` (see [Workspace Files](#workspace-files-shared-across-all-templates)).
 
 **Next steps checklist**
 
@@ -235,6 +235,7 @@ src/apps/<name>/
 ├── index.html                     # HTML template with ss-head / ss-outlet markers
 ├── index.css                      # Tailwind import + dark-mode setup
 ├── consts.ts                      # ENABLE_TEST_ROUTES toggle + PUBLIC_FILES/PUBLIC_FOLDERS lists
+├── public-assets.config.json      # points check:public-assets at the lists above
 ├── EntryClient.tsx                # client mount (mountApp) — hydrates the app
 ├── EntrySSG.tsx                   # server render entry used at build/generate time
 ├── Routes.tsx                     # route table (RouteObject[])
@@ -342,6 +343,7 @@ src/apps/<name>/
 ├── index.html
 ├── index.css
 ├── consts.ts                      # ENABLE_TEST_ROUTES toggle + PUBLIC_FILES/PUBLIC_FOLDERS lists
+├── public-assets.config.json      # points check:public-assets at the lists above (multi-app: one entry per app)
 ├── EntryClient.tsx                # client mount (mountApp)
 ├── EntrySSR.tsx                   # server render entry used per request
 ├── Routes.tsx                     # routes wired through createPageDataLoader
@@ -475,7 +477,7 @@ Whether you run `init-repo` or `create` (which auto-inits), Unirend ensures thes
 - `.vscode/settings.json`, `.vscode/extensions.json`. The settings pin `importModuleSpecifier` to `project-relative`, so auto-imports stay relative within an app but switch to the `@/` alias when they reach into shared `src/libs/*` (the boundary is each app's own `tsconfig.json`).
 - `AGENTS.md` and `CLAUDE.md` (bridges Claude Code to `AGENTS.md`).
 - `scripts/clean-cspell.ts`.
-- `scripts/check-public-assets.ts` verifies each Vite app's `PUBLIC_FILES`/`PUBLIC_FOLDERS` (in `consts.ts`) against the files actually in its `public/` folder, in both directions (files under a declared folder are covered automatically). It runs as `bun run check:public-assets`, is chained into `bun run check` so drift fails CI, and no-ops in repos without SSR/SSG apps.
+- `scripts/check-public-assets.ts` verifies each Vite app's `PUBLIC_FILES`/`PUBLIC_FOLDERS` (in `consts.ts`) against the files actually in its `public/` folder, in both directions (files under a declared folder are covered automatically). It runs as `bun run check:public-assets`, is chained into `bun run check` so drift fails CI, and no-ops in repos without SSR/SSG apps. Where each app's lists live is declared in the `public-assets.config.json` scaffolded into the app folder. Its `default` entry mirrors the template conventions, every field is optional with those defaults, and a fresh app never needs to touch it. Projects restructured for [multi-app SSR](./ssr.md#multi-app-ssr-support) add an entry per additional app, each pointing at that app's `public/` dir, consts file, and export names (and update the `default` entry's paths if the default app's source moved into a subfolder). Deleting the file opts the project out of the check, and the script logs the skip so the opt-out stays visible in CI output.
 - `.gitkeep` files for `scripts/`, `src/apps/`, `src/libs/`.
 
 ## Import Alias Enforcement (`@/`)

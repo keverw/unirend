@@ -250,6 +250,23 @@ describe('createProject — PUBLIC_FILES/PUBLIC_FOLDERS stay in sync with public
     expect(ssgServeSrc).toContain('PUBLIC_FILES.map');
     expect(ssgServeSrc).toContain('PUBLIC_FOLDERS.map');
 
+    // Each Vite app gets a public-assets.config.json pointing the check at
+    // its lists, with the default entry mirroring the scaffolded layout.
+    for (const appPath of ['src/apps/web', 'src/apps/site'] as const) {
+      const assetsConfig = JSON.parse(
+        repoRoot[`${appPath}/public-assets.config.json`] as string,
+      );
+
+      expect(assetsConfig).toEqual({
+        default: {
+          publicDir: 'public',
+          constsFile: 'consts.ts',
+          filesExport: 'PUBLIC_FILES',
+          foldersExport: 'PUBLIC_FOLDERS',
+        },
+      });
+    }
+
     // The repo-level check script and its package.json wiring exist
     expect(typeof repoRoot['scripts/check-public-assets.ts']).toBe('string');
     const pkg = JSON.parse(repoRoot['package.json'] as string);
@@ -280,6 +297,11 @@ describe('createProject — api template', () => {
     // API-specific file must exist
     expect(repoRoot['src/apps/backend/api-component.ts']).toBeDefined();
     expect(repoRoot['src/apps/backend/serve.ts']).toBeDefined();
+
+    // API apps have no public-file surface, so no public-assets config
+    expect(
+      repoRoot['src/apps/backend/public-assets.config.json'],
+    ).toBeUndefined();
   });
 });
 

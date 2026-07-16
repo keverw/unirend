@@ -7,11 +7,20 @@ import type { LoggerFunction } from '../types';
  *
  * A single script services every Vite app in the repo: it reads
  * `unirend-repo.json`, and for each SSR/SSG project compares the app's
- * declared `PUBLIC_FILES`/`PUBLIC_FOLDERS` (in `consts.ts`) against the files actually present
- * in its `public/` directory. Drift in either direction is an error — declared
- * but missing files make the built server refuse to boot (or 404), and files
- * present but undeclared 404 silently in production. The API template has no
- * public-file surface, so it's skipped.
+ * declared public-asset lists (`PUBLIC_FILES`/`PUBLIC_FOLDERS` by default)
+ * against the files actually present in its `public/` directory. Drift in
+ * either direction is an error — declared but missing files make the built
+ * server refuse to boot (or 404), and files present but undeclared 404
+ * silently in production. The API template has no public-file surface, so
+ * it's skipped.
+ *
+ * Where each app's lists and `public/` folder live is declared per project in
+ * `public-assets.config.json` (scaffolded with a single `default` entry
+ * mirroring the template conventions — see `public-assets-config.ts`). That
+ * indirection exists for the multi-app SSR pattern, where one project hosts
+ * several Vite roots in a layout the framework has no opinion on, so the
+ * check can't find them by convention. A project without the config file is
+ * skipped (logged, so the opt-out shows in CI output).
  *
  * Like `generate-build-info.ts`, the source lives in `templates-shared/` and
  * the file is written create-if-missing once per repo regardless of how many
@@ -22,14 +31,19 @@ import type { LoggerFunction } from '../types';
 const fileSrc = `import { promises as fs } from 'fs';
 import path from 'path';
 
-// Verifies each Vite app's declared PUBLIC_FILES/PUBLIC_FOLDERS (consts.ts) matches the
-// files actually present in its public/ directory. Runs from the project root
-// (invoked via check:public-assets, chained into \`bun run check\`).
+// Verifies each Vite app's declared public-asset lists (PUBLIC_FILES/
+// PUBLIC_FOLDERS by default) match the files actually present in its public/
+// directory. Runs from the project root (invoked via check:public-assets,
+// chained into \`bun run check\`).
 //
 // Why this exists: files in public/ are copied verbatim to the client build
 // root and are served in production ONLY if declared. Dev servers serve them
 // implicitly, so drift is invisible until production — this check makes it
 // fail CI instead.
+//
+// Each project declares where its lists live in public-assets.config.json
+// (one entry per app — multi-app SSR projects add an entry for each Vite
+// root). A project without the file is skipped: deleting it is the opt-out.
 
 interface ProjectEntry {
   templateID: string;
@@ -39,6 +53,25 @@ interface ProjectEntry {
 interface RepoConfig {
   projects?: Record<string, ProjectEntry>;
 }
+
+/**
+ * One entry in a project's public-assets.config.json. All paths are relative
+ * to the project folder; every field is optional and defaults to the
+ * scaffolded single-app convention.
+ */
+interface AppAssetsEntry {
+  publicDir?: string;
+  constsFile?: string;
+  filesExport?: string;
+  foldersExport?: string;
+}
+
+const APP_ENTRY_FIELDS = [
+  'publicDir',
+  'constsFile',
+  'filesExport',
+  'foldersExport',
+];
 
 const rootDir = process.cwd();
 
@@ -157,6 +190,372 @@ async function listPublicFiles(
   }
 }
 
+/**
+ * Resolve a config-relative path against the project folder, rejecting
+ * values that escape it (absolute paths or ".." traversal) or resolve to the
+ * project folder itself. The config is committed to the repo, so this is a
+ * correctness guard against typos pointing the check at an unrelated
+ * directory, not a security boundary.
+ */
+function resolveInsideProject(
+  projectDir: string,
+  relPath: string,
+): string | null {
+  const resolved = path.resolve(projectDir, relPath);
+  const back = path.relative(projectDir, resolved);
+
+  if (
+    back === '' ||
+    back === '..' ||
+    back.startsWith(\`..\${path.sep}\`) ||
+    path.isAbsolute(back)
+  ) {
+    return null;
+  }
+
+  return resolved;
+}
+
+interface CheckAppOptions {
+  /** Label used in problem messages (project name, or name/appKey). */
+  label: string;
+  templateID: string;
+  /** Absolute path to the app's consts module. */
+  constsPath: string;
+  /** Repo-relative consts path for messages. */
+  relConstsPath: string;
+  filesExport: string;
+  foldersExport: string;
+  /** Absolute path to the app's public/ directory. */
+  publicDir: string;
+}
+
+/** Check one app's declared lists against its public/ directory. */
+async function checkApp(
+  options: CheckAppOptions,
+  problems: string[],
+): Promise<void> {
+  const {
+    label,
+    templateID,
+    constsPath,
+    relConstsPath,
+    filesExport,
+    foldersExport,
+    publicDir,
+  } = options;
+
+  // SSR servers validate the declared lists at boot and refuse to start on
+  // a bad or missing entry. The SSG static server does no boot-time
+  // validation — the same drift just 404s at request time — so each app
+  // type gets the failure prediction that actually matches it.
+  const isSSR = templateID === 'ssr';
+  const badEntryNote = isSSR
+    ? 'the server rejects it at boot'
+    : 'the SSG static server does no boot-time validation, so requests for it just 404';
+  const badFolderNote = isSSR
+    ? 'the server rejects it at boot'
+    : 'the SSG static server does no boot-time validation, so requests under it just 404';
+  const missingFolderNote = isSSR
+    ? 'the built server refuses to boot on this'
+    : 'requests under it 404 in production — the SSG static server has no boot check';
+  const missingFilesNote = isSSR
+    ? 'the built server refuses to boot on these'
+    : 'these 404 in production — the SSG static server has no boot check';
+
+  let declaredFiles: unknown;
+  let declaredFolders: unknown;
+
+  try {
+    const consts = (await import(constsPath)) as Record<string, unknown>;
+    declaredFiles = consts[filesExport];
+    declaredFolders = consts[foldersExport];
+  } catch (error) {
+    problems.push(
+      \`\${label}: could not load \${relConstsPath}: \${String(error)}\`,
+    );
+
+    return;
+  }
+
+  if (
+    !Array.isArray(declaredFiles) ||
+    !declaredFiles.every((entry) => typeof entry === 'string')
+  ) {
+    problems.push(
+      \`\${label}: \${relConstsPath} does not export a \${filesExport} string array. \` +
+        \`Add one listing every file in public/, e.g. export const \${filesExport} = ['/favicon.svg', '/robots.txt'];\`,
+    );
+
+    return;
+  }
+
+  // The templates emit PUBLIC_FILES and PUBLIC_FOLDERS together, so
+  // require both (an empty array is fine, a deleted export is not).
+  if (
+    !Array.isArray(declaredFolders) ||
+    !declaredFolders.every((entry) => typeof entry === 'string')
+  ) {
+    problems.push(
+      \`\${label}: \${relConstsPath} does not export a \${foldersExport} string array. \` +
+        \`Add one (empty is fine), e.g. export const \${foldersExport}: string[] = ['/.well-known'];\`,
+    );
+
+    return;
+  }
+
+  // Validate individual entries before diffing — a bad entry can never
+  // match a file, so report it as its own problem instead of noise.
+  const normalizedFiles: string[] = [];
+
+  for (const entry of declaredFiles) {
+    // Collapse repeated slashes before any check, like the server does —
+    // '/assets//x' must hit the same checks as '/assets/x'. Reserved-path
+    // comparisons are case-insensitive for the same reason: on
+    // case-insensitive filesystems /INDEX.HTML is the same file.
+    const collapsed = entry.trim().replace(/\\/+/g, '/');
+    const withLead = collapsed.startsWith('/') ? collapsed : \`/\${collapsed}\`;
+
+    if (collapsed === '' || withLead === '/' || withLead.endsWith('/')) {
+      problems.push(
+        \`\${label}: \${filesExport} entry \${JSON.stringify(entry)} is a folder path — individual files only (folders go in \${foldersExport}).\`,
+      );
+    } else if (
+      withLead.split('/').includes('..') ||
+      withLead.split('/').includes('.') ||
+      withLead.includes('\\0') ||
+      withLead.includes('\\\\')
+    ) {
+      problems.push(
+        \`\${label}: \${filesExport} entry \${JSON.stringify(entry)} contains a "." or ".." segment, backslash, or null byte — \${badEntryNote} (use forward-slash URL paths).\`,
+      );
+    } else if (URL_UNSAFE_PATTERN.test(withLead)) {
+      // Mirrors the SSR server's config-time check: the static router
+      // matches raw request URLs, and browsers percent-encode these
+      // characters, so the entry could never match a request.
+      problems.push(
+        \`\${label}: \${filesExport} entry \${JSON.stringify(entry)} contains characters browsers percent-encode in URLs (like spaces, %, #, ?, or non-ASCII) — \${badEntryNote}. Rename the file in public/ to URL-safe characters.\`,
+      );
+    } else if (isReservedPublicPath(withLead)) {
+      problems.push(
+        \`\${label}: \${filesExport} entry \${JSON.stringify(entry)} exposes build internals (the HTML template or Vite metadata) — the SSR server rejects it at boot, and in an SSG app it collides with the build output. Remove it.\`,
+      );
+    } else if (
+      withLead.toLowerCase() === '/assets' ||
+      withLead.toLowerCase().startsWith('/assets/')
+    ) {
+      problems.push(
+        \`\${label}: \${filesExport} entry \${JSON.stringify(entry)} is under /assets, which Vite generates at build time and the default mount already serves — \${badEntryNote}. Remove it.\`,
+      );
+    } else {
+      normalizedFiles.push(withLead);
+    }
+  }
+
+  const normalizedFolders: string[] = [];
+
+  for (const entry of declaredFolders) {
+    // Same slash collapse and case-insensitive reserved checks as the
+    // files loop — '//' must normalize to the root it actually mounts.
+    const collapsed = entry.trim().replace(/\\/+/g, '/');
+    const withLead =
+      collapsed === '' || collapsed.startsWith('/')
+        ? collapsed
+        : \`/\${collapsed}\`;
+    const trimmedSlash = withLead.endsWith('/')
+      ? withLead.slice(0, -1)
+      : withLead;
+
+    if (trimmedSlash === '' || trimmedSlash === '/') {
+      problems.push(
+        \`\${label}: \${foldersExport} entry \${JSON.stringify(entry)} mounts the whole public/ root — \${badFolderNote}. Declare subfolders only.\`,
+      );
+    } else if (
+      trimmedSlash.split('/').includes('..') ||
+      trimmedSlash.split('/').includes('.') ||
+      trimmedSlash.includes('\\0') ||
+      trimmedSlash.includes('\\\\')
+    ) {
+      problems.push(
+        \`\${label}: \${foldersExport} entry \${JSON.stringify(entry)} contains a "." or ".." segment, backslash, or null byte — \${badFolderNote} (use forward-slash URL paths).\`,
+      );
+    } else if (URL_UNSAFE_PATTERN.test(trimmedSlash)) {
+      problems.push(
+        \`\${label}: \${foldersExport} entry \${JSON.stringify(entry)} contains characters browsers percent-encode in URLs (like spaces, %, #, ?, or non-ASCII) — \${badFolderNote}. Rename the folder in public/ to URL-safe characters.\`,
+      );
+    } else if (
+      isReservedPublicPath(trimmedSlash) ||
+      trimmedSlash.toLowerCase() === '/assets' ||
+      trimmedSlash.toLowerCase().startsWith('/assets/')
+    ) {
+      problems.push(
+        \`\${label}: \${foldersExport} entry \${JSON.stringify(entry)} is reserved (/assets is served by default; .vite is build metadata) — \${badFolderNote}. Remove it.\`,
+      );
+    } else {
+      normalizedFolders.push(trimmedSlash);
+    }
+  }
+
+  const symlinkCycles: string[] = [];
+  const danglingLinks: string[] = [];
+  const actual = await listPublicFiles(
+    publicDir,
+    '',
+    new Set(),
+    symlinkCycles,
+    danglingLinks,
+  );
+
+  // A symlink cycle is an error in its own right: Vite's public copier
+  // follows symlinks without a cycle guard, so the build would recurse
+  // until it fails even though this check terminated safely.
+  for (const cyclePath of symlinkCycles) {
+    problems.push(
+      \`\${label}: public/ contains a symlinked directory cycle at \${JSON.stringify(cyclePath)} (it resolves to its own ancestor). Vite's build follows symlinks when copying public/ and would recurse until it fails — remove the symlink.\`,
+    );
+  }
+
+  // Same reasoning for dangling symlinks: Vite stats each entry when
+  // copying public/, so the build fails on a broken link even though
+  // there is nothing servable behind it.
+  for (const danglingPath of danglingLinks) {
+    problems.push(
+      \`\${label}: public/ contains a dangling symlink at \${JSON.stringify(danglingPath)} (its target does not exist). Vite's build fails when copying public/ over broken links — fix the target or remove the symlink.\`,
+    );
+  }
+  const actualSet = new Set(actual);
+  const declaredSet = new Set(normalizedFiles);
+
+  const isUnderDeclaredFolder = (filePath: string) =>
+    normalizedFolders.some((prefix) => filePath.startsWith(\`\${prefix}/\`));
+
+  // Declared file entries pointing at directories are their own class of
+  // error — they'd otherwise show up confusingly as "missing"
+  // (listPublicFiles only returns files).
+  const missingFromPublic: string[] = [];
+
+  for (const entry of normalizedFiles) {
+    if (actualSet.has(entry)) {
+      continue;
+    }
+
+    try {
+      const stat = await fs.stat(path.join(publicDir, ...entry.split('/')));
+
+      if (stat.isDirectory()) {
+        problems.push(
+          \`\${label}: \${filesExport} entry "\${entry}" is a directory — move it to \${foldersExport} or declare the individual files inside it.\`,
+        );
+
+        continue;
+      }
+    } catch {
+      // Fall through — it's simply missing.
+    }
+
+    missingFromPublic.push(entry);
+  }
+
+  // Declared folders must exist as directories in public/ (the built
+  // server refuses to boot otherwise).
+  for (const prefix of normalizedFolders) {
+    try {
+      const stat = await fs.stat(path.join(publicDir, ...prefix.split('/')));
+
+      if (!stat.isDirectory()) {
+        problems.push(
+          \`\${label}: \${foldersExport} entry "\${prefix}" exists in public/ but is a file — declare it in \${filesExport} instead.\`,
+        );
+      }
+    } catch {
+      problems.push(
+        \`\${label}: \${foldersExport} entry "\${prefix}" is missing from public/ (\${missingFolderNote}).\`,
+      );
+    }
+  }
+
+  // Reserved names sitting in public/ get their own error — the usual
+  // "declare it" advice would be wrong (the server rejects them), and a
+  // public/index.html collides with the Vite-built index.html anyway.
+  const reservedInPublic = actual.filter(isReservedPublicPath);
+
+  // A public/assets/ folder is its own trap: Vite copies it INTO the
+  // build's fingerprinted output dir (client/assets), where the default
+  // /assets mount serves it with immutable-asset detection meant for
+  // hashed bundles. Flag it for a rename instead of suggesting
+  // declarations that can't work (PUBLIC_FOLDERS rejects /assets).
+  // Case-insensitive like the declaration checks: on case-insensitive
+  // filesystems public/ASSETS/ is the same collision, and the "declare
+  // it" advice would point at a declaration the server rejects. An exact
+  // /assets file collides with the output dir the same way.
+  const isInBuildAssets = (filePath: string) => {
+    const lowered = filePath.toLowerCase();
+    return lowered === '/assets' || lowered.startsWith('/assets/');
+  };
+
+  const inAssetsDir = actual.filter(isInBuildAssets);
+
+  if (inAssetsDir.length > 0) {
+    // The offender can also be a bare FILE named public/assets (listed as
+    // exactly '/assets'), which collides with the output dir the same way
+    // — say file vs folder correctly in the advice.
+    const isAssetsFile = inAssetsDir.every(
+      (entry) => entry.toLowerCase() === '/assets',
+    );
+
+    problems.push(
+      \`\${label}: public/assets\${isAssetsFile ? '' : '/'} collides with the build's fingerprinted asset output dir — Vite copies it into client/\${isAssetsFile ? '' : 'assets'} next to the hashed bundles:\\n\` +
+        inAssetsDir.map((entry) => \`  - \${entry}\`).join('\\n') +
+        (isAssetsFile
+          ? \`\\n  Rename the file (e.g. public/assets.txt) and declare it via \${filesExport}.\`
+          : \`\\n  Rename the folder (e.g. public/static/) and declare it via \${foldersExport}.\`),
+    );
+  }
+
+  // Files under a declared folder are served by URL too, so a filename
+  // with URL-unsafe characters still 404s — no boot check catches these
+  // (the folder declaration itself is valid), making CI the only guard.
+  for (const filePath of actual) {
+    if (isUnderDeclaredFolder(filePath) && URL_UNSAFE_PATTERN.test(filePath)) {
+      problems.push(
+        \`\${label}: \${JSON.stringify(filePath)} is covered by \${foldersExport} but its name contains characters browsers percent-encode in URLs (like spaces, %, #, ?, or non-ASCII), so requests for it 404 in production. Rename it in public/ to URL-safe characters.\`,
+      );
+    }
+  }
+
+  // A file is covered if declared individually OR under a declared folder.
+  const undeclaredInPublic = actual.filter(
+    (filePath) =>
+      !declaredSet.has(filePath) &&
+      !isUnderDeclaredFolder(filePath) &&
+      !isReservedPublicPath(filePath) &&
+      !isInBuildAssets(filePath),
+  );
+
+  if (reservedInPublic.length > 0) {
+    problems.push(
+      \`\${label}: public/ contains files that must not be exposed as public assets (they collide with the build output or expose build internals):\\n\` +
+        reservedInPublic.map((entry) => \`  - \${entry}\`).join('\\n') +
+        \`\\n  Remove them from public/.\`,
+    );
+  }
+
+  if (missingFromPublic.length > 0) {
+    problems.push(
+      \`\${label}: declared in \${filesExport} but missing from public/ (\${missingFilesNote}):\\n\` +
+        missingFromPublic.map((entry) => \`  - \${entry}\`).join('\\n'),
+    );
+  }
+
+  if (undeclaredInPublic.length > 0) {
+    problems.push(
+      \`\${label}: present in public/ but not declared (these 404 in production):\\n\` +
+        undeclaredInPublic.map((entry) => \`  - \${entry}\`).join('\\n') +
+        \`\\n  Add them to \${filesExport} in \${relConstsPath} (or cover their folder via \${foldersExport}).\`,
+    );
+  }
+}
+
 async function main() {
   const configPath = path.join(rootDir, 'unirend-repo.json');
 
@@ -182,321 +581,169 @@ async function main() {
       continue;
     }
 
-    // SSR servers validate PUBLIC_FILES/PUBLIC_FOLDERS at boot and refuse to
-    // start on a bad or missing entry. The SSG static server does no
-    // boot-time validation — the same drift just 404s at request time — so
-    // each app type gets the failure prediction that actually matches it.
-    const isSSR = project.templateID === 'ssr';
-    const badEntryNote = isSSR
-      ? 'the server rejects it at boot'
-      : 'the SSG static server does no boot-time validation, so requests for it just 404';
-    const badFolderNote = isSSR
-      ? 'the server rejects it at boot'
-      : 'the SSG static server does no boot-time validation, so requests under it just 404';
-    const missingFolderNote = isSSR
-      ? 'the built server refuses to boot on this'
-      : 'requests under it 404 in production — the SSG static server has no boot check';
-    const missingFilesNote = isSSR
-      ? 'the built server refuses to boot on these'
-      : 'these 404 in production — the SSG static server has no boot check';
-
     const projectDir = path.resolve(rootDir, project.path);
-    const constsPath = path.join(projectDir, 'consts.ts');
-    const relConstsPath = path.relative(rootDir, constsPath);
+    const assetsConfigPath = path.join(projectDir, 'public-assets.config.json');
+    const relAssetsConfigPath = path.relative(rootDir, assetsConfigPath);
 
-    let declaredFiles: unknown;
-    let declaredFolders: unknown;
+    // No config file means the project opted out (the scaffold writes one, so
+    // it was deliberately deleted). Log the skip so it shows in CI output
+    // instead of silently checking nothing.
+    let assetsConfigRaw: string;
 
     try {
-      const consts = (await import(constsPath)) as Record<string, unknown>;
-      declaredFiles = consts.PUBLIC_FILES;
-      declaredFolders = consts.PUBLIC_FOLDERS;
+      assetsConfigRaw = await fs.readFile(assetsConfigPath, 'utf8');
     } catch (error) {
-      problems.push(
-        \`\${name}: could not load \${relConstsPath}: \${String(error)}\`,
-      );
-
-      continue;
-    }
-
-    if (
-      !Array.isArray(declaredFiles) ||
-      !declaredFiles.every((entry) => typeof entry === 'string')
-    ) {
-      problems.push(
-        \`\${name}: \${relConstsPath} does not export a PUBLIC_FILES string array. \` +
-          \`Add one listing every file in public/, e.g. export const PUBLIC_FILES = ['/favicon.svg', '/robots.txt'];\`,
-      );
-
-      continue;
-    }
-
-    // The templates emit PUBLIC_FILES and PUBLIC_FOLDERS together, so
-    // require both (an empty array is fine, a deleted export is not).
-    if (
-      !Array.isArray(declaredFolders) ||
-      !declaredFolders.every((entry) => typeof entry === 'string')
-    ) {
-      problems.push(
-        \`\${name}: \${relConstsPath} does not export a PUBLIC_FOLDERS string array. \` +
-          \`Add one (empty is fine), e.g. export const PUBLIC_FOLDERS: string[] = ['/.well-known'];\`,
-      );
-
-      continue;
-    }
-
-    // Validate individual entries before diffing — a bad entry can never
-    // match a file, so report it as its own problem instead of noise.
-    const normalizedFiles: string[] = [];
-
-    for (const entry of declaredFiles) {
-      // Collapse repeated slashes before any check, like the server does —
-      // '/assets//x' must hit the same checks as '/assets/x'. Reserved-path
-      // comparisons are case-insensitive for the same reason: on
-      // case-insensitive filesystems /INDEX.HTML is the same file.
-      const collapsed = entry.trim().replace(/\\/+/g, '/');
-      const withLead = collapsed.startsWith('/') ? collapsed : \`/\${collapsed}\`;
-
-      if (collapsed === '' || withLead === '/' || withLead.endsWith('/')) {
-        problems.push(
-          \`\${name}: PUBLIC_FILES entry \${JSON.stringify(entry)} is a folder path — individual files only (folders go in PUBLIC_FOLDERS).\`,
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        console.log(
+          \`\${name}: no \${relAssetsConfigPath} — skipping this project (restore the file to re-enable the check).\`,
         );
-      } else if (
-        withLead.split('/').includes('..') ||
-        withLead.split('/').includes('.') ||
-        withLead.includes('\\0') ||
-        withLead.includes('\\\\')
-      ) {
-        problems.push(
-          \`\${name}: PUBLIC_FILES entry \${JSON.stringify(entry)} contains a "." or ".." segment, backslash, or null byte — \${badEntryNote} (use forward-slash URL paths).\`,
-        );
-      } else if (URL_UNSAFE_PATTERN.test(withLead)) {
-        // Mirrors the SSR server's config-time check: the static router
-        // matches raw request URLs, and browsers percent-encode these
-        // characters, so the entry could never match a request.
-        problems.push(
-          \`\${name}: PUBLIC_FILES entry \${JSON.stringify(entry)} contains characters browsers percent-encode in URLs (like spaces, %, #, ?, or non-ASCII) — \${badEntryNote}. Rename the file in public/ to URL-safe characters.\`,
-        );
-      } else if (isReservedPublicPath(withLead)) {
-        problems.push(
-          \`\${name}: PUBLIC_FILES entry \${JSON.stringify(entry)} exposes build internals (the HTML template or Vite metadata) — the SSR server rejects it at boot, and in an SSG app it collides with the build output. Remove it.\`,
-        );
-      } else if (
-        withLead.toLowerCase() === '/assets' ||
-        withLead.toLowerCase().startsWith('/assets/')
-      ) {
-        problems.push(
-          \`\${name}: PUBLIC_FILES entry \${JSON.stringify(entry)} is under /assets, which Vite generates at build time and the default mount already serves — \${badEntryNote}. Remove it.\`,
-        );
-      } else {
-        normalizedFiles.push(withLead);
-      }
-    }
 
-    const normalizedFolders: string[] = [];
-
-    for (const entry of declaredFolders) {
-      // Same slash collapse and case-insensitive reserved checks as the
-      // files loop — '//' must normalize to the root it actually mounts.
-      const collapsed = entry.trim().replace(/\\/+/g, '/');
-      const withLead =
-        collapsed === '' || collapsed.startsWith('/')
-          ? collapsed
-          : \`/\${collapsed}\`;
-      const trimmedSlash = withLead.endsWith('/')
-        ? withLead.slice(0, -1)
-        : withLead;
-
-      if (trimmedSlash === '' || trimmedSlash === '/') {
-        problems.push(
-          \`\${name}: PUBLIC_FOLDERS entry \${JSON.stringify(entry)} mounts the whole public/ root — \${badFolderNote}. Declare subfolders only.\`,
-        );
-      } else if (
-        trimmedSlash.split('/').includes('..') ||
-        trimmedSlash.split('/').includes('.') ||
-        trimmedSlash.includes('\\0') ||
-        trimmedSlash.includes('\\\\')
-      ) {
-        problems.push(
-          \`\${name}: PUBLIC_FOLDERS entry \${JSON.stringify(entry)} contains a "." or ".." segment, backslash, or null byte — \${badFolderNote} (use forward-slash URL paths).\`,
-        );
-      } else if (URL_UNSAFE_PATTERN.test(trimmedSlash)) {
-        problems.push(
-          \`\${name}: PUBLIC_FOLDERS entry \${JSON.stringify(entry)} contains characters browsers percent-encode in URLs (like spaces, %, #, ?, or non-ASCII) — \${badFolderNote}. Rename the folder in public/ to URL-safe characters.\`,
-        );
-      } else if (
-        isReservedPublicPath(trimmedSlash) ||
-        trimmedSlash.toLowerCase() === '/assets' ||
-        trimmedSlash.toLowerCase().startsWith('/assets/')
-      ) {
-        problems.push(
-          \`\${name}: PUBLIC_FOLDERS entry \${JSON.stringify(entry)} is reserved (/assets is served by default; .vite is build metadata) — \${badFolderNote}. Remove it.\`,
-        );
-      } else {
-        normalizedFolders.push(trimmedSlash);
-      }
-    }
-
-    const publicDir = path.join(projectDir, 'public');
-    const symlinkCycles: string[] = [];
-    const danglingLinks: string[] = [];
-    const actual = await listPublicFiles(
-      publicDir,
-      '',
-      new Set(),
-      symlinkCycles,
-      danglingLinks,
-    );
-
-    // A symlink cycle is an error in its own right: Vite's public copier
-    // follows symlinks without a cycle guard, so the build would recurse
-    // until it fails even though this check terminated safely.
-    for (const cyclePath of symlinkCycles) {
-      problems.push(
-        \`\${name}: public/ contains a symlinked directory cycle at \${JSON.stringify(cyclePath)} (it resolves to its own ancestor). Vite's build follows symlinks when copying public/ and would recurse until it fails — remove the symlink.\`,
-      );
-    }
-
-    // Same reasoning for dangling symlinks: Vite stats each entry when
-    // copying public/, so the build fails on a broken link even though
-    // there is nothing servable behind it.
-    for (const danglingPath of danglingLinks) {
-      problems.push(
-        \`\${name}: public/ contains a dangling symlink at \${JSON.stringify(danglingPath)} (its target does not exist). Vite's build fails when copying public/ over broken links — fix the target or remove the symlink.\`,
-      );
-    }
-    const actualSet = new Set(actual);
-    const declaredSet = new Set(normalizedFiles);
-
-    const isUnderDeclaredFolder = (filePath: string) =>
-      normalizedFolders.some((prefix) => filePath.startsWith(\`\${prefix}/\`));
-
-    // Declared file entries pointing at directories are their own class of
-    // error — they'd otherwise show up confusingly as "missing"
-    // (listPublicFiles only returns files).
-    const missingFromPublic: string[] = [];
-
-    for (const entry of normalizedFiles) {
-      if (actualSet.has(entry)) {
         continue;
       }
 
-      try {
-        const stat = await fs.stat(path.join(publicDir, ...entry.split('/')));
+      throw error;
+    }
 
-        if (stat.isDirectory()) {
+    let assetsConfigParsed: unknown;
+
+    try {
+      assetsConfigParsed = JSON.parse(assetsConfigRaw);
+    } catch (error) {
+      problems.push(
+        \`\${name}: could not parse \${relAssetsConfigPath}: \${String(error)}\`,
+      );
+
+      continue;
+    }
+
+    if (
+      assetsConfigParsed === null ||
+      typeof assetsConfigParsed !== 'object' ||
+      Array.isArray(assetsConfigParsed)
+    ) {
+      problems.push(
+        \`\${name}: \${relAssetsConfigPath} must be a JSON object mapping app labels to entries, e.g. { "default": { "publicDir": "public", "constsFile": "consts.ts" } }.\`,
+      );
+
+      continue;
+    }
+
+    const appEntries = Object.entries(
+      assetsConfigParsed as Record<string, unknown>,
+    );
+
+    // An empty object checks nothing — say so rather than passing silently.
+    if (appEntries.length === 0) {
+      console.log(
+        \`\${name}: \${relAssetsConfigPath} defines no apps — nothing to check for this project.\`,
+      );
+
+      continue;
+    }
+
+    for (const [appKey, rawEntry] of appEntries) {
+      // The key is only a label for messages. Single-app projects keep the
+      // scaffolded "default" key, so their messages stay just the project
+      // name; multi-app entries are qualified as name/appKey.
+      const label = appKey === 'default' ? name : \`\${name}/\${appKey}\`;
+
+      if (
+        rawEntry === null ||
+        typeof rawEntry !== 'object' ||
+        Array.isArray(rawEntry)
+      ) {
+        problems.push(
+          \`\${label}: entry \${JSON.stringify(appKey)} in \${relAssetsConfigPath} must be a JSON object (fields: \${APP_ENTRY_FIELDS.join(', ')}; all optional).\`,
+        );
+
+        continue;
+      }
+
+      // Unknown keys are almost certainly typos, and a typo'd field name
+      // silently falls back to its default — flag them instead.
+      const entryRecord = rawEntry as Record<string, unknown>;
+      let entryValid = true;
+
+      for (const [field, value] of Object.entries(entryRecord)) {
+        if (!APP_ENTRY_FIELDS.includes(field)) {
           problems.push(
-            \`\${name}: PUBLIC_FILES entry "\${entry}" is a directory — move it to PUBLIC_FOLDERS or declare the individual files inside it.\`,
+            \`\${label}: unknown field \${JSON.stringify(field)} in \${relAssetsConfigPath} — valid fields are \${APP_ENTRY_FIELDS.join(', ')}.\`,
+          );
+
+          entryValid = false;
+        } else if (typeof value !== 'string' || value.trim() === '') {
+          problems.push(
+            \`\${label}: field \${JSON.stringify(field)} in \${relAssetsConfigPath} must be a non-empty string.\`,
+          );
+
+          entryValid = false;
+        }
+      }
+
+      if (!entryValid) {
+        continue;
+      }
+
+      const entry = entryRecord as AppAssetsEntry;
+      const publicDirRel = entry.publicDir ?? 'public';
+      const constsFileRel = entry.constsFile ?? 'consts.ts';
+
+      const publicDir = resolveInsideProject(projectDir, publicDirRel);
+      const constsPath = resolveInsideProject(projectDir, constsFileRel);
+
+      // Report both bad paths in one run rather than stopping at the first.
+      if (publicDir === null) {
+        problems.push(
+          \`\${label}: publicDir \${JSON.stringify(publicDirRel)} in \${relAssetsConfigPath} must be a relative path inside the project folder.\`,
+        );
+      }
+
+      if (constsPath === null) {
+        problems.push(
+          \`\${label}: constsFile \${JSON.stringify(constsFileRel)} in \${relAssetsConfigPath} must be a relative path inside the project folder.\`,
+        );
+      }
+
+      if (publicDir === null || constsPath === null) {
+        continue;
+      }
+
+      // The configured publicDir must actually exist: listPublicFiles treats
+      // an unreadable directory as empty, so a typo'd path plus empty (or
+      // stale) declared arrays would otherwise pass while the real public/
+      // goes unchecked — the exact silent failure this script exists to
+      // catch. An app with no public surface opts out by deleting the config
+      // file (or this entry), not by pointing at a directory that isn't
+      // there. stat follows symlinks, so a symlinked directory still counts.
+      try {
+        const publicDirStat = await fs.stat(publicDir);
+
+        if (!publicDirStat.isDirectory()) {
+          problems.push(
+            \`\${label}: publicDir \${JSON.stringify(publicDirRel)} in \${relAssetsConfigPath} exists but is not a directory.\`,
           );
 
           continue;
         }
       } catch {
-        // Fall through — it's simply missing.
-      }
-
-      missingFromPublic.push(entry);
-    }
-
-    // Declared folders must exist as directories in public/ (the built
-    // server refuses to boot otherwise).
-    for (const prefix of normalizedFolders) {
-      try {
-        const stat = await fs.stat(path.join(publicDir, ...prefix.split('/')));
-
-        if (!stat.isDirectory()) {
-          problems.push(
-            \`\${name}: PUBLIC_FOLDERS entry "\${prefix}" exists in public/ but is a file — declare it in PUBLIC_FILES instead.\`,
-          );
-        }
-      } catch {
         problems.push(
-          \`\${name}: PUBLIC_FOLDERS entry "\${prefix}" is missing from public/ (\${missingFolderNote}).\`,
+          \`\${label}: publicDir \${JSON.stringify(publicDirRel)} in \${relAssetsConfigPath} does not exist — fix the path, create the directory, or remove the entry to stop checking this app.\`,
         );
+
+        continue;
       }
-    }
 
-    // Reserved names sitting in public/ get their own error — the usual
-    // "declare it" advice would be wrong (the server rejects them), and a
-    // public/index.html collides with the Vite-built index.html anyway.
-    const reservedInPublic = actual.filter(isReservedPublicPath);
-
-    // A public/assets/ folder is its own trap: Vite copies it INTO the
-    // build's fingerprinted output dir (client/assets), where the default
-    // /assets mount serves it with immutable-asset detection meant for
-    // hashed bundles. Flag it for a rename instead of suggesting
-    // declarations that can't work (PUBLIC_FOLDERS rejects /assets).
-    // Case-insensitive like the declaration checks: on case-insensitive
-    // filesystems public/ASSETS/ is the same collision, and the "declare
-    // it" advice would point at a declaration the server rejects. An exact
-    // /assets file collides with the output dir the same way.
-    const isInBuildAssets = (filePath: string) => {
-      const lowered = filePath.toLowerCase();
-      return lowered === '/assets' || lowered.startsWith('/assets/');
-    };
-
-    const inAssetsDir = actual.filter(isInBuildAssets);
-
-    if (inAssetsDir.length > 0) {
-      // The offender can also be a bare FILE named public/assets (listed as
-      // exactly '/assets'), which collides with the output dir the same way
-      // — say file vs folder correctly in the advice.
-      const isAssetsFile = inAssetsDir.every(
-        (entry) => entry.toLowerCase() === '/assets',
-      );
-
-      problems.push(
-        \`\${name}: public/assets\${isAssetsFile ? '' : '/'} collides with the build's fingerprinted asset output dir — Vite copies it into client/\${isAssetsFile ? '' : 'assets'} next to the hashed bundles:\\n\` +
-          inAssetsDir.map((entry) => \`  - \${entry}\`).join('\\n') +
-          (isAssetsFile
-            ? \`\\n  Rename the file (e.g. public/assets.txt) and declare it via PUBLIC_FILES.\`
-            : \`\\n  Rename the folder (e.g. public/static/) and declare it via PUBLIC_FOLDERS.\`),
-      );
-    }
-
-    // Files under a declared folder are served by URL too, so a filename
-    // with URL-unsafe characters still 404s — no boot check catches these
-    // (the folder declaration itself is valid), making CI the only guard.
-    for (const filePath of actual) {
-      if (
-        isUnderDeclaredFolder(filePath) &&
-        URL_UNSAFE_PATTERN.test(filePath)
-      ) {
-        problems.push(
-          \`\${name}: \${JSON.stringify(filePath)} is covered by PUBLIC_FOLDERS but its name contains characters browsers percent-encode in URLs (like spaces, %, #, ?, or non-ASCII), so requests for it 404 in production. Rename it in public/ to URL-safe characters.\`,
-        );
-      }
-    }
-
-    // A file is covered if declared individually OR under a declared folder.
-    const undeclaredInPublic = actual.filter(
-      (filePath) =>
-        !declaredSet.has(filePath) &&
-        !isUnderDeclaredFolder(filePath) &&
-        !isReservedPublicPath(filePath) &&
-        !isInBuildAssets(filePath),
-    );
-
-    if (reservedInPublic.length > 0) {
-      problems.push(
-        \`\${name}: public/ contains files that must not be exposed as public assets (they collide with the build output or expose build internals):\\n\` +
-          reservedInPublic.map((entry) => \`  - \${entry}\`).join('\\n') +
-          \`\\n  Remove them from public/.\`,
-      );
-    }
-
-    if (missingFromPublic.length > 0) {
-      problems.push(
-        \`\${name}: declared in PUBLIC_FILES but missing from public/ (\${missingFilesNote}):\\n\` +
-          missingFromPublic.map((entry) => \`  - \${entry}\`).join('\\n'),
-      );
-    }
-
-    if (undeclaredInPublic.length > 0) {
-      problems.push(
-        \`\${name}: present in public/ but not declared (these 404 in production):\\n\` +
-          undeclaredInPublic.map((entry) => \`  - \${entry}\`).join('\\n') +
-          \`\\n  Add them to PUBLIC_FILES in \${relConstsPath} (or cover their folder via PUBLIC_FOLDERS).\`,
+      await checkApp(
+        {
+          label,
+          templateID: project.templateID,
+          constsPath,
+          relConstsPath: path.relative(rootDir, constsPath),
+          filesExport: entry.filesExport ?? 'PUBLIC_FILES',
+          foldersExport: entry.foldersExport ?? 'PUBLIC_FOLDERS',
+          publicDir,
+        },
+        problems,
       );
     }
   }

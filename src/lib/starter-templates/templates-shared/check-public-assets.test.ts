@@ -101,12 +101,27 @@ describe('check-public-assets script behavior', () => {
     templateID?: string;
     constsSrc?: string;
     publicFiles?: Record<string, string>;
+    /**
+     * Contents for the app's public-assets.config.json. Defaults to the
+     * scaffolded single-app config; pass `null` to omit the file (the
+     * opt-out case), a string to write raw (malformed-JSON tests), or an
+     * object for custom shapes.
+     */
+    assetsConfig?: unknown;
   }) {
     const {
       name = 'web',
       templateID = 'ssr',
       constsSrc,
       publicFiles = {},
+      assetsConfig = {
+        default: {
+          publicDir: 'public',
+          constsFile: 'consts.ts',
+          filesExport: 'PUBLIC_FILES',
+          foldersExport: 'PUBLIC_FOLDERS',
+        },
+      },
     } = options;
     const appDir = path.join(repoDir, 'src', 'apps', name);
 
@@ -114,6 +129,15 @@ describe('check-public-assets script behavior', () => {
 
     if (constsSrc !== undefined) {
       await fs.promises.writeFile(path.join(appDir, 'consts.ts'), constsSrc);
+    }
+
+    if (assetsConfig !== null) {
+      await fs.promises.writeFile(
+        path.join(appDir, 'public-assets.config.json'),
+        typeof assetsConfig === 'string'
+          ? assetsConfig
+          : JSON.stringify(assetsConfig, null, 2),
+      );
     }
 
     for (const [relPath, content] of Object.entries(publicFiles)) {
@@ -760,5 +784,241 @@ describe('check-public-assets script behavior', () => {
     const { exitCode, output } = await runCheck();
     expect(output).toContain('nothing to check');
     expect(exitCode).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // public-assets.config.json handling
+  // -------------------------------------------------------------------------
+
+  test('skips a project without public-assets.config.json, and says so', async () => {
+    // Drift that would normally fail — the missing config opts the project
+    // out, but the skip must show in the output rather than pass silently.
+    await writeApp({
+      assetsConfig: null,
+      constsSrc:
+        'export const PUBLIC_FILES: string[] = [];\n' +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: { 'undeclared.txt': 'x' },
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(output).toContain(
+      'web: no src/apps/web/public-assets.config.json — skipping this project',
+    );
+    expect(output).toContain('public-assets check passed');
+    expect(exitCode).toBe(0);
+  });
+
+  test('all config fields are optional and default to the single-app convention', async () => {
+    await writeApp({
+      assetsConfig: { default: {} },
+      constsSrc:
+        "export const PUBLIC_FILES = ['/robots.txt'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: { 'robots.txt': 'User-agent: *' },
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(output).toContain('public-assets check passed');
+    expect(exitCode).toBe(0);
+  });
+
+  test('fails on malformed public-assets.config.json', async () => {
+    await writeApp({
+      assetsConfig: '{ not json',
+      constsSrc:
+        'export const PUBLIC_FILES: string[] = [];\n' +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain(
+      'could not parse src/apps/web/public-assets.config.json',
+    );
+  });
+
+  test('fails when the config is not an object mapping labels to entries', async () => {
+    await writeApp({ assetsConfig: ['nope'] });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain(
+      'must be a JSON object mapping app labels to entries',
+    );
+  });
+
+  test('fails when an app entry is not an object', async () => {
+    await writeApp({ assetsConfig: { default: 'public' } });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('must be a JSON object (fields: publicDir');
+  });
+
+  test('fails on unknown and non-string config fields (typo guard)', async () => {
+    // A typo'd field name would otherwise silently fall back to its default,
+    // which is exactly the invisible-drift failure the check exists to catch.
+    await writeApp({
+      assetsConfig: {
+        default: { files_export: 'PUBLIC_FILES', publicDir: 42 },
+      },
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('unknown field "files_export"');
+    expect(output).toContain('field "publicDir"');
+    expect(output).toContain('must be a non-empty string');
+  });
+
+  test('fails when publicDir or constsFile escapes the app folder', async () => {
+    await writeApp({
+      assetsConfig: {
+        default: { publicDir: '../other-app/public', constsFile: '/etc/x.ts' },
+      },
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain(
+      'publicDir "../other-app/public" in src/apps/web/public-assets.config.json must be a relative path inside the project folder',
+    );
+    expect(output).toContain(
+      'constsFile "/etc/x.ts" in src/apps/web/public-assets.config.json must be a relative path inside the project folder',
+    );
+  });
+
+  test('fails when the configured publicDir does not exist, even with empty lists', async () => {
+    // listPublicFiles treats an unreadable directory as empty, so a typo'd
+    // publicDir plus empty declared arrays would otherwise pass while the
+    // real public/ goes unchecked.
+    await writeApp({
+      assetsConfig: { default: { publicDir: 'pubic' } },
+      constsSrc:
+        'export const PUBLIC_FILES: string[] = [];\n' +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: { 'undeclared.txt': 'x' },
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain(
+      'publicDir "pubic" in src/apps/web/public-assets.config.json does not exist',
+    );
+  });
+
+  test('fails when the configured publicDir is a file', async () => {
+    await writeApp({
+      assetsConfig: { default: { publicDir: 'public/robots.txt' } },
+      constsSrc:
+        'export const PUBLIC_FILES: string[] = [];\n' +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: { 'robots.txt': 'User-agent: *' },
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain(
+      'publicDir "public/robots.txt" in src/apps/web/public-assets.config.json exists but is not a directory',
+    );
+  });
+
+  test('notes a config that defines no apps instead of passing silently', async () => {
+    await writeApp({ assetsConfig: {} });
+
+    const { exitCode, output } = await runCheck();
+    expect(output).toContain(
+      'src/apps/web/public-assets.config.json defines no apps',
+    );
+    expect(output).toContain('public-assets check passed');
+    expect(exitCode).toBe(0);
+  });
+
+  test('checks every app in a multi-app config, with qualified labels', async () => {
+    // One project hosting two Vite roots (the multi-app SSR layout): app-a is
+    // in sync, app-b has an undeclared file — only app-b may be flagged, and
+    // under its qualified name/appKey label.
+    await writeApp({
+      assetsConfig: {
+        'app-a': { publicDir: 'app-a/public', constsFile: 'app-a/consts.ts' },
+        'app-b': { publicDir: 'app-b/public', constsFile: 'app-b/consts.ts' },
+      },
+    });
+
+    const projectDir = path.join(repoDir, 'src', 'apps', 'web');
+
+    for (const app of ['app-a', 'app-b'] as const) {
+      await fs.promises.mkdir(path.join(projectDir, app, 'public'), {
+        recursive: true,
+      });
+      await fs.promises.writeFile(
+        path.join(projectDir, app, 'consts.ts'),
+        "export const PUBLIC_FILES = ['/robots.txt'];\n" +
+          'export const PUBLIC_FOLDERS: string[] = [];\n',
+      );
+      await fs.promises.writeFile(
+        path.join(projectDir, app, 'public', 'robots.txt'),
+        'User-agent: *',
+      );
+    }
+
+    await fs.promises.writeFile(
+      path.join(projectDir, 'app-b', 'public', 'stray.txt'),
+      'x',
+    );
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('web/app-b: present in public/ but not declared');
+    expect(output).toContain('/stray.txt');
+    expect(output).not.toContain('web/app-a');
+  });
+
+  test('supports a shared consts file with per-app export names', async () => {
+    await writeApp({
+      assetsConfig: {
+        'app-a': {
+          publicDir: 'app-a/public',
+          constsFile: 'shared-consts.ts',
+          filesExport: 'APP_A_FILES',
+          foldersExport: 'APP_A_FOLDERS',
+        },
+        'app-b': {
+          publicDir: 'app-b/public',
+          constsFile: 'shared-consts.ts',
+          filesExport: 'APP_B_FILES',
+          foldersExport: 'APP_B_FOLDERS',
+        },
+      },
+    });
+
+    const projectDir = path.join(repoDir, 'src', 'apps', 'web');
+
+    await fs.promises.writeFile(
+      path.join(projectDir, 'shared-consts.ts'),
+      "export const APP_A_FILES = ['/robots.txt'];\n" +
+        'export const APP_A_FOLDERS: string[] = [];\n',
+    );
+
+    for (const app of ['app-a', 'app-b'] as const) {
+      await fs.promises.mkdir(path.join(projectDir, app, 'public'), {
+        recursive: true,
+      });
+    }
+
+    await fs.promises.writeFile(
+      path.join(projectDir, 'app-a', 'public', 'robots.txt'),
+      'User-agent: *',
+    );
+
+    // app-a's exports exist and match; app-b's don't exist at all — the
+    // guidance must name the configured export, not the default.
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain(
+      'web/app-b: src/apps/web/shared-consts.ts does not export a APP_B_FILES string array',
+    );
+    expect(output).not.toContain('web/app-a');
   });
 });
