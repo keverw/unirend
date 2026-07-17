@@ -6,12 +6,9 @@ import type { LogLevel } from '../types';
 describe('ensureCspell', () => {
   const createLog = (): Array<{ level: LogLevel; message: string }> => [];
   const expectedDefaultWords = [
-    'Avenir',
     'bradlc',
-    'Bstatus',
     'bunx',
     'dbaeumer',
-    'dirents',
     'esbenp',
     'eslintcache',
     'firsttris',
@@ -19,10 +16,8 @@ describe('ensureCspell', () => {
     'jestrunner',
     'jmbeach',
     'Lifecycleion',
-    'phpunit',
     'treemap',
     'Unirend',
-    'WHATWG',
   ];
 
   const sortWords = (words: string[]): string[] =>

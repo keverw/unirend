@@ -15,13 +15,12 @@ export interface EnsureCspellOptions {
   templateCspellWords?: string[];
 }
 
+// Every word here must actually appear in the scaffolded output — a fresh
+// repo's own cspell:clean flags anything seeded that no generated file uses.
 const defaultWords = [
-  'Avenir',
   'bradlc',
-  'Bstatus',
   'bunx',
   'dbaeumer',
-  'dirents',
   'esbenp',
   'eslintcache',
   'firsttris',
@@ -29,10 +28,8 @@ const defaultWords = [
   'jestrunner',
   'jmbeach',
   'Lifecycleion',
-  'phpunit',
   'treemap',
   'Unirend',
-  'WHATWG',
 ];
 
 const defaultIgnorePaths = [
