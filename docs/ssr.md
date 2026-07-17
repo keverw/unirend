@@ -52,6 +52,7 @@
     - [Production Mode](#production-mode)
     - [Development Mode](#development-mode)
   - [API Reference](#api-reference)
+    - [CDN Deployments](#cdn-deployments)
   - [Routing Strategies](#routing-strategies)
     - [1. Subdomain-Based Routing](#1-subdomain-based-routing)
     - [2. Path-Based Routing](#2-path-based-routing)
@@ -651,12 +652,31 @@ async function main() {
     // Optional: Server plugins
     // plugins: [myPlugin],
 
+    // Optional: public/ files and subfolders to serve (favicon, robots.txt, etc.)
+    // Files in Vite's public/ folder are served ONLY if declared here.
+    // Verified to exist at startup, so a typo fails at boot instead of 404ing.
+    // publicFiles: ['/favicon.svg', '/favicon.ico', '/robots.txt'],
+    // publicFolders: ['/.well-known'],
+
     // Optional: Static content configuration
     // - Default (omit): Serves from buildDir/client/assets at /assets with immutable asset detection
     // - false: Disable static serving (e.g., when using a CDN)
-    // - Custom config: Provide your own folderMap/singleAssetMap configuration
+    // - Custom config with singleAssetMap/folderMap entries: REPLACES the
+    //   /assets default — mount /assets yourself (with detectImmutableAssets)
+    //   or hashed bundles won't be served. publicFiles/publicFolders entries
+    //   are still folded into the custom config.
+    //   Note: /assets is rejected in publicFiles/publicFolders (those are for
+    //   verbatim public/ content), but here in folderMap it's expected — this
+    //   is the one place to (re)mount it.
+    //   A folderMap prefix of '/' (or the client build root) is rejected — use
+    //   publicFiles/publicFolders for public/ content.
+    // - Custom config with no map entries: tuning-only (cache sizes, TTLs,
+    //   headers, compression) — the /assets default still applies.
     // staticContentRouter: {
-    //   folderMap: { '/custom': './build/client/custom' },
+    //   folderMap: {
+    //     '/assets': { path: './build/client/assets', detectImmutableAssets: true },
+    //     '/custom': './build/client/custom',
+    //   },
     // },
 
     // Optional: Custom 500 error page generator (for catastrophic SSR failures)
@@ -901,13 +921,33 @@ In addition to the [shared server configuration](#shared-server-configuration), 
       ```
   - Useful for serving assets from a CDN without build-time configuration changes.
   - Tip: Set via environment variable (e.g., `CDNBaseURL: process.env.CDN_BASE_URL`) in `serveSSRBuilt()` or `registerBuiltApp()` options for deployment flexibility, or override per-request in middleware for region-specific CDN selection.
+- `publicFiles?: string[]`
+  - Declares root-level files from Vite's `public/` directory to serve in production, e.g. `['/favicon.svg', '/favicon.ico', '/robots.txt']`.
+  - This is pure shorthand for `staticContentRouter.singleAssetMap` entries resolved against the client build root. There is one static router per app, and `publicFiles` just pre-populates its exact-match map, so combining it with a custom `staticContentRouter` is fine, the entries are folded into whichever config is in effect. An explicit `singleAssetMap` key for the same URL wins, and the server logs a boot-time warning listing shadowed entries, since the duplication is usually a mistake.
+  - Entries are URL paths as the browser requests them. Vite copies `public/` verbatim into the client build root, so each entry doubles as the file's path relative to `buildDir/<clientFolderName>`. Nested paths like `/icons/logo.png` work too. To serve a whole subfolder, use `publicFolders` instead.
+  - Assets you `import` from source are unaffected, since Vite fingerprints those into `/assets`, which is served by default. This option is for files referenced by literal URL (favicon files, `robots.txt`, web manifests, logos). They are served ONLY if declared here (or via `publicFolders` or `staticContentRouter.singleAssetMap`, the escape hatch for cases where the URL and the file path differ).
+  - At startup, every declared file is verified to exist in the client build dir. Missing files fail loudly at boot with an error listing them, instead of silently returning 404s in production.
+  - Entries containing `.` or `..` segments, null bytes, backslashes, trailing slashes, or characters browsers percent-encode in URLs (spaces, `%`, `#`, `?`, non-ASCII) are rejected at config time (browsers normalize `.` segments away and request `/og image.png` as `/og%20image.png`, so such declared entries could never match a real request). Directories cannot be declared here, only individual files. Repeated slashes are collapsed and reserved names compare case-insensitively, so variants like `/assets//x.js` or `/INDEX.HTML` cannot dodge the checks below.
+  - `/index.html`, anything under `.vite/`, and anything under `/assets/` are also rejected. The template is served through SSR, not as a raw file, the `.vite` directory is build metadata, and `/assets` is Vite's generated output, already served by the default mount (a single-asset entry would shadow it and lose the immutable header). A nested `index.html` (e.g. `/docs/index.html`) is fine. If you truly need to expose these, `staticContentRouter.singleAssetMap` remains the deliberate escape hatch.
+  - Cannot be combined with `staticContentRouter: false`. If a CDN serves these files, pass `undefined` here but keep the list declared in your app's consts so the drift check still runs. See [CDN Deployments](#cdn-deployments) for an env-gated setup.
+- `publicFolders?: string[]`
+  - Declares subfolders of `public/` to serve whole, e.g. `['/.well-known']`, so every file inside is served without listing each one in `publicFiles`.
+  - Shorthand for `staticContentRouter.folderMap` mounts resolved against the client build root. An explicit `folderMap` prefix for the same path wins (with the same boot-time shadow warning, unless it points at the same directory, see the next bullet).
+  - Unlike `publicFiles`, a folder mount resolves requests against the disk per request rather than from a fixed list. Prefer `publicFiles` for individual files and reserve this for folders with many or changing files.
+  - Folder mounts never get immutable-asset detection, since `public/` content is copied verbatim, not fingerprinted. If a `public/` subfolder genuinely holds fingerprinted files, declare it here AND mount it via `staticContentRouter.folderMap` with `detectImmutableAssets: true` pointing at the same directory. The `folderMap` entry wins (adding the detection), the declaration keeps the templates' `check:public-assets` drift script covering the folder, and the shadow warning recognizes that exact combination as intentional and stays quiet. A duplicate that changes nothing (same directory without enabling detection) still warns.
+  - At startup, every declared folder must exist as a directory in the client build dir, failing loudly at boot otherwise.
+  - Bare `/` is rejected (mounting the client build root exposes `/index.html` and `.vite/`), as are `/assets` and anything under it (already the default mount, and a nested mount would win on longest-prefix and lose the immutable header), `.vite`, `.` and `..` segments, null bytes, backslashes, and characters browsers percent-encode in URLs. A trailing slash is tolerated and stripped, repeated slashes are collapsed before the checks (so `//` counts as the root and `/assets//` as `/assets`), and reserved names compare case-insensitively.
+  - Cannot be combined with `staticContentRouter: false`. If a CDN serves these folders, pass `undefined` here but keep the list declared in your app's consts so the drift check still runs. See [CDN Deployments](#cdn-deployments) for an env-gated setup.
 - `staticContentRouter?: StaticContentRouterOptions | false`
   - Serves static assets (images, CSS, JS) in production. Not related to React Router’s StaticRouter.
   - Set to `false` to disable built‑in static serving (e.g., when using a CDN).
+  - A custom config that defines `singleAssetMap`/`folderMap` entries replaces the default `/assets` mount, so include `/assets` yourself (with `detectImmutableAssets: true`) or your hashed bundles will not be served. `publicFiles`/`publicFolders` entries are the exception: since they are explicitly declared, they are folded into the custom config, with your explicit keys winning on conflict.
+  - A custom config with no map entries is tuning-only: cache sizes, TTLs, cache headers, and compression apply, while the `/assets` default and `publicFiles`/`publicFolders` behavior stay as if you had not customized anything.
+  - A `folderMap` prefix of `/` (or a folder path that resolves to the client build root) is rejected at config time. Mounting the root would stat the disk on every page request and expose `/index.html` and `/.vite/manifest.json`, so declare root-level files with `publicFiles` (and subfolders with `publicFolders`) instead.
   - Options (StaticContentRouterOptions):
     - `singleAssetMap?: Record<string, string>`: Exact URL → absolute file path
     - `folderMap?: Record<string, string | FolderConfig>`: URL prefix → directory path (or folder config)
-      - `FolderConfig`: `{ path: string; detectImmutableAssets?: boolean }`
+      - `FolderConfig`: `{ path: string; detectImmutableAssets?: boolean }`. Detection is a filename heuristic: a segment of 6 or more base64url characters before the extension that contains at least one digit or uppercase letter, so all-lowercase names like `some-multi-word.txt` or `apple-touch-icon.png` do not look hashed, but a verbatim name like `report-CHAPTER2.pdf` still can. Only enable it for folders that genuinely contain fingerprinted files.
     - `smallFileMaxSize?: number`: Inline/ETag cut‑off for small assets
     - `cacheEntries?: number`: Max entries in in‑memory caches
     - `contentCacheMaxSize?: number`: Max total bytes for content cache
@@ -918,7 +958,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
     - `immutableCacheControl?: string`: Cache‑Control for hashed/immutable assets
     - `compression?: boolean | ResponseCompressionOptions`: Compression settings for buffered static responses. When omitted, inherits the server-level `responseCompression` setting.
   - Path matching notes:
-    - `singleAssetMap` keys are normalized to include a leading slash (you may provide with or without it).
+    - `singleAssetMap` keys are normalized like folder prefixes: a leading slash is ensured (you may provide with or without it) and repeated slashes are collapsed, so the key always matches a URL a browser can actually request.
     - `folderMap` prefixes are normalized to ensure both leading and trailing slash, so `/assets` and `assets/` are treated as `/assets/`.
     - The incoming request URL is normalized to ensure a leading slash before matching.
     - The relative path slice is guarded against accidental leading `/` to prevent absolute path resolution on POSIX.
@@ -1665,6 +1705,17 @@ If you started from the SSR starter template (which puts source at the folder ro
 
 **If you use the build info option:** add an entry to `build-info.config.json` for each new app's `current-build-info.ts` output path, and add those paths to `.gitignore` and `.prettierignore` so the generated files are excluded.
 
+**Keep the public-assets check covering every app:** the repo-level `check:public-assets` script finds each app's declared `publicFiles`/`publicFolders` lists through the project's `public-assets.config.json`. The scaffolded file has a single `default` entry pointing at the project root's `consts.ts` and `public/`, so add an entry for each additional app, and update the `default` entry's paths (or rename its key) if you moved the default app's source into a subfolder as recommended above. In the layout from this section, that looks like:
+
+```json
+{
+  "app-a": { "publicDir": "app-a/public", "constsFile": "app-a/consts.ts" },
+  "app-b": { "publicDir": "app-b/public", "constsFile": "app-b/consts.ts" }
+}
+```
+
+The keys are just labels used in the check's error messages. Every field is optional and defaults to the single-app convention. `filesExport`/`foldersExport` override the export names read from the consts file (default `PUBLIC_FILES`/`PUBLIC_FOLDERS`), which lets several apps share one consts module with per-app arrays. Deleting the file opts the whole project out of the check (the script logs the skip).
+
 ### Usage Example
 
 #### Production Mode
@@ -1703,12 +1754,26 @@ server.registerBuiltApp('marketing', './build-marketing', {
   //   return `<html><body><h1>Marketing Error</h1></body></html>`;
   // },
 
+  // Optional: public/ files and subfolders for this app (favicon, robots.txt, etc.)
+  // publicFiles: ['/favicon.svg', '/robots.txt'],
+  // publicFolders: ['/.well-known'],
+
   // Optional: Static content configuration
   // - Default (omit): Serves from buildDir/client/assets at /assets with immutable asset detection
   // - false: Disable static serving (e.g., when using a CDN)
-  // - Custom config: Provide your own folderMap/singleAssetMap configuration
+  // - Custom config with singleAssetMap/folderMap entries: REPLACES the
+  //   /assets default — mount /assets yourself (with detectImmutableAssets)
+  //   or hashed bundles won't be served. publicFiles/publicFolders entries
+  //   are still folded into the custom config. (/assets is rejected in those
+  //   options, but here in folderMap it's expected — this is the one place
+  //   to (re)mount it.)
+  // - Custom config with no map entries: tuning-only (cache sizes, TTLs,
+  //   headers, compression) — the /assets default still applies.
   // staticContentRouter: {
-  //   folderMap: { '/assets': './build-marketing/client/assets' },
+  //   folderMap: {
+  //     '/assets': { path: './build-marketing/client/assets', detectImmutableAssets: true },
+  //     '/downloads': './build-marketing/client/downloads',
+  //   },
   // },
 });
 
@@ -1799,14 +1864,52 @@ Register an additional development-mode app. Must be called **before** `listen()
 
 **Static Content Defaults (Production Only)**
 
-Each production app (both main and registered) automatically serves static assets unless `staticContentRouter` is explicitly set:
+Each production app (both main and registered) automatically serves static assets unless `staticContentRouter` is set to `false`:
 
 - **Default behavior**: Serves files from `buildDir/<clientFolderName>/assets` at the `/assets` URL path
 - **Immutable assets**: Fingerprinted files (e.g., `main-abc123.js`) get `Cache-Control: public, max-age=31536000, immutable`
 - **Disable**: Set `staticContentRouter: false` to disable (useful when using a CDN)
-- **Customize**: Provide your own `staticContentRouter` configuration to change paths or add additional folders
+- **Customize**: Provide your own `staticContentRouter` configuration. If it defines `singleAssetMap`/`folderMap` entries, it replaces the `/assets` default, so mount `/assets` yourself (with `detectImmutableAssets: true`) if you still want the built bundles served locally. `publicFiles`/`publicFolders` entries are still folded into the custom config. A config with no map entries just tunes the cache (sizes, TTLs, headers, compression), and the `/assets` default is still mounted as if you had not customized anything.
 
 Each registered app gets its own independent static content configuration based on its `buildDir` and `clientFolderName`.
+
+**The `public/` Rule**
+
+Files in a Vite app's `public/` folder (favicon files, `robots.txt`, web manifests, logos) are copied verbatim to the client build root and referenced by literal URL. In dev/HMR mode Vite's middleware serves them implicitly, but the production static router is driven by a declared list and only touches disk for known files. Anything in `public/` must therefore be declared, individual files with `publicFiles` and whole subfolders with `publicFolders` (or it 404s in production):
+
+```typescript
+serveSSRBuilt('./build', {
+  publicFiles: ['/favicon.svg', '/favicon.ico', '/robots.txt'],
+  publicFolders: ['/.well-known'],
+});
+```
+
+Two guardrails keep this from failing silently:
+
+- **Startup existence check**: In built mode, every declared file and folder is verified to exist in the client build dir at boot. A typo or a bad build throws a clear error listing the missing paths instead of 404ing in production.
+- **Root-mount guard**: A `staticContentRouter` `folderMap` prefix of `/` (or a folder resolving to the client build root) is rejected at config time, as is a bare `/` in `publicFolders`. It would stat the disk on every page request and expose `/index.html` and `/.vite/manifest.json`, so it is an error rather than a pattern.
+
+Projects generated from the starter templates declare these lists as `PUBLIC_FILES` and `PUBLIC_FOLDERS` in each app's `consts.ts`, and the repo-level `bun run check:public-assets` script (part of `bun run check`) fails CI when the lists drift from the actual `public/` folder in either direction (files under a declared folder are covered automatically). The script locates each app's lists through the `public-assets.config.json` scaffolded next to `consts.ts`, and [multi-app projects](#multi-app-ssr-support) declare one entry per app there. See [Starter Templates](./starter-templates.md).
+
+#### CDN Deployments
+
+Setting `staticContentRouter: false` hands all static serving to a CDN, and `publicFiles`/`publicFolders` cannot be combined with it. That does not mean deleting the lists. Keep them declared in `consts.ts` so the drift check still guards `public/`, and gate what you pass to the server on an environment variable. The same code then supports both deployments, a plain production build serves everything itself (handy for testing the built server locally), and a CDN build skips the local mounts:
+
+```typescript
+import { PUBLIC_FILES, PUBLIC_FOLDERS } from './consts';
+
+const useCDN = process.env.ASSETS_FROM_CDN === 'true';
+
+serveSSRBuilt('./build', {
+  staticContentRouter: useCDN ? false : undefined,
+  publicFiles: useCDN ? undefined : PUBLIC_FILES,
+  publicFolders: useCDN ? undefined : PUBLIC_FOLDERS,
+});
+```
+
+Pair this with `CDNBaseURL` so the rendered HTML points asset URLs at the CDN, and make sure the CDN actually has the `public/` files (most pull-through CDNs fetch from your origin, which would 404 without the mounts, so this pattern fits push-style CDNs or object storage where the build output is uploaded).
+
+Beyond offloading traffic, this setup also fixes a correctness problem with rolling deploys. If multiple instances self-serve their assets behind a load balancer with no session affinity, a page rendered by a new-build instance references the new build's hashed bundles (e.g. `/assets/index-BGz3GlRg.js`), and the browser's follow-up asset request can land on an instance still running the old build, which 404s on a hash it has never seen (the reverse skew hits users who loaded a page just before the rollout). Self-serving assets is fine for a single instance or an atomic blue/green switch, but for rolling deploys across instances, uploading each build's output to a CDN or object store before the rollout means every instance's HTML points at storage that has all versions.
 
 ### Routing Strategies
 

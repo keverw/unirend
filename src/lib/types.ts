@@ -1285,10 +1285,104 @@ export interface ServeSSRBuiltOptions extends ServeSSROptions {
    * Used to serve static assets in production mode
    *
    * - If not provided: defaults will be used based on the build directory
+   *   (the `/assets` mount with immutable caching, plus any
+   *   `publicFiles`/`publicFolders`)
    * - If set to `false`: static router will be disabled (useful for CDN setups)
-   * - If set to an object: custom configuration will be used
+   * - If set to an object defining `singleAssetMap`/`folderMap` entries:
+   *   custom maps REPLACE the `/assets` default — mount `/assets` yourself
+   *   (with `detectImmutableAssets`) or hashed bundles will not be served.
+   *   `publicFiles`/`publicFolders` entries are still folded into the custom
+   *   config, with your explicit keys winning on conflict.
+   * - If set to an object with no map entries: it is tuning-only (cache
+   *   sizes, TTLs, cache headers, compression) — the `/assets` default and
+   *   `publicFiles`/`publicFolders` still apply, with your tuning applied to
+   *   the resulting cache.
+   *
+   * A `folderMap` prefix of `'/'` (or a folder path that resolves to the
+   * client build root) is rejected at config time — it would stat the disk on
+   * every page request and expose `/index.html` and `/.vite/manifest.json`.
+   * Use `publicFiles`/`publicFolders` to declare public/ content instead.
+   *
+   * Deliberately a plain config object, never a `StaticContentCache`
+   * instance: the server needs to read and merge this config to fold in
+   * `publicFiles`/`publicFolders`, warn about shadowed entries, and apply
+   * the root-mount guard — none of which is possible against an opaque,
+   * already-normalized cache. The `staticContent` plugin is the
+   * bring-your-own-instance route (and skips all of the above).
    */
   staticContentRouter?: StaticContentRouterOptions | false;
+  /**
+   * Root-level files from Vite's `public/` directory to serve in production.
+   *
+   * This is pure shorthand: entries become `staticContentRouter.singleAssetMap`
+   * entries resolved against the client build root, folded into whichever
+   * router config is in effect (the default or a custom one). An explicit
+   * `singleAssetMap` key for the same URL wins (with a boot-time warning,
+   * since the shadowed entry is silently unused).
+   *
+   * Entries are URL paths as the browser requests them (e.g. `'/favicon.svg'`).
+   * Since Vite copies `public/` verbatim into the client build root, each entry
+   * also doubles as the file's path relative to `buildDir/<clientFolderName>`.
+   * Nested paths like `'/icons/logo.png'` work; to serve a whole subfolder,
+   * use `publicFolders` instead.
+   *
+   * Assets you `import` from source are unaffected — Vite fingerprints those
+   * into `/assets`, which is already served by default. This option exists for
+   * files referenced by literal URL (favicon files, `robots.txt`, manifests,
+   * logos, etc.) and are served ONLY if declared here (or via
+   * `staticContentRouter.singleAssetMap`).
+   *
+   * At `listen()` time (built mode), every declared file is verified to exist
+   * in the client build dir — missing files fail loudly at boot instead of
+   * silently returning 404s in production. This covers every registered app
+   * (apps must be registered before `listen()`), each against its own build
+   * dir.
+   *
+   * Entries with `.`/`..` segments, null bytes, backslashes, or trailing
+   * slashes are rejected at config time, as are `/index.html` (the raw HTML
+   * template — SSR serves it, not the static router), anything under `.vite/`
+   * (build metadata), and anything under `/assets/` (Vite's generated output,
+   * already served by the default mount — a single-asset entry would shadow
+   * it and lose the immutable header). Repeated slashes are collapsed and
+   * reserved names compare case-insensitively, so variants like
+   * `/assets//x.js` or `/INDEX.HTML` cannot dodge these checks.
+   * `staticContentRouter.singleAssetMap` is the deliberate escape hatch if
+   * you truly need to expose those.
+   *
+   * @example
+   * publicFiles: ['/favicon.svg', '/favicon.ico', '/robots.txt']
+   */
+  publicFiles?: string[];
+  /**
+   * Subfolders of Vite's `public/` directory to serve whole in production.
+   *
+   * Shorthand for `staticContentRouter.folderMap` mounts resolved against the
+   * client build root: `['/.well-known']` serves everything under that
+   * subfolder without listing each file in `publicFiles`. An explicit
+   * `folderMap` prefix for the same path wins (with a boot-time warning).
+   *
+   * Unlike `publicFiles`, requests under a declared folder stat the disk on
+   * miss — the folder's contents are resolved per request rather than from a
+   * fixed list. Folder mounts never get immutable-asset detection, since
+   * `public/` content is copied verbatim, not fingerprinted (use
+   * `staticContentRouter.folderMap` directly if you need that).
+   *
+   * At `listen()` time (built mode), every declared folder must exist as a
+   * directory in the client build dir, failing loudly at boot otherwise (see
+   * `publicFiles` for the details — the same check covers both options).
+   *
+   * Bare `/` is rejected (never mount the client build root — it exposes
+   * `/index.html` and `.vite/`), as are `.vite` itself, `/assets` and
+   * anything under it (already the default mount, and a nested mount would
+   * win on longest-prefix and lose the immutable header), `.`/`..` segments,
+   * null bytes, and backslashes. A trailing slash is tolerated and stripped,
+   * repeated slashes are collapsed, and reserved names compare
+   * case-insensitively.
+   *
+   * @example
+   * publicFolders: ['/.well-known']
+   */
+  publicFolders?: string[];
 }
 
 // ============================================================================
@@ -1343,6 +1437,10 @@ export interface SSRInternalAppConfigBuilt extends SSRInternalAppConfigBase {
   CDNBaseURL?: string;
   /** Static content router config (prod only) */
   staticContentRouter?: StaticContentRouterOptions | false;
+  /** Root-level public/ files to serve, as URL paths (prod only) */
+  publicFiles?: string[];
+  /** public/ subfolders to serve whole, as URL prefixes (prod only) */
+  publicFolders?: string[];
   /** Cached render function (INTERNAL - cached by framework) */
   cachedRenderFunction?: (
     renderRequest: RenderRequest,
@@ -1401,6 +1499,8 @@ export type RegisterBuiltAppOptions = Pick<
   | 'template'
   | 'CDNBaseURL'
   | 'staticContentRouter'
+  | 'publicFiles'
+  | 'publicFolders'
 >;
 
 // ============================================================================
@@ -1952,11 +2052,23 @@ export interface StaticWebServerOptions {
   errorPage?: string;
   /**
    * Additional folders to serve (for assets like /assets, /images)
-   * Maps URL prefix to filesystem directory
+   * Maps URL prefix to a filesystem directory (relative to buildDir), or to a
+   * config object to set `detectImmutableAssets` per folder.
    *
-   * @example { '/assets': './build/client/assets' }
+   * Immutable detection resolves per folder: the per-folder config value if
+   * given, otherwise a name-based default matching the SSR server behavior,
+   * on for `/assets` (Vite's hashed build output), off for every other folder,
+   * since those usually hold verbatim (non-fingerprinted) public files where
+   * a name that merely looks hashed must not get a year-long immutable
+   * header.
+   *
+   * @example { '/assets': 'assets' }
+   * @example { '/assets': 'assets', '/.well-known': '.well-known', '/downloads': { path: 'downloads', detectImmutableAssets: true } }
    */
-  assetFolders?: Record<string, string>;
+  assetFolders?: Record<
+    string,
+    string | { path: string; detectImmutableAssets?: boolean }
+  >;
   /**
    * Additional single-file assets to serve (e.g., favicon, robots.txt, sitemap.xml)
    * Maps URL path to filesystem file path
@@ -1975,13 +2087,6 @@ export interface StaticWebServerOptions {
    */
   singleAssets?: Record<string, string>;
 
-  /**
-   * Enable immutable asset detection for fingerprinted files
-   * When enabled, files with fingerprinted names get long cache headers
-   *
-   * @default true
-   */
-  detectImmutableAssets?: boolean;
   /**
    * Default Cache-Control header for HTML pages
    * @default "public, max-age=0, must-revalidate"

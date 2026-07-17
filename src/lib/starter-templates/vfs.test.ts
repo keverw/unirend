@@ -15,18 +15,14 @@ import {
   vfsListDir,
 } from './vfs';
 import type { InMemoryDir } from './vfs';
-import { tmpdir } from 'os';
 import { join } from 'path';
-import { stat, mkdtemp, rm, readFile as fsReadFile } from 'fs/promises';
+import { stat, readFile as fsReadFile } from 'fs/promises';
+import { createTempDir } from 'lifecycleion/tmp-dir';
+import type { TmpDir } from 'lifecycleion/tmp-dir';
 
-async function createTmpDir(prefix = 'unirend-vfs-'): Promise<string> {
-  const base = tmpdir();
-  const dir = await mkdtemp(join(base, prefix));
-  return dir;
-}
-
-async function cleanupTmpDir(dir: string): Promise<void> {
-  await rm(dir, { recursive: true, force: true });
+// unsafeCleanup on every temp dir: tests fill it before cleanup runs
+async function createTmpDir(): Promise<TmpDir> {
+  return createTempDir({ prefix: 'unirend-vfs-', unsafeCleanup: true });
 }
 
 describe('VFS', () => {
@@ -81,29 +77,37 @@ describe('VFS', () => {
     });
 
     describe('file system', () => {
-      let base: string;
+      let tmpDir: TmpDir;
 
       beforeEach(async () => {
-        base = await createTmpDir();
+        tmpDir = await createTmpDir();
       });
 
       afterEach(async () => {
-        await cleanupTmpDir(base);
+        await tmpDir.cleanup();
       });
 
       test('returns root when no relPath provided', () => {
-        expect(vfsDisplayPath(base)).toBe(base);
+        expect(vfsDisplayPath(tmpDir.path)).toBe(tmpDir.path);
       });
 
       test('normalizes relative path under root', () => {
-        expect(vfsDisplayPath(base, 'a/b/c')).toBe(join(base, 'a/b/c'));
-        expect(vfsDisplayPath(base, '/a\\b//c')).toBe(join(base, 'a/b/c'));
-        expect(vfsDisplayPath(base, 'a/./b/../c')).toBe(join(base, 'a/c'));
+        expect(vfsDisplayPath(tmpDir.path, 'a/b/c')).toBe(
+          join(tmpDir.path, 'a/b/c'),
+        );
+        expect(vfsDisplayPath(tmpDir.path, '/a\\b//c')).toBe(
+          join(tmpDir.path, 'a/b/c'),
+        );
+        expect(vfsDisplayPath(tmpDir.path, 'a/./b/../c')).toBe(
+          join(tmpDir.path, 'a/c'),
+        );
       });
 
       test('keeps raw when normalize throws and joins with root', () => {
-        expect(vfsDisplayPath(base, '..')).toBe(join(base, '..'));
-        expect(vfsDisplayPath(base, '../escape')).toBe(join(base, '../escape'));
+        expect(vfsDisplayPath(tmpDir.path, '..')).toBe(join(tmpDir.path, '..'));
+        expect(vfsDisplayPath(tmpDir.path, '../escape')).toBe(
+          join(tmpDir.path, '../escape'),
+        );
       });
     });
   });
@@ -223,43 +227,43 @@ describe('VFS', () => {
   });
 
   describe('file system', () => {
-    let base: string;
+    let tmpDir: TmpDir;
 
     beforeEach(async () => {
-      base = await createTmpDir();
+      tmpDir = await createTmpDir();
     });
 
     afterEach(async () => {
-      await cleanupTmpDir(base);
+      await tmpDir.cleanup();
     });
 
     test('vfsEnsureDir creates missing directory path', async () => {
-      const target = join(base, 'new-project');
+      const target = join(tmpDir.path, 'new-project');
       await vfsEnsureDir(target);
       const s = await stat(target);
       expect(s.isDirectory()).toBe(true);
     });
 
     test('vfsWrite writes string file on disk', async () => {
-      await vfsWrite(base, 'notes/readme.txt', 'hello fs');
-      const abs = join(base, 'notes/readme.txt');
+      await vfsWrite(tmpDir.path, 'notes/readme.txt', 'hello fs');
+      const abs = join(tmpDir.path, 'notes/readme.txt');
 
       const content = await fsReadFile(abs, 'utf8');
       expect(content).toBe('hello fs');
 
-      const read = await vfsReadText(base, 'notes/readme.txt');
+      const read = await vfsReadText(tmpDir.path, 'notes/readme.txt');
       expect(read).toEqual({ ok: true, text: 'hello fs' });
     });
 
     test('vfsWrite writes binary file on disk', async () => {
       const bytes = new Uint8Array([10, 20, 30, 40, 50]);
-      await vfsWrite(base, 'bin/blob.bin', bytes);
-      const abs = join(base, 'bin/blob.bin');
+      await vfsWrite(tmpDir.path, 'bin/blob.bin', bytes);
+      const abs = join(tmpDir.path, 'bin/blob.bin');
 
       const content = await fsReadFile(abs);
       expect(Array.from(content)).toEqual(Array.from(bytes));
 
-      const read = await vfsReadBinary(base, 'bin/blob.bin');
+      const read = await vfsReadBinary(tmpDir.path, 'bin/blob.bin');
       expect(read.ok).toBe(true);
 
       if (read.ok) {
@@ -269,8 +273,8 @@ describe('VFS', () => {
 
     test('vfsReadBinary returns UTF-8 bytes for string file', async () => {
       const text = 'fs string ✓';
-      await vfsWrite(base, 't/utf8.txt', text);
-      const res = await vfsReadBinary(base, 't/utf8.txt');
+      await vfsWrite(tmpDir.path, 't/utf8.txt', text);
+      const res = await vfsReadBinary(tmpDir.path, 't/utf8.txt');
       expect(res.ok).toBe(true);
       if (res.ok) {
         const decoded = new TextDecoder().decode(res.data);
@@ -281,39 +285,39 @@ describe('VFS', () => {
     test('vfsReadText decodes UTF-8 from binary file', async () => {
       const text = 'fs bytes → text';
       const bytes = new TextEncoder().encode(text);
-      await vfsWrite(base, 't/bytes.bin', bytes);
-      const res = await vfsReadText(base, 't/bytes.bin');
+      await vfsWrite(tmpDir.path, 't/bytes.bin', bytes);
+      const res = await vfsReadText(tmpDir.path, 't/bytes.bin');
       expect(res).toEqual({ ok: true, text });
     });
 
     test('vfsReadText returns ENOENT for missing filesystem path', async () => {
-      const res = await vfsReadText(base, 'nope/missing.txt');
+      const res = await vfsReadText(tmpDir.path, 'nope/missing.txt');
       expect(res).toEqual({ ok: false, code: 'ENOENT' });
     });
 
     test('vfsReadBinary returns ENOENT for missing filesystem path', async () => {
-      const res = await vfsReadBinary(base, 'missing.bin');
+      const res = await vfsReadBinary(tmpDir.path, 'missing.bin');
       expect(res).toEqual({ ok: false, code: 'ENOENT' });
     });
 
     test('vfsDeleteFile removes string file on disk and returns true', async () => {
-      await vfsWrite(base, 'del/notes.txt', 'bye');
-      const didDelete = await vfsDeleteFile(base, 'del/notes.txt');
+      await vfsWrite(tmpDir.path, 'del/notes.txt', 'bye');
+      const didDelete = await vfsDeleteFile(tmpDir.path, 'del/notes.txt');
       expect(didDelete).toBe(true);
-      const res = await vfsReadText(base, 'del/notes.txt');
+      const res = await vfsReadText(tmpDir.path, 'del/notes.txt');
       expect(res).toEqual({ ok: false, code: 'ENOENT' });
     });
 
     test('vfsDeleteFile removes binary file on disk and returns true', async () => {
-      await vfsWrite(base, 'del/blob.bin', new Uint8Array([9, 8, 7]));
-      const didDelete = await vfsDeleteFile(base, 'del/blob.bin');
+      await vfsWrite(tmpDir.path, 'del/blob.bin', new Uint8Array([9, 8, 7]));
+      const didDelete = await vfsDeleteFile(tmpDir.path, 'del/blob.bin');
       expect(didDelete).toBe(true);
-      const res = await vfsReadBinary(base, 'del/blob.bin');
+      const res = await vfsReadBinary(tmpDir.path, 'del/blob.bin');
       expect(res).toEqual({ ok: false, code: 'ENOENT' });
     });
 
     test('vfsDeleteFile on missing filesystem path returns false', async () => {
-      const didDelete = await vfsDeleteFile(base, 'nope.txt');
+      const didDelete = await vfsDeleteFile(tmpDir.path, 'nope.txt');
       expect(didDelete).toBe(false);
     });
   });
@@ -355,58 +359,77 @@ describe('VFS', () => {
     });
 
     describe('file system', () => {
-      let base: string;
+      let tmpDir: TmpDir;
 
       beforeEach(async () => {
-        base = await createTmpDir();
+        tmpDir = await createTmpDir();
       });
 
       afterEach(async () => {
-        await cleanupTmpDir(base);
+        await tmpDir.cleanup();
       });
 
       test('writes file when it does not exist and returns true', async () => {
-        const didWrite = await vfsWriteIfNotExists(base, 'new.txt', 'hello');
+        const didWrite = await vfsWriteIfNotExists(
+          tmpDir.path,
+          'new.txt',
+          'hello',
+        );
         expect(didWrite).toBe(true);
-        const content = await fsReadFile(join(base, 'new.txt'), 'utf8');
+        const content = await fsReadFile(join(tmpDir.path, 'new.txt'), 'utf8');
         expect(content).toBe('hello');
       });
 
       test('does not overwrite existing file and returns false', async () => {
-        await vfsWrite(base, 'existing.txt', 'original');
-        const didWrite = await vfsWriteIfNotExists(base, 'existing.txt', 'new');
+        await vfsWrite(tmpDir.path, 'existing.txt', 'original');
+        const didWrite = await vfsWriteIfNotExists(
+          tmpDir.path,
+          'existing.txt',
+          'new',
+        );
         expect(didWrite).toBe(false);
-        const content = await fsReadFile(join(base, 'existing.txt'), 'utf8');
+        const content = await fsReadFile(
+          join(tmpDir.path, 'existing.txt'),
+          'utf8',
+        );
         expect(content).toBe('original');
       });
 
       test('works with binary content', async () => {
         const bytes = new Uint8Array([1, 2, 3]);
-        const didWrite = await vfsWriteIfNotExists(base, 'data.bin', bytes);
+        const didWrite = await vfsWriteIfNotExists(
+          tmpDir.path,
+          'data.bin',
+          bytes,
+        );
         expect(didWrite).toBe(true);
-        const content = await fsReadFile(join(base, 'data.bin'));
+        const content = await fsReadFile(join(tmpDir.path, 'data.bin'));
         expect(Array.from(content)).toEqual(Array.from(bytes));
       });
 
       test('does not overwrite existing binary file', async () => {
         const original = new Uint8Array([1, 2, 3]);
         const newBytes = new Uint8Array([4, 5, 6]);
-        await vfsWrite(base, 'data.bin', original);
-        const didWrite = await vfsWriteIfNotExists(base, 'data.bin', newBytes);
+        await vfsWrite(tmpDir.path, 'data.bin', original);
+        const didWrite = await vfsWriteIfNotExists(
+          tmpDir.path,
+          'data.bin',
+          newBytes,
+        );
         expect(didWrite).toBe(false);
-        const content = await fsReadFile(join(base, 'data.bin'));
+        const content = await fsReadFile(join(tmpDir.path, 'data.bin'));
         expect(Array.from(content)).toEqual(Array.from(original));
       });
 
       test('creates parent directories when writing new file', async () => {
         const didWrite = await vfsWriteIfNotExists(
-          base,
+          tmpDir.path,
           'deep/nested/file.txt',
           'content',
         );
         expect(didWrite).toBe(true);
         const content = await fsReadFile(
-          join(base, 'deep/nested/file.txt'),
+          join(tmpDir.path, 'deep/nested/file.txt'),
           'utf8',
         );
         expect(content).toBe('content');
@@ -415,12 +438,12 @@ describe('VFS', () => {
       test('throws non-ENOENT errors instead of returning false', async () => {
         // Create a file, then try to use it as a directory path
         // This will cause fsStat to throw ENOTDIR (not ENOENT)
-        await vfsWrite(base, 'file.txt', 'content');
+        await vfsWrite(tmpDir.path, 'file.txt', 'content');
 
         // Attempting to check if 'file.txt/nested.txt' exists should throw
         // because 'file.txt' is a file, not a directory
         try {
-          await vfsWriteIfNotExists(base, 'file.txt/nested.txt', 'data');
+          await vfsWriteIfNotExists(tmpDir.path, 'file.txt/nested.txt', 'data');
           // If we get here, the function didn't throw as expected
           expect(true).toBe(false); // Force test to fail
         } catch (error) {
@@ -492,45 +515,51 @@ describe('VFS', () => {
     });
 
     describe('file system', () => {
-      let base: string;
+      let tmpDir: TmpDir;
 
       beforeEach(async () => {
-        base = await createTmpDir();
+        tmpDir = await createTmpDir();
       });
 
       afterEach(async () => {
-        await cleanupTmpDir(base);
+        await tmpDir.cleanup();
       });
 
       test('vfsWriteJSON writes human-readable JSON to disk by default', async () => {
         const data = { name: 'test', value: 42 };
-        await vfsWriteJSON(base, 'config.json', data);
-        const content = await fsReadFile(join(base, 'config.json'), 'utf8');
+        await vfsWriteJSON(tmpDir.path, 'config.json', data);
+        const content = await fsReadFile(
+          join(tmpDir.path, 'config.json'),
+          'utf8',
+        );
         expect(content).toBe(JSON.stringify(data, null, 2));
       });
 
       test('vfsWriteJSON writes compact JSON when useHumanFormat is false', async () => {
         const data = { name: 'test', value: 42 };
-        await vfsWriteJSON(base, 'config.json', data, false);
-        const content = await fsReadFile(join(base, 'config.json'), 'utf8');
+        await vfsWriteJSON(tmpDir.path, 'config.json', data, false);
+        const content = await fsReadFile(
+          join(tmpDir.path, 'config.json'),
+          'utf8',
+        );
         expect(content).toBe(JSON.stringify(data));
       });
 
       test('vfsReadJSON reads and parses valid JSON from disk', async () => {
         const data = { name: 'test', value: 42 };
-        await vfsWriteJSON(base, 'config.json', data);
-        const result = await vfsReadJSON(base, 'config.json');
+        await vfsWriteJSON(tmpDir.path, 'config.json', data);
+        const result = await vfsReadJSON(tmpDir.path, 'config.json');
         expect(result).toEqual({ ok: true, data });
       });
 
       test('vfsReadJSON returns ENOENT for missing file on disk', async () => {
-        const result = await vfsReadJSON(base, 'missing.json');
+        const result = await vfsReadJSON(tmpDir.path, 'missing.json');
         expect(result).toEqual({ ok: false, code: 'ENOENT' });
       });
 
       test('vfsReadJSON returns PARSE_ERROR for invalid JSON on disk', async () => {
-        await vfsWrite(base, 'invalid.json', 'not valid json {');
-        const result = await vfsReadJSON(base, 'invalid.json');
+        await vfsWrite(tmpDir.path, 'invalid.json', 'not valid json {');
+        const result = await vfsReadJSON(tmpDir.path, 'invalid.json');
         expect(result.ok).toBe(false);
 
         if (!result.ok) {
@@ -546,9 +575,9 @@ describe('VFS', () => {
         }
 
         const data: TestData = { name: 'test', value: 42 };
-        await vfsWriteJSON(base, 'typed.json', data);
+        await vfsWriteJSON(tmpDir.path, 'typed.json', data);
 
-        const result = await vfsReadJSON<TestData>(base, 'typed.json');
+        const result = await vfsReadJSON<TestData>(tmpDir.path, 'typed.json');
         expect(result).toEqual({ ok: true, data });
       });
     });
@@ -591,60 +620,60 @@ describe('VFS', () => {
     });
 
     describe('file system', () => {
-      let base: string;
+      let tmpDir: TmpDir;
 
       beforeEach(async () => {
-        base = await createTmpDir();
+        tmpDir = await createTmpDir();
       });
 
       afterEach(async () => {
-        await cleanupTmpDir(base);
+        await tmpDir.cleanup();
       });
 
       test('returns true for existing file on disk', async () => {
-        await vfsWrite(base, 'test.txt', 'content');
-        const doesExist = await vfsExists(base, 'test.txt');
+        await vfsWrite(tmpDir.path, 'test.txt', 'content');
+        const doesExist = await vfsExists(tmpDir.path, 'test.txt');
         expect(doesExist).toBe(true);
       });
 
       test('returns false for non-existent file on disk', async () => {
-        const doesExist = await vfsExists(base, 'missing.txt');
+        const doesExist = await vfsExists(tmpDir.path, 'missing.txt');
         expect(doesExist).toBe(false);
       });
 
       test('returns true for existing directory on disk', async () => {
-        await vfsWrite(base, 'mydir/file.txt', 'content');
-        const doesExist = await vfsExists(base, 'mydir');
+        await vfsWrite(tmpDir.path, 'mydir/file.txt', 'content');
+        const doesExist = await vfsExists(tmpDir.path, 'mydir');
         expect(doesExist).toBe(true);
       });
 
       test('returns false for non-existent directory on disk', async () => {
-        const doesExist = await vfsExists(base, 'nonexistent-dir');
+        const doesExist = await vfsExists(tmpDir.path, 'nonexistent-dir');
         expect(doesExist).toBe(false);
       });
 
       test('returns true for nested file on disk', async () => {
-        await vfsWrite(base, 'a/b/c/file.txt', 'content');
-        const doesExist = await vfsExists(base, 'a/b/c/file.txt');
+        await vfsWrite(tmpDir.path, 'a/b/c/file.txt', 'content');
+        const doesExist = await vfsExists(tmpDir.path, 'a/b/c/file.txt');
         expect(doesExist).toBe(true);
       });
 
       test('returns true for nested directory on disk', async () => {
-        await vfsWrite(base, 'a/b/c/file.txt', 'content');
-        const doesExist = await vfsExists(base, 'a/b');
+        await vfsWrite(tmpDir.path, 'a/b/c/file.txt', 'content');
+        const doesExist = await vfsExists(tmpDir.path, 'a/b');
         expect(doesExist).toBe(true);
       });
 
       test('works with binary files on disk', async () => {
-        await vfsWrite(base, 'data.bin', new Uint8Array([1, 2, 3]));
-        const doesExist = await vfsExists(base, 'data.bin');
+        await vfsWrite(tmpDir.path, 'data.bin', new Uint8Array([1, 2, 3]));
+        const doesExist = await vfsExists(tmpDir.path, 'data.bin');
         expect(doesExist).toBe(true);
       });
 
       test('returns false after file is deleted', async () => {
-        await vfsWrite(base, 'temp.txt', 'content');
-        await vfsDeleteFile(base, 'temp.txt');
-        const doesExist = await vfsExists(base, 'temp.txt');
+        await vfsWrite(tmpDir.path, 'temp.txt', 'content');
+        await vfsDeleteFile(tmpDir.path, 'temp.txt');
+        const doesExist = await vfsExists(tmpDir.path, 'temp.txt');
         expect(doesExist).toBe(false);
       });
     });
@@ -744,98 +773,98 @@ describe('VFS', () => {
     });
 
     describe('file system', () => {
-      let base: string;
+      let tmpDir: TmpDir;
 
       beforeEach(async () => {
-        base = await createTmpDir();
+        tmpDir = await createTmpDir();
       });
 
       afterEach(async () => {
-        await cleanupTmpDir(base);
+        await tmpDir.cleanup();
       });
 
       test('returns empty array for empty directory', async () => {
-        const entries = await vfsListDir(base);
+        const entries = await vfsListDir(tmpDir.path);
         expect(entries).toEqual([]);
       });
 
       test('returns empty array for non-existent directory', async () => {
-        const nonExistent = join(base, 'does-not-exist');
+        const nonExistent = join(tmpDir.path, 'does-not-exist');
         const entries = await vfsListDir(nonExistent);
         expect(entries).toEqual([]);
       });
 
       test('returns top-level files', async () => {
-        await vfsWrite(base, 'file1.txt', 'content1');
-        await vfsWrite(base, 'file2.txt', 'content2');
-        await vfsWrite(base, 'readme.md', 'readme');
-        const entries = await vfsListDir(base);
+        await vfsWrite(tmpDir.path, 'file1.txt', 'content1');
+        await vfsWrite(tmpDir.path, 'file2.txt', 'content2');
+        await vfsWrite(tmpDir.path, 'readme.md', 'readme');
+        const entries = await vfsListDir(tmpDir.path);
         expect(entries).toEqual(['file1.txt', 'file2.txt', 'readme.md']);
       });
 
       test('returns top-level directories', async () => {
-        await vfsWrite(base, 'src/index.ts', 'code');
-        await vfsWrite(base, 'docs/readme.md', 'docs');
-        const entries = await vfsListDir(base);
+        await vfsWrite(tmpDir.path, 'src/index.ts', 'code');
+        await vfsWrite(tmpDir.path, 'docs/readme.md', 'docs');
+        const entries = await vfsListDir(tmpDir.path);
         expect(entries).toEqual(['docs', 'src']);
       });
 
       test('returns mixed files and directories', async () => {
-        await vfsWrite(base, 'package.json', '{}');
-        await vfsWrite(base, 'readme.md', 'readme');
-        await vfsWrite(base, 'src/index.ts', 'code');
-        await vfsWrite(base, 'dist/bundle.js', 'bundle');
-        const entries = await vfsListDir(base);
+        await vfsWrite(tmpDir.path, 'package.json', '{}');
+        await vfsWrite(tmpDir.path, 'readme.md', 'readme');
+        await vfsWrite(tmpDir.path, 'src/index.ts', 'code');
+        await vfsWrite(tmpDir.path, 'dist/bundle.js', 'bundle');
+        const entries = await vfsListDir(tmpDir.path);
         expect(entries).toEqual(['dist', 'package.json', 'readme.md', 'src']);
       });
 
       test('returns sorted entries', async () => {
-        await vfsWrite(base, 'zebra.txt', 'z');
-        await vfsWrite(base, 'apple.txt', 'a');
-        await vfsWrite(base, 'banana/file.txt', 'b');
-        const entries = await vfsListDir(base);
+        await vfsWrite(tmpDir.path, 'zebra.txt', 'z');
+        await vfsWrite(tmpDir.path, 'apple.txt', 'a');
+        await vfsWrite(tmpDir.path, 'banana/file.txt', 'b');
+        const entries = await vfsListDir(tmpDir.path);
         expect(entries).toEqual(['apple.txt', 'banana', 'zebra.txt']);
       });
 
       test('includes hidden files and directories', async () => {
-        await vfsWrite(base, '.gitignore', 'ignore');
-        await vfsWrite(base, '.git/config', 'config');
-        await vfsWrite(base, 'visible.txt', 'visible');
-        const entries = await vfsListDir(base);
+        await vfsWrite(tmpDir.path, '.gitignore', 'ignore');
+        await vfsWrite(tmpDir.path, '.git/config', 'config');
+        await vfsWrite(tmpDir.path, 'visible.txt', 'visible');
+        const entries = await vfsListDir(tmpDir.path);
         expect(entries).toEqual(['.git', '.gitignore', 'visible.txt']);
       });
 
       test('handles deeply nested directory structures', async () => {
-        await vfsWrite(base, 'a/b/c/d/e/file.txt', 'deep');
-        await vfsWrite(base, 'x/y/z.txt', 'xyz');
-        const entries = await vfsListDir(base);
+        await vfsWrite(tmpDir.path, 'a/b/c/d/e/file.txt', 'deep');
+        await vfsWrite(tmpDir.path, 'x/y/z.txt', 'xyz');
+        const entries = await vfsListDir(tmpDir.path);
         expect(entries).toEqual(['a', 'x']);
       });
 
       test('lists content of subdirectory', async () => {
-        await vfsWrite(base, 'src/index.ts', 'code');
-        await vfsWrite(base, 'src/utils.ts', 'utils');
-        await vfsWrite(base, 'readme.md', 'docs');
+        await vfsWrite(tmpDir.path, 'src/index.ts', 'code');
+        await vfsWrite(tmpDir.path, 'src/utils.ts', 'utils');
+        await vfsWrite(tmpDir.path, 'readme.md', 'docs');
 
-        const entries = await vfsListDir(base, 'src');
+        const entries = await vfsListDir(tmpDir.path, 'src');
         expect(entries).toEqual(['index.ts', 'utils.ts']);
       });
 
       test('excludes specified files', async () => {
-        await vfsWrite(base, 'file1.txt', '1');
-        await vfsWrite(base, 'file2.txt', '2');
-        await vfsWrite(base, '.gitkeep', '');
+        await vfsWrite(tmpDir.path, 'file1.txt', '1');
+        await vfsWrite(tmpDir.path, 'file2.txt', '2');
+        await vfsWrite(tmpDir.path, '.gitkeep', '');
 
-        const entries = await vfsListDir(base, '', ['.gitkeep']);
+        const entries = await vfsListDir(tmpDir.path, '', ['.gitkeep']);
         expect(entries).toEqual(['file1.txt', 'file2.txt']);
       });
 
       test('lists subdirectory and excludes files', async () => {
-        await vfsWrite(base, 'src/app/main.ts', 'main');
-        await vfsWrite(base, 'src/app/types.ts', 'types');
-        await vfsWrite(base, 'src/app/.gitkeep', '');
+        await vfsWrite(tmpDir.path, 'src/app/main.ts', 'main');
+        await vfsWrite(tmpDir.path, 'src/app/types.ts', 'types');
+        await vfsWrite(tmpDir.path, 'src/app/.gitkeep', '');
 
-        const entries = await vfsListDir(base, 'src/app', ['.gitkeep']);
+        const entries = await vfsListDir(tmpDir.path, 'src/app', ['.gitkeep']);
         expect(entries).toEqual(['main.ts', 'types.ts']);
       });
     });

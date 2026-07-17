@@ -1311,11 +1311,20 @@ export class StaticContentCache {
     if (this.singleAssetMap.has(url)) {
       resolved = this.singleAssetMap.get(url) as string;
     }
-    // 2. If not matched, try folderMap (URL prefix → directory)
+    // 2. If not matched, try folderMap (URL prefix → directory). The longest
+    // matching prefix wins so a nested mount like '/images/generated/' takes
+    // precedence over '/images/' regardless of map insertion order.
     else {
-      const folder = Array.from(this.folderMap.keys()).find((prefix) =>
-        url.startsWith(prefix),
-      );
+      let folder: string | undefined;
+
+      for (const prefix of this.folderMap.keys()) {
+        if (
+          url.startsWith(prefix) &&
+          (folder === undefined || prefix.length > folder.length)
+        ) {
+          folder = prefix;
+        }
+      }
 
       if (folder) {
         // Get resolved base folder and config
@@ -1373,7 +1382,13 @@ export class StaticContentCache {
         continue;
       }
 
-      const normalizedKey = key.startsWith('/') ? key : '/' + key;
+      // Same key rule as folder prefixes (normalizePrefix): collapse
+      // repeated slashes and ensure a leading slash, so '/robots//txt' and
+      // 'robots.txt' both key the URL a browser can actually request.
+      const collapsed = key.replace(/\/+/g, '/');
+      const normalizedKey = collapsed.startsWith('/')
+        ? collapsed
+        : '/' + collapsed;
       normalized.set(normalizedKey, value);
     }
 
@@ -1498,9 +1513,21 @@ export class StaticContentCache {
    *
    * Detects common build tool fingerprinting patterns:
    * - .{hash}.{ext} format (e.g., main.a1b2c3d4.js, styles.CTpDmzGw.css)
-   * - -{hash}.{ext} format (e.g., chunk-a1b2c3d4.js, vendor-5f8e9a2b.js)
+   * - -{hash}.{ext} format (e.g., chunk-a1b2c3d4.js, vendor-CRJ_nHAW.css)
    *
-   * Hash must be at least 6 alphanumeric characters
+   * Hash must be at least 6 characters of Vite/Rollup's base64url alphabet
+   * (alphanumerics plus `_` and `-` — e.g. `index-CRJ_nHAW.css` is a real
+   * Vite 8 output name) and must contain at least one digit or uppercase
+   * letter.
+   *
+   * The digit/uppercase requirement is a DELIBERATE tradeoff. A real hash
+   * can come out all-lowercase (~0.075% of 8-char base64url draws, e.g.
+   * `chunk-abcdefgh.js`); such a file merely falls back to must-revalidate
+   * and self-heals on the next build. Dropping the requirement would make
+   * ordinary names like `chunk-vendors.js` or `apple-touch-icon.png` read
+   * as hashes and serve stale content as immutable for a year — the
+   * dangerous direction. An all-lowercase hash and an English word are the
+   * same character class, so no filename-only rule can separate them.
    *
    * @param filePath The file path to check
    * @returns True if the file appears to be fingerprinted
@@ -1510,10 +1537,12 @@ export class StaticContentCache {
 
     // Check for fingerprint patterns:
     // 1. .{hash}.{ext} pattern (e.g., main.CTpDmzGw.js)
-    // 2. -{hash}.{ext} pattern (e.g., chunk-CTpDmzGw.js)
+    // 2. -{hash}.{ext} pattern (e.g., chunk-CRJ_nHAW.js)
+    // The lookahead requires a digit or uppercase letter somewhere in the
+    // run so hyphenated lowercase words don't read as hashes.
     return (
-      /\.[A-Za-z0-9]{6,}\./.test(fileBasename) ||
-      /-[A-Za-z0-9]{6,}\./.test(fileBasename)
+      /\.(?=[A-Za-z0-9_-]*[A-Z0-9])[A-Za-z0-9_-]{6,}\./.test(fileBasename) ||
+      /-(?=[A-Za-z0-9_-]*[A-Z0-9])[A-Za-z0-9_-]{6,}\./.test(fileBasename)
     );
   }
 

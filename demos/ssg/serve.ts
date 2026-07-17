@@ -84,9 +84,11 @@ class StaticWebServerComponent extends BaseComponent {
             '/favicon.ico': 'favicon.ico',
           },
           assetFolders: {
+            // /assets is Vite's hashed output folder, so it defaults to
+            // immutable-asset detection. Other folders would default to off,
+            // matching the SSR server behavior.
             '/assets': 'assets',
           },
-          detectImmutableAssets: true,
           // This level controls the adapter's gate — what Fastify passes to the Lifecycleion
           // logger. Set to 'debug' so everything gets through and the ConsoleSink's minLevel
           // does the real filtering in one place.

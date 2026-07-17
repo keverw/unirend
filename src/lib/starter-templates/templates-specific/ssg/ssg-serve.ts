@@ -43,6 +43,7 @@ import {
 import { initDevMode, getDevMode } from 'lifecycleion/dev-mode';
 import { Logger, ConsoleSink, LogLevel } from 'lifecycleion/logger';
 import path from 'path';
+import { PUBLIC_FILES, PUBLIC_FOLDERS } from './consts';
 
 const BUILD_DIR = path.resolve(__dirname, '../../../build/${appName}/client');
 // Read port from ${portEnvVarName} env var, default 3000.
@@ -109,14 +110,32 @@ class StaticWebServerComponent extends BaseComponent {
         this.server = new StaticWebServer({
           buildDir: BUILD_DIR,
           pageMapPath: 'page-map.json',
-          singleAssets: {
-            '/robots.txt': 'robots.txt',
-            '/favicon.ico': 'favicon.ico',
-          },
+          // public/ files and subfolders (declared in consts.ts), mapped from
+          // URL to path relative to BUILD_DIR — public/ content keeps its
+          // name, so each entry doubles as both. The server normalizes both
+          // sides itself (URL keys get a leading slash and collapsed
+          // slashes, paths resolve relative to BUILD_DIR either way), so
+          // only whitespace is trimmed here, matching the SSR server and
+          // the check:public-assets script, which trim too.
+          singleAssets: Object.fromEntries(
+            PUBLIC_FILES.map((urlPath) => {
+              const entry = urlPath.trim();
+              return [entry, entry];
+            }),
+          ),
+          // Immutable-asset detection defaults per folder, like the SSR server:
+          // on for /assets (Vite's hashed output folder), off for public folders
+          // (verbatim copies, not fingerprinted). Pass a per-folder
+          // { path, detectImmutableAssets } object to override.
           assetFolders: {
             '/assets': 'assets',
+            ...Object.fromEntries(
+              PUBLIC_FOLDERS.map((urlPrefix) => {
+                const entry = urlPrefix.trim();
+                return [entry, entry];
+              }),
+            ),
           },
-          detectImmutableAssets: true,
           // This level controls the adapter's gate — what Fastify passes to the Lifecycleion
           // logger. Set to 'debug' so everything gets through and the ConsoleSink's minLevel
           // does the real filtering in one place. 'trace' gives even more verbose Fastify

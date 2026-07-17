@@ -154,6 +154,129 @@ describe('createProject — ssr template', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// PUBLIC_FILES/PUBLIC_FOLDERS ↔ public/ sync (the templates must pass their
+// own check)
+// ---------------------------------------------------------------------------
+
+describe('createProject — PUBLIC_FILES/PUBLIC_FOLDERS stay in sync with public/', () => {
+  /** Extract a PUBLIC_FILES/PUBLIC_FOLDERS array from a generated consts.ts source. */
+  function parsePublicConst(constsSrc: string, constName: string): string[] {
+    // Tolerate an optional type annotation (PUBLIC_FOLDERS is emitted as
+    // `: string[]` since its default is empty).
+    const match = constsSrc.match(
+      new RegExp(
+        `export const ${constName}(?:: string\\[\\])? = (\\[[^\\]]*\\]);`,
+      ),
+    );
+    expect(match).not.toBeNull();
+    return JSON.parse((match as RegExpMatchArray)[1].replace(/'/g, '"'));
+  }
+
+  for (const templateID of ['ssr', 'ssg'] as const) {
+    test(`${templateID} template declares exactly the public/ files it emits`, async () => {
+      const repoRoot: InMemoryDir = {};
+
+      const result = await createProject({
+        templateID,
+        projectName: 'web',
+        repoRoot,
+        serverBuildTarget: 'node',
+        initGit: false,
+        installDependencies: false,
+        autoFormat: false,
+      });
+      expect(result.success).toBe(true);
+
+      const constsSrc = repoRoot['src/apps/web/consts.ts'] as string;
+      const declaredFiles = parsePublicConst(constsSrc, 'PUBLIC_FILES');
+      const declaredFolders = parsePublicConst(constsSrc, 'PUBLIC_FOLDERS');
+
+      // Every file emitted under public/ (as a URL path)
+      const emitted = Object.keys(repoRoot)
+        .filter((key) => key.startsWith('src/apps/web/public/'))
+        .map((key) => key.slice('src/apps/web/public'.length));
+
+      // Same coverage rule as the generated check script: a file counts as
+      // declared if listed in PUBLIC_FILES or under a PUBLIC_FOLDERS prefix.
+      const uncoveredByFolders = emitted.filter(
+        (urlPath) =>
+          !declaredFolders.some((prefix) => urlPath.startsWith(`${prefix}/`)),
+      );
+
+      expect(declaredFiles.sort()).toEqual(uncoveredByFolders.sort());
+      expect(declaredFiles.length).toBeGreaterThan(0);
+
+      // A declared folder with nothing emitted under it would fail the
+      // generated check script (and the SSR boot check) in a fresh repo.
+      for (const prefix of declaredFolders) {
+        expect(
+          emitted.some((urlPath) => urlPath.startsWith(`${prefix}/`)),
+        ).toBe(true);
+      }
+    });
+  }
+
+  test('ssr template wires PUBLIC_FILES/PUBLIC_FOLDERS into the built server, ssg into serve.ts', async () => {
+    const repoRoot: InMemoryDir = {};
+
+    await createProject({
+      templateID: 'ssr',
+      projectName: 'web',
+      repoRoot,
+      serverBuildTarget: 'node',
+      initGit: false,
+      installDependencies: false,
+      autoFormat: false,
+    });
+
+    await createProject({
+      templateID: 'ssg',
+      projectName: 'site',
+      repoRoot,
+      serverBuildTarget: 'node',
+      initGit: false,
+      installDependencies: false,
+      autoFormat: false,
+    });
+
+    const ssrComponentSrc = repoRoot[
+      'src/apps/web/server/ssr-component.ts'
+    ] as string;
+    expect(ssrComponentSrc).toContain('publicFiles: PUBLIC_FILES');
+    expect(ssrComponentSrc).toContain('publicFolders: PUBLIC_FOLDERS');
+
+    const ssgServeSrc = repoRoot['src/apps/site/serve.ts'] as string;
+    expect(ssgServeSrc).toContain('PUBLIC_FILES.map');
+    expect(ssgServeSrc).toContain('PUBLIC_FOLDERS.map');
+
+    // Each Vite app gets a public-assets.config.json pointing the check at
+    // its lists, with the default entry mirroring the scaffolded layout.
+    for (const appPath of ['src/apps/web', 'src/apps/site'] as const) {
+      const assetsConfig = JSON.parse(
+        repoRoot[`${appPath}/public-assets.config.json`] as string,
+      );
+
+      expect(assetsConfig).toEqual({
+        default: {
+          publicDir: 'public',
+          constsFile: 'consts.ts',
+          filesExport: 'PUBLIC_FILES',
+          foldersExport: 'PUBLIC_FOLDERS',
+        },
+      });
+    }
+
+    // The repo-level check script and its package.json wiring exist
+    expect(typeof repoRoot['scripts/check-public-assets.ts']).toBe('string');
+    const pkg = JSON.parse(repoRoot['package.json'] as string);
+    expect(pkg.scripts['check:public-assets']).toBe(
+      'bun run scripts/check-public-assets.ts',
+    );
+    expect(pkg.scripts.check).toContain('bun run check:public-assets');
+  });
+});
+
 describe('createProject — api template', () => {
   test('scaffolds an api project into a fresh in-memory root', async () => {
     const repoRoot: InMemoryDir = {};
@@ -174,6 +297,11 @@ describe('createProject — api template', () => {
     // API-specific file must exist
     expect(repoRoot['src/apps/backend/api-component.ts']).toBeDefined();
     expect(repoRoot['src/apps/backend/serve.ts']).toBeDefined();
+
+    // API apps have no public-file surface, so no public-assets config
+    expect(
+      repoRoot['src/apps/backend/public-assets.config.json'],
+    ).toBeUndefined();
   });
 });
 

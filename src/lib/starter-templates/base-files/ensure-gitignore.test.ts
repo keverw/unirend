@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, rm } from 'fs/promises';
-import { tmpdir } from 'os';
+import { mkdir } from 'fs/promises';
 import { join } from 'path';
+import { createTempDir } from 'lifecycleion/tmp-dir';
 import { ensureGitignore } from './ensure-gitignore';
 import type { InMemoryDir } from '../vfs';
 import type { LogLevel } from '../types';
@@ -242,23 +242,27 @@ describe('ensureGitignore', () => {
   });
 
   test('wraps read errors when an existing .gitignore cannot be read as a file', async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), 'unirend-gitignore-'));
+    // unsafeCleanup: the directory is non-empty by the time cleanup runs
+    const tmpDir = await createTempDir({
+      prefix: 'unirend-gitignore-',
+      unsafeCleanup: true,
+    });
 
     try {
       // Put a directory where the helper expects the .gitignore file. That
       // reliably makes vfsReadText return a read error instead of ENOENT, so
       // this exercises the error branch without OS-specific permission setup.
-      await mkdir(join(tempRoot, '.gitignore'));
+      await mkdir(join(tmpDir.path, '.gitignore'));
 
       // The helper should keep its public error shape while wrapping the
       // lower-level filesystem problem.
       expect(
-        ensureGitignore(tempRoot, {
+        ensureGitignore(tmpDir.path, {
           templateEntries: ['.unirend-ssg.json'],
         }),
       ).rejects.toThrow('Failed to ensure .gitignore');
     } finally {
-      await rm(tempRoot, { recursive: true, force: true });
+      await tmpDir.cleanup();
     }
   });
 });

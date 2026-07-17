@@ -837,6 +837,35 @@ describe('StaticContentCache', () => {
       }
     });
 
+    it('collapses repeated slashes in singleAssetMap keys (same rule as folder prefixes)', async () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/icons//logo.svg': '/path/to/logo.svg' },
+      });
+
+      const req = createMockRequest('/icons/logo.svg');
+      const { reply } = createMockReply();
+      const fileContent = Buffer.from('<svg/>');
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      // The browser requests the collapsed URL, so the key must serve there
+      const result = await cache.handleRequest(
+        '/icons/logo.svg',
+        req as FastifyRequest,
+        reply as FastifyReply,
+      );
+
+      expect(result.served).toBe(true);
+    });
+
     it('serves files from folderMap', async () => {
       const cache = new StaticContentCache({
         folderMap: { '/assets': '/path/to/assets' },
@@ -866,6 +895,44 @@ describe('StaticContentCache', () => {
       if (result.served) {
         expect(result.statusCode).toBe(200);
       }
+    });
+
+    it('resolves nested folder mounts by longest matching prefix, not insertion order', async () => {
+      // The shallow mount is inserted first — without longest-prefix
+      // matching it would swallow requests meant for the nested mount.
+      const cache = new StaticContentCache({
+        folderMap: {
+          '/images': '/path/to/images',
+          '/images/generated': '/path/to/generated-images',
+        },
+      });
+
+      const req = createMockRequest('/images/generated/chart.png');
+      const { reply } = createMockReply();
+      const fileContent = Buffer.from('png');
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      const result = await cache.handleRequest(
+        '/images/generated/chart.png',
+        req as FastifyRequest,
+        reply as FastifyReply,
+      );
+
+      expect(result.served).toBe(true);
+
+      // The file must resolve under the nested mount's directory
+      expect(mockFs.stat).toHaveBeenCalledWith(
+        '/path/to/generated-images/chart.png',
+      );
     });
 
     it('strips query strings from URLs', async () => {
@@ -1622,6 +1689,119 @@ describe('StaticContentCache', () => {
       );
 
       expect(sentData.headers['Cache-Control']).toContain('immutable');
+    });
+
+    it('detects base64url hashes containing _ or - (Vite 8 output)', async () => {
+      const cache = new StaticContentCache({
+        folderMap: {
+          '/assets': { path: '/path/to/assets', detectImmutableAssets: true },
+        },
+        immutableCacheControl: 'public, max-age=31536000, immutable',
+      });
+
+      const req = createMockRequest('/assets/index-CRJ_nHAW.css');
+      const { reply, sentData } = createMockReply();
+      const fileContent = Buffer.from('body{}');
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      await cache.handleRequest(
+        '/assets/index-CRJ_nHAW.css',
+        req as FastifyRequest,
+        reply as FastifyReply,
+      );
+
+      expect(sentData.headers['Cache-Control']).toContain('immutable');
+    });
+
+    it('does not detect all-lowercase word runs as hashes', async () => {
+      const cache = new StaticContentCache({
+        folderMap: {
+          '/assets': { path: '/path/to/assets', detectImmutableAssets: true },
+        },
+        cacheControl: 'public, max-age=0, must-revalidate',
+        immutableCacheControl: 'public, max-age=31536000, immutable',
+      });
+
+      const fileContent = Buffer.from('data');
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      // Kebab-case and underscore names with 6+ chars but no digit or
+      // uppercase letter are ordinary filenames, not build fingerprints.
+      // chunk-abcdefgh.js pins the ACCEPTED miss: a rare all-lowercase real
+      // hash (~0.075% of 8-char base64url draws) is indistinguishable from a
+      // word and deliberately falls back to must-revalidate — the benign
+      // direction, unlike caching chunk-vendors.js as immutable for a year.
+      for (const name of [
+        'apple-touch-icon.png',
+        'some-multi-word.txt',
+        'my-file_name.png',
+        'chunk-vendors.js',
+        'chunk-abcdefgh.js',
+      ]) {
+        const req = createMockRequest(`/assets/${name}`);
+        const { reply, sentData } = createMockReply();
+
+        await cache.handleRequest(
+          `/assets/${name}`,
+          req as FastifyRequest,
+          reply as FastifyReply,
+        );
+
+        expect(sentData.headers['Cache-Control']).not.toContain('immutable');
+        expect(sentData.headers['Cache-Control']).toContain('must-revalidate');
+      }
+    });
+
+    it('stays off by default for string-shorthand folderMap entries', async () => {
+      const cache = new StaticContentCache({
+        folderMap: {
+          '/extra': '/path/to/extra',
+        },
+        cacheControl: 'public, max-age=0, must-revalidate',
+        immutableCacheControl: 'public, max-age=31536000, immutable',
+      });
+
+      const req = createMockRequest('/extra/main.a1b2c3d4.js');
+      const { reply, sentData } = createMockReply();
+      const fileContent = Buffer.from('console.log("test")');
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      await cache.handleRequest(
+        '/extra/main.a1b2c3d4.js',
+        req as FastifyRequest,
+        reply as FastifyReply,
+      );
+
+      // Hash-looking name, but detection was never enabled for this folder
+      expect(sentData.headers['Cache-Control']).not.toContain('immutable');
+      expect(sentData.headers['Cache-Control']).toContain('must-revalidate');
     });
 
     it('does not detect short hashes (< 6 characters)', async () => {

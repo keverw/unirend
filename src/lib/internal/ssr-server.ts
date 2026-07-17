@@ -56,6 +56,13 @@ import { generateDefault500ErrorPage } from './error-page-utils';
 // See comment in static-content-cache.ts — cross-entry import via unirend/utils.
 import { StaticContentCache } from 'unirend/utils';
 import { staticContentHookHandler } from './static-content-hook';
+import {
+  validateProdAppStaticConfig,
+  buildProdStaticRouterConfig,
+  assertPublicPathsExist,
+  findShadowedPublicPaths,
+} from './static-router-config-utils';
+import type { NormalizedPublicPaths } from './static-router-config-utils';
 import { BaseServer } from './base-server';
 import { DataLoaderServerHandlerHelpers } from './data-loader-server-handler-helpers';
 import { APIRoutesServerHelpers } from './api-routes-server-helpers';
@@ -280,6 +287,22 @@ export class SSRServer extends BaseServer {
       config.options.accessLog,
     );
 
+    // Validate prod static config up front (publicFiles/publicFolders
+    // entries, root-mount guard) so a bad config throws where it was written,
+    // not at listen().
+    let normalizedDefaultPublicPaths: NormalizedPublicPaths = {};
+
+    if (config.mode === 'production') {
+      normalizedDefaultPublicPaths = validateProdAppStaticConfig(
+        'the default app',
+        config.buildDir,
+        config.options.clientFolderName || 'client',
+        config.options.staticContentRouter,
+        config.options.publicFiles,
+        config.options.publicFolders,
+      );
+    }
+
     // Convert single config to Map with '__default__' key
     const defaultApp: SSRInternalAppConfig =
       config.mode === 'development'
@@ -300,6 +323,8 @@ export class SSRServer extends BaseServer {
             template: config.options.template,
             CDNBaseURL: config.options.CDNBaseURL,
             staticContentRouter: config.options.staticContentRouter,
+            publicFiles: normalizedDefaultPublicPaths.publicFiles,
+            publicFolders: normalizedDefaultPublicPaths.publicFolders,
             publicAppConfig: config.options.publicAppConfig,
             clientFolderName: config.options.clientFolderName || 'client',
             serverFolderName: config.options.serverFolderName || 'server',
@@ -474,12 +499,28 @@ export class SSRServer extends BaseServer {
     }
 
     const opts = options || {};
+
+    // Validate prod static config up front (publicFiles/publicFolders
+    // entries, root-mount guard) so a bad config throws here, not at listen().
+    const normalizedPublicPaths = validateProdAppStaticConfig(
+      `app "${trimmedAppKey}"`,
+      buildDir,
+      opts.clientFolderName || 'client',
+      opts.staticContentRouter,
+      opts.publicFiles,
+      opts.publicFolders,
+    );
+
     const appConfig: SSRInternalAppConfigBuilt = {
       buildDir,
       serverEntry: opts.serverEntry,
       template: opts.template,
       CDNBaseURL: opts.CDNBaseURL,
       staticContentRouter: opts.staticContentRouter,
+      // Router stored raw — StaticContentCache normalizes it at listen();
+      // public paths normalized here because listen() consumes them directly.
+      publicFiles: normalizedPublicPaths.publicFiles,
+      publicFolders: normalizedPublicPaths.publicFolders,
       publicAppConfig: opts.publicAppConfig,
       clientFolderName: opts.clientFolderName || 'client',
       serverFolderName: opts.serverFolderName || 'server',
@@ -1191,29 +1232,64 @@ export class SSRServer extends BaseServer {
               continue;
             }
 
-            const clientBuildAssetDir = path.join(
+            const clientRootDir = path.join(
               appConfig.buildDir,
               appConfig.clientFolderName || 'client',
-              'assets',
             );
 
-            // Use provided config or default to assets folder with immutable caching
-            const finalConfig: StaticContentRouterOptions = staticRouterConfig
-              ? {
-                  ...staticRouterConfig,
-                  compression:
-                    staticRouterConfig.compression ??
-                    this.sharedOptions.responseCompression,
-                }
-              : {
-                  folderMap: {
-                    '/assets': {
-                      path: clientBuildAssetDir,
-                      detectImmutableAssets: true,
-                    },
-                  },
-                  compression: this.sharedOptions.responseCompression,
-                };
+            const appLabel =
+              appKey === '__default__' ? 'the default app' : `app "${appKey}"`;
+
+            const publicPaths: NormalizedPublicPaths = {
+              publicFiles: appConfig.publicFiles,
+              publicFolders: appConfig.publicFolders,
+            };
+
+            // Startup existence check: every declared publicFiles file and
+            // publicFolders directory must exist in the client build dir — a
+            // typo or bad build fails loudly at boot instead of 404ing
+            // silently in production.
+            if (
+              (publicPaths.publicFiles?.length ?? 0) > 0 ||
+              (publicPaths.publicFolders?.length ?? 0) > 0
+            ) {
+              await assertPublicPathsExist(
+                publicPaths,
+                clientRootDir,
+                appLabel,
+              );
+            }
+
+            // Shadowing a publicFiles/publicFolders entry with an explicit
+            // singleAssetMap key / folderMap prefix is allowed (explicit
+            // entries win) but usually a mistake, so call it out at boot.
+            // The exception: a folderMap entry pointing at the same directory
+            // as its publicFolders declaration AND enabling immutable
+            // detection is the intentional pattern for custom knobs on a
+            // declared public folder, and stays quiet.
+            const shadowed = findShadowedPublicPaths(
+              staticRouterConfig || undefined,
+              publicPaths,
+              clientRootDir,
+            );
+
+            if (shadowed.length > 0) {
+              this.fastifyInstance.log.warn(
+                `Some publicFiles/publicFolders entries for ${appLabel} are also defined as explicit staticContentRouter keys. The staticContentRouter keys win, so these publicFiles/publicFolders declarations are ignored: ${shadowed.join(', ')}. Remove them from one side to silence this warning.`,
+              );
+            }
+
+            // A custom staticContentRouter replaces the /assets default
+            // (pre-publicFiles behavior); publicFiles/publicFolders entries
+            // are folded into whichever config is in effect, with explicit
+            // singleAssetMap/folderMap keys winning on conflict.
+            const finalConfig: StaticContentRouterOptions =
+              buildProdStaticRouterConfig(
+                staticRouterConfig || undefined,
+                publicPaths,
+                clientRootDir,
+                this.sharedOptions.responseCompression,
+              );
 
             // Create cache instance for this app
             const cache = new StaticContentCache(

@@ -1103,6 +1103,10 @@ export class SSRServerComponent extends BaseComponent {
             ...sharedConfig,
             serverEntry: 'EntrySSR',
             plugins: SHARED_PLUGINS,
+            // Files from public/ are served in production only if declared here
+            // (dev/HMR gets them from Vite's middleware implicitly). Verified to
+            // exist in the client build at boot.
+            publicFiles: ['/robots.txt'],
             publicAppConfig: {
               api_endpoint: 'https://api.example.com',
               environment: 'production',

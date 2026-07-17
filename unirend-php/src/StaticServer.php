@@ -16,9 +16,20 @@ namespace Unirend\StaticServer;
  *   $server = new StaticServer([
  *       'buildDir'    => __DIR__ . '/build/client',
  *       'pageMapPath' => 'page-map.json',
- *       'assetFolders' => ['/assets' => 'assets'],
+ *       'assetFolders' => [
+ *           '/assets' => 'assets',
+ *           '/.well-known' => '.well-known',
+ *           // Optional per-folder config (mirrors StaticWebServer):
+ *           '/downloads' => ['path' => 'downloads', 'detectImmutableAssets' => true],
+ *       ],
  *       'singleAssets' => ['/robots.txt' => 'robots.txt'],
  *   ]);
+ *
+ * Immutable-asset detection resolves per folder: the per-folder value if
+ * given, otherwise a name-based default matching StaticWebServer from the
+ * Node.js package, on for '/assets' (Vite's hashed build output), off for
+ * every other folder, since those usually hold verbatim public/ files where
+ * a name that merely looks hashed must not get a year-long immutable header.
  *
  *   $server->addRoute('POST', '/api/contact', function(array $params, array $body) {
  *       header('Content-Type: application/json');
@@ -50,7 +61,6 @@ class StaticServer
         'errorPage' => null,
         'cacheControl' => 'public, max-age=0, must-revalidate',
         'immutableCacheControl' => 'public, max-age=31536000, immutable',
-        'detectImmutableAssets' => true,
         'isDevelopment' => false,
         'logErrors' => true,
         'onError' => null,
@@ -135,13 +145,53 @@ class StaticServer
         }
 
         if (isset($options['assetFolders'])) {
-            foreach ($options['assetFolders'] as $urlPrefix => $fsPath) {
-                if (!is_string($urlPrefix) || !is_string($fsPath)) {
+            foreach ($options['assetFolders'] as $urlPrefix => $folderConfig) {
+                if (!is_string($urlPrefix)) {
                     throw new \InvalidArgumentException(
-                        'StaticServer: assetFolders keys and values must be strings',
+                        'StaticServer: assetFolders keys must be strings',
                     );
                 }
+
+                if (is_string($folderConfig)) {
+                    continue;
+                }
+
+                // Per-folder config array (mirrors StaticWebServer's
+                // { path, detectImmutableAssets? } object form)
+                if (is_array($folderConfig)) {
+                    if (
+                        !isset($folderConfig['path']) ||
+                        !is_string($folderConfig['path'])
+                    ) {
+                        throw new \InvalidArgumentException(
+                            'StaticServer: assetFolders config arrays require a string "path"',
+                        );
+                    }
+
+                    if (
+                        isset($folderConfig['detectImmutableAssets']) &&
+                        !is_bool($folderConfig['detectImmutableAssets'])
+                    ) {
+                        throw new \InvalidArgumentException(
+                            'StaticServer: assetFolders "detectImmutableAssets" must be a bool when set',
+                        );
+                    }
+
+                    continue;
+                }
+
+                throw new \InvalidArgumentException(
+                    'StaticServer: assetFolders values must be strings or ["path" => ..., "detectImmutableAssets" => ...] arrays',
+                );
             }
+        }
+
+        // The top-level flag was removed in favor of per-folder config — fail
+        // loudly on upgrade instead of silently ignoring the caller's intent.
+        if (array_key_exists('detectImmutableAssets', $options)) {
+            throw new \InvalidArgumentException(
+                'StaticServer: the top-level detectImmutableAssets option was removed — set it per folder via assetFolders ["path" => ..., "detectImmutableAssets" => ...]. Without it, /assets defaults on and other folders default off.',
+            );
         }
 
         $this->options = array_merge(self::DEFAULTS, $options);
@@ -239,11 +289,31 @@ class StaticServer
 
         // 3. Merge user-provided singleAssets (can override page-map entries)
         foreach ($this->options['singleAssets'] as $urlPath => $filePath) {
-            // Use realpath to safely resolve paths (handles leading slashes, prevents traversal)
-            $resolved = realpath($buildDir . '/' . ltrim($filePath, '/'));
+            // Same key rule as the Node.js StaticWebServer and the
+            // assetFolders prefixes: collapse repeated slashes and ensure a
+            // leading slash, so 'robots.txt' serves /robots.txt and
+            // '/icons//logo.svg' serves the URL browsers actually request.
+            $collapsed = preg_replace('#/+#', '/', $urlPath);
+            $urlKey = str_starts_with($collapsed, '/')
+                ? $collapsed
+                : '/' . $collapsed;
+            $resolved = $this->resolveBuildRelativePath(
+                $filePath,
+                'singleAssets',
+            );
             if ($resolved !== false) {
-                $assetMap[$urlPath] = $resolved;
+                $assetMap[$urlKey] = $resolved;
             }
+        }
+
+        // Validate every folder mount at startup, matching the Node.js
+        // StaticWebServer. Missing folders keep their existing request-time
+        // 404 behavior, while traversal and existing symlink escapes throw.
+        foreach ($this->options['assetFolders'] as $folderConfig) {
+            $fsPath = is_array($folderConfig)
+                ? $folderConfig['path']
+                : $folderConfig;
+            $this->resolveBuildRelativePath($fsPath, 'assetFolders');
         }
 
         // 4. Load error pages — same priority chain as Node version:
@@ -328,55 +398,199 @@ class StaticServer
             return;
         }
 
-        // 3. Asset folders — prefix-matched, immutable cache detection
+        // 3. Asset folders — prefix-matched, immutable cache detection. The
+        //    longest matching prefix wins so a nested mount like
+        //    '/images/generated' takes precedence over '/images' regardless
+        //    of declaration order (ties, i.e. keys normalizing to the same
+        //    mount, go to the last-declared entry like Node's Map.set), and
+        //    prefixes only match on path-segment
+        //    boundaries so '/images/generated' does not capture
+        //    '/images/generated-other/...' — both matching the Node.js
+        //    package, whose cache normalizes prefixes with a trailing slash.
         if (in_array($method, ['GET', 'HEAD'], true)) {
-            foreach (
-                $this->options['assetFolders']
-                as $urlPrefix => $fsRelPath
-            ) {
-                if (!str_starts_with($path, $urlPrefix)) {
-                    continue;
-                }
+            $matchedKey = null; // original assetFolders key (for its config)
+            $matchedPrefix = null; // normalized '/x/y' form (for the match)
 
-                $assetDir = realpath(
-                    $this->options['buildDir'] . '/' . $fsRelPath,
+            foreach (array_keys($this->options['assetFolders']) as $urlPrefix) {
+                // Normalize like resolveDetectImmutable: 'assets', '/assets',
+                // and '/assets/' all mean the same mount, and repeated
+                // slashes collapse ('/images//generated' → '/images/generated')
+                // to match Node's normalizePrefix.
+                $prefix =
+                    '/' .
+                    trim(
+                        (string) preg_replace('#/+#', '/', (string) $urlPrefix),
+                        '/',
+                    );
+
+                // Boundary match: the request path must BE the prefix or
+                // continue with '/'. A '/' prefix mounts everything.
+                $isMatch =
+                    $prefix === '/' ||
+                    $path === $prefix ||
+                    str_starts_with($path, $prefix . '/');
+
+                // '>=' so that when two keys normalize to the same mount
+                // the last-declared entry wins, matching Node's Map.set
+                // overwrite semantics.
+                if (
+                    $isMatch &&
+                    ($matchedPrefix === null ||
+                        strlen($prefix) >= strlen($matchedPrefix))
+                ) {
+                    $matchedKey = (string) $urlPrefix;
+                    $matchedPrefix = $prefix;
+                }
+            }
+
+            if ($matchedKey !== null && $matchedPrefix !== null) {
+                $folderConfig = $this->options['assetFolders'][$matchedKey];
+
+                $fsRelPath = is_array($folderConfig)
+                    ? $folderConfig['path']
+                    : $folderConfig;
+
+                $assetDir = $this->resolveBuildRelativePath(
+                    $fsRelPath,
+                    'assetFolders',
                 );
 
-                if ($assetDir === false) {
-                    continue;
+                // A missing folder or a file that isn't in it falls through
+                // to the 404 below — no retry against shallower prefixes.
+                if ($assetDir !== false) {
+                    // For the root mount the whole path is the remainder.
+                    $remainder =
+                        $matchedPrefix === '/'
+                            ? $path
+                            : substr($path, strlen($matchedPrefix));
+                    $absPath = $assetDir . $remainder;
+
+                    $safePath = FileServer::safePath($absPath, $assetDir);
+
+                    if ($safePath !== null) {
+                        $detectImmutable = self::resolveDetectImmutable(
+                            $matchedPrefix,
+                            $folderConfig,
+                        );
+
+                        $isImmutable =
+                            $detectImmutable &&
+                            FileServer::isImmutableAsset($safePath);
+
+                        $cacheControl = $isImmutable
+                            ? $this->options['immutableCacheControl']
+                            : $this->options['cacheControl'];
+
+                        try {
+                            (new FileServer())->serve($safePath, $cacheControl);
+                        } catch (\Throwable $e) {
+                            $this->logError($e, 'Asset serving error');
+                            $this->send500($e);
+                        }
+                        return;
+                    }
                 }
-
-                $remainder = substr($path, strlen($urlPrefix));
-                $absPath = $assetDir . $remainder;
-
-                $safePath = FileServer::safePath($absPath, $assetDir);
-
-                if ($safePath === null) {
-                    break; // file not found in this folder — fall through to 404
-                }
-
-                $detectImmutable =
-                    (bool) ($this->options['detectImmutableAssets'] ?? true);
-
-                $isImmutable =
-                    $detectImmutable && FileServer::isImmutableAsset($safePath);
-
-                $cacheControl = $isImmutable
-                    ? $this->options['immutableCacheControl']
-                    : $this->options['cacheControl'];
-
-                try {
-                    (new FileServer())->serve($safePath, $cacheControl);
-                } catch (\Throwable $e) {
-                    $this->logError($e, 'Asset serving error');
-                    $this->send500($e);
-                }
-                return;
             }
         }
 
         // 4. Nothing matched
         $this->send404();
+    }
+
+    /**
+     * Resolve immutable-asset detection for one assetFolders entry: the
+     * per-folder value if given, otherwise the name-based default — on for
+     * '/assets', off otherwise. The prefix is normalized so 'assets',
+     * '/assets', and '/assets/' all mean the same mount for the default.
+     *
+     * Public static so tests can exercise the resolution directly (response
+     * headers cannot be captured in CLI PHPUnit).
+     *
+     * @param string|array<string, mixed> $folderConfig
+     */
+    public static function resolveDetectImmutable(
+        string $urlPrefix,
+        string|array $folderConfig,
+    ): bool {
+        // Collapse repeated slashes too, matching Node's normalizePrefix.
+        $normalizedPrefix =
+            '/' . trim((string) preg_replace('#/+#', '/', $urlPrefix), '/');
+        $perFolderDetect = is_array($folderConfig)
+            ? $folderConfig['detectImmutableAssets'] ?? null
+            : null;
+
+        return (bool) ($perFolderDetect ?? $normalizedPrefix === '/assets');
+    }
+
+    /**
+     * Resolve a user-configured path relative to buildDir and reject an
+     * existing path that resolves outside it. Leading URL-style slashes are
+     * treated as relative, matching the Node.js StaticWebServer.
+     */
+    private function resolveBuildRelativePath(
+        string $configuredPath,
+        string $optionName,
+    ): string|false {
+        $relativePath = ltrim($configuredPath, '/');
+        $separatorPattern =
+            DIRECTORY_SEPARATOR === '\\' ? '#[\\\\/]+#' : '#/+#';
+        $depth = 0;
+
+        if (
+            DIRECTORY_SEPARATOR === '\\' &&
+            (preg_match('#^[A-Za-z]:[\\\\/]#', $relativePath) === 1 ||
+                str_starts_with($relativePath, '\\'))
+        ) {
+            throw new \InvalidArgumentException(
+                "StaticServer: {$optionName} values must resolve within buildDir",
+            );
+        }
+
+        foreach (preg_split($separatorPattern, $relativePath) ?: [] as $part) {
+            if ($part === '' || $part === '.') {
+                continue;
+            }
+
+            if ($part === '..') {
+                if ($depth === 0) {
+                    throw new \InvalidArgumentException(
+                        "StaticServer: {$optionName} values must resolve within buildDir",
+                    );
+                }
+                $depth--;
+                continue;
+            }
+
+            $depth++;
+        }
+
+        $buildRoot = realpath($this->options['buildDir']);
+        $resolved = realpath($this->options['buildDir'] . '/' . $relativePath);
+
+        if ($buildRoot === false || $resolved === false) {
+            return false;
+        }
+
+        $normalizedRoot = str_replace('\\', '/', $buildRoot);
+        $normalizedPath = str_replace('\\', '/', $resolved);
+
+        if (DIRECTORY_SEPARATOR === '\\') {
+            $normalizedRoot = strtolower($normalizedRoot);
+            $normalizedPath = strtolower($normalizedPath);
+        }
+
+        $rootPrefix = rtrim($normalizedRoot, '/') . '/';
+        $isWithinBuild =
+            $normalizedPath === $normalizedRoot ||
+            str_starts_with($normalizedPath, $rootPrefix);
+
+        if (!$isWithinBuild) {
+            throw new \InvalidArgumentException(
+                "StaticServer: {$optionName} values must resolve within buildDir",
+            );
+        }
+
+        return $resolved;
     }
 
     /**
@@ -455,10 +669,35 @@ class StaticServer
     {
         $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
 
-        if (str_contains($contentType, 'application/json')) {
-            $raw = file_get_contents('php://input');
+        $raw = str_contains($contentType, 'application/json')
+            ? file_get_contents('php://input')
+            : '';
 
-            if ($raw === false || $raw === '') {
+        return self::parseRequestBody(
+            $contentType,
+            $raw === false ? '' : $raw,
+            $_POST,
+        );
+    }
+
+    /**
+     * Pure body-parsing half of requestBody(): JSON content types decode
+     * $raw (invalid or non-array JSON becomes an empty array), everything
+     * else falls back to $post.
+     *
+     * Public static so tests can exercise it directly (php://input cannot
+     * be faked in CLI PHPUnit).
+     *
+     * @param array<string, mixed> $post
+     * @return array<string, mixed>
+     */
+    public static function parseRequestBody(
+        string $contentType,
+        string $raw,
+        array $post,
+    ): array {
+        if (str_contains($contentType, 'application/json')) {
+            if ($raw === '') {
                 return [];
             }
 
@@ -475,7 +714,7 @@ class StaticServer
             }
         }
 
-        return $_POST;
+        return $post;
     }
 
     // -------------------------------------------------------------------------

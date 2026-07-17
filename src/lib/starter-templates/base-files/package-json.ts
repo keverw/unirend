@@ -16,8 +16,9 @@ const defaultScripts = {
   'cspell:clean': 'bun run scripts/clean-cspell.ts',
   'cspell:clean:fix': 'bun run scripts/clean-cspell.ts --write',
   'list-outdated-packages': 'bun outdated',
+  'check:public-assets': 'bun run scripts/check-public-assets.ts',
   check:
-    'bun audit && bun run type-check && bun run lint && bun run spellcheck && bun test --pass-with-no-tests',
+    'bun audit && bun run type-check && bun run lint && bun run spellcheck && bun run check:public-assets && bun test --pass-with-no-tests',
 };
 
 export const devDependencies = {
@@ -25,7 +26,6 @@ export const devDependencies = {
   '@tailwindcss/vite': '^4.1.17',
   '@types/bun': '^1.3.14',
   '@types/node': '^24.13.2',
-  '@types/picomatch': '^3.0.2',
   '@types/react': '^19.2.17',
   '@types/react-dom': '^19.2.3',
   '@typescript-eslint/eslint-plugin': '^8.62.1',
@@ -41,7 +41,6 @@ export const devDependencies = {
   'eslint-plugin-react-hooks': '^7.1.1',
   'eslint-plugin-react-refresh': '^0.5.3',
   'eslint-plugin-unicorn': '^62.0.0',
-  picomatch: '^4.0.5',
   prettier: '^3.9.4',
   'prettier-plugin-tailwindcss': '^0.7.1',
   tailwindcss: '^4.1.17',

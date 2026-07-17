@@ -13,12 +13,14 @@ $server = new StaticServer([
     // All options below are optional — shown with their defaults:
     // 'pageMapPath'           => 'page-map.json',
     // 'assetFolders'          => ['/assets' => 'assets'],
+    //     Immutable-asset detection resolves per folder: on for /assets by
+    //     default, off for other folders. Opt a folder in (or out) with:
+    //     '/downloads' => ['path' => 'downloads', 'detectImmutableAssets' => true],
     // 'singleAssets'          => ['/robots.txt' => 'robots.txt'],
     // 'notFoundPage'          => null,   // custom 404, relative to buildDir
     // 'errorPage'             => null,   // custom 500, relative to buildDir
     // 'cacheControl'          => 'public, max-age=0, must-revalidate',
     // 'immutableCacheControl' => 'public, max-age=31536000, immutable',
-    // 'detectImmutableAssets' => true,
     // 'isDevelopment'         => false,  // set true locally to see 500 stack traces
     // 'logErrors'             => true,   // log exceptions to PHP's error log
 ]);

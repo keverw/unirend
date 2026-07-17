@@ -452,7 +452,7 @@ await server.listen(3000);
 console.log('Static server running at http://localhost:3000');
 ```
 
-> **Note:** All file paths (`pageMapPath`, `notFoundPage`, `errorPage`, `singleAssets` values, `assetFolders` values) are resolved relative to `buildDir`.
+> **Note:** All file paths (`pageMapPath`, `notFoundPage`, `errorPage`, `singleAssets` values, `assetFolders` values) are resolved relative to `buildDir`. A leading slash on a `singleAssets` or `assetFolders` value is treated as relative too, and values that resolve outside `buildDir` through `..` segments or symlinks are rejected.
 
 > **💡 Tip:** Error pages are automatically detected from the page map by filename and served with proper status codes. Use `{ type: 'ssg', path: '/404', filename: '404.html' }` for 404 pages (server is healthy, React shell is fine) and `{ type: 'html', filename: '500.html' }` for server error pages (self-contained, no external deps, no React bundle). See [HTML Pages](#html-pages) and [Error Pages](#error-pages).
 
@@ -473,7 +473,7 @@ await server.reload();
 
 - `buildDir` (required) - Directory containing the built client files
 - `pageMapPath` (optional, default: `'page-map.json'`) - Path to page-map.json file (relative to buildDir)
-- `assetFolders` - Map of URL prefixes to filesystem directories for serving static assets
+- `assetFolders` - Map of URL prefixes to filesystem directories for serving static assets. A value can also be a `{ path, detectImmutableAssets? }` object to set immutable detection per folder. Without a per-folder value, detection defaults on for `/assets` and off for other folders (matching the SSR server behavior)
 - `singleAssets` - Map individual files (favicon, robots.txt, etc.), merged with page map, takes precedence on conflicts with page map and asset folders
 
 **Error Handling:**
@@ -487,7 +487,6 @@ Dev mode (stack traces in built-in 500 page, not custom error page provided) is 
 
 - `cacheControl` - Cache-Control header for HTML pages (default: `"public, max-age=0, must-revalidate"`)
 - `immutableCacheControl` - Cache-Control for fingerprinted assets (default: `"public, max-age=31536000, immutable"`)
-- `detectImmutableAssets` - Auto-detect fingerprinted files for long caching (default: `true`)
 
 **Server Configuration:**
 
@@ -592,13 +591,15 @@ const server = new StaticWebServer({
   assetFolders: {
     '/assets': 'assets', // CSS, JS, images - relative to buildDir
     '/images': 'images', // Additional images folder - relative to buildDir
-    '/downloads': 'downloads', // Downloadable files - relative to buildDir
+    // Per-folder override: this folder holds fingerprinted files too, so
+    // opt it into immutable detection (only /assets gets it by default)
+    '/downloads': { path: 'downloads', detectImmutableAssets: true },
+    '/.well-known': '.well-known', // Verbatim files - detection off by default
   },
-  detectImmutableAssets: true, // Auto-detect fingerprinted files (default: true)
 });
 ```
 
-Files with content hashes (e.g., `app-abc123.js`) automatically get long cache headers (`max-age=31536000, immutable`).
+Files with content hashes (e.g., `app-abc123.js`) automatically get long cache headers (`max-age=31536000, immutable`). Detection resolves per folder: a `{ path, detectImmutableAssets }` value if you set one, otherwise the name-based default matching the SSR server behavior, on by default for `/assets` (Vite's hashed output), off by default for every other folder, since verbatim files with hash-looking names must not be cached as immutable. There is no top-level flag. Detection is a filename heuristic (6+ base64url characters before the extension, containing at least one digit or uppercase letter), so all-lowercase names like `some-multi-word.txt` are safe but a verbatim name like `report-CHAPTER2.pdf` can still look hashed. Only opt a folder in when it genuinely contains fingerprinted files.
 
 ##### Development Mode
 
@@ -845,5 +846,7 @@ RewriteRule ^ index.php [L]
 > **Note:** There is no `!-f` condition. This means `.html` files are never served directly by Apache, preventing React hydration mismatches if a user visits `/about.html` instead of `/about`.
 
 > **Error pages:** Generate `/404` as a `{ type: 'ssg' }` page and `/500` as a `{ type: 'html' }` page (see [HTML Pages](#html-pages)). Both are automatically detected from `page-map.json` and served with the correct status codes, removed from normal routes so they are never served with a `200` status.
+
+> **Immutable detection:** The PHP server mirrors `StaticWebServer` here too. An `assetFolders` value can be a `['path' => ..., 'detectImmutableAssets' => ...]` array, and detection resolves per folder: the per-folder value if set, otherwise the name-based default (on for `/assets`, off for other folders). Neither server has a top-level flag.
 
 See the [unirend/php-static-server README](../unirend-php/README.md) for the full options reference and local development tips.

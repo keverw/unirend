@@ -93,6 +93,15 @@ class FileServerTest extends TestCase
         $this->assertTrue(FileServer::isImmutableAsset('main.MixedCase123.js'));
     }
 
+    public function testDetectsBase64urlHashes(): void
+    {
+        // Vite/Rollup hashes use the base64url alphabet, which includes
+        // '_' and '-' (mirrors the Node.js regression fix)
+        $this->assertTrue(FileServer::isImmutableAsset('index-CRJ_nHAW.css'));
+        $this->assertTrue(FileServer::isImmutableAsset('main.CRJ_nHAW.js'));
+        $this->assertTrue(FileServer::isImmutableAsset('chunk-a_b-c_d1.js'));
+    }
+
     public function testNonHashedFileIsNotImmutable(): void
     {
         $this->assertFalse(FileServer::isImmutableAsset('app.js'));
@@ -114,6 +123,27 @@ class FileServerTest extends TestCase
         // Hash exists but not with proper separator pattern
         $this->assertFalse(FileServer::isImmutableAsset('app_abc123ef.js'));
         $this->assertFalse(FileServer::isImmutableAsset('appabc123ef.js'));
+    }
+
+    public function testLowercaseWordsAreNotImmutable(): void
+    {
+        // A 6+ char run with no digit or uppercase letter is treated as an
+        // ordinary word, not a content hash (mirrors the Node.js heuristic)
+        $this->assertFalse(
+            FileServer::isImmutableAsset('apple-touch-icon.png'),
+        );
+        $this->assertFalse(FileServer::isImmutableAsset('some-multi-word.txt'));
+        $this->assertFalse(FileServer::isImmutableAsset('my-file_name.png'));
+        $this->assertFalse(FileServer::isImmutableAsset('logo-small.png'));
+        $this->assertFalse(FileServer::isImmutableAsset('jquery.min.js'));
+    }
+
+    public function testHashWithDigitOrUppercaseIsStillImmutable(): void
+    {
+        // Real bundler hashes contain digits or uppercase letters
+        $this->assertTrue(FileServer::isImmutableAsset('index-CRJ_nHAW.css'));
+        $this->assertTrue(FileServer::isImmutableAsset('main.a1b2c3d4.js'));
+        $this->assertTrue(FileServer::isImmutableAsset('chunk-CTpDmzGw.js'));
     }
 
     // -------------------------------------------------------------------------

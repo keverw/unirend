@@ -202,8 +202,12 @@ class FileServer
      *   chunk-abc123ef.js        (dash-separated)
      *   main.CTpDmzGw.js         (alphanumeric hash)
      *
-     * We look for at least 6 alphanumeric chars with either dot or dash separator
-     * to indicate a content hash. If detected, the file can be cached with immutable headers.
+     * We look for a run of at least 6 base64url-alphabet chars with either a
+     * dot or dash separator, and the run must contain at least one digit or
+     * uppercase letter (real bundler hashes virtually always do). This keeps
+     * ordinary lowercase words like 'apple-touch-icon.png' or
+     * 'some-multi-word.txt' from being treated as fingerprinted. If detected,
+     * the file can be cached with immutable headers.
      *
      * Patterns supported:
      *   1. .{hash}.{ext} pattern (e.g., main.CTpDmzGw.js)
@@ -215,6 +219,7 @@ class FileServer
      *   main.CTpDmzGw.js         →  true
      *   app.js                   →  false
      *   index.html               →  false
+     *   apple-touch-icon.png     →  false (no digit or uppercase in the run)
      */
     public static function isImmutableAsset(string $filename): bool
     {
@@ -223,8 +228,19 @@ class FileServer
         // Check for fingerprint patterns:
         // 1. .{hash}.{ext} pattern (e.g., main.CTpDmzGw.js)
         // 2. -{hash}.{ext} pattern (e.g., chunk-CTpDmzGw.js)
-        return (bool) (preg_match('/\.[A-Za-z0-9]{6,}\./', $basename) ||
-            preg_match('/-[A-Za-z0-9]{6,}\./', $basename));
+        // Vite/Rollup hashes use the base64url alphabet, so '_' and '-' are
+        // valid hash characters (e.g. index-CRJ_nHAW.css). The lookahead
+        // requires at least one digit or uppercase letter in the run so
+        // plain lowercase words (e.g. 'apple-touch-icon.png') don't match —
+        // mirrors the Node.js StaticContentCache detection.
+        return (bool) (preg_match(
+            '/\.(?=[A-Za-z0-9_-]*[A-Z0-9])[A-Za-z0-9_-]{6,}\./',
+            $basename,
+        ) ||
+            preg_match(
+                '/-(?=[A-Za-z0-9_-]*[A-Z0-9])[A-Za-z0-9_-]{6,}\./',
+                $basename,
+            ));
     }
 
     /**

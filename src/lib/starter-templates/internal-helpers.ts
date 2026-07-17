@@ -45,6 +45,7 @@ import {
   APP_INDEX_HTML_CSPELL_WORDS,
 } from './templates-shared/app-index-html';
 import { ensureAppConsts } from './templates-shared/app-consts';
+import { ensurePublicAssetsConfig } from './templates-shared/public-assets-config';
 import { ensureAppIndexCSS } from './templates-shared/app-index-css';
 import { ensureAppEntryClient } from './templates-shared/app-entry-client';
 import { ensureAppEntryServer } from './templates-shared/app-entry-server';
@@ -52,6 +53,7 @@ import { ensureAppPublicRobots } from './templates-shared/app-public-robots';
 import { ensureAppPublicFavicon } from './templates-shared/app-public-favicon';
 import { ensureAppPublicFaviconICO } from './templates-shared/app-public-favicon-ico';
 import { ensureGenerateBuildInfo } from './templates-shared/generate-build-info';
+import { ensureCheckPublicAssets } from './templates-shared/check-public-assets';
 import { ensureBuildInfoOutput } from './templates-shared/build-info-config';
 import { ensureAPIComponent } from './templates-specific/api/api-component';
 import { ensureAPIServe } from './templates-specific/api/api-serve';
@@ -250,6 +252,11 @@ export async function ensureBaseFiles(
 
   // Ensure scripts/clean-cspell.ts exists (only creates if missing)
   await ensureCleanCspell(repoRoot, options?.log);
+
+  // Ensure scripts/check-public-assets.ts exists (only creates if missing).
+  // Written for every repo — it reads unirend-repo.json and no-ops when there
+  // are no SSR/SSG projects — so the default `check` chain always resolves.
+  await ensureCheckPublicAssets(repoRoot, options?.log);
 
   // Ensure .vscode/extensions.json exists (creates or updates with missing extensions)
   await ensureVSCodeExtensions(repoRoot, options?.log);
@@ -511,6 +518,7 @@ export async function createProjectSpecificFiles(
     await ensureAppEntryClient(root, projectPath, log);
     await ensureAppEntryServer(root, projectPath, 'ssg', log);
     await ensureAppConsts(root, projectPath, 'ssg', projectName, log);
+    await ensurePublicAssetsConfig(root, projectPath, log);
 
     // Shared public/ directory files (SSG, SSR).
     await ensureAppPublicRobots(root, projectPath, log);
@@ -556,6 +564,7 @@ export async function createProjectSpecificFiles(
     await ensureAppEntryClient(root, projectPath, log);
     await ensureAppEntryServer(root, projectPath, 'ssr', log);
     await ensureAppConsts(root, projectPath, 'ssr', projectName, log);
+    await ensurePublicAssetsConfig(root, projectPath, log);
 
     // Shared public/ directory files (SSG, SSR).
     await ensureAppPublicRobots(root, projectPath, log);

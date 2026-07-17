@@ -230,6 +230,53 @@ describe('StaticWebServer', () => {
         }),
       ).toThrow(TypeError);
     });
+
+    it('accepts a per-folder assetFolders config object', () => {
+      expect(() =>
+        makeServer({
+          assetFolders: {
+            '/assets': 'assets',
+            '/.well-known': {
+              path: '.well-known',
+              detectImmutableAssets: false,
+            },
+          },
+        }),
+      ).not.toThrow();
+    });
+
+    it('throws TypeError if an assetFolders config object has no path', () => {
+      expect(() =>
+        makeServer({
+          assetFolders: {
+            '/assets': {} as unknown as string,
+          },
+        }),
+      ).toThrow(TypeError);
+    });
+
+    it('throws TypeError if a per-folder detectImmutableAssets is not a boolean', () => {
+      // Guards plain-JS callers: the string "false" would stay truthy and
+      // silently enable immutable caching.
+      expect(() =>
+        makeServer({
+          assetFolders: {
+            '/assets': {
+              path: 'assets',
+              detectImmutableAssets: 'false',
+            } as unknown as string,
+          },
+        }),
+      ).toThrow(/detectImmutableAssets must be a boolean/);
+    });
+
+    it('rejects the removed top-level detectImmutableAssets option', () => {
+      expect(() =>
+        makeServer({
+          detectImmutableAssets: true,
+        } as unknown as Parameters<typeof makeServer>[0]),
+      ).toThrow(/set it per folder/);
+    });
   });
 
   // ─── isListening() ──────────────────────────────────────────────────────────
@@ -328,6 +375,120 @@ describe('StaticWebServer', () => {
       server = makeServer();
 
       expect(server.listen(testPort)).rejects.toThrow('Invalid page map entry');
+    });
+
+    it('rejects a singleAssets value that resolves outside buildDir', () => {
+      setReadFileMock({ 'page-map.json': VALID_PAGE_MAP });
+      server = makeServer({ singleAssets: { '/secret': '../secret.txt' } });
+
+      expect(server.listen(testPort)).rejects.toThrow(
+        'singleAssets values must resolve within buildDir',
+      );
+    });
+
+    it('rejects an assetFolders value that resolves outside buildDir', () => {
+      setReadFileMock({ 'page-map.json': VALID_PAGE_MAP });
+      server = makeServer({ assetFolders: { '/secret': '../secret' } });
+
+      expect(server.listen(testPort)).rejects.toThrow(
+        'assetFolders values must resolve within buildDir',
+      );
+    });
+
+    it('rejects singleAssets and assetFolders paths through an outside symlink', async () => {
+      (fs.promises as { readFile: unknown }).readFile = originalReadFile;
+
+      const symlinkBuildDir = await createTempDir({
+        prefix: 'unirend-static-symlink-build-',
+        unsafeCleanup: true,
+      });
+      const symlinkOutsideDir = await createTempDir({
+        prefix: 'unirend-static-symlink-outside-',
+        unsafeCleanup: true,
+      });
+
+      try {
+        fs.writeFileSync(
+          path.join(symlinkBuildDir.path, 'page-map.json'),
+          JSON.stringify({ '/': 'index.html' }),
+        );
+        fs.writeFileSync(
+          path.join(symlinkBuildDir.path, 'index.html'),
+          '<html></html>',
+        );
+        fs.writeFileSync(
+          path.join(symlinkOutsideDir.path, 'secret.txt'),
+          'secret',
+        );
+        fs.symlinkSync(
+          symlinkOutsideDir.path,
+          path.join(symlinkBuildDir.path, 'link'),
+          'dir',
+        );
+
+        server = new StaticWebServer({
+          buildDir: symlinkBuildDir.path,
+          singleAssets: { '/secret': 'link/secret.txt' },
+        });
+        expect(server.listen(testPort)).rejects.toThrow(
+          'singleAssets values must resolve within buildDir',
+        );
+
+        server = new StaticWebServer({
+          buildDir: symlinkBuildDir.path,
+          assetFolders: { '/secret': 'link' },
+        });
+        expect(server.listen(testPort)).rejects.toThrow(
+          'assetFolders values must resolve within buildDir',
+        );
+      } finally {
+        await symlinkBuildDir.cleanup();
+        await symlinkOutsideDir.cleanup();
+        (fs.promises as { readFile: unknown }).readFile = mockReadFile;
+      }
+    });
+
+    it('reports a contextual configuration error for a symlink cycle', async () => {
+      (fs.promises as { readFile: unknown }).readFile = originalReadFile;
+
+      const symlinkCycleBuildDir = await createTempDir({
+        prefix: 'unirend-static-symlink-cycle-',
+        unsafeCleanup: true,
+      });
+
+      try {
+        fs.writeFileSync(
+          path.join(symlinkCycleBuildDir.path, 'page-map.json'),
+          JSON.stringify({ '/': 'index.html' }),
+        );
+        fs.writeFileSync(
+          path.join(symlinkCycleBuildDir.path, 'index.html'),
+          '<html></html>',
+        );
+        fs.symlinkSync('loop', path.join(symlinkCycleBuildDir.path, 'loop'));
+
+        server = new StaticWebServer({
+          buildDir: symlinkCycleBuildDir.path,
+          singleAssets: { '/loop': 'loop/file.txt' },
+        });
+
+        try {
+          await server.listen(testPort);
+          throw new Error('Expected listen() to reject');
+        } catch (error) {
+          expect(error).toBeInstanceOf(TypeError);
+          expect((error as Error).message).toContain(
+            'StaticWebServerOptions.singleAssets value "loop/file.txt"',
+          );
+          expect((error as Error).message).toContain('ELOOP');
+          expect(((error as Error).cause as NodeJS.ErrnoException).code).toBe(
+            'ELOOP',
+          );
+        }
+      } finally {
+        await symlinkCycleBuildDir.cleanup();
+        (fs.promises as { readFile: unknown }).readFile = mockReadFile;
+      }
     });
 
     it('starts the server successfully with a valid page map', async () => {
@@ -989,6 +1150,175 @@ describe('StaticWebServer', () => {
         expect(notModifiedResponse.body.length).toBe(0);
       } finally {
         await compressionTmpDir.cleanup();
+        (fs.promises as { readFile: unknown }).readFile = mockReadFile;
+      }
+    });
+
+    it('defaults immutable detection on for /assets and off for other folders', async () => {
+      (fs.promises as { readFile: unknown }).readFile = originalReadFile;
+
+      const detectionTmpDir = await createTempDir({
+        prefix: 'unirend-static-detection-',
+        unsafeCleanup: true,
+      });
+
+      try {
+        const tempBuildDir = detectionTmpDir.path;
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'page-map.json'),
+          JSON.stringify({ '/': 'index.html' }),
+        );
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'index.html'),
+          '<html></html>',
+        );
+        // Hash-looking filenames in both folders — only /assets should get
+        // the immutable header by default.
+        fs.mkdirSync(path.join(tempBuildDir, 'assets'));
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'assets', 'app-CRJ_nHAW.js'),
+          'js',
+        );
+        fs.mkdirSync(path.join(tempBuildDir, 'extra'));
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'extra', 'file-CRJ_nHAW.js'),
+          'js',
+        );
+
+        server = new StaticWebServer({
+          buildDir: tempBuildDir,
+          pageMapPath: 'page-map.json',
+          assetFolders: {
+            '/assets': 'assets',
+            '/extra': 'extra',
+          },
+        });
+
+        await server.listen(testPort);
+
+        const assetResponse = await fetch(
+          `http://localhost:${testPort}/assets/app-CRJ_nHAW.js`,
+        );
+        expect(assetResponse.status).toBe(200);
+        expect(assetResponse.headers.get('cache-control')).toContain(
+          'immutable',
+        );
+
+        const extraResponse = await fetch(
+          `http://localhost:${testPort}/extra/file-CRJ_nHAW.js`,
+        );
+        expect(extraResponse.status).toBe(200);
+        expect(extraResponse.headers.get('cache-control')).not.toContain(
+          'immutable',
+        );
+      } finally {
+        await detectionTmpDir.cleanup();
+        (fs.promises as { readFile: unknown }).readFile = mockReadFile;
+      }
+    });
+
+    it('a per-folder detectImmutableAssets opts a non-assets folder into detection', async () => {
+      (fs.promises as { readFile: unknown }).readFile = originalReadFile;
+
+      const detectionTmpDir = await createTempDir({
+        prefix: 'unirend-static-detection-top-',
+        unsafeCleanup: true,
+      });
+
+      try {
+        const tempBuildDir = detectionTmpDir.path;
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'page-map.json'),
+          JSON.stringify({ '/': 'index.html' }),
+        );
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'index.html'),
+          '<html></html>',
+        );
+        fs.mkdirSync(path.join(tempBuildDir, 'extra'));
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'extra', 'file-CRJ_nHAW.js'),
+          'js',
+        );
+
+        server = new StaticWebServer({
+          buildDir: tempBuildDir,
+          pageMapPath: 'page-map.json',
+          assetFolders: {
+            '/extra': { path: 'extra', detectImmutableAssets: true },
+          },
+        });
+
+        await server.listen(testPort);
+
+        const extraResponse = await fetch(
+          `http://localhost:${testPort}/extra/file-CRJ_nHAW.js`,
+        );
+        expect(extraResponse.status).toBe(200);
+        expect(extraResponse.headers.get('cache-control')).toContain(
+          'immutable',
+        );
+      } finally {
+        await detectionTmpDir.cleanup();
+        (fs.promises as { readFile: unknown }).readFile = mockReadFile;
+      }
+    });
+
+    it('normalizes singleAssets/assetFolders keys and values (leading slashes, collapsed slashes)', async () => {
+      (fs.promises as { readFile: unknown }).readFile = originalReadFile;
+
+      const normalizeTmpDir = await createTempDir({
+        prefix: 'unirend-static-normalize-',
+        unsafeCleanup: true,
+      });
+
+      try {
+        const tempBuildDir = normalizeTmpDir.path;
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'page-map.json'),
+          JSON.stringify({ '/': 'index.html' }),
+        );
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'index.html'),
+          '<html></html>',
+        );
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'robots.txt'),
+          'User-agent: *',
+        );
+        fs.mkdirSync(path.join(tempBuildDir, 'icons'));
+        fs.writeFileSync(
+          path.join(tempBuildDir, 'icons', 'logo.svg'),
+          '<svg/>',
+        );
+
+        server = new StaticWebServer({
+          buildDir: tempBuildDir,
+          pageMapPath: 'page-map.json',
+          // Key without a leading slash, value WITH one: the key gets the
+          // slash added, and the value stays relative to buildDir instead of
+          // escaping to an absolute path via path.resolve.
+          singleAssets: { 'robots.txt': '/robots.txt' },
+          // Repeated slashes in the key collapse; leading slash in the value
+          // is relative to buildDir, like the PHP static server.
+          assetFolders: { '//icons': '/icons' },
+        });
+
+        await server.listen(testPort);
+
+        const robotsResponse = await fetch(
+          `http://localhost:${testPort}/robots.txt`,
+        );
+        expect(robotsResponse.status).toBe(200);
+        expect(await robotsResponse.text()).toBe('User-agent: *');
+
+        const logoResponse = await fetch(
+          `http://localhost:${testPort}/icons/logo.svg`,
+        );
+        expect(logoResponse.status).toBe(200);
+        expect(await logoResponse.text()).toBe('<svg/>');
+      } finally {
+        await normalizeTmpDir.cleanup();
         (fs.promises as { readFile: unknown }).readFile = mockReadFile;
       }
     });
