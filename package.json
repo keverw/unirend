@@ -36,6 +36,10 @@
       "types": "./dist/build-info/build-info.d.ts",
       "import": "./dist/build-info/build-info.js"
     },
+    "./repo-tools": {
+      "types": "./dist/repo-tools/repo-tools.d.ts",
+      "import": "./dist/repo-tools/repo-tools.js"
+    },
     "./config-vite": {
       "types": "./dist/config-vite/config-vite.d.ts",
       "import": "./dist/config-vite/config-vite.js"
@@ -163,7 +167,6 @@
     "get-port": "^7.2.0",
     "lifecycleion": "^0.0.18",
     "markdown-toc-gen": "^1.2.0",
-    "picomatch": "^4.0.5",
     "prettier": "^3.9.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
@@ -189,6 +192,7 @@
     "cheerio": "^1.2.0",
     "entities": "^8.0.0",
     "fastify": "^5.9.0",
+    "picomatch": "^4.0.5",
     "punycode": "^2.3.1",
     "qs": "^6.15.3",
     "range_check": "^4.1.0",

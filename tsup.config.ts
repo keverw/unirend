@@ -142,6 +142,9 @@ export default defineConfig([
   // Build info (server-side)
   { ...baseConfig, entry: ['src/build-info.ts'], outDir: 'dist/build-info' },
 
+  // Repo maintenance tools (backing the scaffolded scripts)
+  { ...baseConfig, entry: ['src/repo-tools.ts'], outDir: 'dist/repo-tools' },
+
   // Vite config helpers
   {
     ...baseConfig,

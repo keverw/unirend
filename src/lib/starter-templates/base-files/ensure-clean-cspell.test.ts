@@ -13,8 +13,18 @@ describe('ensureCleanCspell', () => {
 
     expect('scripts/clean-cspell.ts' in memRoot).toBe(true);
     const content = memRoot['scripts/clean-cspell.ts'] as string;
-    expect(content).toContain("import picomatch from 'picomatch';");
-    expect(content).toContain('async function getFiles(');
+
+    // The wrapper delegates to the packaged scan (so repos pick up fixes by
+    // upgrading unirend), parses the fix flags, and sets the exit code.
+    expect(content).toContain(
+      "import { cleanCspell } from 'unirend/repo-tools';",
+    );
+    expect(content).toContain("process.argv.includes('--write')");
+    expect(content).toContain('await cleanCspell({');
+    // Anchored to the repo root so direct invocation from a subfolder works
+    expect(content).toContain("rootDir: join(import.meta.dirname, '..'),");
+    expect(content).toContain('fix: isFix,');
+    expect(content).toContain('process.exit(1)');
   });
 
   test('logs when creating scripts/clean-cspell.ts', async () => {
