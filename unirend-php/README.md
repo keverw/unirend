@@ -28,7 +28,7 @@ Serve [Unirend](https://github.com/keverw/unirend) SSG output on shared hosting 
 - [Local Development](#local-development)
 - [Versioning](#versioning)
 - [Changelog](#changelog)
-  - [0.1.0 (July 15, 2026)](#010-july-15-2026)
+  - [0.1.0 (July 16, 2026)](#010-july-16-2026)
 - [Contributing to unirend-php](#contributing-to-unirend-php)
   - [Running Tests](#running-tests)
   - [Running the Demo Locally](#running-the-demo-locally)
@@ -279,7 +279,7 @@ This package is versioned independently from the `unirend` npm package. It targe
 
 Runs oldest to newest. The `0.0.x` line was early iteration that was not logged per version, so entries start at `0.1.0`.
 
-### 0.1.0 (July 15, 2026)
+### 0.1.0 (July 16, 2026)
 
 - **Breaking:** Immutable-asset detection now resolves per folder, and the top-level `detectImmutableAssets` option is removed (the constructor throws if it is passed, pointing at the replacement). An `assetFolders` value can be a `['path' => ..., 'detectImmutableAssets' => ...]` array as well as a plain string, and detection is the per-folder value if given, otherwise a name-based default matching `StaticWebServer` from the `unirend` npm package: on for `/assets` (Vite's hashed build output), off for every other folder. Previously the top-level flag defaulted to `true` and applied to every folder, so a folder of verbatim `public/` files with a name that merely looks hashed was served with a year-long immutable header. Configs that mount only `/assets` keep identical behavior with no flag at all.
 - Fixed immutable-asset detection missing fingerprinted files whose hash contains `_` or `-`. Vite/Rollup hashes use the base64url alphabet, but detection only accepted alphanumerics, so a file like `index-CRJ_nHAW.css` was served with `must-revalidate` instead of the immutable Cache-Control header. Same fix applied as the `unirend` npm package, whose detection had the identical gap.

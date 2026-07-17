@@ -10,7 +10,7 @@
 - [0.1.4 (July 3, 2026)](#014-july-3-2026)
 - [0.1.5 (July 8, 2026)](#015-july-8-2026)
 - [0.1.6 (July 12, 2026)](#016-july-12-2026)
-- [Unreleased](#unreleased)
+- [0.1.7 (July 16, 2026)](#017-july-16-2026)
 
 <!-- tocstop -->
 
@@ -102,7 +102,7 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 
 - Fixed `CDNBaseURL` rewriting protocol-relative asset URLs in `index.html` as if they were local. The rewrite treated any `src`/`href` starting with `/` as a local asset, but a protocol-relative URL like `//widget.vendor.com/w.js` starts with one too while pointing at another origin, so it was rewritten to `https://your-cdn.example.com//widget.vendor.com/w.js` and failed to load. Such URLs are now left alone, like fully-qualified `https://` ones already were. Only affected production builds with `CDNBaseURL` set, and only templates carrying a `//` URL, which some older third-party analytics and font embeds still use.
 
-## Unreleased
+## 0.1.7 (July 16, 2026)
 
 - **Breaking:** The SSR server's `staticContentRouter` option (`serveSSRBuilt()` / `registerBuiltApp()`) now rejects a `folderMap` prefix of `/` (or a folder path that resolves to the client build root) with a config-time error. Mounting the root made every page request stat the disk and exposed `/index.html` and `/.vite/manifest.json`. Declare root-level files with the new `publicFiles` option (and subfolders with `publicFolders`) instead. The same paths are also rejected as `publicFiles`/`publicFolders` entries at config time (not itself a breaking change, since the options are new), and `staticContentRouter.singleAssetMap` is the deliberate escape hatch for exposing them. This check is specific to the SSR option, which is bound to a known Vite build layout. The `staticContent` plugin and raw `StaticContentCache` are unchanged, and root mounts there remain legitimate (e.g. serving SSG output or page maps at `/`).
 - **Breaking:** `StaticWebServer` (the built-in static server for SSG output) resolves immutable-asset detection per folder now, and the top-level `detectImmutableAssets` option is removed (the constructor throws if it is passed, pointing at the replacement). An `assetFolders` value can be a `{ path, detectImmutableAssets? }` object as well as a plain string, and detection is the per-folder value if given, otherwise a name-based default matching the SSR server: on for `/assets`, off for every other folder. Previously the top-level flag defaulted to `true` and every plain-string folder inherited it, so a folder of verbatim `public/` files with a name that merely looks hashed (e.g. `my-file_name.png`) was served with a year-long immutable header. Configs that mount only `/assets` keep identical behavior with no flag at all. The PHP companion (`unirend/php-static-server`) ships the same changes (including the base64url detection fix below, which its regex also needed) in its next release, 0.1.0.
