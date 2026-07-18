@@ -684,8 +684,15 @@ async function checkApp(
   // Files under a declared folder are served by URL too, so a filename
   // with URL-unsafe characters still 404s — no boot check catches these
   // (the folder declaration itself is valid), making CI the only guard.
+  // Skip OS junk: a gitignored junk file has already been dropped from
+  // junkInPublic and shouldn't resurface here, and a non-ignored one gets
+  // its own junk error whose fix is to gitignore it, not rename it.
   for (const filePath of actual) {
-    if (isUnderDeclaredFolder(filePath) && URL_UNSAFE_PATTERN.test(filePath)) {
+    if (
+      isUnderDeclaredFolder(filePath) &&
+      !isOSJunkPublicPath(filePath) &&
+      URL_UNSAFE_PATTERN.test(filePath)
+    ) {
       problems.push(
         `${label}: ${JSON.stringify(filePath)} is covered by ${foldersExport} but its name contains characters browsers percent-encode in URLs (like spaces, %, #, ?, or non-ASCII), so requests for it 404 in production. Rename it in public/ to URL-safe characters.`,
       );
