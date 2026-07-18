@@ -151,6 +151,12 @@ async function getGitignoredPaths(
       // echoed path would no longer match what we sent and a gitignored file
       // like '.AppleDouble/café' would flip to a false hard failure.
       ['-C', cwd, 'check-ignore', '-z', '--stdin'],
+      // git echoes every ignored path back on stdout; a project with a large
+      // number of (or very long) junk paths could exceed execFile's 1MB default
+      // maxBuffer, which surfaces as an ERR_CHILD_PROCESS_STDIO_MAXBUFFER error
+      // (not 128/ENOENT) and would fall through with truncated stdout, silently
+      // mis-classifying ignored junk as shippable. Give it generous headroom.
+      { maxBuffer: 64 * 1024 * 1024 },
       (error, stdout) => {
         // execFile sets `code` to the exit status (number) on a non-zero exit,
         // or to a spawn error string like 'ENOENT' when git can't be launched.
@@ -173,6 +179,13 @@ async function getGitignoredPaths(
         resolve({ ignored, isGitAvailable: true });
       },
     );
+
+    // When the tree isn't a repo, git exits 128 without reading stdin, so the
+    // write below can hit a closed pipe once the payload outgrows the OS pipe
+    // buffer. Swallow the resulting EPIPE so it degrades to isGitAvailable:false
+    // (via the exit-128 branch above) instead of crashing with an uncaught
+    // 'error' on the stream.
+    child.stdin?.on('error', () => {});
 
     // NUL-delimited input to match -z (no trailing NUL needed; git reads the
     // final path without one).
