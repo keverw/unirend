@@ -1,5 +1,6 @@
 import { vfsListDir } from './vfs';
 import type { FileRoot } from './vfs';
+import { isOSJunkBasename } from '../internal/os-junk';
 
 /**
  * Derive an app-scoped environment variable name from a project name and suffix.
@@ -12,9 +13,9 @@ export function buildAppEnvVarName(appName: string, suffix: string): string {
 
 /**
  * Non-content entries that never count toward a directory being "non-empty".
- * These are OS/cloud junk files plus git and config files that are fine to find
- * in an otherwise-fresh repo. Matched case-insensitively against the lowercased
- * entry name.
+ * These are cloud junk files plus git and config files that are fine to find
+ * in an otherwise-fresh repo. OS junk is handled by the shared
+ * isOSJunkBasename() predicate.
  */
 const IGNORED_ENTRY_NAMES = new Set([
   // Git (someone may have run `git init` but not added any files yet)
@@ -22,32 +23,10 @@ const IGNORED_ENTRY_NAMES = new Set([
   '.gitignore',
   '.gitattributes',
   '.gitkeep',
-  // macOS
-  '.ds_store',
-  '.appledouble',
-  '.lsoverride',
-  '.spotlight-v100',
-  '.trashes',
-  '.fseventsd',
-  'icon\r',
-  // Windows
-  'thumbs.db',
-  'ehthumbs.db',
-  'desktop.ini',
-  // Linux
-  '.directory',
   // Cloud
   '.dropbox',
   '.dropbox.attr',
 ]);
-
-/**
- * Glob-style junk patterns, tested against the lowercased entry name.
- */
-const IGNORED_ENTRY_PATTERNS: RegExp[] = [
-  /^\._.*$/, // macOS AppleDouble resource forks (._*)
-  /^\.trash-.*$/, // Linux trash dirs (.Trash-*)
-];
 
 // Real content files that shouldn't block init, but are worth surfacing so the
 // user knows they were found and left untouched. Matched case-insensitively.
@@ -83,13 +62,9 @@ export function isLicenseEntry(entry: string): boolean {
 }
 
 function isIgnoredEntry(entry: string): boolean {
-  const lower = entry.toLowerCase();
-
-  if (IGNORED_ENTRY_NAMES.has(lower)) {
-    return true;
-  }
-
-  return IGNORED_ENTRY_PATTERNS.some((pattern) => pattern.test(lower));
+  return (
+    isOSJunkBasename(entry) || IGNORED_ENTRY_NAMES.has(entry.toLowerCase())
+  );
 }
 
 function isNoticeEntry(entry: string): boolean {

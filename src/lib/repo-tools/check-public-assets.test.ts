@@ -1,6 +1,7 @@
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
 import path from 'path';
 import fs from 'fs';
+import { execFileSync } from 'child_process';
 import { createTempDir } from 'lifecycleion/tmp-dir';
 import type { TmpDir } from 'lifecycleion/tmp-dir';
 import { checkPublicAssets } from './check-public-assets';
@@ -15,6 +16,8 @@ import { checkPublicAssets } from './check-public-assets';
 describe('check-public-assets script behavior', () => {
   let tmpDir: TmpDir;
   let repoDir: string;
+  let savedGitConfigGlobal: string | undefined;
+  let savedGitConfigSystem: string | undefined;
 
   beforeEach(async () => {
     // unsafeCleanup: the fake repo is full of files by the time cleanup runs
@@ -23,10 +26,30 @@ describe('check-public-assets script behavior', () => {
       unsafeCleanup: true,
     });
     repoDir = tmpDir.path;
+
+    // Neutralize the developer's global/system git excludes (many macOS
+    // setups gitignore .DS_Store globally) so the gitignore-aware tests see
+    // only the repo's own .gitignore and stay deterministic across machines.
+    // The check spawns git inheriting this env, so these apply to it too.
+    savedGitConfigGlobal = process.env.GIT_CONFIG_GLOBAL;
+    savedGitConfigSystem = process.env.GIT_CONFIG_SYSTEM;
+    process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+    process.env.GIT_CONFIG_SYSTEM = '/dev/null';
   });
 
   afterEach(async () => {
     await tmpDir.cleanup();
+
+    const restore = (key: string, value: string | undefined) => {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    };
+
+    restore('GIT_CONFIG_GLOBAL', savedGitConfigGlobal);
+    restore('GIT_CONFIG_SYSTEM', savedGitConfigSystem);
   });
 
   async function writeApp(options: {
@@ -108,6 +131,23 @@ describe('check-public-assets script behavior', () => {
     });
 
     return { exitCode: result.success ? 0 : 1, output: lines.join('\n') };
+  }
+
+  // Turn the fake repo into an actual git repo so the check's gitignore-aware
+  // junk handling has something to query. Without this the temp dir isn't a
+  // repo and the check falls back to flagging every junk file.
+  function gitInit(gitignore?: string): void {
+    execFileSync('git', ['init', '-q'], { cwd: repoDir });
+
+    if (gitignore !== undefined) {
+      fs.writeFileSync(path.join(repoDir, '.gitignore'), gitignore);
+    }
+  }
+
+  function gitAdd(relPath: string): void {
+    // -f so an ignored path can still be staged, reproducing a junk file that
+    // was committed before it was gitignored (git then treats it as tracked).
+    execFileSync('git', ['add', '-f', relPath], { cwd: repoDir });
   }
 
   test('passes when declared and actual files match', async () => {
@@ -456,6 +496,183 @@ describe('check-public-assets script behavior', () => {
     const { exitCode, output } = await runCheck();
     expect(output).toContain('public-assets check passed');
     expect(exitCode).toBe(0);
+  });
+
+  test('fails on OS junk with gitignore guidance instead of declaration advice', async () => {
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/robots.txt'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: {
+        'robots.txt': 'User-agent: *',
+        '.ds_store': 'finder metadata',
+        'THUMBS.DB': 'explorer metadata',
+        'ehthumbs.db': 'explorer metadata',
+        'desktop.ini': 'explorer metadata',
+        '._logo.png': 'appledouble metadata',
+      },
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('public/ contains OS metadata files');
+    expect(output).toContain('/.ds_store');
+    expect(output).toContain('/THUMBS.DB');
+    expect(output).toContain('/ehthumbs.db');
+    expect(output).toContain('/desktop.ini');
+    expect(output).toContain('/._logo.png');
+    expect(output).toContain('Add the OS metadata name to .gitignore');
+    expect(output).toContain('Do not declare them');
+    expect(output).not.toContain('Add them to PUBLIC_FILES');
+  });
+
+  test('fails on OS junk inside a declared PUBLIC_FOLDERS subfolder', async () => {
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/robots.txt'];\n" +
+        "export const PUBLIC_FOLDERS = ['/images'];\n",
+      publicFiles: {
+        'robots.txt': 'User-agent: *',
+        'images/logo.png': 'png',
+        'images/.DS_Store': 'finder metadata',
+      },
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('/images/.DS_Store');
+    expect(output).toContain('public/ contains OS metadata files');
+    expect(output).not.toContain('present in public/ but not declared');
+    expect(output).not.toContain('Add them to PUBLIC_FILES');
+  });
+
+  test('fails on files inside an OS junk directory (clean basename)', async () => {
+    // .AppleDouble is a directory: a file inside it has a clean basename but
+    // the path segment is junk, so it must be caught as junk, not reported as
+    // ordinary undeclared drift.
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/robots.txt'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: {
+        'robots.txt': 'User-agent: *',
+        '.AppleDouble/metadata': 'resource fork data',
+      },
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('/.AppleDouble/metadata');
+    expect(output).toContain('public/ contains OS metadata files');
+    // Must be classed as junk, not ordinary undeclared drift.
+    expect(output).not.toContain('present in public/ but not declared');
+  });
+
+  test('fails when PUBLIC_FILES explicitly declares an OS junk file', async () => {
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/robots.txt', '/.DS_Store'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: {
+        'robots.txt': 'User-agent: *',
+        '.DS_Store': 'finder metadata',
+      },
+    });
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain(
+      'PUBLIC_FILES entry "/.DS_Store" is or is under OS metadata',
+    );
+    expect(output).toContain('public/ contains OS metadata files');
+    expect(output).toContain('Do not declare');
+    expect(output).not.toContain('present in public/ but not declared');
+    expect(output).not.toContain('Add them to PUBLIC_FILES');
+  });
+
+  test('skips gitignored OS junk instead of failing', async () => {
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/robots.txt'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: {
+        'robots.txt': 'User-agent: *',
+        '.DS_Store': 'finder metadata',
+      },
+    });
+    // A root .gitignore covering .DS_Store means the untracked junk file can
+    // never be committed, so it stays out of a clean checkout and the check must pass.
+    gitInit('.DS_Store\n');
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(0);
+    expect(output).not.toContain('public/ contains OS metadata files');
+    // The skip is logged so the opt-out is visible in CI output.
+    expect(output).toContain('gitignored');
+    expect(output).toContain('/.DS_Store');
+  });
+
+  test('skips a gitignored junk path with a non-ASCII name (git -z, no quoting)', async () => {
+    // git quotes non-ASCII paths by default, which would make the echoed path
+    // not match what the check sent and flip this into a false hard failure.
+    // The -z NUL-delimited mode disables quoting; this locks that in.
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/robots.txt'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: {
+        'robots.txt': 'User-agent: *',
+        '.AppleDouble/café.txt': 'resource fork data',
+      },
+    });
+    gitInit('.AppleDouble\n');
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(0);
+    expect(output).not.toContain('public/ contains OS metadata files');
+    expect(output).toContain('gitignored');
+  });
+
+  test('still fails on OS junk that git would commit (not gitignored)', async () => {
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/robots.txt'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: {
+        'robots.txt': 'User-agent: *',
+        '.DS_Store': 'finder metadata',
+      },
+    });
+    // A git repo whose .gitignore does NOT cover .DS_Store — the junk file
+    // would be committed, so it reaches every build and stays a hard error.
+    gitInit('node_modules\n');
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('public/ contains OS metadata files');
+    expect(output).toContain('/.DS_Store');
+    expect(output).toContain('.gitignore');
+  });
+
+  test('fails on OS junk already tracked by git even when now gitignored', async () => {
+    await writeApp({
+      constsSrc:
+        "export const PUBLIC_FILES = ['/robots.txt'];\n" +
+        'export const PUBLIC_FOLDERS: string[] = [];\n',
+      publicFiles: {
+        'robots.txt': 'User-agent: *',
+        '.DS_Store': 'finder metadata',
+      },
+    });
+    gitInit('.DS_Store\n');
+    // Staged despite the ignore rule: git treats a tracked path as not
+    // ignored, so it still ships and must still fail.
+    gitAdd('src/apps/web/public/.DS_Store');
+
+    const { exitCode, output } = await runCheck();
+    expect(exitCode).toBe(1);
+    expect(output).toContain('public/ contains OS metadata files');
+    expect(output).toContain('/.DS_Store');
   });
 
   test('fails when a PUBLIC_FOLDERS entry is missing from public/', async () => {

@@ -1339,13 +1339,21 @@ export interface ServeSSRBuiltOptions extends ServeSSROptions {
    * dir.
    *
    * Entries with `.`/`..` segments, null bytes, backslashes, or trailing
-   * slashes are rejected at config time, as are `/index.html` (the raw HTML
-   * template — SSR serves it, not the static router), anything under `.vite/`
+   * slashes are rejected at config time. OS metadata is rejected
+   * case-insensitively too, in any path segment rather than just the basename:
+   * recognized names like `.DS_Store`, `._*`, `Thumbs.db`, `ehthumbs.db`, and
+   * `desktop.ini`, plus metadata directories like `.AppleDouble` and
+   * `.Trashes`, so an entry that lives under one (e.g.
+   * `/images/.AppleDouble/metadata`) is rejected with the offending segment
+   * named. Add that name to `.gitignore` instead of declaring it (no need to
+   * delete the file the OS just recreates). `/index.html` (the raw HTML
+   * template that SSR uses for rendering), anything under `.vite/`
    * (build metadata), and anything under `/assets/` (Vite's generated output,
-   * already served by the default mount — a single-asset entry would shadow
-   * it and lose the immutable header). Repeated slashes are collapsed and
-   * reserved names compare case-insensitively, so variants like
-   * `/assets//x.js` or `/INDEX.HTML` cannot dodge these checks.
+   * already served by the default mount) are also rejected. A single-asset
+   * entry under `/assets/` would shadow that mount and lose the immutable
+   * header. Repeated slashes are collapsed and reserved names compare
+   * case-insensitively, so variants like `/assets//x.js` or `/INDEX.HTML`
+   * cannot dodge these checks.
    * `staticContentRouter.singleAssetMap` is the deliberate escape hatch if
    * you truly need to expose those.
    *
@@ -1375,9 +1383,11 @@ export interface ServeSSRBuiltOptions extends ServeSSROptions {
    * `/index.html` and `.vite/`), as are `.vite` itself, `/assets` and
    * anything under it (already the default mount, and a nested mount would
    * win on longest-prefix and lose the immutable header), `.`/`..` segments,
-   * null bytes, and backslashes. A trailing slash is tolerated and stripped,
-   * repeated slashes are collapsed, and reserved names compare
-   * case-insensitively.
+   * null bytes, backslashes, and OS metadata in any segment (a recognized name
+   * like `/.Trashes`, or a metadata directory anywhere in the path like
+   * `/x/.AppleDouble`, with the offending segment named). A trailing slash is
+   * tolerated and stripped, repeated slashes are collapsed, and reserved names
+   * compare case-insensitively.
    *
    * @example
    * publicFolders: ['/.well-known']

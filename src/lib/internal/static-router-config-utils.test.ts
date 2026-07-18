@@ -141,6 +141,45 @@ describe('validatePublicFiles()', () => {
     ).toThrow(/under \/assets/);
   });
 
+  it('rejects OS junk file names case-insensitively and at nested paths', () => {
+    for (const entry of [
+      '/.DS_Store',
+      '/nested/.ds_store',
+      '/Thumbs.db',
+      '/THUMBS.DB',
+      '/ehthumbs.db',
+      '/desktop.ini',
+      '/images/._logo.png',
+      // A file whose basename is clean but that lives inside an OS metadata
+      // directory (.AppleDouble, .Trashes, ...) must be rejected too.
+      '/assets/.AppleDouble/metadata',
+      '/.Trashes/secret.txt',
+      '/x/.Spotlight-V100/store.db',
+    ]) {
+      expect(() => validatePublicFiles([entry], 'the app')).toThrow(
+        /OS metadata/,
+      );
+      expect(() => validatePublicFiles([entry], 'the app')).toThrow(
+        /Add ".+" to \.gitignore/,
+      );
+    }
+  });
+
+  it('names the offending junk segment (a directory), not the file inside it', () => {
+    expect(() =>
+      validatePublicFiles(['/assets/.AppleDouble/metadata'], 'the app'),
+    ).toThrow(/OS metadata \(\.AppleDouble\)/);
+    expect(() =>
+      validatePublicFiles(['/assets/.AppleDouble/metadata'], 'the app'),
+    ).toThrow(/Add "\.AppleDouble" to \.gitignore/);
+  });
+
+  it('allows legitimate dotted public paths', () => {
+    expect(
+      validatePublicFiles(['/.well-known/security.txt'], 'the app'),
+    ).toEqual(['/.well-known/security.txt']);
+  });
+
   it('collapses repeated slashes before checking reserved paths', () => {
     // '/assets//x' normalizes to the same mount as '/assets/x' in the cache,
     // so it must not dodge the reserved check.
@@ -243,6 +282,20 @@ describe('validatePublicFolders()', () => {
     expect(() => validatePublicFolders(['/ASSETS'], 'the app')).toThrow(
       /already served by default/,
     );
+  });
+
+  it('rejects OS junk folder names and junk directory segments', () => {
+    for (const entry of [
+      '/.Trashes',
+      '/.AppleDouble',
+      '/.Spotlight-V100',
+      '/.fseventsd',
+      '/media/.Trashes',
+    ]) {
+      expect(() => validatePublicFolders([entry], 'the app')).toThrow(
+        /OS metadata/,
+      );
+    }
   });
 
   it('rejects subpaths of /assets (longest-prefix matching would beat the default mount)', () => {
@@ -836,6 +889,12 @@ describe('SSR server config-time static validation', () => {
     expect(() =>
       serveSSRBuilt('/fake/build', { publicFiles: ['/../etc/passwd'] }),
     ).toThrow(/"\.\." path segment/);
+  });
+
+  it('serveSSRBuilt rejects an OS junk publicFiles entry at config time', () => {
+    expect(() =>
+      serveSSRBuilt('/fake/build', { publicFiles: ['/.DS_Store'] }),
+    ).toThrow(/OS metadata/);
   });
 
   it('serveSSRBuilt throws on a root publicFolders entry', () => {

@@ -16,6 +16,7 @@ import { pipeline } from 'node:stream/promises';
 import { LRUCache, type LRUCacheChangeEvent } from 'lifecycleion/lru-cache';
 import type { StaticContentRouterOptions, FolderConfig } from '../types';
 import { addToVaryHeader } from './http-header-utils';
+import { isOSJunkPath } from './os-junk';
 import {
   buildEncodedETag,
   compressPayload,
@@ -1344,6 +1345,26 @@ export class StaticContentCache {
             !safeRelativePath.includes('../') &&
             !safeRelativePath.includes('..\\')
           ) {
+            // Never serve OS metadata (e.g. .DS_Store, Thumbs.db) from a folder
+            // mount. Folder mounts resolve the file straight from the URL, so a
+            // junk file that slips into a declared public/ folder would
+            // otherwise be reachable — Vite copies public/ verbatim, so it can
+            // land in the build. Treating it as not-found keeps it from ever
+            // being exposed even when hygiene fails. Every URL segment is
+            // checked, not just the basename: several recognized names
+            // (.AppleDouble, .Spotlight-V100, .Trashes, .fseventsd, ...) are
+            // directories, so '/assets/.AppleDouble/metadata' must be blocked
+            // even though 'metadata' is not itself junk. The whole matched URL
+            // is checked, including the mount prefix, so a junk-named mount
+            // (folderMap: { '/.AppleDouble': dir }) can't launder junk either.
+            // This guard is folder-only: an explicit singleAssetMap key IS
+            // honored even when it resolves a junk name (e.g. a deliberate
+            // '/.DS_Store' → renamed file), because that map is an exact-match
+            // opt-in the caller chose — the sole escape hatch.
+            if (isOSJunkPath(url)) {
+              return { served: false, reason: 'not-found' };
+            }
+
             resolved = path.join(folderConfig.path, safeRelativePath);
             shouldDetectImmutable = folderConfig.detectImmutableAssets ?? false;
           }
