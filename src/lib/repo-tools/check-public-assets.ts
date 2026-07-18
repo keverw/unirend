@@ -1,5 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
+import { execFile } from 'child_process';
+import { isOSJunkPath, firstOSJunkSegment } from '../internal/os-junk';
 
 /**
  * Public-assets drift check for scaffolded repos, exported via
@@ -97,6 +99,98 @@ export interface CheckPublicAssetsResult {
 function isReservedPublicPath(urlPath: string): boolean {
   const lowered = urlPath.toLowerCase();
   return lowered === '/index.html' || lowered.split('/').includes('.vite');
+}
+
+/**
+ * Match operating-system metadata anywhere in a URL path, not just its
+ * basename: several recognized names are directories (`.AppleDouble`,
+ * `.Trashes`, ...), so `/assets/.Trashes/file` is junk even though the file
+ * itself is not.
+ */
+function isOSJunkPublicPath(urlPath: string): boolean {
+  return isOSJunkPath(urlPath);
+}
+
+/**
+ * Return which of the given public/ paths git ignores (the caller flags the
+ * rest).
+ *
+ * OS metadata like .DS_Store is recreated by the OS no matter how often it's
+ * deleted, so the durable fix is a .gitignore entry, not deletion. Once a junk
+ * file is gitignored git won't commit it, so it stays out of a clean checkout
+ * and any build made from one (like CI), and this check should stop failing on
+ * it. A junk file git WOULD commit (untracked and unignored, or already
+ * tracked) rides every build, and a plain static host or CDN serves it
+ * verbatim, so it stays a hard error.
+ *
+ * `git check-ignore` answers exactly this: it reports a path only when an
+ * exclude rule matches AND the path is not already tracked, which is the
+ * "would it ship" test. It runs with the app's publicDir as the working
+ * directory so repo-root and nested .gitignore rules both apply, and is fed
+ * publicDir-relative POSIX paths over NUL-delimited I/O (-z) so the echoed
+ * output matches what we sent even for names with non-ASCII characters.
+ *
+ * When git is missing or the tree isn't a repo (exit 128 / ENOENT),
+ * `isGitAvailable` is false and `ignored` is empty, so the caller falls back to
+ * flagging every junk file — the safe, loud default. (Exit 1 is the normal
+ * "none ignored" result, not a failure.)
+ */
+async function getGitignoredPaths(
+  cwd: string,
+  relPaths: string[],
+): Promise<{ ignored: Set<string>; isGitAvailable: boolean }> {
+  if (relPaths.length === 0) {
+    return { ignored: new Set(), isGitAvailable: true };
+  }
+
+  return new Promise((resolve) => {
+    const child = execFile(
+      'git',
+      // -z: NUL-delimited input and output. Without it git quotes (C-style
+      // octal-escapes) any path with non-ASCII or control characters, so the
+      // echoed path would no longer match what we sent and a gitignored file
+      // like '.AppleDouble/café' would flip to a false hard failure.
+      ['-C', cwd, 'check-ignore', '-z', '--stdin'],
+      // git echoes every ignored path back on stdout; a project with a large
+      // number of (or very long) junk paths could exceed execFile's 1MB default
+      // maxBuffer, which surfaces as an ERR_CHILD_PROCESS_STDIO_MAXBUFFER error
+      // (not 128/ENOENT) and would fall through with truncated stdout, silently
+      // mis-classifying ignored junk as shippable. Give it generous headroom.
+      { maxBuffer: 64 * 1024 * 1024 },
+      (error, stdout) => {
+        // execFile sets `code` to the exit status (number) on a non-zero exit,
+        // or to a spawn error string like 'ENOENT' when git can't be launched.
+        const code = (error as (Error & { code?: string | number }) | null)
+          ?.code;
+
+        // Can't tell whether these would ship: not a git repo (128) or git not
+        // installed (ENOENT). Report unavailable so the caller flags them all.
+        if (code === 128 || code === 'ENOENT') {
+          resolve({ ignored: new Set(), isGitAvailable: false });
+          return;
+        }
+
+        // Exit 0 (some ignored) and exit 1 (none ignored) both land here with
+        // stdout holding the ignored paths, NUL-delimited and echoed as sent
+        // (no quoting under -z). Don't trim: filenames can legitimately start
+        // or end with whitespace, and -z output is already exact.
+        const ignored = new Set(stdout.split('\0').filter(Boolean));
+
+        resolve({ ignored, isGitAvailable: true });
+      },
+    );
+
+    // When the tree isn't a repo, git exits 128 without reading stdin, so the
+    // write below can hit a closed pipe once the payload outgrows the OS pipe
+    // buffer. Swallow the resulting EPIPE so it degrades to isGitAvailable:false
+    // (via the exit-128 branch above) instead of crashing with an uncaught
+    // 'error' on the stream.
+    child.stdin?.on('error', () => {});
+
+    // NUL-delimited input to match -z (no trailing NUL needed; git reads the
+    // final path without one).
+    child.stdin?.end(relPaths.join('\0'));
+  });
 }
 
 /**
@@ -238,6 +332,8 @@ interface CheckAppOptions {
   foldersExport: string;
   /** Absolute path to the app's public/ directory. */
   publicDir: string;
+  /** Sink for skip/progress notices (gitignored-junk skips). */
+  log: (message: string) => void;
 }
 
 /** Check one app's declared lists against its public/ directory. */
@@ -253,6 +349,7 @@ async function checkApp(
     filesExport,
     foldersExport,
     publicDir,
+    log,
   } = options;
 
   // SSR servers validate the declared lists at boot and refuse to start on
@@ -352,6 +449,11 @@ async function checkApp(
       problems.push(
         `${label}: ${filesExport} entry ${JSON.stringify(entry)} exposes build internals (the HTML template or Vite metadata) — the SSR server rejects it at boot, and in an SSG app it collides with the build output. Remove it.`,
       );
+    } else if (isOSJunkPublicPath(withLead)) {
+      const junkSegment = firstOSJunkSegment(withLead) ?? withLead;
+      problems.push(
+        `${label}: ${filesExport} entry ${JSON.stringify(entry)} is or is under OS metadata (${junkSegment}), not a public asset. Add "${junkSegment}" to .gitignore so it stays out of the repo, and do not declare it in ${filesExport} or ${foldersExport}. The static server also refuses to serve these from folder mounts.`,
+      );
     } else if (
       withLead.toLowerCase() === '/assets' ||
       withLead.toLowerCase().startsWith('/assets/')
@@ -402,6 +504,14 @@ async function checkApp(
     ) {
       problems.push(
         `${label}: ${foldersExport} entry ${JSON.stringify(entry)} is reserved (/assets is served by default; .vite is build metadata) — ${badFolderNote}. Remove it.`,
+      );
+    } else if (isOSJunkPublicPath(trimmedSlash)) {
+      // A junk-named folder (e.g. /.Trashes) or any junk segment is OS
+      // metadata, not a public asset. The static server refuses to serve
+      // anything under it anyway.
+      const junkSegment = firstOSJunkSegment(trimmedSlash) ?? trimmedSlash;
+      problems.push(
+        `${label}: ${foldersExport} entry ${JSON.stringify(entry)} is or is under OS metadata (${junkSegment}), not a public asset. Add "${junkSegment}" to .gitignore and do not declare it in ${filesExport} or ${foldersExport}.`,
       );
     } else {
       normalizedFolders.push(trimmedSlash);
@@ -491,6 +601,53 @@ async function checkApp(
   // public/index.html collides with the Vite-built index.html anyway.
   const reservedInPublic = actual.filter(isReservedPublicPath);
 
+  // OS metadata gets its own hard error even when a publicFolders declaration
+  // covers it. The static server refuses to serve these from folder mounts, so
+  // they can't leak on a unirend-served deployment, but Vite still copies them
+  // into the client build, where a plain static host or CDN can expose them.
+  //
+  // The one exception is junk that git ignores: git won't commit it, so it
+  // can't reach a build made from a clean checkout (like CI's), and the OS
+  // keeps recreating it on the developer's disk regardless, so failing on it
+  // would be permanent noise.
+  // getGitignoredPaths lets us keep only the junk git WOULD commit (unignored, or
+  // already tracked); the rest is skipped with a notice. When git is
+  // unavailable we can't tell, so every junk file is flagged (the loud
+  // default). Explicitly declaring junk in the lists stays an error either way
+  // (handled in the entry-validation loops above).
+  const junkOnDisk = actual.filter(isOSJunkPublicPath);
+  let junkInPublic = junkOnDisk;
+
+  if (junkOnDisk.length > 0) {
+    const relPaths = junkOnDisk.map((urlPath) => urlPath.replace(/^\/+/, ''));
+    const { ignored, isGitAvailable } = await getGitignoredPaths(
+      publicDir,
+      relPaths,
+    );
+
+    if (!isGitAvailable) {
+      log(
+        `${label}: could not run "git check-ignore" (not a git repository or git is unavailable) — treating every OS metadata file in public/ as shippable.`,
+      );
+    } else {
+      const skipped: string[] = [];
+      junkInPublic = junkOnDisk.filter((urlPath, index) => {
+        if (ignored.has(relPaths[index])) {
+          skipped.push(urlPath);
+          return false;
+        }
+
+        return true;
+      });
+
+      if (skipped.length > 0) {
+        log(
+          `${label}: OS metadata in public/ is gitignored, so git won't commit it — skipping: ${skipped.join(', ')}.`,
+        );
+      }
+    }
+  }
+
   // A public/assets/ folder is its own trap: Vite copies it INTO the
   // build's fingerprinted output dir (client/assets), where the default
   // /assets mount serves it with immutable-asset detection meant for
@@ -527,8 +684,15 @@ async function checkApp(
   // Files under a declared folder are served by URL too, so a filename
   // with URL-unsafe characters still 404s — no boot check catches these
   // (the folder declaration itself is valid), making CI the only guard.
+  // Skip OS junk: a gitignored junk file has already been dropped from
+  // junkInPublic and shouldn't resurface here, and a non-ignored one gets
+  // its own junk error whose fix is to gitignore it, not rename it.
   for (const filePath of actual) {
-    if (isUnderDeclaredFolder(filePath) && URL_UNSAFE_PATTERN.test(filePath)) {
+    if (
+      isUnderDeclaredFolder(filePath) &&
+      !isOSJunkPublicPath(filePath) &&
+      URL_UNSAFE_PATTERN.test(filePath)
+    ) {
       problems.push(
         `${label}: ${JSON.stringify(filePath)} is covered by ${foldersExport} but its name contains characters browsers percent-encode in URLs (like spaces, %, #, ?, or non-ASCII), so requests for it 404 in production. Rename it in public/ to URL-safe characters.`,
       );
@@ -541,6 +705,7 @@ async function checkApp(
       !declaredSet.has(filePath) &&
       !isUnderDeclaredFolder(filePath) &&
       !isReservedPublicPath(filePath) &&
+      !isOSJunkPublicPath(filePath) &&
       !isInBuildAssets(filePath),
   );
 
@@ -549,6 +714,26 @@ async function checkApp(
       `${label}: public/ contains files that must not be exposed as public assets (they collide with the build output or expose build internals):\n` +
         reservedInPublic.map((entry) => `  - ${entry}`).join('\n') +
         `\n  Remove them from public/.`,
+    );
+  }
+
+  if (junkInPublic.length > 0) {
+    problems.push(
+      `${label}: public/ contains OS metadata files (e.g. .DS_Store, Thumbs.db) that git would commit and Vite copies into the client build:\n` +
+        junkInPublic
+          .map((entry) => {
+            // For a nested junk directory (e.g. /images/.AppleDouble/metadata)
+            // the name to gitignore is the metadata directory, not the file
+            // inside it, so surface the matched segment when it differs.
+            const segment = firstOSJunkSegment(entry);
+            const basename = entry.split('/').pop();
+
+            return segment && segment !== basename
+              ? `  - ${entry}  (gitignore "${segment}")`
+              : `  - ${entry}`;
+          })
+          .join('\n') +
+        `\n  Add the OS metadata name to .gitignore so it stays out of the repo (for a nested path, ignore the metadata directory shown in parentheses, not the file). The OS recreates these, so this is the durable fix, and once ignored this check treats them as won't-commit and passes. Run "git rm --cached <file>" for any already committed. Do not declare them in ${filesExport} or ${foldersExport}. The static server refuses to serve them from folder mounts, but a plain static host or CDN serving the build dir can expose them unless your upload step filters them out.`,
     );
   }
 
@@ -770,6 +955,7 @@ export async function checkPublicAssets(
           filesExport: entry.filesExport ?? 'PUBLIC_FILES',
           foldersExport: entry.foldersExport ?? 'PUBLIC_FOLDERS',
           publicDir,
+          log,
         },
         problems,
       );

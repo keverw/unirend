@@ -897,6 +897,168 @@ describe('StaticContentCache', () => {
       }
     });
 
+    it('returns not-found for OS junk files under a folder mount', async () => {
+      // A .DS_Store that slips into a mounted directory must never be served,
+      // even though it exists on disk — the folder mount resolves requests
+      // straight from the URL, so this is the only guard at runtime.
+      const cache = new StaticContentCache({
+        folderMap: { '/assets': '/path/to/assets' },
+      });
+
+      const req = createMockRequest('/assets/.DS_Store');
+      const { reply } = createMockReply();
+
+      // Stat would succeed if we reached disk; the junk guard must short-
+      // circuit before that so the file is never even stat'd.
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: 6,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      const result = await cache.handleRequest(
+        '/assets/.DS_Store',
+        req as FastifyRequest,
+        reply as FastifyReply,
+      );
+
+      expect(result.served).toBe(false);
+      if (!result.served) {
+        expect(result.reason).toBe('not-found');
+      }
+
+      expect(mockFs.stat).not.toHaveBeenCalled();
+    });
+
+    it('returns not-found for a file inside an OS junk directory segment', async () => {
+      // Several junk names (.AppleDouble, .Trashes, .fseventsd, ...) are
+      // directories, so a request whose basename is clean but whose path runs
+      // through one must still be blocked before it reaches disk.
+      const cache = new StaticContentCache({
+        folderMap: { '/assets': '/path/to/assets' },
+      });
+
+      const req = createMockRequest('/assets/.AppleDouble/metadata');
+      const { reply } = createMockReply();
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: 6,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      const result = await cache.handleRequest(
+        '/assets/.AppleDouble/metadata',
+        req as FastifyRequest,
+        reply as FastifyReply,
+      );
+
+      expect(result.served).toBe(false);
+      if (!result.served) {
+        expect(result.reason).toBe('not-found');
+      }
+
+      expect(mockFs.stat).not.toHaveBeenCalled();
+    });
+
+    it('returns not-found when the folder mount prefix itself is OS junk', async () => {
+      // The whole matched URL is checked, not just the part after the prefix,
+      // so a junk-named mount can't launder junk. singleAssetMap remains the
+      // sole escape hatch.
+      const cache = new StaticContentCache({
+        folderMap: { '/.AppleDouble': '/path/to/dir' },
+      });
+
+      const req = createMockRequest('/.AppleDouble/metadata');
+      const { reply } = createMockReply();
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: 6,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      const result = await cache.handleRequest(
+        '/.AppleDouble/metadata',
+        req as FastifyRequest,
+        reply as FastifyReply,
+      );
+
+      expect(result.served).toBe(false);
+      if (!result.served) {
+        expect(result.reason).toBe('not-found');
+      }
+
+      expect(mockFs.stat).not.toHaveBeenCalled();
+    });
+
+    it('returns not-found for OS junk in a nested folder path, matching case-insensitively', async () => {
+      const cache = new StaticContentCache({
+        folderMap: { '/files': '/path/to/files' },
+      });
+
+      const req = createMockRequest('/files/sub/Thumbs.DB');
+      const { reply } = createMockReply();
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: 6,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      const result = await cache.handleRequest(
+        '/files/sub/Thumbs.DB',
+        req as FastifyRequest,
+        reply as FastifyReply,
+      );
+
+      expect(result.served).toBe(false);
+      if (!result.served) {
+        expect(result.reason).toBe('not-found');
+      }
+
+      expect(mockFs.stat).not.toHaveBeenCalled();
+    });
+
+    it('still serves an OS junk name via an explicit singleAssetMap key', async () => {
+      // singleAssetMap is an opt-in exact-match escape hatch, so a key that
+      // happens to end in a junk basename is honored — the folder-mount guard
+      // does not apply to it.
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/.DS_Store': '/path/to/renamed-file' },
+      });
+
+      const req = createMockRequest('/.DS_Store');
+      const { reply } = createMockReply();
+      const fileContent = Buffer.from('opted in');
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      const result = await cache.handleRequest(
+        '/.DS_Store',
+        req as FastifyRequest,
+        reply as FastifyReply,
+      );
+
+      expect(result.served).toBe(true);
+    });
+
     it('resolves nested folder mounts by longest matching prefix, not insertion order', async () => {
       // The shallow mount is inserted first — without longest-prefix
       // matching it would swallow requests meant for the nested mount.

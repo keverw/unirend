@@ -310,6 +310,8 @@ folderMap: {
 }
 ```
 
+A `folderMap` mount resolves each request against the directory on disk, so it serves whatever files live there. Two categories are always excluded: requests containing `..` traversal segments, and OS metadata (`.DS_Store`, `._*`, `Thumbs.db`, `ehthumbs.db`, `desktop.ini`, and the like). The metadata check looks at every segment of the matched URL, not just the basename, and includes the mount prefix: several recognized names are directories (`.AppleDouble`, `.Spotlight-V100`, `.Trashes`, `.fseventsd`), so a request routed through one (`/uploads/.AppleDouble/metadata`) is blocked even though the file name itself is not junk, and a junk-named mount prefix (`folderMap: { '/.AppleDouble': dir }`) can't launder junk either. Both categories return not-found rather than serving the file, so a stray `.DS_Store` inside a mounted directory can never be exposed. `singleAssetMap` is the sole exception, not filtered this way, since its keys are explicit exact-match paths you opt into.
+
 ### Server Memory Caching
 
 These options control **server-side in-memory caching** to reduce disk I/O operations:

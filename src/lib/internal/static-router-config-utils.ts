@@ -4,6 +4,7 @@ import type {
   StaticContentRouterOptions,
   ResponseCompressionOptions,
 } from '../types';
+import { firstOSJunkSegment } from './os-junk';
 
 /**
  * Helpers for assembling and validating a prod app's static content router
@@ -69,6 +70,16 @@ export function validatePublicFiles(
     if (lowered === '/index.html') {
       throw new Error(
         `Invalid publicFiles entry for ${appLabel}: /index.html is the raw HTML template, not a public file — serving it would bypass SSR. Remove it (SSR already renders every page from it).`,
+      );
+    }
+
+    // Check every segment, not just the basename: names like .AppleDouble and
+    // .Trashes are directories, so '/x/.Trashes/y' is junk too.
+    const junkSegment = firstOSJunkSegment(normalized);
+
+    if (junkSegment) {
+      throw new Error(
+        `Invalid publicFiles entry for ${appLabel}: ${JSON.stringify(entry)} is or is under OS metadata (${junkSegment}), not a public asset. Add "${junkSegment}" to .gitignore so it stays out of the repo, and do not declare it in publicFiles or publicFolders. The static server also refuses to serve these from folder mounts; if you genuinely need to serve a file with this name, use the staticContentRouter.singleAssetMap escape hatch.`,
       );
     }
 
@@ -145,6 +156,18 @@ export function validatePublicFolders(
       throw new Error(
         `Invalid publicFolders entry for ${appLabel}: ${JSON.stringify(entry)} is under /assets, which is already served by default. ` +
           `If you truly need to customize that mount, configure staticContentRouter.folderMap['/assets'] with detectImmutableAssets: true, so hashed bundles keep their immutable headers.`,
+      );
+    }
+
+    // A junk-named folder (e.g. '/.Trashes', or any segment like
+    // '/x/.AppleDouble') is OS metadata, not a public asset. The static server
+    // refuses to serve anything under it anyway, so declaring it is always a
+    // mistake — reject it with the same guidance as the file check.
+    const junkSegment = firstOSJunkSegment(normalized);
+
+    if (junkSegment) {
+      throw new Error(
+        `Invalid publicFolders entry for ${appLabel}: ${JSON.stringify(entry)} is or is under OS metadata (${junkSegment}), not a public asset. Add "${junkSegment}" to .gitignore so it stays out of the repo, and do not declare it. The static server refuses to serve anything under these directories.`,
       );
     }
 
