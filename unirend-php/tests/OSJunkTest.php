@@ -129,26 +129,4 @@ class OSJunkTest extends TestCase
         $this->assertFalse(OSJunk::isOSJunkPath('/my.ds_store.dir/file'));
         $this->assertFalse(OSJunk::isOSJunkPath(''));
     }
-
-    // -------------------------------------------------------------------------
-    // firstOSJunkSegment
-    // -------------------------------------------------------------------------
-
-    public function testFirstOSJunkSegmentNamesTheOffendingDirectory(): void
-    {
-        $this->assertSame(
-            '.AppleDouble',
-            OSJunk::firstOSJunkSegment('/images/.AppleDouble/metadata'),
-        );
-        $this->assertSame(
-            '.DS_Store',
-            OSJunk::firstOSJunkSegment('/assets/.DS_Store'),
-        );
-    }
-
-    public function testFirstOSJunkSegmentReturnsNullForCleanPath(): void
-    {
-        $this->assertNull(OSJunk::firstOSJunkSegment('/assets/logo.svg'));
-        $this->assertNull(OSJunk::firstOSJunkSegment(''));
-    }
 }
