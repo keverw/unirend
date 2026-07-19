@@ -120,6 +120,8 @@ Detection resolves per folder, mirroring `StaticWebServer` from the Node.js pack
 ],
 ```
 
+OS metadata files are never served from a folder mount. A request that resolves to a junk name (macOS `.DS_Store` and `._*` AppleDouble files, Windows `Thumbs.db`, `ehthumbs.db`, `desktop.ini`, and the rest) returns 404 before touching disk, matching `StaticWebServer` from the Node.js package. Folder mounts resolve the file straight from the URL, so a junk file that slips into a declared folder (SSG copies `public/` verbatim into the build) would otherwise be reachable. Every path segment is checked, not just the basename, so a file routed through an OS metadata directory like `/assets/.AppleDouble/metadata` is blocked even though `metadata` is not itself junk, and a junk-named mount prefix cannot launder junk either. This filter is folder-only. An explicit `singleAssets` entry is an exact-match opt-in, so it is honored even when its URL is a junk name, the sole escape hatch.
+
 ## Error Pages
 
 Error pages are loaded at startup using the same priority chain as the Node.js `StaticWebServer`:

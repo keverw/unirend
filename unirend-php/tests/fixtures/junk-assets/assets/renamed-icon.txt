@@ -1,0 +1,1 @@
+// fixture: renamed file reachable only via an explicit singleAssets opt-in
