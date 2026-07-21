@@ -138,6 +138,83 @@ describe('cleanCspell', () => {
     expect(result.unusedWords).toEqual(['obsoleteWord']);
   });
 
+  test('useGitignore drops a word used only in gitignored output', async () => {
+    // This scan has to see the same files cspell sees. Scanning more than
+    // cspell does is what makes a dead word look alive: the only "use" here is
+    // in build output cspell never reads, so without the gitignore rules the
+    // entry would be reported as needed and survive cleanup forever.
+    await writeRepo({
+      cspell: { words: ['zeta'], useGitignore: true },
+      files: {
+        '.gitignore': 'build/\n',
+        'build/generated.ts': 'zeta\n',
+      },
+    });
+
+    const { result } = await run();
+    expect(result.success).toBe(false);
+    expect(result.unusedWords).toEqual(['zeta']);
+  });
+
+  test('useGitignore does not apply info/exclude, matching CSpell', async () => {
+    // CSpell finds a worktree root through either form of .git, but its
+    // useGitignore setting loads only .gitignore files. Git's separate
+    // info/exclude source therefore must not make this scan narrower than the
+    // files CSpell checks, or --write could remove a word CSpell still needs.
+    await writeRepo({
+      cspell: { words: ['zeta'], useGitignore: true },
+      files: {
+        '.git/info/exclude': 'local-only.ts\n',
+        'local-only.ts': 'zeta\n',
+      },
+    });
+
+    const { result } = await run();
+    expect(result.success).toBe(true);
+    expect(result.usedWords).toEqual(['zeta']);
+  });
+
+  test('leaves the scan alone when useGitignore is off', async () => {
+    // cspell defaults it off, so the rules must not apply unasked: a repo that
+    // never opted in keeps scanning exactly what it scanned before.
+    await writeRepo({
+      cspell: { words: ['zeta'] },
+      files: {
+        '.gitignore': 'build/\n',
+        'build/generated.ts': 'zeta\n',
+      },
+    });
+
+    const { result } = await run();
+    expect(result.success).toBe(true);
+    expect(result.usedWords).toEqual(['zeta']);
+  });
+
+  test('a nested gitignore refines a rule rather than overriding the parent', async () => {
+    // Two things git does, both reproduced here. A nested rule applies below
+    // its own directory, so "notes.md" excluded in docs/ leaves the identically
+    // named file elsewhere alone. And a negation cannot rescue a file whose
+    // parent directory is excluded (verified against git 2.51: with "build/"
+    // above and "!keep.ts" inside, git still reports build/keep.ts as ignored),
+    // because git never descends into an excluded directory in the first place.
+    await writeRepo({
+      cspell: { words: ['zeta', 'zonk'], useGitignore: true },
+      files: {
+        '.gitignore': 'build/\n',
+        'build/.gitignore': '!keep.ts\n',
+        'build/keep.ts': 'zeta\n',
+        'docs/.gitignore': 'notes.md\n',
+        'docs/notes.md': 'zeta\n',
+        'notes.md': 'zonk\n',
+      },
+    });
+
+    const { result } = await run();
+    expect(result.success).toBe(false);
+    expect(result.unusedWords).toEqual(['zeta']);
+    expect(result.usedWords).toEqual(['zonk']);
+  });
+
   test('passes with no custom words', async () => {
     await writeRepo({ cspell: { words: [] } });
 

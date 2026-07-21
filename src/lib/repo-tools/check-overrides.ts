@@ -11,10 +11,11 @@ import type { BunLockWorkspace } from '../internal/bun-lockfile';
 /**
  * Dependency-override check for scaffolded repos, exported via
  * `unirend/repo-tools`. It catches six ways an `overrides`/`resolutions`
- * entry can look right under bun while being wrong, all of them offline. Bun
- * fails the install for none of them: it warns for two (the nested form and a
- * malformed value) and says nothing at all for the rest, and exits 0 either
- * way (all verified against bun 1.3.14).
+ * entry can look right under bun while being wrong, all of them offline. It
+ * also rejects malformed declarations. Bun fails the install for none of
+ * these findings: it warns for the nested form and a malformed value, says
+ * nothing at all for the rest, and exits 0 either way (all verified against
+ * bun 1.3.14).
  *
  * The premise behind the first four: an override is meant to be TEMPORARY. It
  * routes around a specific upstream bug or advisory until the fix arrives

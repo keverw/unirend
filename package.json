@@ -195,6 +195,7 @@
     "cheerio": "^1.2.0",
     "entities": "^8.0.0",
     "fastify": "^5.9.0",
+    "ignore": "^7.0.6",
     "picomatch": "^4.0.5",
     "punycode": "^2.3.1",
     "qs": "^6.15.3",

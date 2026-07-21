@@ -95,6 +95,17 @@ $RECYCLE.BIN/
 !/unirend-php/tests/fixtures/junk-assets/**/
 !/unirend-php/tests/fixtures/junk-assets/**
 
+# Exception: these two directories are named "build" but are committed source,
+# not build output. One is a checked-in sample of what the PHP mirror serves,
+# the other is the fixture tree its tests read. The broad `build/` rule above
+# matches both, and they only survived because git tracks them already, which
+# hid the mismatch: every rules-based tool saw them as generated. Negated
+# directory-first for the same reason as the block above.
+!/unirend-php/demo/build/
+!/unirend-php/demo/build/**
+!/unirend-php/tests/fixtures/build/
+!/unirend-php/tests/fixtures/build/**
+
 # Temporary files
 tmp/
 

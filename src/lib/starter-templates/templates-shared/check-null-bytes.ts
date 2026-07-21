@@ -30,6 +30,13 @@ import { checkNullBytes } from 'unirend/repo-tools';
 // If you want a NUL as a value (it makes a good separator), that is fine —
 // write the escape in source rather than embedding the raw byte.
 //
+// Which files get scanned comes from walking the tree and applying your own
+// .gitignore rules, so generated output is skipped because you already said it
+// was generated. No git command is run, the rules are just matched in memory.
+// One consequence: a file force-added despite matching an ignore rule is not
+// scanned, since the rules call it generated. Add a negation if you want it
+// covered.
+//
 // The scan itself lives in unirend and upgrades with it; this wrapper is the
 // place to customize (e.g. pass extraExtensions for a project-specific text
 // format, extraFileNames for an extensionless text file, or skipDirectories

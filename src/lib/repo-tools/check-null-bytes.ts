@@ -1,5 +1,11 @@
 import { promises as fs } from 'fs';
 import path from 'path';
+import type { Ignore } from 'ignore';
+import {
+  addIgnoreRules,
+  createIgnoreMatcher,
+  isIgnored,
+} from '../internal/gitignore-matcher';
 
 /**
  * Null-byte check for scaffolded repos, exported via `unirend/repo-tools`.
@@ -23,8 +29,21 @@ import path from 'path';
  * makes a file quietly opt out of exactly the searches used to check it.
  *
  * The check is a plain byte scan over files whose extension or exact name says
- * they are text, so it needs no network, no git, and no parsing, and it is fast
+ * they are text, so it needs no network and no subprocess, and it is fast
  * enough to sit in the `check` chain.
+ *
+ * Which files to scan comes from walking the tree and applying the repo's own
+ * `.gitignore` rules, matched in memory by the `ignore` package. Your ignore
+ * rules already say which files are generated, per path rather than per name,
+ * which a list of directory names cannot do: the same name is build output in
+ * one part of a repo and tracked fixtures in another.
+ *
+ * One consequence worth knowing: a file that is force-added to git despite
+ * matching an ignore rule (`git add -f`) is NOT scanned, because the rules say
+ * it is generated even though git tracks it. Git itself treats tracking as the
+ * stronger signal. If such a file needs scanning, add a negation so the rules
+ * match reality, which is worth doing regardless since the mismatch is
+ * confusing on its own.
  *
  * Note this is about a NUL byte written *literally* into a file. Using one as
  * a value is fine and often deliberate (it makes a good separator, since it
@@ -113,17 +132,24 @@ const DEFAULT_TEXT_FILE_NAMES = [
 ];
 
 /**
- * Directories never worth scanning. Build output and dependencies are not
- * hand-authored, so a NUL in one is not a source bug, and skipping them keeps
- * the scan fast enough for the `check` chain.
+ * Directories skipped by name, on top of whatever `.gitignore` excludes.
+ *
+ * Deliberately short, and deliberately without `dist` or `build`. Those are
+ * the names that collide: `build` is generated output in one part of a repo
+ * and tracked fixtures in another, so skipping by name alone hides real source
+ * (this repo has both). `.gitignore` already says which one a given directory
+ * is, and it says it per path rather than per name, so that is where the
+ * decision belongs.
+ *
+ * What is left is the insurance a rule file cannot provide: a dependency
+ * directory is never hand-authored and is enormous, so walking into one is
+ * pure cost. Skipping it by name means the scan stays fast even in a project
+ * that has no `.gitignore` at all, or one that forgot the usual entries.
  */
 const DEFAULT_SKIP_DIRECTORIES = [
   '.git',
   'node_modules',
   'vendor',
-  'dist',
-  'build',
-  'coverage',
   '.next',
   '.turbo',
   '.cache',
@@ -159,6 +185,10 @@ export interface CheckNullBytesOptions {
   /**
    * Directory names to skip anywhere in the tree. Replaces the built-in list
    * entirely when given.
+   *
+   * Applies on top of `.gitignore`, not instead of it. Reach for it only for
+   * directories your ignore rules do not already cover, since a name matches
+   * at every depth and cannot tell two directories of the same name apart.
    */
   skipDirectories?: string[];
 }
@@ -202,7 +232,7 @@ function isTextFile(
 }
 
 /**
- * Recursively collect text files under dir.
+ * Recursively collect text files under dir, skipping anything git would.
  *
  * Accumulates into `found` rather than returning and concatenating arrays,
  * which keeps one array alive across the whole walk instead of allocating a
@@ -210,12 +240,19 @@ function isTextFile(
  * as neither file nor directory, so a link is skipped, which is what we want
  * here since its target is either outside the tree or already visited on its
  * own path.
+ *
+ * An ignored directory is not descended into, matching git, which cannot
+ * re-include a path whose parent directory is excluded. That is why a
+ * negation meant to rescue tracked files inside an ignored directory has to
+ * re-include the directory itself before its contents.
  */
 async function collectTextFiles(
   dir: string,
+  relativeDir: string,
   extensions: Set<string>,
   fileNames: Set<string>,
   skipDirectories: Set<string>,
+  matcher: Ignore,
   found: string[],
 ): Promise<void> {
   let entries;
@@ -228,24 +265,49 @@ async function collectTextFiles(
     return;
   }
 
+  // Directories first, so a nested .gitignore is read before anything it
+  // governs is tested. Sibling directories cannot interfere with each other
+  // even though they share one matcher, because rebasing anchors every nested
+  // pattern to the directory it came from.
   for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
+    if (!entry.isDirectory()) {
+      continue;
+    }
 
-    if (entry.isDirectory()) {
-      if (!skipDirectories.has(entry.name)) {
-        await collectTextFiles(
-          fullPath,
-          extensions,
-          fileNames,
-          skipDirectories,
-          found,
-        );
-      }
-    } else if (
-      entry.isFile() &&
-      isTextFile(entry.name, extensions, fileNames)
+    const relativePath =
+      relativeDir === '' ? entry.name : `${relativeDir}/${entry.name}`;
+
+    if (
+      skipDirectories.has(entry.name) ||
+      isIgnored(matcher, relativePath, true)
     ) {
-      found.push(fullPath);
+      continue;
+    }
+
+    const fullPath = path.join(dir, entry.name);
+    await addIgnoreRules(matcher, fullPath, relativePath);
+
+    await collectTextFiles(
+      fullPath,
+      relativePath,
+      extensions,
+      fileNames,
+      skipDirectories,
+      matcher,
+      found,
+    );
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile() || !isTextFile(entry.name, extensions, fileNames)) {
+      continue;
+    }
+
+    const relativePath =
+      relativeDir === '' ? entry.name : `${relativeDir}/${entry.name}`;
+
+    if (!isIgnored(matcher, relativePath, false)) {
+      found.push(path.join(dir, entry.name));
     }
   }
 }
@@ -285,16 +347,25 @@ export async function checkNullBytes(
     options?.skipDirectories ?? DEFAULT_SKIP_DIRECTORIES,
   );
 
+  // One matcher for the whole walk. Nested .gitignore rules are added to it as
+  // the walk reaches them, rebased so they still mean what they meant in their
+  // own directory, which reproduces git's "deepest file wins" by ordering.
+  const matcher = createIgnoreMatcher();
+  await addIgnoreRules(matcher, rootDir, '');
+
   const files: string[] = [];
   await collectTextFiles(
     rootDir,
+    '',
     extensions,
     fileNames,
     skipDirectories,
+    matcher,
     files,
   );
 
   const offenders: CheckNullBytesResult['offenders'] = [];
+  let scannedCount = 0;
 
   for (const file of files) {
     let buffer: Buffer;
@@ -311,6 +382,12 @@ export async function checkNullBytes(
       // contents, so it should not fail a build over a file it cannot open.
       continue;
     }
+
+    // Counted here rather than as files.length, which would overstate it: a
+    // collected path can still turn out to be unreadable, whether from
+    // permissions or from being deleted between the walk and the read, so the
+    // number reported is the files actually scanned.
+    scannedCount++;
 
     const firstIndex = buffer.indexOf(0);
 
@@ -372,10 +449,13 @@ export async function checkNullBytes(
         '  separator), write the escape \\u0000 in source instead of embedding the raw byte.\n',
     );
 
-    return { success: false, offenders, scannedCount: files.length };
+    return { success: false, offenders, scannedCount };
   }
 
-  log(`null-byte check passed (${files.length} text files scanned).`);
+  log(
+    `null-byte check passed (${scannedCount} text ` +
+      `${scannedCount === 1 ? 'file' : 'files'} scanned).`,
+  );
 
-  return { success: true, offenders: [], scannedCount: files.length };
+  return { success: true, offenders: [], scannedCount };
 }

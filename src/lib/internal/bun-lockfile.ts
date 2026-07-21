@@ -29,10 +29,16 @@ export interface BunLockEntry {
   version: string;
   /**
    * Ranges this package declares for its own dependencies, by dependency
-   * name. Covers `dependencies` and `optionalDependencies`, both of which bun
-   * actually installs. `peerDependencies` are deliberately excluded: they are
-   * routinely and intentionally left unsatisfied, so treating them as declared
-   * requirements would produce noise rather than findings.
+   * name. Covers `dependencies`, `optionalDependencies`, and the non-optional
+   * half of `peerDependencies`, all of which bun actually installs.
+   *
+   * Peers count because bun auto-installs them, which makes a peer range a
+   * live constraint rather than a wish (verified against bun 1.3.14: a
+   * `react-dom@19` declaring peer `react` alongside an override pinning
+   * `react` to 18.2.0 installed 18.2.0 without a word). Peers listed in the
+   * entry's `optionalPeers` array are excluded, since those are the ones
+   * genuinely allowed to go unsatisfied, and bun names them explicitly rather
+   * than leaving it to be inferred.
    */
   dependencies: Record<string, string>;
 }
@@ -61,9 +67,17 @@ export interface BunLockWorkspace {
   name: string;
   /**
    * Ranges this workspace declares, by dependency name. Covers
-   * `dependencies`, `devDependencies`, and `optionalDependencies`. Unlike a
-   * resolved package, a workspace's dev dependencies ARE installed and are a
-   * real declared requirement, so they count here.
+   * `dependencies`, `devDependencies`, `optionalDependencies`, and
+   * `peerDependencies`. Unlike a resolved package, a workspace's dev
+   * dependencies ARE installed and are a real declared requirement, so they
+   * count here.
+   *
+   * Peers matter most here, since a library declares what it supports through
+   * them: this package itself declares `react: "^19.0.0"`, so an override
+   * forcing react below 19 would make the package uninstallable as declared
+   * while every other signal stayed quiet. Bun does not write an
+   * `optionalPeers` array for workspaces (verified), so there is nothing to
+   * exclude on this side.
    */
   dependencies: Record<string, string>;
 }
@@ -181,6 +195,7 @@ export function parseBunLockfileWorkspaces(
       'dependencies',
       'devDependencies',
       'optionalDependencies',
+      'peerDependencies',
     ] as const) {
       const ranges = entry[field];
 
@@ -195,6 +210,17 @@ export function parseBunLockfileWorkspaces(
       for (const [depName, range] of Object.entries(
         ranges as Record<string, unknown>,
       )) {
+        // An installed range wins over a peer range on the same name, matching
+        // parseBunLockfile above. Declaring both is normal for a library that
+        // develops against what it supports: this package has react as a
+        // devDependency at "^19.2.7" and a peer at "^19.0.0". The installed
+        // one is stricter and is what actually has to hold, so letting the
+        // peer overwrite it would accept an override to 19.1.0 that breaks the
+        // build.
+        if (field === 'peerDependencies' && depName in dependencies) {
+          continue;
+        }
+
         if (typeof range === 'string') {
           dependencies[depName] = range;
         }
@@ -270,7 +296,22 @@ export function parseBunLockfile(lockText: string): BunLockEntry[] {
 
     const dependencies: Record<string, string> = {};
 
-    for (const field of ['dependencies', 'optionalDependencies'] as const) {
+    // Peers bun is explicitly told may go unsatisfied. Everything else in
+    // `peerDependencies` gets auto-installed and is a real constraint.
+    const rawOptionalPeers = metadata?.optionalPeers;
+    const optionalPeers = new Set(
+      Array.isArray(rawOptionalPeers)
+        ? rawOptionalPeers.filter(
+            (peer): peer is string => typeof peer === 'string',
+          )
+        : [],
+    );
+
+    for (const field of [
+      'dependencies',
+      'optionalDependencies',
+      'peerDependencies',
+    ] as const) {
       const block = metadata?.[field];
 
       if (block === null || typeof block !== 'object' || Array.isArray(block)) {
@@ -280,6 +321,16 @@ export function parseBunLockfile(lockText: string): BunLockEntry[] {
       for (const [depName, range] of Object.entries(
         block as Record<string, unknown>,
       )) {
+        if (field === 'peerDependencies' && optionalPeers.has(depName)) {
+          continue;
+        }
+
+        // A real dependency wins over a peer range on the same name: bun
+        // installs the former, so it is the binding one.
+        if (field === 'peerDependencies' && depName in dependencies) {
+          continue;
+        }
+
         if (typeof range === 'string') {
           dependencies[depName] = range;
         }

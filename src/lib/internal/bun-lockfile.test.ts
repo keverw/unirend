@@ -92,9 +92,10 @@ describe('parseBunLockfile', () => {
     expect(entries.map((entry) => entry.name)).toEqual(['left-pad']);
   });
 
-  test('excludes peerDependencies but includes optionalDependencies', () => {
-    // Peers are routinely and deliberately left unsatisfied, so counting them
-    // as declared requirements would produce noise rather than findings.
+  test('includes optional and peer dependencies, which bun installs', () => {
+    // Bun auto-installs peers, so a peer range is a live constraint. This is
+    // the react-dom case: an override forcing react below the peer range it
+    // declares installs silently, and without peers here nothing catches it.
     const entries = parseBunLockfile(`{
   "packages": {
     "pkg": ["pkg@1.0.0", "", { "dependencies": { "a": "^1.0.0" }, "optionalDependencies": { "b": "^2.0.0" }, "peerDependencies": { "c": "^3.0.0" } }, "sha512-abc"],
@@ -102,7 +103,36 @@ describe('parseBunLockfile', () => {
 }
 `);
 
-    expect(entries[0].dependencies).toEqual({ a: '^1.0.0', b: '^2.0.0' });
+    expect(entries[0].dependencies).toEqual({
+      a: '^1.0.0',
+      b: '^2.0.0',
+      c: '^3.0.0',
+    });
+  });
+
+  test('excludes peers bun marks optional', () => {
+    // The ones genuinely allowed to go unsatisfied. Bun names them outright in
+    // an optionalPeers array, so this needs no inference.
+    const entries = parseBunLockfile(`{
+  "packages": {
+    "pkg": ["pkg@1.0.0", "", { "peerDependencies": { "react": "^19.0.0", "@types/react": "^19.0.0" }, "optionalPeers": ["@types/react"] }, "sha512-abc"],
+  }
+}
+`);
+
+    expect(entries[0].dependencies).toEqual({ react: '^19.0.0' });
+  });
+
+  test('prefers a real dependency range over a peer range on the same name', () => {
+    // Declaring both is unusual, but the installed one is the binding one.
+    const entries = parseBunLockfile(`{
+  "packages": {
+    "pkg": ["pkg@1.0.0", "", { "dependencies": { "react": "19.1.0" }, "peerDependencies": { "react": "^18.0.0 || ^19.0.0" } }, "sha512-abc"],
+  }
+}
+`);
+
+    expect(entries[0].dependencies).toEqual({ react: '19.1.0' });
   });
 });
 
@@ -160,6 +190,56 @@ describe('parseBunLockfileWorkspaces', () => {
 }
 `),
     ).toEqual([{ key: '', name: '', dependencies: { semver: '^7.8.0' } }]);
+  });
+
+  test('reads the peer ranges a workspace declares', () => {
+    // How a library states what it supports. unirend itself declares
+    // react "^19.0.0" this way, so an override forcing react below 19 has to
+    // be visible here or nothing sees it at all.
+    expect(
+      parseBunLockfileWorkspaces(`{
+  "workspaces": {
+    "": {
+      "name": "lib",
+      "devDependencies": { "typescript": "^5.0.0" },
+      "peerDependencies": { "react": "^19.0.0" },
+    },
+  }
+}
+`),
+    ).toEqual([
+      {
+        key: '',
+        name: 'lib',
+        dependencies: { typescript: '^5.0.0', react: '^19.0.0' },
+      },
+    ]);
+  });
+
+  test('keeps an installed workspace range over a looser peer range', () => {
+    // The shape this very package has: react as a devDependency at "^19.2.7"
+    // and a peer at "^19.0.0". Declaring both is normal for a library, which
+    // develops against one version of what it broadly supports. The installed
+    // range is the stricter and binding one, so letting the peer overwrite it
+    // would wave through an override to 19.1.0 that actually breaks the build.
+    expect(
+      parseBunLockfileWorkspaces(`{
+  "workspaces": {
+    "": {
+      "name": "lib",
+      "devDependencies": { "react": "^19.2.7" },
+      "peerDependencies": { "react": "^19.0.0", "react-dom": "^19.0.0" },
+    },
+  }
+}
+`),
+    ).toEqual([
+      {
+        key: '',
+        name: 'lib',
+        dependencies: { react: '^19.2.7', 'react-dom': '^19.0.0' },
+      },
+    ]);
   });
 
   test('returns nothing when there is no workspaces block', () => {

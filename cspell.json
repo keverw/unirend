@@ -14,6 +14,7 @@
     "Bstatus",
     "bunx",
     "CDNJSON",
+    "commondir",
     "Consolas",
     "Containerfile",
     "custompath",
@@ -40,6 +41,7 @@
     "frontends",
     "fseventsd",
     "geolocation",
+    "gitdir",
     "glassmorphism",
     "Gruntfuggly",
     "héllo",
@@ -118,23 +120,16 @@
     "visibilitychange",
     "WHATWG",
     "wordprocessingml",
+    "worktree",
+    "worktrees",
     "wscat",
     "xclip",
     "xssr",
     "yourapp",
     "yourdomain",
-    "yoursaas"
+    "yoursaas",
+    "stylesheet"
   ],
-  "ignorePaths": [
-    "**/node_modules/**",
-    "**/vendor/**",
-    "**/build/**",
-    "**/build*/**",
-    "**/dist/**",
-    "**/coverage/**",
-    "**/tmp/**",
-    "**/current-build-info.*",
-    "bun.lock",
-    "bun.lockb"
-  ]
+  "ignorePaths": ["**/node_modules/**", "bun.lock", "bun.lockb"],
+  "useGitignore": true
 }
