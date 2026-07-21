@@ -29,6 +29,7 @@ Serve [Unirend](https://github.com/keverw/unirend) SSG output on shared hosting 
 - [Versioning](#versioning)
 - [Changelog](#changelog)
   - [0.1.0 (July 16, 2026)](#010-july-16-2026)
+  - [0.1.1 (Unreleased)](#011-unreleased)
 - [Contributing to unirend-php](#contributing-to-unirend-php)
   - [Running Tests](#running-tests)
   - [Running the Demo Locally](#running-the-demo-locally)
@@ -119,6 +120,8 @@ Detection resolves per folder, mirroring `StaticWebServer` from the Node.js pack
     '/.well-known' => '.well-known',
 ],
 ```
+
+OS metadata files are never served from a folder mount. A request that resolves to a junk name (macOS `.DS_Store` and `._*` AppleDouble files, Windows `Thumbs.db`, `ehthumbs.db`, `desktop.ini`, and the rest) returns 404 before touching disk, matching `StaticWebServer` from the Node.js package. Folder mounts resolve the file straight from the URL, so a junk file that slips into a declared folder (SSG copies `public/` verbatim into the build) would otherwise be reachable. Every path segment is checked, not just the basename, so a file routed through an OS metadata directory like `/assets/.AppleDouble/metadata` is blocked even though `metadata` is not itself junk, and a junk-named mount prefix cannot launder junk either. This filter is folder-only. An explicit `singleAssets` entry is an exact-match opt-in, so it is honored even when its URL is a junk name, the sole escape hatch.
 
 ## Error Pages
 
@@ -287,6 +290,10 @@ Runs oldest to newest. The `0.0.x` line was early iteration that was not logged 
 - `singleAssets` URL keys are normalized now like `assetFolders` prefixes, matching `StaticWebServer` from the `unirend` npm package: a leading slash is ensured and repeated slashes are collapsed. Previously a key written as `robots.txt` or `/icons//logo.svg` was used verbatim, so it never matched any request and the asset silently 404ed.
 - `singleAssets` and `assetFolders` values that resolve outside `buildDir` through `..` segments or symlinks are rejected, matching the Node.js `StaticWebServer`. Previously `realpath()` normalized the traversal but did not verify that the result remained inside the build directory.
 - `assetFolders` mounts now resolve by longest matching URL prefix instead of declaration order, and prefixes only match on path-segment boundaries. Previously the first prefix that matched won, so a shallow mount like `/images` declared before a nested one like `/images/generated` swallowed every request meant for the nested mount, serving the wrong file or returning 404, and a raw prefix match let `/images/generated` capture `/images/generated-other/...` requests that belong to the shallow mount. Matches the `unirend` npm package, whose cache had the same ordering fix and already matched on boundaries.
+
+### 0.1.1 (Unreleased)
+
+- OS junk files are no longer served from `assetFolders` mounts, matching `StaticWebServer` from the `unirend` npm package. A request that resolves to a junk name (macOS `.DS_Store` and `._*` AppleDouble files, Windows `Thumbs.db`, `ehthumbs.db`, `desktop.ini`, and the rest) returns 404 before touching disk. Every path segment is checked, not just the basename, so a file routed through an OS metadata directory like `/assets/.AppleDouble/metadata` is blocked even though `metadata` is not itself junk, and a junk-named mount prefix cannot launder junk either. The filter is folder-only, so an explicit `singleAssets` entry stays the one honored escape hatch even when its URL is a junk name, matching the npm package's `singleAssetMap`. Previously these files were served verbatim, exposing Finder and Explorer metadata (local filenames, folder structure, window state) that had slipped into a deployed folder. The recognition logic lives in a new `OSJunk` class ported from the npm package's `os-junk` module, tests included.
 
 ## Contributing to unirend-php
 

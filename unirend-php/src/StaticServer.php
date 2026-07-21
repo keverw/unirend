@@ -443,7 +443,28 @@ class StaticServer
                 }
             }
 
-            if ($matchedKey !== null && $matchedPrefix !== null) {
+            // Never serve OS metadata (e.g. .DS_Store, Thumbs.db) from a folder
+            // mount. Folder mounts resolve the file straight from the URL, so a
+            // junk file that slips into a declared folder would otherwise be
+            // reachable — SSG copies public/ verbatim, so it can land in the
+            // build. Treating it as not-found keeps it from ever being exposed
+            // even when hygiene fails. The whole matched path is checked, every
+            // segment and not just the basename: several recognized names
+            // (.AppleDouble, .Spotlight-V100, .Trashes, .fseventsd, ...) are
+            // directories, so '/assets/.AppleDouble/metadata' must be blocked
+            // even though 'metadata' is not itself junk, and the mount prefix
+            // is included so a junk-named mount ('/.AppleDouble' => dir) can't
+            // launder junk either. This guard is folder-only: an explicit
+            // singleAssets key IS honored even when it resolves a junk name
+            // (handled above via the page map), because that map is an
+            // exact-match opt-in the caller chose — the sole escape hatch.
+            // Mirrors StaticWebServer / StaticContentCache from the Node.js
+            // package.
+            if (
+                $matchedKey !== null &&
+                $matchedPrefix !== null &&
+                !OSJunk::isOSJunkPath($path)
+            ) {
                 $folderConfig = $this->options['assetFolders'][$matchedKey];
 
                 $fsRelPath = is_array($folderConfig)

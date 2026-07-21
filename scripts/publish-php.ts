@@ -258,15 +258,72 @@ try {
     --exclude=demo \
     ${phpDir}/ ${tmpDir.path}/`;
 
-  // Write a .gitignore for the mirror repo (not kept in the monorepo since it would
-  // be redundant — the monorepo root .gitignore already covers these paths).
-  const mirrorGitignore =
-    [
-      'vendor/',
-      '.phpunit.cache/',
-      '.phpunit.result.cache',
-      'composer.lock',
-    ].join('\n') + '\n';
+  // Write the mirror repo's .gitignore on the fly rather than storing one in
+  // unirend-php/: the mirror root IS the synced unirend-php/ contents, so a
+  // committed .gitignore there would be redundant in the monorepo (the monorepo
+  // root .gitignore already covers these paths during development).
+  //
+  // Dev artifacts (vendor/, PHPUnit caches, composer.lock) plus the same
+  // "# OS-generated files" section scaffolded into generated repos
+  // (src/lib/starter-templates/base-files/ensure-gitignore.ts) and carried in
+  // the monorepo root .gitignore, so the published package is consistent with
+  // everything else the framework ships.
+  //
+  // Those OS rules would otherwise drop this package's own junk-named test
+  // fixtures (tests/fixtures/junk-assets/**, deliberately named like OS junk so
+  // the static server's junk-filter tests have real files on disk), and the
+  // git add -A below would then never stage them, publishing a broken test
+  // suite. The tree is re-included at the end — the .AppleDouble directory
+  // explicitly, since git will not descend into an excluded directory to
+  // re-include a file inside it.
+  const mirrorGitignore = `# Dependencies / build artifacts
+vendor/
+.phpunit.cache/
+.phpunit.result.cache
+composer.lock
+
+# OS-generated files
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+desktop.ini
+$RECYCLE.BIN/
+*.stackdump
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# Exception: keep the intentionally junk-named test fixtures tracked so they
+# publish (the static server's junk-filter tests need real files on disk).
+!/tests/fixtures/junk-assets/**/
+!/tests/fixtures/junk-assets/**
+`;
 
   writeFileSync(join(tmpDir.path, '.gitignore'), mirrorGitignore, 'utf-8');
 

@@ -740,6 +740,113 @@ class StaticServerTest extends TestCase
         $this->assertStringContainsString("console.log('app');", $output);
     }
 
+    // -------------------------------------------------------------------------
+    // OS junk filtering from folder mounts (mirrors StaticWebServer / Node.js)
+    // -------------------------------------------------------------------------
+
+    private string $junkBuildDir;
+
+    private function junkServer(): StaticServer
+    {
+        $this->junkBuildDir = realpath(__DIR__ . '/fixtures/junk-assets');
+
+        return new StaticServer([
+            'buildDir' => $this->junkBuildDir,
+            'assetFolders' => ['/assets' => 'assets'],
+        ]);
+    }
+
+    public function testDispatchServesCleanFileFromJunkFixtureFolder(): void
+    {
+        // Control: the mount itself works, so the 404s below prove the junk
+        // guard fired rather than the folder simply being broken.
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/assets/app.js';
+
+        $output = $this->capture($this->junkServer());
+
+        $this->assertSame(200, http_response_code());
+        $this->assertStringContainsString('real servable asset', $output);
+    }
+
+    public function testDispatchBlocksJunkBasenameEvenThoughFileExists(): void
+    {
+        // desktop.ini and ehthumbs.db physically exist in the mounted folder,
+        // yet must never be served.
+        foreach (['/assets/desktop.ini', '/assets/ehthumbs.db'] as $url) {
+            http_response_code(200);
+            $_SERVER['REQUEST_METHOD'] = 'GET';
+            $_SERVER['REQUEST_URI'] = $url;
+
+            $output = $this->capture($this->junkServer());
+
+            $this->assertSame(404, http_response_code(), $url);
+            $this->assertStringNotContainsString('[folder]', $output);
+            $this->assertStringNotContainsString('binary-junk', $output);
+        }
+    }
+
+    public function testDispatchBlocksAppleDoubleResourceFork(): void
+    {
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/assets/._app.js';
+
+        $output = $this->capture($this->junkServer());
+
+        $this->assertSame(404, http_response_code());
+        $this->assertStringNotContainsString('resource fork', $output);
+    }
+
+    public function testDispatchBlocksFileInsideJunkDirectorySegment(): void
+    {
+        // The basename ('metadata') is clean, but it lives inside an
+        // .AppleDouble directory, so the whole path is junk.
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/assets/.AppleDouble/metadata';
+
+        $output = $this->capture($this->junkServer());
+
+        $this->assertSame(404, http_response_code());
+        $this->assertStringNotContainsString('Finder metadata', $output);
+    }
+
+    public function testDispatchBlocksJunkNamedMountPrefix(): void
+    {
+        // A junk-named mount prefix cannot launder junk: the prefix segment
+        // itself is checked, so the whole '/.AppleDouble/...' path is blocked.
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/.AppleDouble/metadata';
+
+        $server = new StaticServer([
+            'buildDir' => realpath(__DIR__ . '/fixtures/junk-assets'),
+            'assetFolders' => ['/.AppleDouble' => 'assets/.AppleDouble'],
+        ]);
+
+        $output = $this->capture($server);
+
+        $this->assertSame(404, http_response_code());
+        $this->assertStringNotContainsString('Finder metadata', $output);
+    }
+
+    public function testDispatchSingleAssetsEscapeHatchBypassesJunkFilter(): void
+    {
+        // The filter is folder-only. An explicit singleAssets key is an
+        // exact-match opt-in, so a junk-named URL mapped to a real file is
+        // still served — matching StaticContentCache's singleAssetMap.
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/.DS_Store';
+
+        $server = new StaticServer([
+            'buildDir' => realpath(__DIR__ . '/fixtures/junk-assets'),
+            'singleAssets' => ['/.DS_Store' => 'assets/renamed-icon.txt'],
+        ]);
+
+        $output = $this->capture($server);
+
+        $this->assertSame(200, http_response_code());
+        $this->assertStringContainsString('reachable only via', $output);
+    }
+
     public function testDispatchCustomRoute(): void
     {
         $_SERVER['REQUEST_METHOD'] = 'POST';
