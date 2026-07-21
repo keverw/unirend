@@ -86,12 +86,12 @@ import type { BunLockWorkspace } from '../internal/bun-lockfile';
  * `bun.lock` is JSONC (trailing commas), so it cannot be `JSON.parse`d, and
  * `bun why` is the supported way to ask this question. The backward check
  * reads the same lockfile through the shared `bun-lockfile` reader, so the
- * whole check stays offline and belongs in the `check` chain. That reader
- * covers both halves of the file: the resolved `packages` and the
- * `workspaces` block holding what the repo itself declares, which bun writes
- * even for a single package with no workspaces configured. Without the second
- * half an override undercutting one of your own direct dependencies would
- * read as fine.
+ * whole check stays offline and belongs in the `check` chain. The resolved
+ * `packages` block supplies transitive ranges, while current package.json files
+ * supply the repo's own declarations. Child workspace paths come from the
+ * lockfile's `workspaces` block. Without the manifests, an override undercutting
+ * one of your own direct dependencies could read as fine, especially when the
+ * copied lockfile range is stale after a package.json edit.
  *
  * Known limitation: a pin that still satisfies every range declared on it is
  * accepted, even when a newer version exists that would satisfy them too. If
@@ -216,11 +216,13 @@ export interface BackwardPin {
 }
 
 interface PackageJSON {
+  name?: unknown;
   overrides?: unknown;
   resolutions?: unknown;
   dependencies?: unknown;
   devDependencies?: unknown;
   optionalDependencies?: unknown;
+  peerDependencies?: unknown;
   peerDependenciesMeta?: unknown;
 }
 
@@ -274,19 +276,63 @@ function optionalOnlyPeers(pkg: PackageJSON): Set<string> {
   );
 }
 
+/** Read the dependency ranges currently declared by one package.json. */
+function packageDependencies(pkg: PackageJSON): Record<string, string> {
+  const dependencies: Record<string, string> = {};
+  const optionalPeers = optionalOnlyPeers(pkg);
+
+  for (const field of [
+    'dependencies',
+    'devDependencies',
+    'optionalDependencies',
+    'peerDependencies',
+  ] as const) {
+    const block = pkg[field];
+
+    if (block === null || typeof block !== 'object' || Array.isArray(block)) {
+      continue;
+    }
+
+    for (const [name, range] of Object.entries(
+      block as Record<string, unknown>,
+    )) {
+      if (
+        typeof range !== 'string' ||
+        (field === 'peerDependencies' &&
+          (optionalPeers.has(name) || name in dependencies))
+      ) {
+        continue;
+      }
+
+      dependencies[name] = range;
+    }
+  }
+
+  return dependencies;
+}
+
 /**
- * Read optional-only peer declarations for every workspace represented in the
- * lockfile. Bun does not preserve workspace `peerDependenciesMeta` in
- * `bun.lock`, so the package.json files are the authoritative source.
+ * Read the repo's current dependency declarations from its package.json files.
+ *
+ * The lockfile identifies child workspace paths, but its copied ranges can be
+ * stale whenever a manifest was edited without running `bun install`. Using
+ * those copies would let an old override pass against an old range even though
+ * it undercuts what the current manifest asks for. A missing child manifest
+ * falls back to the lockfile entry so a stale workspace does not erase useful
+ * advisory data.
  */
-async function readOptionalWorkspacePeers(
+async function readWorkspaceDeclarations(
   rootDir: string,
   lockText: string,
   rootPackage: PackageJSON,
-): Promise<Map<string, Set<string>>> {
-  const optionalByWorkspace = new Map<string, Set<string>>([
-    ['', optionalOnlyPeers(rootPackage)],
-  ]);
+): Promise<BunLockWorkspace[]> {
+  const declarations: BunLockWorkspace[] = [
+    {
+      key: '',
+      name: typeof rootPackage.name === 'string' ? rootPackage.name : '',
+      dependencies: packageDependencies(rootPackage),
+    },
+  ];
   const resolvedRoot = path.resolve(rootDir);
 
   for (const workspace of parseBunLockfileWorkspaces(lockText)) {
@@ -303,25 +349,44 @@ async function readOptionalWorkspacePeers(
       relativePath.startsWith(`..${path.sep}`) ||
       path.isAbsolute(relativePath)
     ) {
+      declarations.push(workspace);
       continue;
     }
 
+    let workspaceRaw: string;
+
     try {
-      const workspacePackage = JSON.parse(
-        await fs.readFile(packagePath, 'utf8'),
-      ) as PackageJSON;
-      optionalByWorkspace.set(
-        workspace.key,
-        optionalOnlyPeers(workspacePackage),
+      workspaceRaw = await fs.readFile(packagePath, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        declarations.push(workspace);
+        continue;
+      }
+
+      throw new Error(
+        `Failed to read workspace manifest ${packagePath}: ${String(error)}`,
       );
-    } catch {
-      // A stale lockfile can retain a removed workspace. Its ranges are still
-      // useful, but there is no package.json left from which to recover
-      // optional-peer metadata, so preserve the existing conservative check.
     }
+
+    let workspacePackage: PackageJSON;
+
+    try {
+      workspacePackage = JSON.parse(workspaceRaw) as PackageJSON;
+    } catch (error) {
+      throw new Error(
+        `Failed to parse workspace manifest ${packagePath}: ${String(error)}`,
+      );
+    }
+
+    declarations.push({
+      key: workspace.key,
+      name:
+        typeof workspacePackage.name === 'string' ? workspacePackage.name : '',
+      dependencies: packageDependencies(workspacePackage),
+    });
   }
 
-  return optionalByWorkspace;
+  return declarations;
 }
 
 /**
@@ -517,14 +582,15 @@ interface PinStatus {
 function analyzePins(
   lockText: string,
   targets: OverrideTarget[],
-  optionalWorkspacePeers: Map<string, Set<string>>,
+  workspaceDeclarations: BunLockWorkspace[],
 ): { statuses: PinStatus[]; unapplied: UnappliedPin[] } {
   const entries = parseBunLockfile(lockText);
 
-  // The repo's own declarations, which live in the lockfile's `workspaces`
-  // block rather than among the resolved packages. Without them an override
-  // that forces a DIRECT dependency below the range in your own package.json
-  // reads as fine, since nothing in `packages` records that range.
+  // The repo's own current declarations, read from its package.json files.
+  // Without them an override that forces a DIRECT dependency below the range
+  // in your own package.json reads as fine, since nothing in `packages`
+  // records that range. Reading the manifests rather than the lockfile's copies
+  // also keeps this check correct before `bun install` refreshes those copies.
   //
   // Shaped like package entries so the comparison loop below treats both the
   // same way. The label says where the range came from, because "this is your
@@ -535,13 +601,9 @@ function analyzePins(
       label: entry.spec,
       dependencies: entry.dependencies,
     })),
-    ...parseBunLockfileWorkspaces(lockText).map((workspace) => ({
+    ...workspaceDeclarations.map((workspace) => ({
       label: workspaceLabel(workspace),
-      dependencies: Object.fromEntries(
-        Object.entries(workspace.dependencies).filter(
-          ([name]) => !optionalWorkspacePeers.get(workspace.key)?.has(name),
-        ),
-      ),
+      dependencies: workspace.dependencies,
     })),
   ];
 
@@ -668,9 +730,9 @@ function analyzePins(
  * because a pin undercutting your own declaration is a different and more
  * actionable finding than one undercutting a package deep in the tree.
  *
- * The name is the package's own `name` field, which bun omits from the
- * lockfile entirely when package.json has none (verified), so it is dropped
- * from the label rather than rendered as a stray leading space.
+ * The name is the package's current `name` field, so it is dropped from the
+ * label when package.json has none rather than rendered as a stray leading
+ * space.
  */
 function workspaceLabel(workspace: BunLockWorkspace): string {
   const place =
@@ -951,12 +1013,12 @@ export async function checkOverrides(
     }
 
     if (lockText !== null) {
-      const optionalWorkspacePeers = await readOptionalWorkspacePeers(
+      const workspaceDeclarations = await readWorkspaceDeclarations(
         rootDir,
         lockText,
         pkg,
       );
-      const analysis = analyzePins(lockText, targets, optionalWorkspacePeers);
+      const analysis = analyzePins(lockText, targets, workspaceDeclarations);
       statuses = analysis.statuses;
       unappliedPins = analysis.unapplied;
       backward = statuses

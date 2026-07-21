@@ -517,19 +517,22 @@ describe('checkOverrides', () => {
   });
 
   test('fails a pin below a range the repo itself declares', async () => {
-    // Regression test. The repo's own ranges live in the lockfile's
-    // `workspaces` block, not among the resolved packages, and the reader used
-    // to skip that block entirely. So an override forcing a DIRECT dependency
-    // below the range in your own package.json passed: nothing in `packages`
-    // records that range, and the resolved version satisfies the override, so
-    // the outcome check is happy too.
+    // Regression test. The repo's own ranges do not appear among the resolved
+    // packages, so an override forcing a DIRECT dependency below the range in
+    // your own package.json used to pass: nothing in `packages` records that
+    // range, and the resolved version satisfies the override, so the outcome
+    // check is happy too.
     //
     // Verified against bun 1.3.14: with the root declaring `semver: "^7.8.0"`
     // and an override pinning `7.3.0`, bun installed 7.3.0 without a word.
-    // Note bun writes this block even for a single package with no workspaces
-    // configured, so this was never monorepo-only.
+    // Bun also copies the declaration into the lockfile's workspaces block,
+    // even for a single package, but the current manifest is authoritative.
     const { result, output } = await run(
-      { overrides: { semver: '7.3.0' } },
+      {
+        name: 'demo',
+        dependencies: { semver: '^7.8.0' },
+        overrides: { semver: '7.3.0' },
+      },
       ['semver'],
       lockfile({ semver: { spec: 'semver@7.3.0' } }, { semver: '^7.8.0' }),
     );
@@ -551,6 +554,24 @@ describe('checkOverrides', () => {
     expect(output).toContain('demo (this package.json) declares "^7.8.0"');
   });
 
+  test('uses the current root manifest when the lockfile workspace range is stale', async () => {
+    const { result, output } = await run(
+      {
+        name: 'demo',
+        dependencies: { semver: '^8.0.0' },
+        overrides: { semver: '7.8.0' },
+      },
+      ['semver'],
+      lockfile({ semver: { spec: 'semver@7.8.0' } }, { semver: '^7.8.0' }),
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.backwardPins[0].violations).toEqual([
+      { dependent: 'demo (this package.json)', range: '^8.0.0' },
+    ]);
+    expect(output).not.toContain('declares "^7.8.0"');
+  });
+
   test('ignores an optional-only peer declared by the root workspace', async () => {
     const { result } = await run(
       {
@@ -569,6 +590,7 @@ describe('checkOverrides', () => {
   test('keeps an installed root dependency binding when its peer is optional', async () => {
     const { result } = await run(
       {
+        name: 'demo',
         overrides: { react: '18.2.0' },
         devDependencies: { react: '^19.2.0' },
         peerDependencies: { react: '^19.0.0' },
@@ -609,6 +631,50 @@ describe('checkOverrides', () => {
     expect(result.backwardPins).toEqual([]);
   });
 
+  test('uses a child workspace manifest when its lockfile range is stale', async () => {
+    const workspaceDir = path.join(tmpDir.path, 'packages', 'app');
+    await fs.promises.mkdir(workspaceDir, { recursive: true });
+    await fs.promises.writeFile(
+      path.join(workspaceDir, 'package.json'),
+      JSON.stringify({ name: 'app', dependencies: { react: '^19.0.0' } }),
+    );
+
+    const lock = lockfile({ react: { spec: 'react@18.2.0' } }).replace(
+      '  "packages": {',
+      '  "workspaces": {\n    "packages/app": {\n      "name": "app",\n      "dependencies": { "react": "^18.0.0" },\n    },\n  },\n  "packages": {',
+    );
+    const { result } = await run(
+      { overrides: { react: '18.2.0' } },
+      ['react'],
+      lock,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.backwardPins[0].violations).toEqual([
+      { dependent: 'app (workspace packages/app)', range: '^19.0.0' },
+    ]);
+  });
+
+  test('rejects a malformed current workspace manifest instead of using stale lockfile ranges', async () => {
+    const workspaceDir = path.join(tmpDir.path, 'packages', 'app');
+    await fs.promises.mkdir(workspaceDir, { recursive: true });
+    await fs.promises.writeFile(
+      path.join(workspaceDir, 'package.json'),
+      '{ invalid json',
+    );
+
+    const lock = lockfile({ react: { spec: 'react@18.2.0' } }).replace(
+      '  "packages": {',
+      '  "workspaces": {\n    "packages/app": {\n      "name": "app",\n      "dependencies": { "react": "^18.0.0" },\n    },\n  },\n  "packages": {',
+    );
+
+    expect(
+      run({ overrides: { react: '18.2.0' } }, ['react'], lock),
+    ).rejects.toThrow(
+      /Failed to parse workspace manifest .*packages[/\\]app[/\\]package\.json/,
+    );
+  });
+
   test('omits the name from the label when package.json has none', async () => {
     // Verified against bun 1.3.14: a package.json with no `name` produces a
     // workspaces entry with no name field, which would otherwise render as a
@@ -619,7 +685,10 @@ describe('checkOverrides', () => {
     ).replace('      "name": "demo",\n', '');
 
     const { result, output } = await run(
-      { overrides: { semver: '7.3.0' } },
+      {
+        dependencies: { semver: '^7.8.0' },
+        overrides: { semver: '7.3.0' },
+      },
       ['semver'],
       lock,
     );

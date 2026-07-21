@@ -523,7 +523,7 @@ If the install fails, the previous lockfile is restored, so a failed resolve nev
 
 There is one form of stale pin `check:overrides` **can** catch offline, and it is the one that bites hardest. If an override forces a package **below** a version its dependents declare they need, bun applies it without a word. Forcing `brace-expansion` to `1.1.11` under a `minimatch` that declares `^2.0.2` installs with no warning at all.
 
-The check reads this straight out of `bun.lock`, which already records every declared range, so it costs no network and stays in the `check` chain. That includes the ranges **your own `package.json`** declares: bun records those in the lockfile's `workspaces` block (under the `""` key) even when the repo has no workspaces configured at all, so a pin that undercuts one of your direct dependencies is caught the same way as one undercutting a transitive dependent:
+The check reads transitive dependency ranges from `bun.lock` and reads your repo's own ranges from the current root and workspace `package.json` files, so it costs no network and stays in the `check` chain. Bun copies workspace declarations into the lockfile too, but those copies can be stale after a manifest edit, so the manifests are authoritative. The lockfile's `workspaces` block identifies child workspace paths, and a missing child manifest falls back to its recorded declaration. Other read failures and malformed workspace manifests fail the check rather than silently analyzing stale ranges. A pin that undercuts one of your direct dependencies is therefore caught the same way as one undercutting a transitive dependent:
 
 ```
 These overrides force a version outside what a dependent declares it supports, without
@@ -534,7 +534,7 @@ being an intentional forward override, which bun applies without any warning:
 
 Forcing a package **forward** past the whole declared range is usually the point of an override, since the advisory fix often lands in a major the parent has not adopted yet, so that remains allowed. A version below the range and a version in an unsupported gap between disjoint branches such as `^1 || ^3` are both reported. The latter matters because semver classifies a pin at version 2 as neither less than nor greater than that range even though it does not satisfy either branch.
 
-Ranges coming from your own `package.json` are labeled `<name> (this package.json)`, where `<name>` is that file's `name` field. In this repo, for example, a pin undercutting one of its direct dependencies reports as `unirend (this package.json) declares "^7.8.0"`. In a monorepo each additional workspace is named the same way, as `<name> (workspace <path>)`. The distinction is worth making because a pin undercutting your own declaration is far more actionable than one undercutting a package deep in the tree. (A `package.json` with no `name` at all still works: bun omits the field from the lockfile, and the label degrades to just `this package.json`.)
+Ranges coming from your own `package.json` are labeled `<name> (this package.json)`, where `<name>` is that file's `name` field. In this repo, for example, a pin undercutting one of its direct dependencies reports as `unirend (this package.json) declares "^7.8.0"`. In a monorepo each additional workspace is named the same way, as `<name> (workspace <path>)`. The distinction is worth making because a pin undercutting your own declaration is far more actionable than one undercutting a package deep in the tree. A `package.json` with no `name` at all still works, and the label degrades to just `this package.json`.
 
 Peer ranges count too, on both sides. Bun auto-installs peer dependencies, so a peer range is a live constraint rather than a wish: a package declaring peer `react >=19` alongside an override pinning React 18 is the same incompatible pin as any other, and it installs without a warning. Optional peers are left out, being the ones genuinely allowed to go unsatisfied. Resolved packages record them in `bun.lock`; workspace entries do not preserve `peerDependenciesMeta`, so the check reads each workspace's `package.json` to recover that distinction. When a package declares both a real dependency and an optional peer on the same name, the installed range is still compared, since it is the binding one. That combination is normal for a library, which develops against one version of what it broadly supports: this repo declares react as a devDependency at `^19.2.7` and a peer at `^19.0.0`.
 
@@ -556,7 +556,7 @@ Only a resolved version falling **outside** the declared range is a finding, nev
 
 #### Seeing What Each Pin Is Doing
 
-A passing run prints one line, since it runs on every build. Add `--verbose` to see what each surviving override is actually doing to the resolved tree, read from the same lockfile data the check already loads, so it stays offline and costs nothing extra:
+A passing run prints one line, since it runs on every build. Add `--verbose` to see what each surviving override is actually doing to the resolved tree, using the same lockfile and manifest data the check already loads, so it stays offline and costs nothing extra:
 
 ```
 overrides check passed (2 declared, all still applied).
