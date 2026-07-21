@@ -25,6 +25,7 @@ const defaultWords = [
   'dbaeumer',
   'esbenp',
   'eslintcache',
+  'extensionless',
   'firsttris',
   'Gruntfuggly',
   'jestrunner',

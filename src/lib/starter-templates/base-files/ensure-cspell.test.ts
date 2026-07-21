@@ -11,6 +11,7 @@ describe('ensureCspell', () => {
     'dbaeumer',
     'esbenp',
     'eslintcache',
+    'extensionless',
     'firsttris',
     'Gruntfuggly',
     'jestrunner',
