@@ -215,6 +215,7 @@ export async function refreshLockfile(
   await fs.rename(lockPath, backupPath);
 
   let isBackupActive = true;
+  let isInstallRunning = false;
   let installPromise: Promise<boolean> | null = null;
   let terminationSignal: NodeJS.Signals | null = null;
   const signals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
@@ -257,7 +258,7 @@ export async function refreshLockfile(
       // lockfile after this process exits. Injected installers have no child
       // handle for us to control, so they retain the previous immediate-restore
       // behavior.
-      if (isDefaultInstaller && installPromise !== null) {
+      if (isDefaultInstaller && isInstallRunning && installPromise !== null) {
         installAbortController.abort(signal);
         void installPromise
           .catch(() => false)
@@ -282,9 +283,13 @@ export async function refreshLockfile(
   let didInstall: boolean;
 
   try {
+    isInstallRunning = true;
     installPromise = Promise.resolve().then(() => install());
     didInstall = await installPromise;
+    isInstallRunning = false;
   } catch (error) {
+    isInstallRunning = false;
+
     if (terminationSignal !== null) {
       // The signal handler owns restoration and termination after the child
       // closes. Do not race it by continuing the normal failure path.
@@ -328,6 +333,13 @@ export async function refreshLockfile(
   try {
     afterText = await fs.readFile(lockPath, 'utf8');
   } catch (error) {
+    if (terminationSignal !== null) {
+      // A signal may restore the backup while this read is pending. The signal
+      // handler owns the filesystem from that point on, regardless of whether
+      // the interrupted read succeeded or failed.
+      return await new Promise<never>(() => {});
+    }
+
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       restoreBackupSync();
 
@@ -347,6 +359,14 @@ export async function refreshLockfile(
 
     restoreBackupSync();
     throw error;
+  }
+
+  if (terminationSignal !== null) {
+    // The read above is an event-loop boundary. A signal received while it was
+    // pending may already have restored and consumed backupPath, so do not let
+    // the normal path unlink that path or accept the restored text as the new
+    // lockfile.
+    return await new Promise<never>(() => {});
   }
 
   // The replacement now exists and is readable. Remove the recovery hooks and

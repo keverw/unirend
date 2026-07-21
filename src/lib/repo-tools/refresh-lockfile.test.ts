@@ -325,6 +325,64 @@ describe('refreshLockfile', () => {
     }
   });
 
+  test('does not resume cleanup after a signal during the replacement read', async () => {
+    const original = lockfile({ eslint: 'eslint@9.39.5' });
+    const replacement = lockfile({ eslint: 'eslint@9.40.0' });
+    await fs.promises.writeFile(lockPath, original);
+
+    const fakeBunPath = path.join(tmpDir.path, 'bun');
+    const readStartedPath = path.join(tmpDir.path, 'read-started');
+    const errorPath = path.join(tmpDir.path, 'refresh-error');
+    const runnerPath = path.join(tmpDir.path, 'read-race-runner.ts');
+    const refreshModuleURL = pathToFileURL(
+      path.join(import.meta.dirname, 'refresh-lockfile.ts'),
+    ).href;
+
+    await fs.promises.writeFile(
+      fakeBunPath,
+      `#!${process.execPath}\nimport fs from 'fs';\nfs.writeFileSync(${JSON.stringify(lockPath)}, ${JSON.stringify(replacement)});\n`,
+    );
+    await fs.promises.chmod(fakeBunPath, 0o755);
+
+    // Delay the second bun.lock read to open the exact event-loop window under
+    // test. Self-signaling is delayed too, so the old normal path has time to
+    // expose an ENOENT from unlinking the backup that the handler restored.
+    await fs.promises.writeFile(
+      runnerPath,
+      `import { promises as fs, writeFileSync } from 'fs';\nconst realReadFile = fs.readFile.bind(fs);\nlet lockfileReadCount = 0;\nfs.readFile = (async (...args) => {\n  if (String(args[0]) === ${JSON.stringify(lockPath)} && ++lockfileReadCount === 2) {\n    writeFileSync(${JSON.stringify(readStartedPath)}, 'started');\n    await new Promise((resolve) => setTimeout(resolve, 100));\n  }\n  return await realReadFile(...args);\n}) as typeof fs.readFile;\nconst realKill = process.kill.bind(process);\nprocess.kill = ((pid, signal) => {\n  if (pid === process.pid && signal === 'SIGTERM') {\n    setTimeout(() => realKill(pid, signal), 500);\n    return true;\n  }\n  return realKill(pid, signal);\n}) as typeof process.kill;\nconst { refreshLockfile } = await import(${JSON.stringify(refreshModuleURL)});\ntry {\n  await refreshLockfile({ rootDir: ${JSON.stringify(tmpDir.path)}, log: () => {}, logError: () => {} });\n} catch (error) {\n  writeFileSync(${JSON.stringify(errorPath)}, String(error));\n}\n`,
+    );
+
+    const runner = spawn(process.execPath, [runnerPath], {
+      env: {
+        ...process.env,
+        PATH: `${tmpDir.path}${path.delimiter}${process.env.PATH ?? ''}`,
+      },
+      stdio: 'ignore',
+    });
+
+    for (
+      let attempts = 0;
+      attempts < 200 && !fs.existsSync(readStartedPath);
+      attempts++
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    expect(fs.existsSync(readStartedPath)).toBe(true);
+    runner.kill('SIGTERM');
+
+    const exit = await new Promise<{
+      code: number | null;
+      signal: NodeJS.Signals | null;
+    }>((resolve) => {
+      runner.once('close', (code, signal) => resolve({ code, signal }));
+    });
+
+    expect(exit).toEqual({ code: null, signal: 'SIGTERM' });
+    expect(fs.existsSync(errorPath)).toBe(false);
+    expect(await fs.promises.readFile(lockPath, 'utf8')).toBe(original);
+  });
+
   test('fails cleanly when there is no lockfile to refresh', async () => {
     let didInstall = false;
 
