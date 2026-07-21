@@ -376,7 +376,7 @@ describe('checkOverrides', () => {
       declaredAt: 'overrides.brace-expansion',
       violations: [{ dependent: 'minimatch@9.0.9', range: '^2.0.2' }],
     });
-    expect(output).toContain('force a version BELOW');
+    expect(output).toContain('outside what a dependent declares it supports');
     expect(output).toContain('minimatch@9.0.9 declares "^2.0.2"');
   });
 
@@ -398,6 +398,26 @@ describe('checkOverrides', () => {
 
     expect(result.success).toBe(true);
     expect(result.backwardPins).toEqual([]);
+  });
+
+  test('fails a pin in the unsupported gap of a disjoint range', async () => {
+    const { result, output } = await run(
+      { overrides: { 'brace-expansion': '2.0.0' } },
+      ['brace-expansion'],
+      lockfile({
+        minimatch: {
+          spec: 'minimatch@9.0.9',
+          deps: { 'brace-expansion': '^1.0.0 || ^3.0.0' },
+        },
+        'brace-expansion': { spec: 'brace-expansion@2.0.0' },
+      }),
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.backwardPins[0].violations).toEqual([
+      { dependent: 'minimatch@9.0.9', range: '^1.0.0 || ^3.0.0' },
+    ]);
+    expect(output).toContain('outside what a dependent declares it supports');
   });
 
   test('allows a pin that satisfies every declared range', async () => {
@@ -529,6 +549,64 @@ describe('checkOverrides', () => {
     // is a more actionable message than some transitive dependency. The name
     // is package.json's own `name` field, "demo" in this fixture.
     expect(output).toContain('demo (this package.json) declares "^7.8.0"');
+  });
+
+  test('ignores an optional-only peer declared by the root workspace', async () => {
+    const { result } = await run(
+      {
+        overrides: { react: '18.2.0' },
+        peerDependencies: { react: '^19.0.0' },
+        peerDependenciesMeta: { react: { optional: true } },
+      },
+      ['react'],
+      lockfile({ react: { spec: 'react@18.2.0' } }, { react: '^19.0.0' }),
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.backwardPins).toEqual([]);
+  });
+
+  test('keeps an installed root dependency binding when its peer is optional', async () => {
+    const { result } = await run(
+      {
+        overrides: { react: '18.2.0' },
+        devDependencies: { react: '^19.2.0' },
+        peerDependencies: { react: '^19.0.0' },
+        peerDependenciesMeta: { react: { optional: true } },
+      },
+      ['react'],
+      lockfile({ react: { spec: 'react@18.2.0' } }, { react: '^19.2.0' }),
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.backwardPins[0].violations).toEqual([
+      { dependent: 'demo (this package.json)', range: '^19.2.0' },
+    ]);
+  });
+
+  test('ignores an optional-only peer declared by a child workspace', async () => {
+    const workspaceDir = path.join(tmpDir.path, 'packages', 'app');
+    await fs.promises.mkdir(workspaceDir, { recursive: true });
+    await fs.promises.writeFile(
+      path.join(workspaceDir, 'package.json'),
+      JSON.stringify({
+        peerDependencies: { react: '^19.0.0' },
+        peerDependenciesMeta: { react: { optional: true } },
+      }),
+    );
+
+    const lock = lockfile({ react: { spec: 'react@18.2.0' } }).replace(
+      '  "packages": {',
+      '  "workspaces": {\n    "packages/app": {\n      "name": "app",\n      "peerDependencies": { "react": "^19.0.0" },\n    },\n  },\n  "packages": {',
+    );
+    const { result } = await run(
+      { overrides: { react: '18.2.0' } },
+      ['react'],
+      lock,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.backwardPins).toEqual([]);
   });
 
   test('omits the name from the label when package.json has none', async () => {

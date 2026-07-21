@@ -53,10 +53,10 @@ import type { BunLockWorkspace } from '../internal/bun-lockfile';
  *    applies to nothing and it says so nowhere. Same silence and same danger as
  *    STALE, and the form is easy to reach for because npm does support it.
  *
- * 4. BACKWARD: the override forces a package below a version its dependents
- *    declare they need — see {@link analyzePins}. Bun applies these
- *    silently too, and this is what a pin looks like once the packages around
- *    it have upgraded past it.
+ * 4. INCOMPATIBLE: the override forces a package below what its dependents
+ *    declare they need, or into an unsupported gap in a disjoint range — see
+ *    {@link analyzePins}. Bun applies these silently too. A forward override
+ *    above the whole range remains allowed, since that is often the pin's job.
  *
  * 5. UNAPPLIED: the lockfile does not hold the version the override asks for,
  *    so the pin is declared but not in effect — see {@link analyzePins}. The
@@ -184,8 +184,9 @@ export interface CheckOverridesResult {
    */
   targets: OverrideTarget[];
   /**
-   * Overrides forcing a package below a version its dependents declare they
-   * need, with the ranges they undercut. Also counted in {@link problems}.
+   * Overrides forcing a package below what its dependents need or into an
+   * unsupported gap, with the ranges they violate. Also counted in
+   * {@link problems}.
    * Empty when there is no lockfile to check against.
    */
   backwardPins: BackwardPin[];
@@ -197,7 +198,7 @@ export interface CheckOverridesResult {
   unappliedPins: UnappliedPin[];
 }
 
-/** One override forcing a package below what a dependent declares it needs. */
+/** One override forcing a package into an unsupported version. */
 export interface BackwardPin {
   /** The overridden package. */
   name: string;
@@ -205,7 +206,7 @@ export interface BackwardPin {
   version: string;
   /** Where the override is declared in package.json. */
   declaredAt: string;
-  /** Dependents whose declared range the forced version falls below. */
+  /** Dependents whose declared range the forced version incompatibly violates. */
   violations: Array<{
     /** The dependent, as "name@version". */
     dependent: string;
@@ -217,6 +218,110 @@ export interface BackwardPin {
 interface PackageJSON {
   overrides?: unknown;
   resolutions?: unknown;
+  dependencies?: unknown;
+  devDependencies?: unknown;
+  optionalDependencies?: unknown;
+  peerDependenciesMeta?: unknown;
+}
+
+/**
+ * Find peers that are optional and have no installed declaration on the same
+ * package. A dependency/devDependency/optionalDependency wins over optional
+ * peer metadata, matching the lockfile parser's treatment of duplicate names.
+ */
+function optionalOnlyPeers(pkg: PackageJSON): Set<string> {
+  const metadata = pkg.peerDependenciesMeta;
+
+  if (
+    metadata === null ||
+    typeof metadata !== 'object' ||
+    Array.isArray(metadata)
+  ) {
+    return new Set();
+  }
+
+  const installedNames = new Set<string>();
+
+  for (const field of [
+    'dependencies',
+    'devDependencies',
+    'optionalDependencies',
+  ] as const) {
+    const block = pkg[field];
+
+    if (block !== null && typeof block === 'object' && !Array.isArray(block)) {
+      for (const name of Object.keys(block)) {
+        installedNames.add(name);
+      }
+    }
+  }
+
+  return new Set(
+    Object.entries(metadata as Record<string, unknown>)
+      .filter(([name, value]) => {
+        if (
+          installedNames.has(name) ||
+          value === null ||
+          typeof value !== 'object' ||
+          Array.isArray(value)
+        ) {
+          return false;
+        }
+
+        return (value as { optional?: unknown }).optional === true;
+      })
+      .map(([name]) => name),
+  );
+}
+
+/**
+ * Read optional-only peer declarations for every workspace represented in the
+ * lockfile. Bun does not preserve workspace `peerDependenciesMeta` in
+ * `bun.lock`, so the package.json files are the authoritative source.
+ */
+async function readOptionalWorkspacePeers(
+  rootDir: string,
+  lockText: string,
+  rootPackage: PackageJSON,
+): Promise<Map<string, Set<string>>> {
+  const optionalByWorkspace = new Map<string, Set<string>>([
+    ['', optionalOnlyPeers(rootPackage)],
+  ]);
+  const resolvedRoot = path.resolve(rootDir);
+
+  for (const workspace of parseBunLockfileWorkspaces(lockText)) {
+    if (workspace.key === '') {
+      continue;
+    }
+
+    const packagePath = path.resolve(rootDir, workspace.key, 'package.json');
+    const relativePath = path.relative(resolvedRoot, packagePath);
+
+    // A lockfile is repository input, but do not let a malformed workspace key
+    // make this advisory check read outside the repository it was given.
+    if (
+      relativePath.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relativePath)
+    ) {
+      continue;
+    }
+
+    try {
+      const workspacePackage = JSON.parse(
+        await fs.readFile(packagePath, 'utf8'),
+      ) as PackageJSON;
+      optionalByWorkspace.set(
+        workspace.key,
+        optionalOnlyPeers(workspacePackage),
+      );
+    } catch {
+      // A stale lockfile can retain a removed workspace. Its ranges are still
+      // useful, but there is no package.json left from which to recover
+      // optional-peer metadata, so preserve the existing conservative check.
+    }
+  }
+
+  return optionalByWorkspace;
 }
 
 /**
@@ -384,7 +489,7 @@ interface PinStatus {
    * comparisons below unanswerable).
    */
   version: string | null;
-  /** Ranges the resolved version falls BELOW: the backward-pin failure. */
+  /** Ranges the resolved version violates without being a forward override. */
   below: Array<{ dependent: string; range: string }>;
   /**
    * Ranges the resolved version sits ABOVE, meaning the override is actively
@@ -397,22 +502,22 @@ interface PinStatus {
 }
 
 /**
- * Find overrides that force a package BELOW a version its dependents declare
- * they need, reading only `bun.lock` (no network, no resolve).
+ * Find overrides that force a package outside a dependent's declared range
+ * without being an intentional forward override, reading only local files.
  *
  * Bun applies such an override in complete silence — verified by forcing
  * `brace-expansion` to 1.1.11 under a `minimatch` that declares `^2.0.2`,
  * which installed without a single warning — so nothing else reports it.
  *
- * Only the backward direction is reported. Forcing a package FORWARD past a
- * declared range is usually the entire point of an override (the advisory fix
- * landed in a major the parent hasn't adopted yet), so flagging that would
- * fail builds over overrides doing exactly their job. Forcing one backward has
- * no such legitimate use and is what a pin looks like once it has rotted.
+ * Forcing a package FORWARD past a declared range is usually the entire point
+ * of an override (the advisory fix landed in a major the parent hasn't adopted
+ * yet), so that stays allowed. Versions below a range and versions sitting in
+ * an unsupported gap between its disjoint branches are both incompatible.
  */
 function analyzePins(
   lockText: string,
   targets: OverrideTarget[],
+  optionalWorkspacePeers: Map<string, Set<string>>,
 ): { statuses: PinStatus[]; unapplied: UnappliedPin[] } {
   const entries = parseBunLockfile(lockText);
 
@@ -432,7 +537,11 @@ function analyzePins(
     })),
     ...parseBunLockfileWorkspaces(lockText).map((workspace) => ({
       label: workspaceLabel(workspace),
-      dependencies: workspace.dependencies,
+      dependencies: Object.fromEntries(
+        Object.entries(workspace.dependencies).filter(
+          ([name]) => !optionalWorkspacePeers.get(workspace.key)?.has(name),
+        ),
+      ),
     })),
   ];
 
@@ -532,10 +641,11 @@ function analyzePins(
         forcingPast.push({ dependent: source.label, range });
       }
 
-      // ltr = "below every version the range allows", which is exactly the
-      // backward case. A range the version merely doesn't satisfy could also
-      // be a forward override, which is intentional and stays unreported.
-      if (semver.ltr(version, range)) {
+      // A non-satisfying version is allowed only when it sits above every
+      // version in the range, which is an intentional forward override. `ltr`
+      // alone is insufficient here: a version can sit in the unsupported gap
+      // of a disjoint range, where satisfies/ltr/gtr are all false.
+      if (!semver.satisfies(version, range) && !semver.gtr(version, range)) {
         violations.push({ dependent: source.label, range });
       }
     }
@@ -841,7 +951,12 @@ export async function checkOverrides(
     }
 
     if (lockText !== null) {
-      const analysis = analyzePins(lockText, targets);
+      const optionalWorkspacePeers = await readOptionalWorkspacePeers(
+        rootDir,
+        lockText,
+        pkg,
+      );
+      const analysis = analyzePins(lockText, targets, optionalWorkspacePeers);
       statuses = analysis.statuses;
       unappliedPins = analysis.unapplied;
       backward = statuses
@@ -925,7 +1040,8 @@ export async function checkOverrides(
 
     if (undercut.length > 0) {
       sections.push(
-        'These overrides force a version BELOW what a dependent declares it needs, which bun\n' +
+        'These overrides force a version outside what a dependent declares it supports, without\n' +
+          'being an intentional forward override, which bun\n' +
           'applies without any warning:\n' +
           undercut.join('\n') +
           '\n\n  Raise the pin to a version inside those ranges, or remove it if it has outlived\n' +
