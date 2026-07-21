@@ -177,7 +177,7 @@ function mergeScripts(
   const targetScripts = target.scripts as Record<string, string>;
 
   for (const [scriptName, scriptCommand] of Object.entries(source)) {
-    if (!targetScripts[scriptName]) {
+    if (!Object.prototype.hasOwnProperty.call(targetScripts, scriptName)) {
       // Script doesn't exist, add it
       targetScripts[scriptName] = scriptCommand;
       didChange = true;

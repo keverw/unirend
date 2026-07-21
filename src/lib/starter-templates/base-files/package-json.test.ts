@@ -315,6 +315,21 @@ describe('ensurePackageJSON', () => {
       expect(pkg.scripts['format:check']).toBeDefined(); // Added from template
     });
 
+    test('preserves scripts whose existing value is an empty string', async () => {
+      const memRoot: InMemoryDir = {
+        'package.json': JSON.stringify({
+          name: 'test-repo',
+          scripts: { check: '', lint: '' },
+        }),
+      };
+
+      await ensurePackageJSON(memRoot, 'test-repo', await readState(memRoot));
+
+      const pkg = JSON.parse(memRoot['package.json'] as string);
+      expect(pkg.scripts.check).toBe('');
+      expect(pkg.scripts.lint).toBe('');
+    });
+
     test('merges template-specific scripts and dependencies', async () => {
       const memRoot: InMemoryDir = {};
       await ensurePackageJSON(memRoot, 'test-repo', await readState(memRoot), {

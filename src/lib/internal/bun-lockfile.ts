@@ -77,7 +77,8 @@ export interface BunLockWorkspace {
  * is a worse failure than not parsing at all.
  */
 function stripTrailingCommas(text: string): string {
-  let out = '';
+  const spans: string[] = [];
+  let spanStart = 0;
   let isInString = false;
   let isEscaped = false;
 
@@ -85,8 +86,6 @@ function stripTrailingCommas(text: string): string {
     const char = text[index];
 
     if (isInString) {
-      out += char;
-
       if (isEscaped) {
         isEscaped = false;
       } else if (char === '\\') {
@@ -100,25 +99,39 @@ function stripTrailingCommas(text: string): string {
 
     if (char === '"') {
       isInString = true;
-      out += char;
       continue;
     }
 
     // Outside a string: drop a comma whose next non-whitespace character
     // closes the object or array it sits in.
     if (char === ',') {
-      const rest = text.slice(index + 1);
-      const nextNonSpace = rest.match(/^\s*([}\]])/);
+      let nextIndex = index + 1;
+      let nextChar = text[nextIndex];
 
-      if (nextNonSpace !== null) {
+      while (
+        nextChar === ' ' ||
+        nextChar === '\t' ||
+        nextChar === '\n' ||
+        nextChar === '\r'
+      ) {
+        nextIndex++;
+        nextChar = text[nextIndex];
+      }
+
+      if (nextChar === '}' || nextChar === ']') {
+        spans.push(text.slice(spanStart, index));
+        spanStart = index + 1;
         continue;
       }
     }
-
-    out += char;
   }
 
-  return out;
+  if (spans.length === 0) {
+    return text;
+  }
+
+  spans.push(text.slice(spanStart));
+  return spans.join('');
 }
 
 /**
