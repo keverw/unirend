@@ -16,13 +16,16 @@ import { checkOverrides } from '../src/repo-tools';
 // repo root (not process.cwd()) so it works no matter where it's invoked from.
 
 // --verbose also prints what each surviving override is doing to the resolved
-// tree. Off by default so the prepublishOnly output stays one line.
+// tree. Off by default so the prepublishOnly output stays one line. A package
+// deliberately downgraded around an upstream regression can be acknowledged
+// with allowBackwardPins below.
 const isVerbose = process.argv.includes('--verbose');
 
 try {
   const result = await checkOverrides({
     rootDir: join(import.meta.dirname, '..'),
     verbose: isVerbose,
+    // allowBackwardPins: ['package-with-an-intentional-downgrade'],
   });
 
   if (!result.success) {

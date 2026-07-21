@@ -167,6 +167,38 @@ describe('refreshLockfile', () => {
     expect(output).toContain('no resolution changes');
   });
 
+  test('keeps an on-disk backup until the replacement succeeds', async () => {
+    const original = lockfile({ eslint: 'eslint@9.39.5' });
+    const replacement = lockfile({ eslint: 'eslint@9.40.0' });
+    await fs.promises.writeFile(lockPath, original);
+
+    let backupsDuringInstall: string[] = [];
+
+    const { result } = await run(async () => {
+      backupsDuringInstall = (await fs.promises.readdir(tmpDir.path)).filter(
+        (name) => name.startsWith('.bun.lock.unirend-backup-'),
+      );
+      expect(backupsDuringInstall).toHaveLength(1);
+      expect(
+        await fs.promises.readFile(
+          path.join(tmpDir.path, backupsDuringInstall[0]),
+          'utf8',
+        ),
+      ).toBe(original);
+
+      await fs.promises.writeFile(lockPath, replacement);
+      return true;
+    });
+
+    expect(result.success).toBe(true);
+    expect(
+      (await fs.promises.readdir(tmpDir.path)).filter((name) =>
+        name.startsWith('.bun.lock.unirend-backup-'),
+      ),
+    ).toEqual([]);
+    expect(await fs.promises.readFile(lockPath, 'utf8')).toBe(replacement);
+  });
+
   test('restores the previous lockfile when the install fails', async () => {
     const original = lockfile({ eslint: 'eslint@9.39.5' });
     await fs.promises.writeFile(lockPath, original);

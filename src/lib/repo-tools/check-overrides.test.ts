@@ -79,7 +79,12 @@ describe('checkOverrides', () => {
    * the dependency tree. Probed names are recorded so tests can assert which
    * packages the check considered targets.
    */
-  async function run(pkg: unknown, installed: string[] = [], lock?: string) {
+  async function run(
+    pkg: unknown,
+    installed: string[] = [],
+    lock?: string,
+    options?: { allowBackwardPins?: string[]; verbose?: boolean },
+  ) {
     await fs.promises.writeFile(
       path.join(tmpDir.path, 'package.json'),
       typeof pkg === 'string' ? pkg : JSON.stringify(pkg, null, 2),
@@ -102,6 +107,7 @@ describe('checkOverrides', () => {
         probed.push(name);
         return installed.includes(name);
       },
+      ...options,
     });
 
     return { result, probed, output: lines.join('\n') };
@@ -405,6 +411,27 @@ describe('checkOverrides', () => {
     });
     expect(output).toContain('outside what a dependent declares it supports');
     expect(output).toContain('minimatch@9.0.9 declares "^2.0.2"');
+  });
+
+  test('allows an acknowledged intentional downgrade', async () => {
+    const { result, output } = await run(
+      { overrides: { 'brace-expansion': '1.1.11' } },
+      ['brace-expansion'],
+      lockfile({
+        minimatch: {
+          spec: 'minimatch@9.0.9',
+          deps: { 'brace-expansion': '^2.0.2' },
+        },
+        'brace-expansion': { spec: 'brace-expansion@1.1.11' },
+      }),
+      { allowBackwardPins: ['brace-expansion'], verbose: true },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.backwardPins).toEqual([]);
+    expect(output).toContain(
+      'intentionally pinned below minimatch@9.0.9 (declares "^2.0.2")',
+    );
   });
 
   test('allows an override pinning FORWARD past a declared range', async () => {

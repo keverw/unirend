@@ -57,6 +57,8 @@ import type { BunLockWorkspace } from '../internal/bun-lockfile';
  *    declare they need, or into an unsupported gap in a disjoint range — see
  *    {@link analyzePins}. Bun applies these silently too. A forward override
  *    above the whole range remains allowed, since that is often the pin's job.
+ *    A deliberate downgrade can be acknowledged through `allowBackwardPins`,
+ *    keeping the default strict without blocking a documented exception.
  *
  * 5. UNAPPLIED: the lockfile does not hold the version the override asks for,
  *    so the pin is declared but not in effect — see {@link analyzePins}. The
@@ -140,6 +142,12 @@ export interface CheckOverridesOptions {
    * same lockfile data the check already loads, so it costs no extra work.
    */
   verbose?: boolean;
+  /**
+   * Package names whose below-range overrides are intentional. These pins are
+   * still shown by `verbose`, but do not fail the check. Use this narrowly for
+   * a deliberate downgrade around an upstream regression or advisory.
+   */
+  allowBackwardPins?: string[];
 }
 
 /** One override declaration that names a package. */
@@ -590,7 +598,8 @@ interface PinStatus {
  * Forcing a package FORWARD past a declared range is usually the entire point
  * of an override (the advisory fix landed in a major the parent hasn't adopted
  * yet), so that stays allowed. Versions below a range and versions sitting in
- * an unsupported gap between its disjoint branches are both incompatible.
+ * an unsupported gap between its disjoint branches fail by default, with
+ * `allowBackwardPins` available for an intentional downgrade.
  */
 function analyzePins(
   lockText: string,
@@ -1041,8 +1050,12 @@ export async function checkOverrides(
       const analysis = analyzePins(lockText, targets, workspaceDeclarations);
       statuses = analysis.statuses;
       unappliedPins = analysis.unapplied;
+      const allowedBackwardPins = new Set(options?.allowBackwardPins ?? []);
       backward = statuses
-        .filter((status) => status.below.length > 0)
+        .filter(
+          (status) =>
+            status.below.length > 0 && !allowedBackwardPins.has(status.name),
+        )
         .map(({ name, version, declaredAt, below }) => ({
           name,
           // Guarded by below.length: a status with violations always resolved
@@ -1205,7 +1218,21 @@ function describePins(statuses: PinStatus[]): string[] {
 
     lines.push(`  ${status.name} → ${status.version}`);
 
-    if (status.forcingPast.length > 0) {
+    if (status.below.length > 0) {
+      const shown = status.below.slice(0, MAX_LISTED_DEPENDENTS);
+
+      for (const { dependent, range } of shown) {
+        lines.push(
+          `      intentionally pinned below ${dependent} (declares "${range}")`,
+        );
+      }
+
+      const hidden = status.below.length - shown.length;
+
+      if (hidden > 0) {
+        lines.push(`      ...and ${hidden} more`);
+      }
+    } else if (status.forcingPast.length > 0) {
       const shown = status.forcingPast.slice(0, MAX_LISTED_DEPENDENTS);
 
       for (const { dependent, range } of shown) {

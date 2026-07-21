@@ -40,6 +40,7 @@ describe('ensureCheckOverrides', () => {
       "rootDir: join(import.meta.dirname, '..'),",
     );
     expect(src as string).toContain('process.exit(1)');
+    expect(src as string).toContain('// allowBackwardPins:');
   });
 
   test('logs info when file is created', async () => {

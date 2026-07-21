@@ -1,4 +1,4 @@
-import { promises as fs } from 'fs';
+import { promises as fs, renameSync, rmSync, unlinkSync } from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
 import { parseBunLockfile, splitSpec } from '../internal/bun-lockfile';
@@ -34,9 +34,10 @@ import { parseBunLockfile, splitSpec } from '../internal/bun-lockfile';
  * were after, and that blast radius is invisible in the diff of a large
  * lockfile. This prints it as a list so regenerating is a deliberate review
  * step rather than a wall of noise. The previous lockfile is restored if the
- * install fails, so a failed resolve does not leave the repo without one
- * (which would make the next install resolve from scratch silently rather than
- * on purpose).
+ * install fails or the command receives a normal termination signal, so a
+ * failed or interrupted resolve does not leave the repo without one (which
+ * would make the next install resolve from scratch silently rather than on
+ * purpose).
  *
  * This tool mutates the lockfile, so unlike {@link checkOverrides} it is not
  * chained into the generated `check` script — it is run on demand via
@@ -177,7 +178,58 @@ export async function refreshLockfile(
   const before = readResolved(previousText);
 
   log('Removing bun.lock and resolving from scratch...\n');
-  await fs.unlink(lockPath);
+
+  // Keep the original on disk while the install runs. Holding it only in
+  // memory loses the lockfile if this process is interrupted before an async
+  // restore can run. The unique name also avoids overwriting a backup left by
+  // an earlier hard kill that JavaScript had no opportunity to handle.
+  const backupPath = path.join(
+    rootDir,
+    `.bun.lock.unirend-backup-${process.pid}-${Date.now()}`,
+  );
+  await fs.rename(lockPath, backupPath);
+
+  let isBackupActive = true;
+  const signals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+  const signalHandlers = new Map<NodeJS.Signals, () => void>();
+
+  function removeRecoveryHandlers() {
+    process.off('exit', restoreBackupSync);
+
+    for (const [signal, handler] of signalHandlers) {
+      process.off(signal, handler);
+    }
+  }
+
+  // Signal and exit handlers cannot wait for promises. Synchronous filesystem
+  // operations make restoration finish before the process terminates.
+  function restoreBackupSync() {
+    if (!isBackupActive) {
+      return;
+    }
+
+    rmSync(lockPath, { force: true });
+    renameSync(backupPath, lockPath);
+    isBackupActive = false;
+    removeRecoveryHandlers();
+  }
+
+  process.once('exit', restoreBackupSync);
+
+  for (const signal of signals) {
+    const handler = () => {
+      try {
+        restoreBackupSync();
+      } finally {
+        // Re-send the signal after removing our handler so callers observe the
+        // normal signal exit status instead of a successful exit.
+        process.kill(process.pid, signal);
+      }
+    };
+
+    signalHandlers.set(signal, handler);
+    process.once(signal, handler);
+  }
 
   let didInstall: boolean;
 
@@ -187,12 +239,12 @@ export async function refreshLockfile(
     // Put the old lockfile back before rethrowing, so an installer that blew
     // up (rather than merely failing to resolve) doesn't leave the repo
     // without a lockfile either.
-    await fs.writeFile(lockPath, previousText);
+    restoreBackupSync();
     throw error;
   }
 
   if (!didInstall) {
-    await fs.writeFile(lockPath, previousText);
+    restoreBackupSync();
 
     const problem = 'Install failed — restored the previous bun.lock.';
     logError(`\n${problem}`);
@@ -216,7 +268,7 @@ export async function refreshLockfile(
     afterText = await fs.readFile(lockPath, 'utf8');
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      await fs.writeFile(lockPath, previousText);
+      restoreBackupSync();
 
       const problem =
         'The install wrote no bun.lock — restored the previous one.';
@@ -232,8 +284,16 @@ export async function refreshLockfile(
       };
     }
 
+    restoreBackupSync();
     throw error;
   }
+
+  // The replacement now exists and is readable. Remove the recovery hooks and
+  // backup synchronously, with no event-loop gap where a signal could delete
+  // the new lockfile after the backup was already gone.
+  unlinkSync(backupPath);
+  isBackupActive = false;
+  removeRecoveryHandlers();
 
   const after = readResolved(afterText);
 

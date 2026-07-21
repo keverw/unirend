@@ -37,7 +37,8 @@ import { checkOverrides } from 'unirend/repo-tools';
 // into every generated repo where it would quietly go stale.
 //
 // The check itself lives in unirend and upgrades with it; this wrapper is the
-// place to customize (e.g. pass options to checkOverrides()).
+// place to customize. If a package is deliberately pinned below a dependent's
+// range to avoid an upstream regression, list its name in allowBackwardPins.
 
 // --verbose additionally prints what each surviving override is doing to the
 // resolved tree (which dependents it forces past, or that it forces nothing
@@ -52,6 +53,7 @@ try {
     // check:overrides\`, which always runs from the package.json's directory.
     rootDir: join(import.meta.dirname, '..'),
     verbose: isVerbose,
+    // allowBackwardPins: ['package-with-an-intentional-downgrade'],
   });
 
   if (!result.success) {
