@@ -1,6 +1,8 @@
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
 import path from 'path';
 import fs from 'fs';
+import { spawn } from 'child_process';
+import { pathToFileURL } from 'url';
 import { createTempDir } from 'lifecycleion/tmp-dir';
 import type { TmpDir } from 'lifecycleion/tmp-dir';
 import { refreshLockfile } from './refresh-lockfile';
@@ -252,6 +254,75 @@ describe('refreshLockfile', () => {
     expect(result.removed).toEqual([]);
     expect(await fs.promises.readFile(lockPath, 'utf8')).toBe(original);
     expect(output).toContain('wrote no bun.lock');
+  });
+
+  test('stops the spawned installer before restoring on a parent-only signal', async () => {
+    const original = lockfile({ eslint: 'eslint@9.39.5' });
+    const replacement = lockfile({ eslint: 'eslint@9.40.0' });
+    await fs.promises.writeFile(lockPath, original);
+
+    const fakeBunPath = path.join(tmpDir.path, 'bun');
+    const startedPath = path.join(tmpDir.path, 'installer-started');
+    const runnerPath = path.join(tmpDir.path, 'runner.ts');
+    const refreshModuleURL = pathToFileURL(
+      path.join(import.meta.dirname, 'refresh-lockfile.ts'),
+    ).href;
+
+    // The fake installer stays alive long enough to overwrite bun.lock after
+    // its parent exits unless refreshLockfile explicitly stops and awaits it.
+    await fs.promises.writeFile(
+      fakeBunPath,
+      `#!${process.execPath}\nimport fs from 'fs';\nfs.writeFileSync(${JSON.stringify(startedPath)}, String(process.pid));\nprocess.on('SIGTERM', () => process.exit(143));\nsetTimeout(() => { fs.writeFileSync(${JSON.stringify(lockPath)}, ${JSON.stringify(replacement)}); process.exit(0); }, 30_000);\n`,
+    );
+    await fs.promises.chmod(fakeBunPath, 0o755);
+
+    await fs.promises.writeFile(
+      runnerPath,
+      `import { refreshLockfile } from ${JSON.stringify(refreshModuleURL)};\nawait refreshLockfile({ rootDir: ${JSON.stringify(tmpDir.path)}, log: () => {}, logError: () => {} });\n`,
+    );
+
+    const runner = spawn(process.execPath, [runnerPath], {
+      env: {
+        ...process.env,
+        PATH: `${tmpDir.path}${path.delimiter}${process.env.PATH ?? ''}`,
+      },
+      stdio: 'ignore',
+    });
+
+    for (
+      let attempts = 0;
+      attempts < 200 && !fs.existsSync(startedPath);
+      attempts++
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    expect(fs.existsSync(startedPath)).toBe(true);
+    const installerPID = Number(
+      await fs.promises.readFile(startedPath, 'utf8'),
+    );
+
+    try {
+      runner.kill('SIGTERM');
+      const exit = await new Promise<{
+        code: number | null;
+        signal: NodeJS.Signals | null;
+      }>((resolve) => {
+        runner.once('close', (code, signal) => resolve({ code, signal }));
+      });
+
+      expect(exit).toEqual({ code: null, signal: 'SIGTERM' });
+      expect(() => process.kill(installerPID, 0)).toThrow();
+      expect(await fs.promises.readFile(lockPath, 'utf8')).toBe(original);
+    } finally {
+      // Prevent a failed assertion against the old behavior from leaving the
+      // deliberately long-running fake installer behind.
+      try {
+        process.kill(installerPID, 'SIGKILL');
+      } catch {
+        // Already stopped, which is the expected path.
+      }
+    }
   });
 
   test('fails cleanly when there is no lockfile to refresh', async () => {

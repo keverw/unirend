@@ -107,6 +107,7 @@ $RECYCLE.BIN/
 !/unirend-php/tests/fixtures/build/**
 
 # Temporary files
+.bun.lock.unirend-backup-*
 tmp/
 
 # Demos

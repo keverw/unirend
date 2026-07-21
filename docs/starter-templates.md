@@ -517,7 +517,7 @@ Removed (21):
   - rolldown@1.1.5
 ```
 
-The previous lockfile is renamed to an on-disk backup before installation starts. If the install fails, writes no replacement, or the command receives `SIGINT`, `SIGTERM`, or `SIGHUP`, the backup is restored before exit. This keeps an interrupted resolve from leaving the repo without a lockfile, which would make the next install resolve from scratch silently rather than on purpose.
+The previous lockfile is renamed to an on-disk backup before installation starts. If the install fails, writes no replacement, or the command receives `SIGINT`, `SIGTERM`, or `SIGHUP`, the backup is restored before exit. On a signal, the spawned installer is stopped and awaited before restoration, so an installer that received no signal itself cannot survive the wrapper and overwrite the recovered lockfile afterward. This keeps an interrupted resolve from leaving the repo without a lockfile, which would make the next install resolve from scratch silently rather than on purpose. A hard kill or power loss gives JavaScript no opportunity to restore anything, so the uniquely named backup is deliberately left for manual recovery and `.bun.lock.unirend-backup-*` is included in the scaffolded `.gitignore` and `.prettierignore` to keep it out of commits and formatting.
 
 #### Pins That Fall Behind Their Dependents
 

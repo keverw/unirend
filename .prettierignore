@@ -90,6 +90,7 @@ $RECYCLE.BIN/
 .nfs*
 
 # Temporary files
+.bun.lock.unirend-backup-*
 tmp/
 
 # Demos
@@ -107,4 +108,3 @@ unirend-php/composer.lock
 
 # Test fixture with intentionally malformed content
 unirend-php/tests/fixtures/build-malformed-json/
-

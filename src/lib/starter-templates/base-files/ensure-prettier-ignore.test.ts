@@ -94,6 +94,7 @@ $RECYCLE.BIN/
 .nfs*
 
 # Temporary files
+.bun.lock.unirend-backup-*
 tmp/`;
 
 describe('ensurePrettierIgnore', () => {

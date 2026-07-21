@@ -108,17 +108,37 @@ function readResolved(lockText: string): Map<string, string> {
 }
 
 /** Run `bun install` in rootDir, letting its output through to the terminal. */
-function bunInstall(rootDir: string): Promise<boolean> {
+function bunInstall(rootDir: string, signal: AbortSignal): Promise<boolean> {
   return new Promise((resolve, reject) => {
     const child = spawn('bun', ['install'], {
       cwd: rootDir,
       stdio: 'inherit',
     });
 
+    const abort = () => {
+      const reason: unknown = signal.reason;
+      child.kill(
+        reason === 'SIGINT' || reason === 'SIGTERM' || reason === 'SIGHUP'
+          ? reason
+          : 'SIGTERM',
+      );
+    };
+
+    const cleanup = () => {
+      signal.removeEventListener('abort', abort);
+    };
+
+    if (signal.aborted) {
+      abort();
+    } else {
+      signal.addEventListener('abort', abort, { once: true });
+    }
+
     // A missing bun binary is not a failed resolve — reporting it as one would
     // restore the lockfile and claim the install failed for a dependency
     // reason, so surface it as the environment problem it is.
     child.on('error', (error: NodeJS.ErrnoException) => {
+      cleanup();
       reject(
         error.code === 'ENOENT'
           ? new Error(
@@ -129,6 +149,7 @@ function bunInstall(rootDir: string): Promise<boolean> {
     });
 
     child.on('close', (code) => {
+      cleanup();
       resolve(code === 0);
     });
   });
@@ -150,7 +171,11 @@ export async function refreshLockfile(
   const log = options?.log ?? console.log;
   // eslint-disable-next-line no-console
   const logError = options?.logError ?? console.error;
-  const install = options?.install ?? (() => bunInstall(rootDir));
+  const isDefaultInstaller = options?.install === undefined;
+  const installAbortController = new AbortController();
+  const install =
+    options?.install ??
+    (() => bunInstall(rootDir, installAbortController.signal));
 
   const lockPath = path.join(rootDir, 'bun.lock');
   let previousText: string;
@@ -190,6 +215,8 @@ export async function refreshLockfile(
   await fs.rename(lockPath, backupPath);
 
   let isBackupActive = true;
+  let installPromise: Promise<boolean> | null = null;
+  let terminationSignal: NodeJS.Signals | null = null;
   const signals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
   const signalHandlers = new Map<NodeJS.Signals, () => void>();
 
@@ -218,13 +245,34 @@ export async function refreshLockfile(
 
   for (const signal of signals) {
     const handler = () => {
-      try {
-        restoreBackupSync();
-      } finally {
-        // Re-send the signal after removing our handler so callers observe the
-        // normal signal exit status instead of a successful exit.
-        process.kill(process.pid, signal);
+      if (terminationSignal !== null) {
+        return;
       }
+
+      terminationSignal = signal;
+
+      // The default installer is a child process that can outlive this wrapper
+      // when only the wrapper receives a signal. Stop it and wait for its close
+      // event before restoring, otherwise it can overwrite the restored
+      // lockfile after this process exits. Injected installers have no child
+      // handle for us to control, so they retain the previous immediate-restore
+      // behavior.
+      if (isDefaultInstaller && installPromise !== null) {
+        installAbortController.abort(signal);
+        void installPromise
+          .catch(() => false)
+          .then(() => {
+            restoreBackupSync();
+            // Re-send the signal after removing our handler so callers observe
+            // the normal signal exit status instead of a successful exit.
+            process.kill(process.pid, signal);
+          });
+
+        return;
+      }
+
+      restoreBackupSync();
+      process.kill(process.pid, signal);
     };
 
     signalHandlers.set(signal, handler);
@@ -234,13 +282,26 @@ export async function refreshLockfile(
   let didInstall: boolean;
 
   try {
-    didInstall = await install();
+    installPromise = Promise.resolve().then(() => install());
+    didInstall = await installPromise;
   } catch (error) {
+    if (terminationSignal !== null) {
+      // The signal handler owns restoration and termination after the child
+      // closes. Do not race it by continuing the normal failure path.
+      return await new Promise<never>(() => {});
+    }
+
     // Put the old lockfile back before rethrowing, so an installer that blew
     // up (rather than merely failing to resolve) doesn't leave the repo
     // without a lockfile either.
     restoreBackupSync();
     throw error;
+  }
+
+  if (terminationSignal !== null) {
+    // The signal handler is about to restore and terminate this process. Keep
+    // the normal completion path from touching the replacement concurrently.
+    return await new Promise<never>(() => {});
   }
 
   if (!didInstall) {

@@ -93,6 +93,7 @@ $RECYCLE.BIN/
 .nfs*
 
 # Temporary files
+.bun.lock.unirend-backup-*
 tmp/`;
 
 const defaultTemplateSectionHeader = '# Template-specific';
