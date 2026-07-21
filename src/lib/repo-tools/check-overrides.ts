@@ -914,9 +914,10 @@ function bunWhy(name: string, rootDir: string): Promise<boolean> {
  * injected loggers and returns the outcome instead of exiting — the caller
  * decides the exit code.
  *
- * @throws If package.json cannot be read or parsed, or if the default probe
- * cannot answer whether a package is installed (bun missing, or `bun why`
- * failing for any reason other than the package genuinely being absent).
+ * @throws If package.json or bun.lock cannot be read, if package.json cannot be
+ * parsed, or if the default probe cannot answer whether a package is installed
+ * (bun missing, or `bun why` failing for any reason other than the package
+ * genuinely being absent).
  */
 export async function checkOverrides(
   options?: CheckOverridesOptions,
@@ -985,12 +986,18 @@ export async function checkOverrides(
 
   if (targets.length > 0) {
     let lockText: string | null = null;
+    const lockPath = path.join(rootDir, 'bun.lock');
 
     try {
-      lockText = await fs.readFile(path.join(rootDir, 'bun.lock'), 'utf8');
-    } catch {
-      // Absent lockfile handled below; unreadable for any other reason just
-      // means the range check is skipped, which is advisory anyway.
+      lockText = await fs.readFile(lockPath, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw new Error(`Failed to read ${lockPath}: ${String(error)}`);
+      }
+
+      // An absent lockfile is handled below for the default probe. An injected
+      // probe may not depend on it, so that path can still perform the checks
+      // the caller supplied while skipping lockfile-only analysis.
     }
 
     // Without a lockfile every probe fails, which would report every override

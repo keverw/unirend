@@ -913,6 +913,26 @@ describe('checkOverrides', () => {
     expect(lines.join('\n')).toContain('bun install');
   });
 
+  test('surfaces a bun.lock read error instead of reporting it as missing', async () => {
+    await fs.promises.writeFile(
+      path.join(tmpDir.path, 'package.json'),
+      JSON.stringify({ overrides: { 'left-pad': '1.3.0' } }),
+    );
+
+    // A directory at the lockfile path produces a deterministic non-ENOENT
+    // read failure without relying on permission behavior that differs for
+    // privileged test users.
+    await fs.promises.mkdir(path.join(tmpDir.path, 'bun.lock'));
+
+    expect(
+      checkOverrides({
+        rootDir: tmpDir.path,
+        log: () => {},
+        logError: () => {},
+      }),
+    ).rejects.toThrow(/Failed to read .*bun\.lock/);
+  });
+
   test('refuses to guess when the lockfile is unreadable by bun', async () => {
     // The one test that really spawns `bun why` (see the banner). It has to:
     // the behavior under test IS the default probe's, and injecting a probe
