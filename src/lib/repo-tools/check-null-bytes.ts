@@ -1,11 +1,11 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import type { Ignore } from 'ignore';
 import {
   addIgnoreRules,
   createIgnoreMatcher,
   isIgnored,
 } from '../internal/gitignore-matcher';
+import type { GitignoreMatcher } from '../internal/gitignore-matcher';
 
 /**
  * Null-byte check for scaffolded repos, exported via `unirend/repo-tools`.
@@ -252,7 +252,7 @@ async function collectTextFiles(
   extensions: Set<string>,
   fileNames: Set<string>,
   skipDirectories: Set<string>,
-  matcher: Ignore,
+  matcher: GitignoreMatcher,
   found: string[],
 ): Promise<void> {
   let entries;
@@ -267,8 +267,7 @@ async function collectTextFiles(
 
   // Directories first, so a nested .gitignore is read before anything it
   // governs is tested. Sibling directories cannot interfere with each other
-  // even though they share one matcher, because rebasing anchors every nested
-  // pattern to the directory it came from.
+  // because every nested rule set retains the literal directory it came from.
   for (const entry of entries) {
     if (!entry.isDirectory()) {
       continue;
@@ -348,8 +347,8 @@ export async function checkNullBytes(
   );
 
   // One matcher for the whole walk. Nested .gitignore rules are added to it as
-  // the walk reaches them, rebased so they still mean what they meant in their
-  // own directory, which reproduces git's "deepest file wins" by ordering.
+  // the walk reaches them, scoped to their own literal directory, which
+  // reproduces git's "deepest file wins" by ordering.
   const matcher = createIgnoreMatcher();
   await addIgnoreRules(matcher, rootDir, '');
 

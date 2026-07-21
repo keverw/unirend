@@ -1,12 +1,12 @@
 import { readFile, writeFile, readdir } from 'fs/promises';
 import { join, relative, sep } from 'path';
 import picomatch from 'picomatch';
-import type { Ignore } from 'ignore';
 import {
   addIgnoreRules,
   createIgnoreMatcher,
   isIgnored,
 } from '../internal/gitignore-matcher';
+import type { GitignoreMatcher } from '../internal/gitignore-matcher';
 
 /**
  * Unused-cspell-word cleaner for scaffolded repos, exported via
@@ -138,7 +138,7 @@ async function getFiles(
   dir: string,
   relativeDir: string,
   matchesIgnorePath: (path: string) => boolean,
-  gitignoreMatcher: Ignore | null,
+  gitignoreMatcher: GitignoreMatcher | null,
 ): Promise<string[]> {
   // The root's rules are loaded by the caller, before the walk starts.
   if (gitignoreMatcher !== null && relativeDir !== '') {

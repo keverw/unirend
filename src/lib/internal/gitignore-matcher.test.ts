@@ -42,7 +42,7 @@ describe('gitignore matcher', () => {
     expect(isIgnored(matcher, 'src/root-only.ts', false)).toBe(false);
   });
 
-  test('rebases nested rules and lets the deepest rule win', async () => {
+  test('scopes nested rules and lets the deepest rule win', async () => {
     await write('.gitignore', '*.txt\n');
     await write('logs/.gitignore', '!keep.txt\nprivate/\n');
     const matcher = createIgnoreMatcher();
@@ -68,6 +68,28 @@ describe('gitignore matcher', () => {
     expect(isIgnored(matcher, 'sub/leading.ts', false)).toBe(false);
     expect(isIgnored(matcher, 'sub/trailing ', false)).toBe(true);
     expect(isIgnored(matcher, 'sub/trailing', false)).toBe(false);
+  });
+
+  test('treats nested directory names as literal paths, not patterns', async () => {
+    await write('[slug]/.gitignore', 'secret.ts\n');
+    await write('question?/.gitignore', 'secret.ts\n');
+    await write('star*/.gitignore', 'secret.ts\n');
+    const matcher = createIgnoreMatcher();
+
+    await addIgnoreRules(matcher, path.join(tmpDir.path, '[slug]'), '[slug]');
+    await addIgnoreRules(
+      matcher,
+      path.join(tmpDir.path, 'question?'),
+      'question?',
+    );
+    await addIgnoreRules(matcher, path.join(tmpDir.path, 'star*'), 'star*');
+
+    expect(isIgnored(matcher, '[slug]/secret.ts', false)).toBe(true);
+    expect(isIgnored(matcher, 'question?/secret.ts', false)).toBe(true);
+    expect(isIgnored(matcher, 'star*/secret.ts', false)).toBe(true);
+    expect(isIgnored(matcher, 's/secret.ts', false)).toBe(false);
+    expect(isIgnored(matcher, 'questionx/secret.ts', false)).toBe(false);
+    expect(isIgnored(matcher, 'starship/secret.ts', false)).toBe(false);
   });
 
   test('loads info/exclude before the root gitignore', async () => {

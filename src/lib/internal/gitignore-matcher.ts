@@ -13,65 +13,24 @@ import type { Ignore } from 'ignore';
  *
  * Usage is a walk: create a matcher, call {@link addIgnoreRules} for the root
  * and again for each directory as the walk reaches it, and test entries with
- * {@link isIgnored}. Adding rules parent-first is what makes nested files
+ * {@link isIgnored}. Adding scopes parent-first is what makes nested files
  * resolve the way git resolves them.
  */
 
 /**
- * Rewrite one `.gitignore` line so it means the same thing measured from the
- * repo root instead of from the directory the file sits in.
- *
- * This is what makes nested `.gitignore` files work with a single matcher.
- * Keeping one matcher per directory does not work: a negation only counts as
- * one if the rule it overrides is in the SAME matcher, so a nested `!keep.log`
- * standing alone would read as "no opinion" rather than as a re-include, and
- * the broad rule above it would wrongly win.
- *
- * Rebasing every pattern to the root and adding them parent-first collapses
- * the problem into the ordering `ignore` already implements, where the last
- * matching pattern decides. Git resolves nesting the same way, letting the
- * deepest file win, so parent-first ordering reproduces it exactly.
- *
- * The one rule that has to be right is what git anchors. A pattern containing
- * a slash anywhere but the very end is relative to its own `.gitignore`, so it
- * anchors to that directory. A pattern with no slash may match at any depth
- * below it, which `**` expresses. A trailing slash only marks the pattern as
- * directory-only and does not count as a separator for this purpose.
- *
- * Returns null for blank lines and comments, which carry no rule.
+ * One ordered ignore source, scoped to the literal directory that contains it.
+ * Keeping the base separate from the glob patterns matters for directories
+ * such as Next.js's `[slug]`: interpolating that path into a pattern turns the
+ * brackets into range syntax and makes the rule apply to the wrong paths.
  */
-function rebasePattern(line: string, base: string): string | null {
-  // Only a trailing CR is stripped, for a file with Windows line endings.
-  // NOT trimmed: leading whitespace is part of the pattern in git (verified,
-  // a rule written as " leading.ts" matches a file whose name starts with a
-  // space and does NOT match "leading.ts"), and a trailing space escaped as
-  // `\ ` is a filename that really ends in one. `ignore` implements git's
-  // rules for both, so handing it the line unaltered is what keeps them.
-  const pattern = line.replace(/\r$/, '');
+interface IgnoreScope {
+  base: string;
+  matcher: Ignore;
+}
 
-  // Blank lines and comments carry no rule. A `#` only opens a comment at the
-  // very start of the line, and `\#` escapes a filename beginning with one,
-  // which is why this tests the raw first character.
-  if (pattern.trim() === '' || pattern.startsWith('#')) {
-    return null;
-  }
-
-  if (base === '') {
-    return pattern;
-  }
-
-  const isNegated = pattern.startsWith('!');
-  const body = isNegated ? pattern.slice(1) : pattern;
-  const isDirectoryOnly = body.endsWith('/');
-  const core = isDirectoryOnly ? body.slice(0, -1) : body;
-
-  // A slash in the body (ignoring the trailing marker) anchors the pattern to
-  // its own directory. Otherwise it floats to any depth beneath it.
-  const rebased = core.includes('/')
-    ? `/${base}/${core.replace(/^\//, '')}`
-    : `/${base}/**/${core}`;
-
-  return `${isNegated ? '!' : ''}${rebased}${isDirectoryOnly ? '/' : ''}`;
+/** Ordered collection of repository-local ignore sources. */
+export interface GitignoreMatcher {
+  scopes: IgnoreScope[];
 }
 
 /**
@@ -130,9 +89,9 @@ async function resolveGitInfoExclude(dir: string): Promise<string | null> {
   }
 }
 
-/** A fresh matcher holding no rules yet. */
-export function createIgnoreMatcher(): Ignore {
-  return ignore();
+/** A fresh matcher holding no ignore sources yet. */
+export function createIgnoreMatcher(): GitignoreMatcher {
+  return { scopes: [] };
 }
 
 /** Options controlling which ignore sources are loaded. */
@@ -160,7 +119,7 @@ export interface AddIgnoreRulesOptions {
  * pass on one machine and fail on another.
  */
 export async function addIgnoreRules(
-  matcher: Ignore,
+  matcher: GitignoreMatcher,
   dir: string,
   relativeBase: string,
   options?: AddIgnoreRulesOptions,
@@ -191,13 +150,10 @@ export async function addIgnoreRules(
       continue;
     }
 
-    for (const line of text.split('\n')) {
-      const pattern = rebasePattern(line, relativeBase);
-
-      if (pattern !== null) {
-        matcher.add(pattern);
-      }
-    }
+    // Keep the base as literal path data rather than interpolating it into the
+    // patterns. The ignore package handles comments, blank lines, CRLF, and
+    // significant whitespace when given the source text directly.
+    matcher.scopes.push({ base: relativeBase, matcher: ignore().add(text) });
   }
 }
 
@@ -209,9 +165,36 @@ export async function addIgnoreRules(
  * the paths beneath it.
  */
 export function isIgnored(
-  matcher: Ignore,
+  matcher: GitignoreMatcher,
   relativePath: string,
   isDirectory: boolean,
 ): boolean {
-  return matcher.ignores(isDirectory ? `${relativePath}/` : relativePath);
+  const candidate = isDirectory ? `${relativePath}/` : relativePath;
+  let isPathIgnored = false;
+
+  for (const scope of matcher.scopes) {
+    let scopedPath: string;
+
+    if (scope.base === '') {
+      scopedPath = candidate;
+    } else {
+      const prefix = `${scope.base}/`;
+
+      if (!candidate.startsWith(prefix)) {
+        continue;
+      }
+
+      scopedPath = candidate.slice(prefix.length);
+    }
+
+    const result = scope.matcher.test(scopedPath);
+
+    if (result.ignored) {
+      isPathIgnored = true;
+    } else if (result.unignored) {
+      isPathIgnored = false;
+    }
+  }
+
+  return isPathIgnored;
 }
