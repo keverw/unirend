@@ -1,6 +1,6 @@
 {
   "name": "unirend",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "type": "module",
   "description": "A lightweight toolkit for working with both SSG (Static Site Generation) and SSR (Server-Side Rendering) in your Vite + React projects.",
   "exports": {
@@ -201,6 +201,8 @@
     "ulid": "^3.0.2"
   },
   "overrides": {
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "brace-expansion": "^2.0.2",
+    "js-yaml": "^4.3.0"
   }
 }

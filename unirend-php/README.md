@@ -2,7 +2,7 @@
 
 [![Packagist Version](https://img.shields.io/packagist/v/unirend/php-static-server)](https://packagist.org/packages/unirend/php-static-server) [![Packagist Downloads](https://img.shields.io/packagist/dt/unirend/php-static-server)](https://packagist.org/packages/unirend/php-static-server)
 
-**Current version:** `0.1.0`
+**Current version:** `0.1.1`
 
 Serve [Unirend](https://github.com/keverw/unirend) SSG output on shared hosting (cPanel, Apache). Mirrors `StaticWebServer` from the Node.js package. It reads the same `page-map.json` format, serves clean URLs, handles 404/500 error pages with correct status codes, range requests, and custom API routes.
 
@@ -29,7 +29,7 @@ Serve [Unirend](https://github.com/keverw/unirend) SSG output on shared hosting 
 - [Versioning](#versioning)
 - [Changelog](#changelog)
   - [0.1.0 (July 16, 2026)](#010-july-16-2026)
-  - [0.1.1 (Unreleased)](#011-unreleased)
+  - [0.1.1 (July 20, 2026)](#011-july-20-2026)
 - [Contributing to unirend-php](#contributing-to-unirend-php)
   - [Running Tests](#running-tests)
   - [Running the Demo Locally](#running-the-demo-locally)
@@ -291,7 +291,7 @@ Runs oldest to newest. The `0.0.x` line was early iteration that was not logged 
 - `singleAssets` and `assetFolders` values that resolve outside `buildDir` through `..` segments or symlinks are rejected, matching the Node.js `StaticWebServer`. Previously `realpath()` normalized the traversal but did not verify that the result remained inside the build directory.
 - `assetFolders` mounts now resolve by longest matching URL prefix instead of declaration order, and prefixes only match on path-segment boundaries. Previously the first prefix that matched won, so a shallow mount like `/images` declared before a nested one like `/images/generated` swallowed every request meant for the nested mount, serving the wrong file or returning 404, and a raw prefix match let `/images/generated` capture `/images/generated-other/...` requests that belong to the shallow mount. Matches the `unirend` npm package, whose cache had the same ordering fix and already matched on boundaries.
 
-### 0.1.1 (Unreleased)
+### 0.1.1 (July 20, 2026)
 
 - OS junk files are no longer served from `assetFolders` mounts, matching `StaticWebServer` from the `unirend` npm package. A request that resolves to a junk name (macOS `.DS_Store` and `._*` AppleDouble files, Windows `Thumbs.db`, `ehthumbs.db`, `desktop.ini`, and the rest) returns 404 before touching disk. Every path segment is checked, not just the basename, so a file routed through an OS metadata directory like `/assets/.AppleDouble/metadata` is blocked even though `metadata` is not itself junk, and a junk-named mount prefix cannot launder junk either. The filter is folder-only, so an explicit `singleAssets` entry stays the one honored escape hatch even when its URL is a junk name, matching the npm package's `singleAssetMap`. Previously these files were served verbatim, exposing Finder and Explorer metadata (local filenames, folder structure, window state) that had slipped into a deployed folder. The recognition logic lives in a new `OSJunk` class ported from the npm package's `os-junk` module, tests included.
 
