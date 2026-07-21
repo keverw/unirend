@@ -60,7 +60,7 @@
     "dist"
   ],
   "scripts": {
-    "prepublishOnly": "bun audit && bun run build && bun run type-check && bun run lint && bun run spellcheck && bun test",
+    "prepublishOnly": "bun run check:null-bytes && bun audit && bun run check:overrides && bun run build && bun run type-check && bun run lint && bun run spellcheck && bun test",
     "sync-version": "bun run scripts/sync-version.ts",
     "php-publish": "bun run php-test && bun run scripts/publish-php.ts",
     "php-install-deps": "cd unirend-php && composer install --no-interaction",
@@ -75,6 +75,9 @@
     "spellcheck": "cspell lint \"**/*.{ts,tsx,js,jsx,md,html,css,json}\"",
     "cspell:clean": "bun run scripts/clean-cspell.ts",
     "cspell:clean:fix": "bun run scripts/clean-cspell.ts --write",
+    "check:overrides": "bun run scripts/check-overrides.ts",
+    "check:null-bytes": "bun run scripts/check-null-bytes.ts",
+    "install:fresh": "bun run scripts/refresh-lockfile.ts",
     "list-outdated-packages": "bun outdated",
     "update-docs": "markdown-toc-gen update README.md && bun run scripts/update-readme-version.ts && markdown-toc-gen update changelog.md && markdown-toc-gen update unirend-php/README.md && find docs -type f -name '*.md' -print0 | xargs -0 -n1 markdown-toc-gen update && bun run format:docs",
     "format:docs": "prettier --write README.md changelog.md \"docs/**/*.md\" \"unirend-php/README.md\"",
@@ -192,6 +195,7 @@
     "cheerio": "^1.2.0",
     "entities": "^8.0.0",
     "fastify": "^5.9.0",
+    "ignore": "^7.0.6",
     "picomatch": "^4.0.5",
     "punycode": "^2.3.1",
     "qs": "^6.15.3",
@@ -202,7 +206,6 @@
   },
   "overrides": {
     "esbuild": "^0.28.1",
-    "brace-expansion": "^2.0.2",
     "js-yaml": "^4.3.0"
   }
 }

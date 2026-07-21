@@ -6,6 +6,8 @@ export interface CSpellConfig {
   version?: string;
   language?: string;
   words?: string[];
+  /** Skip files the repo's own `.gitignore` rules exclude. */
+  useGitignore?: boolean;
   ignorePaths?: string[];
   [key: string]: unknown;
 }
@@ -32,16 +34,15 @@ const defaultWords = [
   'Unirend',
 ];
 
-const defaultIgnorePaths = [
-  '**/node_modules/**',
-  '**/build/**',
-  '**/dist/**',
-  '**/coverage/**',
-  '**/tmp/**',
-  '**/current-build-info.*',
-  'bun.lock',
-  'bun.lockb',
-];
+// Deliberately short, because `useGitignore` below covers the rest: your
+// .gitignore already lists what is generated, per path rather than per name.
+// A `**/build/**` here would also skip a committed fixture tree that happens
+// to be named build, which is exactly the kind of file worth spellchecking.
+//
+// What stays is what .gitignore cannot cover: node_modules as cheap insurance
+// for a repo whose ignore file is missing or incomplete, and the lockfiles,
+// which are tracked and so never excluded by ignore rules.
+const defaultIgnorePaths = ['**/node_modules/**', 'bun.lock', 'bun.lockb'];
 
 /**
  * Ensure cspell.json exists at the repo root.
@@ -82,6 +83,7 @@ export async function ensureCspell(
         version: '0.2',
         language: 'en',
         words,
+        useGitignore: true,
         ignorePaths: [...defaultIgnorePaths],
       };
 
@@ -127,6 +129,17 @@ export async function ensureCspell(
         config.words = Array.from(new Set(config.words)).sort((a, b) =>
           a.localeCompare(b),
         );
+      }
+
+      // Turn on .gitignore awareness for a repo scaffolded before it was the
+      // default. Safe to add to an existing config because it only ever
+      // excludes more: whatever ignorePaths they already have is untouched, so
+      // this cannot start flagging words in a file that used to pass. Their
+      // existing broad entries stay as written, since removing one is a
+      // judgment call about their repo rather than a missing default.
+      if (config.useGitignore === undefined) {
+        config.useGitignore = true;
+        didChange = true;
       }
 
       // Ensure ignorePaths exists and has defaults

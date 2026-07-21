@@ -1,6 +1,12 @@
 import { readFile, writeFile, readdir } from 'fs/promises';
-import { join, relative } from 'path';
+import { join, relative, sep } from 'path';
 import picomatch from 'picomatch';
+import {
+  addIgnoreRules,
+  createIgnoreMatcher,
+  isIgnored,
+} from '../internal/gitignore-matcher';
+import type { GitignoreMatcher } from '../internal/gitignore-matcher';
 
 /**
  * Unused-cspell-word cleaner for scaffolded repos, exported via
@@ -121,18 +127,32 @@ function getWords(text: string): Set<string> {
 
 /**
  * Traverse directory recursively to find all non-ignored files.
+ *
+ * `gitignoreMatcher` is null when the config does not set `useGitignore`, in
+ * which case `ignorePaths` alone decides, as before. When it is set, a nested
+ * `.gitignore` is folded in as the walk reaches its directory, which is what
+ * lets the deepest rule win the way git resolves it.
  */
 async function getFiles(
   rootDir: string,
   dir: string,
-  isIgnored: (path: string) => boolean,
+  relativeDir: string,
+  matchesIgnorePath: (path: string) => boolean,
+  gitignoreMatcher: GitignoreMatcher | null,
 ): Promise<string[]> {
+  // The root's rules are loaded by the caller, before the walk starts.
+  if (gitignoreMatcher !== null && relativeDir !== '') {
+    await addIgnoreRules(gitignoreMatcher, dir, relativeDir);
+  }
+
   const files: string[] = [];
   const entries = await readdir(dir, { withFileTypes: true });
 
   for (const entry of entries) {
     const fullPath = join(dir, entry.name);
     const relPath = relative(rootDir, fullPath);
+    // Ignore rules are always written with forward slashes, on every platform.
+    const rulePath = relPath.split(sep).join('/');
 
     // Always skip git directory
     if (entry.name === '.git') {
@@ -150,16 +170,31 @@ async function getFiles(
       if (
         entry.name === 'node_modules' ||
         entry.name === 'vendor' ||
-        isIgnored(relPath) ||
-        isIgnored(join(relPath, 'placeholder'))
+        matchesIgnorePath(relPath) ||
+        matchesIgnorePath(join(relPath, 'placeholder')) ||
+        (gitignoreMatcher !== null &&
+          isIgnored(gitignoreMatcher, rulePath, true))
       ) {
         continue;
       }
 
-      files.push(...(await getFiles(rootDir, fullPath, isIgnored)));
+      files.push(
+        ...(await getFiles(
+          rootDir,
+          fullPath,
+          rulePath,
+          matchesIgnorePath,
+          gitignoreMatcher,
+        )),
+      );
     } else if (entry.isFile()) {
       // Fast-path skip for ignored files and obvious binary extensions (e.g. images)
-      if (isIgnored(relPath) || isBinaryFile(entry.name)) {
+      if (
+        matchesIgnorePath(relPath) ||
+        isBinaryFile(entry.name) ||
+        (gitignoreMatcher !== null &&
+          isIgnored(gitignoreMatcher, rulePath, false))
+      ) {
         continue;
       }
       files.push(fullPath);
@@ -205,6 +240,7 @@ export async function cleanCspell(
   let cspellConfig: {
     words?: string[];
     ignorePaths?: string[];
+    useGitignore?: boolean;
     caseSensitive?: boolean;
     [key: string]: unknown;
   };
@@ -223,7 +259,26 @@ export async function cleanCspell(
 
   // Set up picomatch glob matcher using cspell's ignorePaths config
   const ignorePaths = cspellConfig.ignorePaths || [];
-  const isIgnored = picomatch(ignorePaths, { dot: true });
+  const matchesIgnorePath = picomatch(ignorePaths, { dot: true });
+
+  // Honor `useGitignore` the way cspell itself does, because this scan has to
+  // see the same files cspell sees. Scanning more than cspell does is what
+  // makes a word look used: a word appearing only in gitignored build output
+  // would be reported as still needed, so the dead entry survives forever even
+  // though cspell never reads the file that "uses" it. The rules are matched in
+  // memory, so this stays a plain walk with no subprocess.
+  const useGitignore = cspellConfig.useGitignore ?? false;
+  const gitignoreMatcher = useGitignore ? createIgnoreMatcher() : null;
+
+  if (gitignoreMatcher !== null) {
+    // CSpell's option means exactly `.gitignore` files. It recognizes a linked
+    // worktree's `.git` file when finding the repo root, but does not read
+    // `info/exclude`, so neither should this companion scan. Loading that extra
+    // source could remove a word CSpell still needs for an info-excluded file.
+    await addIgnoreRules(gitignoreMatcher, rootDir, '', {
+      includeInfoExclude: false,
+    });
+  }
 
   // ==========================================
   // STAGE 2: Scan codebase for files
@@ -234,7 +289,13 @@ export async function cleanCspell(
   // when files are actively open, editor integrations use the CSpell config and
   // ignore rules, so words in other non-ignored files can still be legitimate
   // workspace dictionary entries.
-  const filesToScan = await getFiles(rootDir, rootDir, isIgnored);
+  const filesToScan = await getFiles(
+    rootDir,
+    rootDir,
+    '',
+    matchesIgnorePath,
+    gitignoreMatcher,
+  );
   log(`📄 Found ${filesToScan.length} text files to analyze.`);
 
   // ==========================================

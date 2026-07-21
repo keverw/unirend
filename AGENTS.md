@@ -9,12 +9,23 @@ Guidelines and constraints for AI coding agents working in this repository.
 - **Exception for Renames:** `git mv` is allowed for intentional file renames, including case-only renames on case-insensitive filesystems. This command updates Git's index, but is acceptable because it preserves Git's view of the move during refactors.
 - **Exception for User-Requested Branching/Committing:** Creating new branches (`git checkout -b`, `git switch -c`), staging files (`git add`), and committing changes (`git commit`) are allowed when the user explicitly requests the agent to perform them during the conversation.
 
+## Dependencies
+
+- **Treat overrides as temporary, and not as a first resort:** An `overrides` entry exists to route around a specific upstream bug or advisory until the fix reaches you normally. Prefer upgrading the direct dependency that pulls in the bad version, and reach for an override only when that isn't available yet. When you do add one, say why in the changelog entry, since `package.json` is JSON and cannot carry a comment explaining it. A pin nobody can explain is one nobody will dare remove.
+- **Don't regenerate the lockfile on your own:** `bun run install:fresh` deletes `bun.lock` and resolves from scratch, which picks up every in-range update at once, not just the one you were after. Treat it like the Git commands above and run it only when the user asks. Plain `bun install` is fine.
+- **Write overrides as a bare package name at the top level:** `{ "child": "1.2.3" }` is the only form bun applies, and it applies the pin everywhere in the tree. npm allows two other ways to write a key that bun does not support, and bun rejects neither one, it accepts them and pins nothing. A nested entry (`{ "parent": { "child": "1.2.3" } }`) is ignored outright, bun neither scopes it the way npm does nor flattens it. A version selector in the key (`{ "child@^2": "1.2.3" }`) is not implemented, so bun reads `child@^2` as a package name, which matches nothing. Either one leaves you with no pin at all, so keep the key flat and free of a selector. `bun run check:overrides` fails on both, along with overrides whose target left the dependency tree and pins that have fallen below what a dependent declares it needs.
+
 ## Changelog
 
 - **Order:** `changelog.md` runs oldest to newest, so the newest entries go at the bottom of the file.
-- **Log changes as you make them:** When a change is user-facing (features, fixes, behavior changes, dependency or platform changes), add a bullet to `changelog.md` under a `## Unreleased` section at the bottom as part of the same change, so changelog entries aren't deferred to release time. If there is no `## Unreleased` section yet, create one at the bottom, below the most recent released version.
+- **Describe the final release delta, not the branch history:** `## Unreleased` is a concise, user-facing summary of what will differ from the last release. It is not a diary of commits, review fixes, or intermediate implementations. When follow-up work only fixes or refines something introduced during the same unreleased development, update or consolidate the existing bullet if the final public result changed. Otherwise, do not add a changelog entry for that follow-up. Add a separate bullet only when it creates an independently user-visible change, such as a new or changed public API, behavior, dependency, platform requirement, or upgrade expectation.
+- **Keep public changes represented:** When work introduces or materially changes the final user-facing release delta, update `changelog.md` under the `## Unreleased` section as part of the same change. If there is no `## Unreleased` section yet, create one at the bottom, below the most recent released version.
 - **Flag breaking changes:** If a change is breaking, call it out at the top of `## Unreleased` (e.g. a `**Breaking:**` note) so the human remembers to bump the version appropriately at release — version bumps are manual and not done by agents.
 - **On release (human, not agents — reminder):** Rename `## Unreleased` to the new version with a date (e.g. `## 0.2.0 (Month D, YYYY)`) and bump the version in `package.json` — the build's `sync-version` and `update-docs` scripts then propagate it to `src/version.ts`, the README title, and the TOCs. Don't leave an empty `## Unreleased` behind; it's recreated on demand at the bottom when the next change lands.
+
+## Source Files
+
+- **Never embed a raw NUL byte in a text file:** It is invisible in virtually every editor, and it makes git treat the file as binary (no more diffs) and grep silently find nothing in it, so the file drops out of reviews and searches with no error anywhere. If you need a NUL as a value, write the escape in source instead of the raw byte. `bun run check:null-bytes` fails on it.
 
 ## Language Style
 

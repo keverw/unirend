@@ -34,13 +34,13 @@ describe('ensureCspell', () => {
     expect(config.version).toBe('0.2');
     expect(config.language).toBe('en');
     expect(config.words).toEqual(sortWords(expectedDefaultWords));
+    // Generated output is excluded by the repo's own .gitignore rather than by
+    // name, so a committed fixture tree named "build" still gets checked. What
+    // remains is what ignore rules cannot cover: node_modules as insurance for
+    // a missing or incomplete .gitignore, and the tracked lockfiles.
+    expect(config.useGitignore).toBe(true);
     expect(config.ignorePaths).toEqual([
       '**/node_modules/**',
-      '**/build/**',
-      '**/dist/**',
-      '**/coverage/**',
-      '**/tmp/**',
-      '**/current-build-info.*',
       'bun.lock',
       'bun.lockb',
     ]);
@@ -142,16 +142,8 @@ describe('ensureCspell', () => {
         version: '0.2',
         language: 'en',
         words: sortWords(expectedDefaultWords),
-        ignorePaths: [
-          '**/node_modules/**',
-          '**/build/**',
-          '**/dist/**',
-          '**/coverage/**',
-          '**/tmp/**',
-          '**/current-build-info.*',
-          'bun.lock',
-          'bun.lockb',
-        ],
+        useGitignore: true,
+        ignorePaths: ['**/node_modules/**', 'bun.lock', 'bun.lockb'],
       }),
     };
     const logs = createLog();
@@ -166,6 +158,27 @@ describe('ensureCspell', () => {
     const config = JSON.parse(memRoot['cspell.json'] as string);
     expect(config.words).toEqual(sortWords(expectedDefaultWords));
     expect(logs).toEqual([]); // No logs since no write occurred
+  });
+
+  test('turns on useGitignore for a config scaffolded before it existed', async () => {
+    // Safe to add to someone's existing config because it only ever excludes
+    // more: their own ignorePaths are left exactly as written, so a file that
+    // passed before cannot start failing. Their broad entries stay too, since
+    // removing one is a judgment call about their repo, not a missing default.
+    const memRoot: InMemoryDir = {
+      'cspell.json': JSON.stringify({
+        version: '0.2',
+        language: 'en',
+        words: sortWords(expectedDefaultWords),
+        ignorePaths: ['**/build/**', 'bun.lock'],
+      }),
+    };
+
+    await ensureCspell(memRoot);
+
+    const config = JSON.parse(memRoot['cspell.json'] as string);
+    expect(config.useGitignore).toBe(true);
+    expect(config.ignorePaths).toContain('**/build/**');
   });
 
   test('handles invalid JSON with proper error', () => {
