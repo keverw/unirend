@@ -340,6 +340,33 @@ describe('checkOverrides', () => {
     expect(output).toContain('malformed');
   });
 
+  test('fails on empty and whitespace-only override values', async () => {
+    // Verified against bun 1.3.14: both forms print `Missing override value`,
+    // leave the package at its normal resolution, and still exit successfully.
+    // semver.validRange() reads them as "*", so they must be rejected before
+    // the resolved-version comparison can mistake them for applied ranges.
+    const { result, probed, output } = await run(
+      {
+        overrides: {
+          'left-pad': '',
+          minimatch: { '.': ' \t ' },
+        },
+      },
+      ['left-pad', 'minimatch'],
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.problems).toHaveLength(2);
+    expect(result.problems[0]).toContain('overrides.left-pad');
+    expect(result.problems[1]).toContain('overrides.minimatch..');
+    expect(
+      result.problems.every((problem) => problem.includes('non-empty')),
+    ).toBe(true);
+    expect(result.targets).toEqual([]);
+    expect(probed).toEqual([]);
+    expect(output).toContain('malformed');
+  });
+
   test('fails when the overrides field is not an object', async () => {
     const { result } = await run({ overrides: ['left-pad'] });
 

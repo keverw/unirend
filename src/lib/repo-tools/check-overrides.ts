@@ -76,10 +76,11 @@ import type { BunLockWorkspace } from '../internal/bun-lockfile';
  *    object. Bun applies the `overrides` entry and ignores the other in
  *    silence, so the losing declaration reads as a pin that is not in effect.
  *
- * A malformed declaration (a non-string value, or `"."` at the top level where
- * there is no parent package) is rejected too, but is not counted among the
- * six: those are syntax errors that read as broken on inspection rather than
- * pins that read as working. Bun warns for a non-string value and ignores it.
+ * A malformed declaration (a non-string or blank value, or `"."` at the top
+ * level where there is no parent package) is rejected too, but is not counted
+ * among the six: those are syntax errors that read as broken on inspection
+ * rather than pins that read as working. Bun warns for these invalid values
+ * and ignores them.
  *
  * Presence is probed with `bun why <name>`, which exits non-zero with "No
  * packages matching ..." when the package is absent from the lockfile.
@@ -508,6 +509,18 @@ function collectTargets(
         `  - ${declaredAt} must be a version string or a nested object, got ${
           value === null ? 'null' : typeof value
         }.`,
+      );
+
+      continue;
+    }
+
+    // semver treats an empty or whitespace-only string as the unconstrained
+    // range "*", but bun does not. It warns `Missing override value`, ignores
+    // the declaration, and exits successfully. Reject it before the outcome
+    // check can mistake every installed version for a match.
+    if (value.trim() === '') {
+      context.problems.push(
+        `  - ${declaredAt} must be a non-empty version string. Bun ignores a blank override value, so this declaration applies to nothing.`,
       );
 
       continue;
