@@ -274,6 +274,28 @@ describe('createProject — PUBLIC_FILES/PUBLIC_FOLDERS stay in sync with public
       'bun run scripts/check-public-assets.ts',
     );
     expect(pkg.scripts.check).toContain('bun run check:public-assets');
+
+    // Same for the overrides check
+    expect(typeof repoRoot['scripts/check-overrides.ts']).toBe('string');
+    expect(pkg.scripts['check:overrides']).toBe(
+      'bun run scripts/check-overrides.ts',
+    );
+    expect(pkg.scripts.check).toContain('bun run check:overrides');
+
+    // Same for the null-byte check
+    expect(typeof repoRoot['scripts/check-null-bytes.ts']).toBe('string');
+    expect(pkg.scripts['check:null-bytes']).toBe(
+      'bun run scripts/check-null-bytes.ts',
+    );
+    expect(pkg.scripts.check).toContain('bun run check:null-bytes');
+
+    // The lockfile refresher is scaffolded too, but stays out of the check
+    // chain — it mutates the lockfile.
+    expect(typeof repoRoot['scripts/refresh-lockfile.ts']).toBe('string');
+    expect(pkg.scripts['install:fresh']).toBe(
+      'bun run scripts/refresh-lockfile.ts',
+    );
+    expect(pkg.scripts.check).not.toContain('install:fresh');
   });
 });
 

@@ -29,6 +29,14 @@ Under the hood the CLI is a thin wrapper over the `unirend/starter-templates` li
   - [API, What Gets Generated](#api-what-gets-generated)
   - [API, Scripts](#api-scripts)
 - [Workspace Files (Shared Across All Templates)](#workspace-files-shared-across-all-templates)
+  - [In-Range Updates Need a Fresh Resolve](#in-range-updates-need-a-fresh-resolve)
+    - [Pins That Fall Behind Their Dependents](#pins-that-fall-behind-their-dependents)
+    - [Pins the Lockfile Never Applied](#pins-the-lockfile-never-applied)
+    - [Seeing What Each Pin Is Doing](#seeing-what-each-pin-is-doing)
+    - [Checking Whether an Override Is Still Needed](#checking-whether-an-override-is-still-needed)
+  - [Nested Overrides and Bun](#nested-overrides-and-bun)
+  - [Version-Qualified Override Keys](#version-qualified-override-keys)
+  - [Declaring the Same Pin Twice](#declaring-the-same-pin-twice)
 - [Import Alias Enforcement (`@/`)](#import-alias-enforcement-)
 - [Build Target: Bun vs. Node](#build-target-bun-vs-node)
 - [Adding More Apps to a Workspace](#adding-more-apps-to-a-workspace)
@@ -57,6 +65,9 @@ my-workspace/
 ├── build-info.config.json   # (SSR/API only) build-info output manifest
 ├── scripts/
 │   ├── check-public-assets.ts   # verifies declared public-asset lists ↔ public/ sync per app (part of `bun run check`)
+│   ├── check-overrides.ts       # fails on an override whose target left the dependency tree (part of `bun run check`)
+│   ├── check-null-bytes.ts      # fails on NUL bytes in text files (part of `bun run check`)
+│   ├── refresh-lockfile.ts      # regenerates bun.lock from scratch and reports what moved (`bun run install:fresh`)
 │   └── generate-build-info.ts   # SSR/API only
 └── src/
     ├── apps/
@@ -478,9 +489,172 @@ Whether you run `init-repo` or `create` (which auto-inits), Unirend ensures thes
 - `AGENTS.md` and `CLAUDE.md` (bridges Claude Code to `AGENTS.md`).
 - `scripts/clean-cspell.ts` reports custom words in `cspell.json` that no longer appear anywhere in the repo. It runs as `bun run cspell:clean`, and `bun run cspell:clean:fix` removes them.
 - `scripts/check-public-assets.ts` verifies each Vite app's `PUBLIC_FILES`/`PUBLIC_FOLDERS` (in `consts.ts`) against the files actually in its `public/` folder, in both directions (files under a declared folder are covered automatically). It also treats OS metadata such as `.DS_Store`, `._*`, `Thumbs.db`, `ehthumbs.db`, and `desktop.ini` as a hard error wherever it appears, including inside a declared folder, unless the file is gitignored: it runs `git check-ignore`, so junk git won't commit is skipped with a notice while junk git would commit (unignored, or already tracked) fails. The static server refuses to serve these from a folder mount, so they can't leak at runtime, but Vite still copies them into the client build where a plain static host or CDN can expose them unless your upload step filters them out, so add their file names to `.gitignore` (which also makes the check pass). Never declare them as public assets. The script runs as `bun run check:public-assets`, is chained into `bun run check` so drift and junk files fail CI, and no-ops in repos without SSR/SSG apps. Where each app's lists live is declared in the `public-assets.config.json` scaffolded into the app folder. Its `default` entry mirrors the template conventions, every field is optional with those defaults, and a fresh app never needs to touch it. Projects restructured for [multi-app SSR](./ssr.md#multi-app-ssr-support) add an entry per additional app, each pointing at that app's `public/` dir, consts file, and export names (and update the `default` entry's paths if the default app's source moved into a subfolder). Deleting the file opts the project out of the check, and the script logs the skip so the opt-out stays visible in CI output.
+- `scripts/check-overrides.ts` fails when `package.json` declares an `overrides` (npm style) or `resolutions` (yarn style) entry for a package that is no longer anywhere in the dependency tree. An override is almost always a temporary pin around an upstream bug or advisory, and once its target drops out of the tree the pin silently does nothing, so it can outlive its reason for years while quietly holding a transitive dependency back. Bun does not warn about this, an override naming a package that isn't installed at all is accepted in complete silence, so this check is the only guard. Presence is probed with `bun why <name>`, and each finding is reported at its full declaration path (`overrides.minimatch.left-pad`) so the offending line is findable in a large `package.json`. It also fails on the two npm-only spellings bun accepts without applying: the nested form, which bun ignores outright, and a key carrying a version selector (`"pkg@^2"`), which bun reads as a package name that matches nothing. In both cases the pin does not exist at all. See [Nested Overrides and Bun](#nested-overrides-and-bun) and [Version-Qualified Override Keys](#version-qualified-override-keys) below, worth reading before writing either form. It also fails when `overrides` and `resolutions` declare the same package with different versions, since bun applies one and silently ignores the other: see [Declaring the Same Pin Twice](#declaring-the-same-pin-twice). It runs as `bun run check:overrides` and is chained into `bun run check`. One thing it does not catch: an override that is merely **redundant**, meaning the package is still present and normal resolution would land on that version anyway. Detecting that needs a second resolve with the override removed and a diff of the result, which this check does not do.
+- `scripts/check-null-bytes.ts` fails when a file that should be plain text contains a NUL (0x00) byte. A stray NUL is invisible in virtually every editor and slips past Prettier, ESLint, and spellcheck without a word, but it breaks the tooling you reach for when something goes wrong: git classifies the whole file as binary and stops showing diffs for it, so it can no longer be reviewed, and grep silently finds nothing in it, so a pattern that is definitely present simply does not match and any search-based audit of that file quietly comes back clean. That second behavior is the dangerous one, since it makes a file opt out of exactly the searches used to check it. The scan is a plain byte read over files whose extension or known exact name marks them as text, including common extensionless files such as `Dockerfile`, `Makefile`, and `LICENSE`, plus text lockfiles such as `bun.lock`, so it needs no network and no git and is fast enough to sit in `bun run check`. Binary formats are excluded by allowlists rather than a denylist, so an unknown file type is never flagged as broken source. It runs as `bun run check:null-bytes`, first in the `check` chain: it is the cheapest check there (a byte scan, no network, no build) and the most fundamental, since a file containing a NUL can no longer be diffed by git or searched with grep, which would hamper debugging any later failure in the same run. Using a NUL as a value is fine and sometimes deliberate, since it makes a good separator: write the escape in source rather than embedding the raw byte. Pass `extraExtensions` or `extraFileNames` in the wrapper for a project-specific text format or exact file name.
+- `scripts/refresh-lockfile.ts` deletes `bun.lock`, resolves it from scratch, and reports exactly which packages changed. It runs as `bun run install:fresh` and is deliberately **not** part of `bun run check`, since it mutates the lockfile. See [In-Range Updates Need a Fresh Resolve](#in-range-updates-need-a-fresh-resolve) below for why it exists.
 - `.gitkeep` files for `scripts/`, `src/apps/`, `src/libs/`.
 
-The `clean-cspell.ts` and `check-public-assets.ts` scripts are thin wrappers over functions exported from `unirend/repo-tools` (`cleanCspell()` and `checkPublicAssets()`). Each function acts as the script's main, printing its own report and returning a result, and the wrapper turns that result into an exit code. The logic lives in the package, so upgrading unirend upgrades the checks, and the wrapper in your repo is the customization point: both functions accept a `rootDir` and logger overrides, and `cleanCspell()` takes `fix` (the wrapper wires it to `--fix`/`--write`). The scaffolded wrappers anchor `rootDir` to the repo root via `import.meta.dirname`, so running one directly from a subfolder behaves the same as the `bun run` script, which always executes from the `package.json` directory. Both run under Bun, which is how the scaffolded `package.json` scripts invoke them (the public-assets check imports each app's TypeScript `consts.ts`). `generate-build-info.ts` follows the same idea. Its generator class comes from `unirend/build-info`, but it keeps its config-reading loop in the script and stays the place to pass `customProperties`.
+The `clean-cspell.ts`, `check-public-assets.ts`, `check-overrides.ts`, `check-null-bytes.ts`, and `refresh-lockfile.ts` scripts are thin wrappers over functions exported from `unirend/repo-tools` (`cleanCspell()`, `checkPublicAssets()`, `checkOverrides()`, `checkNullBytes()`, and `refreshLockfile()`, listed in the same order). Each function acts as the script's main, printing its own report and returning a result, and the wrapper turns that result into an exit code. The logic lives in the package, so upgrading unirend upgrades the checks, and the wrapper in your repo is the customization point: every function accepts a `rootDir` and logger overrides, `cleanCspell()` takes `fix` (the wrapper wires it to `--fix`/`--write`), `checkOverrides()` takes `isPackageInstalled` to replace the `bun why` probe plus `verbose`, `checkNullBytes()` takes `extensions`, `extraExtensions`, `fileNames`, `extraFileNames`, and `skipDirectories` to adjust what it scans, and `refreshLockfile()` takes `install` to replace the `bun install` step. The scaffolded wrappers anchor `rootDir` to the repo root via `import.meta.dirname`, so running one directly from a subfolder behaves the same as the `bun run` script, which always executes from the `package.json` directory. All of them run under Bun, which is how the scaffolded `package.json` scripts invoke them (the public-assets check imports each app's TypeScript `consts.ts`). `generate-build-info.ts` follows the same idea. Its generator class comes from `unirend/build-info`, but it keeps its config-reading loop in the script and stays the place to pass `customProperties`.
+
+### In-Range Updates Need a Fresh Resolve
+
+A lockfile holds every resolved version steady, including versions that are merely in range, and a plain `bun install` will not move them. That is the point of a lockfile, not a bug. With `semver: "^7.0.0"` locked at `7.3.0`, `bun install` leaves it at `7.3.0` even though `7.8.5` is in range and published; deleting the lockfile first resolves it to `7.8.5` (verified against bun 1.3.14). So taking the in-range updates your ranges already permit means resolving from scratch, and nothing tells you what that would change until you do it.
+
+<!-- prettier-ignore -->
+> [!NOTE]
+> This is **not** needed to make an `overrides` entry take effect. Bun applies an added, changed, or removed override on a plain `bun install` (verified against bun 1.3.14 for all three), and `check:overrides` fails the build if `bun.lock` ever disagrees with a declared pin, so that case is already covered without regenerating anything.
+
+Where a fresh resolve does help with overrides is the opposite question, the one no offline check can answer: **is this pin still needed?** See [Checking Whether an Override Is Still Needed](#checking-whether-an-override-is-still-needed) below.
+
+`bun run install:fresh` does the regeneration. A fresh resolve picks up **every** in-range update at once, not just the one you were after, and that blast radius is invisible in the raw diff of a large lockfile. So the script prints it as a list, making regeneration a deliberate review step:
+
+```
+Changed (1):
+  ~ tldts-core 7.4.6 → 7.4.9
+Added (16):
+  + lightningcss@1.32.0
+Removed (21):
+  - rolldown@1.1.5
+```
+
+If the install fails, the previous lockfile is restored, so a failed resolve never leaves the repo without one (which would make the next install resolve from scratch silently rather than on purpose).
+
+#### Pins That Fall Behind Their Dependents
+
+There is one form of stale pin `check:overrides` **can** catch offline, and it is the one that bites hardest. If an override forces a package **below** a version its dependents declare they need, bun applies it without a word. Forcing `brace-expansion` to `1.1.11` under a `minimatch` that declares `^2.0.2` installs with no warning at all.
+
+The check reads this straight out of `bun.lock`, which already records every declared range, so it costs no network and stays in the `check` chain. That includes the ranges **your own `package.json`** declares: bun records those in the lockfile's `workspaces` block (under the `""` key) even when the repo has no workspaces configured at all, so a pin that undercuts one of your direct dependencies is caught the same way as one undercutting a transitive dependent:
+
+```
+These overrides force a version BELOW what a dependent declares it needs, which bun
+applies without any warning:
+  - overrides.brace-expansion pins "brace-expansion" to 1.1.11
+      minimatch@9.0.9 declares "^2.0.2"
+```
+
+Only the backward direction is reported. Forcing a package **forward** past a declared range is usually the whole point of an override, since the advisory fix often lands in a major the parent has not adopted yet, so flagging that would fail builds over overrides doing exactly their job. Falling behind has no such legitimate use, and it is what a pin looks like once the ecosystem has moved past it: the packages that depend on it have upgraded, and the old pin is quietly holding them back.
+
+Ranges coming from your own `package.json` are labeled `<name> (this package.json)`, where `<name>` is that file's `name` field. In this repo, for example, a pin undercutting one of its direct dependencies reports as `unirend (this package.json) declares "^7.8.0"`. In a monorepo each additional workspace is named the same way, as `<name> (workspace <path>)`. The distinction is worth making because a pin undercutting your own declaration is far more actionable than one undercutting a package deep in the tree. (A `package.json` with no `name` at all still works: bun omits the field from the lockfile, and the label degrades to just `this package.json`.)
+
+Two cases are deliberately left alone by the **backward** comparison specifically. A package that resolved to more than one version is skipped, since attributing which dependent got which copy needs a dependency-graph walk this check does not do. Ranges semver cannot evaluate (`workspace:`, `npm:` aliases, git URLs) are skipped as legitimate and simply outside what the check answers. Neither exemption lets a broken pin through, because the outcome check below still compares what the override asked for against what the lockfile holds.
+
+#### Pins the Lockfile Never Applied
+
+The other checks all reason about the **declaration**, and each one encodes a belief about what bun does with it. This one reasons about the **result**: it compares the version the override asks for against what `bun.lock` actually resolved, so it still holds if one of those beliefs turns out to be wrong or bun's behavior changes.
+
+```
+These overrides are declared but not reflected in bun.lock, so the pin is not in
+effect and the version you asked for is not what is installed:
+  - overrides.brace-expansion asks for "1.1.16" but "brace-expansion" resolved to "5.0.7"
+```
+
+In practice this means `package.json` was edited without installing since, which is worth failing on because every other check passes in that state: the package is present, so `bun why` succeeds, and its resolved version can sit comfortably inside every declared range. The run would otherwise report the override as applied while the version you pinned is not the one installed. Running `bun install` fixes it. A pin that survives an install cannot be satisfied as written, so check for a conflicting range or a version that does not exist.
+
+Only a resolved version falling **outside** the declared range is a finding, never the mere fact that a package resolved to several versions. A range pin like `^2.0.0` legitimately permits more than one, so failing on multiplicity alone would flag overrides doing their job. An exact pin that failed to collapse the tree to one version is still caught, since any version other than the pinned one fails to satisfy it. Specs semver cannot evaluate (`npm:` aliases, `workspace:`, `catalog:`, git URLs, file paths) are skipped, having no version to compare.
+
+#### Seeing What Each Pin Is Doing
+
+A passing run prints one line, since it runs on every build. Add `--verbose` to see what each surviving override is actually doing to the resolved tree, read from the same lockfile data the check already loads, so it stays offline and costs nothing extra:
+
+```
+overrides check passed (2 declared, all still applied).
+
+  esbuild → 0.28.1
+      forcing past tsup@8.5.1 (declares "^0.27.0")
+  js-yaml → 4.3.0
+      within every declared range
+      not currently forcing anything, so it may have outlived its reason —
+      remove it and run install:fresh to see what actually moves
+```
+
+The split is the useful part. **Forcing past** means the pin is doing work right now, holding a dependent above the range it asked for, which is the normal reason an override exists. **Within every declared range** means it is not forcing anything at the moment, which is the strongest hint available offline that the pin may have outlived its reason.
+
+That is a hint, never a verdict, and it never fails the check. A pin sitting inside every range can still be load-bearing by capping a future major that nothing in the tree has reached yet. Confirm it the on-demand way below before removing it.
+
+#### Checking Whether an Override Is Still Needed
+
+The section above catches a stale pin once its dependents have moved past it. One case still escapes offline detection: a pin that **satisfies every range declared on it**, while a newer version exists that would satisfy them too. If every dependent asks for `^2.0.0` and the override pins `2.0.1`, nothing on disk knows whether `2.1.2` was ever published, so the pin can sit there long after the advisory it was added for was fixed.
+
+Every offline signal agrees it looks fine, which is what makes this one persistent: the package is in the tree and satisfies its ranges so `check:overrides` passes, `bun audit` is quiet because the advisory is resolved, and `bun outdated` lists only direct dependencies, so a pinned transitive never shows up there at all.
+
+Answering it means resolving without the override, which is what `install:fresh` is for. Delete the suspect override, run it, and read the change report:
+
+```
+Changed (1):
+  ~ brace-expansion 2.0.1 → 2.1.2
+```
+
+The pin was holding the package back, so the removal stands. If the report instead shows it dropping to a version you pinned away from, put the override back. This is deliberately an on-demand step rather than part of `bun run check`: it costs a real resolve, and the result is a judgment call rather than a pass/fail, since some pins exist to hold a version steady on purpose.
+
+### Nested Overrides and Bun
+
+npm's nested form scopes an override to one parent:
+
+```json
+"overrides": { "minimatch": { "brace-expansion": "1.1.16" } }
+```
+
+**Bun ignores that entry completely.** It does not scope the override the way npm does, and it does not flatten it and apply it globally either. Nothing is pinned. Bun's docs state the limitation directly, "Bun only supports top-level `overrides`, not nested overrides", with the same note for `resolutions`, and support is still open upstream as [oven-sh/bun#6608](https://github.com/oven-sh/bun/issues/6608).
+
+A repo that pinned a CVE through a nested override believes it is patched and has no pin at all. Bun does print `warn: Bun currently does not support nested "overrides"` while installing, but that scrolls past in install output and fails nothing, so `check:overrides` turns it into a build failure and tells you to flatten it:
+
+```
+Bun does not support nested overrides and ignores these entirely, so they pin nothing:
+  - overrides.minimatch.brace-expansion → "brace-expansion" is not pinned at all
+
+  Flatten each one to a top-level entry, which is the only form bun applies:
+    "overrides": { "brace-expansion": "<version>" }
+```
+
+Flattening changes the meaning, so it is worth a deliberate look. The top-level form applies the pin **everywhere** in the tree, not just under the parent you had nested it under. npm scopes the nested form instead, so a repo installed with both package managers resolves it differently.
+
+Two details the check gets right as a result:
+
+1. A nested entry is reported whether or not its target is installed. Bun drops it either way, so asking whether the package is in the tree is the wrong question. The parent key is only a selector and is never reported as a dead package in its own right.
+2. npm's `"."` key, meaning "the parent package itself", **is** honored by bun. `{ "pkg": { ".": "1.2.3" } }` pins `pkg` exactly like the flat form, so the check treats it as a real, working target, while still flagging any non-`"."` sibling in the same block.
+
+### Version-Qualified Override Keys
+
+npm also lets an override key carry a version selector, meaning "override this package only where the requested range is that one":
+
+```json
+"overrides": { "brace-expansion@^2": "1.1.16" }
+```
+
+**Bun does not implement the selector.** It reads the whole key, `brace-expansion@^2`, as a package name, and no package is named that, so the override applies to nothing. Verified against bun 1.3.14: with a `minimatch` declaring `brace-expansion: "^5.0.5"`, the key above left `brace-expansion` resolved at `5.0.7`, byte-identical to the lockfile produced with no override at all, while the flat key `"brace-expansion"` pinned it to `1.1.16` as expected. Bun writes the entry into `bun.lock`'s `overrides` block either way, which makes it look applied.
+
+This one is quieter than the nested form. There is no `warn:` line at all, so it behaves like a stale pin: nothing anywhere reports it. It is also easy to reach for, since npm genuinely supports it, and it fails in the direction that matters most, a security pin that reads as present and does nothing:
+
+```
+These declarations are malformed, so bun cannot apply them:
+  - overrides.brace-expansion@^2 carries a version selector, which bun does not implement. It reads the whole key as a package name, so this override silently applies to nothing. Drop the selector: "brace-expansion": "<version>".
+```
+
+The check never strips the selector to recover the package name. Stripping would resolve the key to a package that generally **is** installed and report a dead override as working, which is precisely the false negative the check exists to prevent. A leading `@` is still treated as a scope marker rather than a selector, so `@scope/pkg` passes and `@scope/pkg@^1` does not.
+
+### Declaring the Same Pin Twice
+
+`overrides` and `resolutions` both work in bun, and a package can end up in both at once:
+
+```json
+"overrides": { "brace-expansion": "5.0.6" },
+"resolutions": { "brace-expansion": "5.0.7" }
+```
+
+Using both fields is the only way to declare one package twice, since each is a single JSON object and an object cannot hold the same key twice. A repeated key inside one block is collapsed by the JSON parser long before any check sees it, keeping the last one, and bun prints its own `Duplicate key` warning for that.
+
+The realistic way to arrive here is a yarn-era `resolutions` block left behind after moving to bun, or a fix pasted from a yarn-flavored issue thread landing next to an existing `overrides` entry. Both fields keep working and both read as authoritative, so the file gives no hint which one is in force.
+
+**Bun applies the `overrides` entry and silently ignores the other.** Verified against bun 1.3.14: the pair above resolved to `5.0.6`, and swapping the two fields in the file did not change that, so it is precedence between the fields rather than document order. The install printed nothing and exited 0.
+
+The danger is that the ignored entry still reads as a live pin. If the `resolutions` value is the one carrying a security fix, it looks applied and is not:
+
+```
+These declarations conflict, so only one of them is in force:
+  - overrides.brace-expansion asks for "5.0.6" but resolutions.brace-expansion asks for "5.0.7" for the same package. Bun applies the overrides entry and silently ignores the other, so remove whichever one is wrong.
+```
+
+Two entries agreeing on the same version are deduped quietly rather than failing, since nothing is ambiguous about the outcome. Only a disagreement is reported, and the retained entry is the `overrides` one, matching what bun applies, so [Pins the Lockfile Never Applied](#pins-the-lockfile-never-applied) still compares against the version actually in force.
 
 ## Import Alias Enforcement (`@/`)
 

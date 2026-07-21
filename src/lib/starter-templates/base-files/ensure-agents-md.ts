@@ -13,6 +13,16 @@ Guidelines and constraints for AI coding agents working in this repository.
 - **Exception for Renames:** \`git mv\` is allowed for intentional file renames, including case-only renames on case-insensitive filesystems. This command updates Git's index, but is acceptable because it preserves Git's view of the move during refactors.
 - **Exception for User-Requested Branching/Committing:** Creating new branches (\`git checkout -b\`, \`git switch -c\`), staging files (\`git add\`), and committing changes (\`git commit\`) are allowed when the user explicitly requests the agent to perform them during the conversation.
 
+## Dependencies
+
+- **Treat overrides as temporary, and not as a first resort:** An \`overrides\` entry exists to route around a specific upstream bug or advisory until the fix reaches you normally. Prefer upgrading the direct dependency that pulls in the bad version, and reach for an override only when that isn't available yet. When you do add one, record why in the commit message that introduces it. \`package.json\` is JSON and cannot carry a comment, so that commit is the only durable place the reason lives, and \`git log -S '"package-name"' -- package.json\` finds it again later. A pin nobody can explain is one nobody will dare remove.
+- **Don't regenerate the lockfile on your own:** \`bun run install:fresh\` deletes \`bun.lock\` and resolves from scratch, which picks up every in-range update at once, not just the one you were after. Treat it like the Git commands above and run it only when the user asks. Plain \`bun install\` is fine.
+- **Write overrides as a bare package name at the top level:** \`{ "child": "1.2.3" }\` is the only form bun applies, and it applies the pin everywhere in the tree. npm allows two other ways to write a key that bun does not support, and bun rejects neither one, it accepts them and pins nothing. A nested entry (\`{ "parent": { "child": "1.2.3" } }\`) is ignored outright, bun neither scopes it the way npm does nor flattens it. A version selector in the key (\`{ "child@^2": "1.2.3" }\`) is not implemented, so bun reads \`child@^2\` as a package name, which matches nothing. Either one leaves you with no pin at all, so keep the key flat and free of a selector. \`bun run check:overrides\` fails on both, along with overrides whose target left the dependency tree and pins that have fallen below what a dependent declares it needs.
+
+## Source Files
+
+- **Never embed a raw NUL byte in a text file:** It is invisible in virtually every editor, and it makes git treat the file as binary (no more diffs) and grep silently find nothing in it, so the file drops out of reviews and searches with no error anywhere. If you need a NUL as a value, write the escape in source instead of the raw byte. \`bun run check:null-bytes\` fails on it.
+
 ## Language Style
 
 - **Use American English:** Use American English spelling in code, comments, documentation, tests, and generated text. Keep existing American spellings intact and do not rewrite them to another English locale.

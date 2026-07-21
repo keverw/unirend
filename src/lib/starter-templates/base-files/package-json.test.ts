@@ -8,6 +8,7 @@ import {
 } from './package-json';
 import type { RootPackageJSONState } from './package-json';
 import type { InMemoryDir } from '../vfs';
+import type { LogLevel } from '../types';
 
 /**
  * Mirror how production obtains the state: read once, then pass it in.
@@ -61,8 +62,19 @@ describe('ensurePackageJSON', () => {
       expect(pkg.scripts['check:public-assets']).toBe(
         'bun run scripts/check-public-assets.ts',
       );
+      expect(pkg.scripts['check:overrides']).toBe(
+        'bun run scripts/check-overrides.ts',
+      );
+      expect(pkg.scripts['check:null-bytes']).toBe(
+        'bun run scripts/check-null-bytes.ts',
+      );
+      // install:fresh mutates the lockfile, so it's scaffolded but left out of
+      // the check chain below.
+      expect(pkg.scripts['install:fresh']).toBe(
+        'bun run scripts/refresh-lockfile.ts',
+      );
       expect(pkg.scripts.check).toBe(
-        'bun audit && bun run type-check && bun run lint && bun run spellcheck && bun run check:public-assets && bun test --pass-with-no-tests',
+        'bun run check:null-bytes && bun audit && bun run type-check && bun run lint && bun run spellcheck && bun run check:public-assets && bun run check:overrides && bun test --pass-with-no-tests',
       );
     });
   });
@@ -84,6 +96,111 @@ describe('ensurePackageJSON', () => {
       expect(pkg.type).toBe('module'); // Added
       expect(pkg.private).toBe(true); // Added
       expect(pkg.license).toBe('UNLICENSED'); // Added
+    });
+
+    test('upgrades a check script that still matches a previous generated one', async () => {
+      // The chain must grow as checks are added, but mergeScripts never
+      // overwrites, so a repo scaffolded before check:null-bytes existed would
+      // gain the script entry while `bun run check` quietly skipped it.
+      // A byte-identical match proves nobody edited it, so upgrading is safe.
+      const memRoot: InMemoryDir = {
+        'package.json': JSON.stringify({
+          name: 'test-repo',
+          scripts: {
+            check:
+              'bun audit && bun run type-check && bun run lint && bun run spellcheck && bun run check:public-assets && bun test --pass-with-no-tests',
+          },
+        }),
+      };
+
+      const logs: Array<{ level: LogLevel; message: string }> = [];
+
+      await ensurePackageJSON(memRoot, 'test-repo', await readState(memRoot), {
+        log: (level, message) => logs.push({ level, message }),
+      });
+
+      const pkg = JSON.parse(memRoot['package.json'] as string);
+      expect(pkg.scripts.check).toContain('bun run check:null-bytes');
+      expect(pkg.scripts.check).toContain('bun run check:overrides');
+      expect(logs.some((entry) => entry.message.includes('Updated the'))).toBe(
+        true,
+      );
+    });
+
+    test('leaves a customized check script alone and says what it misses', async () => {
+      // There is no safe way to splice entries into someone's own command, so
+      // the decision stays theirs. The notice names only what is absent.
+      const memRoot: InMemoryDir = {
+        'package.json': JSON.stringify({
+          name: 'test-repo',
+          scripts: { check: 'bun run type-check && bun run my-custom-thing' },
+        }),
+      };
+
+      const logs: Array<{ level: LogLevel; message: string }> = [];
+
+      await ensurePackageJSON(memRoot, 'test-repo', await readState(memRoot), {
+        log: (level, message) => logs.push({ level, message }),
+      });
+
+      const pkg = JSON.parse(memRoot['package.json'] as string);
+      expect(pkg.scripts.check).toBe(
+        'bun run type-check && bun run my-custom-thing',
+      );
+
+      const warning = logs.find((entry) => entry.level === 'warning');
+      expect(warning?.message).toContain('looks customized');
+      expect(warning?.message).toContain('check:null-bytes');
+      expect(warning?.message).toContain('check:overrides');
+      // type-check IS referenced, so it must not be listed as missing.
+      expect(warning?.message).not.toContain('`type-check`');
+    });
+
+    test('does not treat a longer script name as proof a check runs', async () => {
+      // Regression test. Substring matching would read `bun run lint:fix` as
+      // proof that `lint` runs, and `bun run check:overrides:custom` as proof
+      // that `check:overrides` does, under-reporting in the one place that has
+      // to be right: this warning is all a customized chain gets.
+      const memRoot: InMemoryDir = {
+        'package.json': JSON.stringify({
+          name: 'test-repo',
+          scripts: {
+            check: 'bun run lint:fix && bun run check:overrides:custom',
+            'lint:fix': 'eslint . --fix',
+            'check:overrides:custom': 'bun run scripts/check-overrides.ts',
+          },
+        }),
+      };
+
+      const logs: Array<{ level: LogLevel; message: string }> = [];
+
+      await ensurePackageJSON(memRoot, 'test-repo', await readState(memRoot), {
+        log: (level, message) => logs.push({ level, message }),
+      });
+
+      const warning = logs.find((entry) => entry.level === 'warning');
+      expect(warning?.message).toContain('`lint`');
+      expect(warning?.message).toContain('`check:overrides`');
+    });
+
+    test('says nothing when a customized check already runs every check', async () => {
+      const memRoot: InMemoryDir = {
+        'package.json': JSON.stringify({
+          name: 'test-repo',
+          scripts: {
+            check:
+              'bun run check:null-bytes && bun run type-check && bun run lint && bun run spellcheck && bun run check:public-assets && bun run check:overrides && bun run my-extra-step',
+          },
+        }),
+      };
+
+      const logs: Array<{ level: LogLevel; message: string }> = [];
+
+      await ensurePackageJSON(memRoot, 'test-repo', await readState(memRoot), {
+        log: (level, message) => logs.push({ level, message }),
+      });
+
+      expect(logs.filter((entry) => entry.level === 'warning')).toEqual([]);
     });
 
     test('adds missing dependencies', async () => {

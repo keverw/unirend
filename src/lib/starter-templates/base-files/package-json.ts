@@ -16,10 +16,59 @@ const defaultScripts = {
   'cspell:clean': 'bun run scripts/clean-cspell.ts',
   'cspell:clean:fix': 'bun run scripts/clean-cspell.ts --write',
   'list-outdated-packages': 'bun outdated',
+  // Regenerates bun.lock from scratch. Deliberately not in the `check` chain —
+  // it mutates the lockfile, so it's run on demand.
+  'install:fresh': 'bun run scripts/refresh-lockfile.ts',
   'check:public-assets': 'bun run scripts/check-public-assets.ts',
+  'check:overrides': 'bun run scripts/check-overrides.ts',
+  // Runs first in the `check` chain below: it is the cheapest check (a byte
+  // scan, no network, no build) and the most fundamental, since a NUL byte
+  // makes git stop diffing the file and grep silently find nothing in it,
+  // which would hamper debugging any later failure in the same run.
+  'check:null-bytes': 'bun run scripts/check-null-bytes.ts',
   check:
-    'bun audit && bun run type-check && bun run lint && bun run spellcheck && bun run check:public-assets && bun test --pass-with-no-tests',
+    'bun run check:null-bytes && bun audit && bun run type-check && bun run lint && bun run spellcheck && bun run check:public-assets && bun run check:overrides && bun test --pass-with-no-tests',
 };
+
+/**
+ * Every `check` value this generator has written in the past, oldest first.
+ *
+ * The `check` chain is the one default that MUST grow as checks are added, but
+ * `mergeScripts` never overwrites an existing script, so a repo scaffolded
+ * before a check existed would keep a chain that never runs it. Re-running
+ * `unirend create` would add `check:null-bytes` as its own entry while `bun run
+ * check` quietly skipped it.
+ *
+ * Recognizing our own past output is what makes upgrading safe. A byte-identical
+ * match proves the value was written by this generator and never edited, so
+ * replacing it cannot destroy anyone's work. Anything else is treated as the
+ * user's and left alone.
+ *
+ * Parsing an arbitrary chain and splicing entries into it was deliberately not
+ * attempted: `check` may use `&&`, `||`, `;`, a task runner, or its own
+ * ordering, and inserting into that blind risks both breaking the command and
+ * losing the ordering the chain depends on (`check:null-bytes` has to run
+ * first, since a NUL byte makes git and grep unreliable for debugging whatever
+ * fails later).
+ *
+ * Add the outgoing value here whenever the default `check` changes.
+ */
+const previousCheckScripts = [
+  'bun run type-check && bun run lint && bun run spellcheck && bun test --pass-with-no-tests',
+  'bun audit && bun run type-check && bun run lint && bun run spellcheck && bun test --pass-with-no-tests',
+  'bun audit && bun run type-check && bun run lint && bun run spellcheck && bun run check:public-assets && bun test --pass-with-no-tests',
+];
+
+/**
+ * The `bun run <name>` targets a command invokes, in order.
+ *
+ * Derived from the default `check` chain rather than hardcoded, so adding a
+ * check to that chain automatically extends what an existing repo is told it
+ * is missing.
+ */
+function chainedRunTargets(command: string): string[] {
+  return [...command.matchAll(/bun run ([\w:-]+)/g)].map((match) => match[1]);
+}
 
 export const devDependencies = {
   '@eslint/js': '^9.39.4',
@@ -115,6 +164,7 @@ function mergeDependencies(
 function mergeScripts(
   target: Record<string, unknown>,
   source: Record<string, string>,
+  log?: LoggerFunction,
 ): boolean {
   let didChange = false;
 
@@ -131,6 +181,58 @@ function mergeScripts(
       // Script doesn't exist, add it
       targetScripts[scriptName] = scriptCommand;
       didChange = true;
+      continue;
+    }
+
+    // The `check` chain is the one exception to never-overwrite, and only when
+    // the existing value is byte-identical to something this generator wrote
+    // before (see previousCheckScripts). That proves it was never customized,
+    // so upgrading it cannot destroy anyone's work.
+    if (
+      scriptName === 'check' &&
+      targetScripts[scriptName] !== scriptCommand &&
+      previousCheckScripts.includes(targetScripts[scriptName])
+    ) {
+      targetScripts[scriptName] = scriptCommand;
+      didChange = true;
+
+      if (log) {
+        log(
+          'info',
+          'Updated the `check` script to include newer checks (it still matched a previous generated version exactly, so nothing custom was replaced)',
+        );
+      }
+
+      continue;
+    }
+
+    // A customized `check` is left exactly as written, since there is no safe
+    // way to splice entries into someone's own command. Point out what it is
+    // missing instead, so the decision stays theirs.
+    if (scriptName === 'check' && targetScripts[scriptName] !== scriptCommand) {
+      // Compared as whole target names, never as substrings. A plain
+      // `existing.includes(name)` would read `bun run lint:fix` as proof that
+      // `lint` runs, and would let `bun run check:overrides:custom` hide a
+      // missing `check:overrides` — silently under-reporting in the one place
+      // that has to be right, since this warning is all a customized chain
+      // gets.
+      const existingTargets = new Set(
+        chainedRunTargets(targetScripts[scriptName]),
+      );
+      const missing = chainedRunTargets(scriptCommand).filter(
+        (name) => !existingTargets.has(name),
+      );
+
+      if (missing.length > 0 && log) {
+        log(
+          'warning',
+          `Your \`check\` script looks customized, so it was left alone. It does not run ${missing
+            .map((name) => `\`${name}\``)
+            .join(', ')} — add ${
+            missing.length === 1 ? 'it' : 'them'
+          } if you want ${missing.length === 1 ? 'it' : 'them'} in CI.`,
+        );
+      }
     }
 
     // If script exists, leave it unchanged (never overwrite user's scripts)
@@ -328,7 +430,7 @@ export async function ensurePackageJSON(
     // Merge scripts (only add missing scripts, never overwrite)
     // Combine default scripts with template-specific scripts
     const allScripts = { ...defaultScripts, ...options?.templateScripts };
-    if (mergeScripts(parsed, allScripts)) {
+    if (mergeScripts(parsed, allScripts, options?.log)) {
       didChange = true;
     }
 
