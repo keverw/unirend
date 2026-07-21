@@ -57,6 +57,21 @@ describe('gitignore matcher', () => {
     expect(isIgnored(matcher, 'other/private', true)).toBe(false);
   });
 
+  test('does not let a scope inside an ignored directory re-include a file', async () => {
+    await write('.gitignore', 'logs/\n');
+    await write('logs/.gitignore', '!keep.txt\n');
+    const matcher = createIgnoreMatcher();
+
+    // Load both scopes deliberately, even though a normal walker stops at the
+    // ignored directory before seeing its nested .gitignore.
+    await addIgnoreRules(matcher, tmpDir.path, '');
+    await addIgnoreRules(matcher, path.join(tmpDir.path, 'logs'), 'logs');
+
+    expect(matcher.scopes).toHaveLength(1);
+    expect(isIgnored(matcher, 'logs', true)).toBe(true);
+    expect(isIgnored(matcher, 'logs/keep.txt', false)).toBe(true);
+  });
+
   test('preserves significant whitespace in nested patterns', async () => {
     await write('sub/.gitignore', ' leading.ts\ntrailing\\ \n');
     const matcher = createIgnoreMatcher();

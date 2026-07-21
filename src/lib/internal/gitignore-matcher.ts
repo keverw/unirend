@@ -124,6 +124,15 @@ export async function addIgnoreRules(
   relativeBase: string,
   options?: AddIgnoreRulesOptions,
 ): Promise<void> {
+  // Git never reads a nested .gitignore through an excluded parent directory,
+  // and a negation inside that directory cannot re-include its contents. Most
+  // callers already avoid reaching this point because their tree walk skips
+  // the directory, but enforce the rule here too so manually assembled walks
+  // cannot add a scope that would incorrectly override its excluded parent.
+  if (relativeBase !== '' && isIgnored(matcher, relativeBase, true)) {
+    return;
+  }
+
   // Order matters, because the last matching pattern decides. Git ranks a
   // repository's `.gitignore` ABOVE `.git/info/exclude`, so the exclude file
   // goes in first and `.gitignore` gets the final say (verified: with
