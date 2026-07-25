@@ -1,3 +1,4 @@
+import { LogController } from 'fastify';
 import type {
   FastifyBaseLogger,
   FastifyLoggerOptions,
@@ -15,9 +16,11 @@ type CuratedFastifyLoggerOptions = {
  * Resolve logging options into Fastify logger configuration while enforcing
  * mutual exclusivity across logging configuration paths.
  *
- * Note: disableRequestLogging is always set to true — Fastify's built-in
- * request lifecycle logs are permanently suppressed. Use accessLog on the
- * server config for first-party request logging instead.
+ * Note: request logging is always disabled via a LogController — Fastify's
+ * built-in request lifecycle logs are permanently suppressed. Use accessLog on
+ * the server config for first-party request logging instead. (The old
+ * top-level disableRequestLogging option was deprecated in fastify 5.10 as
+ * FSTDEP023 and is removed in fastify 6; the LogController is its replacement.)
  */
 export function resolveFastifyLoggerConfig({
   logging,
@@ -27,7 +30,7 @@ export function resolveFastifyLoggerConfig({
   fastifyOptions?: CuratedFastifyLoggerOptions;
 }): Pick<
   FastifyServerOptions,
-  'logger' | 'loggerInstance' | 'disableRequestLogging'
+  'logger' | 'loggerInstance' | 'logController'
 > {
   const configuredPaths: string[] = [];
 
@@ -51,11 +54,13 @@ export function resolveFastifyLoggerConfig({
 
   const resolvedConfig: Pick<
     FastifyServerOptions,
-    'logger' | 'loggerInstance' | 'disableRequestLogging'
+    'logger' | 'loggerInstance' | 'logController'
   > = {
     // Always suppress Fastify's built-in "incoming request" / "request completed" logs.
-    // Use the accessLog server option for first-party request logging.
-    disableRequestLogging: true,
+    // Use the accessLog server option for first-party request logging. Set through
+    // a LogController rather than the deprecated top-level disableRequestLogging
+    // option (FSTDEP023), which fastify 6 removes.
+    logController: new LogController({ disableRequestLogging: true }),
   };
 
   if (logging) {

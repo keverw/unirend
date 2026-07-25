@@ -220,7 +220,7 @@ describe('API Server Logging Configuration', () => {
           fatal: (msg) => logs.push({ level: 'fatal', message: msg }),
         },
       },
-      // disableRequestLogging is always true internally — Fastify's built-in
+      // Request logging is always disabled internally (via a LogController) — Fastify's built-in
       // "incoming request"/"request completed" lifecycle logs are permanently suppressed.
     });
 
