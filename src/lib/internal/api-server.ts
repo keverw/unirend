@@ -19,12 +19,14 @@ import {
   registerRequestIDDecoration,
   computeDomainInfo,
 } from './server-utils';
+import type { ClosingHandlerOption } from './server-utils';
 import { registerClientInfoResolution } from './client-info-resolution';
 import type {
   APIServerOptions,
   APIServerListenOptions,
   PluginMetadata,
   APIResponseHelpersClass,
+  OptionsArgWhenCustomHelpers,
   PluginOptions,
   SplitErrorHandler,
   SplitNotFoundHandler,
@@ -101,16 +103,18 @@ function createDisabledPageDataHandlerShortcuts(): PluginPageDataHandlerShortcut
  * Uses createControlledInstance with shouldDisableRootWildcard: false to allow full wildcard flexibility
  */
 
-export class APIServer extends BaseServer {
+export class APIServer<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> extends BaseServer {
   /** Pluggable helpers class reference for constructing API/Page envelopes */
-  public readonly APIResponseHelpersClass: APIResponseHelpersClass;
+  public readonly APIResponseHelpersClass: H;
 
-  private options: APIServerOptions;
+  private options: APIServerOptions<H>;
   private readonly serverLabel: string;
   private _accessLog: AccessLogPlugin;
-  private pageDataHandlers!: DataLoaderServerHandlerHelpers;
-  private apiRoutes!: APIRoutesServerHelpers;
-  private webSocketHelpers: WebSocketServerHelpers | null = null;
+  private pageDataHandlers!: DataLoaderServerHandlerHelpers<H>;
+  private apiRoutes!: APIRoutesServerHelpers<unknown, BaseMeta, H>;
+  private webSocketHelpers: WebSocketServerHelpers<H> | null = null;
   private registeredPlugins: PluginMetadata[] = [];
 
   // Normalized endpoint config (computed once at construction)
@@ -118,8 +122,16 @@ export class APIServer extends BaseServer {
   private readonly normalizedAPIPrefix: string | false;
   private readonly normalizedPageDataEndpoint: string;
 
-  constructor(options: APIServerOptions = {}) {
+  // Options are spread from a conditional tuple rather than declared optional,
+  // so omitting them is a compile error once `H` is a custom helpers class.
+  // `new APIServer<typeof AppResponseHelpers>()` would otherwise install the
+  // base class while the instance type claimed the subclass.
+  constructor(...args: OptionsArgWhenCustomHelpers<H, APIServerOptions<H>>) {
     super();
+
+    // Safe: the tuple above only permits an omitted argument when `H` is the
+    // base class, which is exactly what an empty options object resolves to.
+    const options = (args[0] ?? {}) as APIServerOptions<H>;
 
     this.options = {
       ...options,
@@ -139,12 +151,14 @@ export class APIServer extends BaseServer {
     );
 
     // Set helpers class (custom or default)
-    this.APIResponseHelpersClass =
-      this.options.APIResponseHelpersClass || APIResponseHelpers;
+    // Cast covers the default branch: without an explicit class, `H` stays the
+    // base class, which is exactly what APIResponseHelpers is.
+    this.APIResponseHelpersClass = (this.options.APIResponseHelpersClass ||
+      APIResponseHelpers) as H;
 
     // Initialize helpers (available immediately for handler registration)
-    this.pageDataHandlers = new DataLoaderServerHandlerHelpers();
-    this.apiRoutes = new APIRoutesServerHelpers();
+    this.pageDataHandlers = new DataLoaderServerHandlerHelpers<H>();
+    this.apiRoutes = new APIRoutesServerHelpers<unknown, BaseMeta, H>();
 
     // Initialize WebSocket helpers if enabled
     if (this.options.enableWebSockets) {
@@ -280,7 +294,9 @@ export class APIServer extends BaseServer {
       // Decorate requests with APIResponseHelpersClass for file upload helpers
       this.fastifyInstance.decorateRequest(
         'APIResponseHelpersClass',
-        this.APIResponseHelpersClass,
+        // Widened to the base class: Fastify's decorator typing rejects an
+        // unresolved generic, and readers narrow it back per server anyway.
+        this.APIResponseHelpersClass as APIResponseHelpersClass,
       );
 
       // Initialize request context and set live dev-mode flag for all requests (consistent with SSRServer)
@@ -342,7 +358,9 @@ export class APIServer extends BaseServer {
         this.fastifyInstance,
         () => this._isStopping,
         {
-          handler: this.options.closingHandler,
+          // The hook invokes handlers with the class configured on this
+          // server, so widening the params type back to the base is safe.
+          handler: this.options.closingHandler as ClosingHandlerOption,
           // APIServer function form is API-first when API handling is enabled.
           // In plain web server mode, function form returns WebResponse.
           functionHandlerType:
@@ -534,7 +552,7 @@ export class APIServer extends BaseServer {
    * @throws Error if WebSocket support is not enabled
    */
   public registerWebSocketHandler<M extends BaseMeta = BaseMeta>(
-    config: WebSocketHandlerConfig<M>,
+    config: WebSocketHandlerConfig<M, H>,
   ): void {
     if (!this.webSocketHelpers) {
       throw new Error(

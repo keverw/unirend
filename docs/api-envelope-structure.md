@@ -44,6 +44,7 @@
   - [Extending Helpers and Custom Meta](#extending-helpers-and-custom-meta)
     - [Decorate Request via Plugin](#decorate-request-via-plugin)
     - [Server-Wide Custom Helpers Class](#server-wide-custom-helpers-class)
+      - [Typing of the Registered Class](#typing-of-the-registered-class)
     - [Per-Call Generics](#per-call-generics)
     - [Subclass to Inject Defaults From the Request](#subclass-to-inject-defaults-from-the-request)
 
@@ -889,6 +890,61 @@ const api = serveAPI({
   // ...other options
 });
 ```
+
+##### Typing of the Registered Class
+
+The servers are generic over the class you register, so `params.APIResponseHelpers` is typed as your subclass rather than the base `APIResponseHelpers`. Creators you add or widen in the subclass are visible to page data handlers, API route handlers, WebSocket handlers, `pluginHost.APIResponseHelpers`, and the error, not-found, and closing handler params.
+
+The type is inferred from the `APIResponseHelpersClass` option itself, so anything registered on that server instance, or in a plugin written inline in `plugins: [...]`, picks it up with no annotation on both the SSR and API servers:
+
+```ts
+class AppResponseHelpers extends APIResponseHelpers {
+  public static override createPageErrorResponse<M extends BaseMeta = BaseMeta>(
+    params: Parameters<
+      typeof APIResponseHelpers.createPageErrorResponse<M>
+    >[0] & {
+      useBrandedTitle?: boolean;
+    },
+  ): PageErrorResponse<M> {
+    // ...
+  }
+}
+
+const server = serveAPI({ APIResponseHelpersClass: AppResponseHelpers });
+
+server.pageDataHandler.register('home', (request, reply, params) =>
+  // params.APIResponseHelpers is typed as AppResponseHelpers here
+  params.APIResponseHelpers.createPageErrorResponse({
+    request,
+    statusCode: 404,
+    errorCode: 'not_found',
+    errorMessage: 'Not found',
+    pageMetadata: { title: 'Not found', description: 'No such page' },
+    useBrandedTitle: true,
+  }),
+);
+```
+
+A plugin that lives in its own file has no options object to infer from, so name the class as the second type argument to `ServerPlugin`:
+
+```ts
+import type { ServerPlugin } from 'unirend/server';
+
+const myPlugin: ServerPlugin<'api', typeof AppResponseHelpers> = (
+  pluginHost,
+) => {
+  // pluginHost.APIResponseHelpers and every handler registered here are typed
+  // as AppResponseHelpers
+};
+```
+
+The type argument defaults to the base class, so `ServerPlugin<'api'>` keeps working unchanged and stays compatible with servers that register a subclass. It only means that plugin sees the base type.
+
+Nothing special is required of the subclass itself. There is no marker, decorator, static field, or registration step, and Unirend does not inspect it beyond ordinary type checking. Writing `extends APIResponseHelpers` is the whole contract.
+
+<!-- prettier-ignore -->
+> [!NOTE]
+> An override has to preserve the method's own generics, `<M extends BaseMeta>` in the example above. Dropping them makes the subclass unassignable to the base class, and the `APIResponseHelpersClass` option rejects it.
 
 #### Per-Call Generics
 

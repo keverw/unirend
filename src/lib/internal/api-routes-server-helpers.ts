@@ -28,7 +28,11 @@ export type HTTPMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
  * This signals that the handler has already sent the response and the framework
  * should not attempt to send anything.
  */
-export type APIRouteHandler<T = unknown, M extends BaseMeta = BaseMeta> = (
+export type APIRouteHandler<
+  T = unknown,
+  M extends BaseMeta = BaseMeta,
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> = (
   request: FastifyRequest,
   controlledReply: ControlledReply,
   params: {
@@ -49,7 +53,7 @@ export type APIRouteHandler<T = unknown, M extends BaseMeta = BaseMeta> = (
     /** Original URL including query string */
     originalURL: string;
     /** The APIResponseHelpers class configured on this server (use this instead of importing directly) */
-    APIResponseHelpers: APIResponseHelpersClass;
+    APIResponseHelpers: H;
   },
   // Allow either sync or async returns, including false for early-exit cases
 ) =>
@@ -61,18 +65,21 @@ export type APIRouteHandler<T = unknown, M extends BaseMeta = BaseMeta> = (
 /**
  * Internal structure for storing handlers by method → endpoint → version
  */
-type VersionToHandlerMap<T, M extends BaseMeta> = Map<
-  number,
-  APIRouteHandler<T, M>
->;
-type EndpointToVersionMap<T, M extends BaseMeta> = Map<
-  string,
-  VersionToHandlerMap<T, M>
->;
-type MethodToEndpointMap<T, M extends BaseMeta> = Map<
-  HTTPMethod,
-  EndpointToVersionMap<T, M>
->;
+type VersionToHandlerMap<
+  T,
+  M extends BaseMeta,
+  H extends APIResponseHelpersClass,
+> = Map<number, APIRouteHandler<T, M, H>>;
+type EndpointToVersionMap<
+  T,
+  M extends BaseMeta,
+  H extends APIResponseHelpersClass,
+> = Map<string, VersionToHandlerMap<T, M, H>>;
+type MethodToEndpointMap<
+  T,
+  M extends BaseMeta,
+  H extends APIResponseHelpersClass,
+> = Map<HTTPMethod, EndpointToVersionMap<T, M, H>>;
 
 /**
  * Helper class for registering generic API routes, mirroring the ergonomics of
@@ -98,8 +105,9 @@ type MethodToEndpointMap<T, M extends BaseMeta> = Map<
 export class APIRoutesServerHelpers<
   T = unknown,
   M extends BaseMeta = BaseMeta,
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
 > {
-  private handlersByMethod: MethodToEndpointMap<T, M> = new Map();
+  private handlersByMethod: MethodToEndpointMap<T, M, H> = new Map();
 
   // API Shortcut method-specific helpers
   private readonly api = {
@@ -116,15 +124,15 @@ export class APIRoutesServerHelpers<
      */
     get: (
       endpoint: string,
-      handlerOrVersion: number | APIRouteHandler<T, M>,
-      maybeHandler?: APIRouteHandler<T, M>,
+      handlerOrVersion: number | APIRouteHandler<T, M, H>,
+      maybeHandler?: APIRouteHandler<T, M, H>,
     ): void => {
       if (typeof handlerOrVersion === 'number') {
         this.registerAPIHandler(
           'GET',
           endpoint,
           handlerOrVersion,
-          maybeHandler as APIRouteHandler<T, M>,
+          maybeHandler as APIRouteHandler<T, M, H>,
         );
       } else {
         this.registerAPIHandler('GET', endpoint, handlerOrVersion);
@@ -141,15 +149,15 @@ export class APIRoutesServerHelpers<
      */
     post: (
       endpoint: string,
-      handlerOrVersion: number | APIRouteHandler<T, M>,
-      maybeHandler?: APIRouteHandler<T, M>,
+      handlerOrVersion: number | APIRouteHandler<T, M, H>,
+      maybeHandler?: APIRouteHandler<T, M, H>,
     ): void => {
       if (typeof handlerOrVersion === 'number') {
         this.registerAPIHandler(
           'POST',
           endpoint,
           handlerOrVersion,
-          maybeHandler as APIRouteHandler<T, M>,
+          maybeHandler as APIRouteHandler<T, M, H>,
         );
       } else {
         this.registerAPIHandler('POST', endpoint, handlerOrVersion);
@@ -166,15 +174,15 @@ export class APIRoutesServerHelpers<
      */
     put: (
       endpoint: string,
-      handlerOrVersion: number | APIRouteHandler<T, M>,
-      maybeHandler?: APIRouteHandler<T, M>,
+      handlerOrVersion: number | APIRouteHandler<T, M, H>,
+      maybeHandler?: APIRouteHandler<T, M, H>,
     ): void => {
       if (typeof handlerOrVersion === 'number') {
         this.registerAPIHandler(
           'PUT',
           endpoint,
           handlerOrVersion,
-          maybeHandler as APIRouteHandler<T, M>,
+          maybeHandler as APIRouteHandler<T, M, H>,
         );
       } else {
         this.registerAPIHandler('PUT', endpoint, handlerOrVersion);
@@ -191,15 +199,15 @@ export class APIRoutesServerHelpers<
      */
     delete: (
       endpoint: string,
-      handlerOrVersion: number | APIRouteHandler<T, M>,
-      maybeHandler?: APIRouteHandler<T, M>,
+      handlerOrVersion: number | APIRouteHandler<T, M, H>,
+      maybeHandler?: APIRouteHandler<T, M, H>,
     ): void => {
       if (typeof handlerOrVersion === 'number') {
         this.registerAPIHandler(
           'DELETE',
           endpoint,
           handlerOrVersion,
-          maybeHandler as APIRouteHandler<T, M>,
+          maybeHandler as APIRouteHandler<T, M, H>,
         );
       } else {
         this.registerAPIHandler('DELETE', endpoint, handlerOrVersion);
@@ -216,15 +224,15 @@ export class APIRoutesServerHelpers<
      */
     patch: (
       endpoint: string,
-      handlerOrVersion: number | APIRouteHandler<T, M>,
-      maybeHandler?: APIRouteHandler<T, M>,
+      handlerOrVersion: number | APIRouteHandler<T, M, H>,
+      maybeHandler?: APIRouteHandler<T, M, H>,
     ): void => {
       if (typeof handlerOrVersion === 'number') {
         this.registerAPIHandler(
           'PATCH',
           endpoint,
           handlerOrVersion,
-          maybeHandler as APIRouteHandler<T, M>,
+          maybeHandler as APIRouteHandler<T, M, H>,
         );
       } else {
         this.registerAPIHandler('PATCH', endpoint, handlerOrVersion);
@@ -313,7 +321,10 @@ export class APIRoutesServerHelpers<
                 queryParams,
                 requestPath,
                 originalURL,
-                APIResponseHelpers: getAPIResponseHelpersClass(request),
+                // The decorated class is the same `H` the handler was
+                // registered against, but the request decoration is only
+                // typed as the base class.
+                APIResponseHelpers: getAPIResponseHelpersClass(request) as H,
               },
             );
 
@@ -460,7 +471,7 @@ export class APIRoutesServerHelpers<
 
   private getOrCreateEndpointMap(
     method: HTTPMethod,
-  ): EndpointToVersionMap<T, M> {
+  ): EndpointToVersionMap<T, M, H> {
     let map = this.handlersByMethod.get(method);
 
     if (!map) {
@@ -472,9 +483,9 @@ export class APIRoutesServerHelpers<
   }
 
   private getOrCreateVersionMap(
-    endpointMap: EndpointToVersionMap<T, M>,
+    endpointMap: EndpointToVersionMap<T, M, H>,
     endpoint: string,
-  ): VersionToHandlerMap<T, M> {
+  ): VersionToHandlerMap<T, M, H> {
     let versionMap = endpointMap.get(endpoint);
 
     if (!versionMap) {
@@ -500,7 +511,7 @@ export class APIRoutesServerHelpers<
   private registerAPIHandler(
     method: HTTPMethod,
     endpoint: string,
-    handler: APIRouteHandler<T, M>,
+    handler: APIRouteHandler<T, M, H>,
   ): void;
 
   /**
@@ -513,7 +524,7 @@ export class APIRoutesServerHelpers<
     method: HTTPMethod,
     endpoint: string,
     version: number,
-    handler: APIRouteHandler<T, M>,
+    handler: APIRouteHandler<T, M, H>,
   ): void;
 
   /**
@@ -524,14 +535,14 @@ export class APIRoutesServerHelpers<
   private registerAPIHandler(
     method: HTTPMethod,
     endpoint: string,
-    versionOrHandler: number | APIRouteHandler<T, M>,
-    handlerMaybe?: APIRouteHandler<T, M>,
+    versionOrHandler: number | APIRouteHandler<T, M, H>,
+    handlerMaybe?: APIRouteHandler<T, M, H>,
   ): void {
     const httpMethod = this.ensureMethod(method);
     const normalizedEndpoint = this.normalizeEndpoint(endpoint);
 
     let version: number;
-    let handler: APIRouteHandler<T, M>;
+    let handler: APIRouteHandler<T, M, H>;
 
     if (typeof versionOrHandler === 'function') {
       // 2-param overload: registerAPIHandler(method, endpoint, handler)

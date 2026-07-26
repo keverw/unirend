@@ -1,5 +1,11 @@
 import { APIServer } from './internal/api-server';
-import type { APIServerOptions, PlainServerOptions } from './types';
+import type {
+  APIResponseHelpersClass,
+  APIServerAPIOptions,
+  APIServerOptions,
+  APIServerWebOptions,
+  PlainServerOptions,
+} from './types';
 
 export type PlainServer = Omit<
   APIServer,
@@ -51,6 +57,40 @@ export type PlainServer = Omit<
  * // await server.listen({ path: '/tmp/my-api.sock' });
  * ```
  */
+// Overloaded on the two modes rather than taking the `APIServerOptions` union
+// directly. TypeScript does not contextually type a function nested inside a
+// union-typed object literal, so the union form left `pluginHost` implicitly
+// `any` for a plugin written inline in `plugins: [...]`. Each overload has a
+// single non-union parameter type, which restores that contextual typing.
+//
+// Each mode is then split again into a generic form that requires
+// `APIResponseHelpersClass` and a plain form that takes no type parameter.
+// That keeps an explicitly-supplied `H` honest: `serveAPI<typeof CustomHelpers>()`
+// with no class to back it would otherwise type handlers against a class the
+// server never installs, and fail at runtime on the first custom method.
+// Inference is unaffected, since passing the class satisfies the generic form.
+export function serveAPI<H extends APIResponseHelpersClass>(
+  options: APIServerAPIOptions<H>,
+): APIServer<H>;
+export function serveAPI<H extends APIResponseHelpersClass>(
+  options: APIServerWebOptions<H>,
+): APIServer<H>;
+export function serveAPI(options?: APIServerAPIOptions): APIServer;
+export function serveAPI(options: APIServerWebOptions): APIServer;
+// Kept last so the per-mode overloads above still win for an inline object
+// literal. Overload signatures hide the implementation signature, so without
+// these a caller holding config as the exported `APIServerOptions` union (built
+// elsewhere, or returned from a factory) would no longer be able to call at all.
+// `APIServerOptions<H>` requires the class value itself once `H` is custom, so
+// this needs no extra guard: a union config that omits it fails to typecheck
+// where it is declared, which is a better place to see the error than here.
+export function serveAPI<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+>(options: APIServerOptions<H>): APIServer<H>;
+// Implementation signature, not part of the public surface. It takes the raw
+// mode union rather than `APIServerOptions<H>` so the no-argument default is
+// expressible: the exported union requires the helpers class once `H` is
+// custom, and an empty literal cannot satisfy that.
 export function serveAPI(options: APIServerOptions = {}): APIServer {
   return new APIServer(options);
 }

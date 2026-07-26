@@ -14,8 +14,6 @@ import type {
   APIServerWebOptions,
   PlainServerOptions,
   PluginHostInstance,
-  WebErrorHandlerFn,
-  WebNotFoundHandlerFn,
 } from '../types';
 import type { PlainServer } from '../api';
 
@@ -389,14 +387,14 @@ describe('APIServer public methods', () => {
             });
           },
         ],
-        errorHandler: ((_request, error, isDevelopment) => ({
+        errorHandler: (_request, error, isDevelopment) => ({
           contentType: 'json',
           content: {
             message: error.message,
             isDevelopment,
           },
           statusCode: 418,
-        })) as WebErrorHandlerFn,
+        }),
       });
       await server.listen(port, 'localhost');
 
@@ -422,11 +420,11 @@ describe('APIServer public methods', () => {
     it('uses function-form WebResponse not-found handlers when API handling is disabled', async () => {
       server = serveAPI({
         apiEndpoints: { apiEndpointPrefix: false },
-        notFoundHandler: ((request) => ({
+        notFoundHandler: (request) => ({
           contentType: 'text',
           content: `Missing ${request.url}`,
           statusCode: 410,
-        })) as WebNotFoundHandlerFn,
+        }),
       });
       await server.listen(port, 'localhost');
 
