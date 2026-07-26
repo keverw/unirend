@@ -33,10 +33,25 @@ interface HomeLoaderEnvelope {
 }
 
 export function Home() {
-  const { data } = useLoaderData<HomeLoaderEnvelope>();
+  const envelope = useLoaderData<HomeLoaderEnvelope>();
+  const { data } = envelope;
 
   return (
     <>
+      {/*
+        Hardcoded here so the starter reads clearly. If your loader's handler sets
+        pageMetadata, you can hand the whole envelope over instead and skip retyping any
+        of it — a tag is rendered for every populated meta.page field, canonical,
+        keywords, and og:* included:
+
+          <UnirendHead envelope={envelope} />
+
+        A tag you declare as a child still wins for that one key, so you can mix the two:
+
+          <UnirendHead envelope={envelope}>
+            <meta name="description" content="Something more specific" />
+          </UnirendHead>
+      */}
       <UnirendHead>
         <title>Home - Unirend SSR Starter</title>
         <meta

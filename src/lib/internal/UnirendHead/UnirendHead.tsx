@@ -5,11 +5,57 @@ import type { HeadCollector } from './context';
 import { HTML_BOOLEAN_ATTRIBUTES } from '../html-utils/escape';
 import { getMetaKey, getMetaKeyFromElement } from '../html-utils/meta-key';
 import { TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
+import { serializeStyleObject, toHeadAttributes } from './head-attributes';
+import { scanHeadKeys } from './head-keys';
+import {
+  buildPageMetadataTags,
+  resolvePageMetadata,
+} from './page-metadata-tags';
+import {
+  collectDuplicateHeadKeys,
+  isDuplicateHeadWarningEnabled,
+  warnDuplicateHeadKeys,
+} from './duplicate-head-warning';
+import type {
+  DuplicateHeadAllowance,
+  DuplicateHeadKeyReport,
+  SeenHeadKeys,
+} from './duplicate-head-warning';
+import type { PageResponseEnvelope } from '../../api-envelope/api-envelope-types';
+
+/**
+ * Props for {@link UnirendHead}.
+ *
+ * Every one is optional, so passing none of them is the original children-only form.
+ */
+export interface UnirendHeadProps {
+  /**
+   * `<title>`, `<meta>`, `<link>`, `<html>`, and `<body>` elements. A child always wins over the
+   * envelope field with the same key: the envelope tag is not built at all in that case.
+   */
+  children?: ReactNode;
+
+  /**
+   * A page data loader envelope. Every populated `meta.page` field becomes a head tag.
+   *
+   * Accepts error and redirect envelopes too, so 404 and error components can pass the envelope
+   * they already receive as a prop, `null` included for the case where React Router threw before
+   * any loader ran.
+   */
+  envelope?: PageResponseEnvelope | null;
+
+  /**
+   * Suppress the development-only duplicate warning for this instance. `true` covers every key
+   * it emits, a string list covers named keys only (`['og:image', 'description']`).
+   */
+  allowDuplicate?: boolean | string[];
+}
 
 /**
  * Framework-native document head manager.
  *
- * Place <title>, <meta>, and <link> tags as direct children.
+ * Place <title>, <meta>, and <link> tags as direct children, or hand it the page data loader
+ * envelope you already have and let it project `meta.page` onto tags for you.
  * Works identically in SSR, SSG, and SPA modes.
  *
  * Server: collects tags via context for injection into the HTML template.
@@ -32,9 +78,47 @@ import { TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
  *   );
  * }
  * ```
+ *
+ * @example Straight from the loader envelope, with one field overridden locally
+ * ```tsx
+ * const envelope = useLoaderData<HomeLoaderEnvelope>();
+ *
+ * // canonical, keywords, and og:* still come from the envelope — only description is replaced.
+ * <UnirendHead envelope={envelope}>
+ *   <meta name="description" content="Something more specific" />
+ * </UnirendHead>
+ * ```
  */
-export function UnirendHead({ children }: { children?: ReactNode }) {
+export function UnirendHead({
+  children,
+  envelope,
+  allowDuplicate,
+}: UnirendHeadProps) {
   const collector = useContext(UnirendHeadContext);
+
+  // Envelope prepass: resolve the merge before anything is collected, then hand the rest of this
+  // component one ordinary child list. Children claim their keys first, so a declared tag wins
+  // over the envelope field of the same key, and only the child's tag is ever built. Both the
+  // server and the client see the identical merged list, so there is no parity to keep in sync.
+  const pageMetadata = resolvePageMetadata(envelope);
+
+  const generatedTags =
+    pageMetadata === null
+      ? EMPTY_TAGS
+      : buildPageMetadataTags(pageMetadata, scanHeadKeys(children).claimed);
+
+  // Left strictly alone when there is nothing to generate, so every existing call site keeps the
+  // exact child list (and element identities) it had before.
+  const effectiveChildren: ReactNode =
+    generatedTags.length > 0
+      ? [...generatedTags, ...React.Children.toArray(children)]
+      : children;
+
+  // Duplicate detection is development-only, so a production build never pays for the scan.
+  const shouldWarnOnDuplicates = isDuplicateHeadWarningEnabled();
+  const headKeys = shouldWarnOnDuplicates
+    ? scanHeadKeys(effectiveChildren).values
+    : EMPTY_HEAD_KEYS;
 
   /* eslint-disable @typescript-eslint/naming-convention */
   const customWindow =
@@ -60,12 +144,18 @@ export function UnirendHead({ children }: { children?: ReactNode }) {
   // Client-side HTML/Body attribute extraction: parses props from children if running
   // on the client (where the server-side context collector is null).
   const htmlAttrs =
-    collector === null ? getTagAttributesFromChildren(children, 'html') : null;
+    collector === null
+      ? getTagAttributesFromChildren(effectiveChildren, 'html')
+      : null;
   const bodyAttrs =
-    collector === null ? getTagAttributesFromChildren(children, 'body') : null;
+    collector === null
+      ? getTagAttributesFromChildren(effectiveChildren, 'body')
+      : null;
 
-  // Which template metas this instance overrides.
-  const metaKeys = collector === null ? getMetaKeysFromChildren(children) : [];
+  // Which template metas this instance overrides. Read off the merged list, so an
+  // envelope-derived description overrides the template's exactly as a declared one would.
+  const metaKeys =
+    collector === null ? getMetaKeysFromChildren(effectiveChildren) : [];
 
   if (collector === null) {
     // Deliberately in the render phase, not an effect. In pure SPA mode the baseline has to be
@@ -101,6 +191,8 @@ export function UnirendHead({ children }: { children?: ReactNode }) {
         html: htmlAttrs,
         body: bodyAttrs,
         metaKeys,
+        headKeys,
+        allowDuplicate,
         markerRef,
       };
       registeredList.push(registrationRef.current);
@@ -121,11 +213,14 @@ export function UnirendHead({ children }: { children?: ReactNode }) {
         !areRecordsEqual(prev.html, htmlAttrs) ||
         !areRecordsEqual(prev.body, bodyAttrs) ||
         !areKeyListsEqual(prev.metaKeys, metaKeys) ||
+        !areHeadKeyMapsEqual(prev.headKeys, headKeys) ||
         hasMarkerChanged
       ) {
         prev.html = htmlAttrs;
         prev.body = bodyAttrs;
         prev.metaKeys = metaKeys;
+        prev.headKeys = headKeys;
+        prev.allowDuplicate = allowDuplicate;
         updateDOM();
       }
     }
@@ -154,19 +249,31 @@ export function UnirendHead({ children }: { children?: ReactNode }) {
     // Server-side path: walks children synchronously and collects metadata/attributes
     // into the server-side collector object. Renders null to the client React body
     // because the server injects them directly into the template head.
-    collectServerHead(collector, children);
+    if (shouldWarnOnDuplicates) {
+      warnDuplicateHeadKeys(
+        collectDuplicateHeadKeys(
+          getSeenHeadKeys(collector),
+          headKeys,
+          allowDuplicate,
+        ),
+      );
+    }
+
+    collectServerHead(collector, effectiveChildren);
     return null;
   }
 
   // Client-side path: filters out <html> and <body> elements from rendering inside the
   // React root (preventing invalid nested DOM structures like <body> inside #root).
-  const filteredChildren = React.Children.toArray(children).filter((child) => {
-    if (React.isValidElement(child)) {
-      return child.type !== 'html' && child.type !== 'body';
-    }
+  const filteredChildren = React.Children.toArray(effectiveChildren).filter(
+    (child) => {
+      if (React.isValidElement(child)) {
+        return child.type !== 'html' && child.type !== 'body';
+      }
 
-    return true;
-  });
+      return true;
+    },
+  );
 
   // Hoistable elements like <title>, <meta>, <link> are returned and hoisted by React 19.
   // The hidden template gives this UnirendHead instance a committed DOM position.
@@ -186,6 +293,8 @@ interface RegisteredAttrs {
   html: Record<string, string> | null;
   body: Record<string, string> | null;
   metaKeys: string[];
+  headKeys: Map<string, string>;
+  allowDuplicate: DuplicateHeadAllowance;
   markerRef: React.RefObject<HTMLTemplateElement | null>;
 }
 
@@ -193,6 +302,34 @@ interface RegisteredAttrs {
 // updateDOM() sorts this list by marker document order before merging so client-side
 // last-write-wins attributes match server collection order.
 const registeredList: RegisteredAttrs[] = [];
+
+// Shared empties, so a render with no envelope and no duplicate scan allocates nothing and the
+// change detection in effect 1 keeps comparing the same references.
+const EMPTY_TAGS: React.ReactElement[] = [];
+const EMPTY_HEAD_KEYS: Map<string, string> = new Map();
+
+// Head keys already claimed during the current server render, one record per collector. Kept
+// outside HeadCollector so the collector stays the plain serializable shape the renderers build,
+// and weak so a finished render's record is collected along with its collector.
+const seenHeadKeysByCollector = new WeakMap<HeadCollector, SeenHeadKeys>();
+
+function getSeenHeadKeys(collector: HeadCollector): SeenHeadKeys {
+  const existing = seenHeadKeysByCollector.get(collector);
+
+  if (existing) {
+    return existing;
+  }
+
+  const created: SeenHeadKeys = new Map();
+  seenHeadKeysByCollector.set(collector, created);
+
+  return created;
+}
+
+// Duplicate keys the client has already warned about, so a re-render or an unrelated attribute
+// change doesn't reprint them. Replaced wholesale on each sync, so a duplicate that goes away on
+// navigation and comes back later warns again.
+let warnedDuplicateKeys = new Set<string>();
 
 // Clean baseline attributes preserved from index.html (established on first mount).
 let initialHTMLAttrs: Record<string, string> | null = null;
@@ -644,6 +781,13 @@ function updateDOM(): void {
   const bodyStack: Array<Record<string, string>> = [];
   const declaredMetaKeys = new Set<string>();
 
+  // Development-only: detect the same key coming from two separate instances. Done here rather
+  // than during render so it reads the committed, document-ordered set of mounted instances once,
+  // instead of firing twice under StrictMode's double render.
+  const shouldWarnOnDuplicates = isDuplicateHeadWarningEnabled();
+  const seenHeadKeys: SeenHeadKeys = new Map();
+  const duplicateReports: DuplicateHeadKeyReport[] = [];
+
   for (const item of sortedRegistrations) {
     if (item.html) {
       htmlStack.push(item.html);
@@ -656,11 +800,55 @@ function updateDOM(): void {
     for (const key of item.metaKeys) {
       declaredMetaKeys.add(key);
     }
+
+    if (shouldWarnOnDuplicates) {
+      duplicateReports.push(
+        ...collectDuplicateHeadKeys(
+          seenHeadKeys,
+          item.headKeys,
+          item.allowDuplicate,
+        ),
+      );
+    }
+  }
+
+  if (shouldWarnOnDuplicates) {
+    const fresh = duplicateReports.filter(
+      (report) => !warnedDuplicateKeys.has(report.key),
+    );
+
+    warnedDuplicateKeys = new Set(duplicateReports.map((report) => report.key));
+    warnDuplicateHeadKeys(fresh);
   }
 
   applyAttributes(document.documentElement, initialHTMLAttrs || {}, htmlStack);
   applyAttributes(document.body, initialBodyAttrs || {}, bodyStack);
   reconcileTemplateMetas(declaredMetaKeys);
+}
+
+/**
+ * Compares two head key maps for equality, so effect 1 only touches the DOM when the set of tags
+ * an instance emits actually changed.
+ */
+function areHeadKeyMapsEqual(
+  a: Map<string, string>,
+  b: Map<string, string>,
+): boolean {
+  if (a === b) {
+    return true;
+  }
+
+  if (a.size !== b.size) {
+    return false;
+  }
+
+  for (const [key, value] of a) {
+    if (b.get(key) !== value) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -831,164 +1019,11 @@ function toTitleText(children: ReactNode): string {
     .join('');
 }
 
-/**
- * React prop names whose HTML attribute is not just the prop lowercased, so writing them out
- * verbatim would produce an attribute that doesn't exist.
- *
- * Only the ones that differ by more than case belong here. HTML attribute names are matched
- * case-insensitively, so React spellings like `charSet` or `crossOrigin` already land on the
- * right attribute on their own. `className` and `httpEquiv` do not: `class` is a different word,
- * and `http-equiv` carries a hyphen. An unmapped `httpEquiv` would be serialized as an
- * `httpEquiv=""` attribute, which no parser reads as `http-equiv` — so the tag would not do its
- * job, and it could not be matched against the template's `http-equiv` baseline either.
- */
-const REACT_PROP_TO_HTML_ATTRIBUTE: Record<string, string> = {
-  className: 'class',
-  httpEquiv: 'http-equiv',
-};
-
-/**
- * Converts React element properties into standard HTML attribute key-value records.
- */
-function toHeadAttributes(
-  props: Record<string, unknown>,
-): Record<string, string> {
-  const attrs: Record<string, string> = {};
-
-  for (const [key, value] of Object.entries(props)) {
-    // Exclude special children props and null/undefined values.
-    if (key === 'children' || value === null || value === undefined) {
-      continue;
-    }
-
-    // Map React prop spellings onto their real HTML attribute names (className -> class,
-    // httpEquiv -> http-equiv); everything else is already the attribute name.
-    const normKey = REACT_PROP_TO_HTML_ATTRIBUTE[key] ?? key;
-
-    // Handle React style objects by serializing them to a standard inline style string.
-    if (normKey === 'style' && typeof value === 'object') {
-      attrs[normKey] = serializeStyleObject(value as Record<string, unknown>);
-    } else {
-      const attrValue = toHeadAttributeValue(normKey, value);
-      if (attrValue !== null) {
-        attrs[normKey] = attrValue;
-      }
-    }
-  }
-
-  return attrs;
-}
-
-/**
- * Normalizes React property values (strings, numbers, booleans) into standard
- * HTML attribute string values, returning null for unsupported types or omitted booleans.
- */
-function toHeadAttributeValue(key: string, value: unknown): string | null {
-  const normKey = key.toLowerCase();
-  if (HTML_BOOLEAN_ATTRIBUTES.has(normKey)) {
-    if (typeof value === 'boolean' || value === 'true' || value === 'false') {
-      return value === true || value === 'true' ? '' : 'false';
-    }
-  }
-
-  if (typeof value === 'string') {
-    return value;
-  } else if (typeof value === 'number' || typeof value === 'bigint') {
-    return String(value);
-  } else if (typeof value === 'boolean') {
-    return value ? 'true' : 'false';
-  } else {
-    return null;
-  }
-}
-
-/**
- * Common unitless CSS properties for which numeric values should not be suffixed with 'px'.
- */
-const UNITLESS_CSS_PROPERTIES = new Set([
-  'animation-iteration-count',
-  'border-image-outset',
-  'border-image-slice',
-  'border-image-width',
-  'box-flex',
-  'box-flex-group',
-  'box-ordinal-group',
-  'column-count',
-  'columns',
-  'flex',
-  'flex-grow',
-  'flex-positive',
-  'flex-shrink',
-  'flex-negative',
-  'flex-order',
-  'grid-row',
-  'grid-row-align',
-  'grid-row-end',
-  'grid-row-span',
-  'grid-row-start',
-  'grid-column',
-  'grid-column-align',
-  'grid-column-end',
-  'grid-column-span',
-  'grid-column-start',
-  'font-weight',
-  'line-clamp',
-  'line-height',
-  'opacity',
-  'order',
-  'orphans',
-  'tab-size',
-  'widows',
-  'z-index',
-  'zoom',
-  'fill-opacity',
-  'flood-opacity',
-  'stop-opacity',
-  'stroke-dasharray',
-  'stroke-dashoffset',
-  'stroke-miterlimit',
-  'stroke-opacity',
-  'stroke-width',
-]);
-
-/**
- * Serializes a React CSSProperties object into a standard HTML inline style string.
- */
-function serializeStyleObject(styleObj: Record<string, unknown>): string {
-  return Object.entries(styleObj)
-    .map(([key, value]) => {
-      if (value === null || value === undefined || value === '') {
-        return '';
-      }
-
-      // Convert camelCase key (e.g. backgroundColor) to kebab-case (e.g. background-color)
-      const kebabKey = key.replace(
-        /[A-Z]/g,
-        (match) => `-${match.toLowerCase()}`,
-      );
-
-      // CSSProperties values are strings or numbers; skip anything else rather
-      // than emitting a useless '[object Object]' value.
-      if (typeof value !== 'string' && typeof value !== 'number') {
-        return '';
-      }
-
-      let formattedValue = String(value);
-      // Append 'px' to numbers unless the CSS property is unitless
-      if (typeof value === 'number' && !UNITLESS_CSS_PROPERTIES.has(kebabKey)) {
-        formattedValue = `${value}px`;
-      }
-
-      return `${kebabKey}:${formattedValue}`;
-    })
-    .filter(Boolean)
-    .join(';');
-}
-
 // Exported for testing purposes only
 // eslint-disable-next-line react-refresh/only-export-components
 export const _test = {
   areRecordsEqual,
+  areHeadKeyMapsEqual,
   applyAttributes,
   captureInitialAttrs,
   toHeadAttributes,
@@ -1009,6 +1044,9 @@ export const _test = {
   getTemplateMetaNodes: () => templateMetaNodes,
   resetTemplateMetas: () => {
     templateMetaNodes = null;
+  },
+  resetDuplicateWarnings: () => {
+    warnedDuplicateKeys = new Set();
   },
 };
 

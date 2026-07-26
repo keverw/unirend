@@ -285,12 +285,21 @@ function registerPageDataHandlers(server: SSRServer) {
             client_info: reqWithClient.clientInfo ?? null,
           },
         },
+        // Populated in full so the page can wire the whole envelope into UnirendHead and show
+        // canonical, keywords, and og:* coming through without the page restating any of them.
         pageMetadata: {
           title: params.routeParams.id
             ? `Test Page Data (ID: ${params.routeParams.id})`
             : 'Test Page Data',
           description:
             'Debug page showing page data loader request and response details',
+          keywords: 'unirend, page data loader, debug',
+          canonical: `https://example.com${params.requestPath}`,
+          og: {
+            title: 'Test Page Data (OpenGraph)',
+            description: 'OpenGraph description straight from the envelope',
+            image: 'https://example.com/og/test-page-data.png',
+          },
         },
       });
     },

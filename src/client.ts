@@ -29,6 +29,7 @@ export { mountApp } from './lib/mount-app';
 
 // UnirendHead — framework-native document head manager
 export { UnirendHead } from './lib/internal/UnirendHead';
+export type { UnirendHeadProps } from './lib/internal/UnirendHead';
 
 // Unirend context hooks
 export {

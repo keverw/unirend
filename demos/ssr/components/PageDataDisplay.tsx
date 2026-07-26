@@ -1,32 +1,38 @@
 import { useLoaderData, useParams } from 'react-router';
 import { UnirendHead } from '../../../src/client';
+import type { PageResponseEnvelope } from '../../../src/api-envelope';
+
+interface PageDataMeta {
+  page?: {
+    title?: string;
+    description?: string;
+  };
+  app?: {
+    environment?: string;
+  };
+}
 
 // Component to display page data JSON with proper layout and SEO
 export function PageDataDisplay() {
-  const data: {
-    meta?: {
-      page?: {
-        title?: string;
-        description?: string;
-      };
-      app?: {
-        environment?: string;
-      };
-    };
-  } = useLoaderData();
+  const data: PageResponseEnvelope<unknown, PageDataMeta> | null =
+    useLoaderData();
 
   const params = useParams();
 
-  // Extract meta information for document title and description
+  // Extract meta information for on-page display
   const title = data?.meta?.page?.title || 'Test Page Data';
   const description =
     data?.meta?.page?.description || 'Test page response data';
 
   return (
     <>
-      <UnirendHead>
-        <title>{title}</title>
-        <meta name="description" content={description} />
+      {/*
+        The whole envelope goes in, so every populated meta.page field becomes a tag: title,
+        description, keywords, canonical, and og:*. The og:title below overrides just that one
+        key, the rest still come from the envelope.
+      */}
+      <UnirendHead envelope={data}>
+        <meta property="og:title" content={`${title} (local override)`} />
       </UnirendHead>
 
       <main className="main-content">

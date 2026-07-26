@@ -585,6 +585,8 @@ describe('UnirendHead Client-side Helpers', () => {
         html: { lang: 'es' },
         body: null,
         metaKeys: [],
+        headKeys: new Map(),
+        allowDuplicate: undefined,
         markerRef: { current: markerB },
       });
 
@@ -592,6 +594,8 @@ describe('UnirendHead Client-side Helpers', () => {
         html: { lang: 'en' },
         body: null,
         metaKeys: [],
+        headKeys: new Map(),
+        allowDuplicate: undefined,
         markerRef: { current: markerA },
       });
 
@@ -640,12 +644,16 @@ describe('UnirendHead Client-side Helpers', () => {
         html: { lang: 'es' },
         body: null,
         metaKeys: [],
+        headKeys: new Map(),
+        allowDuplicate: undefined,
         markerRef: { current: null as any },
       };
       const regA = {
         html: { lang: 'en' },
         body: null,
         metaKeys: [],
+        headKeys: new Map(),
+        allowDuplicate: undefined,
         markerRef: { current: null as any },
       };
 
