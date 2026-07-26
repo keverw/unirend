@@ -50,6 +50,24 @@ class BrandedHelpers extends APIResponseHelpers {
 
 const pageMetadata = { title: 'Oops', description: 'Something went wrong' };
 
+/**
+ * True only for `any`, which is the one type that distributes into both
+ * branches of this conditional.
+ */
+type IsAny<T> = 0 extends 1 & T ? true : false;
+
+/**
+ * Fails to compile when the argument's type is `any`.
+ *
+ * The inline plugin checks below assert what `pluginHost` resolves to, and
+ * every softer form of that assertion is useless here: `any` is assignable to
+ * everything, so both `satisfies` and a plain annotation accept it silently.
+ * A plugin body that only calls methods proves even less, since calls on `any`
+ * never error. Without this, a regression in overload ordering that dropped
+ * `pluginHost` back to `any` would leave these checks passing.
+ */
+const assertNotAny = <T>(_value: IsAny<T> extends true ? never : T): void => {};
+
 // --- Compile-time assertions -------------------------------------------------
 
 // Inline plugin on an SSR server: the subclass reaches page data handlers,
@@ -59,6 +77,9 @@ const _inlinePluginTypeCheck = () =>
     APIResponseHelpersClass: BrandedHelpers,
     plugins: [
       (pluginHost) => {
+        assertNotAny(pluginHost);
+        pluginHost.APIResponseHelpers satisfies typeof BrandedHelpers;
+
         pluginHost.pageDataHandler.register('home', (request, _reply, params) =>
           params.APIResponseHelpers.createPageErrorResponse({
             request,
@@ -108,6 +129,9 @@ const _inlineAPIPluginTypeCheck = () =>
     APIResponseHelpersClass: BrandedHelpers,
     plugins: [
       (pluginHost) => {
+        assertNotAny(pluginHost);
+        pluginHost.APIResponseHelpers satisfies typeof BrandedHelpers;
+
         pluginHost.pageDataHandler.register('home', (request, _reply, params) =>
           params.APIResponseHelpers.createPageErrorResponse({
             request,
@@ -128,6 +152,8 @@ const _inlinePlainPluginTypeCheck = () =>
     apiEndpoints: { apiEndpointPrefix: false },
     plugins: [
       (pluginHost) => {
+        assertNotAny(pluginHost);
+
         pluginHost.get('/health', () => 'ok');
       },
     ],
