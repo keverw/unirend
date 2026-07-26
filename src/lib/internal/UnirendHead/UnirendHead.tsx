@@ -12,6 +12,7 @@ import {
   resolvePageMetadata,
 } from './page-metadata-tags';
 import {
+  areAllowancesEqual,
   collectDuplicateHeadKeys,
   isDuplicateHeadWarningEnabled,
   warnDuplicateHeadKeys,
@@ -208,19 +209,35 @@ export function UnirendHead({
       const hasMarkerChanged = lastMarkerRef.current !== markerRef.current;
       lastMarkerRef.current = markerRef.current;
 
+      // Kept current unconditionally, outside the gate below. Assigning it costs nothing, and
+      // letting it go stale would have the duplicate warning judge this instance by an
+      // allowance it no longer declares: an instance that dropped `allowDuplicate` would stay
+      // exempt, and one that just added it would keep warning.
+      const hasAllowanceChanged = !areAllowancesEqual(
+        prev.allowDuplicate,
+        allowDuplicate,
+      );
+
+      prev.allowDuplicate = allowDuplicate;
+
       // Optimize updates: only touch the DOM if props or marker actually changed
       if (
         !areRecordsEqual(prev.html, htmlAttrs) ||
         !areRecordsEqual(prev.body, bodyAttrs) ||
         !areKeyListsEqual(prev.metaKeys, metaKeys) ||
         !areHeadKeyMapsEqual(prev.headKeys, headKeys) ||
-        hasMarkerChanged
+        hasMarkerChanged ||
+        // Storing the new allowance is not enough on its own, since nothing re-reads it until
+        // the next sync: dropping an `allowDuplicate` has to surface the warning it was hiding
+        // now, not whenever some unrelated attribute happens to change. Only in development,
+        // because the allowance has no meaning in a production build and must never be a reason
+        // to touch the DOM there.
+        (hasAllowanceChanged && shouldWarnOnDuplicates)
       ) {
         prev.html = htmlAttrs;
         prev.body = bodyAttrs;
         prev.metaKeys = metaKeys;
         prev.headKeys = headKeys;
-        prev.allowDuplicate = allowDuplicate;
         updateDOM();
       }
     }

@@ -6,6 +6,7 @@ import { UnirendHead, _test } from './UnirendHead';
 import { UnirendHeadProvider } from './UnirendHeadProvider';
 import type { HeadCollector } from './context';
 import {
+  areAllowancesEqual,
   collectDuplicateHeadKeys,
   formatDuplicateHeadWarning,
   isDuplicateAllowed,
@@ -85,6 +86,48 @@ describe('duplicate head key helpers', () => {
       expect(isDuplicateAllowed(['Description'], 'name=description')).toBe(
         true,
       );
+    });
+  });
+
+  describe('areAllowancesEqual', () => {
+    it('compares lists by value, not by reference', () => {
+      // The list form is almost always an inline literal, so it is a new array every render.
+      // Reporting that as a change would force a pointless DOM sync on each one.
+      expect(areAllowancesEqual(['description'], ['description'])).toBe(true);
+      expect(
+        areAllowancesEqual(
+          ['description', 'og:title'],
+          ['description', 'og:title'],
+        ),
+      ).toBe(true);
+    });
+
+    it('reports a genuinely different list as changed', () => {
+      expect(areAllowancesEqual(['description'], ['keywords'])).toBe(false);
+      expect(areAllowancesEqual(['description'], [])).toBe(false);
+      expect(
+        areAllowancesEqual(['description'], ['description', 'keywords']),
+      ).toBe(false);
+    });
+
+    it('treats false and undefined as the same absence of an allowance', () => {
+      expect(areAllowancesEqual(undefined, false)).toBe(true);
+      expect(areAllowancesEqual(false, undefined)).toBe(true);
+      expect(areAllowancesEqual(undefined, undefined)).toBe(true);
+      expect(areAllowancesEqual(true, true)).toBe(true);
+    });
+
+    it('reports a toggled boolean as changed', () => {
+      expect(areAllowancesEqual(true, false)).toBe(false);
+      expect(areAllowancesEqual(true, undefined)).toBe(false);
+      expect(areAllowancesEqual(false, true)).toBe(false);
+    });
+
+    it('never confuses a list with a boolean', () => {
+      expect(areAllowancesEqual(true, ['description'])).toBe(false);
+      expect(areAllowancesEqual(['description'], true)).toBe(false);
+      expect(areAllowancesEqual([], false)).toBe(false);
+      expect(areAllowancesEqual(undefined, [])).toBe(false);
     });
   });
 
@@ -533,14 +576,18 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
     headKeys: Map<string, string>,
     allowDuplicate?: boolean | string[],
   ) {
-    getRegisteredList().push({
+    const entry = {
       html: null,
       body: null,
       metaKeys: [],
       headKeys,
       allowDuplicate,
       markerRef: { current: null },
-    });
+    };
+
+    getRegisteredList().push(entry);
+
+    return entry;
   }
 
   beforeEach(() => {
@@ -626,6 +673,39 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
     register(new Map([['property=og:image', 'one.png']]));
     register(new Map([['property=og:image', 'two.png']]));
 
+    expect(captureWarnings(() => updateDOM())).toEqual([]);
+  });
+
+  it('surfaces the warning once a mounted instance drops its allowDuplicate', () => {
+    overrideDevMode(true);
+
+    register(new Map([['name=description', 'Layout description']]));
+    const page = register(
+      new Map([['name=description', 'Page description']]),
+      true,
+    );
+
+    expect(captureWarnings(() => updateDOM())).toEqual([]);
+
+    // Effect 1 resyncs the allowance onto the existing registration rather than replacing it,
+    // so a re-render that only drops allowDuplicate has to be reflected here and re-evaluated.
+    page.allowDuplicate = undefined;
+
+    expect(captureWarnings(() => updateDOM())).toHaveLength(1);
+  });
+
+  it('stops warning once a mounted instance adds allowDuplicate', () => {
+    overrideDevMode(true);
+
+    register(new Map([['name=description', 'Layout description']]));
+    const page = register(new Map([['name=description', 'Page description']]));
+
+    expect(captureWarnings(() => updateDOM())).toHaveLength(1);
+
+    page.allowDuplicate = true;
+
+    // Nothing to reprint, and the key leaves the reported set so it does not linger as warned.
+    expect(captureWarnings(() => updateDOM())).toEqual([]);
     expect(captureWarnings(() => updateDOM())).toEqual([]);
   });
 });

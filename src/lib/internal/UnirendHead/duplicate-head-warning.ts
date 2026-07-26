@@ -122,6 +122,40 @@ export function isDuplicateAllowed(
 }
 
 /**
+ * Whether two `allowDuplicate` values mean the same thing.
+ *
+ * Compared by value rather than by reference, which is the whole point: the list form is almost
+ * always written inline (`allowDuplicate={['description']}`), so it is a brand new array on every
+ * render. A reference check would call that a change every time and force a pointless DOM sync
+ * per render for a prop that never actually moved.
+ *
+ * `false` and `undefined` both mean "no allowance", so they compare equal. Order matters within a
+ * list, which costs nothing here: a reordered list is still the same allowance, and the only
+ * consequence of reporting it changed is one extra idempotent sync.
+ */
+export function areAllowancesEqual(
+  a: DuplicateHeadAllowance,
+  b: DuplicateHeadAllowance,
+): boolean {
+  if (a === b) {
+    return true;
+  }
+
+  if (Array.isArray(a) !== Array.isArray(b)) {
+    return false;
+  }
+
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return (
+      a.length === b.length && a.every((entry, index) => entry === b[index])
+    );
+  }
+
+  // Neither is a list at this point, so both are booleans or absent.
+  return !a === !b;
+}
+
+/**
  * A key already claimed by an earlier instance in the same render.
  */
 interface SeenHeadKey {
