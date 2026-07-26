@@ -13,7 +13,7 @@
 - [0.1.7 (July 16, 2026)](#017-july-16-2026)
 - [0.1.8 (July 20, 2026)](#018-july-20-2026)
 - [0.1.9 (July 24, 2026)](#019-july-24-2026)
-- [Unreleased](#unreleased)
+- [0.2.0 (July 26, 2026)](#020-july-26-2026)
 
 <!-- tocstop -->
 
@@ -146,7 +146,7 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 - Added a `brace-expansion` override at `^5.0.8`. Its [advisory](https://github.com/advisories/GHSA-mh99-v99m-4gvg) (DoS via unbounded expansion) is published as a single collapsed range of `<=5.0.7`, which `bun audit` reads as covering even the already-patched `1.1.16` that `minimatch@3` pulls in through `@eslint/eslintrc` and the eslint plugins. Those plugins are already on their latest versions and still depend on `minimatch@3`, so nothing upstream will move that copy off the `1.x` line. Forcing every copy to `5.0.8` clears the false positive and passes `check:overrides` as a forward pin. Known tradeoff: `brace-expansion` 5 changed its module export from a bare function to a named `expand`, which `minimatch@3` (a `require('brace-expansion')(...)` caller) does not understand, so a brace pattern routed through `minimatch@3` throws `expand is not a function` on a clean install. This is confined to the eslint dev tooling, which this repo never feeds a brace pattern (lint and tests pass on a fresh install), and an override never reaches consumers of the published package. Remove it once the eslint chain stops pulling `minimatch@3`, or `bun audit` gains a way to scope the ignore to a single resolved version.
 - Moved the internal Fastify server off the top-level `disableRequestLogging` option, which fastify 5.10 deprecated (FSTDEP023) in favor of a `LogController`, to a `new LogController({ disableRequestLogging: true })`. Behavior is unchanged (Fastify's built-in request lifecycle logs stay suppressed, use `accessLog` for first-party request logging), but the boot-time deprecation warning is gone and the server is ready for fastify 6, which removes the old option.
 
-## Unreleased
+## 0.2.0 (July 26, 2026)
 
 - The scaffolded root `tsconfig.json` now sets `"types": ["node", "bun"]` instead of `["node"]`. Generated repos already ship `@types/bun` and run their tests with `bun test`, but `types` is an allowlist, so restricting it to `node` kept the Bun declarations out of the program entirely. The first test file a user wrote failed `bun run type-check` with `Cannot find module 'bun:test'`, and any Bun global in a tooling script failed alongside it, which reads as a broken scaffold rather than a missing entry in a list. Only new scaffolds get the change, since the file is never overwritten. An existing repo adds `"bun"` to `types` by hand.
 - The scaffolded per-app `tsconfig.json` for the Vite templates (SSG, SSR) now sets `"types": ["vite/client", "node", "bun"]`. `types` replaces the inherited value rather than merging with it, so listing only `vite/client` dropped the repo-root entries for everything under the app directory. The root `tsc --noEmit` covers those files and still passed, but editors resolve types through the nearest `tsconfig.json`, so a generated app showed errors on `process` in its own `serve`/`generate` scripts that the type-check did not report. The API template's app config sets no `types` and inherits the root list, so it needed no change.
