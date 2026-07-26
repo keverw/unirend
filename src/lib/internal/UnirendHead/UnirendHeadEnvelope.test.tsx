@@ -246,6 +246,59 @@ describe('UnirendHead envelope projection (server collection)', () => {
     expect(collector.title).toBe('Home - My App');
   });
 
+  it('reads meta.page only, ignoring every sibling key under meta', () => {
+    // M extends BaseMeta lets an app put anything under meta: session state, feature flags,
+    // build details. None of it is Unirend's to publish, so none of it is looked at.
+    const collector = collect(
+      <UnirendHead
+        envelope={
+          {
+            status: 'success',
+            status_code: 200,
+            request_id: 'test-request-id',
+            type: 'page',
+            data: null,
+            meta: {
+              page: { title: 'Home', description: 'Home description' },
+              app: {
+                version: '1.2.3',
+                environment: 'production',
+                buildTime: '2026-07-26',
+              },
+              account: {
+                isAuthenticated: true,
+                userID: 'u_123',
+                role: 'admin',
+              },
+            },
+          } as unknown as PageSuccessResponse<null>
+        }
+      />,
+    );
+
+    expect(collector.title).toBe('Home');
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+    ]);
+    expect(collector.links).toEqual([]);
+
+    // Nothing from the sibling keys reached the head, by name or by value.
+    const serialized = JSON.stringify(collector);
+
+    for (const leaked of [
+      'version',
+      'environment',
+      'buildTime',
+      'account',
+      'userID',
+      'admin',
+      '1.2.3',
+      'u_123',
+    ]) {
+      expect(serialized).not.toContain(leaked);
+    }
+  });
+
   it('works from an error envelope, the shape 404 and error components receive', () => {
     const collector = collect(
       <UnirendHead
@@ -290,6 +343,125 @@ describe('UnirendHead envelope projection (server collection)', () => {
       expect(collector.metas).toEqual([]);
       expect(collector.links).toEqual([]);
     }
+  });
+
+  it('renders nothing and never crashes when the envelope is not an object', () => {
+    // The value came off the wire or out of a hand-written local loader, so it is not trusted
+    // to be the shape the types promise. Rendering no head is always better than throwing and
+    // taking the page down with it.
+    const malformed: unknown[] = [
+      'not an envelope',
+      42,
+      0,
+      true,
+      false,
+      [],
+      ['nope'],
+      () => 'nope',
+      new Date(0),
+    ];
+
+    for (const [index, value] of malformed.entries()) {
+      const collector = collect(
+        <UnirendHead
+          key={`malformed-${index}`}
+          envelope={value as PageSuccessResponse<null>}
+        />,
+      );
+
+      expect(collector.title).toBe('');
+      expect(collector.metas).toEqual([]);
+      expect(collector.links).toEqual([]);
+    }
+  });
+
+  it('renders nothing and never crashes when meta or meta.page is not an object', () => {
+    const malformedPages: unknown[] = [
+      'not metadata',
+      42,
+      0,
+      true,
+      [],
+      ['title'],
+      null,
+    ];
+
+    for (const [index, page] of malformedPages.entries()) {
+      const collector = collect(
+        <UnirendHead
+          key={`bad-page-${index}`}
+          envelope={{ meta: { page } } as unknown as PageSuccessResponse<null>}
+        />,
+      );
+
+      expect(collector.title).toBe('');
+      expect(collector.metas).toEqual([]);
+      expect(collector.links).toEqual([]);
+    }
+
+    for (const [index, meta] of ['nope', 42, [], true].entries()) {
+      const collector = collect(
+        <UnirendHead
+          key={`bad-meta-${index}`}
+          envelope={{ meta } as unknown as PageSuccessResponse<null>}
+        />,
+      );
+
+      expect(collector.title).toBe('');
+      expect(collector.metas).toEqual([]);
+      expect(collector.links).toEqual([]);
+    }
+  });
+
+  it('skips individual fields that are not strings, keeping the ones that are', () => {
+    const collector = collect(
+      <UnirendHead
+        envelope={
+          {
+            meta: {
+              page: {
+                title: 123,
+                description: 'A real description',
+                keywords: null,
+                canonical: { href: 'https://example.com/' },
+                og: 'not an object',
+              },
+            },
+          } as unknown as PageSuccessResponse<null>
+        }
+      />,
+    );
+
+    // No String(123) title, no '[object Object]' canonical. Only the field that was a string.
+    expect(collector.title).toBe('');
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'A real description' },
+    ]);
+    expect(collector.links).toEqual([]);
+  });
+
+  it('tolerates a partially malformed og object', () => {
+    const collector = collect(
+      <UnirendHead
+        envelope={
+          {
+            meta: {
+              page: {
+                title: 'Fine',
+                description: 'Fine',
+                og: { title: 42, description: null, image: 'https://ok/i.png' },
+              },
+            },
+          } as unknown as PageSuccessResponse<null>
+        }
+      />,
+    );
+
+    expect(collector.title).toBe('Fine');
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Fine' },
+      { property: 'og:image', content: 'https://ok/i.png' },
+    ]);
   });
 
   it('leaves a children-only instance behaving exactly as before', () => {
@@ -376,6 +548,25 @@ describe('UnirendHead envelope projection (client render path)', () => {
     expect(html).not.toContain('Envelope description');
     // The keys the child did not claim still come from the envelope.
     expect(html).toContain('property="og:title" content="Home OG title"');
+  });
+
+  it('renders nothing extra for a malformed envelope, same as the server path', () => {
+    const malformed: unknown[] = [
+      'not an envelope',
+      42,
+      [],
+      { meta: { page: 'nope' } },
+    ];
+
+    for (const value of malformed) {
+      const html = renderClientPath(
+        <UnirendHead envelope={value as PageSuccessResponse<null>} />,
+      );
+
+      expect(html).not.toContain('<title');
+      expect(html).not.toContain('<meta');
+      expect(html).not.toContain('<link');
+    }
   });
 
   it('keeps html and body elements out of the rendered React output', () => {

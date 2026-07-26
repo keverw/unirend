@@ -8,6 +8,8 @@
 - [API](#api)
   - [`<UnirendHead>`](#unirendhead)
   - [The `envelope` Prop](#the-envelope-prop)
+    - [Only `meta.page` Is Read](#only-metapage-is-read)
+    - [Malformed Envelopes](#malformed-envelopes)
     - [Overriding a Single Envelope Field](#overriding-a-single-envelope-field)
   - [Supported Tags](#supported-tags)
     - [Preloading Images](#preloading-images)
@@ -173,6 +175,34 @@ Unirend owns the `PageMetadata` shape, so it owns the projection to tags. The ma
 | `og.image`        | `<meta property="og:image" content="…">`       |
 
 An absent field renders nothing. Unirend never substitutes placeholder text, so there is no `content="Error loading description"` waiting to ship to production, and a missing `title` renders no title at all rather than an invented fallback. A handler that returned success without `pageMetadata` is a bug, and a visibly empty title is the clearer signal.
+
+#### Only `meta.page` Is Read
+
+Nothing else under `meta` is looked at. `M extends BaseMeta` lets your app put whatever it likes there, and a projection that walked all of `meta` would publish it into the page head where crawlers and view-source pick it up. So given a meta like this:
+
+```ts
+interface AppMeta extends BaseMeta {
+  page?: PageMetadata;
+  app: { version: string; environment: string };
+  account?: { isAuthenticated: boolean; userID?: string };
+}
+```
+
+only `page` reaches the head. `app` and `account` are ignored entirely, by name and by value. The seven fields in the table above are the whole surface, so adding a key to your own meta type can never change the head output.
+
+For your own fields, declare the tag as a child. It composes normally, additive alongside the generated ones:
+
+```tsx
+<UnirendHead envelope={envelope}>
+  <meta name="app-version" content={envelope.meta.app.version} />
+</UnirendHead>
+```
+
+#### Malformed Envelopes
+
+The envelope came off the wire or out of a hand-written local loader, so it is read defensively rather than trusted to match its type. A missing `meta`, a missing `meta.page`, an `envelope` that is not an object at all, a `meta.page` that is a string or an array, or an individual field holding a number, `null`, or a nested object: each renders no tag for what it cannot use, keeps the fields it can, and never throws. A page that renders without a title beats a page that does not render.
+
+Field values must be non-empty strings to be emitted. A numeric `title` does not become `String(123)`, and an object `canonical` does not become `[object Object]`.
 
 `envelope` accepts error and redirect envelopes too, since `PageResponseEnvelope` covers all three. That is what makes the same call work in a 404 or error component, which receives the envelope as a `data` prop, and `null` is accepted for the case where React Router threw before any loader ran:
 
