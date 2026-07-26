@@ -55,9 +55,9 @@ export interface WebSocketHandlerParams<
  * Extract WebSocket handler params from Fastify request
  * Pure helper function with defensive fallbacks
  */
-function extractWebSocketParams(
-  request: FastifyRequest,
-): WebSocketHandlerParams {
+function extractWebSocketParams<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+>(request: FastifyRequest): WebSocketHandlerParams<H> {
   const routeParams = (request.params || {}) as Record<string, unknown>;
   const queryParams = (request.query || {}) as Record<string, unknown>;
   const originalURL = request.url;
@@ -68,7 +68,9 @@ function extractWebSocketParams(
     originalURL,
     queryParams,
     routeParams,
-    APIResponseHelpers: getAPIResponseHelpersClass(request),
+    // The decorated class is the one this server was configured with, but the
+    // request decoration is only typed as the base class.
+    APIResponseHelpers: getAPIResponseHelpersClass(request) as H,
   };
 }
 
@@ -146,9 +148,10 @@ export class WebSocketServerHelpers<
 > {
   private readonly APIResponseHelpersClass: H;
   private readonly webSocketOptions: WebSocketOptions;
-  // Stored under the base params type: the configured class is injected at
-  // call time, so `H` only shapes what registrants see, not what we store.
-  private handlersByPath = new Map<string, WebSocketHandlerConfig>();
+  private handlersByPath = new Map<
+    string,
+    WebSocketHandlerConfig<BaseMeta, H>
+  >();
 
   constructor(
     APIResponseHelpersClass: H,
@@ -227,7 +230,7 @@ export class WebSocketServerHelpers<
     config: WebSocketHandlerConfig<BaseMeta, H>,
   ): void {
     // Last registration wins for the same path (consistent with other helpers)
-    this.handlersByPath.set(config.path, config as WebSocketHandlerConfig);
+    this.handlersByPath.set(config.path, config);
   }
 
   /**
@@ -266,7 +269,7 @@ export class WebSocketServerHelpers<
           ).wsUpgradeData;
 
           // Extract params from request
-          const params = extractWebSocketParams(request);
+          const params = extractWebSocketParams<H>(request);
 
           // Call the handler with socket, request, params, and upgrade data
           return config.handler(socket, request, params, upgradeData);
@@ -357,7 +360,7 @@ export class WebSocketServerHelpers<
 
       try {
         // Extract params from request
-        const params = extractWebSocketParams(request);
+        const params = extractWebSocketParams<H>(request);
 
         // Run the preValidation function
         const result = await matchingHandler.preValidate(request, params);
