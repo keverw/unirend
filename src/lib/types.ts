@@ -45,6 +45,35 @@ import type { NodeAdapter } from 'lifecycleion/http-client-node';
 
 export type RenderType = 'ssg' | 'ssr';
 export type APIResponseHelpersClass = typeof APIResponseHelpers;
+
+/**
+ * True only when `H` is exactly the base helpers class.
+ *
+ * Deliberately not a plain `extends` check. A subclass that only widens a
+ * method with an optional param stays assignable to the base in both
+ * directions, so structural assignability cannot tell the two apart. Comparing
+ * deferred conditionals compares the types by identity instead.
+ */
+type IsBaseHelpersClass<H> =
+  (<T>() => T extends H ? 1 : 2) extends <
+    T,
+  >() => T extends APIResponseHelpersClass ? 1 : 2
+    ? true
+    : false;
+
+/**
+ * Makes `APIResponseHelpersClass` required as soon as `H` is a custom class.
+ *
+ * Without this the option stays optional at every instantiation, so a config
+ * annotated `APIServerOptions<typeof AppResponseHelpers>` could omit the class
+ * entirely. The type would promise handlers a subclass the server never
+ * installs, and the first call to anything that subclass added would throw.
+ * Leaving `H` at the base keeps the option optional, as it should be.
+ */
+type RequireHelpersClassWhenCustom<H extends APIResponseHelpersClass> =
+  IsBaseHelpersClass<H> extends true
+    ? { APIResponseHelpersClass?: H }
+    : { APIResponseHelpersClass: H };
 type FastifyTrustProxyFunction = (address: string, hop: number) => boolean;
 
 export interface APIServerTCPListenOptions {
@@ -274,63 +303,67 @@ export interface PluginMetadata {
 export type UnirendServerMode = 'ssr' | 'api' | 'plain';
 export type PluginModeWithEnvelopeHelpers = Exclude<UnirendServerMode, 'plain'>;
 
-export interface PluginAPIRouteShortcuts {
+export interface PluginAPIRouteShortcuts<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> {
   get<T = unknown, M extends BaseMeta = BaseMeta>(
     endpoint: string,
-    handler: APIRouteHandler<T, M>,
+    handler: APIRouteHandler<T, M, H>,
   ): void;
   get<T = unknown, M extends BaseMeta = BaseMeta>(
     endpoint: string,
     version: number,
-    handler: APIRouteHandler<T, M>,
+    handler: APIRouteHandler<T, M, H>,
   ): void;
   post<T = unknown, M extends BaseMeta = BaseMeta>(
     endpoint: string,
-    handler: APIRouteHandler<T, M>,
+    handler: APIRouteHandler<T, M, H>,
   ): void;
   post<T = unknown, M extends BaseMeta = BaseMeta>(
     endpoint: string,
     version: number,
-    handler: APIRouteHandler<T, M>,
+    handler: APIRouteHandler<T, M, H>,
   ): void;
   put<T = unknown, M extends BaseMeta = BaseMeta>(
     endpoint: string,
-    handler: APIRouteHandler<T, M>,
+    handler: APIRouteHandler<T, M, H>,
   ): void;
   put<T = unknown, M extends BaseMeta = BaseMeta>(
     endpoint: string,
     version: number,
-    handler: APIRouteHandler<T, M>,
+    handler: APIRouteHandler<T, M, H>,
   ): void;
   delete<T = unknown, M extends BaseMeta = BaseMeta>(
     endpoint: string,
-    handler: APIRouteHandler<T, M>,
+    handler: APIRouteHandler<T, M, H>,
   ): void;
   delete<T = unknown, M extends BaseMeta = BaseMeta>(
     endpoint: string,
     version: number,
-    handler: APIRouteHandler<T, M>,
+    handler: APIRouteHandler<T, M, H>,
   ): void;
   patch<T = unknown, M extends BaseMeta = BaseMeta>(
     endpoint: string,
-    handler: APIRouteHandler<T, M>,
+    handler: APIRouteHandler<T, M, H>,
   ): void;
   patch<T = unknown, M extends BaseMeta = BaseMeta>(
     endpoint: string,
     version: number,
-    handler: APIRouteHandler<T, M>,
+    handler: APIRouteHandler<T, M, H>,
   ): void;
 }
 
-export interface PluginPageDataHandlerShortcuts {
+export interface PluginPageDataHandlerShortcuts<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> {
   register<T = unknown, M extends BaseMeta = BaseMeta>(
     pageType: string,
-    handler: PageDataHandler<T, M>,
+    handler: PageDataHandler<T, M, H>,
   ): void;
   register<T = unknown, M extends BaseMeta = BaseMeta>(
     pageType: string,
     version: number,
-    handler: PageDataHandler<T, M>,
+    handler: PageDataHandler<T, M, H>,
   ): void;
 }
 
@@ -348,8 +381,9 @@ export interface PluginPageDataHandlerShortcuts {
  */
 export type ServerPlugin<
   M extends UnirendServerMode = PluginModeWithEnvelopeHelpers,
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
 > = (
-  pluginHost: PluginHostInstance<M>,
+  pluginHost: PluginHostInstance<M, H>,
   options: PluginOptions<M>,
 ) => Promise<PluginMetadata | void> | PluginMetadata | void;
 
@@ -363,7 +397,9 @@ export type FastifyHookName = Parameters<FastifyInstance['addHook']>[0];
  * Controlled Fastify instance interface for plugins
  * Exposes safe methods while preventing access to destructive operations
  */
-export interface PluginHostBase {
+export interface PluginHostBase<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> {
   /** Register plugins and middleware */
   register: <Options extends Record<string, unknown> = Record<string, never>>(
     plugin: FastifyPluginAsync<Options> | FastifyPluginCallback<Options>,
@@ -395,14 +431,16 @@ export interface PluginHostBase {
   /** Server-level logger (pino). Use `(obj, msg)` argument order. Useful for logging during plugin setup, before any request exists. */
   log: FastifyBaseLogger;
   /** The APIResponseHelpers class configured on this server — use this to build envelopes so custom subclasses are respected */
-  APIResponseHelpers: APIResponseHelpersClass;
+  APIResponseHelpers: H;
 }
 
-export interface PluginHostEnvelopeHelpers {
+export interface PluginHostEnvelopeHelpers<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> {
   /** API route registration shortcuts method for versioned envelope endpoints */
-  api: PluginAPIRouteShortcuts;
+  api: PluginAPIRouteShortcuts<H>;
   /** Page data loader handler registration method for page data endpoints */
-  pageDataHandler: PluginPageDataHandlerShortcuts;
+  pageDataHandler: PluginPageDataHandlerShortcuts<H>;
 }
 
 export interface PluginHostPlainHelpers {
@@ -414,9 +452,10 @@ export interface PluginHostPlainHelpers {
 
 export type PluginHostInstance<
   M extends UnirendServerMode = PluginModeWithEnvelopeHelpers,
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
 > = M extends 'plain'
-  ? PluginHostBase & PluginHostPlainHelpers
-  : PluginHostBase & PluginHostEnvelopeHelpers;
+  ? PluginHostBase<H> & PluginHostPlainHelpers
+  : PluginHostBase<H> & PluginHostEnvelopeHelpers<H>;
 
 /**
  * Controlled reply surface available to handlers.
@@ -940,7 +979,9 @@ export interface TemplateSlots {
 /**
  * Base options for SSR
  */
-interface ServeSSROptions {
+interface ServeSSROptions<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> {
   /**
    * Response compression for non-streaming SSR HTML and API responses.
    * Negotiates `Accept-Encoding` and skips range or already-encoded replies.
@@ -1012,14 +1053,14 @@ interface ServeSSROptions {
    * Array of plugins to register with the server
    * Plugins get access to a controlled Fastify instance
    */
-  plugins?: ServerPlugin<'ssr'>[];
+  plugins?: ServerPlugin<'ssr', NoInfer<H>>[];
   /**
    * Override the helpers used to construct API/Page envelopes.
    * Provide your own class (subclassing `APIResponseHelpers` recommended) to
    * inject default metadata or behavior. If not provided, the default
    * `APIResponseHelpers` will be used.
    */
-  APIResponseHelpersClass?: APIResponseHelpersClass;
+  APIResponseHelpersClass?: H;
   /**
    * Configuration for versioned API endpoints (shared by page data and generic API routes)
    * For page data loader handler endpoints, set pageDataEndpoint (default: "page_data")
@@ -1084,7 +1125,7 @@ interface ServeSSROptions {
      * - meta: Object containing metadata (page metadata required for page type)
      * - error: Object with { code, message, details? }
      */
-    errorHandler?: APIErrorHandlerFn;
+    errorHandler?: APIErrorHandlerFn<NoInfer<H>>;
     /**
      * Custom handler for API requests that did not match any route (404)
      * If provided, overrides the built-in envelope handler for API routes
@@ -1107,7 +1148,7 @@ interface ServeSSROptions {
      * - meta: Object containing metadata (page metadata required for page type)
      * - error: Object with { code: "not_found", message, details? }
      */
-    notFoundHandler?: APINotFoundHandlerFn;
+    notFoundHandler?: APINotFoundHandlerFn<NoInfer<H>>;
   };
   /**
    * Custom handler for web requests that arrive while the server is shutting down.
@@ -1116,7 +1157,7 @@ interface ServeSSROptions {
    * behavior for mixed SSR + API servers. Missing handlers fall back to
    * Unirend's default 503 response.
    */
-  closingHandler?: WebClosingHandlerFn | SplitClosingHandler;
+  closingHandler?: WebClosingHandlerFn | SplitClosingHandler<NoInfer<H>>;
   /**
    * Enable WebSocket support on the server
    * @default false
@@ -1243,12 +1284,16 @@ interface ServeSSROptions {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface ServeSSRWithHMROptions extends ServeSSROptions {
+interface ServeSSRWithHMROptionsBase<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> extends ServeSSROptions<H> {
   // Currently no development-specific options
   // This is a placeholder for any future development-specific options
 }
 
-export interface ServeSSRBuiltOptions extends ServeSSROptions {
+interface ServeSSRBuiltOptionsBase<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> extends ServeSSROptions<H> {
   /**
    * Name of the server entry file to look for in the Vite manifest
    * Defaults to "EntrySSR" if not provided
@@ -1533,17 +1578,21 @@ export interface WebResponse {
 /**
  * Error handler function type for API/page requests
  */
-export interface APIErrorHandlerParams {
+export interface APIErrorHandlerParams<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> {
   /** The APIResponseHelpers class configured on this server. Use this instead of importing directly. */
-  APIResponseHelpers: APIResponseHelpersClass;
+  APIResponseHelpers: H;
 }
 
-export type APIErrorHandlerFn = (
+export type APIErrorHandlerFn<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> = (
   request: FastifyRequest,
   error: Error,
   isDevelopment: boolean,
   isPageData: boolean | undefined,
-  params: APIErrorHandlerParams,
+  params: APIErrorHandlerParams<H>,
 ) =>
   | APIErrorResponse
   | PageErrorResponse
@@ -1561,10 +1610,12 @@ export type WebErrorHandlerFn = (
 /**
  * Not found handler function type for API/page requests
  */
-export type APINotFoundHandlerFn = (
+export type APINotFoundHandlerFn<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> = (
   request: FastifyRequest,
   isPageData: boolean | undefined,
-  params: APIErrorHandlerParams,
+  params: APIErrorHandlerParams<H>,
 ) =>
   | APIErrorResponse
   | PageErrorResponse
@@ -1583,9 +1634,11 @@ export type WebNotFoundHandlerFn = (
  * the error is logged to the Fastify logger and the server falls back to the default error response.
  *
  */
-export interface SplitErrorHandler {
+export interface SplitErrorHandler<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> {
   /** Handler for API requests (paths matching apiEndpointPrefix). If missing or throws, logs error and falls back to default. */
-  api?: APIErrorHandlerFn;
+  api?: APIErrorHandlerFn<H>;
   /** Handler for web requests (non-API paths). If missing or throws, logs error and falls back to default. */
   web?: WebErrorHandlerFn;
 }
@@ -1596,9 +1649,11 @@ export interface SplitErrorHandler {
  * the error is logged to the Fastify logger and the server falls back to the default not found response.
  *
  */
-export interface SplitNotFoundHandler {
+export interface SplitNotFoundHandler<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> {
   /** Handler for API requests (paths matching apiEndpointPrefix). If missing or throws, logs error and falls back to default. */
-  api?: APINotFoundHandlerFn;
+  api?: APINotFoundHandlerFn<H>;
   /** Handler for web requests (non-API paths). If missing or throws, logs error and falls back to default. */
   web?: WebNotFoundHandlerFn;
 }
@@ -1610,10 +1665,12 @@ export interface SplitNotFoundHandler {
  * Params: (request, isPageData, params)
  * - params.APIResponseHelpers: The APIResponseHelpers class configured on this server
  */
-export type APIClosingHandlerFn = (
+export type APIClosingHandlerFn<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> = (
   request: FastifyRequest,
   isPageData: boolean | undefined,
-  params: APIErrorHandlerParams,
+  params: APIErrorHandlerParams<H>,
 ) =>
   | APIErrorResponse
   | PageErrorResponse
@@ -1633,9 +1690,11 @@ export type WebClosingHandlerFn = (
  * the error is logged to the Fastify logger and the server falls back to the default 503 response.
  *
  */
-export interface SplitClosingHandler {
+export interface SplitClosingHandler<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> {
   /** Handler for API requests (paths matching apiEndpointPrefix). If missing or throws, falls back to default. */
-  api?: APIClosingHandlerFn;
+  api?: APIClosingHandlerFn<H>;
   /** Handler for web requests (non-API paths). If missing or throws, falls back to default. */
   web?: WebClosingHandlerFn;
 }
@@ -1692,7 +1751,9 @@ export type APIEndpointConfigWithoutAPI = Omit<
 /**
  * Shared options for configuring the API server
  */
-export interface APIServerOptionsBase {
+export interface APIServerOptionsBase<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> {
   /**
    * Optional safe-to-share app configuration object.
    * Cloned and frozen per request as `request.publicAppConfig`.
@@ -1725,14 +1786,14 @@ export interface APIServerOptionsBase {
    *
    * Concrete server option types narrow this to the plugin modes they support.
    */
-  plugins?: ServerPlugin[];
+  plugins?: ServerPlugin<PluginModeWithEnvelopeHelpers, NoInfer<H>>[];
   /**
    * Override the helpers used to construct API/Page envelopes.
    * Provide your own class (subclassing `APIResponseHelpers` recommended) to
    * inject default metadata or behavior. If not provided, the default
    * `APIResponseHelpers` will be used.
    */
-  APIResponseHelpersClass?: APIResponseHelpersClass;
+  APIResponseHelpersClass?: H;
   /**
    * Configuration for versioned API endpoints (shared by page data and generic API routes)
    * For page data loader handler endpoints, set pageDataEndpoint (default: "page_data")
@@ -1858,11 +1919,10 @@ export interface APIServerOptionsBase {
  * split handlers can serve envelope responses for API paths and `WebResponse`
  * values for non-API paths.
  */
-export interface APIServerAPIOptions extends Omit<
-  APIServerOptionsBase,
-  'apiEndpoints' | 'plugins'
-> {
-  plugins?: ServerPlugin<'api'>[];
+interface APIServerAPIOptionsBase<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> extends Omit<APIServerOptionsBase<H>, 'apiEndpoints' | 'plugins'> {
+  plugins?: ServerPlugin<'api', NoInfer<H>>[];
   /**
    * Configuration for versioned API endpoints.
    *
@@ -1882,7 +1942,7 @@ export interface APIServerAPIOptions extends Omit<
    * web servers. The `api` handler returns an envelope and receives
    * `params.APIResponseHelpers`; the `web` handler returns `WebResponse`.
    */
-  errorHandler?: APIErrorHandlerFn | SplitErrorHandler;
+  errorHandler?: APIErrorHandlerFn<NoInfer<H>> | SplitErrorHandler<NoInfer<H>>;
   /**
    * Custom handler for requests that did not match any route.
    *
@@ -1894,7 +1954,8 @@ export interface APIServerAPIOptions extends Omit<
    * web servers. The `api` handler returns an envelope and receives
    * `params.APIResponseHelpers`; the `web` handler returns `WebResponse`.
    */
-  notFoundHandler?: APINotFoundHandlerFn | SplitNotFoundHandler;
+  notFoundHandler?:
+    APINotFoundHandlerFn<NoInfer<H>> | SplitNotFoundHandler<NoInfer<H>>;
   /**
    * Custom handler for requests that arrive while the server is shutting down.
    *
@@ -1902,7 +1963,8 @@ export interface APIServerAPIOptions extends Omit<
    * provide separate `api` and `web` handlers. Missing handlers fall back to
    * Unirend's default 503 response for that request type.
    */
-  closingHandler?: APIClosingHandlerFn | SplitClosingHandler;
+  closingHandler?:
+    APIClosingHandlerFn<NoInfer<H>> | SplitClosingHandler<NoInfer<H>>;
 }
 
 /**
@@ -1912,11 +1974,10 @@ export interface APIServerAPIOptions extends Omit<
  * Unirend plugins/lifecycle/logging but without API envelope routing.
  * Function-form error/not-found/closing handlers return `WebResponse`.
  */
-export interface APIServerWebOptions extends Omit<
-  APIServerOptionsBase,
-  'apiEndpoints' | 'plugins'
-> {
-  plugins?: ServerPlugin<'plain'>[];
+interface APIServerWebOptionsBase<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> extends Omit<APIServerOptionsBase<H>, 'apiEndpoints' | 'plugins'> {
+  plugins?: ServerPlugin<'plain', NoInfer<H>>[];
   /**
    * Disable API/page-data helper routing.
    *
@@ -1998,7 +2059,54 @@ export interface PlainServerOptions extends Omit<
  * mode API/page-data helpers are disabled and function-form error handlers
  * return `WebResponse`.
  */
-export type APIServerOptions = APIServerAPIOptions | APIServerWebOptions;
+/**
+ * Options for `serveSSRWithHMR()`.
+ *
+ * `APIResponseHelpersClass` becomes required as soon as a custom `H` is named,
+ * so a config annotated with a subclass cannot omit the class the server would
+ * actually install. See {@link RequireHelpersClassWhenCustom}.
+ */
+export type ServeSSRWithHMROptions<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> = ServeSSRWithHMROptionsBase<H> & RequireHelpersClassWhenCustom<H>;
+
+/**
+ * Options for `serveSSRBuilt()`.
+ *
+ * `APIResponseHelpersClass` becomes required as soon as a custom `H` is named,
+ * so a config annotated with a subclass cannot omit the class the server would
+ * actually install. See {@link RequireHelpersClassWhenCustom}.
+ */
+export type ServeSSRBuiltOptions<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> = ServeSSRBuiltOptionsBase<H> & RequireHelpersClassWhenCustom<H>;
+
+/**
+ * Options for APIServer in API mode.
+ *
+ * `APIResponseHelpersClass` becomes required as soon as a custom `H` is named,
+ * so a config annotated with a subclass cannot omit the class the server would
+ * actually install. See {@link RequireHelpersClassWhenCustom}.
+ */
+export type APIServerAPIOptions<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> = APIServerAPIOptionsBase<H> & RequireHelpersClassWhenCustom<H>;
+
+/**
+ * Options for APIServer in plain web mode.
+ *
+ * `APIResponseHelpersClass` becomes required as soon as a custom `H` is named,
+ * so a config annotated with a subclass cannot omit the class the server would
+ * actually install. See {@link RequireHelpersClassWhenCustom}.
+ */
+export type APIServerWebOptions<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> = APIServerWebOptionsBase<H> & RequireHelpersClassWhenCustom<H>;
+
+export type APIServerOptions<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> = (APIServerAPIOptions<H> | APIServerWebOptions<H>) &
+  RequireHelpersClassWhenCustom<H>;
 
 /**
  * Options for configuring the Static Web Server

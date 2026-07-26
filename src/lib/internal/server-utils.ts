@@ -9,6 +9,7 @@ import type {
 import type {
   PluginMetadata,
   PluginHostInstance,
+  PluginModeWithEnvelopeHelpers,
   FastifyHookName,
   SafeRouteOptions,
   ControlledReply,
@@ -365,11 +366,18 @@ export function createDefaultWebClosingResponse(): WebResponse {
 
 type ClosingFunctionHandlerType = 'api' | 'web';
 
-type ClosingHandler =
+/**
+ * Closing handler in its base (non-generic) form.
+ *
+ * Servers that are generic over their APIResponseHelpers class widen to this
+ * when handing the option to registerClosingResponseHook, which invokes the
+ * handler with the class configured on that server.
+ */
+export type ClosingHandlerOption =
   APIClosingHandlerFn | WebClosingHandlerFn | SplitClosingHandler;
 
 interface ClosingResponseConfig {
-  handler?: ClosingHandler;
+  handler?: ClosingHandlerOption;
   functionHandlerType: ClosingFunctionHandlerType;
   serverLabel: string;
   HelpersClass: APIResponseHelpersClass;
@@ -689,13 +697,15 @@ function guardRouteHandler(handler: RouteHandler): RouteHandler {
  * @returns Controlled interface for plugins
  */
 
-export function createControlledInstance(
+export function createControlledInstance<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+>(
   fastifyInstance: FastifyInstance,
   shouldDisableRootWildcard: boolean,
-  apiShortcuts: PluginAPIRouteShortcuts,
-  pageDataHandlerShortcuts: PluginPageDataHandlerShortcuts,
-  apiResponseHelpersClass: APIResponseHelpersClass,
-): PluginHostInstance {
+  apiShortcuts: PluginAPIRouteShortcuts<H>,
+  pageDataHandlerShortcuts: PluginPageDataHandlerShortcuts<H>,
+  apiResponseHelpersClass: H,
+): PluginHostInstance<PluginModeWithEnvelopeHelpers, H> {
   const earlyResponseHooks = new Set<FastifyHookName>([
     'onRequest',
     'preValidation',

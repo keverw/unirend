@@ -26,7 +26,9 @@ import {
  * hydration, client-side page data loader calls will include their own
  * transport context as appropriate.
  */
-export interface PageDataHandlerParams {
+export interface PageDataHandlerParams<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> {
   pageType: string;
   version?: number;
   /** Indicates how the handler was invoked: via HTTP route or internal short-circuit */
@@ -41,7 +43,7 @@ export interface PageDataHandlerParams {
   /** Original URL (from React Router via POST body) */
   originalURL: string;
   /** The APIResponseHelpers class configured on this server (use this instead of importing directly) */
-  APIResponseHelpers: APIResponseHelpersClass;
+  APIResponseHelpers: H;
 }
 
 /**
@@ -60,11 +62,15 @@ export interface PageDataHandlerParams {
  * This signals that the handler has already sent the response and the framework
  * should not attempt to send anything.
  */
-export type PageDataHandler<T = unknown, M extends BaseMeta = BaseMeta> = (
+export type PageDataHandler<
+  T = unknown,
+  M extends BaseMeta = BaseMeta,
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> = (
   /** Original HTTP request (for cookies/headers/IP/auth) */
   originalRequest: FastifyRequest,
   reply: ControlledReply,
-  params: PageDataHandlerParams,
+  params: PageDataHandlerParams<H>,
 ) =>
   | Promise<PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M> | false>
   | PageResponseEnvelope<T, M>
@@ -105,8 +111,12 @@ export interface CallHandlerResult<T = unknown, M extends BaseMeta = BaseMeta> {
  * This design treats page types as path segments that get appended to the API prefix,
  * version, and page data endpoint, rather than as absolute paths.
  */
-export class DataLoaderServerHandlerHelpers {
+export class DataLoaderServerHandlerHelpers<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> {
   // Map<pageType, Map<version, handler>> - version defaults to 1 if not specified
+  // Stored under the base params type: the server injects the configured class
+  // at call time, so `H` only shapes what registrants see, not what we store.
   private handlersByPageType = new Map<string, Map<number, PageDataHandler>>();
 
   // pageDataHandler method-specific helpers
@@ -124,8 +134,8 @@ export class DataLoaderServerHandlerHelpers {
      */
     register: (
       pageType: string,
-      versionOrHandler: number | PageDataHandler,
-      handlerMaybe?: PageDataHandler,
+      versionOrHandler: number | PageDataHandler<unknown, BaseMeta, H>,
+      handlerMaybe?: PageDataHandler<unknown, BaseMeta, H>,
     ): void => {
       if (typeof versionOrHandler === 'number') {
         this.registerDataLoaderHandler(
@@ -134,7 +144,13 @@ export class DataLoaderServerHandlerHelpers {
           handlerMaybe as PageDataHandler,
         );
       } else {
-        this.registerDataLoaderHandler(pageType, versionOrHandler);
+        // Widening back to the base params type is safe here: the value the
+        // server passes in at call time is the same `H` the handler was
+        // written against.
+        this.registerDataLoaderHandler(
+          pageType,
+          versionOrHandler as PageDataHandler,
+        );
       }
     },
   } as const;

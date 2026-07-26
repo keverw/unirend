@@ -1,5 +1,6 @@
 import { SSRServer } from './internal/ssr-server';
 import type {
+  APIResponseHelpersClass,
   ServeSSRWithHMROptions,
   ServeSSRBuiltOptions,
   SSRWithHMRPaths,
@@ -40,6 +41,28 @@ import type {
  * ```
  */
 
+/**
+ * Overloaded so an explicitly-supplied helpers class type argument cannot
+ * disagree with the value actually registered. The generic form requires
+ * `APIResponseHelpersClass`, and the plain form takes no type parameter, so
+ * `serveSSRWithHMR<typeof CustomHelpers>(paths)` with no class to back it is
+ * rejected rather than typing handlers against a class the server never
+ * installs. Inference from the option is unaffected: pass the class and `H`
+ * is picked up with no annotation.
+ *
+ * See the JSDoc above for usage.
+ */
+export function serveSSRWithHMR<H extends APIResponseHelpersClass>(
+  sourcePaths: SSRWithHMRPaths,
+  options: ServeSSRWithHMROptions<H>,
+): SSRServer<H>;
+export function serveSSRWithHMR(
+  sourcePaths: SSRWithHMRPaths,
+  options?: ServeSSRWithHMROptions,
+): SSRServer;
+// Implementation signature, not part of the public surface. Instantiated at the
+// base class so the no-argument default stays expressible: the exported option
+// type requires the helpers class once `H` is custom.
 export function serveSSRWithHMR(
   sourcePaths: SSRWithHMRPaths,
   options: ServeSSRWithHMROptions = {},
@@ -87,6 +110,22 @@ export function serveSSRWithHMR(
  * ```
  */
 
+/**
+ * Overloaded for the same reason as `serveSSRWithHMR` above: an explicit
+ * helpers class type argument has to come with the class value that backs it.
+ *
+ * See the JSDoc above for usage.
+ */
+export function serveSSRBuilt<H extends APIResponseHelpersClass>(
+  buildDir: string,
+  options: ServeSSRBuiltOptions<H>,
+): SSRServer<H>;
+export function serveSSRBuilt(
+  buildDir: string,
+  options?: ServeSSRBuiltOptions,
+): SSRServer;
+// Implementation signature, not part of the public surface. See the note on
+// serveSSRWithHMR above for why it is instantiated at the base class.
 export function serveSSRBuilt(
   buildDir: string,
   options: ServeSSRBuiltOptions = {},

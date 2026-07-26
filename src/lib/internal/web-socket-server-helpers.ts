@@ -36,7 +36,9 @@ interface FastifyWebSocketPluginOptions {
  * Similar to page data and API handlers, this provides pre-extracted routing
  * information while keeping the raw request available for cookies/headers/IP.
  */
-export interface WebSocketHandlerParams {
+export interface WebSocketHandlerParams<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> {
   /** Request path (from Fastify, without query string) */
   path: string;
   /** Original URL (from Fastify, with query string) */
@@ -46,7 +48,7 @@ export interface WebSocketHandlerParams {
   /** Route params (from Fastify, for parameterized paths) */
   routeParams: Record<string, unknown>;
   /** The APIResponseHelpers class configured on this server (use this instead of importing directly) */
-  APIResponseHelpers: APIResponseHelpersClass;
+  APIResponseHelpers: H;
 }
 
 /**
@@ -118,31 +120,38 @@ export interface WebSocketUpgradeInfo {
  * Defaults to `BaseMeta`; specify it per call via
  * `registerWebSocketHandler<MyMeta>(...)`.
  */
-export interface WebSocketHandlerConfig<M extends BaseMeta = BaseMeta> {
+export interface WebSocketHandlerConfig<
+  M extends BaseMeta = BaseMeta,
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> {
   /** The WebSocket endpoint path */
   path: string;
   /** Optional preValidation function that returns upgrade/reject decision with optional envelope */
   preValidate?: (
     request: FastifyRequest,
-    params: WebSocketHandlerParams,
+    params: WebSocketHandlerParams<H>,
   ) =>
     Promise<WebSocketPreValidationResult<M>> | WebSocketPreValidationResult<M>;
   /** WebSocket connection handler */
   handler: (
     socket: WebSocket,
     request: FastifyRequest,
-    params: WebSocketHandlerParams,
+    params: WebSocketHandlerParams<H>,
     upgradeData?: Record<string, unknown>,
   ) => Promise<void> | void;
 }
 
-export class WebSocketServerHelpers {
-  private readonly APIResponseHelpersClass: APIResponseHelpersClass;
+export class WebSocketServerHelpers<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> {
+  private readonly APIResponseHelpersClass: H;
   private readonly webSocketOptions: WebSocketOptions;
+  // Stored under the base params type: the configured class is injected at
+  // call time, so `H` only shapes what registrants see, not what we store.
   private handlersByPath = new Map<string, WebSocketHandlerConfig>();
 
   constructor(
-    APIResponseHelpersClass: APIResponseHelpersClass,
+    APIResponseHelpersClass: H,
     webSocketOptions: WebSocketOptions = {},
   ) {
     // Initialize handlers storage
@@ -214,9 +223,11 @@ export class WebSocketServerHelpers {
    *
    * @param config WebSocket handler configuration
    */
-  public registerWebSocketHandler(config: WebSocketHandlerConfig): void {
+  public registerWebSocketHandler(
+    config: WebSocketHandlerConfig<BaseMeta, H>,
+  ): void {
     // Last registration wins for the same path (consistent with other helpers)
-    this.handlersByPath.set(config.path, config);
+    this.handlersByPath.set(config.path, config as WebSocketHandlerConfig);
   }
 
   /**

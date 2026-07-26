@@ -51,6 +51,7 @@ import {
   registerConnectionIPDecoration,
   registerRequestIDDecoration,
 } from './server-utils';
+import type { ClosingHandlerOption } from './server-utils';
 import { registerClientInfoResolution } from './client-info-resolution';
 import { generateDefault500ErrorPage } from './error-page-utils';
 // See comment in static-content-cache.ts — cross-entry import via unirend/utils.
@@ -91,19 +92,20 @@ import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { hmrPathForApp, isViteHMRUpgrade } from './hmr-upgrade-utils';
 
-type SSRServerConfigDev = {
+type SSRServerConfigDev<H extends APIResponseHelpersClass> = {
   mode: 'development';
   sourcePaths: SSRWithHMRPaths; // Contains serverEntry, template, and viteConfig paths
-  options: ServeSSRWithHMROptions;
+  options: ServeSSRWithHMROptions<H>;
 };
 
-type SSRServerConfigProd = {
+type SSRServerConfigProd<H extends APIResponseHelpersClass> = {
   mode: 'production';
   buildDir: string; // Directory containing built assets (HTML template, static files, manifest, etc.)
-  options: ServeSSRBuiltOptions;
+  options: ServeSSRBuiltOptions<H>;
 };
 
-type SSRServerConfig = SSRServerConfigDev | SSRServerConfigProd;
+type SSRServerConfig<H extends APIResponseHelpersClass> =
+  SSRServerConfigDev<H> | SSRServerConfigProd<H>;
 
 // Private per-request fields used to back the public active-app API.
 // Keeping these separate lets request.activeSSRApp stay read-only while
@@ -229,9 +231,11 @@ async function pageDataServerFetch(
  * Not intended to be used directly by library consumers
  */
 
-export class SSRServer extends BaseServer {
+export class SSRServer<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> extends BaseServer {
   /** Pluggable helpers class reference for constructing API/Page envelopes */
-  public readonly APIResponseHelpersClass: APIResponseHelpersClass;
+  public readonly APIResponseHelpersClass: H;
 
   // config state
   private serverMode: 'development' | 'production';
@@ -241,13 +245,13 @@ export class SSRServer extends BaseServer {
   private apps: Map<string, SSRInternalAppConfig> = new Map();
 
   // Shared server configuration (used across all apps)
-  private sharedOptions: ServeSSRWithHMROptions | ServeSSRBuiltOptions;
+  private sharedOptions: ServeSSRWithHMROptions<H> | ServeSSRBuiltOptions<H>;
   private _accessLog: AccessLogPlugin;
 
   // Shared server resources (used across all apps)
-  private pageDataHandlers!: DataLoaderServerHandlerHelpers;
-  private apiRoutes!: APIRoutesServerHelpers;
-  private webSocketHelpers: WebSocketServerHelpers | null = null;
+  private pageDataHandlers!: DataLoaderServerHandlerHelpers<H>;
+  private apiRoutes!: APIRoutesServerHelpers<unknown, BaseMeta, H>;
+  private webSocketHelpers: WebSocketServerHelpers<H> | null = null;
   private registeredPlugins: PluginMetadata[] = [];
 
   // When both WebSockets and Vite HMR are active, @fastify/websocket is bound
@@ -275,7 +279,7 @@ export class SSRServer extends BaseServer {
    *
    * @param config Server configuration object
    */
-  constructor(config: SSRServerConfig) {
+  constructor(config: SSRServerConfig<H>) {
     super();
 
     // Store server mode and shared options
@@ -336,8 +340,10 @@ export class SSRServer extends BaseServer {
     this.apps.set('__default__', defaultApp);
 
     // Set helpers class (custom or default)
-    this.APIResponseHelpersClass =
-      this.sharedOptions.APIResponseHelpersClass || APIResponseHelpers;
+    // Cast covers the default branch: without an explicit class, `H` stays the
+    // base class, which is exactly what APIResponseHelpers is.
+    this.APIResponseHelpersClass = (this.sharedOptions
+      .APIResponseHelpersClass || APIResponseHelpers) as H;
 
     // Normalize API endpoint config once at construction
     this.normalizedAPIPrefix = normalizeAPIPrefix(
@@ -350,8 +356,8 @@ export class SSRServer extends BaseServer {
     );
 
     // Initialize helpers (available immediately for handler registration)
-    this.pageDataHandlers = new DataLoaderServerHandlerHelpers();
-    this.apiRoutes = new APIRoutesServerHelpers();
+    this.pageDataHandlers = new DataLoaderServerHandlerHelpers<H>();
+    this.apiRoutes = new APIRoutesServerHelpers<unknown, BaseMeta, H>();
 
     // Initialize WebSocket helpers if enabled
     if (config.options.enableWebSockets) {
@@ -771,7 +777,9 @@ export class SSRServer extends BaseServer {
       // Decorate requests with APIResponseHelpersClass for file upload helpers
       this.fastifyInstance.decorateRequest(
         'APIResponseHelpersClass',
-        this.APIResponseHelpersClass,
+        // Widened to the base class: Fastify's decorator typing rejects an
+        // unresolved generic, and readers narrow it back per server anyway.
+        this.APIResponseHelpersClass as APIResponseHelpersClass,
       );
 
       // Initialize request context and set live dev-mode flag for all requests
@@ -903,7 +911,9 @@ export class SSRServer extends BaseServer {
         this.fastifyInstance,
         () => this._isStopping,
         {
-          handler: this.sharedOptions.closingHandler,
+          // The hook invokes handlers with the class configured on this
+          // server, so widening the params type back to the base is safe.
+          handler: this.sharedOptions.closingHandler as ClosingHandlerOption,
           // SSR function form is web-first. Split form can still customize
           // API and page-data requests when API handling is enabled.
           functionHandlerType: 'web',
@@ -1974,7 +1984,7 @@ export class SSRServer extends BaseServer {
    * @throws Error if WebSocket support is not enabled
    */
   public registerWebSocketHandler<M extends BaseMeta = BaseMeta>(
-    config: WebSocketHandlerConfig<M>,
+    config: WebSocketHandlerConfig<M, H>,
   ): void {
     if (!this.webSocketHelpers) {
       throw new Error(
