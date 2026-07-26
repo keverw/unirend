@@ -23,6 +23,10 @@ Guidelines and constraints for AI coding agents working in this repository.
 - **Flag breaking changes:** If a change is breaking, call it out at the top of `## Unreleased` (e.g. a `**Breaking:**` note) so the human remembers to bump the version appropriately at release — version bumps are manual and not done by agents.
 - **On release (human, not agents — reminder):** Rename `## Unreleased` to the new version with a date (e.g. `## 0.2.0 (Month D, YYYY)`) and bump the version in `package.json` — the build's `sync-version` and `update-docs` scripts then propagate it to `src/version.ts`, the README title, and the TOCs. Don't leave an empty `## Unreleased` behind; it's recreated on demand at the bottom when the next change lands.
 
+## Runtime Target
+
+- **Bun is the toolchain, Node is the runtime:** Bun runs the dev and CI commands here (`bun install`, `bun test`, the `package.json` scripts), but the published package has to run on plain Node, and so does the app code the starter templates emit into a user's repo. Keep shipped code on standard web and Node APIs. `Bun.*` globals, `bun:*` imports, and Bun-only extensions to standard APIs belong in `scripts/`, in `*.test.ts` files, and in the demos, which only ever run under `bun`. They do not belong anywhere under `src/` that ends up in `dist/`, including the template strings in `src/lib/starter-templates/` that become a generated repo's source. `@types/bun` is installed repo-wide, so `bun run type-check` will not catch a Bun-only call in shipped code. The failure shows up when someone runs it on Node. When you need something Bun offers, reach for the Node equivalent, or feature-detect and fall back.
+
 ## Source Files
 
 - **Never embed a raw NUL byte in a text file:** It is invisible in virtually every editor, and it makes git treat the file as binary (no more diffs) and grep silently find nothing in it, so the file drops out of reviews and searches with no error anywhere. If you need a NUL as a value, write the escape in source instead of the raw byte. `bun run check:null-bytes` fails on it.

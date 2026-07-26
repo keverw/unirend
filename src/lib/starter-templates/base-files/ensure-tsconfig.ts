@@ -7,7 +7,10 @@ const fileSrc = `{
     "target": "ES2020",
     "useDefineForClassFields": true,
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "types": ["node"],
+
+    /* "bun" is needed for "bun:test" imports and Bun globals in tooling scripts.
+       Apps still target Node at runtime by default, so keep Bun-only APIs out of app code. */
+    "types": ["node", "bun"],
     "module": "ESNext",
     "skipLibCheck": true,
 

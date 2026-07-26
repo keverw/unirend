@@ -28,10 +28,7 @@ export function resolveFastifyLoggerConfig({
 }: {
   logging?: UnirendLoggingOptions;
   fastifyOptions?: CuratedFastifyLoggerOptions;
-}): Pick<
-  FastifyServerOptions,
-  'logger' | 'loggerInstance' | 'logController'
-> {
+}): Pick<FastifyServerOptions, 'logger' | 'loggerInstance' | 'logController'> {
   const configuredPaths: string[] = [];
 
   if (logging) {

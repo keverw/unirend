@@ -9,11 +9,17 @@ import type { LoggerFunction } from '../types';
  * rather than being duplicated per template. It extends the repo-root tsconfig
  * and layers on the Vite-specific bits (the `vite/client` ambient types and a
  * `baseUrl` pointing back at the repo root).
+ *
+ * `types` replaces the inherited list rather than extending it, so the
+ * repo-root entries are repeated here. Dropping them would leave the app
+ * directory without Node globals (`process` in the serve/generate scripts) or
+ * `bun:test`, which the root `tsc --noEmit` still supplies, so the editor would
+ * flag errors the type-check does not.
  */
 const viteFileSrc = `{
   "extends": "../../../tsconfig.json",
   "compilerOptions": {
-    "types": ["vite/client"],
+    "types": ["vite/client", "node", "bun"],
     "baseUrl": "../../.."
   },
   "include": ["**/*.ts", "**/*.tsx"],
@@ -25,7 +31,7 @@ const viteFileSrc = `{
  * Source for an API app's `tsconfig.json`.
  *
  * The API template has no Vite/client surface, so it drops the `vite/client`
- * types (inheriting the repo-root `["node"]` types instead) and only includes
+ * types (inheriting the repo-root `["node", "bun"]` types instead) and only includes
  * `.ts` files. It still ships a per-app config purely to establish a project
  * boundary: VSCode's `importModuleSpecifier: "project-relative"` keys off the
  * directory of the importing file's nearest tsconfig, so without this the
