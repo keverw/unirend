@@ -2103,6 +2103,19 @@ export type APIServerWebOptions<
   H extends APIResponseHelpersClass = APIResponseHelpersClass,
 > = APIServerWebOptionsBase<H> & RequireHelpersClassWhenCustom<H>;
 
+/**
+ * Argument tuple that makes an options parameter required as soon as `H` is a
+ * custom helpers class, while leaving it optional at the base class.
+ *
+ * A plain optional parameter cannot express this. `new APIServer<typeof
+ * AppResponseHelpers>()` would supply no options, so the server installs the
+ * base class while the instance type claims the subclass, and the first call to
+ * anything the subclass added throws. Spreading a conditional tuple makes the
+ * omission a compile error in exactly the case that would break.
+ */
+export type OptionsArgWhenCustomHelpers<H extends APIResponseHelpersClass, O> =
+  IsBaseHelpersClass<H> extends true ? [options?: O] : [options: O];
+
 export type APIServerOptions<
   H extends APIResponseHelpersClass = APIResponseHelpersClass,
 > = (APIServerAPIOptions<H> | APIServerWebOptions<H>) &

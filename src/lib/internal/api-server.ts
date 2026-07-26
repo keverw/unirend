@@ -26,6 +26,7 @@ import type {
   APIServerListenOptions,
   PluginMetadata,
   APIResponseHelpersClass,
+  OptionsArgWhenCustomHelpers,
   PluginOptions,
   SplitErrorHandler,
   SplitNotFoundHandler,
@@ -121,11 +122,16 @@ export class APIServer<
   private readonly normalizedAPIPrefix: string | false;
   private readonly normalizedPageDataEndpoint: string;
 
-  // The cast covers the default only. `APIServerOptions<H>` requires the
-  // helpers class once `H` is custom, which an empty literal cannot satisfy,
-  // and a caller who supplied no options is by definition on the base class.
-  constructor(options: APIServerOptions<H> = {} as APIServerOptions<H>) {
+  // Options are spread from a conditional tuple rather than declared optional,
+  // so omitting them is a compile error once `H` is a custom helpers class.
+  // `new APIServer<typeof AppResponseHelpers>()` would otherwise install the
+  // base class while the instance type claimed the subclass.
+  constructor(...args: OptionsArgWhenCustomHelpers<H, APIServerOptions<H>>) {
     super();
+
+    // Safe: the tuple above only permits an omitted argument when `H` is the
+    // base class, which is exactly what an empty options object resolves to.
+    const options = (args[0] ?? {}) as APIServerOptions<H>;
 
     this.options = {
       ...options,

@@ -11,6 +11,8 @@ import { describe, it, expect } from 'bun:test';
 import getPort from 'get-port';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { serveAPI } from '../api';
+import { APIServer } from './api-server';
+import { SSRServer } from './ssr-server';
 import { serveSSRBuilt } from '../ssr';
 import { APIResponseHelpers } from '../../api-envelope';
 import type {
@@ -270,6 +272,33 @@ const _explicitTypeArgumentTypeCheck = () => {
   void badSSR;
 };
 
+// Constructing a server directly has to be guarded the same way as the
+// factories, since `APIServer` is exported. A class type parameter cannot be
+// narrowed per overload, so options are spread from a conditional tuple that
+// makes them required once `H` is custom.
+const _directConstructionTypeCheck = () => {
+  // @ts-expect-error custom H with no options to back it
+  new APIServer<typeof BrandedHelpers>();
+
+  // @ts-expect-error custom H with options that omit the class
+  new APIServer<typeof BrandedHelpers>({});
+
+  new SSRServer<typeof BrandedHelpers>({
+    mode: 'production',
+    buildDir: './build',
+    // @ts-expect-error same for the SSR server
+    options: {},
+  });
+
+  // Supplying the class is fine, and omitting it stays fine at the base.
+  new APIServer<typeof BrandedHelpers>({
+    APIResponseHelpersClass: BrandedHelpers,
+  }).APIResponseHelpersClass satisfies typeof BrandedHelpers;
+
+  new APIServer();
+  new APIServer({ serverLabel: 'x' });
+};
+
 // The requirement must not cost the legitimate cases. A pre-built config that
 // does carry the class stays callable, and `H` survives to the return type.
 // Requiring the class at the call site instead of on the type would reject
@@ -299,6 +328,7 @@ void _inlineAPIPluginTypeCheck;
 void _inlinePlainPluginTypeCheck;
 void _unionOptionsTypeCheck;
 void _explicitTypeArgumentTypeCheck;
+void _directConstructionTypeCheck;
 void _prebuiltConfigTypeCheck;
 void _standalonePluginTypeCheck;
 void _instanceRegistrationTypeCheck;
