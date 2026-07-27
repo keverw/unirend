@@ -826,6 +826,45 @@ describe('UnirendHead Client-side Helpers', () => {
       resetTemplateMetas();
     });
 
+    it('rebuilds the half of a split group the server stripped', () => {
+      // Two template metas share `name=site` but carry different properties, so the server strips
+      // them independently. Grouped by that first identity, the survivor would be read as proof
+      // that both were served, and the stripped one would never be rebuilt: gone for good the
+      // moment the page stopped overriding it.
+      const head = setupPage({
+        served: [
+          // Only the og:other one survived the merge, and it is the marked node.
+          {
+            name: 'site',
+            property: 'og:other',
+            content: '#other',
+            [TEMPLATE_META_MARKER_ATTRIBUTE]: '',
+          },
+          // The page's own tag, unmarked, React's to manage.
+          { property: 'og:site_name', content: '#page' },
+        ],
+        baseline: [
+          { name: 'site', property: 'og:site_name', content: '#template' },
+          { name: 'site', property: 'og:other', content: '#other' },
+        ],
+      });
+
+      captureTemplateMetas();
+
+      // While the page overrides og:site_name, only the survivor is in the head.
+      reconcileTemplateMetas(new Set(['property=og:site_name']));
+      expect(metasInHead(head, 'site')).toHaveLength(1);
+
+      // Navigating away: the stripped one has to come back, and the survivor stays.
+      reconcileTemplateMetas(new Set());
+
+      const restored = metasInHead(head, 'site');
+      expect(restored).toHaveLength(2);
+      expect(
+        restored.map((meta: any) => meta.getAttribute('property')).sort(),
+      ).toEqual(['og:other', 'og:site_name']);
+    });
+
     it('steps a dual-identity template meta aside for either identity', () => {
       // Filed under `name=site`, its first identity, but a page declaring og:site_name overrides
       // it just the same, matching what the server's template merge strips.

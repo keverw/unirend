@@ -292,6 +292,9 @@ export function mergeTemplateMetas(
 
     baseline.push(meta.attrs);
 
+    // Decided from this meta's whole identity set, so two template metas sharing only their first
+    // identity can go separate ways. The client pairs the baseline back up by the same set, since
+    // it can no longer assume that one survivor speaks for every meta with that first identity.
     if (keys.some((key) => pageMetaKeys.has(key))) {
       const { start, end } = expandToWholeLine(template, meta);
       edits.push({ start, end, replacement: '' });

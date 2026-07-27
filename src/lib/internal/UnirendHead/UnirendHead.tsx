@@ -3,12 +3,7 @@ import type { ReactNode } from 'react';
 import { UnirendHeadContext } from './context';
 import type { HeadCollector } from './context';
 import { HTML_BOOLEAN_ATTRIBUTES } from '../html-utils/escape';
-import {
-  getMetaKey,
-  getMetaKeyFromElement,
-  getMetaKeys,
-  getMetaKeysFromElement,
-} from '../html-utils/meta-key';
+import { getMetaKeys, getMetaKeysFromElement } from '../html-utils/meta-key';
 import { TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
 import { serializeStyleObject, toHeadAttributes } from './head-attributes';
 import { scanHeadKeys } from './head-keys';
@@ -448,6 +443,18 @@ let initialBodyAttrs: Record<string, string> | null = null;
 let templateMetaNodes: Map<string, HTMLMetaElement[]> | null = null;
 
 /**
+ * How template metas are grouped: by every identity they carry, joined.
+ *
+ * Not by the first identity alone, which is what the baseline is keyed under on the server. The
+ * server decides whether to strip a template meta from its whole identity set, so that set is what
+ * says which metas share a fate, and it is the only grouping under which "this group was served"
+ * and "this group was stripped" are the only two answers.
+ */
+function templateMetaSignature(keys: string[]): string {
+  return keys.join('|');
+}
+
+/**
  * Build a detached <meta> for a template baseline entry the server stripped from the served
  * head, so it's ready to put back the moment no page is overriding it any more.
  */
@@ -490,13 +497,17 @@ function captureTemplateMetas(): void {
   const baseline = customWindow.__UNIREND_TEMPLATE_METAS__;
   const nodes = new Map<string, HTMLMetaElement[]>();
 
-  const track = (key: string, element: HTMLMetaElement) => {
-    const group = nodes.get(key);
+  const track = (
+    group: Map<string, HTMLMetaElement[]>,
+    key: string,
+    element: HTMLMetaElement,
+  ) => {
+    const existing = group.get(key);
 
-    if (group) {
-      group.push(element);
+    if (existing) {
+      existing.push(element);
     } else {
-      nodes.set(key, [element]);
+      group.set(key, [element]);
     }
   };
 
@@ -508,50 +519,51 @@ function captureTemplateMetas(): void {
         `meta[${TEMPLATE_META_MARKER_ATTRIBUTE}]`,
       ),
     )) {
-      const key = getMetaKeyFromElement(element);
+      const keys = getMetaKeysFromElement(element);
 
-      if (key !== null) {
-        const group = marked.get(key);
-
-        if (group) {
-          group.push(element);
-        } else {
-          marked.set(key, [element]);
-        }
+      if (keys.length > 0) {
+        track(marked, templateMetaSignature(keys), element);
       }
     }
 
     for (const attrs of baseline) {
-      const key = getMetaKey(attrs);
+      const keys = getMetaKeys(attrs);
 
-      if (key === null) {
+      if (keys.length === 0) {
         continue;
       }
 
-      // The server strips a key's template metas all together or not at all, so a key that has
-      // any marked node in the head has all of them: adopt that group once and move on.
-      const servedGroup = marked.get(key);
+      // Grouped by the whole identity set, not by the first of them. Whether the server stripped a
+      // template meta is a pure function of that set, so metas sharing one are stripped together
+      // or kept together, and a group either has marked nodes in the head or has none.
+      //
+      // Sharing only a first identity is not enough: two template metas both named `site` but
+      // carrying different `property` values are stripped independently, and keyed on `name=site`
+      // the surviving one would be read as proof that both were served. The stripped one would
+      // never be rebuilt, and would be gone for good the moment no page overrode it.
+      const signature = templateMetaSignature(keys);
+      const servedGroup = marked.get(signature);
 
       if (servedGroup) {
-        if (!nodes.has(key)) {
-          nodes.set(key, servedGroup);
+        if (!nodes.has(signature)) {
+          nodes.set(signature, servedGroup);
         }
 
         continue;
       }
 
-      // Nothing marked for this key means the server stripped it because the page overrides it.
-      // Build the element now and hold it detached until that stops being true.
-      track(key, createTemplateMeta(attrs));
+      // Nothing marked for this identity means the server stripped it because the page overrides
+      // it. Build the element now and hold it detached until that stops being true.
+      track(nodes, signature, createTemplateMeta(attrs));
     }
   } else {
     for (const element of Array.from(
       document.head.querySelectorAll<HTMLMetaElement>('meta'),
     )) {
-      const key = getMetaKeyFromElement(element);
+      const keys = getMetaKeysFromElement(element);
 
-      if (key !== null) {
-        track(key, element);
+      if (keys.length > 0) {
+        track(nodes, templateMetaSignature(keys), element);
       }
     }
   }
