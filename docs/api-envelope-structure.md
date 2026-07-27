@@ -858,7 +858,7 @@ You can configure a custom helpers class for the SSR and API servers so all serv
 - Available on: SSR (`serveSSRWithHMR`/`serveSSRBuilt` options) and API (`serveAPI` options)
 - Validation helpers like `isValidEnvelope` still use the base helpers and are not overridden
 
-When `publicAppConfig` is configured on SSR or API servers, handlers and custom helper methods can read the current request snapshot from `request.publicAppConfig`. Unirend does not include it in envelopes automatically. If a helper should expose a public config value, add that selected value deliberately, usually as a normal `meta` field. Keep `pageMetadata` for page title/description, which becomes `meta.page` for frontend code such as `UnirendHead`. Its fields are `title`, `description`, `keywords`, `canonical`, an `og` object whose every member renders as that key with an `og:` prefix (`title`, `description`, and `image` are named on the type, the rest of the OpenGraph vocabulary passes through), and a `tags` array for head tags the rest cannot express. See [docs/unirendhead.md](./unirendhead.md#the-envelope-prop) for what each one renders.
+When `publicAppConfig` is configured on SSR or API servers, handlers and custom helper methods can read the current request snapshot from `request.publicAppConfig`. Unirend does not include it in envelopes automatically. If a helper should expose a public config value, add that selected value deliberately, usually as a normal `meta` field. Keep page head metadata in `pageMetadata`, which becomes `meta.page` and can be rendered by `UnirendHead`. See [The `envelope` Prop](./unirendhead.md#the-envelope-prop) for the supported fields.
 
 Example:
 
