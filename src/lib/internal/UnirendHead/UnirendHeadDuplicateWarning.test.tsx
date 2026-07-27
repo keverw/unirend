@@ -711,6 +711,49 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
     expect(captureWarnings(() => updateDOM())).toEqual([message]);
   });
 
+  it('follows the route being rendered, with a layout mounted throughout', () => {
+    // The worry this pins down: a duplicate is between the instances mounted right now, never
+    // between a page you are on and one you left. The record is rebuilt from the registrations on
+    // every sync, so a page that has navigated away cannot collide with anything.
+    overrideDevMode(true);
+
+    const layout = register(
+      new Map([['name=description', 'Layout description']]),
+    );
+    expect(captureWarnings(() => updateDOM())).toEqual([]);
+
+    // Route 1 also declares description, which is the real collision.
+    const pageA = register(
+      new Map([['name=description', 'Page A description']]),
+    );
+    expect(captureWarnings(() => updateDOM())).toHaveLength(1);
+
+    // Navigate to a route that declares none. React unmounts A, and its cleanup syncs before the
+    // new page registers, so this is the intermediate state too.
+    getRegisteredList().splice(getRegisteredList().indexOf(pageA), 1);
+    expect(captureWarnings(() => updateDOM())).toEqual([]);
+
+    const pageB = register(new Map([['name=keywords', 'Page B keywords']]));
+    expect(captureWarnings(() => updateDOM())).toEqual([]);
+
+    // Navigate to a third route that does declare description. It collides with the layout that
+    // never went anywhere, and says so, rather than being suppressed by route 1's warning.
+    getRegisteredList().splice(getRegisteredList().indexOf(pageB), 1);
+    const pageC = register(
+      new Map([['name=description', 'Page C description']]),
+    );
+
+    const warnings = captureWarnings(() => updateDOM());
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('Layout description');
+    expect(warnings[0]).toContain('Page C description');
+
+    // And the layout leaving takes the collision with it, since one instance cannot collide.
+    getRegisteredList().splice(getRegisteredList().indexOf(layout), 1);
+    expect(captureWarnings(() => updateDOM())).toEqual([]);
+    expect(pageC.headKeys.size).toBe(1);
+  });
+
   it('never warns for a repeatable key', () => {
     overrideDevMode(true);
 
