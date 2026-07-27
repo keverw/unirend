@@ -13,7 +13,9 @@ import { serializeStyleObject, toHeadAttributes } from './head-attributes';
 import { scanHeadKeys } from './head-keys';
 import {
   buildPageMetadataTags,
+  isTagWarningEnabled,
   resolvePageMetadata,
+  warnTagMessagesOnce,
 } from './page-metadata-tags';
 import {
   collectDuplicateHeadKeys,
@@ -103,10 +105,20 @@ export function UnirendHead({ children, envelope }: UnirendHeadProps) {
   // server and the client see the identical merged list, so there is no parity to keep in sync.
   const pageMetadata = resolvePageMetadata(envelope);
 
+  // What the projection had to warn about, collected rather than printed. The server says it below
+  // during this render, and the client hands it to its registration so the DOM sync can report the
+  // mounted instances together, see updateDOM(). Empty outside development, and empty whenever the
+  // envelope was fine, so the shared empty is the common case.
+  const tagMessages: string[] = [];
+
   const generatedTags =
     pageMetadata === null
       ? EMPTY_TAGS
-      : buildPageMetadataTags(pageMetadata, scanHeadKeys(children).claimed);
+      : buildPageMetadataTags(
+          pageMetadata,
+          scanHeadKeys(children).claimed,
+          tagMessages,
+        );
 
   // Left strictly alone when there is nothing to generate, so every existing call site keeps the
   // exact child list (and element identities) it had before.
@@ -193,6 +205,7 @@ export function UnirendHead({ children, envelope }: UnirendHeadProps) {
         body: bodyAttrs,
         metaKeys,
         headKeys,
+        tagMessages,
         markerRef,
       };
       registeredList.push(registrationRef.current);
@@ -214,12 +227,18 @@ export function UnirendHead({ children, envelope }: UnirendHeadProps) {
         !areRecordsEqual(prev.body, bodyAttrs) ||
         !areKeyListsEqual(prev.metaKeys, metaKeys) ||
         !areHeadKeyMapsEqual(prev.headKeys, headKeys) ||
+        // A tag the projection had to complain about is not always a tag that renders differently:
+        // dropping a forbidden `style` leaves the same head keys behind. Without this, fixing that
+        // envelope would never reach the sync, so the warning would stay on the record and putting
+        // the mistake back would be silent.
+        !areMessageListsEqual(prev.tagMessages, tagMessages) ||
         hasMarkerChanged
       ) {
         prev.html = htmlAttrs;
         prev.body = bodyAttrs;
         prev.metaKeys = metaKeys;
         prev.headKeys = headKeys;
+        prev.tagMessages = tagMessages;
         updateDOM();
       }
     }
@@ -258,6 +277,11 @@ export function UnirendHead({ children, envelope }: UnirendHeadProps) {
       );
     }
 
+    // Printed here rather than collected, because the server has no mounted set to derive from: a
+    // render is one-shot per request. Once per process, so a handler-side mistake is not repeated
+    // on every request.
+    warnTagMessagesOnce(tagMessages);
+
     collectServerHead(collector, effectiveChildren);
     return null;
   }
@@ -293,6 +317,14 @@ interface RegisteredAttrs {
   body: Record<string, string> | null;
   metaKeys: string[];
   headKeys: Map<string, string>;
+
+  /**
+   * What the envelope projection warned about on this instance's last render. Held here so the
+   * sync can report the mounted instances together and forget an unmounted one's messages, which
+   * is exactly how the duplicate warning already reads `headKeys`.
+   */
+  tagMessages: string[];
+
   markerRef: React.RefObject<HTMLTemplateElement | null>;
 }
 
@@ -328,6 +360,11 @@ function getSeenHeadKeys(collector: HeadCollector): SeenHeadKeys {
 // change doesn't reprint them. Replaced wholesale on each sync, so a duplicate that goes away on
 // navigation and comes back later warns again.
 let warnedDuplicateKeys = new Set<string>();
+
+// The envelope projection's messages the client has already printed. Rebuilt from the mounted
+// instances on every sync, exactly as the duplicate record above is, so a message goes away with
+// the page that produced it and is said again if that page comes back.
+let warnedTagMessages = new Set<string>();
 
 // Clean baseline attributes preserved from index.html (established on first mount).
 let initialHTMLAttrs: Record<string, string> | null = null;
@@ -787,6 +824,12 @@ function updateDOM(): void {
   const seenHeadKeys: SeenHeadKeys = new Map();
   const duplicateReports: DuplicateHeadKeyReport[] = [];
 
+  // The envelope projection's warnings are produced during render, so unlike the duplicate reports
+  // they are read off the registrations rather than recomputed. Same shape either way: what the
+  // currently mounted instances say, which is what makes an unmounted page's message disappear.
+  const shouldWarnOnTags = isTagWarningEnabled();
+  const currentTagMessages = new Set<string>();
+
   for (const item of sortedRegistrations) {
     if (item.html) {
       htmlStack.push(item.html);
@@ -798,6 +841,12 @@ function updateDOM(): void {
 
     for (const key of item.metaKeys) {
       declaredMetaKeys.add(key);
+    }
+
+    if (shouldWarnOnTags) {
+      for (const message of item.tagMessages) {
+        currentTagMessages.add(message);
+      }
     }
 
     if (shouldWarnOnDuplicates) {
@@ -820,6 +869,19 @@ function updateDOM(): void {
 
     warnedDuplicateKeys = new Set(duplicateReports.map((report) => report.key));
     warnDuplicateHeadKeys(fresh);
+  }
+
+  if (shouldWarnOnTags) {
+    const fresh = [...currentTagMessages].filter(
+      (message) => !warnedTagMessages.has(message),
+    );
+
+    warnedTagMessages = currentTagMessages;
+
+    for (const message of fresh) {
+      // eslint-disable-next-line no-console
+      console.warn(message);
+    }
   }
 
   applyAttributes(document.documentElement, initialHTMLAttrs || {}, htmlStack);
@@ -850,6 +912,16 @@ function areHeadKeyMapsEqual(
   }
 
   return true;
+}
+
+/**
+ * Compares two message lists in order, since one render produces them in a fixed order and any
+ * difference at all is a change worth syncing for.
+ */
+function areMessageListsEqual(a: string[], b: string[]): boolean {
+  return (
+    a.length === b.length && a.every((message, index) => message === b[index])
+  );
 }
 
 /**
@@ -1048,6 +1120,7 @@ export const _test = {
   },
   resetDuplicateWarnings: () => {
     warnedDuplicateKeys = new Set();
+    warnedTagMessages = new Set();
   },
 };
 

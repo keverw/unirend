@@ -573,6 +573,7 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
       body: null,
       metaKeys: [],
       headKeys,
+      tagMessages: [] as string[],
       markerRef: { current: null },
     };
 
@@ -659,6 +660,55 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
     register(new Map([['name=description', 'Page description']]));
 
     expect(captureWarnings(() => updateDOM())).toEqual([]);
+  });
+
+  it('reports the envelope projection across the mounted instances, like a duplicate', () => {
+    // The tag warnings are derived from the registrations rather than accumulated, so they follow
+    // the same lifecycle a duplicate does: said once while true, forgotten with the page that
+    // produced it, said again if it comes back.
+    overrideDevMode(true);
+
+    const message =
+      '[unirend] UnirendHead: meta.page.tags[0] (app-version) was skipped.';
+
+    const layout = register(new Map());
+    layout.tagMessages = [message];
+    expect(captureWarnings(() => updateDOM())).toEqual([message]);
+
+    // Navigating to another page that returns the same bad tag is the same mistake, not a new
+    // one, so it stays quiet however many pages hit it.
+    const page = register(new Map());
+    page.tagMessages = [message];
+    expect(captureWarnings(() => updateDOM())).toEqual([]);
+
+    // The page carrying it unmounts and the layout's copy goes too: nothing is wrong any more.
+    layout.tagMessages = [];
+    page.tagMessages = [];
+    expect(captureWarnings(() => updateDOM())).toEqual([]);
+
+    // So a page that reintroduces it is news again.
+    page.tagMessages = [message];
+    expect(captureWarnings(() => updateDOM())).toEqual([message]);
+  });
+
+  it("forgets an unmounted page's tag warning", () => {
+    overrideDevMode(true);
+
+    const message =
+      '[unirend] UnirendHead: meta.page.tags[0] (app-version) was skipped.';
+
+    const page = register(new Map());
+    page.tagMessages = [message];
+    expect(captureWarnings(() => updateDOM())).toEqual([message]);
+
+    // Navigating away unmounts it, and the record is rebuilt from what is left.
+    getRegisteredList().pop();
+    expect(captureWarnings(() => updateDOM())).toEqual([]);
+
+    // Coming back says it again rather than leaving you with one you may have scrolled past.
+    const again = register(new Map());
+    again.tagMessages = [message];
+    expect(captureWarnings(() => updateDOM())).toEqual([message]);
   });
 
   it('never warns for a repeatable key', () => {

@@ -165,9 +165,13 @@ function sanitizeTagAttributes(
  * The entry is read as `unknown`, since `tags` arrives with the rest of the envelope and carries
  * the same "the types are a promise, not a guarantee" caveat.
  */
-function buildCustomTag(entry: unknown, index: number): ReactElement | null {
+function buildCustomTag(
+  entry: unknown,
+  index: number,
+  messages: string[],
+): ReactElement | null {
   if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
-    warnTagEntrySkipped(index, 'it is not an object');
+    warnTagEntrySkipped(messages, index, 'it is not an object');
     return null;
   }
 
@@ -184,6 +188,7 @@ function buildCustomTag(entry: unknown, index: number): ReactElement | null {
     // identity, so a child could not override it and the duplicate warning could not see it.
     if (!isPopulated(attributes.content)) {
       warnTagEntrySkipped(
+        messages,
         index,
         'its meta has no content',
         attributes,
@@ -194,6 +199,7 @@ function buildCustomTag(entry: unknown, index: number): ReactElement | null {
 
     if (!isPopulated(attributes.name) && !isPopulated(attributes.property)) {
       warnTagEntrySkipped(
+        messages,
         index,
         'its meta has neither name nor property',
         attributes,
@@ -202,7 +208,7 @@ function buildCustomTag(entry: unknown, index: number): ReactElement | null {
       return null;
     }
 
-    warnTagAttributesDropped(index, attributes, dropped);
+    warnTagAttributesDropped(messages, index, attributes, dropped);
 
     return React.createElement('meta', {
       key: `unirend-head-tag-${index}`,
@@ -218,6 +224,7 @@ function buildCustomTag(entry: unknown, index: number): ReactElement | null {
 
     if (!isPopulated(attributes.rel) || !isPopulated(attributes.href)) {
       warnTagEntrySkipped(
+        messages,
         index,
         'its link needs both rel and href',
         attributes,
@@ -228,6 +235,7 @@ function buildCustomTag(entry: unknown, index: number): ReactElement | null {
 
     if (hasForbiddenLinkRelation(attributes.rel)) {
       warnTagEntrySkipped(
+        messages,
         index,
         'its rel names a stylesheet, which an envelope may not load',
         attributes,
@@ -238,7 +246,7 @@ function buildCustomTag(entry: unknown, index: number): ReactElement | null {
       return null;
     }
 
-    warnTagAttributesDropped(index, attributes, dropped);
+    warnTagAttributesDropped(messages, index, attributes, dropped);
 
     return React.createElement('link', {
       key: `unirend-head-tag-${index}`,
@@ -246,7 +254,7 @@ function buildCustomTag(entry: unknown, index: number): ReactElement | null {
     });
   }
 
-  warnTagEntrySkipped(index, 'it names neither meta nor link');
+  warnTagEntrySkipped(messages, index, 'it names neither meta nor link');
 
   return null;
 }
@@ -278,28 +286,44 @@ interface EmittedField {
 }
 
 /**
- * Messages already printed, so a mistake is reported once rather than on every render.
+ * Whether the envelope projection's warnings should be produced at all.
  *
- * A render happens on every state change, not just on navigation, so a message that printed every
- * time would bury itself and the warning would become noise people filter out.
+ * Its own dev-mode read rather than the duplicate warning's, so that if the two ever stop
+ * answering to one signal, this one going stale is a visible failure rather than a silent one.
+ */
+export function isTagWarningEnabled(): boolean {
+  return getDevMode();
+}
+
+/**
+ * Messages the server has already printed, so a handler-side mistake logs once for the process
+ * rather than once per request.
  *
- * Deliberately flat, and deliberately for the life of the process. An earlier version tracked what
- * was currently true instead: per instance, turned over on each commit, pruned when an instance
- * unmounted, so that leaving a page and coming back said it again. That is a nicer promise and it
- * did not survive contact with React. Closing a pass needs a commit that reliably runs, and the
- * sync it rode on only runs when the DOM actually needs something, so a mistake you fixed stayed
- * on the record. Pruning needs the set of mounted instances, and layout effects run child before
- * parent, so the first sync of a mounting commit sees a partial one and drops a live instance's
- * message. Both of those are worse in practice than saying it once, because a warning that
- * reappears when nothing changed is one you learn to ignore.
- *
- * So: printed once, and the next full reload says it again. In development that is a page refresh.
+ * Only the server writes here. A render there is one-shot per request and there is no mounted set
+ * to derive anything from, so accumulating is the only option. The client does not accumulate at
+ * all, see `warnFreshTagMessages()`.
  */
 const printedTagMessages = new Set<string>();
 
 /**
- * Test-only hooks, since the record is module state that would otherwise leak from one test into
- * the next.
+ * Print the messages one server render produced, skipping any this process has already said.
+ */
+export function warnTagMessagesOnce(messages: string[]): void {
+  for (const message of messages) {
+    if (printedTagMessages.has(message)) {
+      continue;
+    }
+
+    printedTagMessages.add(message);
+
+    // eslint-disable-next-line no-console
+    console.warn(message);
+  }
+}
+
+/**
+ * Test-only hooks, since the server record is module state that would otherwise leak from one
+ * test into the next.
  */
 export const _test = {
   /** The record size, so a test can prove a production render never enters it. */
@@ -310,24 +334,19 @@ export const _test = {
 };
 
 /**
- * Print one development-only warning about `tags`, unless the same one is already standing.
+ * Record one development-only warning about `tags`, for the caller to print.
  *
- * Everything these report is silent otherwise: the tag simply is not in the head, which is a hard
- * thing to work backwards from when the envelope plainly asked for it.
+ * Collected rather than printed here, because who says it and when depends on which side is
+ * rendering. The server prints during the render, once per process. The client hands the list to
+ * its registration, and the DOM sync prints whatever is new across the mounted instances, so an
+ * unmounted page's message goes away with it. Everything these report is silent otherwise: the tag
+ * simply is not in the head, which is a hard thing to work backwards from when the envelope
+ * plainly asked for it.
  */
-function warnAboutTags(lines: string[]): void {
-  const message = [...lines, '  This warning only runs in development.'].join(
-    '\n',
+function warnAboutTags(messages: string[], lines: string[]): void {
+  messages.push(
+    [...lines, '  This warning only runs in development.'].join('\n'),
   );
-
-  if (printedTagMessages.has(message)) {
-    return;
-  }
-
-  printedTagMessages.add(message);
-
-  // eslint-disable-next-line no-console
-  console.warn(message);
 }
 
 /**
@@ -362,13 +381,14 @@ const TAG_ENTRY_SHAPE_GUIDANCE =
  * Development-only warning for an entry that could not describe a usable tag at all.
  */
 function warnTagEntrySkipped(
+  messages: string[],
   index: number,
   reason: string,
   attributes: Record<string, string> = {},
   droppedAttributes: string[] = [],
   guidance: string = TAG_ENTRY_SHAPE_GUIDANCE,
 ): void {
-  if (!getDevMode()) {
+  if (!isTagWarningEnabled()) {
     return;
   }
 
@@ -384,22 +404,23 @@ function warnTagEntrySkipped(
 
   lines.push(guidance);
 
-  warnAboutTags(lines);
+  warnAboutTags(messages, lines);
 }
 
 /**
  * Development-only warning for attributes stripped from a tag that otherwise rendered.
  */
 function warnTagAttributesDropped(
+  messages: string[],
   index: number,
   attributes: Record<string, string>,
   dropped: string[],
 ): void {
-  if (!getDevMode() || dropped.length === 0) {
+  if (!isTagWarningEnabled() || dropped.length === 0) {
     return;
   }
 
-  warnAboutTags([
+  warnAboutTags(messages, [
     `[unirend] UnirendHead: ${describeTagEntry(index, attributes)} rendered without its ${formatAttributeList(dropped)}.`,
     '  Envelope tags may not carry http-equiv (it instructs the browser rather than describing the page),',
     '  style (React reads it as an object, so the string form throws),',
@@ -433,18 +454,19 @@ function formatAttributeList(names: string[]): string {
  * wrote is the one that disappeared.
  */
 function warnTagEntryLostToField(
+  messages: string[],
   key: string,
   named: EmittedField,
   dropped: ReactElement,
 ): void {
-  if (!getDevMode()) {
+  if (!isTagWarningEnabled()) {
     return;
   }
 
   const props = dropped.props as Record<string, string>;
   const droppedValue = dropped.type === 'link' ? props.href : props.content;
 
-  warnAboutTags([
+  warnAboutTags(messages, [
     `[unirend] UnirendHead: a meta.page.tags entry for ${key} was dropped, because the ${named.field} field already produced that tag.`,
     `  ${named.field}: ${JSON.stringify(named.value)}`,
     `  dropped:   ${JSON.stringify(droppedValue)}`,
@@ -464,6 +486,7 @@ function warnTagEntryLostToField(
 export function buildPageMetadataTags(
   metadata: PageMetadata | null,
   claimedKeys: Set<string>,
+  messages: string[],
 ): ReactElement[] {
   if (metadata === null) {
     return [];
@@ -580,7 +603,7 @@ export function buildPageMetadataTags(
   // children still sit after everything the envelope produced.
   if (Array.isArray(metadata.tags)) {
     for (const [index, entry] of metadata.tags.entries()) {
-      const tag = buildCustomTag(entry, index);
+      const tag = buildCustomTag(entry, index, messages);
 
       if (tag === null) {
         continue;
@@ -604,7 +627,7 @@ export function buildPageMetadataTags(
         .find((candidate) => candidate.named !== undefined);
 
       if (collision !== undefined && collision.named !== undefined) {
-        warnTagEntryLostToField(collision.key, collision.named, tag);
+        warnTagEntryLostToField(messages, collision.key, collision.named, tag);
         continue;
       }
 

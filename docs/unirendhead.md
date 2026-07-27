@@ -315,9 +315,9 @@ None of that is silent in development. An entry that renders nothing, an attribu
 
 The alternative is a tag that is simply not in the head, which is a hard thing to work backwards from when the envelope plainly asked for it. A production build short-circuits before building any of them.
 
-Each distinct message prints once and then stays quiet, so a page re-rendering on every state change does not repeat it. It is remembered for the life of the process, which in the browser means until a full reload, so fixing a tag and reintroducing it will not say so a second time until you refresh. That is deliberate: a version that tracked what was currently wrong, and so could say it again, needed a commit-time turnover that React does not reliably give it, and the failure mode was a warning reappearing when nothing had changed. A warning you learn to ignore is worse than one you have to refresh to hear twice.
+These follow the same lifecycle a [duplicate warning](#development-only-duplicate-warning) does, and for the same reason: both are read off the currently mounted `UnirendHead` instances rather than accumulated as things happen. So a message stays quiet while the same problem is still there, whatever re-renders in between, and it is forgotten along with the page that produced it, so navigating back to that page says so again rather than leaving you with a warning you may have scrolled past. Two pages returning the same bad tag is one mistake and says it once, which is why the message names the tag rather than only its index: two different bad tags at the same index are two messages and both are heard.
 
-The message names the tag and not only its position, so two pages whose loaders return different bad tags at the same index are two messages and both are heard.
+On the server it is simpler, because a render there is one-shot per request and there is no mounted set to read: a handler-side mistake logs once for the process rather than once per request.
 
 #### Malformed Envelopes
 

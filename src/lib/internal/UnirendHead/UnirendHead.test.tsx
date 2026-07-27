@@ -586,6 +586,7 @@ describe('UnirendHead Client-side Helpers', () => {
         body: null,
         metaKeys: [],
         headKeys: new Map(),
+        tagMessages: [],
         markerRef: { current: markerB },
       });
 
@@ -594,6 +595,7 @@ describe('UnirendHead Client-side Helpers', () => {
         body: null,
         metaKeys: [],
         headKeys: new Map(),
+        tagMessages: [],
         markerRef: { current: markerA },
       });
 
@@ -643,6 +645,7 @@ describe('UnirendHead Client-side Helpers', () => {
         body: null,
         metaKeys: [],
         headKeys: new Map(),
+        tagMessages: [],
         markerRef: { current: null as any },
       };
       const regA = {
@@ -650,6 +653,7 @@ describe('UnirendHead Client-side Helpers', () => {
         body: null,
         metaKeys: [],
         headKeys: new Map(),
+        tagMessages: [],
         markerRef: { current: null as any },
       };
 
