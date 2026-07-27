@@ -1296,6 +1296,140 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
     ]);
   });
 
+  it('drops a forbidden attribute whatever its casing', () => {
+    // HTML matches attribute names case-insensitively, so `HTTP-EQUIV` is an `http-equiv` by the
+    // time a browser reads it. A case-sensitive filter would be one the wire opts out of by
+    // changing case, which for http-equiv means a returned `refresh` navigating the page.
+    const collector = collect(
+      <UnirendHead
+        envelope={
+          {
+            meta: {
+              page: {
+                title: 'Home',
+                description: 'Home description',
+                tags: [
+                  {
+                    meta: {
+                      name: 'app-version',
+                      content: '1.2.3',
+                      'HTTP-EQUIV': 'refresh',
+                      'Http-Equiv': 'refresh',
+                      HttpEquiv: 'refresh',
+                      ONLOAD: 'alert(1)',
+                      OnError: 'alert(2)',
+                      Children: 'injected',
+                    },
+                  },
+                ],
+              },
+            },
+          } as unknown as PageSuccessResponse<null>
+        }
+      />,
+    );
+
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+      { name: 'app-version', content: '1.2.3' },
+    ]);
+  });
+
+  it('canonicalizes the identity attributes so an odd casing still keys the tag', () => {
+    // Rendered fine either way, but a `REL` the key lookup cannot see would escape both the
+    // child-override check and the duplicate warning.
+    const collector = collect(
+      <UnirendHead
+        envelope={
+          {
+            meta: {
+              page: {
+                title: 'Home',
+                canonical: 'https://example.com/',
+                tags: [
+                  { link: { REL: 'canonical', HREF: 'https://example.com/x' } },
+                  { meta: { NAME: 'app-version', CONTENT: '1.2.3' } },
+                ],
+              },
+            },
+          } as unknown as PageSuccessResponse<null>
+        }
+      />,
+    );
+
+    // The link keyed as rel=canonical, so the canonical field beat it, exactly as the
+    // lowercase spelling would have.
+    expect(collector.links).toEqual([
+      { rel: 'canonical', href: 'https://example.com/' },
+    ]);
+    expect(collector.metas).toEqual([
+      { name: 'app-version', content: '1.2.3' },
+    ]);
+  });
+
+  it('keeps only the first of two case-variant spellings of one attribute', () => {
+    // A browser parsing duplicate attributes keeps the first, so emitting both would leave the
+    // rendered value out of step with the one the identity checks read.
+    const collector = collect(
+      <UnirendHead
+        envelope={
+          {
+            meta: {
+              page: {
+                title: 'Home',
+                tags: [
+                  {
+                    meta: {
+                      name: 'app-version',
+                      content: 'first',
+                      CONTENT: 'second',
+                    },
+                  },
+                ],
+              },
+            },
+          } as unknown as PageSuccessResponse<null>
+        }
+      />,
+    );
+
+    expect(collector.metas).toEqual([
+      { name: 'app-version', content: 'first' },
+    ]);
+  });
+
+  it('leaves React prop spellings alone, since lowercasing them would warn', () => {
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: [
+            {
+              link: {
+                rel: 'preload',
+                href: 'https://cdn.example.com/hero.jpg',
+                as: 'image',
+                crossOrigin: 'anonymous',
+                referrerPolicy: 'no-referrer',
+              },
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(collector.links).toEqual([
+      {
+        rel: 'preload',
+        href: 'https://cdn.example.com/hero.jpg',
+        as: 'image',
+        crossOrigin: 'anonymous',
+        referrerPolicy: 'no-referrer',
+      },
+    ]);
+  });
+
   it('drops React-special and event-handler attributes rather than rendering them', () => {
     // `children` on a void element is the one that matters: React throws on it, which would take
     // the page down instead of merely losing a tag.

@@ -17,14 +17,34 @@ import { isRepeatableHeadKey } from './duplicate-head-warning';
  * and are set here. `http-equiv` is excluded on its own merits, see `PageMetadataMetaTag`.
  * Anything starting with `on` is an event handler, which has no business arriving over the wire.
  */
-const FORBIDDEN_TAG_ATTRIBUTES = new Set([
-  'children',
-  'dangerouslySetInnerHTML',
-  'key',
-  'ref',
-  'suppressHydrationWarning',
-  'http-equiv',
-  'httpEquiv',
+const FORBIDDEN_TAG_ATTRIBUTES = new Set(
+  [
+    'children',
+    'dangerouslySetInnerHTML',
+    'key',
+    'ref',
+    'suppressHydrationWarning',
+    'http-equiv',
+    'httpEquiv',
+  ].map((attribute) => attribute.toLowerCase()),
+);
+
+/**
+ * The attributes this file reads back off a built tag, to decide what key it occupies and whether
+ * it says enough to render.
+ *
+ * These are canonicalized to lowercase on the way in. HTML matches attribute names
+ * case-insensitively, so `REL` is a `rel` to the browser, but it is not one to a property lookup:
+ * left as written, a `<link REL="canonical">` would render with no key at all, escaping the
+ * child-override check and the duplicate warning both. Every other attribute keeps the casing it
+ * arrived with, since React's own spellings (`crossOrigin`, `referrerPolicy`) warn when lowercased.
+ */
+const IDENTITY_TAG_ATTRIBUTES = new Set([
+  'name',
+  'property',
+  'rel',
+  'href',
+  'content',
 ]);
 
 /**
@@ -73,9 +93,15 @@ function sanitizeTagAttributes(
   dropped: string[],
 ): Record<string, string> {
   const attributes: Record<string, string> = {};
+  const claimed = new Set<string>();
 
   for (const [name, value] of Object.entries(tag)) {
-    if (FORBIDDEN_TAG_ATTRIBUTES.has(name) || name.startsWith('on')) {
+    // Matched against the lowercased name, because the browser does. `HTTP-EQUIV` is an
+    // `http-equiv` once the HTML is parsed, so a case-sensitive check here would be a filter the
+    // caller opts out of by holding down shift.
+    const lowered = name.toLowerCase();
+
+    if (FORBIDDEN_TAG_ATTRIBUTES.has(lowered) || lowered.startsWith('on')) {
       dropped.push(name);
       continue;
     }
@@ -85,7 +111,17 @@ function sanitizeTagAttributes(
       continue;
     }
 
-    attributes[name] = value;
+    // Two spellings of one attribute are one attribute. The browser keeps the first and ignores
+    // the rest, so this drops the rest rather than emitting a tag whose rendered value is not the
+    // one the checks below read.
+    if (claimed.has(lowered)) {
+      dropped.push(name);
+      continue;
+    }
+
+    claimed.add(lowered);
+
+    attributes[IDENTITY_TAG_ATTRIBUTES.has(lowered) ? lowered : name] = value;
   }
 
   return attributes;
