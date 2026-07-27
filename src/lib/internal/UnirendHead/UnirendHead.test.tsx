@@ -586,7 +586,6 @@ describe('UnirendHead Client-side Helpers', () => {
         body: null,
         metaKeys: [],
         headKeys: new Map(),
-        instanceID: 'test-instance-b',
         markerRef: { current: markerB },
       });
 
@@ -595,7 +594,6 @@ describe('UnirendHead Client-side Helpers', () => {
         body: null,
         metaKeys: [],
         headKeys: new Map(),
-        instanceID: 'test-instance-a',
         markerRef: { current: markerA },
       });
 
@@ -645,7 +643,6 @@ describe('UnirendHead Client-side Helpers', () => {
         body: null,
         metaKeys: [],
         headKeys: new Map(),
-        instanceID: 'test-instance-b',
         markerRef: { current: null as any },
       };
       const regA = {
@@ -653,7 +650,6 @@ describe('UnirendHead Client-side Helpers', () => {
         body: null,
         metaKeys: [],
         headKeys: new Map(),
-        instanceID: 'test-instance-a',
         markerRef: { current: null as any },
       };
 
@@ -942,6 +938,22 @@ describe('UnirendHead Client-side Helpers', () => {
 
       reconcileTemplateMetas(new Set(['name=description']));
       expect(metasInHead(head, 'description')).toHaveLength(1);
+    });
+
+    it('overrides a template meta of either identity a page meta carries', () => {
+      // Matches what the server's template merge strips by. Keyed on the first attribute found,
+      // the og:site_name identity would be invisible and the template's copy would survive a
+      // client-side navigation, sitting ahead of the page's own in document order.
+      const keys = getMetaKeysFromChildren([
+        <meta
+          key="a"
+          name="twitter:title"
+          property="og:site_name"
+          content="Page site name"
+        />,
+      ]);
+
+      expect(keys).toEqual(['name=twitter:title', 'property=og:site_name']);
     });
 
     it('treats a repeated meta key as overriding once, so a stale key set is never held', () => {

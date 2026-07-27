@@ -4,7 +4,7 @@ import { renderToString } from 'react-dom/server';
 import { overrideDevMode } from 'lifecycleion/dev-mode';
 import { UnirendHead } from './UnirendHead';
 import { UnirendHeadProvider } from './UnirendHeadProvider';
-import { _test, buildPageMetadataTags } from './page-metadata-tags';
+import { _test } from './page-metadata-tags';
 import type { HeadCollector } from './context';
 import type {
   PageErrorResponse,
@@ -1384,9 +1384,12 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       expect(renderPageWithBadTag('app-version')).toEqual([]);
     });
 
-    it('warns again for a page revisited after navigating away', () => {
-      // The record tracks what is currently true, not what has ever been true. Leaving a page and
-      // coming back has to say it again, or the one time it printed may have scrolled past.
+    it('prints a message once for the life of the process', () => {
+      // Deliberately flat rather than tracking what is currently true. The per-instance version
+      // that did could not close a pass reliably (the sync it rode on only runs when the DOM needs
+      // something) and pruned live instances during a mounting commit (layout effects run child
+      // before parent, so the first sync sees a partial registration list). Saying it once is the
+      // behavior that holds.
       overrideDevMode(true);
 
       function renderBadPage(): string[] {
@@ -1397,69 +1400,13 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
                 title: 'Bad page',
                 description: 'Bad page',
                 tags: [
-                  {
+                  wireTag({
                     meta: {
                       name: 'app-version',
                       content: '1.2.3',
                       'http-equiv': 'refresh',
                     },
-                  },
-                ],
-              })}
-            />,
-          );
-        });
-      }
-
-      function renderFinePage(): string[] {
-        return captureWarnings(() => {
-          collect(
-            <UnirendHead
-              envelope={createSuccessEnvelope({
-                title: 'Fine page',
-                description: 'Fine page',
-              })}
-            />,
-          );
-        });
-      }
-
-      expect(renderBadPage()).toHaveLength(1);
-
-      // A re-render of the same page, the state change case, stays quiet.
-      _test.flushTagWarnings();
-      expect(renderBadPage()).toEqual([]);
-
-      // Navigate away, and the message is forgotten because it is no longer true.
-      _test.flushTagWarnings();
-      expect(renderFinePage()).toEqual([]);
-
-      _test.flushTagWarnings();
-      expect(renderBadPage()).toHaveLength(1);
-    });
-
-    it('survives the several DOM syncs one commit performs', () => {
-      // The client flushes from updateDOM(), and a single commit calls that more than once: every
-      // mounting instance's effect does, as does an unmounting instance's cleanup. Only the first
-      // follows the render that filled the record, so the later ones have to leave it alone rather
-      // than promote an already-drained one and let every message print again.
-      overrideDevMode(true);
-
-      function renderBadPage(): string[] {
-        return captureWarnings(() => {
-          collect(
-            <UnirendHead
-              envelope={createSuccessEnvelope({
-                title: 'Bad page',
-                description: 'Bad page',
-                tags: [
-                  {
-                    meta: {
-                      name: 'app-version',
-                      content: '1.2.3',
-                      'http-equiv': 'refresh',
-                    },
-                  },
+                  }),
                 ],
               })}
             />,
@@ -1469,18 +1416,13 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
 
       expect(renderBadPage()).toHaveLength(1);
 
-      // One commit, several syncs.
-      _test.flushTagWarnings();
-      _test.flushTagWarnings();
-      _test.flushTagWarnings();
-
+      // Every render after that, whatever happens in between, stays quiet.
+      expect(renderBadPage()).toEqual([]);
       expect(renderBadPage()).toEqual([]);
     });
 
-    it('enters neither record in a production build', () => {
-      // The server never flushes, since a render there is one-shot per request, so anything
-      // entered on a production render is never taken back out. Not reading the record is not
-      // enough on its own, it has to stay empty.
+    it('enters nothing in a production build', () => {
+      // Nothing reads the record outside development, so nothing should enter it either.
       overrideDevMode(false);
       _test.resetTagEntryWarnings();
 
@@ -1503,10 +1445,7 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
         );
       }
 
-      expect(_test.getTagWarningRecordSizes()).toEqual({
-        active: 0,
-        pending: 0,
-      });
+      expect(_test.getPrintedTagMessageCount()).toBe(0);
 
       // The same render in development does enter it, so the assertion above is about the gate
       // and not about the envelope being harmless.
@@ -1531,62 +1470,7 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
         );
       });
 
-      expect(_test.getTagWarningRecordSizes().pending).toBe(1);
-    });
-
-    it('turns over per instance, so a neighbor that did not render keeps its message', () => {
-      // React re-renders the instance whose state changed and not its neighbors. One shared record
-      // could not survive that: the instance that did render would replace it whole, dropping a
-      // layout's message while the layout's bad tag is still there and reprinting it the next time
-      // the layout happens to render. Driven directly rather than through collect(), because a
-      // server render is whole-tree and cannot express one instance rendering without the other.
-      overrideDevMode(true);
-
-      function badMetadata(tagName: string): PageMetadata {
-        return {
-          title: 'Bad page',
-          description: 'Bad page',
-          tags: [
-            {
-              meta: {
-                name: tagName,
-                content: '1.2.3',
-                'http-equiv': 'refresh',
-              },
-            },
-          ],
-        };
-      }
-
-      const layoutMetadata = badMetadata('layout-version');
-      const pageMetadata = badMetadata('page-version');
-      const bothMounted = new Set(['layout', 'page']);
-
-      function renderInstance(owner: string, metadata: PageMetadata): string[] {
-        return captureWarnings(() => {
-          _test.markTagWarningPass(owner);
-          buildPageMetadataTags(metadata, new Set());
-        });
-      }
-
-      expect(renderInstance('layout', layoutMetadata)).toHaveLength(1);
-      expect(renderInstance('page', pageMetadata)).toHaveLength(1);
-      _test.flushTagWarnings(bothMounted);
-
-      // Only the page re-renders. Its own message is still standing, so it stays quiet.
-      expect(renderInstance('page', pageMetadata)).toEqual([]);
-      _test.flushTagWarnings(bothMounted);
-
-      // And so is the layout's, which the page's pass must not have carried off with it.
-      expect(renderInstance('layout', layoutMetadata)).toEqual([]);
-      _test.flushTagWarnings(bothMounted);
-
-      // Unmount the layout, and the first sync that follows a render forgets it, so coming back
-      // to that page says so again.
-      expect(renderInstance('page', pageMetadata)).toEqual([]);
-      _test.flushTagWarnings(new Set(['page']));
-
-      expect(renderInstance('layout', layoutMetadata)).toHaveLength(1);
+      expect(_test.getPrintedTagMessageCount()).toBe(1);
     });
 
     it('says nothing when every entry renders whole', () => {

@@ -3,14 +3,16 @@ import type { ReactNode } from 'react';
 import { UnirendHeadContext } from './context';
 import type { HeadCollector } from './context';
 import { HTML_BOOLEAN_ATTRIBUTES } from '../html-utils/escape';
-import { getMetaKey, getMetaKeyFromElement } from '../html-utils/meta-key';
+import {
+  getMetaKey,
+  getMetaKeyFromElement,
+  getMetaKeys,
+} from '../html-utils/meta-key';
 import { TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
 import { serializeStyleObject, toHeadAttributes } from './head-attributes';
 import { scanHeadKeys } from './head-keys';
 import {
   buildPageMetadataTags,
-  flushTagWarnings,
-  markTagWarningPass,
   resolvePageMetadata,
 } from './page-metadata-tags';
 import {
@@ -87,18 +89,13 @@ export interface UnirendHeadProps {
 export function UnirendHead({ children, envelope }: UnirendHeadProps) {
   const collector = useContext(UnirendHeadContext);
 
-  // Identifies this instance to the two warning records, both of which outlive a single render
+  // Identifies this instance to the server-side duplicate record, which outlives a single render
   // pass. `useId` is derived from the instance's position in the tree rather than from hook state,
   // so a subtree React renders more than once for one request (a sibling suspending inside the
   // same boundary) comes back with the same id and is recognized as the same instance. A ref would
-  // not survive that.
+  // not survive that. The client identifies an instance by its registration object instead, see
+  // updateDOM().
   const instanceID = React.useId();
-
-  // Opens a warning pass for the envelope projection, so the commit-time flush can tell a sync
-  // that follows a render from the several that follow the same one, and so this instance's
-  // messages turn over on its own passes rather than on a neighbor's. Unconditional, because a
-  // render that warns about nothing is how a message stops being true.
-  markTagWarningPass(instanceID);
 
   // Envelope prepass: resolve the merge before anything is collected, then hand the rest of this
   // component one ordinary child list. Children claim their keys first, so a declared tag wins
@@ -196,7 +193,6 @@ export function UnirendHead({ children, envelope }: UnirendHeadProps) {
         body: bodyAttrs,
         metaKeys,
         headKeys,
-        instanceID,
         markerRef,
       };
       registeredList.push(registrationRef.current);
@@ -297,15 +293,6 @@ interface RegisteredAttrs {
   body: Record<string, string> | null;
   metaKeys: string[];
   headKeys: Map<string, string>;
-
-  /**
-   * The instance's `useId`, which is what the envelope projection's warning record keys on. Held
-   * here so the sync can tell that record which instances are still mounted, and let it drop the
-   * messages of one that is not. The duplicate record identifies an instance by this object
-   * instead, since it is rebuilt in document order on every sync and never sees one twice.
-   */
-  instanceID: string;
-
   markerRef: React.RefObject<HTMLTemplateElement | null>;
 }
 
@@ -517,11 +504,12 @@ function getMetaKeysFromChildren(children: ReactNode): string[] {
       return;
     }
 
-    const key = getMetaKey(
+    // Every identity the meta carries, matching what the server's template merge strips by. One
+    // written as `name="twitter:title" property="og:site_name"` overrides a template meta of
+    // either identity, so both have to be in here or the two sides disagree after a navigation.
+    for (const key of getMetaKeys(
       toHeadAttributes(child.props as Record<string, unknown>),
-    );
-
-    if (key !== null) {
+    )) {
       keys.add(key);
     }
   });
@@ -791,7 +779,6 @@ function updateDOM(): void {
   const htmlStack: Array<Record<string, string>> = [];
   const bodyStack: Array<Record<string, string>> = [];
   const declaredMetaKeys = new Set<string>();
-  const mountedInstanceIDs = new Set<string>();
 
   // Development-only: detect the same key coming from two separate instances. Done here rather
   // than during render so it reads the committed, document-ordered set of mounted instances once,
@@ -812,8 +799,6 @@ function updateDOM(): void {
     for (const key of item.metaKeys) {
       declaredMetaKeys.add(key);
     }
-
-    mountedInstanceIDs.add(item.instanceID);
 
     if (shouldWarnOnDuplicates) {
       duplicateReports.push(
@@ -836,15 +821,6 @@ function updateDOM(): void {
     warnedDuplicateKeys = new Set(duplicateReports.map((report) => report.key));
     warnDuplicateHeadKeys(fresh);
   }
-
-  // The envelope projection's warnings are produced during render rather than here, so this is
-  // where its record turns over too, leaving it describing the currently mounted pages rather than
-  // everything the session has ever seen. The instances above are the mounted ones, so handing
-  // them over is what forgets the page you just navigated away from. Deliberately not folded into
-  // the branch above: the two warnings answer to the same dev-mode signal today, and if that ever
-  // stops being true, this record going stale would be a silent failure rather than a visible one.
-  // In production nothing ever enters it, so this is a walk over an empty map.
-  flushTagWarnings(mountedInstanceIDs);
 
   applyAttributes(document.documentElement, initialHTMLAttrs || {}, htmlStack);
   applyAttributes(document.body, initialBodyAttrs || {}, bodyStack);

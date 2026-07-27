@@ -5,7 +5,7 @@ import {
 } from '../consts';
 import { getDevMode } from 'lifecycleion/dev-mode';
 import { escapeHTMLAttr, decodeHTML, HTML_BOOLEAN_ATTRIBUTES } from './escape';
-import { getMetaKey } from './meta-key';
+import { getMetaKey, getMetaKeys } from './meta-key';
 
 // Prettify all head tags: each tag (<title>, <meta>, <link>, etc.) on its own line, indented
 export function prettifyHeadTags(head: string, indent = TAB_SPACES): string {
@@ -266,9 +266,11 @@ export function mergeTemplateMetas(
   const pageMetaKeys = new Set<string>();
 
   for (const meta of findHeadTags(headContent, 'meta')) {
-    const key = getMetaKey(meta.attrs);
-
-    if (key !== null) {
+    // Every identity the page's meta carries, not just the first. A page meta written as
+    // `name="twitter:title" property="og:site_name"` is both of those tags, so it overrides a
+    // template meta of either identity. The template's own key below stays singular, because that
+    // is what the baseline is stored and marked under and the client has to agree with it.
+    for (const key of getMetaKeys(meta.attrs)) {
       pageMetaKeys.add(key);
     }
   }

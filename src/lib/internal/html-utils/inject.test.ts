@@ -588,6 +588,21 @@ describe('template head baseline merge', () => {
         expect($('meta[charset]').length).toBe(1);
       });
 
+      it('should let a page meta carrying two identities override either one', async () => {
+        // `name="twitter:title" property="og:site_name"` is both of those tags, so it replaces the
+        // template's og:site_name rather than shipping alongside it. Keyed on the first attribute
+        // found, the og:site_name identity would be invisible here and both would be served.
+        const $ = await renderHead(
+          path,
+          '<meta name="twitter:title" property="og:site_name" content="Page site name" />',
+        );
+
+        expect($('meta[property="og:site_name"]').length).toBe(1);
+        expect($('meta[property="og:site_name"]').attr('content')).toBe(
+          'Page site name',
+        );
+      });
+
       it('should drop the page-owned SEO tags from the template while keeping the site-wide ones', async () => {
         const $ = await renderHead(path, '');
 

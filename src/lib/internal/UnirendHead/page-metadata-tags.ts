@@ -278,151 +278,36 @@ interface EmittedField {
 }
 
 /**
- * Messages still standing from the last committed pass, and the ones this pass has produced.
+ * Messages already printed, so a mistake is reported once rather than on every render.
  *
  * A render happens on every state change, not just on navigation, so a message that printed every
- * time would bury itself. But the record cannot simply accumulate for the session either: leave
- * a page and come back and you would be told nothing, having possibly never seen the first one.
+ * time would bury itself and the warning would become noise people filter out.
  *
- * So it tracks what is currently true rather than what has ever been true, the same way the
- * duplicate warning does. `active` suppresses a repeat while the same problem is still there, and
- * `flushTagWarnings()` replaces it with what this pass found, which forgets anything that went
- * away. Navigating back to a page that still has the mistake says so again.
+ * Deliberately flat, and deliberately for the life of the process. An earlier version tracked what
+ * was currently true instead: per instance, turned over on each commit, pruned when an instance
+ * unmounted, so that leaving a page and coming back said it again. That is a nicer promise and it
+ * did not survive contact with React. Closing a pass needs a commit that reliably runs, and the
+ * sync it rode on only runs when the DOM actually needs something, so a mistake you fixed stayed
+ * on the record. Pruning needs the set of mounted instances, and layout effects run child before
+ * parent, so the first sync of a mounting commit sees a partial one and drops a live instance's
+ * message. Both of those are worse in practice than saying it once, because a warning that
+ * reappears when nothing changed is one you learn to ignore.
  *
- * Kept per instance rather than as one set apiece, because React re-renders the instance whose
- * state changed and not its neighbors. A single set would be replaced wholesale by whatever that
- * one instance reported, dropping a layout's message while the layout's bad tag is still there,
- * and reprinting it the next time the layout happens to render. Each instance's entry turns over
- * only on a pass it took part in, so the record is the union of what the mounted instances
- * currently say.
+ * So: printed once, and the next full reload says it again. In development that is a page refresh.
  */
-const activeTagMessages = new Map<unknown, Set<string>>();
-const pendingTagMessages = new Map<unknown, Set<string>>();
+const printedTagMessages = new Set<string>();
 
 /**
- * The instance whose render pass is open, so a message lands in that instance's record.
- *
- * Safe as a single module value because a React render function runs synchronously start to
- * finish: `markTagWarningPass()` and the `buildPageMetadataTags()` call that may warn are in the
- * same uninterrupted stretch of one component's render, with no await between them.
- */
-let currentTagWarningOwner: unknown = null;
-
-/**
- * Open a warning pass for one instance, from the render that may fill it.
- *
- * Called for every render rather than only for the ones that warn, because a pass finding nothing
- * is exactly how a message stops being true: that instance's entry turns over to empty and the
- * mistake is reported again if it comes back.
- *
- * Development-only, like everything else these records feed. A production build must not enter the
- * record at all, not merely never read it: the server never flushes, since a render there is
- * one-shot per request, so an entry made there is one nothing ever takes back out. That is a `Set`
- * allocated per instance per render for a message that cannot be printed, and on an app rendering
- * a `UnirendHead` at a data-dependent position, one that keeps finding new `useId` values to key
- * on. Gated here rather than at the call site, so the record cannot be entered from anywhere
- * without the gate coming along.
- */
-export function markTagWarningPass(owner: unknown): void {
-  if (!getDevMode()) {
-    return;
-  }
-
-  currentTagWarningOwner = owner;
-  pendingTagMessages.set(owner, new Set());
-}
-
-/**
- * Close a client sync, promoting what this pass reported to what is currently true.
- *
- * Called from the same commit-time pass that flushes the duplicate warning, so both records turn
- * over together. The server never calls it, which is what it wants: renders there are one-shot per
- * request, and a handler-side mistake should log once for the process rather than once per request.
- *
- * An empty `pendingTagMessages` means no render has happened since the last turnover, so this is
- * not a sync that closes one. That matters because a single commit performs several: every
- * mounting instance's effect calls it, as does an unmounting instance's cleanup. Only the first of
- * those follows the render that filled the record, and the rest have to leave it alone rather than
- * promote an already-drained one and let every message print again on the next render.
- *
- * `liveOwners`, when given, is the set of instances still mounted, and any other instance's entry
- * is dropped. That is what forgets a page you navigated away from. It is left out by the tests
- * that only exercise the turnover, and by nothing else.
- */
-export function flushTagWarnings(liveOwners?: ReadonlySet<unknown>): void {
-  if (pendingTagMessages.size === 0) {
-    return;
-  }
-
-  for (const [owner, messages] of pendingTagMessages) {
-    activeTagMessages.set(owner, messages);
-  }
-
-  pendingTagMessages.clear();
-
-  if (liveOwners === undefined) {
-    return;
-  }
-
-  for (const owner of activeTagMessages.keys()) {
-    if (!liveOwners.has(owner)) {
-      activeTagMessages.delete(owner);
-    }
-  }
-}
-
-/**
- * Test-only hooks, since the warning records are module state that would otherwise leak from one
- * test into the next.
+ * Test-only hooks, since the record is module state that would otherwise leak from one test into
+ * the next.
  */
 export const _test = {
-  /** Both record sizes, so a test can prove a production render enters neither. */
-  getTagWarningRecordSizes: (): { active: number; pending: number } => ({
-    active: activeTagMessages.size,
-    pending: pendingTagMessages.size,
-  }),
+  /** The record size, so a test can prove a production render never enters it. */
+  getPrintedTagMessageCount: (): number => printedTagMessages.size,
   resetTagEntryWarnings: (): void => {
-    activeTagMessages.clear();
-    pendingTagMessages.clear();
-    currentTagWarningOwner = null;
+    printedTagMessages.clear();
   },
-  markTagWarningPass,
-  flushTagWarnings,
 };
-
-/**
- * Whether any mounted instance is already standing on this message.
- *
- * Across instances rather than within one, so the same mistake returned by a layout and a page is
- * one message and prints once. It is also what keeps the server quiet: nothing there ever flushes,
- * so an instance's entry is only ever added to, and a handler-side mistake logs once for the
- * process instead of once per request.
- */
-function isTagMessageActive(message: string): boolean {
-  for (const messages of activeTagMessages.values()) {
-    if (messages.has(message)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Add a message to one of the two records, opening the instance's entry if the pass did not.
- */
-function recordTagMessage(
-  record: Map<unknown, Set<string>>,
-  message: string,
-): void {
-  const messages = record.get(currentTagWarningOwner);
-
-  if (messages) {
-    messages.add(message);
-  } else {
-    record.set(currentTagWarningOwner, new Set([message]));
-  }
-}
 
 /**
  * Print one development-only warning about `tags`, unless the same one is already standing.
@@ -435,15 +320,11 @@ function warnAboutTags(lines: string[]): void {
     '\n',
   );
 
-  recordTagMessage(pendingTagMessages, message);
-
-  if (isTagMessageActive(message)) {
+  if (printedTagMessages.has(message)) {
     return;
   }
 
-  // Recorded as active at print time and not only at the flush, so a re-render that happens before
-  // any DOM sync does not print it a second time.
-  recordTagMessage(activeTagMessages, message);
+  printedTagMessages.add(message);
 
   // eslint-disable-next-line no-console
   console.warn(message);

@@ -567,15 +567,12 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
     };
   }
 
-  let nextInstanceID = 0;
-
   function register(headKeys: Map<string, string>) {
     const entry = {
       html: null,
       body: null,
       metaKeys: [],
       headKeys,
-      instanceID: `test-instance-${(nextInstanceID += 1)}`,
       markerRef: { current: null },
     };
 
