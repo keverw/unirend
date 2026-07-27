@@ -5,6 +5,7 @@ import { overrideDevMode } from 'lifecycleion/dev-mode';
 import { UnirendHead } from './UnirendHead';
 import { UnirendHeadProvider } from './UnirendHeadProvider';
 import { _test } from './page-metadata-tags';
+import { setRepeatableHeadKeys } from './duplicate-head-warning';
 import type { HeadCollector } from './context';
 import type {
   PageErrorResponse,
@@ -885,6 +886,307 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
     expect(collector.links).toHaveLength(1);
   });
 
+  it('takes a structured sub-property with the parent a child replaced', () => {
+    // A child replaces everything the envelope contributed for its key, and og:image:width is its
+    // own key, so on a key comparison alone it would outlive the og:image it belongs to and end up
+    // stating the width of the child's picture instead of the one the handler measured. A wrong
+    // claim is worse than a missing one, so it goes with its parent.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          og: { image: 'https://example.com/first.png' },
+          tags: [
+            {
+              meta: {
+                property: 'og:image',
+                content: 'https://example.com/second.png',
+              },
+            },
+            { meta: { property: 'og:image:width', content: '1200' } },
+          ],
+        })}
+      >
+        <meta property="og:image" content="https://example.com/child.png" />
+      </UnirendHead>,
+    );
+
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+      { property: 'og:image', content: 'https://example.com/child.png' },
+    ]);
+  });
+
+  it('takes an og member sub-property with the parent a child replaced', () => {
+    // The og object is the documented way to write a sub-property, so it has to follow the same
+    // rule the tags list does. Two spellings that merge into one set of tags cannot answer to
+    // different rules, or the primary one is the one that gets it wrong.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          og: {
+            image: 'https://example.com/first.png',
+            'image:width': '1200',
+            'image:height': '630',
+          },
+        })}
+      >
+        <meta property="og:image" content="https://example.com/child.png" />
+      </UnirendHead>,
+    );
+
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+      { property: 'og:image', content: 'https://example.com/child.png' },
+    ]);
+  });
+
+  it('nests a name vocabulary too, so twitter:image:alt follows its image', () => {
+    // Twitter cards spell the same convention on `name` rather than `property`. Nesting only
+    // `property` would make the vocabulary a page happens to use decide whether its sub-properties
+    // are handled.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: [
+            {
+              meta: {
+                name: 'twitter:image',
+                content: 'https://example.com/t.png',
+              },
+            },
+            { meta: { name: 'twitter:image:alt', content: 'Handler alt' } },
+          ],
+        })}
+      >
+        <meta name="twitter:image" content="https://example.com/child.png" />
+      </UnirendHead>,
+    );
+
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+      { name: 'twitter:image', content: 'https://example.com/child.png' },
+    ]);
+  });
+
+  it('leaves og:locale:alternate alone, which only looks like a sub-property', () => {
+    // The reason the structured parents are written out rather than read off the colon.
+    // og:locale:alternate lists the other locales the page exists in, so it says nothing about the
+    // og:locale a page declares and a blanket colon rule would wrongly take it.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          og: { locale: 'en_US', 'locale:alternate': 'fr_FR' },
+        })}
+      >
+        <meta property="og:locale" content="de_DE" />
+      </UnirendHead>,
+    );
+
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+      { property: 'og:locale:alternate', content: 'fr_FR' },
+      { property: 'og:locale', content: 'de_DE' },
+    ]);
+  });
+
+  it('does not nest a vocabulary of your own that happens to use a colon', () => {
+    // Only the five known structured objects sweep. An app's own namespaced metas are matched by
+    // exact key like everything else.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: [
+            { meta: { name: 'app:config', content: 'from envelope' } },
+            { meta: { name: 'app:config:version', content: '1.2.3' } },
+          ],
+        })}
+      >
+        <meta name="app:config" content="from child" />
+      </UnirendHead>,
+    );
+
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+      { name: 'app:config:version', content: '1.2.3' },
+      { name: 'app:config', content: 'from child' },
+    ]);
+  });
+
+  it('sweeps a structured parent written on either attribute', () => {
+    // OpenGraph documents `property` and Twitter documents `name`, but each parser takes the other
+    // and real pages write it both ways, so keying on one spelling would leave the sweep silently
+    // not happening for the other.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: [
+            {
+              meta: {
+                property: 'twitter:image',
+                content: 'https://example.com/t.png',
+              },
+            },
+            { meta: { property: 'twitter:image:alt', content: 'Handler alt' } },
+          ],
+        })}
+      >
+        <meta property="twitter:image" content="https://example.com/c.png" />
+      </UnirendHead>,
+    );
+
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+      { property: 'twitter:image', content: 'https://example.com/c.png' },
+    ]);
+  });
+
+  it('does not read a namespace prefix as a parent a child could claim', () => {
+    // The walk stops before the leading segment, so a child declaring the bare `og` prefix claims
+    // nothing beneath it. `og` is a namespace, not a property anyone describes a page with.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: [
+            {
+              meta: {
+                property: 'og:image',
+                content: 'https://example.com/second.png',
+              },
+            },
+          ],
+        })}
+      >
+        <meta property="og" content="not a real property" />
+      </UnirendHead>,
+    );
+
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+      { property: 'og:image', content: 'https://example.com/second.png' },
+      { property: 'og', content: 'not a real property' },
+    ]);
+  });
+
+  it('leaves a sub-property alone when the child claimed a different parent', () => {
+    // Only the parent a child actually declared sweeps up its sub-properties. An og:video child
+    // has nothing to say about the handler's image.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: [
+            {
+              meta: {
+                property: 'og:image',
+                content: 'https://example.com/second.png',
+              },
+            },
+            { meta: { property: 'og:image:width', content: '1200' } },
+          ],
+        })}
+      >
+        <meta property="og:video" content="https://example.com/v.mp4" />
+      </UnirendHead>,
+    );
+
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+      { property: 'og:image', content: 'https://example.com/second.png' },
+      { property: 'og:image:width', content: '1200' },
+      { property: 'og:video', content: 'https://example.com/v.mp4' },
+    ]);
+  });
+
+  it('lets a child replace a repeatable relation the handler listed', () => {
+    // preload is the case that stings: a page preloading one asset of its own is not thinking
+    // about the handler's at all. The rule is the same one everywhere, so the entries go, and the
+    // warning below is what keeps that from being a silent loss.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: [
+            { link: { rel: 'preload', as: 'font', href: '/a.woff2' } },
+            { link: { rel: 'preload', as: 'font', href: '/b.woff2' } },
+          ],
+        })}
+      >
+        <link rel="preload" as="image" href="/hero.png" />
+      </UnirendHead>,
+    );
+
+    expect(collector.links).toEqual([
+      { rel: 'preload', as: 'image', href: '/hero.png' },
+    ]);
+  });
+
+  it('still lets a child claim a singular key over an entry', () => {
+    // canonical is single-value, so nothing about the rule is special here: the child overrides it
+    // and the entry is dropped, exactly as it loses to the canonical field.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: [
+            { link: { rel: 'canonical', href: 'https://example.com/entry' } },
+          ],
+        })}
+      >
+        <link rel="canonical" href="https://example.com/child" />
+      </UnirendHead>,
+    );
+
+    expect(collector.links).toEqual([
+      { rel: 'canonical', href: 'https://example.com/child' },
+    ]);
+  });
+
+  it('applies an app-declared repeatable key in a production build', () => {
+    // setRepeatableHeadKeys is not development-only. The duplicate warning it feeds is, but the
+    // same list decides which entries survive a named field producing the same key, and that runs
+    // in every build. It has no say over a child, which replaces its key whatever the key is.
+    // Pinned here so the doc claim and this cannot drift apart again.
+    overrideDevMode(false);
+
+    const envelope = createSuccessEnvelope({
+      title: 'Home',
+      description: 'Named description',
+      tags: [{ meta: { name: 'description', content: 'Entry description' } }],
+    });
+
+    try {
+      expect(collect(<UnirendHead envelope={envelope} />).metas).toEqual([
+        { name: 'description', content: 'Named description' },
+      ]);
+
+      setRepeatableHeadKeys(['description']);
+
+      expect(collect(<UnirendHead envelope={envelope} />).metas).toEqual([
+        { name: 'description', content: 'Named description' },
+        { name: 'description', content: 'Entry description' },
+      ]);
+    } finally {
+      setRepeatableHeadKeys([]);
+    }
+  });
+
   it('lets an entry join a named field on a key that repeats by nature', () => {
     // An object cannot hold a second `image`, so the docs point at `tags` for a page offering
     // several. Dropping these as collisions would make that advice impossible to follow.
@@ -1238,7 +1540,10 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       expect(warnings[0]).not.toContain('a link needs rel and href');
     });
 
-    it('stays silent when a child claims the key, which is the documented override', () => {
+    it('says which entries a child claiming the key replaced', () => {
+      // The override itself is the documented point of the prop and needs no commentary, but the
+      // entry is a tag the handler wrote that is not in the head, and that reads as a handler bug
+      // until you know a child took it.
       overrideDevMode(true);
 
       const warnings = captureWarnings(() => {
@@ -1251,6 +1556,121 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
             })}
           >
             <meta name="app-version" content="from child" />
+          </UnirendHead>,
+        );
+      });
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain(
+        '1 meta.page.tags entry for name=app-version was dropped',
+      );
+      expect(warnings[0]).toContain('"from entry"');
+    });
+
+    it('counts the entries one child key replaced into a single message', () => {
+      // Several entries losing to one child is one mistake to look at, not one per entry, and the
+      // count is the part that says how much went missing. The sub-property is in here too, since
+      // it left with the og:image it belongs to rather than on a key of its own.
+      overrideDevMode(true);
+
+      const warnings = captureWarnings(() => {
+        collect(
+          <UnirendHead
+            envelope={createSuccessEnvelope({
+              title: 'Home',
+              description: 'Home description',
+              tags: [
+                {
+                  meta: {
+                    property: 'og:image',
+                    content: 'https://example.com/second.png',
+                  },
+                },
+                { meta: { property: 'og:image:width', content: '1200' } },
+              ],
+            })}
+          >
+            <meta property="og:image" content="https://example.com/child.png" />
+          </UnirendHead>,
+        );
+      });
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain(
+        '2 meta.page.tags entries for property=og:image were dropped',
+      );
+      expect(warnings[0]).toContain('"https://example.com/second.png", "1200"');
+    });
+
+    it('says so when a child replaces a repeatable relation the handler listed', () => {
+      overrideDevMode(true);
+
+      const warnings = captureWarnings(() => {
+        collect(
+          <UnirendHead
+            envelope={createSuccessEnvelope({
+              title: 'Home',
+              description: 'Home description',
+              tags: [
+                { link: { rel: 'preload', as: 'font', href: '/a.woff2' } },
+                { link: { rel: 'preload', as: 'font', href: '/b.woff2' } },
+              ],
+            })}
+          >
+            <link rel="preload" as="image" href="/hero.png" />
+          </UnirendHead>,
+        );
+      });
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain(
+        '2 meta.page.tags entries for rel=preload were dropped',
+      );
+      expect(warnings[0]).toContain('"/a.woff2", "/b.woff2"');
+    });
+
+    it('stays silent for an og member sub-property a child swept up', () => {
+      // The "A Tag Is Not in the Head" table promises no warning for this row, and the silence is
+      // the deliberate half: og members are named-field contributions, and a named field a child
+      // replaces is the ordinary way to use the prop. Pinned so the table and the code cannot
+      // drift, since every other warn-or-stay-silent decision here is asserted directly.
+      overrideDevMode(true);
+
+      const warnings = captureWarnings(() => {
+        collect(
+          <UnirendHead
+            envelope={createSuccessEnvelope({
+              title: 'Home',
+              description: 'Home description',
+              og: {
+                image: 'https://example.com/first.png',
+                'image:width': '1200',
+              },
+            })}
+          >
+            <meta property="og:image" content="https://example.com/child.png" />
+          </UnirendHead>,
+        );
+      });
+
+      expect(warnings).toEqual([]);
+    });
+
+    it('stays silent when a child replaces a named field, which says nothing new', () => {
+      // The single-field override with no `tags` involved. This is the ordinary way to use the
+      // prop, so warning on it would fire on correct code every time.
+      overrideDevMode(true);
+
+      const warnings = captureWarnings(() => {
+        collect(
+          <UnirendHead
+            envelope={createSuccessEnvelope({
+              title: 'Home',
+              description: 'Envelope description',
+              canonical: 'https://example.com/',
+            })}
+          >
+            <meta name="description" content="Child description" />
           </UnirendHead>,
         );
       });

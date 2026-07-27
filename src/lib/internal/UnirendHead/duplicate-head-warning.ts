@@ -52,9 +52,19 @@ let appRepeatableHeadKeys = new Set<string>();
  * allowance nobody can find. Keys are written the way an author thinks of them (`'description'`,
  * `'og:image'`, `'canonical'`), and the internal `attribute=value` form is accepted too.
  *
- * Development-only in effect, since the warning it feeds never runs in a production build. If a
- * key repeats for everyone rather than only for you, it belongs in the built-in list instead, so
- * that everyone gets it.
+ * Not development-only, so name a key here because it really does repeat and not to quiet
+ * something. The duplicate warning is the visible half and never runs in a production build, but
+ * `isRepeatableHeadKey()` also decides which `meta.page.tags` entries survive a named
+ * `PageMetadata` field producing the same key, and that runs in every build. So a key declared
+ * here can change which tags a production page emits: a `tags` entry for it renders alongside the
+ * field rather than losing to it, exactly as a built-in repeatable key does.
+ *
+ * It has no say over a child. A tag declared as a `UnirendHead` child replaces everything the
+ * envelope contributed for its key whatever the key is, so this list cannot rescue an entry from
+ * one. See `buildPageMetadataTags()`.
+ *
+ * If a key repeats for everyone rather than only for you, it belongs in the built-in list instead,
+ * so that everyone gets it.
  */
 export function setRepeatableHeadKeys(keys: string[]): void {
   appRepeatableHeadKeys = new Set(

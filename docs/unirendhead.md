@@ -245,7 +245,7 @@ The details:
 
 - **`title`, `description`, and `image` render first**, in that order, then the rest in the order the handler wrote them.
 - **A key already carrying the prefix is not prefixed twice.** `{ 'og:type': 'article' }` and `{ type: 'article' }` both produce `og:type`, so the two spellings are the same property rather than two different ones. Write whichever reads better, and if you somehow write both, the first one rendered wins and one meta is emitted, not two. Casing does not create a second property either.
-- **Members are matched by a child the same way**, so `<meta property="og:type" content="website" />` overrides an `og.type` from the envelope.
+- **Members are matched by a child the same way**, so `<meta property="og:type" content="website" />` overrides an `og.type` from the envelope. A child claiming a structured parent takes the members beneath it too: an `og:image` child replaces `og.image` and the `og['image:width']` written next to it, rather than leaving the width measuring the child's picture.
 - **The same value rules apply.** A member that is not a populated string renders nothing, and a key that is not a usable property name is skipped.
 
 A property that legitimately repeats, such as a second `og:image` with its own `og:image:width`, cannot be expressed by an object with unique keys. Use [`tags`](#custom-tags) for those, which is a list precisely so repeats are possible. Those entries render alongside the `og` object rather than colliding with it, so the first image can stay in `og.image` where it reads naturally:
@@ -292,9 +292,11 @@ The rules:
 - **A `link` needs `rel` and `href`.**
 - **One entry is one tag.** An entry carrying both a `meta` and a `link` renders neither, because there is no reading of it that recovers which was meant, and picking one would drop the other in silence. `PageMetadataTag` writes the unused kind as `never`, so this too is a build error for a handler using the types. Leaving the other kind out, or setting it to `undefined` or `null`, is the ordinary case and not this one.
 - **Any other attribute passes through as written.** `media` on a `theme-color`, `hreflang` on an alternate, `type` and `sizes` on an icon. Casing is kept, since React's own spellings (`crossOrigin`, `referrerPolicy`) warn when lowercased. The exceptions are `name`, `property`, `rel`, `href`, and `content`, which are lowercased so the tag keys the same way however they were written, and two spellings of one attribute collapse to the first, which is the one a browser would keep.
-- **A child still wins.** An entry whose key a child claims is skipped, the same as a named field.
+- **A child replaces everything the envelope contributed for its key.** Declare `og:image` as a child and the `og.image` field and every `og:image` entry step aside, however many there were, because a page saying which image it has is an override at any count. Repeatability does not enter into it, and neither does how many tags you declare: the key is either claimed or it is not, so one child `og:image` and five say the same thing. In development the replaced entries warn, counted and named, since a list the handler wrote that is not in the head otherwise reads as a handler bug rather than as your own child doing its job. Replacing a named field alone stays silent, because that is the ordinary way to use the prop.
+- **The sub-properties of a structured object go with it.** Matching is by exact key, with one exception: `og:image:width` is its own key, so on exact matching alone it would outlive the `og:image` it belongs to and end up stating the width of the child's picture instead of the one the handler measured. A wrong claim is worse than a missing one, so a child replacing `og:image`, `og:video`, `og:audio`, `twitter:image`, or `twitter:player` takes the `:`-suffixed tags describing it along. Either attribute counts for all five, since OpenGraph documents `property` and Twitter documents `name` but each parser takes the other, and real pages write it both ways. That holds however they were written, as `og` members (`og: { image, 'image:width' }`) or as `tags` entries, since those are two spellings that merge into one set of tags and cannot answer to different rules.
+- **Nothing else nests, even when it looks like it.** Those five are written out rather than read off the colon, because the colon does not reliably mean "describes the thing to its left". `og:locale:alternate` is spelled exactly like a sub-property and is not one, it lists the other locales the page exists in, so a child declaring `og:locale` leaves it alone. Same for anything of your own: an `app:config` child has no claim on an `app:config:version` entry. And a sweep only ever runs under the parent a child actually declared, so an `og:video` child never touches the handler's `og:image`.
 - **A named field wins over an entry, for single-value keys.** A `{ link: { rel: 'canonical' } }` entry is skipped when the `canonical` field is populated, so the two cannot ship as a pair of canonicals. In development the dropped entry warns, naming the field and both values, since both sides came from the same handler and neither can be read as the intended one.
-- **Keys that repeat by nature are exempt from that.** An `og:image` entry renders alongside the `og.image` field rather than losing to it, which is what makes a page with several images expressible. The list is the same one the [duplicate warning](#development-only-duplicate-warning) uses: the repeatable `og:*` properties, `article:*`, `book:*`, `theme-color`, and every link relation except `canonical`, `manifest`, and `amphtml`.
+- **Keys that repeat by nature are exempt from that last one.** An `og:image` entry renders alongside the `og.image` field rather than losing to it, which is what makes a page with several images expressible. Both sides came from the same handler there, so there is no override to read into it, unlike a child. The list is the same one the [duplicate warning](#development-only-duplicate-warning) uses: the repeatable `og:*` properties, `article:*`, `book:*`, `theme-color`, and every link relation except `canonical`, `manifest`, and `amphtml`.
 - **Entries do not deduplicate against each other.** Two `rel="alternate"` links, or a light and dark `theme-color` pair, are correct output rather than a duplicate to collapse, which is why `tags` is a list and not a map.
 - **Entries render after the named fields**, and children after both.
 
@@ -304,7 +306,7 @@ One relation is refused on the same grounds. A `link` whose `rel` names `stylesh
 
 Everything else follows [Malformed Envelopes](#malformed-envelopes): non-string values are dropped rather than coerced, and an unusable entry costs only itself.
 
-None of that is silent in development. An entry that renders nothing, an attribute stripped from one that otherwise rendered, and an entry dropped for colliding with a named field each print one console warning naming the entry's index and what happened:
+None of that is silent in development. An entry that renders nothing, an attribute stripped from one that otherwise rendered, an entry dropped for colliding with a named field, and the entries a child's key replaced each print one console warning. The first three name the entry's index and what happened, and the last is counted by key, so several entries losing to one child read as one thing to look at:
 
 ```text
 [unirend] UnirendHead: meta.page.tags[0] (app-version) rendered without its http-equiv and onLoad.
@@ -312,6 +314,17 @@ None of that is silent in development. An entry that renders nothing, an attribu
   style (React reads it as an object, so the string form throws),
   React's own props (children, dangerouslySetInnerHTML, key, ref), or on* handlers, and every value must be a string.
   Declare those as a UnirendHead child instead, where they are not wire-controlled.
+  This warning only runs in development.
+```
+
+The child one reads by key and count instead, since that is the question it answers, and the sub-properties that left with their parent are in the same tally:
+
+```text
+[unirend] UnirendHead: 2 meta.page.tags entries for property=og:image were dropped, because a child declares that key.
+  dropped: "https://example.com/second.png", "1200"
+  A child replaces everything the envelope contributed for its key, and where that key names a
+  structured object (og:image, og:video, og:audio, twitter:image, twitter:player), the sub-properties describing it.
+  Declare the extra tags as children too, or drop the child, if you meant to keep them.
   This warning only runs in development.
 ```
 
@@ -392,7 +405,8 @@ If you are looking at a tag that is not there and no warning was printed, it is 
 | A `tags` entry's `rel="stylesheet"` | Refused, see [Custom Tags](#custom-tags) | Yes |
 | One attribute of a tag that otherwise rendered | `http-equiv`, `style`, `on*`, React's own props, a non-string value, or a name HTML would not accept | Yes |
 | A `tags` entry whose key a named field already produced | The field wins for single-value keys | Yes |
-| A `tags` entry or field whose key a child claims | The documented child override, and the intended outcome | No |
+| A field whose key a child claims, or an `og` member beneath a structured key a child claims | The documented child override, and the intended outcome | No |
+| A `tags` entry whose key a child claims, or a sub-property of that key | Same override, but a list the handler wrote is worth accounting for, see [Custom Tags](#custom-tags) | Yes |
 | A `<script>`, or any child that is not `<title>`, `<meta>`, `<link>`, `<html>`, or `<body>` | Not collected, see [Supported Tags](#supported-tags) | No |
 | A meta from `index.html` | A page declares one of the same identities, so the template's steps aside, see [Overriding a Template Meta](#overriding-a-template-meta) | No, this is the merge working |
 
@@ -482,13 +496,13 @@ Those keys are then treated exactly as `og:image` is, however many instances dec
 
 This is deliberately app-level rather than a prop on the instances that repeat a key. Which key repeats is a fact about the key, not about a component, and an opt-out attached to a component has to answer "which instance carries it". Past two instances there is no answer that reads well: it would have to go on all but one of them, or one instance would be silencing a collision between two others it has nothing to do with. Naming the key once has neither problem, and it says the thing you actually mean.
 
-The list is read on each check rather than captured when an instance registers, so changing it takes effect on the next render or DOM sync without the instances having to re-render. It also feeds the `meta.page.tags` rule: a key you declare repeatable can appear in `tags` alongside the named field that already produced it, the same way `og:image` can.
+The list is read on each check rather than captured when an instance registers, so changing it takes effect on the next render or DOM sync without the instances having to re-render. It also feeds the `meta.page.tags` rule: a key you declare repeatable can appear in `tags` alongside the named field that already produced it, the same way `og:image` can. It has no bearing on a child, which replaces its key whatever the key is.
 
 <!-- prettier-ignore -->
 > [!NOTE]
 > If a key repeats for everyone rather than only for you, it belongs in Unirend's built-in list instead, so every app gets it. That is a better bug report than a line in your startup file.
 
-Since the warning only runs in development, this is development-only in effect. Calling it in production is harmless and does nothing.
+The warning itself only runs in development, but that last paragraph is why this is not a development-only call. The `meta.page.tags` rule runs in every build, so a key you name here can change which tags a production page emits. Name a key because it really does repeat, not to quiet something you have not looked at yet.
 
 ### Template Tags vs Page Tags
 

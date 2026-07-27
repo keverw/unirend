@@ -301,6 +301,79 @@ function getCustomTagKeys(tag: ReactElement): string[] {
   return getMetaKeys(props);
 }
 
+const KEY_NESTING_SEPARATOR = ':';
+
+/**
+ * The metas that are structured objects: a parent whose `:`-suffixed neighbors describe that
+ * parent rather than standing on their own.
+ *
+ * Named rather than inferred from the colon, because the colon does not reliably mean this.
+ * `og:locale:alternate` is spelled exactly like a sub-property and is not one: it lists the other
+ * locales the page exists in, so it has nothing to say about the `og:locale` a page declares and
+ * must not be swept up with it. A blanket rule over every colon would take it. These are the ones
+ * where the suffix genuinely cannot stand alone, so they are the ones where a child replacing the
+ * parent has to take them along: OpenGraph defines three structured objects, and Twitter cards
+ * spell the same idea on `name` rather than `property`.
+ */
+const STRUCTURED_PARENT_NAMES = [
+  'og:image',
+  'og:video',
+  'og:audio',
+  'twitter:image',
+  'twitter:player',
+];
+
+/**
+ * Both spellings of each, because which attribute carries a vocabulary is a matter of habit rather
+ * than of rule. OpenGraph documents `property` and Twitter documents `name`, but each parser
+ * accepts the other, and plenty of real pages write `property="twitter:image"` or
+ * `name="og:image"`. Keying on one spelling would leave the sweep silently not happening for the
+ * other, which is the kind of gap nobody would think to look for.
+ */
+const STRUCTURED_PARENT_KEYS = new Set(
+  STRUCTURED_PARENT_NAMES.flatMap((parent) => [
+    `name=${parent}`,
+    `property=${parent}`,
+  ]),
+);
+
+/**
+ * The key a child declared that covers one of this tag's, or null when a child claimed none of
+ * them.
+ *
+ * A key covers itself, which is the whole rule for all but a handful of tags. The exception is a
+ * structured object, which also covers the sub-properties describing it: `og:image:width` says
+ * nothing without an `og:image`, so a child replacing the image has to take the width with it
+ * rather than leave it measuring a different picture. See `STRUCTURED_PARENT_KEYS` for why that
+ * set is written out rather than read off the colon.
+ */
+function findClaimedKey(
+  keys: string[],
+  claimedKeys: Set<string>,
+): string | null {
+  for (const key of keys) {
+    if (claimedKeys.has(key)) {
+      return key;
+    }
+
+    // Drop one trailing segment at a time: `property=og:image:width`, then `property=og:image`.
+    // The prefix carries no colon, so splitting the whole key leaves it on the leading segment and
+    // the ancestors rebuild as real keys. `property=og` is reached and simply is not a structured
+    // parent, which is what keeps a bare namespace from claiming anything.
+    const segments = key.split(KEY_NESTING_SEPARATOR);
+
+    for (let depth = segments.length - 1; depth > 0; depth--) {
+      const ancestor = segments.slice(0, depth).join(KEY_NESTING_SEPARATOR);
+
+      if (STRUCTURED_PARENT_KEYS.has(ancestor) && claimedKeys.has(ancestor)) {
+        return ancestor;
+      }
+    }
+  }
+
+  return null;
+}
+
 /**
  * What a named `PageMetadata` field put on a key, for the warning below.
  */
@@ -501,6 +574,44 @@ function warnTagEntryLostToField(
 }
 
 /**
+ * The value that identifies a built tag in a warning: a link's `href`, a meta's `content`.
+ */
+function getTagWarningValue(tag: ReactElement): string {
+  const props = tag.props as Record<string, string>;
+
+  return JSON.stringify(tag.type === 'link' ? props.href : props.content);
+}
+
+/**
+ * Development-only warning for the `tags` entries a child's key replaced.
+ *
+ * A named field a child replaces stays quiet, because that is the documented point of the prop and
+ * saying so on every page would be noise. This is the other half and reads nothing like it: the
+ * handler wrote a list, and some of it is not in the head. Left silent, the only way to find out is
+ * to notice a tag missing and go looking for who took it, and `rel="preload"` is the case that
+ * stings, since a page preloading one asset of its own is not thinking about the handler's at all.
+ */
+function warnTagEntriesLostToChild(
+  messages: string[],
+  key: string,
+  dropped: ReactElement[],
+): void {
+  if (!isTagWarningEnabled() || dropped.length === 0) {
+    return;
+  }
+
+  const isSingle = dropped.length === 1;
+
+  warnAboutTags(messages, [
+    `[unirend] UnirendHead: ${dropped.length} meta.page.tags ${isSingle ? 'entry' : 'entries'} for ${key} ${isSingle ? 'was' : 'were'} dropped, because a child declares that key.`,
+    `  dropped: ${dropped.map(getTagWarningValue).join(', ')}`,
+    '  A child replaces everything the envelope contributed for its key, and where that key names a',
+    `  structured object (${STRUCTURED_PARENT_NAMES.join(', ')}), the sub-properties describing it.`,
+    '  Declare the extra tags as children too, or drop the child, if you meant to keep them.',
+  ]);
+}
+
+/**
  * Build the head tags a `PageMetadata` describes, skipping every key the instance's own children
  * already claim.
  *
@@ -539,7 +650,16 @@ export function buildPageMetadataTags(
     // The named fields cannot collide with each other, but two `og` members can normalize onto
     // one property: `{ type, 'og:type' }` is two object keys describing the same tag, as is a
     // casing difference. First one wins, so the pair renders one meta rather than two.
-    if (claimedKeys.has(key) || emittedByField.has(key)) {
+    //
+    // The child test reads ancestors as well as the key itself, because the `og` object is the
+    // documented way to write a structured sub-property: `og: { image, 'image:width' }` puts the
+    // width on a key of its own, so an exact match would let it outlive the `og:image` a child
+    // replaced and leave it measuring the child's picture. Same rule the `tags` loop below applies,
+    // and it has to be the same or the primary spelling is the one that gets it wrong.
+    if (
+      findClaimedKey([key], claimedKeys) !== null ||
+      emittedByField.has(key)
+    ) {
       return;
     }
 
@@ -624,6 +744,11 @@ export function buildPageMetadataTags(
     }
   }
 
+  // Entries a child's key took with it, grouped by the key the child declared, so several losing
+  // to one child are one message. Warned after the loop rather than inside it, which is the only
+  // way to say how many there were.
+  const droppedToChild = new Map<string, ReactElement[]>();
+
   // `tags` comes last, so the named fields keep the order they always had and a page's own
   // children still sit after everything the envelope produced.
   if (Array.isArray(metadata.tags)) {
@@ -636,16 +761,41 @@ export function buildPageMetadataTags(
 
       const keys = getCustomTagKeys(tag);
 
-      // A child claiming any key the tag occupies is the documented override and stays quiet, the
-      // same as it does for a named field.
-      if (keys.some((key) => claimedKeys.has(key))) {
+      // A child declaring one of this tag's keys replaces everything the envelope contributed for
+      // it, this entry included, however many tags that is on either side. Repeatability is
+      // deliberately not consulted here, unlike the named-field test below: a page writing its own
+      // `og:image` is saying which image the page has, and there is no count at which that stops
+      // reading as an override. `claimedKeys` is a set, so one child tag and five claim the same
+      // thing either way.
+      //
+      // A structured sub-property goes with the parent it describes, which is the one part of that
+      // a key comparison alone gets wrong. `og:image:width` is its own key, so it would otherwise
+      // survive the `og:image` it belongs to and end up stating the width of whichever image the
+      // child brought rather than the one the handler measured. A wrong claim is worse than a
+      // missing one.
+      const claimedBy = findClaimedKey(keys, claimedKeys);
+
+      if (claimedBy !== null) {
+        // Not silent, unlike a named field a child replaces. That one is the documented point of
+        // the prop and needs no commentary, but this is a list the handler wrote that is not in the
+        // head, which reads as a bug in the handler until you know a child took it. Collected by
+        // key rather than warned here, so several entries losing to one child are one message.
+        const existing = droppedToChild.get(claimedBy);
+
+        if (existing) {
+          existing.push(tag);
+        } else {
+          droppedToChild.set(claimedBy, [tag]);
+        }
+
         continue;
       }
 
-      // A key that repeats by nature is not a collision. `og:image` is the case this exists
-      // for: an object cannot hold a second `image`, so a page offering several is expected to
-      // add the rest here, and dropping them would leave `tags` unable to do the one thing the
-      // docs point at it for.
+      // A key that repeats by nature is not a collision with a named field. `og:image` is the case
+      // this exists for: an object cannot hold a second `image`, so a page offering several is
+      // expected to add the rest here, and dropping them would leave `tags` unable to do the one
+      // thing the docs point at it for. Unlike the child above, both sides here came from the same
+      // handler, so there is no override to read into it.
       const collision = keys
         .filter((key) => !isRepeatableHeadKey(key))
         .map((key) => ({ key, named: emittedByField.get(key) }))
@@ -661,6 +811,10 @@ export function buildPageMetadataTags(
       // not a map, so two entries sharing a key both render.
       tags.push(tag);
     }
+  }
+
+  for (const [key, dropped] of droppedToChild) {
+    warnTagEntriesLostToChild(messages, key, dropped);
   }
 
   return tags;
