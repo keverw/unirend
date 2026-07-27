@@ -7,7 +7,7 @@ import type {
 import { getDevMode } from 'lifecycleion/dev-mode';
 import { getMetaKeys } from '../html-utils/meta-key';
 import { getLinkHeadKey, getLinkHeadKeys, TITLE_HEAD_KEY } from './head-keys';
-import { isRepeatableHeadKey } from './duplicate-head-warning';
+import { isRepeatableHeadKey } from './repeatable-head-keys';
 
 /**
  * Attributes an envelope-provided tag may never carry, whatever it asks for.
@@ -470,6 +470,12 @@ export const _test = {
   /** One render's record size, so a test can prove a production render never enters it. */
   getPrintedTagMessageCount: (scope: object): number =>
     printedTagMessagesByScope.get(scope)?.size ?? 0,
+
+  /**
+   * The structured-parent set, so a test can hold it against the repeatable-key list and fail if
+   * the two are ever merged. See the note on `REPEATABLE_META_KEYS` for why they must not be.
+   */
+  structuredParentKeys: STRUCTURED_PARENT_KEYS,
 };
 
 /**

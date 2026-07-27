@@ -5,7 +5,7 @@ import { overrideDevMode } from 'lifecycleion/dev-mode';
 import { UnirendHead } from './UnirendHead';
 import { UnirendHeadProvider } from './UnirendHeadProvider';
 import { _test, buildPageMetadataTags } from './page-metadata-tags';
-import { setRepeatableHeadKeys } from './duplicate-head-warning';
+import { setRepeatableHeadKeys } from './repeatable-head-keys';
 import type { HeadCollector } from './context';
 import type {
   PageErrorResponse,

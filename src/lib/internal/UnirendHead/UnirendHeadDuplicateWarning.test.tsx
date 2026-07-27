@@ -8,10 +8,13 @@ import type { HeadCollector } from './context';
 import {
   collectDuplicateHeadKeys,
   formatDuplicateHeadWarning,
-  isRepeatableHeadKey,
-  setRepeatableHeadKeys,
 } from './duplicate-head-warning';
 import type { SeenHeadKeys } from './duplicate-head-warning';
+import {
+  isRepeatableHeadKey,
+  setRepeatableHeadKeys,
+} from './repeatable-head-keys';
+import { _test as tagsTest } from './page-metadata-tags';
 import type { PageSuccessResponse } from '../../api-envelope/api-envelope-types';
 
 let nextScopeID = 0;
@@ -57,6 +60,69 @@ describe('duplicate head key helpers', () => {
       expect(isRepeatableHeadKey('rel=me')).toBe(true);
       expect(isRepeatableHeadKey('rel=canonical')).toBe(false);
       expect(isRepeatableHeadKey('rel=manifest')).toBe(false);
+    });
+
+    it('reads the attribute as part of the key, since repeatability is not a property name', () => {
+      // `og:image` repeats on `property` and not on `name`, and `theme-color` the other way round.
+      // A head tag's identity is the attribute and the value together everywhere in Unirend, and
+      // this list is written that way for the same reason: two spellings of a vocabulary are two
+      // tags, and only the documented one is the one that legitimately repeats.
+      expect(isRepeatableHeadKey('property=og:image')).toBe(true);
+      expect(isRepeatableHeadKey('name=og:image')).toBe(false);
+      expect(isRepeatableHeadKey('name=theme-color')).toBe(true);
+      expect(isRepeatableHeadKey('property=theme-color')).toBe(false);
+    });
+  });
+
+  // The list this reads is not the structured-parent list in page-metadata-tags.ts, and must not
+  // become it. They share og:image, og:video, and og:audio, which is enough to make merging them
+  // look like a tidy-up, and the two disagree in both directions. Each case below is a silent bug
+  // if the lists are ever collapsed, so these fail rather than letting one ship.
+  describe('repeatable keys versus structured parents', () => {
+    const isStructuredParent = (key: string): boolean =>
+      tagsTest.structuredParentKeys.has(key);
+
+    it('has structured parents that do not repeat', () => {
+      // A Twitter card carries one image and one player, so a second is a mistake worth warning
+      // about. They are still structured parents: a child replacing one takes its :width and
+      // :height along, or the leftovers would describe a picture nobody is showing.
+      for (const key of [
+        'name=twitter:image',
+        'property=twitter:image',
+        'name=twitter:player',
+        'property=twitter:player',
+      ]) {
+        expect(isStructuredParent(key)).toBe(true);
+        expect(isRepeatableHeadKey(key)).toBe(false);
+      }
+    });
+
+    it('has repeatable keys that are not structured parents', () => {
+      // og:locale:alternate is spelled exactly like a sub-property of og:locale and is not one. It
+      // lists the other locales the page exists in, so it repeats, and a child declaring og:locale
+      // has no claim on it.
+      expect(isRepeatableHeadKey('property=og:locale:alternate')).toBe(true);
+      expect(isStructuredParent('property=og:locale')).toBe(false);
+      expect(isStructuredParent('property=og:locale:alternate')).toBe(false);
+
+      for (const key of [
+        'property=article:tag',
+        'property=book:author',
+        'name=theme-color',
+      ]) {
+        expect(isRepeatableHeadKey(key)).toBe(true);
+        expect(isStructuredParent(key)).toBe(false);
+      }
+    });
+
+    it('recognizes a structured parent on either attribute, unlike repeatability', () => {
+      // OpenGraph documents property and Twitter documents name, but each parser takes the other
+      // and real pages write it both ways, so the sweep answers to both. Repeatability does not,
+      // which is the asymmetry that keeps these two lists from being one.
+      expect(isStructuredParent('name=og:image')).toBe(true);
+      expect(isStructuredParent('property=og:image')).toBe(true);
+      expect(isRepeatableHeadKey('name=og:image')).toBe(false);
+      expect(isRepeatableHeadKey('property=og:image')).toBe(true);
     });
   });
 
