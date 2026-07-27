@@ -146,6 +146,28 @@ describe('UnirendHead SSR Collection & Merging', () => {
     ]);
   });
 
+  it('flattens title children to text, contributing nothing for a non-text node', () => {
+    // A title is text, so a number interpolated into it is part of the string. An element is not
+    // something a title can carry, and contributing "[object Object]" for it would be worse than
+    // contributing nothing.
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          <title>
+            {'Page '}
+            {42}
+            {<span key="ignored">dropped</span>}
+            {' - My App'}
+          </title>
+        </UnirendHead>
+      </UnirendHeadProvider>,
+    );
+
+    expect(collector.title).toBe('Page 42 - My App');
+  });
+
   it('merges multiple html tags within the same UnirendHead component', () => {
     const collector = createEmptyCollector();
 
@@ -320,6 +342,31 @@ describe('UnirendHead Client-side Helpers', () => {
     });
   });
 
+  // Overriding a template meta is a set membership question, which is why this compares as a set
+  // rather than in order. Answer true for a list that lost a key and a template meta stays hidden
+  // after the page that hid it stopped declaring it.
+  describe('areKeyListsEqual', () => {
+    it('returns true for the same keys in any order, and for two empty lists', () => {
+      expect(areKeyListsEqual([], [])).toBe(true);
+      expect(
+        areKeyListsEqual(
+          ['name=description', 'rel=canonical'],
+          ['rel=canonical', 'name=description'],
+        ),
+      ).toBe(true);
+    });
+
+    it('returns false when the lists are different lengths', () => {
+      expect(areKeyListsEqual(['name=description'], [])).toBe(false);
+    });
+
+    it('returns false when the same number of keys are different keys', () => {
+      expect(areKeyListsEqual(['name=description'], ['name=keywords'])).toBe(
+        false,
+      );
+    });
+  });
+
   // The envelope projection's warnings, which do not always change the head: dropping a
   // forbidden `style` leaves the same keys behind, so this is what carries the fix to the sync.
   describe('areMessageListsEqual', () => {
@@ -370,6 +417,21 @@ describe('UnirendHead Client-side Helpers', () => {
     it('returns empty string for empty objects', () => {
       expect(serializeStyleObject({})).toBe('');
     });
+
+    it('skips values that are neither a string nor a number', () => {
+      // A CSSProperties value is one or the other. Anything else would stringify to something
+      // like "[object Object]", which is a declaration the browser drops anyway, so it is left
+      // out rather than written into the style attribute where it reads as a real rule.
+      const style = {
+        color: 'red',
+        background: {} as any,
+        border: [] as any,
+        transform: (() => 'none') as any,
+        outline: true as any,
+      };
+
+      expect(serializeStyleObject(style)).toBe('color:red');
+    });
   });
 
   describe('toHeadAttributes', () => {
@@ -413,6 +475,38 @@ describe('UnirendHead Client-side Helpers', () => {
         inert: 'false',
         autoplay: '',
       });
+    });
+
+    it('stringifies numbers and bigints, which HTML attributes have no other form for', () => {
+      expect(
+        toHeadAttributes({ 'data-count': 5, 'data-total': 9007199254740993n }),
+      ).toEqual({
+        'data-count': '5',
+        'data-total': '9007199254740993',
+      });
+    });
+
+    it('falls through to the value rules for a boolean attribute holding neither', () => {
+      // The boolean branch only answers for true, false, and their two string spellings. A
+      // number on a boolean attribute is not one of those, so it is stringified like any other
+      // value rather than being read as present or absent.
+      expect(toHeadAttributes({ disabled: 3, hidden: 0 })).toEqual({
+        disabled: '3',
+        hidden: '0',
+      });
+    });
+
+    it('drops values with no HTML attribute form rather than coercing them', () => {
+      // "[object Object]" is a worse attribute than no attribute, and a function on a head tag is
+      // a handler that was never going to survive serialization.
+      expect(
+        toHeadAttributes({
+          lang: 'en',
+          'data-config': { theme: 'dark' },
+          'data-list': ['a', 'b'],
+          onClick: () => 'nope',
+        }),
+      ).toEqual({ lang: 'en' });
     });
   });
 
@@ -533,7 +627,12 @@ describe('UnirendHead Client-side Helpers', () => {
           ],
         },
         body: {
-          attributes: [{ name: 'class', value: 'body-static body-dynamic' }],
+          attributes: [
+            { name: 'class', value: 'body-static body-dynamic' },
+            // A non-class body attribute is recorded exactly as the template wrote it. Only
+            // classes go through the ignored-class filter, since only they merge as a union.
+            { name: 'data-layout', value: 'wide' },
+          ],
         },
       } as any;
       /* eslint-disable @typescript-eslint/naming-convention */
@@ -551,7 +650,10 @@ describe('UnirendHead Client-side Helpers', () => {
         lang: 'fr',
         class: 'static-class',
       });
-      expect(getInitialBodyAttrs()).toEqual({ class: 'body-static' });
+      expect(getInitialBodyAttrs()).toEqual({
+        class: 'body-static',
+        'data-layout': 'wide',
+      });
     });
   });
 
@@ -571,6 +673,19 @@ describe('UnirendHead Client-side Helpers', () => {
       expect(parsed).toEqual({
         'background-image': 'url("data:image/png;base64,12;34")',
         'font-family': '"Courier;New", Courier',
+      });
+    });
+
+    it('treats single quotes as quoting too, since CSS accepts either', () => {
+      // A single-quoted URL is as ordinary as a double-quoted one, and a semicolon inside it is
+      // part of the value. Splitting there would cut the declaration in half.
+      const style =
+        "background-image: url('data:image/png;base64,12;34'); content: 'a;b'; color: red";
+
+      expect(parseStyleString(style)).toEqual({
+        'background-image': "url('data:image/png;base64,12;34')",
+        content: "'a;b'",
+        color: 'red',
       });
     });
   });
@@ -618,6 +733,26 @@ describe('UnirendHead Client-side Helpers', () => {
 
       expect(mockElement.getAttribute('data-external')).toBe('yes');
     });
+
+    it('removes an attribute a previous run set once no instance still declares it', () => {
+      // Only the ones this module calculated. An attribute that came from a component and then
+      // went away with it has to come off, or a theme a page set would outlive the page. The
+      // external attribute beside it was never ours and stays either way.
+      const mockElement = createMockElement({ 'data-external': 'yes' });
+      const initial = { lang: 'en' };
+
+      applyAttributes(mockElement as unknown as HTMLElement, initial, [
+        { 'data-theme': 'dark' },
+      ]);
+
+      expect(mockElement.getAttribute('data-theme')).toBe('dark');
+
+      applyAttributes(mockElement as unknown as HTMLElement, initial, []);
+
+      expect(mockElement.getAttribute('data-theme')).toBeNull();
+      expect(mockElement.getAttribute('lang')).toBe('en');
+      expect(mockElement.getAttribute('data-external')).toBe('yes');
+    });
   });
 
   describe('client-side render ordering sorting', () => {
@@ -636,6 +771,74 @@ describe('UnirendHead Client-side Helpers', () => {
       (globalThis as any).document = originalDocument;
       resetInitialAttrs();
       getRegisteredList().length = 0;
+    });
+
+    it('does nothing at all when there is no document to sync to', () => {
+      // The module is imported by the server bundle too, where a registration can never exist but
+      // the guard is what makes that safe to rely on rather than something to remember.
+      (globalThis as any).document = undefined;
+
+      expect(() => updateDOM()).not.toThrow();
+    });
+
+    it('folds body attributes and meta keys from every mounted registration', () => {
+      // The html half is covered by the ordering tests above. This is the other two things a
+      // registration carries into the sync, and the comparator answering something other than
+      // "B follows A": markers that report each other as preceding, and one that reports neither.
+      const mockHTML = createMockElement();
+      const mockBody = createMockElement();
+      const mockDocument = {
+        documentElement: mockHTML,
+        body: mockBody,
+      } as any;
+      /* eslint-disable @typescript-eslint/naming-convention */
+      const mockWindow = {
+        __UNIREND_TEMPLATE_ATTRS__: { html: {}, body: {} },
+      } as any;
+      /* eslint-enable @typescript-eslint/naming-convention */
+
+      (globalThis as any).document = mockDocument;
+      (globalThis as any).window = mockWindow;
+
+      // `position` answers with a bit mask. 2 is "the other precedes me", and 0 is the answer for
+      // two nodes with no order between them, neither of which the ordering tests below reach.
+      const marker = (position: number): any => ({
+        isConnected: true,
+        compareDocumentPosition: () => position,
+      });
+
+      const register = (position: number, bodyClass: string, key: string) => {
+        getRegisteredList().push({
+          html: null,
+          body: { class: bodyClass },
+          metaKeys: [key],
+          headKeys: new Map(),
+          tagMessages: [],
+          warningScopeID: (nextScopeID += 1),
+          markerRef: { current: marker(position) },
+        });
+      };
+
+      register(2, 'bg-white', 'name=description');
+      register(2, 'text-gray-900', 'rel=canonical');
+
+      updateDOM();
+
+      // Body classes union across instances, exactly as the html ones do.
+      let classes = (mockBody.getAttribute('class') || '').split(/\s+/);
+      expect(classes).toContain('bg-white');
+      expect(classes).toContain('text-gray-900');
+
+      getRegisteredList().length = 0;
+      register(0, 'bg-slate-900', 'name=keywords');
+      register(0, 'font-sans', 'name=robots');
+
+      updateDOM();
+
+      classes = (mockBody.getAttribute('class') || '').split(/\s+/);
+      expect(classes).toContain('bg-slate-900');
+      expect(classes).toContain('font-sans');
+      expect(classes).not.toContain('bg-white');
     });
 
     it('sorts active registrations by marker document order', () => {

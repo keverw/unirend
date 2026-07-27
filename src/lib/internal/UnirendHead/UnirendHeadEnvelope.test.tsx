@@ -4,7 +4,7 @@ import { renderToString } from 'react-dom/server';
 import { overrideDevMode } from 'lifecycleion/dev-mode';
 import { UnirendHead } from './UnirendHead';
 import { UnirendHeadProvider } from './UnirendHeadProvider';
-import { _test } from './page-metadata-tags';
+import { _test, buildPageMetadataTags } from './page-metadata-tags';
 import { setRepeatableHeadKeys } from './duplicate-head-warning';
 import type { HeadCollector } from './context';
 import type {
@@ -460,6 +460,42 @@ describe('UnirendHead envelope projection (server collection)', () => {
       expect(collector.metas).toEqual([]);
       expect(collector.links).toEqual([]);
     }
+  });
+
+  it('builds nothing for null metadata, so the caller need not guard first', () => {
+    // `UnirendHead` does guard, since a page without an envelope is the common case and there is
+    // no reason to walk the fields for it. This pins the projection's own contract instead, so
+    // the guard stays an optimization rather than the only thing standing between a `meta.page`
+    // of null and a throw.
+    const messages: string[] = [];
+
+    expect(buildPageMetadataTags(null, new Set(), messages)).toEqual([]);
+    expect(messages).toEqual([]);
+  });
+
+  it('ignores children that are not elements when scanning for claimed keys', () => {
+    // A conditional that renders nothing leaves a false or a null in the child list, and text
+    // between tags leaves a string. None of them claims a key, and none of them may stop the scan
+    // before it reaches the tags that do.
+    const collector = collect(
+      <UnirendHead envelope={createSuccessEnvelope(FULL_METADATA)}>
+        {'stray text'}
+        {false}
+        {null}
+        {undefined}
+        <meta name="description" content="Child description" />
+      </UnirendHead>,
+    );
+
+    // The child claimed description, so the envelope's did not render. Everything else did.
+    expect(collector.title).toBe('Home - My App');
+    expect(collector.metas).toEqual([
+      { name: 'keywords', content: 'envelope, metadata' },
+      { property: 'og:title', content: 'Home OG title' },
+      { property: 'og:description', content: 'Home OG description' },
+      { property: 'og:image', content: 'https://example.com/og.png' },
+      { name: 'description', content: 'Child description' },
+    ]);
   });
 
   it('skips individual fields that are not strings, keeping the ones that are', () => {
@@ -1978,6 +2014,40 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
         'rendered without its http-equiv and onLoad',
       );
       expect(warnings[0]).toContain('instructs the browser');
+    });
+
+    it('lists three or more stripped attributes as a serial comma sentence', () => {
+      // The list reads as prose in the middle of a sentence, so it takes a third form past the
+      // "a and b" pair above. Getting it wrong is not a rendering bug, it is a message an author
+      // reads once while trying to work out which attribute of theirs went missing.
+      overrideDevMode(true);
+
+      const warnings = captureWarnings(() => {
+        collect(
+          <UnirendHead
+            envelope={createSuccessEnvelope({
+              title: 'Home',
+              description: 'Home description',
+              tags: [
+                wireTag({
+                  meta: {
+                    name: 'app-version',
+                    content: '1.2.3',
+                    'http-equiv': 'refresh',
+                    style: 'color: red',
+                    onLoad: 'alert(1)',
+                  },
+                }),
+              ],
+            })}
+          />,
+        );
+      });
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain(
+        'rendered without its http-equiv, style, and onLoad',
+      );
     });
 
     it('still warns for a second instance hitting the same index with a different tag', () => {
