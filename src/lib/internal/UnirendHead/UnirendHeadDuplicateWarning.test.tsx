@@ -140,6 +140,7 @@ describe('duplicate head key helpers', () => {
           seen,
           new Map([['name=description', 'A']]),
           undefined,
+          'first',
         ),
       ).toEqual([]);
     });
@@ -151,6 +152,7 @@ describe('duplicate head key helpers', () => {
         seen,
         new Map([['name=description', 'A']]),
         undefined,
+        'first',
       );
 
       expect(
@@ -158,6 +160,7 @@ describe('duplicate head key helpers', () => {
           seen,
           new Map([['name=description', 'B']]),
           undefined,
+          'second',
         ),
       ).toEqual([
         { key: 'name=description', firstValue: 'A', secondValue: 'B' },
@@ -169,8 +172,43 @@ describe('duplicate head key helpers', () => {
           seen,
           new Map([['name=description', 'C']]),
           undefined,
+          'third',
         ),
       ).toEqual([]);
+    });
+
+    it('reports nothing when the same instance is fed in twice', () => {
+      // A server render can replay a subtree for one request, and the record for that request
+      // outlives the replay. An instance colliding with itself is not two instances.
+      const seen: SeenHeadKeys = new Map();
+
+      collectDuplicateHeadKeys(
+        seen,
+        new Map([['name=description', 'A']]),
+        undefined,
+        'first',
+      );
+
+      expect(
+        collectDuplicateHeadKeys(
+          seen,
+          new Map([['name=description', 'A']]),
+          undefined,
+          'first',
+        ),
+      ).toEqual([]);
+
+      // A genuinely separate instance still collides, against the replayed value.
+      expect(
+        collectDuplicateHeadKeys(
+          seen,
+          new Map([['name=description', 'B']]),
+          undefined,
+          'second',
+        ),
+      ).toEqual([
+        { key: 'name=description', firstValue: 'A', secondValue: 'B' },
+      ]);
     });
 
     it('stays quiet when either side of the collision allows it', () => {
@@ -179,12 +217,14 @@ describe('duplicate head key helpers', () => {
         allowedFirst,
         new Map([['name=description', 'A']]),
         true,
+        'first',
       );
       expect(
         collectDuplicateHeadKeys(
           allowedFirst,
           new Map([['name=description', 'B']]),
           undefined,
+          'second',
         ),
       ).toEqual([]);
 
@@ -193,12 +233,14 @@ describe('duplicate head key helpers', () => {
         allowedSecond,
         new Map([['name=description', 'A']]),
         undefined,
+        'first',
       );
       expect(
         collectDuplicateHeadKeys(
           allowedSecond,
           new Map([['name=description', 'B']]),
           true,
+          'second',
         ),
       ).toEqual([]);
     });
@@ -210,6 +252,7 @@ describe('duplicate head key helpers', () => {
         seen,
         new Map([['property=og:image', 'one.png']]),
         undefined,
+        'first',
       );
 
       expect(
@@ -217,6 +260,7 @@ describe('duplicate head key helpers', () => {
           seen,
           new Map([['property=og:image', 'two.png']]),
           undefined,
+          'second',
         ),
       ).toEqual([]);
     });

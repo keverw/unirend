@@ -162,6 +162,13 @@ interface SeenHeadKey {
   value: string;
   isAllowed: boolean;
   hasWarned: boolean;
+
+  /**
+   * Which instance claimed the key, so the record can tell one instance rendering twice from two
+   * instances. Compared by identity only, so a caller passes whatever it already has that is
+   * unique per instance and stable across a re-render.
+   */
+  owner: unknown;
 }
 
 /**
@@ -182,11 +189,18 @@ export interface DuplicateHeadKeyReport {
  * `seen` is mutated, so instances are fed in one at a time as they render (server) or in
  * document order (client). A key is reported at most once per record even when three instances
  * declare it, since the first warning is the one that gets acted on.
+ *
+ * `owner` identifies the instance the keys came from. It matters because the record outlives a
+ * single render pass on the server, where React may render a subtree more than once for one
+ * request (a sibling suspending inside the same boundary replays it). Without it an instance would
+ * collide with itself and the author would be told two instances declare a tag only one of them
+ * has.
  */
 export function collectDuplicateHeadKeys(
   seen: SeenHeadKeys,
   instanceKeys: Map<string, string>,
   allowance: DuplicateHeadAllowance,
+  owner: unknown,
 ): DuplicateHeadKeyReport[] {
   const reports: DuplicateHeadKeyReport[] = [];
 
@@ -195,7 +209,16 @@ export function collectDuplicateHeadKeys(
     const previous = seen.get(key);
 
     if (previous === undefined) {
-      seen.set(key, { value, isAllowed, hasWarned: false });
+      seen.set(key, { value, isAllowed, hasWarned: false, owner });
+      continue;
+    }
+
+    // The instance that claimed this key rendering again is not a second instance. Its latest
+    // value replaces the one on record, and `hasWarned` stays as it was so a collision another
+    // instance already caused is not reported a second time by the replay.
+    if (previous.owner === owner) {
+      previous.value = value;
+      previous.isAllowed = previous.isAllowed || isAllowed;
       continue;
     }
 

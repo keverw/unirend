@@ -13,14 +13,18 @@ import { isRepeatableHeadKey } from './duplicate-head-warning';
  * Attributes an envelope-provided tag may never carry, whatever it asks for.
  *
  * `children` and `dangerouslySetInnerHTML` would make React throw on a void element, which would
- * take the page down, the one outcome this file exists to avoid. `key` and `ref` are React's own
- * and are set here. `http-equiv` is excluded on its own merits, see `PageMetadataMetaTag`.
- * Anything starting with `on` is an event handler, which has no business arriving over the wire.
+ * take the page down, the one outcome this file exists to avoid. `style` throws for the same
+ * reason: React expects a style object, and every value that reaches it from here is a string,
+ * so the one spelling an author would ever write is exactly the one that fails. `key` and `ref`
+ * are React's own and are set here. `http-equiv` is excluded on its own merits, see
+ * `PageMetadataMetaTag`. Anything starting with `on` is an event handler, which has no business
+ * arriving over the wire.
  */
 const FORBIDDEN_TAG_ATTRIBUTES = new Set(
   [
     'children',
     'dangerouslySetInnerHTML',
+    'style',
     'key',
     'ref',
     'suppressHydrationWarning',
@@ -246,6 +250,29 @@ let activeTagMessages = new Set<string>();
 let pendingTagMessages = new Set<string>();
 
 /**
+ * Whether a render has happened since the last turnover, so a flush that follows no render at all
+ * is not one.
+ *
+ * The flush runs from the client DOM sync, and that sync runs more than once per commit: every
+ * mounting instance's effect calls it, as does an unmounting instance's cleanup. Only the first of
+ * those follows the render that filled `pendingTagMessages`. Without this, the second would promote
+ * an already-drained record over the one just built, forgetting messages that are still true and
+ * reprinting every one of them on the next render, which is what the record exists to prevent.
+ */
+let hasRenderedSinceFlush = false;
+
+/**
+ * Open a warning pass, from the render that may fill one.
+ *
+ * Called for every render rather than only for the ones that warn, because a pass finding nothing
+ * is exactly how a message stops being true: the record turns over to empty and the mistake is
+ * reported again if it comes back.
+ */
+export function markTagWarningPass(): void {
+  hasRenderedSinceFlush = true;
+}
+
+/**
  * Close a client sync, promoting what this pass reported to what is currently true.
  *
  * Called from the same commit-time pass that flushes the duplicate warning, so both records turn
@@ -253,6 +280,11 @@ let pendingTagMessages = new Set<string>();
  * request, and a handler-side mistake should log once for the process rather than once per request.
  */
 export function flushTagWarnings(): void {
+  if (!hasRenderedSinceFlush) {
+    return;
+  }
+
+  hasRenderedSinceFlush = false;
   activeTagMessages = pendingTagMessages;
   pendingTagMessages = new Set();
 }
@@ -265,7 +297,9 @@ export const _test = {
   resetTagEntryWarnings: (): void => {
     activeTagMessages = new Set();
     pendingTagMessages = new Set();
+    hasRenderedSinceFlush = false;
   },
+  markTagWarningPass,
   flushTagWarnings,
 };
 
@@ -358,6 +392,7 @@ function warnTagAttributesDropped(
   warnAboutTags([
     `[unirend] UnirendHead: ${describeTagEntry(index, attributes)} rendered without its ${formatAttributeList(dropped)}.`,
     '  Envelope tags may not carry http-equiv (it instructs the browser rather than describing the page),',
+    '  style (React reads it as an object, so the string form throws),',
     "  React's own props (children, dangerouslySetInnerHTML, key, ref), or on* handlers, and every value must be a string.",
     '  Declare those as a UnirendHead child instead, where they are not wire-controlled.',
   ]);

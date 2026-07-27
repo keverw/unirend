@@ -1204,6 +1204,45 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       expect(renderBadPage()).toHaveLength(1);
     });
 
+    it('survives the several DOM syncs one commit performs', () => {
+      // The client flushes from updateDOM(), and a single commit calls that more than once: every
+      // mounting instance's effect does, as does an unmounting instance's cleanup. Only the first
+      // follows the render that filled the record, so the later ones have to leave it alone rather
+      // than promote an already-drained one and let every message print again.
+      overrideDevMode(true);
+
+      function renderBadPage(): string[] {
+        return captureWarnings(() => {
+          collect(
+            <UnirendHead
+              envelope={createSuccessEnvelope({
+                title: 'Bad page',
+                description: 'Bad page',
+                tags: [
+                  {
+                    meta: {
+                      name: 'app-version',
+                      content: '1.2.3',
+                      'http-equiv': 'refresh',
+                    },
+                  },
+                ],
+              })}
+            />,
+          );
+        });
+      }
+
+      expect(renderBadPage()).toHaveLength(1);
+
+      // One commit, several syncs.
+      _test.flushTagWarnings();
+      _test.flushTagWarnings();
+      _test.flushTagWarnings();
+
+      expect(renderBadPage()).toEqual([]);
+    });
+
     it('says nothing when every entry renders whole', () => {
       overrideDevMode(true);
 
@@ -1432,7 +1471,8 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
 
   it('drops React-special and event-handler attributes rather than rendering them', () => {
     // `children` on a void element is the one that matters: React throws on it, which would take
-    // the page down instead of merely losing a tag.
+    // the page down instead of merely losing a tag. `style` is the same failure by a different
+    // route: React expects an object, and everything that reaches here is a string.
     const collector = collect(
       <UnirendHead
         envelope={createSuccessEnvelope({
@@ -1445,6 +1485,7 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
                 content: '1.2.3',
                 children: 'injected',
                 dangerouslySetInnerHTML: '<script>alert(1)</script>',
+                style: 'color:red',
                 onLoad: 'alert(1)',
                 key: 'stolen',
               } as unknown as { name: string; content: string },
@@ -1611,6 +1652,51 @@ describe('UnirendHead envelope projection (client render path)', () => {
       expect(html).not.toContain('<meta');
       expect(html).not.toContain('<link');
     }
+  });
+
+  it('renders an entry whose attributes React would throw on, minus those attributes', () => {
+    // The client path is where these actually reach React. A string `style` throws there ("the
+    // style prop expects a mapping from style properties to values"), which is the whole render
+    // gone rather than one tag missing, so the projection has to have stripped it already.
+    const html = renderClientPath(
+      <UnirendHead
+        envelope={
+          {
+            meta: {
+              page: {
+                title: 'Home',
+                tags: [
+                  {
+                    meta: {
+                      name: 'app-version',
+                      content: '1.2.3',
+                      style: 'color:red',
+                      children: 'injected',
+                    },
+                  },
+                  {
+                    link: {
+                      rel: 'alternate',
+                      href: 'https://example.com/feed.xml',
+                      style: 'visibility:hidden',
+                    },
+                  },
+                ],
+              },
+            },
+          } as unknown as PageSuccessResponse<null>
+        }
+      />,
+    );
+
+    expect(html).toContain('name="app-version" content="1.2.3"');
+    expect(html).toContain(
+      'rel="alternate" href="https://example.com/feed.xml"',
+    );
+    // Not asserted on the word `style` itself: the hidden marker template legitimately has one.
+    expect(html).not.toContain('color:red');
+    expect(html).not.toContain('visibility');
+    expect(html).not.toContain('injected');
   });
 
   it('keeps html and body elements out of the rendered React output', () => {

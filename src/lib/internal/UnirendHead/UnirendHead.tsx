@@ -10,6 +10,7 @@ import { scanHeadKeys } from './head-keys';
 import {
   buildPageMetadataTags,
   flushTagWarnings,
+  markTagWarningPass,
   resolvePageMetadata,
 } from './page-metadata-tags';
 import {
@@ -98,6 +99,11 @@ export function UnirendHead({
 }: UnirendHeadProps) {
   const collector = useContext(UnirendHeadContext);
 
+  // Opens a warning pass for the envelope projection, so the commit-time flush can tell a sync
+  // that follows a render from the several that follow the same one. Unconditional, because a
+  // render that warns about nothing is how a message stops being true.
+  markTagWarningPass();
+
   // Envelope prepass: resolve the merge before anything is collected, then hand the rest of this
   // component one ordinary child list. Children claim their keys first, so a declared tag wins
   // over the envelope field of the same key, and only the child's tag is ever built. Both the
@@ -142,6 +148,13 @@ export function UnirendHead({
   }, []);
 
   const markerRef = React.useRef<HTMLTemplateElement | null>(null);
+
+  // Identifies this instance to the server-side duplicate record, which outlives a single render
+  // pass. `useId` is derived from the instance's position in the tree rather than from hook state,
+  // so a subtree React renders more than once for one request (a sibling suspending inside the
+  // same boundary) comes back with the same id and is recognized as the same instance. A ref would
+  // not survive that. The client has no need for it, see the registration objects in updateDOM().
+  const instanceID = React.useId();
 
   // Client-side HTML/Body attribute extraction: parses props from children if running
   // on the client (where the server-side context collector is null).
@@ -273,6 +286,7 @@ export function UnirendHead({
           getSeenHeadKeys(collector),
           headKeys,
           allowDuplicate,
+          instanceID,
         ),
       );
     }
@@ -825,6 +839,9 @@ function updateDOM(): void {
           seenHeadKeys,
           item.headKeys,
           item.allowDuplicate,
+          // The registration object is the instance here: one per mounted instance, and this
+          // record is built fresh in document order on every sync, so it is never fed twice.
+          item,
         ),
       );
     }

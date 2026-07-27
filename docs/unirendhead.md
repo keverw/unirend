@@ -292,7 +292,7 @@ The rules:
 - **Entries do not deduplicate against each other.** Two `rel="alternate"` links, or a light and dark `theme-color` pair, are correct output rather than a duplicate to collapse, which is why `tags` is a list and not a map.
 - **Entries render after the named fields**, and children after both.
 
-Two things are dropped rather than rendered, both matched against the lowercased attribute name, because that is how a browser matches them. `HTTP-EQUIV` is an `http-equiv` once the HTML is parsed, so a case-sensitive check would be one the wire opts out of by changing case. `http-equiv` is the first of the two, because it instructs the browser rather than describing the page, and this value arrives over the wire. Left honored, a compromised or buggy handler could return `{ 'http-equiv': 'refresh', content: '0;url=…' }` and navigate the page somewhere else. The attribute is stripped, which leaves a meta carrying only `http-equiv` with no identity, so it drops out entirely. Declare `http-equiv` metas as a `UnirendHead` child, in your own code, where it is not wire-controlled. The others are React's own props (`children`, `dangerouslySetInnerHTML`, `key`, `ref`) and anything starting with `on`, none of which describe a tag, and the first of which would make React throw on a void element.
+Two things are dropped rather than rendered, both matched against the lowercased attribute name, because that is how a browser matches them. `HTTP-EQUIV` is an `http-equiv` once the HTML is parsed, so a case-sensitive check would be one the wire opts out of by changing case. `http-equiv` is the first of the two, because it instructs the browser rather than describing the page, and this value arrives over the wire. Left honored, a compromised or buggy handler could return `{ 'http-equiv': 'refresh', content: '0;url=…' }` and navigate the page somewhere else. The attribute is stripped, which leaves a meta carrying only `http-equiv` with no identity, so it drops out entirely. Declare `http-equiv` metas as a `UnirendHead` child, in your own code, where it is not wire-controlled. The others are React's own props (`children`, `dangerouslySetInnerHTML`, `key`, `ref`), `style`, and anything starting with `on`, none of which describe a tag. Two of those would take the page down rather than cost a tag: `children` makes React throw on a void element, and `style` throws because React expects a style object, so the only spelling a handler could send over the wire is the one that fails.
 
 Everything else follows [Malformed Envelopes](#malformed-envelopes): non-string values are dropped rather than coerced, and an unusable entry costs only itself.
 
@@ -301,6 +301,7 @@ None of that is silent in development. An entry that renders nothing, an attribu
 ```text
 [unirend] UnirendHead: meta.page.tags[0] (app-version) rendered without its http-equiv and onLoad.
   Envelope tags may not carry http-equiv (it instructs the browser rather than describing the page),
+  style (React reads it as an object, so the string form throws),
   React's own props (children, dangerouslySetInnerHTML, key, ref), or on* handlers, and every value must be a string.
   Declare those as a UnirendHead child instead, where they are not wire-controlled.
   This warning only runs in development.
