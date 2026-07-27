@@ -24,13 +24,12 @@ export const SSR_HOME_CSPELL_WORDS: string[] = ['noreferrer'];
  */
 const fileSrc = `import { useLoaderData, Link } from 'react-router';
 import { UnirendHead } from 'unirend/client';
+import type { PageSuccessResponse } from 'unirend/api-envelope';
 import { ENABLE_TEST_ROUTES } from '../consts';
 
-interface HomeLoaderEnvelope {
-  data: {
-    serverLine: string;
-  };
-}
+// The whole envelope your page data handler returned, not just its data. A page component only
+// renders when its loader succeeded, so the success member of the union is the accurate type.
+type HomeLoaderEnvelope = PageSuccessResponse<{ serverLine: string }>;
 
 export function Home() {
   const envelope = useLoaderData<HomeLoaderEnvelope>();
@@ -40,8 +39,8 @@ export function Home() {
     <>
       {/*
         Hardcoded here so the starter reads clearly. If your loader's handler sets
-        pageMetadata, you can hand the whole envelope over instead and skip retyping any
-        of it — a tag is rendered for every populated meta.page field, canonical,
+        pageMetadata, you can hand the whole envelope over instead and skip retyping
+        any of it. A tag is rendered for every populated meta.page field, canonical,
         keywords, and og:* included:
 
           <UnirendHead envelope={envelope} />

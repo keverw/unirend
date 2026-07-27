@@ -356,9 +356,11 @@ Children can also add tags the envelope knows nothing about, which are emitted a
 ```tsx
 <UnirendHead envelope={envelope}>
   <meta name="twitter:card" content="summary_large_image" />
-  <script type="application/ld+json">{JSON.stringify(schema)}</script>
+  <link rel="alternate" type="application/rss+xml" href="/feed.xml" />
 </UnirendHead>
 ```
+
+Children follow [Supported Tags](#supported-tags), so this is `<title>`, `<meta>`, `<link>`, `<html>`, and `<body>`. A `<script>` is not one of them: the server would not collect it and the client would render it inside the React root, which is a hydration mismatch rather than a tag in the head. JSON-LD does not need to be in the head at all, so render it as an ordinary element in your component tree, where SSR emits it like any other markup.
 
 Keys are matched the same way the rest of `UnirendHead` matches them: metas on `name`, `property`, or `http-equiv` (so `og:*` works), links on `rel`, and a `<title>` child claims the title.
 
