@@ -340,8 +340,13 @@ interface RegisteredAttrs {
   tagMessages: string[];
 
   /**
-   * This instance's identity for the development warnings, see `nextWarningScopeID`. Assigned when
-   * the registration is created, so it lives exactly as long as the mounted instance does.
+   * This instance's identity for the development warnings, see `nextWarningScopeID`.
+   *
+   * Taken during render and carried through to here, rather than assigned when this registration is
+   * built. StrictMode replays layout effects on mount as setup, cleanup, setup, which throws the
+   * first registration away and builds a second, so an identity minted here would change with it
+   * and a fresh mount would say everything twice. Lazy state survives that replay, which is why the
+   * component holds it in `useState` and hands it over.
    */
   warningScopeID: number;
 
@@ -425,13 +430,15 @@ let warnedTagMessages = new Set<string>();
 let initialHTMLAttrs: Record<string, string> | null = null;
 let initialBodyAttrs: Record<string, string> | null = null;
 
-// The template's <meta> baseline from index.html, grouped by meta identity. The elements held
-// for a key are ones this module owns outright: either the marked nodes the server left in the
-// head, or detached nodes built from the baseline for metas the server stripped because the
-// landing page overrides them. React's hoisted metas are never in here and are never touched.
+// The template's <meta> baseline from index.html, grouped by the whole set of identities each one
+// carries, see `templateMetaSignature()` below. This grouping is the client's own: the baseline
+// arrives as the flat list of attribute records the server's merge built, filed under nothing. The
+// elements held for a key are ones this module owns outright: either the marked nodes the server
+// left in the head, or detached nodes built from the baseline for metas the server stripped because
+// the landing page overrides them. React's hoisted metas are never in here and are never touched.
 //
-// A key maps to a list, not a single node, because one identity can legitimately cover several
-// template metas — the standard light/dark pair being the obvious case:
+// A key maps to a list, not a single node, because one identity set can legitimately cover several
+// template metas. The standard light/dark pair is the obvious case:
 //
 //   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fff" />
 //   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000" />

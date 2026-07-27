@@ -268,8 +268,7 @@ export function mergeTemplateMetas(
   for (const meta of findHeadTags(headContent, 'meta')) {
     // Every identity the page's meta carries, not just the first. A page meta written as
     // `name="twitter:title" property="og:site_name"` is both of those tags, so it overrides a
-    // template meta of either identity. The template's own key below stays singular, because that
-    // is what the baseline is stored and marked under and the client has to agree with it.
+    // template meta of either identity.
     for (const key of getMetaKeys(meta.attrs)) {
       pageMetaKeys.add(key);
     }
@@ -279,9 +278,14 @@ export function mergeTemplateMetas(
   const edits: Array<{ start: number; end: number; replacement: string }> = [];
 
   for (const meta of findHeadTags(template, 'meta')) {
-    // Every identity this one carries, for the override test, and the first of them as the key the
-    // baseline is stored and marked under. A template meta can carry two the same way a page's can,
-    // and a page overriding either of them replaces it.
+    // Every identity this one carries, for the override test just below. A template meta can carry
+    // two the same way a page's can, and a page overriding either of them replaces it.
+    //
+    // Nothing is filed under a key here. The baseline is a flat list of attribute records and the
+    // marker is a valueless attribute, so this side never has to name a meta. The client builds its
+    // own index over that list when it pairs the baseline back up with the marked nodes in the
+    // head, and it groups by the same whole identity set this loop decides from. See
+    // `templateMetaSignature()` in UnirendHead.tsx.
     const keys = getMetaKeys(meta.attrs);
 
     // Metas with no identifying attribute (<meta charset>) can't be overridden by name, so
