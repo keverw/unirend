@@ -361,6 +361,34 @@ function getSeenHeadKeys(collector: HeadCollector): SeenHeadKeys {
 // navigation and comes back later warns again.
 let warnedDuplicateKeys = new Set<string>();
 
+/**
+ * The page a client-side warning is attributed to, so the same mistake on two pages is two
+ * mistakes rather than one.
+ *
+ * A layout duplicating a description with one page is a bug in that page's file, and duplicating
+ * it with the next page is a bug in that one. Keyed on the key alone, hopping straight from the
+ * first to the second told you about only the first. Scoped by path, each page says its piece.
+ *
+ * The path rather than the route pattern, because the pattern would mean reading React Router
+ * from a component that imports only React, and `updateDOM()` is client-only anyway so the URL is
+ * simply there. The cost is that a parameterized route says it once per record visited rather than
+ * once per route, which is a bug you fix on the first one. The server needs none of this: its
+ * record lives on the per-request collector, so it is already one route's worth.
+ */
+function currentPagePath(): string {
+  // Optional all the way down, since this file already tolerates a host that is not a browser and
+  // an environment can supply a `window` without a `location`. An empty path is a fine answer: it
+  // just means every warning shares one scope, which is what it did before.
+  return typeof window === 'undefined' ? '' : (window.location?.pathname ?? '');
+}
+
+/**
+ * A warning's identity for the already-said check: what it says, and where.
+ */
+function scopeToPage(path: string, message: string): string {
+  return `${path}\n${message}`;
+}
+
 // The envelope projection's messages the client has already printed. Rebuilt from the mounted
 // instances on every sync, exactly as the duplicate record above is, so a message goes away with
 // the page that produced it and is said again if that page comes back.
@@ -830,6 +858,10 @@ function updateDOM(): void {
   const shouldWarnOnTags = isTagWarningEnabled();
   const currentTagMessages = new Set<string>();
 
+  // Read once, so every warning this sync produces is attributed to the same page even if the URL
+  // moves underneath a long commit.
+  const pagePath = currentPagePath();
+
   for (const item of sortedRegistrations) {
     if (item.html) {
       htmlStack.push(item.html);
@@ -864,19 +896,23 @@ function updateDOM(): void {
 
   if (shouldWarnOnDuplicates) {
     const fresh = duplicateReports.filter(
-      (report) => !warnedDuplicateKeys.has(report.key),
+      (report) => !warnedDuplicateKeys.has(scopeToPage(pagePath, report.key)),
     );
 
-    warnedDuplicateKeys = new Set(duplicateReports.map((report) => report.key));
+    warnedDuplicateKeys = new Set(
+      duplicateReports.map((report) => scopeToPage(pagePath, report.key)),
+    );
     warnDuplicateHeadKeys(fresh);
   }
 
   if (shouldWarnOnTags) {
     const fresh = [...currentTagMessages].filter(
-      (message) => !warnedTagMessages.has(message),
+      (message) => !warnedTagMessages.has(scopeToPage(pagePath, message)),
     );
 
-    warnedTagMessages = currentTagMessages;
+    warnedTagMessages = new Set(
+      [...currentTagMessages].map((message) => scopeToPage(pagePath, message)),
+    );
 
     for (const message of fresh) {
       // eslint-disable-next-line no-console

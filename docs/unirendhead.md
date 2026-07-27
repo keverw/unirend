@@ -438,6 +438,8 @@ Metas and links accumulating across instances is intentional, but a second `desc
 
 It is gated on Unirend's dev-mode signal, so a production build short-circuits before any scanning happens and never prints. It fires on the server during an SSR or SSG dev render, and in the browser console in SPA mode and after a client-side navigation.
 
+It is reported per page. Two pages that each duplicate a layout's `description` are two bugs in two files, so navigating from one to the other says it again rather than treating the second as already covered. On the server that comes for free, since the record lives on the request and a request is one route. In the browser it is scoped by `location.pathname`, which means a route with a parameter (`/posts/:id`) says it once per record you visit rather than once for the route. That is a mistake you fix on the first one. Changing the value a page collides with, from component state say, is still the same mistake and stays quiet.
+
 What it deliberately stays quiet about:
 
 - **A child overriding an `envelope` field.** That is the documented feature, and it never produces two tags anyway.

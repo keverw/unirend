@@ -588,6 +588,7 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
     /* eslint-disable @typescript-eslint/naming-convention */
     (globalThis as any).window = {
       __UNIREND_TEMPLATE_ATTRS__: { html: {}, body: {} },
+      location: { pathname: '/' },
     };
     /* eslint-enable @typescript-eslint/naming-convention */
     (globalThis as any).document = {
@@ -752,6 +753,58 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
     getRegisteredList().splice(getRegisteredList().indexOf(layout), 1);
     expect(captureWarnings(() => updateDOM())).toEqual([]);
     expect(pageC.headKeys.size).toBe(1);
+  });
+
+  function navigateTo(pathname: string) {
+    (globalThis as any).window.location.pathname = pathname;
+  }
+
+  it('reports the same collision on a second page as its own issue', () => {
+    // Two pages each duplicating the layout's description are two bugs in two files. Keyed on the
+    // head key alone, hopping straight from one to the other told you about only the first.
+    overrideDevMode(true);
+
+    const layout = register(
+      new Map([['name=description', 'Layout description']]),
+    );
+
+    navigateTo('/a');
+    const pageA = register(
+      new Map([['name=description', 'Page A description']]),
+    );
+    expect(captureWarnings(() => updateDOM())).toHaveLength(1);
+
+    // Straight to the next page, no clean route in between.
+    getRegisteredList().splice(getRegisteredList().indexOf(pageA), 1);
+    navigateTo('/b');
+    const pageB = register(
+      new Map([['name=description', 'Page B description']]),
+    );
+
+    const warnings = captureWarnings(() => updateDOM());
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('Page B description');
+
+    // Staying on /b and re-syncing is still one mistake, not a new one each time.
+    expect(captureWarnings(() => updateDOM())).toEqual([]);
+
+    expect(layout.headKeys.size).toBe(1);
+    expect(pageB.headKeys.size).toBe(1);
+  });
+
+  it('does not re-warn when a page changes the value it collides with', () => {
+    // Scoped by path and key rather than by value, so a description that moves with component
+    // state is still the one mistake it was a render ago.
+    overrideDevMode(true);
+
+    register(new Map([['name=description', 'Layout description']]));
+    navigateTo('/a');
+    const page = register(new Map([['name=description', 'First']]));
+
+    expect(captureWarnings(() => updateDOM())).toHaveLength(1);
+
+    page.headKeys = new Map([['name=description', 'Second']]);
+    expect(captureWarnings(() => updateDOM())).toEqual([]);
   });
 
   it('never warns for a repeatable key', () => {
