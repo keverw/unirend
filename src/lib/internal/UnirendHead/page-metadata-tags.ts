@@ -159,6 +159,21 @@ function sanitizeTagAttributes(
 }
 
 /**
+ * Whether an entry's `meta` or `link` member is shaped like a set of attributes at all.
+ *
+ * An array is excluded along with the primitives, because `Object.entries()` would happily read one
+ * and turn `['a', 'b']` into `0="a" 1="b"`, attributes that would then be dropped one at a time and
+ * reported as a tag missing its content rather than as the wrong shape entirely.
+ *
+ * An absent member is the ordinary case, not a malformed one: the public type writes the kind an
+ * entry does not use as `never`, which permits the `undefined` a spread or an optional field
+ * leaves behind, so this has to answer false for it rather than treat it as a second tag.
+ */
+function isTagAttributes(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
  * Build the element for one `PageMetadata.tags` entry, or null when the entry cannot describe a
  * usable tag.
  *
@@ -178,11 +193,24 @@ function buildCustomTag(
   const { meta, link } = entry as { meta?: unknown; link?: unknown };
   const dropped: string[] = [];
 
-  if (typeof meta === 'object' && meta !== null && !Array.isArray(meta)) {
-    const attributes = sanitizeTagAttributes(
-      meta as Record<string, unknown>,
-      dropped,
+  // An entry describes one tag. Naming both is a payload the public type rules out, and there is
+  // no reading of it that recovers the author's intent, so neither is rendered. Picking one would
+  // make which tag ships a function of the order these branches happen to be written in, and would
+  // drop the other in silence, which is the outcome every check in this file exists to avoid.
+  if (isTagAttributes(meta) && isTagAttributes(link)) {
+    warnTagEntrySkipped(
+      messages,
+      index,
+      'it names both meta and link',
+      {},
+      [],
+      '  An entry describes a single tag. Split it into two entries, one naming meta and one naming link.',
     );
+    return null;
+  }
+
+  if (isTagAttributes(meta)) {
+    const attributes = sanitizeTagAttributes(meta, dropped);
 
     // A meta with no content says nothing, and one with neither `name` nor `property` has no
     // identity, so a child could not override it and the duplicate warning could not see it.
@@ -216,11 +244,8 @@ function buildCustomTag(
     });
   }
 
-  if (typeof link === 'object' && link !== null && !Array.isArray(link)) {
-    const attributes = sanitizeTagAttributes(
-      link as Record<string, unknown>,
-      dropped,
-    );
+  if (isTagAttributes(link)) {
+    const attributes = sanitizeTagAttributes(link, dropped);
 
     if (!isPopulated(attributes.rel) || !isPopulated(attributes.href)) {
       warnTagEntrySkipped(

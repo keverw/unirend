@@ -1314,6 +1314,88 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       expect(warnings[4]).toContain('it names neither meta nor link');
     });
 
+    it('renders neither tag for an entry naming both meta and link, and says so', () => {
+      overrideDevMode(true);
+
+      let collector = createEmptyCollector();
+
+      const warnings = captureWarnings(() => {
+        collector = collect(
+          <UnirendHead
+            envelope={
+              {
+                meta: {
+                  page: {
+                    title: 'Home',
+                    tags: [
+                      {
+                        meta: { name: 'app-version', content: '1.2.3' },
+                        link: {
+                          rel: 'alternate',
+                          href: 'https://example.com/es/',
+                        },
+                      },
+                    ],
+                  },
+                },
+              } as unknown as PageSuccessResponse<null>
+            }
+          />,
+        );
+      });
+
+      // Both are usable on their own, so this proves the entry is refused for its shape rather
+      // than for anything wrong with either tag, and that the meta does not win by being first.
+      expect(collector.metas).toEqual([]);
+      expect(collector.links).toEqual([]);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('meta.page.tags[0]');
+      expect(warnings[0]).toContain('it names both meta and link');
+    });
+
+    it('treats an absent kind as absent rather than as a second tag', () => {
+      overrideDevMode(true);
+
+      let collector = createEmptyCollector();
+
+      const warnings = captureWarnings(() => {
+        collector = collect(
+          <UnirendHead
+            envelope={
+              {
+                meta: {
+                  page: {
+                    title: 'Home',
+                    tags: [
+                      {
+                        meta: { name: 'app-version', content: '1.2.3' },
+                        link: undefined,
+                      },
+                      {
+                        link: {
+                          rel: 'alternate',
+                          href: 'https://example.com/es/',
+                        },
+                        meta: null,
+                      },
+                    ],
+                  },
+                },
+              } as unknown as PageSuccessResponse<null>
+            }
+          />,
+        );
+      });
+
+      expect(collector.metas).toEqual([
+        { name: 'app-version', content: '1.2.3' },
+      ]);
+      expect(collector.links).toEqual([
+        { rel: 'alternate', href: 'https://example.com/es/' },
+      ]);
+      expect(warnings).toEqual([]);
+    });
+
     it('warns for attributes stripped from a tag that still rendered', () => {
       overrideDevMode(true);
 
