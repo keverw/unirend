@@ -974,6 +974,67 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
     });
   });
 
+  it('lets a child carrying two identities claim both of them', () => {
+    // `<meta name="twitter:title" property="og:title">` is both of those tags. Keying it on the
+    // first attribute found would leave the og:title invisible, so the envelope would emit its
+    // own alongside it and the documented child override would silently fail.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          og: { title: 'From envelope' },
+        })}
+      >
+        <meta name="twitter:title" property="og:title" content="From child" />
+      </UnirendHead>,
+    );
+
+    expect(
+      collector.metas.filter((meta) => meta.property === 'og:title'),
+    ).toEqual([
+      { name: 'twitter:title', property: 'og:title', content: 'From child' },
+    ]);
+  });
+
+  it('lets an envelope tag carrying two identities lose to either named field', () => {
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Named description',
+          tags: [
+            {
+              meta: {
+                name: 'twitter:description',
+                property: 'og:description',
+                content: 'Entry description',
+              },
+            },
+            {
+              meta: {
+                name: 'description',
+                property: 'twitter:description',
+                content: 'Also entry',
+              },
+            },
+          ],
+        })}
+      />,
+    );
+
+    // The first entry collides with nothing named, so it renders whole. The second names
+    // `description`, which the named field already produced, so it goes.
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Named description' },
+      {
+        name: 'twitter:description',
+        property: 'og:description',
+        content: 'Entry description',
+      },
+    ]);
+  });
+
   it('lets a child claim a singular relation it named among several rel tokens', () => {
     // `rel` is a token set, so a canonical is a canonical however many other tokens sit beside it.
     const collector = collect(

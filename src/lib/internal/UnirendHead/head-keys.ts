@@ -1,15 +1,19 @@
 import React from 'react';
 import type { ReactNode } from 'react';
-import { getMetaKey } from '../html-utils/meta-key';
+import { getMetaKeys } from '../html-utils/meta-key';
 import { toHeadAttributes } from './head-attributes';
 
 /**
  * The identity of a head tag within a single `UnirendHead`.
  *
- * Metas reuse `getMetaKey()`, the identity the server-side template merge and the client-side
- * template reconciliation already agree on, so `og:*` and `http-equiv` are covered for free.
- * Links key on `rel`, and the document title is a single fixed key because there is only ever
- * one of it.
+ * Metas reuse the identity the server-side template merge and the client-side template
+ * reconciliation already agree on, so `og:*` and `http-equiv` are covered for free. Links key on
+ * `rel`, and the document title is a single fixed key because there is only ever one of it.
+ *
+ * A tag can occupy more than one key, which is where this layer parts company with the single
+ * identity `getMetaKey()` hands the template merge. A meta carrying both `name` and `property` is
+ * both of those things, and a `rel` is a token set. Overriding and collision detection have to see
+ * every identity a tag has, or a tag hides behind whichever one happened to be checked.
  *
  * These keys drive two things: which envelope-derived tags an instance's own children have
  * already claimed, and which tags two separate instances both emit (the development-only
@@ -130,10 +134,11 @@ export function scanHeadKeys(children: ReactNode): HeadKeyScan {
 
     const attrs = toHeadAttributes(props);
 
-    // A meta occupies one key, a link may occupy more than one, see getLinkHeadKeys().
+    // Either kind may occupy more than one key: a meta carrying both `name` and `property` is
+    // both identities, and a link's `rel` is a token set. See getMetaKeys() and getLinkHeadKeys().
     const keys =
       type === 'meta'
-        ? metaKeyAsList(getMetaKey(attrs))
+        ? getMetaKeys(attrs)
         : attrs.rel
           ? getLinkHeadKeys(attrs.rel)
           : [];
@@ -150,11 +155,4 @@ export function scanHeadKeys(children: ReactNode): HeadKeyScan {
   });
 
   return { claimed, values };
-}
-
-/**
- * A meta's single key as the list the walk above iterates, or nothing for a meta with no identity.
- */
-function metaKeyAsList(key: string | null): string[] {
-  return key === null ? [] : [key];
 }

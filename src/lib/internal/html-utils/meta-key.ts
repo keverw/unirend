@@ -29,6 +29,32 @@ export function getMetaKey(attrs: Record<string, string>): string | null {
 }
 
 /**
+ * Every identity key a <meta>'s attributes carry, rather than just the first.
+ *
+ * `getMetaKey()` answers with one because the template merge needs a single identity to strip and
+ * restore a baseline meta by, and that is not this function's business to change. But a tag may
+ * genuinely carry more than one: `<meta name="twitter:title" property="og:title">` is a
+ * `twitter:title` and an `og:title` both, and a caller deciding what a tag overrides or collides
+ * with has to see both, or the `og:title` is invisible and a second one gets emitted alongside it.
+ *
+ * Returns an empty list for metas carrying none of the identifying attributes, the same case
+ * `getMetaKey()` returns null for.
+ */
+export function getMetaKeys(attrs: Record<string, string>): string[] {
+  const keys: string[] = [];
+
+  for (const attr of META_KEY_ATTRIBUTES) {
+    const value = attrs[attr];
+
+    if (value) {
+      keys.push(`${attr}=${value.toLowerCase()}`);
+    }
+  }
+
+  return keys;
+}
+
+/**
  * Same identity, computed from a live DOM element rather than a parsed attribute record.
  */
 export function getMetaKeyFromElement(element: Element): string | null {

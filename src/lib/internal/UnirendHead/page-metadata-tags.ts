@@ -5,7 +5,7 @@ import type {
   PageResponseEnvelope,
 } from '../../api-envelope/api-envelope-types';
 import { getDevMode } from 'lifecycleion/dev-mode';
-import { getMetaKey } from '../html-utils/meta-key';
+import { getMetaKeys } from '../html-utils/meta-key';
 import { getLinkHeadKey, getLinkHeadKeys, TITLE_HEAD_KEY } from './head-keys';
 import { isRepeatableHeadKey } from './duplicate-head-warning';
 
@@ -254,8 +254,9 @@ function buildCustomTag(entry: unknown, index: number): ReactElement | null {
 /**
  * The head keys an already-built custom tag occupies, for the claimed-key check.
  *
- * A meta occupies one. A link may occupy more, since a `rel` naming a singular relation among
- * several tokens is that relation as well as the list, see `getLinkHeadKeys()`.
+ * Either kind may occupy more than one. A meta carrying both `name` and `property` is both
+ * identities, and a link naming a singular relation among several `rel` tokens is that relation as
+ * well as the list. See `getMetaKeys()` and `getLinkHeadKeys()`.
  */
 function getCustomTagKeys(tag: ReactElement): string[] {
   const props = tag.props as Record<string, string>;
@@ -264,9 +265,7 @@ function getCustomTagKeys(tag: ReactElement): string[] {
     return getLinkHeadKeys(props.rel);
   }
 
-  const key = getMetaKey(props);
-
-  return key === null ? [] : [key];
+  return getMetaKeys(props);
 }
 
 /**
