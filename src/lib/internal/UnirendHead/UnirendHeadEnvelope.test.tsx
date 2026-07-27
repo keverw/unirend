@@ -1416,6 +1416,63 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       expect(renderBadPage()).toEqual([]);
     });
 
+    it('enters neither record in a production build', () => {
+      // The server never flushes, since a render there is one-shot per request, so anything
+      // entered on a production render is never taken back out. Not reading the record is not
+      // enough on its own, it has to stay empty.
+      overrideDevMode(false);
+      _test.resetTagEntryWarnings();
+
+      for (let index = 0; index < 5; index++) {
+        collect(
+          <UnirendHead
+            envelope={createSuccessEnvelope({
+              title: `Page ${index}`,
+              description: 'Bad page',
+              tags: [
+                wireTag({
+                  meta: {
+                    'http-equiv': 'refresh',
+                    content: '0;url=https://evil.example.com',
+                  },
+                }),
+              ],
+            })}
+          />,
+        );
+      }
+
+      expect(_test.getTagWarningRecordSizes()).toEqual({
+        active: 0,
+        pending: 0,
+      });
+
+      // The same render in development does enter it, so the assertion above is about the gate
+      // and not about the envelope being harmless.
+      overrideDevMode(true);
+
+      captureWarnings(() => {
+        collect(
+          <UnirendHead
+            envelope={createSuccessEnvelope({
+              title: 'Page',
+              description: 'Bad page',
+              tags: [
+                wireTag({
+                  meta: {
+                    'http-equiv': 'refresh',
+                    content: '0;url=https://evil.example.com',
+                  },
+                }),
+              ],
+            })}
+          />,
+        );
+      });
+
+      expect(_test.getTagWarningRecordSizes().pending).toBe(1);
+    });
+
     it('turns over per instance, so a neighbor that did not render keeps its message', () => {
       // React re-renders the instance whose state changed and not its neighbors. One shared record
       // could not survive that: the instance that did render would replace it whole, dropping a

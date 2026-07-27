@@ -315,8 +315,20 @@ let currentTagWarningOwner: unknown = null;
  * Called for every render rather than only for the ones that warn, because a pass finding nothing
  * is exactly how a message stops being true: that instance's entry turns over to empty and the
  * mistake is reported again if it comes back.
+ *
+ * Development-only, like everything else these records feed. A production build must not enter the
+ * record at all, not merely never read it: the server never flushes, since a render there is
+ * one-shot per request, so an entry made there is one nothing ever takes back out. That is a `Set`
+ * allocated per instance per render for a message that cannot be printed, and on an app rendering
+ * a `UnirendHead` at a data-dependent position, one that keeps finding new `useId` values to key
+ * on. Gated here rather than at the call site, so the record cannot be entered from anywhere
+ * without the gate coming along.
  */
 export function markTagWarningPass(owner: unknown): void {
+  if (!getDevMode()) {
+    return;
+  }
+
   currentTagWarningOwner = owner;
   pendingTagMessages.set(owner, new Set());
 }
@@ -365,6 +377,11 @@ export function flushTagWarnings(liveOwners?: ReadonlySet<unknown>): void {
  * test into the next.
  */
 export const _test = {
+  /** Both record sizes, so a test can prove a production render enters neither. */
+  getTagWarningRecordSizes: (): { active: number; pending: number } => ({
+    active: activeTagMessages.size,
+    pending: pendingTagMessages.size,
+  }),
   resetTagEntryWarnings: (): void => {
     activeTagMessages.clear();
     pendingTagMessages.clear();
