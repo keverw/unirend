@@ -329,6 +329,14 @@ const STRUCTURED_PARENT_NAMES = [
  * accepts the other, and plenty of real pages write `property="twitter:image"` or
  * `name="og:image"`. Keying on one spelling would leave the sweep silently not happening for the
  * other, which is the kind of gap nobody would think to look for.
+ *
+ * Two entries rather than one equivalence, and the difference matters. This says a parent written
+ * either way is recognized as a parent, so its own sub-properties go with it. It does not make
+ * `name=og:image` and `property=og:image` the same tag: a head tag's identity is the attribute and
+ * the value together, which is what lets one `<meta name="twitter:title" property="og:title">` be
+ * both tags at once, and what the template merge and the duplicate warning both key on. Collapsing
+ * the pair here alone would suppress an envelope tag a child does not match anywhere else in
+ * Unirend, so a child on the other attribute is a second tag rather than an override.
  */
 const STRUCTURED_PARENT_KEYS = new Set(
   STRUCTURED_PARENT_NAMES.flatMap((parent) => [

@@ -1116,6 +1116,36 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
     ]);
   });
 
+  it('does not sweep across attributes, since name and property are two identities', () => {
+    // The other half of "recognized on either attribute", and the half worth pinning: a parent
+    // written either way sweeps its own sub-properties, but the two spellings are not one tag.
+    // Identity is the attribute and the value together everywhere in Unirend, which is what lets a
+    // single <meta name="twitter:title" property="og:title"> be both tags at once. Collapsing the
+    // pair here alone would suppress an envelope tag that a child still does not match in the
+    // template merge or the duplicate warning, so all three of them keep the same answer.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          og: {
+            image: 'https://example.com/envelope.png',
+            'image:width': '1200',
+          },
+        })}
+      >
+        <meta name="og:image" content="https://example.com/child.png" />
+      </UnirendHead>,
+    );
+
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+      { property: 'og:image', content: 'https://example.com/envelope.png' },
+      { property: 'og:image:width', content: '1200' },
+      { name: 'og:image', content: 'https://example.com/child.png' },
+    ]);
+  });
+
   it('does not read a namespace prefix as a parent a child could claim', () => {
     // The walk stops before the leading segment, so a child declaring the bare `og` prefix claims
     // nothing beneath it. `og` is a namespace, not a property anyone describes a page with.
