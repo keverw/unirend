@@ -126,6 +126,24 @@ const REPEATABLE_META_KEY_PREFIXES = [
 
 /**
  * Whether a key repeating across instances is normal rather than a mistake.
+ *
+ * Read by two callers that do not share a lifetime, which is worth knowing before changing
+ * anything here. The duplicate warning above asks it in development only. `buildPageMetadataTags()`
+ * asks it in every build, to decide whether a `meta.page.tags` entry renders beside a named
+ * `PageMetadata` field that already produced the same key. So this list is not a development
+ * concern that happens to live in a development file: it is the one place where an author-facing
+ * ergonomics knob, `setRepeatableHeadKeys()`, changes what a production page emits.
+ *
+ * That coupling is deliberate and argued for on `setRepeatableHeadKeys()`, since a key either
+ * repeats or it does not and answering differently on the two sides would mean a tag the browser
+ * keeps that the warning calls a mistake. It is also the seam to look at first if this ever
+ * surprises someone. The likely report is a `tags` entry that renders in one build and not the
+ * other, or that renders on the client and not in the server HTML, both of which come from
+ * `setRepeatableHeadKeys()` being called somewhere only one side runs.
+ *
+ * If it does need decoupling, the shape to reach for is a separate list for the `tags` rule rather
+ * than making the warning quieter, because the warning is the half that can be wrong without
+ * costing anyone a tag.
  */
 export function isRepeatableHeadKey(key: string): boolean {
   // The app's own list first, so it can name a key the built-in rules would otherwise flag.

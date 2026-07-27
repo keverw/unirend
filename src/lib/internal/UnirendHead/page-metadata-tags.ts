@@ -837,6 +837,12 @@ export function buildPageMetadataTags(
       // expected to add the rest here, and dropping them would leave `tags` unable to do the one
       // thing the docs point at it for. Unlike the child above, both sides here came from the same
       // handler, so there is no override to read into it.
+      //
+      // `isRepeatableHeadKey()` lives with the duplicate warning, which is development-only, but
+      // this call is not: it decides what a production page emits, and an app can add to the list
+      // through `setRepeatableHeadKeys()`. So a key named there changes this output, and naming it
+      // from a browser entry alone makes the server drop an entry the client keeps. See that
+      // function for why the two sides share one list.
       const collision = keys
         .filter((key) => !isRepeatableHeadKey(key))
         .map((key) => ({ key, named: emittedByField.get(key) }))
