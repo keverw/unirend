@@ -6,11 +6,10 @@ import { UnirendHead, _test } from './UnirendHead';
 import { UnirendHeadProvider } from './UnirendHeadProvider';
 import type { HeadCollector } from './context';
 import {
-  areAllowancesEqual,
   collectDuplicateHeadKeys,
   formatDuplicateHeadWarning,
-  isDuplicateAllowed,
   isRepeatableHeadKey,
+  setRepeatableHeadKeys,
 } from './duplicate-head-warning';
 import type { SeenHeadKeys } from './duplicate-head-warning';
 import type { PageSuccessResponse } from '../../api-envelope/api-envelope-types';
@@ -59,78 +58,6 @@ describe('duplicate head key helpers', () => {
     });
   });
 
-  describe('isDuplicateAllowed', () => {
-    it('is false when nothing was passed', () => {
-      expect(isDuplicateAllowed(undefined, 'name=description')).toBe(false);
-      expect(isDuplicateAllowed(false, 'name=description')).toBe(false);
-    });
-
-    it('covers every key when true', () => {
-      expect(isDuplicateAllowed(true, 'name=description')).toBe(true);
-      expect(isDuplicateAllowed(true, 'rel=canonical')).toBe(true);
-    });
-
-    it('matches a list by the plain key name', () => {
-      expect(isDuplicateAllowed(['description'], 'name=description')).toBe(
-        true,
-      );
-      expect(isDuplicateAllowed(['og:title'], 'property=og:title')).toBe(true);
-      expect(isDuplicateAllowed(['canonical'], 'rel=canonical')).toBe(true);
-      expect(isDuplicateAllowed(['description'], 'name=keywords')).toBe(false);
-    });
-
-    it('also accepts the full internal key form, case-insensitively', () => {
-      expect(isDuplicateAllowed(['name=description'], 'name=description')).toBe(
-        true,
-      );
-      expect(isDuplicateAllowed(['Description'], 'name=description')).toBe(
-        true,
-      );
-    });
-  });
-
-  describe('areAllowancesEqual', () => {
-    it('compares lists by value, not by reference', () => {
-      // The list form is almost always an inline literal, so it is a new array every render.
-      // Reporting that as a change would force a pointless DOM sync on each one.
-      expect(areAllowancesEqual(['description'], ['description'])).toBe(true);
-      expect(
-        areAllowancesEqual(
-          ['description', 'og:title'],
-          ['description', 'og:title'],
-        ),
-      ).toBe(true);
-    });
-
-    it('reports a genuinely different list as changed', () => {
-      expect(areAllowancesEqual(['description'], ['keywords'])).toBe(false);
-      expect(areAllowancesEqual(['description'], [])).toBe(false);
-      expect(
-        areAllowancesEqual(['description'], ['description', 'keywords']),
-      ).toBe(false);
-    });
-
-    it('treats false and undefined as the same absence of an allowance', () => {
-      expect(areAllowancesEqual(undefined, false)).toBe(true);
-      expect(areAllowancesEqual(false, undefined)).toBe(true);
-      expect(areAllowancesEqual(undefined, undefined)).toBe(true);
-      expect(areAllowancesEqual(true, true)).toBe(true);
-    });
-
-    it('reports a toggled boolean as changed', () => {
-      expect(areAllowancesEqual(true, false)).toBe(false);
-      expect(areAllowancesEqual(true, undefined)).toBe(false);
-      expect(areAllowancesEqual(false, true)).toBe(false);
-    });
-
-    it('never confuses a list with a boolean', () => {
-      expect(areAllowancesEqual(true, ['description'])).toBe(false);
-      expect(areAllowancesEqual(['description'], true)).toBe(false);
-      expect(areAllowancesEqual([], false)).toBe(false);
-      expect(areAllowancesEqual(undefined, [])).toBe(false);
-    });
-  });
-
   describe('collectDuplicateHeadKeys', () => {
     it('reports nothing for the first instance to claim a key', () => {
       const seen: SeenHeadKeys = new Map();
@@ -139,7 +66,6 @@ describe('duplicate head key helpers', () => {
         collectDuplicateHeadKeys(
           seen,
           new Map([['name=description', 'A']]),
-          undefined,
           'first',
         ),
       ).toEqual([]);
@@ -151,7 +77,6 @@ describe('duplicate head key helpers', () => {
       collectDuplicateHeadKeys(
         seen,
         new Map([['name=description', 'A']]),
-        undefined,
         'first',
       );
 
@@ -159,7 +84,6 @@ describe('duplicate head key helpers', () => {
         collectDuplicateHeadKeys(
           seen,
           new Map([['name=description', 'B']]),
-          undefined,
           'second',
         ),
       ).toEqual([
@@ -171,7 +95,6 @@ describe('duplicate head key helpers', () => {
         collectDuplicateHeadKeys(
           seen,
           new Map([['name=description', 'C']]),
-          undefined,
           'third',
         ),
       ).toEqual([]);
@@ -185,7 +108,6 @@ describe('duplicate head key helpers', () => {
       collectDuplicateHeadKeys(
         seen,
         new Map([['name=description', 'A']]),
-        undefined,
         'first',
       );
 
@@ -193,7 +115,6 @@ describe('duplicate head key helpers', () => {
         collectDuplicateHeadKeys(
           seen,
           new Map([['name=description', 'A']]),
-          undefined,
           'first',
         ),
       ).toEqual([]);
@@ -203,141 +124,11 @@ describe('duplicate head key helpers', () => {
         collectDuplicateHeadKeys(
           seen,
           new Map([['name=description', 'B']]),
-          undefined,
           'second',
         ),
       ).toEqual([
         { key: 'name=description', firstValue: 'A', secondValue: 'B' },
       ]);
-    });
-
-    it('stays quiet when either side of the collision allows it', () => {
-      const allowedFirst: SeenHeadKeys = new Map();
-      collectDuplicateHeadKeys(
-        allowedFirst,
-        new Map([['name=description', 'A']]),
-        true,
-        'first',
-      );
-      expect(
-        collectDuplicateHeadKeys(
-          allowedFirst,
-          new Map([['name=description', 'B']]),
-          undefined,
-          'second',
-        ),
-      ).toEqual([]);
-
-      const allowedSecond: SeenHeadKeys = new Map();
-      collectDuplicateHeadKeys(
-        allowedSecond,
-        new Map([['name=description', 'A']]),
-        undefined,
-        'first',
-      );
-      expect(
-        collectDuplicateHeadKeys(
-          allowedSecond,
-          new Map([['name=description', 'B']]),
-          true,
-          'second',
-        ),
-      ).toEqual([]);
-    });
-
-    it('exempts the instance that allows it, not the key', () => {
-      // Three instances declaring the same key, with only the middle one allowing it. The outer
-      // two still allow nothing between them, so the allowance must not silence them in passing.
-      const seen: SeenHeadKeys = new Map();
-
-      collectDuplicateHeadKeys(
-        seen,
-        new Map([['name=description', 'A']]),
-        undefined,
-        'first',
-      );
-
-      expect(
-        collectDuplicateHeadKeys(
-          seen,
-          new Map([['name=description', 'B']]),
-          true,
-          'second',
-        ),
-      ).toEqual([]);
-
-      expect(
-        collectDuplicateHeadKeys(
-          seen,
-          new Map([['name=description', 'C']]),
-          undefined,
-          'third',
-        ),
-      ).toEqual([
-        { key: 'name=description', firstValue: 'A', secondValue: 'C' },
-      ]);
-    });
-
-    it('anchors on a claimant that allows nothing rather than the first one', () => {
-      // The allowed instance comes first here, so it is the two after it that collide, and the
-      // message has to name their values rather than the exempt one's.
-      const seen: SeenHeadKeys = new Map();
-
-      collectDuplicateHeadKeys(
-        seen,
-        new Map([['name=description', 'A']]),
-        true,
-        'first',
-      );
-
-      expect(
-        collectDuplicateHeadKeys(
-          seen,
-          new Map([['name=description', 'B']]),
-          undefined,
-          'second',
-        ),
-      ).toEqual([]);
-
-      expect(
-        collectDuplicateHeadKeys(
-          seen,
-          new Map([['name=description', 'C']]),
-          undefined,
-          'third',
-        ),
-      ).toEqual([
-        { key: 'name=description', firstValue: 'B', secondValue: 'C' },
-      ]);
-    });
-
-    it('lets a replay take its own claim back when it adds an allowance', () => {
-      // The server record outlives a render pass, so an instance React replays may come back
-      // carrying an allowance it did not have. It should stop anchoring collisions for others.
-      const seen: SeenHeadKeys = new Map();
-
-      collectDuplicateHeadKeys(
-        seen,
-        new Map([['name=description', 'A']]),
-        undefined,
-        'first',
-      );
-
-      collectDuplicateHeadKeys(
-        seen,
-        new Map([['name=description', 'A']]),
-        true,
-        'first',
-      );
-
-      expect(
-        collectDuplicateHeadKeys(
-          seen,
-          new Map([['name=description', 'B']]),
-          undefined,
-          'second',
-        ),
-      ).toEqual([]);
     });
 
     it('stays quiet for a repeatable key', () => {
@@ -346,7 +137,6 @@ describe('duplicate head key helpers', () => {
       collectDuplicateHeadKeys(
         seen,
         new Map([['property=og:image', 'one.png']]),
-        undefined,
         'first',
       );
 
@@ -354,7 +144,6 @@ describe('duplicate head key helpers', () => {
         collectDuplicateHeadKeys(
           seen,
           new Map([['property=og:image', 'two.png']]),
-          undefined,
           'second',
         ),
       ).toEqual([]);
@@ -372,7 +161,7 @@ describe('duplicate head key helpers', () => {
       expect(message).toContain('name=description');
       expect(message).toContain('Layout description');
       expect(message).toContain('Page description');
-      expect(message).toContain('allowDuplicate');
+      expect(message).toContain('setRepeatableHeadKeys');
     });
   });
 });
@@ -417,6 +206,8 @@ function createSuccessEnvelope(page: {
 describe('UnirendHead duplicate warning (server render)', () => {
   afterEach(() => {
     overrideDevMode(false);
+    // Module state, so it would otherwise leak into the next test.
+    setRepeatableHeadKeys([]);
   });
 
   function collectWarnings(tree: React.ReactNode): string[] {
@@ -614,15 +405,16 @@ describe('UnirendHead duplicate warning (server render)', () => {
     expect(warnings).toEqual([]);
   });
 
-  it('is silenced for the whole instance by allowDuplicate', () => {
+  it('is silenced for a key the app declared repeatable', () => {
     overrideDevMode(true);
+    setRepeatableHeadKeys(['description']);
 
     const warnings = collectWarnings(
       <>
         <UnirendHead>
           <meta name="description" content="Layout description" />
         </UnirendHead>
-        <UnirendHead allowDuplicate>
+        <UnirendHead>
           <meta name="description" content="Page description" />
         </UnirendHead>
       </>,
@@ -631,8 +423,10 @@ describe('UnirendHead duplicate warning (server render)', () => {
     expect(warnings).toEqual([]);
   });
 
-  it('is silenced for named keys only by an allowDuplicate list', () => {
+  it('still warns for the keys the app did not name', () => {
+    // Naming a key is a statement about that key, so everything else is judged as before.
     overrideDevMode(true);
+    setRepeatableHeadKeys(['description']);
 
     const warnings = collectWarnings(
       <>
@@ -640,7 +434,7 @@ describe('UnirendHead duplicate warning (server render)', () => {
           <meta name="description" content="Layout description" />
           <meta name="keywords" content="layout" />
         </UnirendHead>
-        <UnirendHead allowDuplicate={['description']}>
+        <UnirendHead>
           <meta name="description" content="Page description" />
           <meta name="keywords" content="page" />
         </UnirendHead>
@@ -649,6 +443,29 @@ describe('UnirendHead duplicate warning (server render)', () => {
 
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain('name=keywords');
+  });
+
+  it('stays quiet however many instances declare a key the app named', () => {
+    // The reason this replaced a per-instance prop: three instances need no more written down
+    // than two do, and there is no question of which one has to carry it.
+    overrideDevMode(true);
+    setRepeatableHeadKeys(['description']);
+
+    const warnings = collectWarnings(
+      <>
+        <UnirendHead>
+          <meta name="description" content="Root description" />
+        </UnirendHead>
+        <UnirendHead>
+          <meta name="description" content="Section description" />
+        </UnirendHead>
+        <UnirendHead>
+          <meta name="description" content="Page description" />
+        </UnirendHead>
+      </>,
+    );
+
+    expect(warnings).toEqual([]);
   });
 
   it('warns once when three instances declare the same key', () => {
@@ -752,16 +569,12 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
 
   let nextInstanceID = 0;
 
-  function register(
-    headKeys: Map<string, string>,
-    allowDuplicate?: boolean | string[],
-  ) {
+  function register(headKeys: Map<string, string>) {
     const entry = {
       html: null,
       body: null,
       metaKeys: [],
       headKeys,
-      allowDuplicate,
       instanceID: `test-instance-${(nextInstanceID += 1)}`,
       markerRef: { current: null },
     };
@@ -786,6 +599,7 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
     resetInitialAttrs();
     _test.resetTemplateMetas();
     _test.resetDuplicateWarnings();
+    setRepeatableHeadKeys([]);
     getRegisteredList().length = 0;
   });
 
@@ -796,6 +610,7 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
     resetInitialAttrs();
     _test.resetTemplateMetas();
     _test.resetDuplicateWarnings();
+    setRepeatableHeadKeys([]);
     getRegisteredList().length = 0;
   });
 
@@ -839,11 +654,12 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
     expect(captureWarnings(() => updateDOM())).toEqual([]);
   });
 
-  it('honors allowDuplicate on a mounted instance', () => {
+  it('honors an app-declared repeatable key across mounted instances', () => {
     overrideDevMode(true);
+    setRepeatableHeadKeys(['description']);
 
     register(new Map([['name=description', 'Layout description']]));
-    register(new Map([['name=description', 'Page description']]), true);
+    register(new Map([['name=description', 'Page description']]));
 
     expect(captureWarnings(() => updateDOM())).toEqual([]);
   });
@@ -857,33 +673,31 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
     expect(captureWarnings(() => updateDOM())).toEqual([]);
   });
 
-  it('surfaces the warning once a mounted instance drops its allowDuplicate', () => {
+  it('surfaces the warning once the app stops calling a key repeatable', () => {
     overrideDevMode(true);
+    setRepeatableHeadKeys(['description']);
 
     register(new Map([['name=description', 'Layout description']]));
-    const page = register(
-      new Map([['name=description', 'Page description']]),
-      true,
-    );
+    register(new Map([['name=description', 'Page description']]));
 
     expect(captureWarnings(() => updateDOM())).toEqual([]);
 
-    // Effect 1 resyncs the allowance onto the existing registration rather than replacing it,
-    // so a re-render that only drops allowDuplicate has to be reflected here and re-evaluated.
-    page.allowDuplicate = undefined;
+    // The list is read on each sync rather than captured at registration, so a change to it takes
+    // effect on the next one without the instances having to re-render.
+    setRepeatableHeadKeys([]);
 
     expect(captureWarnings(() => updateDOM())).toHaveLength(1);
   });
 
-  it('stops warning once a mounted instance adds allowDuplicate', () => {
+  it('stops warning once the app calls the key repeatable', () => {
     overrideDevMode(true);
 
     register(new Map([['name=description', 'Layout description']]));
-    const page = register(new Map([['name=description', 'Page description']]));
+    register(new Map([['name=description', 'Page description']]));
 
     expect(captureWarnings(() => updateDOM())).toHaveLength(1);
 
-    page.allowDuplicate = true;
+    setRepeatableHeadKeys(['description']);
 
     // Nothing to reprint, and the key leaves the reported set so it does not linger as warned.
     expect(captureWarnings(() => updateDOM())).toEqual([]);

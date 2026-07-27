@@ -150,9 +150,8 @@ import { UnirendHead } from 'unirend/client';
 | --- | --- | --- |
 | `children` | `ReactNode` | The head elements above. A child always beats the `envelope` field with the same key. |
 | `envelope` | `PageResponseEnvelope \| null` | A page data loader envelope. Every populated `meta.page` field becomes a tag. See [The `envelope` Prop](#the-envelope-prop). |
-| `allowDuplicate` | `boolean \| string[]` | Opts this instance out of the [development-only duplicate warning](#development-only-duplicate-warning). |
 
-All three are optional, so `<UnirendHead>` with children alone is unchanged.
+Both are optional, so `<UnirendHead>` with children alone is unchanged.
 
 ### The `envelope` Prop
 
@@ -426,7 +425,7 @@ Metas and links accumulating across instances is intentional, but a second `desc
   first:  "Layout description"
   second: "Page description"
   Metas and links accumulate across UnirendHead instances (only <title> is last-write-wins).
-  Declare it in one place, or pass allowDuplicate to the instance that means it.
+  Declare it in one place, or call setRepeatableHeadKeys if this key is meant to repeat.
   This warning only runs in development.
 ```
 
@@ -439,19 +438,25 @@ What it deliberately stays quiet about:
 - **The same key repeated inside one instance.** Only collisions between separate instances are reported.
 - **Keys that legitimately repeat.** `og:image`, `og:video`, `og:audio` (with their `og:image:*` style sub-properties), `og:locale:alternate`, `og:see_also`, `article:tag`, `article:author`, `book:author`, `book:tag`, and `theme-color` (for the light and dark pair). Links are handled the other way round, since most relations repeat by nature: only `canonical`, `manifest`, and `amphtml` are treated as single-value, everything else (`preload`, `icon`, `alternate`, and so on) never warns. Those three are matched as `rel` tokens, so naming one alongside others does not get past the check.
 
-For the intentional cases the list cannot know about, `allowDuplicate` opts an instance out:
+That last list is Unirend's, and it covers the keys that repeat for everyone. For a key that repeats in **your** app, name it once at startup:
 
-```tsx
-// Every key this instance emits is exempt
-<UnirendHead allowDuplicate>...</UnirendHead>
+```ts
+import { setRepeatableHeadKeys } from 'unirend/client';
 
-// Only the named keys are exempt, anything else still warns
-<UnirendHead allowDuplicate={['description']}>...</UnirendHead>
+setRepeatableHeadKeys(['description', 'og:title']);
 ```
 
-Either side of a collision can carry it, so state the intent once wherever it reads best rather than on every participating instance.
+Those keys are then treated exactly as `og:image` is, however many instances declare them. Write the name the way you think of it (`description`, `og:image`, `canonical`); the internal `name=description` form is accepted too. Calling it again replaces the list rather than adding to it, so there is no way to end up with an exemption you cannot find.
 
-It exempts the instance that carries it, not the key. With two instances that is the same thing. With three declaring one key and only the middle one allowing it, the outer two are still a pair with no allowance between them and still warn, since an `allowDuplicate` written on one page is not an opinion about a duplicate on another.
+This is deliberately app-level rather than a prop on the instances that repeat a key. Which key repeats is a fact about the key, not about a component, and an opt-out attached to a component has to answer "which instance carries it". Past two instances there is no answer that reads well: it would have to go on all but one of them, or one instance would be silencing a collision between two others it has nothing to do with. Naming the key once has neither problem, and it says the thing you actually mean.
+
+The list is read on each check rather than captured when an instance registers, so changing it takes effect on the next render or DOM sync without the instances having to re-render. It also feeds the `meta.page.tags` rule: a key you declare repeatable can appear in `tags` alongside the named field that already produced it, the same way `og:image` can.
+
+<!-- prettier-ignore -->
+> [!NOTE]
+> If a key repeats for everyone rather than only for you, it belongs in Unirend's built-in list instead, so every app gets it. That is a better bug report than a line in your startup file.
+
+Since the warning only runs in development, this is development-only in effect. Calling it in production is harmless and does nothing.
 
 ### Template Tags vs Page Tags
 

@@ -33,13 +33,50 @@ export function isDuplicateHeadWarningEnabled(): boolean {
 }
 
 /**
- * Opt-out for the intentional cases the allowlist can't know about.
+ * Keys this app expects to repeat, on top of the built-in list below.
  *
- * `true` covers every key the instance emits; a string list covers named keys only, written the
- * way an author thinks of them (`'description'`, `'og:image'`, `'canonical'`) rather than in the
- * internal `attribute=value` form.
+ * Written once by `setRepeatableHeadKeys()` rather than declared on the instances that repeat a
+ * key, because which key repeats is a fact about the key and not about any one component. An
+ * opt-out attached to a component has to answer "which of the instances carries it", and past two
+ * instances there is no answer that reads well: the allowance would have to go on all but one of
+ * them, or one instance would be silencing a collision between two others it has nothing to do
+ * with.
  */
-export type DuplicateHeadAllowance = boolean | string[] | undefined;
+let appRepeatableHeadKeys = new Set<string>();
+
+/**
+ * Declare the head keys this app expects to see more than once, so the duplicate warning treats
+ * them the way it treats `og:image`.
+ *
+ * Replaces any previous list rather than adding to it, so calling it twice cannot leave an
+ * allowance nobody can find. Keys are written the way an author thinks of them (`'description'`,
+ * `'og:image'`, `'canonical'`), and the internal `attribute=value` form is accepted too.
+ *
+ * Development-only in effect, since the warning it feeds never runs in a production build. If a
+ * key repeats for everyone rather than only for you, it belongs in the built-in list instead, so
+ * that everyone gets it.
+ */
+export function setRepeatableHeadKeys(keys: string[]): void {
+  appRepeatableHeadKeys = new Set(
+    keys
+      .filter((key) => typeof key === 'string')
+      .map((key) => key.toLowerCase()),
+  );
+}
+
+/**
+ * Whether this app declared the key repeatable.
+ */
+function isAppRepeatableHeadKey(key: string): boolean {
+  if (appRepeatableHeadKeys.size === 0) {
+    return false;
+  }
+
+  return (
+    appRepeatableHeadKeys.has(key) ||
+    appRepeatableHeadKeys.has(getHeadKeyValue(key))
+  );
+}
 
 /**
  * Meta identities that can legitimately appear more than once.
@@ -75,6 +112,11 @@ const REPEATABLE_META_KEY_PREFIXES = [
  * Whether a key repeating across instances is normal rather than a mistake.
  */
 export function isRepeatableHeadKey(key: string): boolean {
+  // The app's own list first, so it can name a key the built-in rules would otherwise flag.
+  if (isAppRepeatableHeadKey(key)) {
+    return true;
+  }
+
   if (key.startsWith('rel=')) {
     return !SINGULAR_LINK_RELATIONS.has(getHeadKeyValue(key));
   }
@@ -87,72 +129,7 @@ export function isRepeatableHeadKey(key: string): boolean {
 }
 
 /**
- * Whether an instance's `allowDuplicate` prop covers a given key.
- */
-export function isDuplicateAllowed(
-  allowance: DuplicateHeadAllowance,
-  key: string,
-): boolean {
-  if (allowance === true) {
-    return true;
-  }
-
-  if (!Array.isArray(allowance)) {
-    return false;
-  }
-
-  const value = getHeadKeyValue(key);
-
-  return allowance.some(
-    (entry) =>
-      typeof entry === 'string' &&
-      (entry.toLowerCase() === value || entry.toLowerCase() === key),
-  );
-}
-
-/**
- * Whether two `allowDuplicate` values mean the same thing.
- *
- * Compared by value rather than by reference, which is the whole point: the list form is almost
- * always written inline (`allowDuplicate={['description']}`), so it is a brand new array on every
- * render. A reference check would call that a change every time and force a pointless DOM sync
- * per render for a prop that never actually moved.
- *
- * `false` and `undefined` both mean "no allowance", so they compare equal. Order matters within a
- * list, which costs nothing here: a reordered list is still the same allowance, and the only
- * consequence of reporting it changed is one extra idempotent sync.
- */
-export function areAllowancesEqual(
-  a: DuplicateHeadAllowance,
-  b: DuplicateHeadAllowance,
-): boolean {
-  if (a === b) {
-    return true;
-  }
-
-  if (Array.isArray(a) !== Array.isArray(b)) {
-    return false;
-  }
-
-  if (Array.isArray(a) && Array.isArray(b)) {
-    return (
-      a.length === b.length && a.every((entry, index) => entry === b[index])
-    );
-  }
-
-  // Neither is a list at this point, so both are booleans or absent.
-  return !a === !b;
-}
-
-/**
  * A key already claimed by an earlier instance in the same render.
- *
- * Only instances that carry no allowance for the key are on this record. An allowance is a
- * property of the instance that wrote it, so an allowed instance can be neither half of a
- * collision, which means it neither anchors one nor silences one it is not part of. Recording it
- * would do the latter: with three instances declaring `description` and the middle one allowing
- * it, the outer two are still a pair with no allowance between them and still worth
- * reporting.
  */
 interface SeenHeadKey {
   value: string;
@@ -183,8 +160,7 @@ export interface DuplicateHeadKeyReport {
  *
  * `seen` is mutated, so instances are fed in one at a time as they render (server) or in
  * document order (client). A key is reported at most once per record even when three instances
- * declare it, since the first warning is the one that gets acted on. What an allowance on one of
- * those three exempts is that instance, not the key, see `SeenHeadKey`.
+ * declare it, since the first warning is the one that gets acted on.
  *
  * `owner` identifies the instance the keys came from. It matters because the record outlives a
  * single render pass on the server, where React may render a subtree more than once for one
@@ -195,33 +171,12 @@ export interface DuplicateHeadKeyReport {
 export function collectDuplicateHeadKeys(
   seen: SeenHeadKeys,
   instanceKeys: Map<string, string>,
-  allowance: DuplicateHeadAllowance,
   owner: unknown,
 ): DuplicateHeadKeyReport[] {
   const reports: DuplicateHeadKeyReport[] = [];
 
   for (const [key, value] of instanceKeys) {
     const previous = seen.get(key);
-
-    // An allowed instance takes no part in a collision on this key, so it neither goes on the
-    // record nor reads it. Either side of a collision may carry the opt-out, which is what lets
-    // it be written once wherever it reads best rather than on every participating instance, and
-    // this is that rule stated per pair rather than per key: it exempts the pairs this instance
-    // is in, and leaves the ones it is not alone.
-    if (isDuplicateAllowed(allowance, key)) {
-      // A replay of the instance that anchored the record, now carrying an allowance, takes its
-      // own claim back off. Not once the key has warned, since that report already went out and
-      // re-anchoring would let the same collision be reported a second time.
-      if (
-        previous !== undefined &&
-        previous.owner === owner &&
-        !previous.hasWarned
-      ) {
-        seen.delete(key);
-      }
-
-      continue;
-    }
 
     if (previous === undefined) {
       seen.set(key, { value, hasWarned: false, owner });
@@ -258,7 +213,7 @@ export function formatDuplicateHeadWarning(
     `  first:  ${JSON.stringify(report.firstValue)}`,
     `  second: ${JSON.stringify(report.secondValue)}`,
     '  Metas and links accumulate across UnirendHead instances (only <title> is last-write-wins).',
-    '  Declare it in one place, or pass allowDuplicate to the instance that means it.',
+    '  Declare it in one place, or call setRepeatableHeadKeys if this key is meant to repeat.',
     '  This warning only runs in development.',
   ].join('\n');
 }

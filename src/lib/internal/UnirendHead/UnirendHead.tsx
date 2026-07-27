@@ -14,13 +14,11 @@ import {
   resolvePageMetadata,
 } from './page-metadata-tags';
 import {
-  areAllowancesEqual,
   collectDuplicateHeadKeys,
   isDuplicateHeadWarningEnabled,
   warnDuplicateHeadKeys,
 } from './duplicate-head-warning';
 import type {
-  DuplicateHeadAllowance,
   DuplicateHeadKeyReport,
   SeenHeadKeys,
 } from './duplicate-head-warning';
@@ -46,12 +44,6 @@ export interface UnirendHeadProps {
    * any loader ran.
    */
   envelope?: PageResponseEnvelope | null;
-
-  /**
-   * Suppress the development-only duplicate warning for this instance. `true` covers every key
-   * it emits, a string list covers named keys only (`['og:image', 'description']`).
-   */
-  allowDuplicate?: boolean | string[];
 }
 
 /**
@@ -92,11 +84,7 @@ export interface UnirendHeadProps {
  * </UnirendHead>
  * ```
  */
-export function UnirendHead({
-  children,
-  envelope,
-  allowDuplicate,
-}: UnirendHeadProps) {
+export function UnirendHead({ children, envelope }: UnirendHeadProps) {
   const collector = useContext(UnirendHeadContext);
 
   // Identifies this instance to the two warning records, both of which outlive a single render
@@ -208,7 +196,6 @@ export function UnirendHead({
         body: bodyAttrs,
         metaKeys,
         headKeys,
-        allowDuplicate,
         instanceID,
         markerRef,
       };
@@ -225,30 +212,13 @@ export function UnirendHead({
       const hasMarkerChanged = lastMarkerRef.current !== markerRef.current;
       lastMarkerRef.current = markerRef.current;
 
-      // Kept current unconditionally, outside the gate below. Assigning it costs nothing, and
-      // letting it go stale would have the duplicate warning judge this instance by an
-      // allowance it no longer declares: an instance that dropped `allowDuplicate` would stay
-      // exempt, and one that just added it would keep warning.
-      const hasAllowanceChanged = !areAllowancesEqual(
-        prev.allowDuplicate,
-        allowDuplicate,
-      );
-
-      prev.allowDuplicate = allowDuplicate;
-
       // Optimize updates: only touch the DOM if props or marker actually changed
       if (
         !areRecordsEqual(prev.html, htmlAttrs) ||
         !areRecordsEqual(prev.body, bodyAttrs) ||
         !areKeyListsEqual(prev.metaKeys, metaKeys) ||
         !areHeadKeyMapsEqual(prev.headKeys, headKeys) ||
-        hasMarkerChanged ||
-        // Storing the new allowance is not enough on its own, since nothing re-reads it until
-        // the next sync: dropping an `allowDuplicate` has to surface the warning it was hiding
-        // now, not whenever some unrelated attribute happens to change. Only in development,
-        // because the allowance has no meaning in a production build and must never be a reason
-        // to touch the DOM there.
-        (hasAllowanceChanged && shouldWarnOnDuplicates)
+        hasMarkerChanged
       ) {
         prev.html = htmlAttrs;
         prev.body = bodyAttrs;
@@ -287,7 +257,6 @@ export function UnirendHead({
         collectDuplicateHeadKeys(
           getSeenHeadKeys(collector),
           headKeys,
-          allowDuplicate,
           instanceID,
         ),
       );
@@ -328,7 +297,6 @@ interface RegisteredAttrs {
   body: Record<string, string> | null;
   metaKeys: string[];
   headKeys: Map<string, string>;
-  allowDuplicate: DuplicateHeadAllowance;
 
   /**
    * The instance's `useId`, which is what the envelope projection's warning record keys on. Held
@@ -852,7 +820,6 @@ function updateDOM(): void {
         ...collectDuplicateHeadKeys(
           seenHeadKeys,
           item.headKeys,
-          item.allowDuplicate,
           // The registration object is the instance here: one per mounted instance, and this
           // record is built fresh in document order on every sync, so it is never fed twice.
           item,
