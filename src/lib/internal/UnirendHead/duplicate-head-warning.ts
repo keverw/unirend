@@ -146,10 +146,16 @@ export function areAllowancesEqual(
 
 /**
  * A key already claimed by an earlier instance in the same render.
+ *
+ * Only instances that carry no allowance for the key are on this record. An allowance is a
+ * property of the instance that wrote it, so an allowed instance can be neither half of a
+ * collision, which means it neither anchors one nor silences one it is not part of. Recording it
+ * would do the latter: with three instances declaring `description` and the middle one allowing
+ * it, the outer two are still a pair with no allowance between them and still worth
+ * reporting.
  */
 interface SeenHeadKey {
   value: string;
-  isAllowed: boolean;
   hasWarned: boolean;
 
   /**
@@ -177,7 +183,8 @@ export interface DuplicateHeadKeyReport {
  *
  * `seen` is mutated, so instances are fed in one at a time as they render (server) or in
  * document order (client). A key is reported at most once per record even when three instances
- * declare it, since the first warning is the one that gets acted on.
+ * declare it, since the first warning is the one that gets acted on. What an allowance on one of
+ * those three exempts is that instance, not the key, see `SeenHeadKey`.
  *
  * `owner` identifies the instance the keys came from. It matters because the record outlives a
  * single render pass on the server, where React may render a subtree more than once for one
@@ -194,11 +201,30 @@ export function collectDuplicateHeadKeys(
   const reports: DuplicateHeadKeyReport[] = [];
 
   for (const [key, value] of instanceKeys) {
-    const isAllowed = isDuplicateAllowed(allowance, key);
     const previous = seen.get(key);
 
+    // An allowed instance takes no part in a collision on this key, so it neither goes on the
+    // record nor reads it. Either side of a collision may carry the opt-out, which is what lets
+    // it be written once wherever it reads best rather than on every participating instance, and
+    // this is that rule stated per pair rather than per key: it exempts the pairs this instance
+    // is in, and leaves the ones it is not alone.
+    if (isDuplicateAllowed(allowance, key)) {
+      // A replay of the instance that anchored the record, now carrying an allowance, takes its
+      // own claim back off. Not once the key has warned, since that report already went out and
+      // re-anchoring would let the same collision be reported a second time.
+      if (
+        previous !== undefined &&
+        previous.owner === owner &&
+        !previous.hasWarned
+      ) {
+        seen.delete(key);
+      }
+
+      continue;
+    }
+
     if (previous === undefined) {
-      seen.set(key, { value, isAllowed, hasWarned: false, owner });
+      seen.set(key, { value, hasWarned: false, owner });
       continue;
     }
 
@@ -207,19 +233,10 @@ export function collectDuplicateHeadKeys(
     // instance already caused is not reported a second time by the replay.
     if (previous.owner === owner) {
       previous.value = value;
-      previous.isAllowed = previous.isAllowed || isAllowed;
       continue;
     }
 
-    // Either side of the collision may have declared the repeat intentional, so the opt-out is
-    // written once wherever it reads best rather than on every participating instance.
-    if (
-      previous.hasWarned ||
-      previous.isAllowed ||
-      isAllowed ||
-      isRepeatableHeadKey(key)
-    ) {
-      previous.isAllowed = previous.isAllowed || isAllowed;
+    if (previous.hasWarned || isRepeatableHeadKey(key)) {
       continue;
     }
 

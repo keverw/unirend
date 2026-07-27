@@ -245,6 +245,101 @@ describe('duplicate head key helpers', () => {
       ).toEqual([]);
     });
 
+    it('exempts the instance that allows it, not the key', () => {
+      // Three instances declaring the same key, with only the middle one allowing it. The outer
+      // two still allow nothing between them, so the allowance must not silence them in passing.
+      const seen: SeenHeadKeys = new Map();
+
+      collectDuplicateHeadKeys(
+        seen,
+        new Map([['name=description', 'A']]),
+        undefined,
+        'first',
+      );
+
+      expect(
+        collectDuplicateHeadKeys(
+          seen,
+          new Map([['name=description', 'B']]),
+          true,
+          'second',
+        ),
+      ).toEqual([]);
+
+      expect(
+        collectDuplicateHeadKeys(
+          seen,
+          new Map([['name=description', 'C']]),
+          undefined,
+          'third',
+        ),
+      ).toEqual([
+        { key: 'name=description', firstValue: 'A', secondValue: 'C' },
+      ]);
+    });
+
+    it('anchors on a claimant that allows nothing rather than the first one', () => {
+      // The allowed instance comes first here, so it is the two after it that collide, and the
+      // message has to name their values rather than the exempt one's.
+      const seen: SeenHeadKeys = new Map();
+
+      collectDuplicateHeadKeys(
+        seen,
+        new Map([['name=description', 'A']]),
+        true,
+        'first',
+      );
+
+      expect(
+        collectDuplicateHeadKeys(
+          seen,
+          new Map([['name=description', 'B']]),
+          undefined,
+          'second',
+        ),
+      ).toEqual([]);
+
+      expect(
+        collectDuplicateHeadKeys(
+          seen,
+          new Map([['name=description', 'C']]),
+          undefined,
+          'third',
+        ),
+      ).toEqual([
+        { key: 'name=description', firstValue: 'B', secondValue: 'C' },
+      ]);
+    });
+
+    it('lets a replay take its own claim back when it adds an allowance', () => {
+      // The server record outlives a render pass, so an instance React replays may come back
+      // carrying an allowance it did not have. It should stop anchoring collisions for others.
+      const seen: SeenHeadKeys = new Map();
+
+      collectDuplicateHeadKeys(
+        seen,
+        new Map([['name=description', 'A']]),
+        undefined,
+        'first',
+      );
+
+      collectDuplicateHeadKeys(
+        seen,
+        new Map([['name=description', 'A']]),
+        true,
+        'first',
+      );
+
+      expect(
+        collectDuplicateHeadKeys(
+          seen,
+          new Map([['name=description', 'B']]),
+          undefined,
+          'second',
+        ),
+      ).toEqual([]);
+    });
+
     it('stays quiet for a repeatable key', () => {
       const seen: SeenHeadKeys = new Map();
 

@@ -451,6 +451,8 @@ For the intentional cases the list cannot know about, `allowDuplicate` opts an i
 
 Either side of a collision can carry it, so state the intent once wherever it reads best rather than on every participating instance.
 
+It exempts the instance that carries it, not the key. With two instances that is the same thing. With three declaring one key and only the middle one allowing it, the outer two are still a pair with no allowance between them and still warn, since an `allowDuplicate` written on one page is not an opinion about a duplicate on another.
+
 ### Template Tags vs Page Tags
 
 Use `UnirendHead` for tags that describe the current page. Keep tags that describe the document or site in `index.html`.
