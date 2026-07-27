@@ -1,7 +1,8 @@
 import { useLoaderData, useParams } from 'react-router';
 import { UnirendHead } from '../../../src/client';
-import type { BaseMeta, PageResponseEnvelope } from '../../../src/api-envelope';
+import type { BaseMeta, PageSuccessResponse } from '../../../src/api-envelope';
 
+// The envelope's second type parameter is its `meta`, which is where an app puts its own fields.
 // `page` comes from BaseMeta, where it is `PageMetadata | undefined`. Redeclaring it here with
 // looser fields would not satisfy the `M extends BaseMeta` constraint, and it does not need to:
 // the field is optional, so the reads below still guard with optional chaining.
@@ -13,7 +14,9 @@ interface PageDataMeta extends BaseMeta {
 
 // Component to display page data JSON with proper layout and SEO
 export function PageDataDisplay() {
-  const data: PageResponseEnvelope<unknown, PageDataMeta> | null =
+  // The success member, the same way the starter templates and docs type a page's loader value.
+  // A page component only renders when its loader succeeded.
+  const data: PageSuccessResponse<unknown, PageDataMeta> | null =
     useLoaderData();
 
   const params = useParams();

@@ -75,6 +75,9 @@ There are two common patterns for setting head tags:
 ```tsx
 import { UnirendHead } from 'unirend/client';
 import { useLoaderData } from 'react-router';
+import type { PageSuccessResponse } from 'unirend/api-envelope';
+
+type HomeLoaderEnvelope = PageSuccessResponse<{ message: string }>;
 
 function HomePage() {
   const envelope = useLoaderData<HomeLoaderEnvelope>();
@@ -87,6 +90,8 @@ function HomePage() {
   );
 }
 ```
+
+Name the envelope type rather than declaring a partial shape of your own, since a partial is not assignable to `PageResponseEnvelope` and so cannot be passed here. The success member is the accurate one, because a page component only renders when its loader succeeded. See [Data Loaders](./data-loaders.md) for the rest of the envelope.
 
 That covers `canonical`, `keywords`, and `og:*` as well as the title and description, so nothing is lost to the mechanical copying that stops at the two obvious fields. See [The `envelope` Prop](#the-envelope-prop) for the field mapping and how a locally declared tag overrides one field.
 
