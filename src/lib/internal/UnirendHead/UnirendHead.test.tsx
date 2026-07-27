@@ -7,6 +7,8 @@ import { UnirendHeadProvider } from './UnirendHeadProvider';
 import type { HeadCollector } from './context';
 import { TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
 
+let nextScopeID = 0;
+
 function createEmptyCollector(): HeadCollector {
   return {
     title: '',
@@ -587,6 +589,7 @@ describe('UnirendHead Client-side Helpers', () => {
         metaKeys: [],
         headKeys: new Map(),
         tagMessages: [],
+        warningScopeID: (nextScopeID += 1),
         markerRef: { current: markerB },
       });
 
@@ -596,6 +599,7 @@ describe('UnirendHead Client-side Helpers', () => {
         metaKeys: [],
         headKeys: new Map(),
         tagMessages: [],
+        warningScopeID: (nextScopeID += 1),
         markerRef: { current: markerA },
       });
 
@@ -646,6 +650,7 @@ describe('UnirendHead Client-side Helpers', () => {
         metaKeys: [],
         headKeys: new Map(),
         tagMessages: [],
+        warningScopeID: (nextScopeID += 1),
         markerRef: { current: null as any },
       };
       const regA = {
@@ -654,6 +659,7 @@ describe('UnirendHead Client-side Helpers', () => {
         metaKeys: [],
         headKeys: new Map(),
         tagMessages: [],
+        warningScopeID: (nextScopeID += 1),
         markerRef: { current: null as any },
       };
 
@@ -818,6 +824,33 @@ describe('UnirendHead Client-side Helpers', () => {
       (globalThis as any).window = originalWindow;
       (globalThis as any).document = originalDocument;
       resetTemplateMetas();
+    });
+
+    it('steps a dual-identity template meta aside for either identity', () => {
+      // Filed under `name=site`, its first identity, but a page declaring og:site_name overrides
+      // it just the same, matching what the server's template merge strips.
+      const head = setupPage({
+        served: [
+          {
+            name: 'site',
+            property: 'og:site_name',
+            content: '#template',
+            [TEMPLATE_META_MARKER_ATTRIBUTE]: '',
+          },
+        ],
+        baseline: [
+          { name: 'site', property: 'og:site_name', content: '#template' },
+        ],
+      });
+
+      captureTemplateMetas();
+
+      reconcileTemplateMetas(new Set(['property=og:site_name']));
+      expect(metasInHead(head, 'site')).toHaveLength(0);
+
+      // And comes back once nothing declares it.
+      reconcileTemplateMetas(new Set());
+      expect(metasInHead(head, 'site')).toHaveLength(1);
     });
 
     it('restores a template meta when the page overriding it navigates away', () => {

@@ -603,6 +603,41 @@ describe('template head baseline merge', () => {
         );
       });
 
+      it('should let a page override a template meta by either identity it carries', async () => {
+        // The template's og:site_name is written with a name too, so it keys on `name=site`. A page
+        // declaring og:site_name has to replace it anyway, or both are served.
+        const templateWithDualIdentity = templateHTML.replace(
+          '<meta property="og:site_name" content="My App" />',
+          '<meta name="site" property="og:site_name" content="My App" />',
+        );
+
+        const processed = await processTemplate(
+          templateWithDualIdentity,
+          path.mode,
+          path.isDevelopment,
+          path.isDevServer,
+        );
+
+        expect(processed.success).toBe(true);
+
+        if (!processed.success) {
+          throw new Error(processed.error);
+        }
+
+        const html = await injectContent(
+          processed.html,
+          '<meta property="og:site_name" content="Page site name" />',
+          '<div>App</div>',
+        );
+        const $ = cheerio.load(html);
+
+        expect($('meta[property="og:site_name"]').length).toBe(1);
+        expect($('meta[property="og:site_name"]').attr('content')).toBe(
+          'Page site name',
+        );
+        expect($('meta[name="site"]').length).toBe(0);
+      });
+
       it('should drop the page-owned SEO tags from the template while keeping the site-wide ones', async () => {
         const $ = await renderHead(path, '');
 

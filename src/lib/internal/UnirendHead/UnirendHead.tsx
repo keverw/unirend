@@ -7,6 +7,7 @@ import {
   getMetaKey,
   getMetaKeyFromElement,
   getMetaKeys,
+  getMetaKeysFromElement,
 } from '../html-utils/meta-key';
 import { TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
 import { serializeStyleObject, toHeadAttributes } from './head-attributes';
@@ -206,6 +207,7 @@ export function UnirendHead({ children, envelope }: UnirendHeadProps) {
         metaKeys,
         headKeys,
         tagMessages,
+        warningScopeID: takeWarningScopeID(),
         markerRef,
       };
       registeredList.push(registrationRef.current);
@@ -325,6 +327,12 @@ interface RegisteredAttrs {
    */
   tagMessages: string[];
 
+  /**
+   * This instance's identity for the development warnings, see `nextWarningScopeID`. Assigned when
+   * the registration is created, so it lives exactly as long as the mounted instance does.
+   */
+  warningScopeID: number;
+
   markerRef: React.RefObject<HTMLTemplateElement | null>;
 }
 
@@ -362,31 +370,38 @@ function getSeenHeadKeys(collector: HeadCollector): SeenHeadKeys {
 let warnedDuplicateKeys = new Set<string>();
 
 /**
- * The page a client-side warning is attributed to, so the same mistake on two pages is two
- * mistakes rather than one.
+ * Hands out an identity per registration, so a warning can be attributed to the instances that
+ * produced it rather than to whatever the URL happened to be.
  *
- * A layout duplicating a description with one page is a bug in that page's file, and duplicating
- * it with the next page is a bug in that one. Keyed on the key alone, hopping straight from the
- * first to the second told you about only the first. Scoped by path, each page says its piece.
+ * A layout duplicating a description with one page is a bug in that page's file, and duplicating it
+ * with the next page is a bug in that one, so replacing the page has to say it again. But a mistake
+ * made entirely by the layout is one mistake however many pages come and go underneath it. Scoping
+ * by instance gets both: React preserves a persistent layout's registration across navigations, and
+ * gives an unmounted page's replacement a new one.
  *
- * The path rather than the route pattern, because the pattern would mean reading React Router
- * from a component that imports only React, and `updateDOM()` is client-only anyway so the URL is
- * simply there. The cost is that a parameterized route says it once per record visited rather than
- * once per route, which is a bug you fix on the first one. The server needs none of this: its
- * record lives on the per-request collector, so it is already one route's worth.
+ * That is also why this is not the URL, which was the first attempt. A path changes on every
+ * navigation whether or not the instances behind the warning did, so a layout's own bad tag came
+ * back on each one. It is not the route pattern either, which would mean reading React Router from
+ * a component that imports only React. The registration is already the identity the duplicate
+ * record uses to tell one instance from another.
  */
-function currentPagePath(): string {
-  // Optional all the way down, since this file already tolerates a host that is not a browser and
-  // an environment can supply a `window` without a `location`. An empty path is a fine answer: it
-  // just means every warning shares one scope, which is what it did before.
-  return typeof window === 'undefined' ? '' : (window.location?.pathname ?? '');
+let nextWarningScopeID = 0;
+
+/**
+ * The next identity, handed out when a registration is created.
+ */
+function takeWarningScopeID(): number {
+  return (nextWarningScopeID += 1);
 }
 
 /**
- * A warning's identity for the already-said check: what it says, and where.
+ * A warning's identity for the already-said check: what it says, and which instances said it.
+ *
+ * The scope is prefixed rather than appended so the message can be recovered by slicing at the
+ * first newline, which is what the tag warnings print.
  */
-function scopeToPage(path: string, message: string): string {
-  return `${path}\n${message}`;
+function scopeToInstances(scopeIDs: Array<number | null>, key: string): string {
+  return `${scopeIDs.join('|')}\n${key}`;
 }
 
 // The envelope projection's messages the client has already printed. Rebuilt from the mounted
@@ -543,10 +558,15 @@ function reconcileTemplateMetas(declaredKeys: Set<string>): void {
     return;
   }
 
-  for (const [key, group] of templateMetaNodes) {
-    const isOverridden = declaredKeys.has(key);
-
+  for (const group of templateMetaNodes.values()) {
     for (const node of group) {
+      // Tested per node and against every identity it carries, which is what the server's merge
+      // does. The map key is only where the baseline is filed, so a template meta written as
+      // `name="site" property="og:site_name"` still steps aside for a page declaring either.
+      const isOverridden = getMetaKeysFromElement(node).some((key) =>
+        declaredKeys.has(key),
+      );
+
       if (isOverridden && node.isConnected) {
         node.remove();
       } else if (!isOverridden && !node.isConnected) {
@@ -858,9 +878,13 @@ function updateDOM(): void {
   const shouldWarnOnTags = isTagWarningEnabled();
   const currentTagMessages = new Set<string>();
 
-  // Read once, so every warning this sync produces is attributed to the same page even if the URL
-  // moves underneath a long commit.
-  const pagePath = currentPagePath();
+  // Which instance is which, for attributing a warning below. Built from the mounted set, so an
+  // owner that has since unmounted simply has no scope and can never match a standing warning.
+  const scopeIDs = new Map<unknown, number>();
+
+  for (const item of sortedRegistrations) {
+    scopeIDs.set(item, item.warningScopeID);
+  }
 
   for (const item of sortedRegistrations) {
     if (item.html) {
@@ -877,7 +901,11 @@ function updateDOM(): void {
 
     if (shouldWarnOnTags) {
       for (const message of item.tagMessages) {
-        currentTagMessages.add(message);
+        // Attributed to the instance that produced it, so a layout's complaint survives a
+        // navigation unchanged while a page's leaves with the page.
+        currentTagMessages.add(
+          scopeToInstances([item.warningScopeID], message),
+        );
       }
     }
 
@@ -895,28 +923,33 @@ function updateDOM(): void {
   }
 
   if (shouldWarnOnDuplicates) {
+    const scopeOf = (report: DuplicateHeadKeyReport): string =>
+      scopeToInstances(
+        [
+          scopeIDs.get(report.firstOwner) ?? null,
+          scopeIDs.get(report.secondOwner) ?? null,
+        ],
+        report.key,
+      );
+
     const fresh = duplicateReports.filter(
-      (report) => !warnedDuplicateKeys.has(scopeToPage(pagePath, report.key)),
+      (report) => !warnedDuplicateKeys.has(scopeOf(report)),
     );
 
-    warnedDuplicateKeys = new Set(
-      duplicateReports.map((report) => scopeToPage(pagePath, report.key)),
-    );
+    warnedDuplicateKeys = new Set(duplicateReports.map(scopeOf));
     warnDuplicateHeadKeys(fresh);
   }
 
   if (shouldWarnOnTags) {
     const fresh = [...currentTagMessages].filter(
-      (message) => !warnedTagMessages.has(scopeToPage(pagePath, message)),
+      (scoped) => !warnedTagMessages.has(scoped),
     );
 
-    warnedTagMessages = new Set(
-      [...currentTagMessages].map((message) => scopeToPage(pagePath, message)),
-    );
+    warnedTagMessages = currentTagMessages;
 
-    for (const message of fresh) {
+    for (const scoped of fresh) {
       // eslint-disable-next-line no-console
-      console.warn(message);
+      console.warn(scoped.slice(scoped.indexOf('\n') + 1));
     }
   }
 

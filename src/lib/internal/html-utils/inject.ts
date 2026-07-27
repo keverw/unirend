@@ -5,7 +5,7 @@ import {
 } from '../consts';
 import { getDevMode } from 'lifecycleion/dev-mode';
 import { escapeHTMLAttr, decodeHTML, HTML_BOOLEAN_ATTRIBUTES } from './escape';
-import { getMetaKey, getMetaKeys } from './meta-key';
+import { getMetaKeys } from './meta-key';
 
 // Prettify all head tags: each tag (<title>, <meta>, <link>, etc.) on its own line, indented
 export function prettifyHeadTags(head: string, indent = TAB_SPACES): string {
@@ -279,17 +279,20 @@ export function mergeTemplateMetas(
   const edits: Array<{ start: number; end: number; replacement: string }> = [];
 
   for (const meta of findHeadTags(template, 'meta')) {
-    const key = getMetaKey(meta.attrs);
+    // Every identity this one carries, for the override test, and the first of them as the key the
+    // baseline is stored and marked under. A template meta can carry two the same way a page's can,
+    // and a page overriding either of them replaces it.
+    const keys = getMetaKeys(meta.attrs);
 
     // Metas with no identifying attribute (<meta charset>) can't be overridden by name, so
     // they're not part of the baseline and are left exactly as the template wrote them.
-    if (key === null) {
+    if (keys.length === 0) {
       continue;
     }
 
     baseline.push(meta.attrs);
 
-    if (pageMetaKeys.has(key)) {
+    if (keys.some((key) => pageMetaKeys.has(key))) {
       const { start, end } = expandToWholeLine(template, meta);
       edits.push({ start, end, replacement: '' });
       continue;

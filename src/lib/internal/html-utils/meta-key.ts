@@ -55,6 +55,23 @@ export function getMetaKeys(attrs: Record<string, string>): string[] {
 }
 
 /**
+ * Every identity, computed from a live DOM element rather than a parsed attribute record.
+ */
+export function getMetaKeysFromElement(element: Element): string[] {
+  const keys: string[] = [];
+
+  for (const attr of META_KEY_ATTRIBUTES) {
+    const value = element.getAttribute(attr);
+
+    if (value) {
+      keys.push(`${attr}=${value.toLowerCase()}`);
+    }
+  }
+
+  return keys;
+}
+
+/**
  * Same identity, computed from a live DOM element rather than a parsed attribute record.
  */
 export function getMetaKeyFromElement(element: Element): string | null {

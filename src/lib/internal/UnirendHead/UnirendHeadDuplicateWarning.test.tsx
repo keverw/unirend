@@ -14,6 +14,8 @@ import {
 import type { SeenHeadKeys } from './duplicate-head-warning';
 import type { PageSuccessResponse } from '../../api-envelope/api-envelope-types';
 
+let nextScopeID = 0;
+
 function createEmptyCollector(): HeadCollector {
   return {
     title: '',
@@ -87,7 +89,13 @@ describe('duplicate head key helpers', () => {
           'second',
         ),
       ).toEqual([
-        { key: 'name=description', firstValue: 'A', secondValue: 'B' },
+        {
+          key: 'name=description',
+          firstValue: 'A',
+          secondValue: 'B',
+          firstOwner: 'first',
+          secondOwner: 'second',
+        },
       ]);
 
       // A third instance does not reprint what the first warning already said.
@@ -127,7 +135,13 @@ describe('duplicate head key helpers', () => {
           'second',
         ),
       ).toEqual([
-        { key: 'name=description', firstValue: 'A', secondValue: 'B' },
+        {
+          key: 'name=description',
+          firstValue: 'A',
+          secondValue: 'B',
+          firstOwner: 'first',
+          secondOwner: 'second',
+        },
       ]);
     });
 
@@ -156,6 +170,8 @@ describe('duplicate head key helpers', () => {
         key: 'name=description',
         firstValue: 'Layout description',
         secondValue: 'Page description',
+        firstOwner: 'first',
+        secondOwner: 'second',
       });
 
       expect(message).toContain('name=description');
@@ -574,6 +590,7 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
       metaKeys: [],
       headKeys,
       tagMessages: [] as string[],
+      warningScopeID: (nextScopeID += 1),
       markerRef: { current: null },
     };
 
@@ -663,10 +680,10 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
     expect(captureWarnings(() => updateDOM())).toEqual([]);
   });
 
-  it('reports the envelope projection across the mounted instances, like a duplicate', () => {
-    // The tag warnings are derived from the registrations rather than accumulated, so they follow
-    // the same lifecycle a duplicate does: said once while true, forgotten with the page that
-    // produced it, said again if it comes back.
+  it('reports the envelope projection per instance, like a duplicate', () => {
+    // Derived from the registrations rather than accumulated, so it follows the same lifecycle a
+    // duplicate does: attributed to the instance that produced it, quiet while that instance keeps
+    // saying it, gone when the instance is.
     overrideDevMode(true);
 
     const message =
@@ -676,20 +693,51 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
     layout.tagMessages = [message];
     expect(captureWarnings(() => updateDOM())).toEqual([message]);
 
-    // Navigating to another page that returns the same bad tag is the same mistake, not a new
-    // one, so it stays quiet however many pages hit it.
-    const page = register(new Map());
-    page.tagMessages = [message];
+    // The layout has not changed, so re-syncing says nothing more about it.
     expect(captureWarnings(() => updateDOM())).toEqual([]);
 
-    // The page carrying it unmounts and the layout's copy goes too: nothing is wrong any more.
+    // A second instance returning the same bad tag is a second handler with the same bug, in its
+    // own file, so it says so rather than hiding behind the layout's.
+    const page = register(new Map());
+    page.tagMessages = [message];
+    expect(captureWarnings(() => updateDOM())).toEqual([message]);
+
+    // And neither repeats once both are standing.
+    expect(captureWarnings(() => updateDOM())).toEqual([]);
+
+    // Both fixed: nothing is wrong any more.
     layout.tagMessages = [];
     page.tagMessages = [];
     expect(captureWarnings(() => updateDOM())).toEqual([]);
 
-    // So a page that reintroduces it is news again.
+    // So reintroducing it is news again.
     page.tagMessages = [message];
     expect(captureWarnings(() => updateDOM())).toEqual([message]);
+  });
+
+  it('stays quiet about a layout while pages come and go beneath it', () => {
+    // The reason this is scoped by instance and not by URL. A bad tag in a persistent layout is
+    // one mistake, and neither instance behind it changed just because you navigated.
+    overrideDevMode(true);
+
+    const message =
+      '[unirend] UnirendHead: meta.page.tags[0] (layout-tag) was skipped.';
+
+    const layout = register(new Map());
+    layout.tagMessages = [message];
+    expect(captureWarnings(() => updateDOM())).toEqual([message]);
+
+    // Three navigations under the same layout, each mounting a fresh page instance.
+    for (const path of ['/posts/1', '/posts/2', '/posts/3']) {
+      navigateTo(path);
+
+      const page = register(new Map());
+      expect(captureWarnings(() => updateDOM())).toEqual([]);
+
+      getRegisteredList().splice(getRegisteredList().indexOf(page), 1);
+    }
+
+    expect(captureWarnings(() => updateDOM())).toEqual([]);
   });
 
   it("forgets an unmounted page's tag warning", () => {
@@ -760,8 +808,8 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
   }
 
   it('reports the same collision on a second page as its own issue', () => {
-    // Two pages each duplicating the layout's description are two bugs in two files. Keyed on the
-    // head key alone, hopping straight from one to the other told you about only the first.
+    // Two pages each duplicating the layout's description are two bugs in two files. Scoped by the
+    // pair of instances, so replacing the page half is a new pair and says so.
     overrideDevMode(true);
 
     const layout = register(
@@ -790,6 +838,25 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
 
     expect(layout.headKeys.size).toBe(1);
     expect(pageB.headKeys.size).toBe(1);
+  });
+
+  it('stays quiet about a collision between two persistent layouts', () => {
+    // Neither instance behind this changed, so navigating underneath them is not new information.
+    // Scoped by URL, this said the same thing on every record of a parameterized route.
+    overrideDevMode(true);
+
+    register(new Map([['name=description', 'Root description']]));
+    register(new Map([['name=description', 'Section description']]));
+    expect(captureWarnings(() => updateDOM())).toHaveLength(1);
+
+    for (const path of ['/posts/1', '/posts/2', '/posts/3']) {
+      navigateTo(path);
+
+      const page = register(new Map([['name=keywords', 'Page keywords']]));
+      expect(captureWarnings(() => updateDOM())).toEqual([]);
+
+      getRegisteredList().splice(getRegisteredList().indexOf(page), 1);
+    }
   });
 
   it('does not re-warn when a page changes the value it collides with', () => {

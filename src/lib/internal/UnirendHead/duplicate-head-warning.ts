@@ -153,6 +153,14 @@ export interface DuplicateHeadKeyReport {
   key: string;
   firstValue: string;
   secondValue: string;
+
+  /**
+   * The two instances the colliding tags came from, as the caller identified them. Carried so a
+   * caller that dedupes across renders can tell one pair from another: replacing the page half of
+   * a collision is a new mistake, while the layout half sitting there unchanged is not.
+   */
+  firstOwner: unknown;
+  secondOwner: unknown;
 }
 
 /**
@@ -196,7 +204,13 @@ export function collectDuplicateHeadKeys(
     }
 
     previous.hasWarned = true;
-    reports.push({ key, firstValue: previous.value, secondValue: value });
+    reports.push({
+      key,
+      firstValue: previous.value,
+      secondValue: value,
+      firstOwner: previous.owner,
+      secondOwner: owner,
+    });
   }
 
   return reports;
