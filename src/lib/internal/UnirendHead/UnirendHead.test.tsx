@@ -814,6 +814,11 @@ describe('UnirendHead Client-side Helpers', () => {
     const metasInHead = (head: any, name: string) =>
       head.children.filter((child: any) => child.getAttribute('name') === name);
 
+    // The baseline is grouped under a serialized identity set, so a group reads back as the list
+    // of identities it covers rather than as one string that has to be spelled exactly.
+    const groupedIdentities = (nodes: Map<string, unknown> | null) =>
+      Array.from(nodes?.keys() ?? []).map((key) => JSON.parse(key) as string[]);
+
     beforeEach(() => {
       originalWindow = (globalThis as any).window;
       originalDocument = (globalThis as any).document;
@@ -863,6 +868,47 @@ describe('UnirendHead Client-side Helpers', () => {
       expect(
         restored.map((meta: any) => meta.getAttribute('property')).sort(),
       ).toEqual(['og:other', 'og:site_name']);
+    });
+
+    it('does not read one identity as two because the value contains the separator', () => {
+      // The grouping key is a serialized identity set rather than a joined string, so a `name`
+      // spelling out what a two-identity meta's key list looks like is still one identity. Joined
+      // on a pipe these two are one group, the marked survivor stands in for the stripped one, and
+      // the stripped one is never rebuilt. A meta name like this is nobody's real index.html, but
+      // the value is arbitrary text and the encoding is free to get right.
+      const head = setupPage({
+        served: [
+          {
+            name: 'a',
+            property: 'b',
+            content: '#two',
+            [TEMPLATE_META_MARKER_ATTRIBUTE]: '',
+          },
+          // The page's own override of the other one, unmarked.
+          { name: 'a|property=b', content: '#page' },
+        ],
+        baseline: [
+          { name: 'a|property=b', content: '#one' },
+          { name: 'a', property: 'b', content: '#two' },
+        ],
+      });
+
+      const templateMetas = () =>
+        head.children.filter((child: any) =>
+          child.hasAttribute(TEMPLATE_META_MARKER_ATTRIBUTE),
+        );
+
+      captureTemplateMetas();
+
+      reconcileTemplateMetas(new Set(['name=a|property=b']));
+      expect(templateMetas()).toHaveLength(1);
+
+      reconcileTemplateMetas(new Set());
+      expect(
+        templateMetas()
+          .map((meta: any) => meta.getAttribute('content'))
+          .sort(),
+      ).toEqual(['#one', '#two']);
     });
 
     it('steps a dual-identity template meta aside for either identity', () => {
@@ -1010,7 +1056,7 @@ describe('UnirendHead Client-side Helpers', () => {
       // must not hold a reference to it or remove it.
       const nodes = getTemplateMetaNodes();
       expect(nodes).not.toBeNull();
-      expect(Array.from(nodes?.keys() ?? [])).toEqual(['name=viewport']);
+      expect(groupedIdentities(nodes)).toEqual([['name=viewport']]);
 
       reconcileTemplateMetas(new Set(['name=description']));
       expect(metasInHead(head, 'description')).toHaveLength(1);
@@ -1151,9 +1197,9 @@ describe('UnirendHead Client-side Helpers', () => {
 
       const nodes = getTemplateMetaNodes();
       expect(nodes).not.toBeNull();
-      expect(Array.from(nodes?.keys() ?? [])).toEqual([
-        'name=viewport',
-        'name=theme-color',
+      expect(groupedIdentities(nodes)).toEqual([
+        ['name=viewport'],
+        ['name=theme-color'],
       ]);
 
       reconcileTemplateMetas(new Set(['name=theme-color']));

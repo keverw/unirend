@@ -124,7 +124,6 @@ export function UnirendHead({ children, envelope }: UnirendHeadProps) {
       : children;
 
   // Duplicate detection is development-only, so a production build never pays for the scan.
-  // Duplicate detection is development-only, so a production build never pays for the scan.
   const shouldWarnOnDuplicates = isDuplicateHeadWarningEnabled();
   const headKeys = shouldWarnOnDuplicates
     ? scanHeadKeys(effectiveChildren).values
@@ -443,15 +442,23 @@ let initialBodyAttrs: Record<string, string> | null = null;
 let templateMetaNodes: Map<string, HTMLMetaElement[]> | null = null;
 
 /**
- * How template metas are grouped: by every identity they carry, joined.
+ * How template metas are grouped: by every identity they carry.
  *
  * Not by the first identity alone, which is what the baseline is keyed under on the server. The
  * server decides whether to strip a template meta from its whole identity set, so that set is what
  * says which metas share a fate, and it is the only grouping under which "this group was served"
  * and "this group was stripped" are the only two answers.
+ *
+ * Serialized rather than joined on a separator, so one identity is never spelled the same way as
+ * two. A separator has to be a character no value contains, and a meta's `name` may contain any
+ * character at all: joined on a pipe, `<meta name="a|property=b">` and `<meta name="a"
+ * property="b">` are one group, and if the server served one and stripped the other, the stripped
+ * one reads as already served and is never rebuilt. That takes a self-inflicted meta name in your
+ * own index.html rather than anything off the wire, but the encoding costs nothing to get right,
+ * and this runs once per page load.
  */
 function templateMetaSignature(keys: string[]): string {
-  return keys.join('|');
+  return JSON.stringify(keys);
 }
 
 /**
