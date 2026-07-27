@@ -59,6 +59,12 @@ let appRepeatableHeadKeys = new Set<string>();
  * here can change which tags a production page emits: a `tags` entry for it renders alongside the
  * field rather than losing to it, exactly as a built-in repeatable key does.
  *
+ * That is also why the call belongs in code both sides run, not in a browser entry. This writes
+ * module state, so it only takes effect where it is actually called, and the `tags` rule above
+ * runs during the server render too. Called from the client entry alone, the server drops an entry
+ * the browser then keeps, so the HTML a crawler reads is missing a tag the hydrated page has. Put
+ * it wherever the app declares its routes, or in any module both entries import.
+ *
  * It has no say over a child. A tag declared as a `UnirendHead` child replaces everything the
  * envelope contributed for its key whatever the key is, so this list cannot rescue an entry from
  * one. See `buildPageMetadataTags()`.

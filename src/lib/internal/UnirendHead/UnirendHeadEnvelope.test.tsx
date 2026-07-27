@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, afterEach } from 'bun:test';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { overrideDevMode } from 'lifecycleion/dev-mode';
@@ -1436,13 +1436,8 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
   });
 
   describe('the development-only warning for a dropped entry', () => {
-    beforeEach(() => {
-      _test.resetTagEntryWarnings();
-    });
-
     afterEach(() => {
       overrideDevMode(false);
-      _test.resetTagEntryWarnings();
     });
 
     /**
@@ -1485,6 +1480,24 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       });
     }
 
+    /**
+     * An envelope whose only mistake is a refused entry, so a render of it emits nothing but a
+     * `<title>`.
+     *
+     * That matters for the tests below that render two instances at once: a title is
+     * last-write-wins and never a collision, so the duplicate warning has nothing to say and the
+     * messages captured are the tag warnings alone.
+     */
+    function createRefusedEntryEnvelope(
+      href: string,
+    ): PageSuccessResponse<{ ok: true }> {
+      return createSuccessEnvelope({
+        title: 'Home',
+        description: '',
+        tags: [{ link: { rel: 'stylesheet', href } }],
+      });
+    }
+
     it('names the field, the key, and both values', () => {
       overrideDevMode(true);
 
@@ -1497,11 +1510,37 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       expect(warnings[0]).toContain('"https://example.com/entry"');
     });
 
-    it('prints once rather than on every render', () => {
+    it('says it once for a render, however many instances hit it', () => {
+      // One request is one thing to fix, so a layout and a page returning the same bad entry read
+      // as one message rather than as two problems.
+      overrideDevMode(true);
+
+      const warnings = captureWarnings(() => {
+        collect(
+          <>
+            <UnirendHead
+              envelope={createRefusedEntryEnvelope('https://example.com/x.css')}
+            />
+            <UnirendHead
+              envelope={createRefusedEntryEnvelope('https://example.com/x.css')}
+            />
+          </>,
+        );
+      });
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('an envelope may not load');
+    });
+
+    it('says it again on the next request, since the record went with the last one', () => {
+      // Scoped to the render rather than to the process. A message names the values involved, and
+      // a handler that builds a canonical out of the request path writes a different string every
+      // request, so a process-wide record never matched those anyway and grew an entry per URL for
+      // as long as the server ran.
       overrideDevMode(true);
 
       expect(renderWithCanonicalCollision()).toHaveLength(1);
-      expect(renderWithCanonicalCollision()).toEqual([]);
+      expect(renderWithCanonicalCollision()).toHaveLength(1);
     });
 
     it('stays silent in production', () => {
@@ -1847,114 +1886,94 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       expect(warnings[0]).toContain('instructs the browser');
     });
 
-    it('still warns for a second page hitting the same index with a different tag', () => {
-      // The warn-once record is module state that outlives a client-side navigation, so a message
-      // that named only the index would let the first page visited silence every later one.
+    it('still warns for a second instance hitting the same index with a different tag', () => {
+      // Two instances in one render share the record, so a message that named only the index would
+      // let whichever rendered first silence the other.
       overrideDevMode(true);
 
-      function renderPageWithBadTag(name: string): string[] {
-        return captureWarnings(() => {
-          collect(
+      const warnings = captureWarnings(() => {
+        collect(
+          <>
             <UnirendHead
               envelope={createSuccessEnvelope({
                 title: 'A page',
-                description: 'A page',
+                description: '',
                 tags: [
                   {
-                    meta: {
-                      name,
-                      content: '1.2.3',
-                      'http-equiv': 'refresh',
-                    },
-                  },
-                ],
-              })}
-            />,
-          );
-        });
-      }
-
-      const first = renderPageWithBadTag('app-version');
-      const second = renderPageWithBadTag('build-id');
-
-      expect(first).toHaveLength(1);
-      expect(first[0]).toContain('meta.page.tags[0] (app-version)');
-      expect(second).toHaveLength(1);
-      expect(second[0]).toContain('meta.page.tags[0] (build-id)');
-
-      // The same tag with the same problem is one mistake, however many pages return it.
-      expect(renderPageWithBadTag('app-version')).toEqual([]);
-    });
-
-    it('prints a message once for the life of the process', () => {
-      // Deliberately flat rather than tracking what is currently true. The per-instance version
-      // that did could not close a pass reliably (the sync it rode on only runs when the DOM needs
-      // something) and pruned live instances during a mounting commit (layout effects run child
-      // before parent, so the first sync sees a partial registration list). Saying it once is the
-      // behavior that holds.
-      overrideDevMode(true);
-
-      function renderBadPage(): string[] {
-        return captureWarnings(() => {
-          collect(
-            <UnirendHead
-              envelope={createSuccessEnvelope({
-                title: 'Bad page',
-                description: 'Bad page',
-                tags: [
-                  wireTag({
                     meta: {
                       name: 'app-version',
                       content: '1.2.3',
                       'http-equiv': 'refresh',
                     },
-                  }),
+                  },
                 ],
               })}
-            />,
-          );
-        });
-      }
+            />
+            <UnirendHead
+              envelope={createSuccessEnvelope({
+                title: 'A page',
+                description: '',
+                tags: [
+                  {
+                    meta: {
+                      name: 'build-id',
+                      content: '1.2.3',
+                      'http-equiv': 'refresh',
+                    },
+                  },
+                ],
+              })}
+            />
+          </>,
+        );
+      });
 
-      expect(renderBadPage()).toHaveLength(1);
+      expect(warnings).toHaveLength(2);
+      expect(warnings[0]).toContain('meta.page.tags[0] (app-version)');
+      expect(warnings[1]).toContain('meta.page.tags[0] (build-id)');
+    });
 
-      // Every render after that, whatever happens in between, stays quiet.
-      expect(renderBadPage()).toEqual([]);
-      expect(renderBadPage()).toEqual([]);
+    it('keeps two entries with the same problem apart by index', () => {
+      // The dedupe is on the whole message and the index is part of it, so a handler that listed
+      // the same bad entry twice hears about both rather than about whichever came first.
+      overrideDevMode(true);
+
+      const warnings = captureWarnings(() => {
+        collect(
+          <UnirendHead
+            envelope={createSuccessEnvelope({
+              title: 'Bad page',
+              description: '',
+              tags: [
+                {
+                  link: {
+                    rel: 'stylesheet',
+                    href: 'https://example.com/a.css',
+                  },
+                },
+                {
+                  link: {
+                    rel: 'stylesheet',
+                    href: 'https://example.com/a.css',
+                  },
+                },
+              ],
+            })}
+          />,
+        );
+      });
+
+      expect(warnings).toHaveLength(2);
+      expect(warnings[0]).toContain('meta.page.tags[0] (stylesheet)');
+      expect(warnings[1]).toContain('meta.page.tags[1] (stylesheet)');
     });
 
     it('enters nothing in a production build', () => {
       // Nothing reads the record outside development, so nothing should enter it either.
       overrideDevMode(false);
-      _test.resetTagEntryWarnings();
 
-      for (let index = 0; index < 5; index++) {
-        collect(
-          <UnirendHead
-            envelope={createSuccessEnvelope({
-              title: `Page ${index}`,
-              description: 'Bad page',
-              tags: [
-                wireTag({
-                  meta: {
-                    'http-equiv': 'refresh',
-                    content: '0;url=https://evil.example.com',
-                  },
-                }),
-              ],
-            })}
-          />,
-        );
-      }
-
-      expect(_test.getPrintedTagMessageCount()).toBe(0);
-
-      // The same render in development does enter it, so the assertion above is about the gate
-      // and not about the envelope being harmless.
-      overrideDevMode(true);
-
-      captureWarnings(() => {
-        collect(
+      function renderBadPage(): HeadCollector {
+        return collect(
           <UnirendHead
             envelope={createSuccessEnvelope({
               title: 'Page',
@@ -1970,9 +1989,21 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
             })}
           />,
         );
+      }
+
+      expect(_test.getPrintedTagMessageCount(renderBadPage())).toBe(0);
+
+      // The same render in development does enter it, so the assertion above is about the gate
+      // and not about the envelope being harmless.
+      overrideDevMode(true);
+
+      const devCollectors: HeadCollector[] = [];
+
+      captureWarnings(() => {
+        devCollectors.push(renderBadPage());
       });
 
-      expect(_test.getPrintedTagMessageCount()).toBe(1);
+      expect(_test.getPrintedTagMessageCount(devCollectors[0])).toBe(1);
     });
 
     it('says nothing when every entry renders whole', () => {

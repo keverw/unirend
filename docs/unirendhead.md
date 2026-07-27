@@ -330,9 +330,9 @@ The child one reads by key and count instead, since that is the question it answ
 
 The alternative is a tag that is simply not in the head, which is a hard thing to work backwards from when the envelope plainly asked for it. A production build short-circuits before building any of them.
 
-These follow the same lifecycle a [duplicate warning](#development-only-duplicate-warning) does, and for the same reason: both are read off the currently mounted `UnirendHead` instances rather than accumulated as things happen. So a message stays quiet while the same problem is still there, whatever re-renders in between, and it is forgotten along with the page that produced it, so navigating back to that page says so again rather than leaving you with a warning you may have scrolled past. Two pages returning the same bad tag is one mistake and says it once, which is why the message names the tag rather than only its index: two different bad tags at the same index are two messages and both are heard.
+These follow the same lifecycle a [duplicate warning](#development-only-duplicate-warning) does, and for the same reason: both are read off the currently mounted `UnirendHead` instances rather than accumulated as things happen. So a message stays quiet while the same problem is still there, whatever re-renders in between, and it is forgotten along with the page that produced it, so navigating back to that page says so again rather than leaving you with a warning you may have scrolled past. The message names the tag rather than only its index, since `tags[0]` is a different tag on every page and two bad ones at that index are two things to fix.
 
-On the server it is simpler, because a render there is one-shot per request and there is no mounted set to read: a handler-side mistake logs once for the process rather than once per request.
+On the server it is simpler, because a render there is one-shot per request and there is no mounted set to read: the record is scoped to the request instead. Two instances hitting the same mistake, or a subtree React replays for one request, say it once. The next request says it again, which is the same lifecycle the browser has and the reason nothing accumulates: a message names the values involved, and a handler building a `canonical` out of the request path writes a different one every time, so a record kept for the process would print on every request anyway and grow an entry per URL for as long as the server ran.
 
 #### Malformed Envelopes
 
@@ -394,7 +394,7 @@ A link's `rel` is the token set HTML defines it to be, so `rel="alternate canoni
 
 `UnirendHead` drops a tag rather than rendering something wrong, and everything it drops it says so about in development. So the first question is not "is this a bug", it is "where is the warning".
 
-**It prints in two places, for two different reasons.** During an SSR or SSG dev render it goes to the server's terminal, once per process, since a handler-side mistake is the same mistake on every request. In the browser it goes to the console, once per `UnirendHead` instance that has the problem, and again if you navigate away and come back. So the same bad envelope usually says so twice, in two windows. If you saw neither, check that you are actually in development: the whole thing short-circuits in a production build and prints nothing at all, by design.
+**It prints in two places, for two different reasons.** During an SSR or SSG dev render it goes to the server's terminal, once per request that hits it. In the browser it goes to the console, once per `UnirendHead` instance that has the problem, and again if you navigate away and come back. So the same bad envelope usually says so twice, in two windows. If you saw neither, check that you are actually in development: the whole thing short-circuits in a production build and prints nothing at all, by design.
 
 If you are looking at a tag that is not there and no warning was printed, it is one of the deliberate silences below rather than a failure to report:
 
@@ -493,6 +493,10 @@ setRepeatableHeadKeys(['description', 'og:title']);
 ```
 
 Those keys are then treated exactly as `og:image` is, however many instances declare them. Write the name the way you think of it (`description`, `og:image`, `canonical`); the internal `name=description` form is accepted too. Calling it again replaces the list rather than adding to it, so there is no way to end up with an exemption you cannot find.
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> Call it from code both entries run, such as your routes module or anything both of them import, and not from the browser entry alone. Despite the `unirend/client` import path, this is not a browser-only setting: it writes module state, so it takes effect only where it is actually called, and the `meta.page.tags` rule below runs during the SSR render too. Named in `entry-client` alone, the server drops a `tags` entry that the browser then keeps, and the HTML a crawler reads is missing a tag the hydrated page has.
 
 This is deliberately app-level rather than a prop on the instances that repeat a key. Which key repeats is a fact about the key, not about a component, and an opt-out attached to a component has to answer "which instance carries it". Past two instances there is no answer that reads well: it would have to go on all but one of them, or one instance would be silencing a collision between two others it has nothing to do with. Naming the key once has neither problem, and it says the thing you actually mean.
 

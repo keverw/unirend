@@ -283,9 +283,10 @@ export function UnirendHead({ children, envelope }: UnirendHeadProps) {
     }
 
     // Printed here rather than collected, because the server has no mounted set to derive from: a
-    // render is one-shot per request. Once per process, so a handler-side mistake is not repeated
-    // on every request.
-    warnTagMessagesOnce(tagMessages);
+    // render is one-shot per request. The record is scoped to the collector, so a message two
+    // instances both produce, or one a replayed subtree produces twice, is said once for the
+    // request, and the record goes away with the request rather than growing for the process.
+    warnTagMessagesOnce(collector, tagMessages);
 
     collectServerHead(collector, effectiveChildren);
     return null;

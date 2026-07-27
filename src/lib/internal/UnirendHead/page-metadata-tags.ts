@@ -394,25 +394,60 @@ export function isTagWarningEnabled(): boolean {
 }
 
 /**
- * Messages the server has already printed, so a handler-side mistake logs once for the process
- * rather than once per request.
+ * Messages one server render has already printed, so a mistake that two instances both hit, or
+ * that a replayed subtree produces twice, is said once for the render that produced it.
  *
- * Only the server writes here. A render there is one-shot per request and there is no mounted set
- * to derive anything from, so accumulating is the only option. The client does not accumulate at
- * all, see `warnFreshTagMessages()`.
+ * Scoped to the render rather than to the process, which is what it used to be. A message names
+ * the values involved, and a handler that builds a `canonical` or an `og:image` out of the request
+ * path writes a different string on every request, so a process-wide record never matched one of
+ * those against the next request's: it printed on every request anyway, and grew an entry per URL
+ * for as long as the server ran. Per render, the values inside a message are fixed, so the record
+ * collapses exactly what it means to.
+ *
+ * It also gives the server the lifecycle the client already has, where a message lives as long as
+ * the instance that produced it and is said again when that instance comes back. What that costs
+ * is a repeat per request for a handler that is still wrong, which is the same page saying the
+ * same thing and stops when the handler is fixed.
+ *
+ * Weakly keyed, so a finished render's record is collected along with the collector it belongs to,
+ * exactly as the duplicate warning's record is. See `getSeenHeadKeys()` in UnirendHead.tsx.
  */
-const printedTagMessages = new Set<string>();
+const printedTagMessagesByScope = new WeakMap<object, Set<string>>();
+
+function getPrintedTagMessages(scope: object): Set<string> {
+  const existing = printedTagMessagesByScope.get(scope);
+
+  if (existing) {
+    return existing;
+  }
+
+  const created = new Set<string>();
+  printedTagMessagesByScope.set(scope, created);
+
+  return created;
+}
 
 /**
- * Print the messages one server render produced, skipping any this process has already said.
+ * Print the messages one server render produced, skipping any this render has already said.
+ *
+ * `scope` is whatever the caller holds that is unique to the render and lives no longer than it,
+ * which on the server is the head collector.
  */
-export function warnTagMessagesOnce(messages: string[]): void {
+export function warnTagMessagesOnce(scope: object, messages: string[]): void {
+  // The common case, and the one worth not filing a record for: a render with nothing to say
+  // should leave nothing behind in the map.
+  if (messages.length === 0) {
+    return;
+  }
+
+  const printed = getPrintedTagMessages(scope);
+
   for (const message of messages) {
-    if (printedTagMessages.has(message)) {
+    if (printed.has(message)) {
       continue;
     }
 
-    printedTagMessages.add(message);
+    printed.add(message);
 
     // eslint-disable-next-line no-console
     console.warn(message);
@@ -420,23 +455,21 @@ export function warnTagMessagesOnce(messages: string[]): void {
 }
 
 /**
- * Test-only hooks, since the server record is module state that would otherwise leak from one
- * test into the next.
+ * Test-only hook. There is no module state to reset here, since a record lives and dies with the
+ * render it belongs to, so this only reads.
  */
 export const _test = {
-  /** The record size, so a test can prove a production render never enters it. */
-  getPrintedTagMessageCount: (): number => printedTagMessages.size,
-  resetTagEntryWarnings: (): void => {
-    printedTagMessages.clear();
-  },
+  /** One render's record size, so a test can prove a production render never enters it. */
+  getPrintedTagMessageCount: (scope: object): number =>
+    printedTagMessagesByScope.get(scope)?.size ?? 0,
 };
 
 /**
  * Record one development-only warning about `tags`, for the caller to print.
  *
  * Collected rather than printed here, because who says it and when depends on which side is
- * rendering. The server prints during the render, once per process. The client hands the list to
- * its registration, and the DOM sync prints whatever is new across the mounted instances, so an
+ * rendering. The server prints during the render, once for that render. The client hands the list
+ * to its registration, and the DOM sync prints whatever is new across the mounted instances, so an
  * unmounted page's message goes away with it. Everything these report is silent otherwise: the tag
  * simply is not in the head, which is a hard thing to work backwards from when the envelope
  * plainly asked for it.
@@ -450,11 +483,11 @@ function warnAboutTags(messages: string[], lines: string[]): void {
 /**
  * Name an entry for a warning, by identity where it has one and by position otherwise.
  *
- * The identity matters because the warn-once record keys on the whole message. Two pages hitting
- * the same mistake on the same index would otherwise read as one message, and only the first page
- * visited in a dev session would say anything. With the tag named, `name=app-version` on one page
- * and `property=twitter:card` on another are two messages and both are heard. What still collapses
- * is the same tag with the same problem, which is one mistake however many pages return it.
+ * The index alone would say where to look without saying what to look for, and it is the part of
+ * the message that means least: `tags[0]` is a different tag on every page. The identity is also
+ * what keeps two instances in one render from reading as one mistake, since the warn-once record
+ * keys on the whole message, so a bad `name=app-version` in a layout and a bad
+ * `property=twitter:card` in the page are two messages and both are heard.
  */
 function describeTagEntry(
   index: number,
