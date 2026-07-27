@@ -10,10 +10,9 @@ import { toHeadAttributes } from './head-attributes';
  * reconciliation already agree on, so `og:*` and `http-equiv` are covered for free. Links key on
  * `rel`, and the document title is a single fixed key because there is only ever one of it.
  *
- * A tag can occupy more than one key, which is where this layer parts company with the single
- * identity `getMetaKey()` hands the template merge. A meta carrying both `name` and `property` is
- * both of those things, and a `rel` is a token set. Overriding and collision detection have to see
- * every identity a tag has, or a tag hides behind whichever one happened to be checked.
+ * A tag can occupy more than one key. A meta carrying both `name` and `property` is both of those
+ * things, and a `rel` is a token set. Overriding and collision detection have to see every identity
+ * a tag has, or a tag hides behind whichever one happened to be checked.
  *
  * These keys drive two things: which envelope-derived tags an instance's own children have
  * already claimed, and which tags two separate instances both emit (the development-only
@@ -37,10 +36,15 @@ export const SINGULAR_LINK_RELATIONS = new Set([
 ]);
 
 /**
- * Identity key for a `<link>`, built from its `rel`.
+ * One identity key for a `<link>`, built from its `rel`.
  *
  * `rel` is a space-separated token set, so the whitespace is normalized on the way in and two
  * spellings of one list are one key.
+ *
+ * For building a key from a `rel` you already control, such as the `canonical` this file emits for
+ * the envelope field of that name. Deciding what an arbitrary link overrides or collides with
+ * wants `getLinkHeadKeys()`, since a `rel` naming a single-value relation among several tokens is
+ * that relation too, and keying on the list alone hides it.
  */
 export function getLinkHeadKey(rel: string): string {
   return `rel=${rel.trim().toLowerCase().split(/\s+/).join(' ')}`;

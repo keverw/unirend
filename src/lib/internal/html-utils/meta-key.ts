@@ -10,35 +10,22 @@
 const META_KEY_ATTRIBUTES = ['name', 'property', 'http-equiv'] as const;
 
 /**
- * Build the identity key for a <meta> tag's attributes.
+ * Every identity key a <meta>'s attributes carry.
  *
- * Returns null for metas carrying none of the identifying attributes (e.g. <meta charset>).
- * Those are not something a page can override by name, so they are never part of the
- * baseline merge and are always left alone.
- */
-export function getMetaKey(attrs: Record<string, string>): string | null {
-  for (const attr of META_KEY_ATTRIBUTES) {
-    const value = attrs[attr];
-
-    if (value) {
-      return `${attr}=${value.toLowerCase()}`;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Every identity key a <meta>'s attributes carry, rather than just the first.
+ * A tag can carry more than one: `<meta name="twitter:title" property="og:title">` is a
+ * `twitter:title` and an `og:title` both, and anything deciding what a tag overrides, collides
+ * with, or replaces has to see all of them, or the second identity is invisible and a duplicate
+ * ships beside it.
  *
- * `getMetaKey()` answers with one because the template merge needs a single identity to strip and
- * restore a baseline meta by, and that is not this function's business to change. But a tag may
- * genuinely carry more than one: `<meta name="twitter:title" property="og:title">` is a
- * `twitter:title` and an `og:title` both, and a caller deciding what a tag overrides or collides
- * with has to see both, or the `og:title` is invisible and a second one gets emitted alongside it.
+ * Deliberately the only shape on offer. Earlier versions also returned just the first identity,
+ * which read as the tag's one true name and was correct only where a group of tags was being
+ * filed under something stable. Every place that reached for it to make a decision got that
+ * decision wrong for a two-identity tag, twice over, so the choice is gone: a caller that wants a
+ * stable grouping key builds one from the whole set.
  *
- * Returns an empty list for metas carrying none of the identifying attributes, the same case
- * `getMetaKey()` returns null for.
+ * Returns an empty list for metas carrying none of the identifying attributes, `<meta charset>`
+ * being the usual one. Those are not something a page can override by name, so they are never part
+ * of the baseline merge and are always left alone.
  */
 export function getMetaKeys(attrs: Record<string, string>): string[] {
   const keys: string[] = [];
@@ -69,19 +56,4 @@ export function getMetaKeysFromElement(element: Element): string[] {
   }
 
   return keys;
-}
-
-/**
- * Same identity, computed from a live DOM element rather than a parsed attribute record.
- */
-export function getMetaKeyFromElement(element: Element): string | null {
-  for (const attr of META_KEY_ATTRIBUTES) {
-    const value = element.getAttribute(attr);
-
-    if (value) {
-      return `${attr}=${value.toLowerCase()}`;
-    }
-  }
-
-  return null;
 }
