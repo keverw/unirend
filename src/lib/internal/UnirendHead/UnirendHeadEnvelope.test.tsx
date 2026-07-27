@@ -759,6 +759,70 @@ describe('UnirendHead envelope projection (meta.page.og)', () => {
 });
 
 describe('UnirendHead envelope projection (meta.page.tags)', () => {
+  it('refuses a forbidden attribute at build time, and strips one that arrives anyway', () => {
+    // Two halves, and the type is the half that runs at `bun run type-check` rather than here.
+    // Each `@ts-expect-error` fails the build if the attribute above it ever starts type-checking
+    // again, which is what keeps `ForbiddenTagAttributes` in step with the sanitizer's
+    // `FORBIDDEN_TAG_ATTRIBUTES`. A handler writing one of these should not compile, the same way
+    // a meta with neither name nor property does not.
+    // Each directive sits on the offending attribute rather than above the entry, so that it stays
+    // put when Prettier decides how to wrap the object around it.
+    const entries: PageMetadataTag[] = [
+      {
+        meta: {
+          name: 'app-version',
+          content: '1.2.3',
+          // @ts-expect-error instructs the browser rather than describing the page.
+          'http-equiv': 'refresh',
+        },
+      },
+      {
+        meta: {
+          name: 'app-version',
+          content: '1.2.3',
+          // @ts-expect-error React reads it as an object, so the string form throws.
+          style: 'color: red',
+        },
+      },
+      {
+        meta: {
+          name: 'app-version',
+          content: '1.2.3',
+          // @ts-expect-error an event handler has no business arriving over the wire.
+          onLoad: 'alert(1)',
+        },
+      },
+      {
+        link: {
+          rel: 'icon',
+          href: '/a.png',
+          // @ts-expect-error one of React's own props rather than an attribute.
+          dangerouslySetInnerHTML: 'x',
+        },
+      },
+    ];
+
+    // The other half. The wire does not type-check at all, so the sanitizer is what actually stops
+    // these, and every entry still renders without the attribute rather than being lost whole.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: entries,
+        })}
+      />,
+    );
+
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+      { name: 'app-version', content: '1.2.3' },
+      { name: 'app-version', content: '1.2.3' },
+      { name: 'app-version', content: '1.2.3' },
+    ]);
+    expect(collector.links).toEqual([{ rel: 'icon', href: '/a.png' }]);
+  });
+
   it('renders meta and link entries after the named fields', () => {
     const collector = collect(
       <UnirendHead
@@ -1865,14 +1929,14 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
               title: 'Home',
               description: 'Home description',
               tags: [
-                {
+                wireTag({
                   meta: {
                     name: 'app-version',
                     content: '1.2.3',
                     'http-equiv': 'refresh',
                     onLoad: 'alert(1)',
                   },
-                },
+                }),
               ],
             })}
           />,
@@ -1899,13 +1963,13 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
                 title: 'A page',
                 description: '',
                 tags: [
-                  {
+                  wireTag({
                     meta: {
                       name: 'app-version',
                       content: '1.2.3',
                       'http-equiv': 'refresh',
                     },
-                  },
+                  }),
                 ],
               })}
             />
@@ -1914,13 +1978,13 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
                 title: 'A page',
                 description: '',
                 tags: [
-                  {
+                  wireTag({
                     meta: {
                       name: 'build-id',
                       content: '1.2.3',
                       'http-equiv': 'refresh',
                     },
-                  },
+                  }),
                 ],
               })}
             />
@@ -2048,13 +2112,13 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
                     content: string;
                   },
                 },
-                {
+                wireTag({
                   meta: {
                     name: 'app-version',
                     content: '1.2.3',
                     'http-equiv': 'refresh',
                   },
-                },
+                }),
               ],
             })}
           />,
@@ -2080,13 +2144,13 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
               },
             }),
             // Keeps its name, loses only the attribute.
-            {
+            wireTag({
               meta: {
                 name: 'app-version',
                 'http-equiv': 'refresh',
                 content: '1.2.3',
               },
-            },
+            }),
           ],
         })}
       />,

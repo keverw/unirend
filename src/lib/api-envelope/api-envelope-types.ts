@@ -22,12 +22,47 @@ export interface PageMetadataOpenGraph {
 }
 
 /**
+ * The attributes an envelope-provided tag may never carry, whichever kind of tag it is.
+ *
+ * Written out as `never` so that asking for one is a build error rather than a tag that renders
+ * without it. The index signature on the tag types below is what lets an entry carry `media`,
+ * `sizes`, `hreflang`, and the rest of an open vocabulary, and left on its own it would also
+ * accept every attribute the projection is built to strip. A handler would then compile, ship,
+ * and find out from a development warning. Same argument as the union on `PageMetadataMetaTag`:
+ * the shape the projection refuses should not type-check.
+ *
+ * `http-equiv` instructs the browser rather than describing the page (`refresh` navigates,
+ * `content-security-policy` sets policy) and this value arrives over the wire. `style` and
+ * `children` would make React throw on a void element, so the only spellings a handler could send
+ * are the ones that fail. The rest are React's own props, and `on*` is an event handler, which has
+ * no business arriving over the wire either.
+ *
+ * This is the readable half of the rule, not the whole of it. The projection matches these
+ * lowercased, because a browser does, so a `HTTP-EQUIV` or an `ONLOAD` is refused at runtime just
+ * the same. Enumerating every casing is not worth doing here: the type is for the handler writing
+ * the entry, and the sanitizer is for the wire. See `FORBIDDEN_TAG_ATTRIBUTES` in
+ * `UnirendHead/page-metadata-tags.ts`, which is the list this mirrors.
+ */
+interface ForbiddenTagAttributes {
+  'http-equiv'?: never;
+  httpEquiv?: never;
+  style?: never;
+  children?: never;
+  dangerouslySetInnerHTML?: never;
+  key?: never;
+  ref?: never;
+  suppressHydrationWarning?: never;
+  [handler: `on${string}`]: never;
+}
+
+/**
  * The attributes every entry in `PageMetadata.tags` may carry, whichever kind of tag it is.
  *
  * `content` is required. Any other attribute (`media`, `sizes`, and so on) passes through as
- * written, which is what the index signature is for.
+ * written, which is what the index signature is for, barring the ones
+ * {@link ForbiddenTagAttributes} rules out.
  */
-interface PageMetadataMetaTagAttributes {
+interface PageMetadataMetaTagAttributes extends ForbiddenTagAttributes {
   content: string;
   [attribute: string]: string | undefined;
 }
@@ -42,8 +77,9 @@ interface PageMetadataMetaTagAttributes {
  *
  * `http-equiv` is deliberately not part of this. It is the one meta attribute that instructs the
  * browser rather than describing the page (`refresh` navigates, `content-security-policy` sets
- * policy), and this value arrives over the wire, so it is dropped rather than honored. Declare an
- * `http-equiv` meta as a `UnirendHead` child, where it lives in your own code.
+ * policy), and this value arrives over the wire, so it is refused rather than honored. Declare an
+ * `http-equiv` meta as a `UnirendHead` child, where it lives in your own code. It is one of the
+ * names {@link ForbiddenTagAttributes} rules out, so writing it here does not compile.
  */
 export type PageMetadataMetaTag =
   | (PageMetadataMetaTagAttributes & { name: string; property?: string })
@@ -51,9 +87,13 @@ export type PageMetadataMetaTag =
 
 /**
  * A `<link>` a handler wants on the page. `rel` and `href` are required, everything else
- * (`hreflang`, `type`, `sizes`, `as`, and so on) passes through as written.
+ * (`hreflang`, `type`, `sizes`, `as`, and so on) passes through as written, barring the ones
+ * {@link ForbiddenTagAttributes} rules out.
+ *
+ * `rel="stylesheet"` is refused too, but that is a value rather than a name, so it stays a runtime
+ * check. `rel` is a token set with an open vocabulary and cannot be enumerated as a type.
  */
-export interface PageMetadataLinkTag {
+export interface PageMetadataLinkTag extends ForbiddenTagAttributes {
   rel: string;
   href: string;
   [attribute: string]: string | undefined;
