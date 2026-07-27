@@ -874,6 +874,45 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
     expect(captureWarnings(() => updateDOM())).toEqual([]);
   });
 
+  it("says it once through StrictMode's setup, cleanup, setup on mount", () => {
+    // StrictMode is on by default, and it replays layout effects on mount. The cleanup discards
+    // the registration and the second setup builds another, so the identity comes from render
+    // state that outlives both, and a cleanup-driven sync leaves the records alone.
+    overrideDevMode(true);
+
+    const message =
+      '[unirend] UnirendHead: meta.page.tags[0] (app-version) was skipped.';
+
+    // The instance renders once and keeps that identity across the replay.
+    const scopeID = 4242;
+
+    function mount() {
+      const entry = register(new Map([['name=description', 'Page']]));
+      entry.warningScopeID = scopeID;
+      entry.tagMessages = [message];
+      return entry;
+    }
+
+    const layout = register(new Map([['name=description', 'Layout']]));
+
+    // setup
+    const first = mount();
+    const printed = captureWarnings(() => updateDOM());
+    expect(printed).toHaveLength(2);
+
+    // cleanup: the registration goes, and the sync it drives must not turn the records over
+    getRegisteredList().splice(getRegisteredList().indexOf(first), 1);
+    expect(
+      captureWarnings(() => updateDOM({ shouldSyncWarnings: false })),
+    ).toEqual([]);
+
+    // setup again, a fresh registration carrying the same identity
+    mount();
+    expect(captureWarnings(() => updateDOM())).toEqual([]);
+
+    expect(layout.headKeys.size).toBe(1);
+  });
+
   it('never warns for a repeatable key', () => {
     overrideDevMode(true);
 

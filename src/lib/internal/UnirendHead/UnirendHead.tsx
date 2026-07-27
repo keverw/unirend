@@ -129,6 +129,7 @@ export function UnirendHead({ children, envelope }: UnirendHeadProps) {
       : children;
 
   // Duplicate detection is development-only, so a production build never pays for the scan.
+  // Duplicate detection is development-only, so a production build never pays for the scan.
   const shouldWarnOnDuplicates = isDuplicateHeadWarningEnabled();
   const headKeys = shouldWarnOnDuplicates
     ? scanHeadKeys(effectiveChildren).values
@@ -154,6 +155,14 @@ export function UnirendHead({ children, envelope }: UnirendHeadProps) {
   }, []);
 
   const markerRef = React.useRef<HTMLTemplateElement | null>(null);
+
+  // This instance's identity for the development warnings, taken during render rather than when
+  // the registration is built. StrictMode replays layout effects on mount as setup, cleanup,
+  // setup, which discards the registration and builds a second one, and an identity that came
+  // from the registration would change with it and read as a new mistake. Lazy state is created
+  // once per mounted instance and survives that replay, while a genuinely new instance, a
+  // different page component at the same slot or the same one remounted, gets its own.
+  const [warningScopeID] = React.useState(takeWarningScopeID);
 
   // Client-side HTML/Body attribute extraction: parses props from children if running
   // on the client (where the server-side context collector is null).
@@ -207,7 +216,7 @@ export function UnirendHead({ children, envelope }: UnirendHeadProps) {
         metaKeys,
         headKeys,
         tagMessages,
-        warningScopeID: takeWarningScopeID(),
+        warningScopeID,
         markerRef,
       };
       registeredList.push(registrationRef.current);
@@ -259,7 +268,7 @@ export function UnirendHead({ children, envelope }: UnirendHeadProps) {
         if (index !== -1) {
           registeredList.splice(index, 1);
         }
-        updateDOM();
+        updateDOM({ shouldSyncWarnings: false });
         registrationRef.current = null;
       }
     };
@@ -312,6 +321,15 @@ export function UnirendHead({ children, envelope }: UnirendHeadProps) {
       {filteredChildren}
     </>
   );
+}
+
+interface UpdateDOMOptions {
+  /**
+   * Whether this sync should bring the development warning records up to date. False from an
+   * unmounting instance's cleanup, which needs the attribute and template reconciliation below but
+   * is not a render and must not be read as one.
+   */
+  shouldSyncWarnings?: boolean;
 }
 
 interface RegisteredAttrs {
@@ -831,7 +849,7 @@ function applyAttributes(
 /**
  * Synchronize current cumulative configuration states of html/body elements to the active DOM.
  */
-function updateDOM(): void {
+function updateDOM({ shouldSyncWarnings = true }: UpdateDOMOptions = {}): void {
   if (typeof document === 'undefined') {
     return;
   }
@@ -868,14 +886,20 @@ function updateDOM(): void {
   // Development-only: detect the same key coming from two separate instances. Done here rather
   // than during render so it reads the committed, document-ordered set of mounted instances once,
   // instead of firing twice under StrictMode's double render.
-  const shouldWarnOnDuplicates = isDuplicateHeadWarningEnabled();
+  // Skipped when an unmounting instance drove this sync. Both records describe what the mounted
+  // instances currently say, and a cleanup is not a render: mid-commit the list is whatever has
+  // been spliced so far, so reading it there reports an emptier tree than actually exists. Under
+  // StrictMode that is not even a real unmount, and turning the records over on it made a fresh
+  // mount say everything twice. The next render-driven sync brings them up to date.
+  const shouldWarnOnDuplicates =
+    shouldSyncWarnings && isDuplicateHeadWarningEnabled();
   const seenHeadKeys: SeenHeadKeys = new Map();
   const duplicateReports: DuplicateHeadKeyReport[] = [];
 
   // The envelope projection's warnings are produced during render, so unlike the duplicate reports
   // they are read off the registrations rather than recomputed. Same shape either way: what the
   // currently mounted instances say, which is what makes an unmounted page's message disappear.
-  const shouldWarnOnTags = isTagWarningEnabled();
+  const shouldWarnOnTags = shouldSyncWarnings && isTagWarningEnabled();
   const currentTagMessages = new Set<string>();
 
   // Which instance is which, for attributing a warning below. Built from the mounted set, so an
