@@ -22,23 +22,32 @@ export interface PageMetadataOpenGraph {
 }
 
 /**
+ * The attributes every entry in `PageMetadata.tags` may carry, whichever kind of tag it is.
+ *
+ * `content` is required. Any other attribute (`media`, `sizes`, and so on) passes through as
+ * written, which is what the index signature is for.
+ */
+interface PageMetadataMetaTagAttributes {
+  content: string;
+  [attribute: string]: string | undefined;
+}
+
+/**
  * A `<meta>` a handler wants on the page that the named `PageMetadata` fields cannot express.
  *
  * `content` is required, and so is one of `name` or `property`, since a meta with neither has no
- * identity to override or be overridden by. Any other attribute (`media`, `charset`, and so on)
- * passes through as written.
+ * identity to override or be overridden by. A union rather than two optional fields, so that a
+ * meta the projection would skip is a build error rather than a tag that quietly never appears,
+ * the same way `PageMetadataTag` makes naming neither `meta` nor `link` one.
  *
  * `http-equiv` is deliberately not part of this. It is the one meta attribute that instructs the
  * browser rather than describing the page (`refresh` navigates, `content-security-policy` sets
  * policy), and this value arrives over the wire, so it is dropped rather than honored. Declare an
  * `http-equiv` meta as a `UnirendHead` child, where it lives in your own code.
  */
-export interface PageMetadataMetaTag {
-  name?: string;
-  property?: string;
-  content: string;
-  [attribute: string]: string | undefined;
-}
+export type PageMetadataMetaTag =
+  | (PageMetadataMetaTagAttributes & { name: string; property?: string })
+  | (PageMetadataMetaTagAttributes & { property: string; name?: string });
 
 /**
  * A `<link>` a handler wants on the page. `rel` and `href` are required, everything else

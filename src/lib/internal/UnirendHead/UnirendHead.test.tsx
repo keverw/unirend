@@ -587,6 +587,7 @@ describe('UnirendHead Client-side Helpers', () => {
         metaKeys: [],
         headKeys: new Map(),
         allowDuplicate: undefined,
+        instanceID: 'test-instance-b',
         markerRef: { current: markerB },
       });
 
@@ -596,6 +597,7 @@ describe('UnirendHead Client-side Helpers', () => {
         metaKeys: [],
         headKeys: new Map(),
         allowDuplicate: undefined,
+        instanceID: 'test-instance-a',
         markerRef: { current: markerA },
       });
 
@@ -646,6 +648,7 @@ describe('UnirendHead Client-side Helpers', () => {
         metaKeys: [],
         headKeys: new Map(),
         allowDuplicate: undefined,
+        instanceID: 'test-instance-b',
         markerRef: { current: null as any },
       };
       const regA = {
@@ -654,6 +657,7 @@ describe('UnirendHead Client-side Helpers', () => {
         metaKeys: [],
         headKeys: new Map(),
         allowDuplicate: undefined,
+        instanceID: 'test-instance-a',
         markerRef: { current: null as any },
       };
 

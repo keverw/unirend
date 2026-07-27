@@ -10,11 +10,17 @@ import { HTML_BOOLEAN_ATTRIBUTES } from '../html-utils/escape';
  * and `http-equiv` carries a hyphen. An unmapped `httpEquiv` would be serialized as an
  * `httpEquiv=""` attribute, which no parser reads as `http-equiv` — so the tag would not do its
  * job, and it could not be matched against the template's `http-equiv` baseline either.
+ *
+ * A `Map` rather than an object literal, because the lookup below is keyed by a name this module
+ * does not choose. A plain object answers `obj['constructor']` with an inherited function, so a
+ * prop named after anything on `Object.prototype` would resolve to a non-string and take the
+ * render down a line later. Envelope-provided tags put those names within reach of the wire, see
+ * `sanitizeTagAttributes()`. A `Map` carries no such inheritance and misses cleanly.
  */
-const REACT_PROP_TO_HTML_ATTRIBUTE: Record<string, string> = {
-  className: 'class',
-  httpEquiv: 'http-equiv',
-};
+const REACT_PROP_TO_HTML_ATTRIBUTE = new Map<string, string>([
+  ['className', 'class'],
+  ['httpEquiv', 'http-equiv'],
+]);
 
 /**
  * Converts React element properties into standard HTML attribute key-value records.
@@ -32,7 +38,7 @@ export function toHeadAttributes(
 
     // Map React prop spellings onto their real HTML attribute names (className -> class,
     // httpEquiv -> http-equiv); everything else is already the attribute name.
-    const normKey = REACT_PROP_TO_HTML_ATTRIBUTE[key] ?? key;
+    const normKey = REACT_PROP_TO_HTML_ATTRIBUTE.get(key) ?? key;
 
     // Handle React style objects by serializing them to a standard inline style string.
     if (normKey === 'style' && typeof value === 'object') {

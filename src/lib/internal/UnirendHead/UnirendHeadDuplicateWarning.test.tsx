@@ -372,6 +372,45 @@ describe('UnirendHead duplicate warning (server render)', () => {
     expect(warnings[0]).toContain('rel=canonical');
   });
 
+  it('warns when a canonical is one token of a longer rel on either side', () => {
+    // `rel` is a token set, so two canonicals are two canonicals whatever else they name. Without
+    // this the two would key differently and the collision the warning exists for would be missed.
+    overrideDevMode(true);
+
+    const warnings = collectWarnings(
+      <>
+        <UnirendHead>
+          <link rel="canonical" href="https://example.com/a" />
+        </UnirendHead>
+        <UnirendHead>
+          <link rel="alternate CANONICAL" href="https://example.com/b" />
+        </UnirendHead>
+      </>,
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('rel=canonical');
+    expect(warnings[0]).toContain('"https://example.com/a"');
+    expect(warnings[0]).toContain('"https://example.com/b"');
+  });
+
+  it('stays quiet for two links sharing only a repeatable token', () => {
+    overrideDevMode(true);
+
+    const warnings = collectWarnings(
+      <>
+        <UnirendHead>
+          <link rel="alternate" href="https://example.com/feed.xml" />
+        </UnirendHead>
+        <UnirendHead>
+          <link rel="alternate icon" href="/favicon.ico" />
+        </UnirendHead>
+      </>,
+    );
+
+    expect(warnings).toEqual([]);
+  });
+
   it('never warns in a production build', () => {
     overrideDevMode(false);
 
@@ -616,6 +655,8 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
     };
   }
 
+  let nextInstanceID = 0;
+
   function register(
     headKeys: Map<string, string>,
     allowDuplicate?: boolean | string[],
@@ -626,6 +667,7 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
       metaKeys: [],
       headKeys,
       allowDuplicate,
+      instanceID: `test-instance-${(nextInstanceID += 1)}`,
       markerRef: { current: null },
     };
 

@@ -99,10 +99,18 @@ export function UnirendHead({
 }: UnirendHeadProps) {
   const collector = useContext(UnirendHeadContext);
 
+  // Identifies this instance to the two warning records, both of which outlive a single render
+  // pass. `useId` is derived from the instance's position in the tree rather than from hook state,
+  // so a subtree React renders more than once for one request (a sibling suspending inside the
+  // same boundary) comes back with the same id and is recognized as the same instance. A ref would
+  // not survive that.
+  const instanceID = React.useId();
+
   // Opens a warning pass for the envelope projection, so the commit-time flush can tell a sync
-  // that follows a render from the several that follow the same one. Unconditional, because a
+  // that follows a render from the several that follow the same one, and so this instance's
+  // messages turn over on its own passes rather than on a neighbor's. Unconditional, because a
   // render that warns about nothing is how a message stops being true.
-  markTagWarningPass();
+  markTagWarningPass(instanceID);
 
   // Envelope prepass: resolve the merge before anything is collected, then hand the rest of this
   // component one ordinary child list. Children claim their keys first, so a declared tag wins
@@ -148,13 +156,6 @@ export function UnirendHead({
   }, []);
 
   const markerRef = React.useRef<HTMLTemplateElement | null>(null);
-
-  // Identifies this instance to the server-side duplicate record, which outlives a single render
-  // pass. `useId` is derived from the instance's position in the tree rather than from hook state,
-  // so a subtree React renders more than once for one request (a sibling suspending inside the
-  // same boundary) comes back with the same id and is recognized as the same instance. A ref would
-  // not survive that. The client has no need for it, see the registration objects in updateDOM().
-  const instanceID = React.useId();
 
   // Client-side HTML/Body attribute extraction: parses props from children if running
   // on the client (where the server-side context collector is null).
@@ -208,6 +209,7 @@ export function UnirendHead({
         metaKeys,
         headKeys,
         allowDuplicate,
+        instanceID,
         markerRef,
       };
       registeredList.push(registrationRef.current);
@@ -327,6 +329,15 @@ interface RegisteredAttrs {
   metaKeys: string[];
   headKeys: Map<string, string>;
   allowDuplicate: DuplicateHeadAllowance;
+
+  /**
+   * The instance's `useId`, which is what the envelope projection's warning record keys on. Held
+   * here so the sync can tell that record which instances are still mounted, and let it drop the
+   * messages of one that is not. The duplicate record identifies an instance by this object
+   * instead, since it is rebuilt in document order on every sync and never sees one twice.
+   */
+  instanceID: string;
+
   markerRef: React.RefObject<HTMLTemplateElement | null>;
 }
 
@@ -812,6 +823,7 @@ function updateDOM(): void {
   const htmlStack: Array<Record<string, string>> = [];
   const bodyStack: Array<Record<string, string>> = [];
   const declaredMetaKeys = new Set<string>();
+  const mountedInstanceIDs = new Set<string>();
 
   // Development-only: detect the same key coming from two separate instances. Done here rather
   // than during render so it reads the committed, document-ordered set of mounted instances once,
@@ -832,6 +844,8 @@ function updateDOM(): void {
     for (const key of item.metaKeys) {
       declaredMetaKeys.add(key);
     }
+
+    mountedInstanceIDs.add(item.instanceID);
 
     if (shouldWarnOnDuplicates) {
       duplicateReports.push(
@@ -858,11 +872,12 @@ function updateDOM(): void {
 
   // The envelope projection's warnings are produced during render rather than here, so this is
   // where its record turns over too, leaving it describing the currently mounted pages rather than
-  // everything the session has ever seen. Deliberately not folded into the branch above: the two
-  // warnings answer to the same dev-mode signal today, and if that ever stops being true, this
-  // record going stale would be a silent failure rather than a visible one. In production nothing
-  // ever enters it, so this is two assignments over an empty set.
-  flushTagWarnings();
+  // everything the session has ever seen. The instances above are the mounted ones, so handing
+  // them over is what forgets the page you just navigated away from. Deliberately not folded into
+  // the branch above: the two warnings answer to the same dev-mode signal today, and if that ever
+  // stops being true, this record going stale would be a silent failure rather than a visible one.
+  // In production nothing ever enters it, so this is a walk over an empty map.
+  flushTagWarnings(mountedInstanceIDs);
 
   applyAttributes(document.documentElement, initialHTMLAttrs || {}, htmlStack);
   applyAttributes(document.body, initialBodyAttrs || {}, bodyStack);

@@ -283,7 +283,7 @@ Naming `meta` or `link` is what tells Unirend which element to render, rather th
 
 The rules:
 
-- **A `meta` needs `content`, plus `name` or `property`.** A meta with neither identifying attribute could not be overridden by a child or seen by the duplicate warning, so it is skipped.
+- **A `meta` needs `content`, plus `name` or `property`.** A meta with neither identifying attribute could not be overridden by a child or seen by the duplicate warning, so it is skipped. `PageMetadataMetaTag` is a union that requires one of the two, so writing that meta is a build error rather than a tag that quietly never appears.
 - **A `link` needs `rel` and `href`.**
 - **Any other attribute passes through as written.** `media` on a `theme-color`, `hreflang` on an alternate, `type` and `sizes` on an icon. Casing is kept, since React's own spellings (`crossOrigin`, `referrerPolicy`) warn when lowercased. The exceptions are `name`, `property`, `rel`, `href`, and `content`, which are lowercased so the tag keys the same way however they were written, and two spellings of one attribute collapse to the first, which is the one a browser would keep.
 - **A child still wins.** An entry whose key a child claims is skipped, the same as a named field.
@@ -293,6 +293,8 @@ The rules:
 - **Entries render after the named fields**, and children after both.
 
 Two things are dropped rather than rendered, both matched against the lowercased attribute name, because that is how a browser matches them. `HTTP-EQUIV` is an `http-equiv` once the HTML is parsed, so a case-sensitive check would be one the wire opts out of by changing case. `http-equiv` is the first of the two, because it instructs the browser rather than describing the page, and this value arrives over the wire. Left honored, a compromised or buggy handler could return `{ 'http-equiv': 'refresh', content: '0;url=…' }` and navigate the page somewhere else. The attribute is stripped, which leaves a meta carrying only `http-equiv` with no identity, so it drops out entirely. Declare `http-equiv` metas as a `UnirendHead` child, in your own code, where it is not wire-controlled. The others are React's own props (`children`, `dangerouslySetInnerHTML`, `key`, `ref`), `style`, and anything starting with `on`, none of which describe a tag. Two of those would take the page down rather than cost a tag: `children` makes React throw on a void element, and `style` throws because React expects a style object, so the only spelling a handler could send over the wire is the one that fails.
+
+One relation is refused on the same grounds. A `link` whose `rel` names `stylesheet` is skipped whole, because a stylesheet is the one relation the browser fetches and then applies to the document, which is enough to cover the page with something of its own or to read it back out through attribute selectors, and this URL arrives over the wire. Every other relation either describes the page (`canonical`, `alternate`, `icon`) or only warms the cache (`preload`, `modulepreload`, `dns-prefetch`), so those pass through. `rel` is read as the space-separated token list HTML defines it to be and matched lowercased, so `rel="alternate STYLESHEET"` is refused too. Declare a stylesheet as a `UnirendHead` child, or in `index.html`, where the URL is yours.
 
 Everything else follows [Malformed Envelopes](#malformed-envelopes): non-string values are dropped rather than coerced, and an unusable entry costs only itself.
 
@@ -309,7 +311,7 @@ None of that is silent in development. An entry that renders nothing, an attribu
 
 The alternative is a tag that is simply not in the head, which is a hard thing to work backwards from when the envelope plainly asked for it. A production build short-circuits before building any of them.
 
-The record tracks what is currently wrong rather than everything that ever was, the same way the [duplicate warning](#development-only-duplicate-warning) does. A message stays quiet while the same problem is still there, so re-rendering a page does not repeat it on every state change, and it is forgotten once the page that caused it is gone, so navigating back to that page says so again rather than leaving you with a warning you may have scrolled past the first time.
+The record tracks what is currently wrong rather than everything that ever was, the same way the [duplicate warning](#development-only-duplicate-warning) does. A message stays quiet while the same problem is still there, so re-rendering a page does not repeat it on every state change, and it is forgotten once the page that caused it is gone, so navigating back to that page says so again rather than leaving you with a warning you may have scrolled past the first time. It is kept per instance, since React re-renders the one whose state changed and not its neighbors, so a layout's message is not carried off by a page that re-rendered without it.
 
 The message names the tag and not only its position for the same reason. Two pages whose loaders return different bad tags at the same index are two messages, and both are heard.
 
@@ -360,6 +362,8 @@ Children can also add tags the envelope knows nothing about, which are emitted a
 ```
 
 Keys are matched the same way the rest of `UnirendHead` matches them: metas on `name`, `property`, or `http-equiv` (so `og:*` works), links on `rel`, and a `<title>` child claims the title.
+
+A link's `rel` is the token set HTML defines it to be, so `rel="alternate canonical"` overrides the `canonical` field and collides with another instance's canonical, as a plain `rel="canonical"` would. Only the single-value relations (`canonical`, `manifest`, `amphtml`) are read token by token. A relation that repeats by nature is matched on the whole `rel` as written, so a `rel="alternate icon"` favicon does not go claiming a `rel="alternate"` feed link that has nothing to do with it.
 
 <!-- prettier-ignore -->
 > [!IMPORTANT]
@@ -433,7 +437,7 @@ What it deliberately stays quiet about:
 - **A child overriding an `envelope` field.** That is the documented feature, and it never produces two tags anyway.
 - **A duplicate `<title>`.** Last-write-wins is the designed pattern, a layout sets a default and a page overrides it.
 - **The same key repeated inside one instance.** Only collisions between separate instances are reported.
-- **Keys that legitimately repeat.** `og:image`, `og:video`, `og:audio` (with their `og:image:*` style sub-properties), `og:locale:alternate`, `og:see_also`, `article:tag`, `article:author`, `book:author`, `book:tag`, and `theme-color` (for the light and dark pair). Links are handled the other way round, since most relations repeat by nature: only `canonical`, `manifest`, and `amphtml` are treated as single-value, everything else (`preload`, `icon`, `alternate`, and so on) never warns.
+- **Keys that legitimately repeat.** `og:image`, `og:video`, `og:audio` (with their `og:image:*` style sub-properties), `og:locale:alternate`, `og:see_also`, `article:tag`, `article:author`, `book:author`, `book:tag`, and `theme-color` (for the light and dark pair). Links are handled the other way round, since most relations repeat by nature: only `canonical`, `manifest`, and `amphtml` are treated as single-value, everything else (`preload`, `icon`, `alternate`, and so on) never warns. Those three are matched as `rel` tokens, so naming one alongside others does not get past the check.
 
 For the intentional cases the list cannot know about, `allowDuplicate` opts an instance out:
 

@@ -4,13 +4,27 @@ import { renderToString } from 'react-dom/server';
 import { overrideDevMode } from 'lifecycleion/dev-mode';
 import { UnirendHead } from './UnirendHead';
 import { UnirendHeadProvider } from './UnirendHeadProvider';
-import { _test } from './page-metadata-tags';
+import { _test, buildPageMetadataTags } from './page-metadata-tags';
 import type { HeadCollector } from './context';
 import type {
   PageErrorResponse,
   PageMetadata,
+  PageMetadataTag,
   PageSuccessResponse,
 } from '../../api-envelope/api-envelope-types';
+
+/**
+ * A `tags` entry as the wire could send it, past the type that describes what a handler should
+ * write.
+ *
+ * `PageMetadataMetaTag` requires content plus name or property, so the entries the projection is
+ * built to refuse no longer type-check, which is the point of the type. A test proving they are
+ * refused at runtime still has to get past the build, the same way a malformed response gets past
+ * it in production.
+ */
+function wireTag(entry: unknown): PageMetadataTag {
+  return entry as PageMetadataTag;
+}
 
 function createEmptyCollector(): HeadCollector {
   return {
@@ -929,6 +943,135 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
     ]);
   });
 
+  it('renders a tag carrying an attribute named after an Object.prototype member', () => {
+    // The prop-to-attribute map is keyed by a name the wire chooses, so a plain object would
+    // answer `map['constructor']` with an inherited function and the render would throw on it
+    // rather than cost one tag. These names are legal HTML attributes, so they pass through.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: [
+            wireTag({
+              meta: {
+                name: 'app-version',
+                content: '1.2.3',
+                constructor: 'inert',
+                hasOwnProperty: 'inert',
+              },
+            }),
+          ],
+        })}
+      />,
+    );
+
+    expect(collector.metas).toContainEqual({
+      name: 'app-version',
+      content: '1.2.3',
+      constructor: 'inert',
+      hasOwnProperty: 'inert',
+    });
+  });
+
+  it('lets a child claim a singular relation it named among several rel tokens', () => {
+    // `rel` is a token set, so a canonical is a canonical however many other tokens sit beside it.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          canonical: 'https://example.com/',
+        })}
+      >
+        <link rel="alternate canonical" href="https://example.com/local" />
+      </UnirendHead>,
+    );
+
+    expect(collector.links).toEqual([
+      { rel: 'alternate canonical', href: 'https://example.com/local' },
+    ]);
+  });
+
+  it('does not let a multi-token rel claim its repeatable tokens', () => {
+    // The other half of the same rule. Only the singular relations get a key of their own, so a
+    // child sharing the `alternate` token has no business suppressing the envelope's feed link.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: [
+            {
+              link: { rel: 'alternate', href: 'https://example.com/feed.xml' },
+            },
+          ],
+        })}
+      >
+        <link rel="alternate icon" href="/favicon.ico" />
+      </UnirendHead>,
+    );
+
+    expect(collector.links).toEqual([
+      { rel: 'alternate', href: 'https://example.com/feed.xml' },
+      { rel: 'alternate icon', href: '/favicon.ico' },
+    ]);
+  });
+
+  it('skips an entry whose rel names a singular relation a named field produced', () => {
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          canonical: 'https://example.com/',
+          tags: [
+            {
+              link: {
+                rel: 'alternate canonical',
+                href: 'https://example.com/entry',
+              },
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(collector.links).toEqual([
+      { rel: 'canonical', href: 'https://example.com/' },
+    ]);
+  });
+
+  it('skips a link asking for a stylesheet', () => {
+    // Same argument as http-equiv: a stylesheet is applied to the document rather than describing
+    // it, and this URL arrives over the wire. Read as a token list, so a second token is not a way
+    // around it.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: [
+            { link: { rel: 'stylesheet', href: 'https://example.com/x.css' } },
+            {
+              link: {
+                rel: 'alternate STYLESHEET',
+                href: 'https://example.com/y.css',
+              },
+            },
+            {
+              link: { rel: 'alternate', href: 'https://example.com/feed.xml' },
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(collector.links).toEqual([
+      { rel: 'alternate', href: 'https://example.com/feed.xml' },
+    ]);
+  });
+
   describe('the development-only warning for a dropped entry', () => {
     beforeEach(() => {
       _test.resetTagEntryWarnings();
@@ -1002,6 +1145,36 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       overrideDevMode(false);
 
       expect(renderWithCanonicalCollision()).toEqual([]);
+    });
+
+    it('says why a stylesheet link was skipped, and where to declare it instead', () => {
+      overrideDevMode(true);
+
+      const warnings = captureWarnings(() => {
+        collect(
+          <UnirendHead
+            envelope={createSuccessEnvelope({
+              title: 'Home',
+              description: 'Home description',
+              tags: [
+                {
+                  link: {
+                    rel: 'stylesheet',
+                    href: 'https://example.com/x.css',
+                  },
+                },
+              ],
+            })}
+          />,
+        );
+      });
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('meta.page.tags[0] (stylesheet)');
+      expect(warnings[0]).toContain('an envelope may not load');
+      expect(warnings[0]).toContain('Declare it as a UnirendHead child');
+      // The shape advice would be wrong here, the entry had both rel and href.
+      expect(warnings[0]).not.toContain('a link needs rel and href');
     });
 
     it('stays silent when a child claims the key, which is the documented override', () => {
@@ -1243,6 +1416,61 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       expect(renderBadPage()).toEqual([]);
     });
 
+    it('turns over per instance, so a neighbor that did not render keeps its message', () => {
+      // React re-renders the instance whose state changed and not its neighbors. One shared record
+      // could not survive that: the instance that did render would replace it whole, dropping a
+      // layout's message while the layout's bad tag is still there and reprinting it the next time
+      // the layout happens to render. Driven directly rather than through collect(), because a
+      // server render is whole-tree and cannot express one instance rendering without the other.
+      overrideDevMode(true);
+
+      function badMetadata(tagName: string): PageMetadata {
+        return {
+          title: 'Bad page',
+          description: 'Bad page',
+          tags: [
+            {
+              meta: {
+                name: tagName,
+                content: '1.2.3',
+                'http-equiv': 'refresh',
+              },
+            },
+          ],
+        };
+      }
+
+      const layoutMetadata = badMetadata('layout-version');
+      const pageMetadata = badMetadata('page-version');
+      const bothMounted = new Set(['layout', 'page']);
+
+      function renderInstance(owner: string, metadata: PageMetadata): string[] {
+        return captureWarnings(() => {
+          _test.markTagWarningPass(owner);
+          buildPageMetadataTags(metadata, new Set());
+        });
+      }
+
+      expect(renderInstance('layout', layoutMetadata)).toHaveLength(1);
+      expect(renderInstance('page', pageMetadata)).toHaveLength(1);
+      _test.flushTagWarnings(bothMounted);
+
+      // Only the page re-renders. Its own message is still standing, so it stays quiet.
+      expect(renderInstance('page', pageMetadata)).toEqual([]);
+      _test.flushTagWarnings(bothMounted);
+
+      // And so is the layout's, which the page's pass must not have carried off with it.
+      expect(renderInstance('layout', layoutMetadata)).toEqual([]);
+      _test.flushTagWarnings(bothMounted);
+
+      // Unmount the layout, and the first sync that follows a render forgets it, so coming back
+      // to that page says so again.
+      expect(renderInstance('page', pageMetadata)).toEqual([]);
+      _test.flushTagWarnings(new Set(['page']));
+
+      expect(renderInstance('layout', layoutMetadata)).toHaveLength(1);
+    });
+
     it('says nothing when every entry renders whole', () => {
       overrideDevMode(true);
 
@@ -1310,12 +1538,12 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
           description: 'Home description',
           tags: [
             // No identity left once http-equiv is dropped, so the tag goes with it.
-            {
+            wireTag({
               meta: {
                 'http-equiv': 'refresh',
                 content: '0;url=https://evil.example.com',
               },
-            },
+            }),
             // Keeps its name, loses only the attribute.
             {
               meta: {

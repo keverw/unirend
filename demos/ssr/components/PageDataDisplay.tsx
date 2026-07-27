@@ -1,12 +1,11 @@
 import { useLoaderData, useParams } from 'react-router';
 import { UnirendHead } from '../../../src/client';
-import type { PageResponseEnvelope } from '../../../src/api-envelope';
+import type { BaseMeta, PageResponseEnvelope } from '../../../src/api-envelope';
 
-interface PageDataMeta {
-  page?: {
-    title?: string;
-    description?: string;
-  };
+// `page` comes from BaseMeta, where it is `PageMetadata | undefined`. Redeclaring it here with
+// looser fields would not satisfy the `M extends BaseMeta` constraint, and it does not need to:
+// the field is optional, so the reads below still guard with optional chaining.
+interface PageDataMeta extends BaseMeta {
   app?: {
     environment?: string;
   };

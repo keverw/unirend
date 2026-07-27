@@ -1,5 +1,5 @@
 import { getDevMode } from 'lifecycleion/dev-mode';
-import { getHeadKeyValue } from './head-keys';
+import { getHeadKeyValue, SINGULAR_LINK_RELATIONS } from './head-keys';
 
 /**
  * Development-only detection of the same head tag being emitted by two separate `UnirendHead`
@@ -70,17 +70,6 @@ const REPEATABLE_META_KEY_PREFIXES = [
   'property=og:video:',
   'property=og:audio:',
 ];
-
-/**
- * Link relations that must not repeat.
- *
- * Links are handled the other way round from metas on purpose. Most relations are repeatable by
- * nature — a page preloads several assets, ships several icon sizes, lists several `alternate`
- * language variants — so an allowlist of the repeatable ones would be long, incomplete, and a
- * steady source of false positives. Only a handful of relations describe the document once, and
- * those are the ones worth flagging.
- */
-const SINGULAR_LINK_RELATIONS = new Set(['canonical', 'manifest', 'amphtml']);
 
 /**
  * Whether a key repeating across instances is normal rather than a mistake.

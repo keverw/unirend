@@ -6,7 +6,7 @@ import type {
 } from '../../api-envelope/api-envelope-types';
 import { getDevMode } from 'lifecycleion/dev-mode';
 import { getMetaKey } from '../html-utils/meta-key';
-import { getLinkHeadKey, TITLE_HEAD_KEY } from './head-keys';
+import { getLinkHeadKey, getLinkHeadKeys, TITLE_HEAD_KEY } from './head-keys';
 import { isRepeatableHeadKey } from './duplicate-head-warning';
 
 /**
@@ -32,6 +32,33 @@ const FORBIDDEN_TAG_ATTRIBUTES = new Set(
     'httpEquiv',
   ].map((attribute) => attribute.toLowerCase()),
 );
+
+/**
+ * Link relations an envelope-provided tag may not ask for.
+ *
+ * `http-equiv` is dropped from a meta because it instructs the browser rather than describing the
+ * page, and `rel="stylesheet"` is the same argument on a link: it is the one relation whose value
+ * the browser fetches and then applies to the document, which is enough to restyle the page over
+ * its own content or to read it back out through attribute selectors. Every other relation either
+ * describes the page (`canonical`, `alternate`, `icon`) or only warms the cache (`preload`,
+ * `modulepreload`, `dns-prefetch`), so those are left alone. Declare a stylesheet as a
+ * `UnirendHead` child, or in `index.html`, where the URL is not wire-controlled.
+ */
+const FORBIDDEN_LINK_RELATIONS = new Set(['stylesheet']);
+
+/**
+ * Whether a `rel` names a forbidden relation.
+ *
+ * Read as the space-separated token list HTML defines it to be, and lowercased, since
+ * `rel="alternate STYLESHEET"` is a stylesheet to the browser and would otherwise be a filter the
+ * caller opts out of by writing two tokens.
+ */
+function hasForbiddenLinkRelation(rel: string): boolean {
+  return rel
+    .toLowerCase()
+    .split(/\s+/)
+    .some((token) => FORBIDDEN_LINK_RELATIONS.has(token));
+}
 
 /**
  * The attributes this file reads back off a built tag, to decide what key it occupies and whether
@@ -199,6 +226,18 @@ function buildCustomTag(entry: unknown, index: number): ReactElement | null {
       return null;
     }
 
+    if (hasForbiddenLinkRelation(attributes.rel)) {
+      warnTagEntrySkipped(
+        index,
+        'its rel names a stylesheet, which an envelope may not load',
+        attributes,
+        dropped,
+        '  A stylesheet is applied to the document rather than describing it, and this URL arrives over the wire.\n' +
+          '  Declare it as a UnirendHead child, or in index.html, where it is not wire-controlled.',
+      );
+      return null;
+    }
+
     warnTagAttributesDropped(index, attributes, dropped);
 
     return React.createElement('link', {
@@ -213,16 +252,21 @@ function buildCustomTag(entry: unknown, index: number): ReactElement | null {
 }
 
 /**
- * The head key an already-built custom tag occupies, for the claimed-key check.
+ * The head keys an already-built custom tag occupies, for the claimed-key check.
+ *
+ * A meta occupies one. A link may occupy more, since a `rel` naming a singular relation among
+ * several tokens is that relation as well as the list, see `getLinkHeadKeys()`.
  */
-function getCustomTagKey(tag: ReactElement): string | null {
+function getCustomTagKeys(tag: ReactElement): string[] {
   const props = tag.props as Record<string, string>;
 
   if (tag.type === 'link') {
-    return getLinkHeadKey(props.rel);
+    return getLinkHeadKeys(props.rel);
   }
 
-  return getMetaKey(props);
+  const key = getMetaKey(props);
+
+  return key === null ? [] : [key];
 }
 
 /**
@@ -245,31 +289,36 @@ interface EmittedField {
  * duplicate warning does. `active` suppresses a repeat while the same problem is still there, and
  * `flushTagWarnings()` replaces it with what this pass found, which forgets anything that went
  * away. Navigating back to a page that still has the mistake says so again.
- */
-let activeTagMessages = new Set<string>();
-let pendingTagMessages = new Set<string>();
-
-/**
- * Whether a render has happened since the last turnover, so a flush that follows no render at all
- * is not one.
  *
- * The flush runs from the client DOM sync, and that sync runs more than once per commit: every
- * mounting instance's effect calls it, as does an unmounting instance's cleanup. Only the first of
- * those follows the render that filled `pendingTagMessages`. Without this, the second would promote
- * an already-drained record over the one just built, forgetting messages that are still true and
- * reprinting every one of them on the next render, which is what the record exists to prevent.
+ * Kept per instance rather than as one set apiece, because React re-renders the instance whose
+ * state changed and not its neighbors. A single set would be replaced wholesale by whatever that
+ * one instance reported, dropping a layout's message while the layout's bad tag is still there,
+ * and reprinting it the next time the layout happens to render. Each instance's entry turns over
+ * only on a pass it took part in, so the record is the union of what the mounted instances
+ * currently say.
  */
-let hasRenderedSinceFlush = false;
+const activeTagMessages = new Map<unknown, Set<string>>();
+const pendingTagMessages = new Map<unknown, Set<string>>();
 
 /**
- * Open a warning pass, from the render that may fill one.
+ * The instance whose render pass is open, so a message lands in that instance's record.
+ *
+ * Safe as a single module value because a React render function runs synchronously start to
+ * finish: `markTagWarningPass()` and the `buildPageMetadataTags()` call that may warn are in the
+ * same uninterrupted stretch of one component's render, with no await between them.
+ */
+let currentTagWarningOwner: unknown = null;
+
+/**
+ * Open a warning pass for one instance, from the render that may fill it.
  *
  * Called for every render rather than only for the ones that warn, because a pass finding nothing
- * is exactly how a message stops being true: the record turns over to empty and the mistake is
- * reported again if it comes back.
+ * is exactly how a message stops being true: that instance's entry turns over to empty and the
+ * mistake is reported again if it comes back.
  */
-export function markTagWarningPass(): void {
-  hasRenderedSinceFlush = true;
+export function markTagWarningPass(owner: unknown): void {
+  currentTagWarningOwner = owner;
+  pendingTagMessages.set(owner, new Set());
 }
 
 /**
@@ -278,15 +327,37 @@ export function markTagWarningPass(): void {
  * Called from the same commit-time pass that flushes the duplicate warning, so both records turn
  * over together. The server never calls it, which is what it wants: renders there are one-shot per
  * request, and a handler-side mistake should log once for the process rather than once per request.
+ *
+ * An empty `pendingTagMessages` means no render has happened since the last turnover, so this is
+ * not a sync that closes one. That matters because a single commit performs several: every
+ * mounting instance's effect calls it, as does an unmounting instance's cleanup. Only the first of
+ * those follows the render that filled the record, and the rest have to leave it alone rather than
+ * promote an already-drained one and let every message print again on the next render.
+ *
+ * `liveOwners`, when given, is the set of instances still mounted, and any other instance's entry
+ * is dropped. That is what forgets a page you navigated away from. It is left out by the tests
+ * that only exercise the turnover, and by nothing else.
  */
-export function flushTagWarnings(): void {
-  if (!hasRenderedSinceFlush) {
+export function flushTagWarnings(liveOwners?: ReadonlySet<unknown>): void {
+  if (pendingTagMessages.size === 0) {
     return;
   }
 
-  hasRenderedSinceFlush = false;
-  activeTagMessages = pendingTagMessages;
-  pendingTagMessages = new Set();
+  for (const [owner, messages] of pendingTagMessages) {
+    activeTagMessages.set(owner, messages);
+  }
+
+  pendingTagMessages.clear();
+
+  if (liveOwners === undefined) {
+    return;
+  }
+
+  for (const owner of activeTagMessages.keys()) {
+    if (!liveOwners.has(owner)) {
+      activeTagMessages.delete(owner);
+    }
+  }
 }
 
 /**
@@ -295,13 +366,47 @@ export function flushTagWarnings(): void {
  */
 export const _test = {
   resetTagEntryWarnings: (): void => {
-    activeTagMessages = new Set();
-    pendingTagMessages = new Set();
-    hasRenderedSinceFlush = false;
+    activeTagMessages.clear();
+    pendingTagMessages.clear();
+    currentTagWarningOwner = null;
   },
   markTagWarningPass,
   flushTagWarnings,
 };
+
+/**
+ * Whether any mounted instance is already standing on this message.
+ *
+ * Across instances rather than within one, so the same mistake returned by a layout and a page is
+ * one message and prints once. It is also what keeps the server quiet: nothing there ever flushes,
+ * so an instance's entry is only ever added to, and a handler-side mistake logs once for the
+ * process instead of once per request.
+ */
+function isTagMessageActive(message: string): boolean {
+  for (const messages of activeTagMessages.values()) {
+    if (messages.has(message)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Add a message to one of the two records, opening the instance's entry if the pass did not.
+ */
+function recordTagMessage(
+  record: Map<unknown, Set<string>>,
+  message: string,
+): void {
+  const messages = record.get(currentTagWarningOwner);
+
+  if (messages) {
+    messages.add(message);
+  } else {
+    record.set(currentTagWarningOwner, new Set([message]));
+  }
+}
 
 /**
  * Print one development-only warning about `tags`, unless the same one is already standing.
@@ -314,13 +419,15 @@ function warnAboutTags(lines: string[]): void {
     '\n',
   );
 
-  pendingTagMessages.add(message);
+  recordTagMessage(pendingTagMessages, message);
 
-  if (activeTagMessages.has(message)) {
+  if (isTagMessageActive(message)) {
     return;
   }
 
-  activeTagMessages.add(message);
+  // Recorded as active at print time and not only at the flush, so a re-render that happens before
+  // any DOM sync does not print it a second time.
+  recordTagMessage(activeTagMessages, message);
 
   // eslint-disable-next-line no-console
   console.warn(message);
@@ -348,6 +455,13 @@ function describeTagEntry(
 }
 
 /**
+ * What an entry skipped for a missing attribute is missing, which is the usual case and so the
+ * default closing line.
+ */
+const TAG_ENTRY_SHAPE_GUIDANCE =
+  '  A meta needs content plus name or property, and a link needs rel and href.';
+
+/**
  * Development-only warning for an entry that could not describe a usable tag at all.
  */
 function warnTagEntrySkipped(
@@ -355,6 +469,7 @@ function warnTagEntrySkipped(
   reason: string,
   attributes: Record<string, string> = {},
   droppedAttributes: string[] = [],
+  guidance: string = TAG_ENTRY_SHAPE_GUIDANCE,
 ): void {
   if (!getDevMode()) {
     return;
@@ -370,9 +485,7 @@ function warnTagEntrySkipped(
     );
   }
 
-  lines.push(
-    '  A meta needs content plus name or property, and a link needs rel and href.',
-  );
+  lines.push(guidance);
 
   warnAboutTags(lines);
 }
@@ -576,27 +689,26 @@ export function buildPageMetadataTags(
         continue;
       }
 
-      const key = getCustomTagKey(tag);
+      const keys = getCustomTagKeys(tag);
 
-      if (key !== null) {
-        // A child claiming the key is the documented override and stays quiet, the same as it
-        // does for a named field.
-        if (claimedKeys.has(key)) {
-          continue;
-        }
+      // A child claiming any key the tag occupies is the documented override and stays quiet, the
+      // same as it does for a named field.
+      if (keys.some((key) => claimedKeys.has(key))) {
+        continue;
+      }
 
-        // A key that repeats by nature is not a collision. `og:image` is the case this exists
-        // for: an object cannot hold a second `image`, so a page offering several is expected to
-        // add the rest here, and dropping them would leave `tags` unable to do the one thing the
-        // docs point at it for.
-        const named = isRepeatableHeadKey(key)
-          ? undefined
-          : emittedByField.get(key);
+      // A key that repeats by nature is not a collision. `og:image` is the case this exists
+      // for: an object cannot hold a second `image`, so a page offering several is expected to
+      // add the rest here, and dropping them would leave `tags` unable to do the one thing the
+      // docs point at it for.
+      const collision = keys
+        .filter((key) => !isRepeatableHeadKey(key))
+        .map((key) => ({ key, named: emittedByField.get(key) }))
+        .find((candidate) => candidate.named !== undefined);
 
-        if (named !== undefined) {
-          warnTagEntryLostToField(key, named, tag);
-          continue;
-        }
+      if (collision !== undefined && collision.named !== undefined) {
+        warnTagEntryLostToField(collision.key, collision.named, tag);
+        continue;
       }
 
       // Deliberately not recorded as emitted. Keys that repeat legitimately (`og:image`,
