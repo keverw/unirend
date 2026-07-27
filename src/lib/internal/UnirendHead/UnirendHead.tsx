@@ -9,6 +9,7 @@ import { serializeStyleObject, toHeadAttributes } from './head-attributes';
 import { scanHeadKeys } from './head-keys';
 import {
   buildPageMetadataTags,
+  flushTagWarnings,
   resolvePageMetadata,
 } from './page-metadata-tags';
 import {
@@ -837,6 +838,14 @@ function updateDOM(): void {
     warnedDuplicateKeys = new Set(duplicateReports.map((report) => report.key));
     warnDuplicateHeadKeys(fresh);
   }
+
+  // The envelope projection's warnings are produced during render rather than here, so this is
+  // where its record turns over too, leaving it describing the currently mounted pages rather than
+  // everything the session has ever seen. Deliberately not folded into the branch above: the two
+  // warnings answer to the same dev-mode signal today, and if that ever stops being true, this
+  // record going stale would be a silent failure rather than a visible one. In production nothing
+  // ever enters it, so this is two assignments over an empty set.
+  flushTagWarnings();
 
   applyAttributes(document.documentElement, initialHTMLAttrs || {}, htmlStack);
   applyAttributes(document.body, initialBodyAttrs || {}, bodyStack);

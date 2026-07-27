@@ -9,6 +9,8 @@
   - [`<UnirendHead>`](#unirendhead)
   - [The `envelope` Prop](#the-envelope-prop)
     - [Only `meta.page` Is Read](#only-metapage-is-read)
+    - [The `og` Object](#the-og-object)
+    - [Custom Tags](#custom-tags)
     - [Malformed Envelopes](#malformed-envelopes)
     - [Overriding a Single Envelope Field](#overriding-a-single-envelope-field)
   - [Supported Tags](#supported-tags)
@@ -162,17 +164,19 @@ const envelope = useLoaderData<HomeLoaderEnvelope>();
 <UnirendHead envelope={envelope} />;
 ```
 
-Unirend owns the `PageMetadata` shape, so it owns the projection to tags. The mapping:
+Unirend owns the `PageMetadata` shape, so it also supports the projection to tags. The mapping:
 
-| `meta.page` field | Tag rendered                                   |
-| ----------------- | ---------------------------------------------- |
-| `title`           | `<title>…</title>`                             |
-| `description`     | `<meta name="description" content="…">`        |
-| `keywords`        | `<meta name="keywords" content="…">`           |
-| `canonical`       | `<link rel="canonical" href="…">`              |
-| `og.title`        | `<meta property="og:title" content="…">`       |
-| `og.description`  | `<meta property="og:description" content="…">` |
-| `og.image`        | `<meta property="og:image" content="…">`       |
+| `meta.page` field | Tag rendered |
+| --- | --- |
+| `title` | `<title>…</title>` |
+| `description` | `<meta name="description" content="…">` |
+| `keywords` | `<meta name="keywords" content="…">` |
+| `canonical` | `<link rel="canonical" href="…">` |
+| `og.title` | `<meta property="og:title" content="…">` |
+| `og.description` | `<meta property="og:description" content="…">` |
+| `og.image` | `<meta property="og:image" content="…">` |
+| `og.<anything>` | `<meta property="og:<anything>" content="…">`, see [The `og` Object](#the-og-object) |
+| `tags` | One `<meta>` or `<link>` per entry, see [Custom Tags](#custom-tags) |
 
 An absent field renders nothing. Unirend never substitutes placeholder text, so there is no `content="Error loading description"` waiting to ship to production, and a missing `title` renders no title at all rather than an invented fallback. A handler that returned success without `pageMetadata` is a bug, and a visibly empty title is the clearer signal.
 
@@ -188,9 +192,11 @@ interface AppMeta extends BaseMeta {
 }
 ```
 
-only `page` reaches the head. `app` and `account` are ignored entirely, by name and by value. The seven fields in the table above are the whole surface, so adding a key to your own meta type can never change the head output.
+Only `page` reaches the head. `app` and `account` are yours to use in application code and are ignored entirely, by name and by value. `page` is read by name too, and the names are `title`, `description`, `keywords`, `canonical`, `og`, and `tags`. `PageMetadata` has no index signature, so an invented key at that level is a type error, and one forced past the type checker still renders nothing because no code looks for it. That is deliberate rather than a limitation: an index signature here would make a mistyped `title` key type-check and ship a meta named after the typo instead of failing the build.
 
-For your own fields, declare the tag as a child. It composes normally, additive alongside the generated ones:
+Inside those fields it opens back up, in the two places where a key you choose has a defined meaning. A member of [`og`](#the-og-object) renders as its own `og:`-prefixed property, and an entry in [`tags`](#custom-tags) renders as the tag it spells out.
+
+There are two ways to add a tag of your own. From the page component, declare it as a child. It composes normally, additive alongside the generated ones:
 
 ```tsx
 <UnirendHead envelope={envelope}>
@@ -198,11 +204,123 @@ For your own fields, declare the tag as a child. It composes normally, additive 
 </UnirendHead>
 ```
 
+From the handler, where the page component does not know what the tag will be, use `page.tags`.
+
+#### The `og` Object
+
+`og` is the one place a key you invent does render, because every key under it renders the same way: as its own `og:`-prefixed property. `title`, `description`, and `image` are named on the type so they autocomplete and are checked, and the rest of the OpenGraph vocabulary passes through without Unirend enumerating a spec it does not own:
+
+```ts
+pageMetadata: {
+  title: 'A Post - My App',
+  description: 'A post',
+  og: {
+    title: 'A Post',
+    image: 'https://example.com/post.png',
+    type: 'article',
+    url: 'https://example.com/posts/1',
+    locale: 'en_US',
+    'image:width': '1200',
+  },
+}
+```
+
+```html
+<meta property="og:title" content="A Post" />
+<meta property="og:image" content="https://example.com/post.png" />
+<meta property="og:type" content="article" />
+<meta property="og:url" content="https://example.com/posts/1" />
+<meta property="og:locale" content="en_US" />
+<meta property="og:image:width" content="1200" />
+```
+
+An index signature is safe here in a way it is not at the top level. Under `og` there is one rendering, so an unrecognized key still has a defined meaning. At the top level the fields render differently from each other, `title` as an element and `canonical` as a link, so an unrecognized key there would have no meaning to give it.
+
+The details:
+
+- **`title`, `description`, and `image` render first**, in that order, then the rest in the order the handler wrote them.
+- **A key already carrying the prefix is not prefixed twice.** `{ 'og:type': 'article' }` and `{ type: 'article' }` both produce `og:type`, so the two spellings are the same property rather than two different ones. Write whichever reads better, and if you somehow write both, the first one rendered wins and one meta is emitted, not two. Casing does not create a second property either.
+- **Members are matched by a child the same way**, so `<meta property="og:type" content="website" />` overrides an `og.type` from the envelope.
+- **The same value rules apply.** A member that is not a populated string renders nothing, and a key that is not a usable property name is skipped.
+
+A property that legitimately repeats, such as a second `og:image` with its own `og:image:width`, cannot be expressed by an object with unique keys. Use [`tags`](#custom-tags) for those, which is a list precisely so repeats are possible. Those entries render alongside the `og` object rather than colliding with it, so the first image can stay in `og.image` where it reads naturally:
+
+```ts
+og: { image: 'https://example.com/first.png' },
+tags: [
+  { meta: { property: 'og:image', content: 'https://example.com/second.png' } },
+  { meta: { property: 'og:image:width', content: '1200' } },
+],
+```
+
+#### Custom Tags
+
+`tags` is the deliberate way in for tags Unirend has no opinion about, so the named fields can stay closed and typo-checked. It is a list of entries, each naming exactly one of `meta` or `link`:
+
+```ts
+APIResponseHelpers.createPageSuccessResponse({
+  request,
+  data,
+  pageMetadata: {
+    title: 'Home - My App',
+    description: 'Welcome',
+    tags: [
+      { meta: { name: 'app-version', content: '1.2.3' } },
+      { meta: { property: 'twitter:card', content: 'summary_large_image' } },
+      { link: { rel: 'alternate', href: 'https://example.com/feed.xml' } },
+    ],
+  },
+});
+```
+
+```html
+<meta name="app-version" content="1.2.3" />
+<meta property="twitter:card" content="summary_large_image" />
+<link rel="alternate" href="https://example.com/feed.xml" />
+```
+
+Naming `meta` or `link` is what tells Unirend which element to render, rather than guessing it from the attributes. The types are exported from `unirend/api-envelope` as `PageMetadataTag`, `PageMetadataMetaTag`, and `PageMetadataLinkTag`, alongside `PageMetadata` and `PageMetadataOpenGraph`, so a handler can build a list separately from the envelope it goes into.
+
+The rules:
+
+- **A `meta` needs `content`, plus `name` or `property`.** A meta with neither identifying attribute could not be overridden by a child or seen by the duplicate warning, so it is skipped.
+- **A `link` needs `rel` and `href`.**
+- **Any other attribute passes through as written.** `media` on a `theme-color`, `hreflang` on an alternate, `type` and `sizes` on an icon.
+- **A child still wins.** An entry whose key a child claims is skipped, the same as a named field.
+- **A named field wins over an entry, for single-value keys.** A `{ link: { rel: 'canonical' } }` entry is skipped when the `canonical` field is populated, so the two cannot ship as a pair of canonicals. In development the dropped entry warns, naming the field and both values, since both sides came from the same handler and neither can be read as the intended one.
+- **Keys that repeat by nature are exempt from that.** An `og:image` entry renders alongside the `og.image` field rather than losing to it, which is what makes a page with several images expressible. The list is the same one the [duplicate warning](#development-only-duplicate-warning) uses: the repeatable `og:*` properties, `article:*`, `book:*`, `theme-color`, and every link relation except `canonical`, `manifest`, and `amphtml`.
+- **Entries do not deduplicate against each other.** Two `rel="alternate"` links, or a light and dark `theme-color` pair, are correct output rather than a duplicate to collapse, which is why `tags` is a list and not a map.
+- **Entries render after the named fields**, and children after both.
+
+Two things are dropped rather than rendered. `http-equiv` is one of them, because it instructs the browser rather than describing the page, and this value arrives over the wire. Left honored, a compromised or buggy handler could return `{ 'http-equiv': 'refresh', content: '0;url=…' }` and navigate the page somewhere else. The attribute is stripped, which leaves a meta carrying only `http-equiv` with no identity, so it drops out entirely. Declare `http-equiv` metas as a `UnirendHead` child, in your own code, where it is not wire-controlled. The others are React's own props (`children`, `dangerouslySetInnerHTML`, `key`, `ref`) and anything starting with `on`, none of which describe a tag, and the first of which would make React throw on a void element.
+
+Everything else follows [Malformed Envelopes](#malformed-envelopes): non-string values are dropped rather than coerced, and an unusable entry costs only itself.
+
+None of that is silent in development. An entry that renders nothing, an attribute stripped from one that otherwise rendered, and an entry dropped for colliding with a named field each print one console warning naming the entry's index and what happened:
+
+```text
+[unirend] UnirendHead: meta.page.tags[0] (app-version) rendered without its http-equiv and onLoad.
+  Envelope tags may not carry http-equiv (it instructs the browser rather than describing the page),
+  React's own props (children, dangerouslySetInnerHTML, key, ref), or on* handlers, and every value must be a string.
+  Declare those as a UnirendHead child instead, where they are not wire-controlled.
+  This warning only runs in development.
+```
+
+The alternative is a tag that is simply not in the head, which is a hard thing to work backwards from when the envelope plainly asked for it. A production build short-circuits before building any of them.
+
+The record tracks what is currently wrong rather than everything that ever was, the same way the [duplicate warning](#development-only-duplicate-warning) does. A message stays quiet while the same problem is still there, so re-rendering a page does not repeat it on every state change, and it is forgotten once the page that caused it is gone, so navigating back to that page says so again rather than leaving you with a warning you may have scrolled past the first time.
+
+The message names the tag and not only its position for the same reason. Two pages whose loaders return different bad tags at the same index are two messages, and both are heard.
+
 #### Malformed Envelopes
 
-The envelope came off the wire or out of a hand-written local loader, so it is read defensively rather than trusted to match its type. A missing `meta`, a missing `meta.page`, an `envelope` that is not an object at all, a `meta.page` that is a string or an array, or an individual field holding a number, `null`, or a nested object: each renders no tag for what it cannot use, keeps the fields it can, and never throws. A page that renders without a title beats a page that does not render.
+The envelope came off the wire or out of a hand-written local loader, so it is read defensively rather than trusted to match its type. Every check below is about a **value**, never about which keys are present at the top level. Those keys are fixed, so a `meta.page.foo` is looked for by nothing and becomes nothing. The keys you choose live one level down, in [`og`](#the-og-object) and [`tags`](#custom-tags), and are read exactly as defensively as everything else here. Three checks happen in order, and none of them ever throws:
 
-Field values must be non-empty strings to be emitted. A numeric `title` does not become `String(123)`, and an object `canonical` does not become `[object Object]`.
+1. **Is the envelope usable?** An `envelope` that is not an object, or one with no `meta`, no `meta.page`, or a `meta.page` that is a string or an array, produces no tags at all. One level down, an `og` that is not an object and a `tags` that is not an array each contribute nothing without touching the rest of the fields.
+2. **Is the value a non-empty string?** Each named field in the table above is checked on its own, and so is each `og` member. A `title` of `123`, `null`, or `{ text: 'Home' }` is skipped, and the empty string counts as absent too. There is no coercion, so a numeric `title` never becomes `"123"` and an object `canonical` never becomes `"[object Object]"`. Inside `tags`, an entry that is not an object, one naming neither `meta` nor `link`, or one missing a required attribute is skipped on its own.
+3. **What is left is rendered.** A bad value only costs you that one tag. If `title` is a number and `description` is a normal string, the description tag is still emitted, and one unusable `og` member or `tags` entry does not take the usable ones with it.
+
+A page that renders without a title beats a page that does not render.
 
 `envelope` accepts error and redirect envelopes too, since `PageResponseEnvelope` covers all three. That is what makes the same call work in a 404 or error component, which receives the envelope as a `data` prop, and `null` is accepted for the case where React Router threw before any loader ran:
 

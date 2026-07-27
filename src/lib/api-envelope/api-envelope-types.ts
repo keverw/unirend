@@ -1,14 +1,84 @@
+/**
+ * OpenGraph fields. Every member becomes a `<meta property="og:…">`, with the key prefixed.
+ *
+ * `title`, `description`, and `image` are named because they are the ones nearly every page sets,
+ * so they autocomplete and are checked. The index signature carries the rest of the vocabulary
+ * (`type`, `url`, `site_name`, `locale`, `image:width`, and so on) without Unirend having to
+ * enumerate a spec it does not own.
+ *
+ * An index signature is safe here in a way it is not on `PageMetadata` itself: every key under
+ * `og` renders the same way, as its own prefixed property, so an unrecognized one is still
+ * meaningful. At the top level the fields render differently from each other (`title` is an
+ * element, `canonical` is a link), so an unrecognized key there has no defined meaning at all.
+ *
+ * A key that already starts with `og:` is not prefixed twice, so `{ 'og:type': 'article' }` and
+ * `{ type: 'article' }` both produce `og:type`.
+ */
+export interface PageMetadataOpenGraph {
+  title?: string;
+  description?: string;
+  image?: string;
+  [property: string]: string | undefined;
+}
+
+/**
+ * A `<meta>` a handler wants on the page that the named `PageMetadata` fields cannot express.
+ *
+ * `content` is required, and so is one of `name` or `property`, since a meta with neither has no
+ * identity to override or be overridden by. Any other attribute (`media`, `charset`, and so on)
+ * passes through as written.
+ *
+ * `http-equiv` is deliberately not part of this. It is the one meta attribute that instructs the
+ * browser rather than describing the page (`refresh` navigates, `content-security-policy` sets
+ * policy), and this value arrives over the wire, so it is dropped rather than honored. Declare an
+ * `http-equiv` meta as a `UnirendHead` child, where it lives in your own code.
+ */
+export interface PageMetadataMetaTag {
+  name?: string;
+  property?: string;
+  content: string;
+  [attribute: string]: string | undefined;
+}
+
+/**
+ * A `<link>` a handler wants on the page. `rel` and `href` are required, everything else
+ * (`hreflang`, `type`, `sizes`, `as`, and so on) passes through as written.
+ */
+export interface PageMetadataLinkTag {
+  rel: string;
+  href: string;
+  [attribute: string]: string | undefined;
+}
+
+/**
+ * One entry in `PageMetadata.tags`. Exactly one of `meta` or `link` per entry, which is what tells
+ * Unirend which element to render without guessing from the attributes.
+ */
+export type PageMetadataTag =
+  | { meta: PageMetadataMetaTag; link?: never }
+  | { link: PageMetadataLinkTag; meta?: never };
+
 // Page metadata - for SSR and SEO
 export interface PageMetadata {
   title: string;
   description: string;
   keywords?: string;
   canonical?: string;
-  og?: {
-    title?: string;
-    description?: string;
-    image?: string;
-  };
+  og?: PageMetadataOpenGraph;
+
+  /**
+   * Head tags beyond the named fields above, for the ones Unirend has no opinion about
+   * (`twitter:*`, an app version, a feed link, an `hreflang` set).
+   *
+   * The named fields stay a closed, typo-checked surface: `PageMetadata` has no index signature,
+   * so a mistyped `title` key is a build error rather than a silently emitted meta named after
+   * the typo. This is the deliberate way in for everything else.
+   *
+   * A tag declared as a `UnirendHead` child still wins over an entry here with the same key, and
+   * an entry whose key one of the named fields already produced is skipped, so a `rel="canonical"`
+   * here never doubles up with the `canonical` field.
+   */
+  tags?: PageMetadataTag[];
 }
 
 // --- API Response Envelope (for AJAX calls) ---

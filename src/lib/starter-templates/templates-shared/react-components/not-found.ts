@@ -32,16 +32,6 @@ export function NotFound({ data }: NotFoundProps) {
 
   return (
     <>
-      {/*
-        Read by hand here so the fallbacks stay visible: data is null when React Router
-        throws the 404 itself, before any loader runs. If you'd rather not restate the
-        fields, UnirendHead can take the envelope directly (it accepts null too, and
-        renders nothing for fields the envelope doesn't have):
-
-          <UnirendHead envelope={data}>
-            <title>{title}</title>
-          </UnirendHead>
-      */}
       <UnirendHead>
         <title>{title}</title>
         <meta name="description" content={description} />
