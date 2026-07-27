@@ -223,7 +223,7 @@ The exported `PageMetadataTag`, `PageMetadataMetaTag`, and `PageMetadataLinkTag`
 
 - A meta needs `content` and either `name` or `property`.
 - A link needs `rel` and `href`.
-- The unused `meta` or `link` member should be omitted.
+- Omit the unused `meta` or `link` member. An entry naming both describes no single tag, so it renders neither and warns.
 - Additional attributes such as `media`, `hreflang`, `type`, and `sizes` must be strings.
 
 Because these values can arrive over the wire, envelope tags cannot include `http-equiv`, `style`, React-only props, or `on*` handlers. Stylesheet links are also rejected. Put those directly in trusted application code or `index.html` instead.
@@ -259,7 +259,9 @@ Declare a child tag to override that key while keeping the rest of the envelope 
 </UnirendHead>
 ```
 
-Metas match by `name`, `property`, or `http-equiv`, links match by `rel`, and a child `<title>` replaces the generated title. Replacing a structured media tag such as `og:image` also removes its generated sub-properties, such as `og:image:width`.
+Metas match by `name`, `property`, or `http-equiv`, links match by `rel`, and a child `<title>` replaces the generated title.
+
+A child replaces everything the envelope contributed for that key, however many tags that was. Declaring `og:image` as a child drops the `og.image` field, every `og:image` entry in `tags`, and the sub-properties describing them, such as `og:image:width`. The same grouping applies to `og:video`, `og:audio`, `twitter:image`, and `twitter:player`. Write the child with the attribute the envelope used, which for an `og` member is always `property`, since `name="og:image"` and `property="og:image"` are separate identities and a child on one does not claim the other.
 
 This override applies only within one `UnirendHead`. Tags from separate instances still follow [Tag Merging and Overrides](#tag-merging-and-overrides).
 
@@ -273,6 +275,7 @@ If a loader supplies the JSON-LD, return the structured object in the envelope's
 
 ```tsx
 import { useLoaderData } from 'react-router';
+import { UnirendHead } from 'unirend/client';
 import type { PageSuccessResponse } from 'unirend/api-envelope';
 
 type ProductEnvelope = PageSuccessResponse<{

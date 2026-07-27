@@ -166,6 +166,8 @@ describe('UnirendHead SSR Collection & Merging', () => {
 describe('UnirendHead Client-side Helpers', () => {
   const {
     areRecordsEqual,
+    areHeadKeyMapsEqual,
+    areMessageListsEqual,
     serializeStyleObject,
     toHeadAttributes,
     applyAttributes,
@@ -256,6 +258,95 @@ describe('UnirendHead Client-side Helpers', () => {
     it('returns true if keys and values match exactly', () => {
       expect(areRecordsEqual({ a: '1', b: '2' }, { a: '1', b: '2' })).toBe(
         true,
+      );
+    });
+  });
+
+  // Gates whether a client re-render syncs the DOM. Answer true when the head actually changed
+  // and the head goes stale, answer false when nothing did and every render touches the DOM.
+  describe('areHeadKeyMapsEqual', () => {
+    it('returns true for the same reference and for two empty maps', () => {
+      const keys = new Map([['name=description', 'Home description']]);
+
+      expect(areHeadKeyMapsEqual(keys, keys)).toBe(true);
+      expect(areHeadKeyMapsEqual(new Map(), new Map())).toBe(true);
+    });
+
+    it('returns false when one map holds a key the other does not', () => {
+      expect(
+        areHeadKeyMapsEqual(
+          new Map([['name=description', 'Home description']]),
+          new Map([
+            ['name=description', 'Home description'],
+            ['rel=canonical', 'https://example.com/'],
+          ]),
+        ),
+      ).toBe(false);
+    });
+
+    it('returns false when a key holds a different value', () => {
+      expect(
+        areHeadKeyMapsEqual(
+          new Map([['name=description', 'Home description']]),
+          new Map([['name=description', 'Something more specific']]),
+        ),
+      ).toBe(false);
+    });
+
+    it('returns false when the same number of entries are different keys', () => {
+      // The size check alone would call these equal, which would leave the head carrying the
+      // description after the page swapped it for a canonical.
+      expect(
+        areHeadKeyMapsEqual(
+          new Map([['name=description', 'Home description']]),
+          new Map([['name=keywords', 'Home description']]),
+        ),
+      ).toBe(false);
+    });
+
+    it('ignores insertion order, since a key set is not a sequence', () => {
+      expect(
+        areHeadKeyMapsEqual(
+          new Map([
+            ['name=description', 'Home description'],
+            ['rel=canonical', 'https://example.com/'],
+          ]),
+          new Map([
+            ['rel=canonical', 'https://example.com/'],
+            ['name=description', 'Home description'],
+          ]),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  // The envelope projection's warnings, which do not always change the head: dropping a
+  // forbidden `style` leaves the same keys behind, so this is what carries the fix to the sync.
+  describe('areMessageListsEqual', () => {
+    const first = '[unirend] UnirendHead: meta.page.tags[0] (app-version) …';
+    const second = '[unirend] UnirendHead: meta.page.tags[1] (twitter:card) …';
+
+    it('returns true for two empty lists and for equal lists', () => {
+      expect(areMessageListsEqual([], [])).toBe(true);
+      expect(areMessageListsEqual([first, second], [first, second])).toBe(true);
+    });
+
+    it('returns false when the lengths differ', () => {
+      expect(areMessageListsEqual([first], [first, second])).toBe(false);
+      expect(areMessageListsEqual([first], [])).toBe(false);
+    });
+
+    it('returns false when a message changed in place', () => {
+      // The case the comparison exists for: the head keys are identical either way, so without
+      // this the fixed envelope never reaches the sync and the warning stays on the record.
+      expect(areMessageListsEqual([first], [second])).toBe(false);
+    });
+
+    it('returns false when the same messages arrive in a different order', () => {
+      // Compared in order, since one render produces them in a fixed order and a difference
+      // means a different set of entries went wrong.
+      expect(areMessageListsEqual([first, second], [second, first])).toBe(
+        false,
       );
     });
   });

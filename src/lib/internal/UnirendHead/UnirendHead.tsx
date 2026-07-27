@@ -1217,6 +1217,7 @@ function toTitleText(children: ReactNode): string {
 export const _test = {
   areRecordsEqual,
   areHeadKeyMapsEqual,
+  areMessageListsEqual,
   applyAttributes,
   captureInitialAttrs,
   toHeadAttributes,
