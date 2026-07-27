@@ -13,6 +13,7 @@
     - [Custom Tags](#custom-tags)
     - [Malformed Envelopes](#malformed-envelopes)
     - [Overriding a Single Envelope Field](#overriding-a-single-envelope-field)
+  - [A Tag Is Not in the Head](#a-tag-is-not-in-the-head)
   - [Supported Tags](#supported-tags)
     - [Preloading Images](#preloading-images)
   - [Tag Merging and Overrides](#tag-merging-and-overrides)
@@ -374,6 +375,27 @@ A link's `rel` is the token set HTML defines it to be, so `rel="alternate canoni
 <!-- prettier-ignore -->
 > [!IMPORTANT]
 > This precedence is **local to a single `<UnirendHead>`**, between its own children and the envelope fields it would emit. It does not reach across the tree and does not change how separate instances relate to each other, which keeps following the rules in [Tag Merging and Overrides](#tag-merging-and-overrides). The merge resolves before anything is collected, so the server and the client both receive the same already-merged child list.
+
+### A Tag Is Not in the Head
+
+`UnirendHead` drops a tag rather than rendering something wrong, and everything it drops it says so about in development. So the first question is not "is this a bug", it is "where is the warning".
+
+**It prints in two places, for two different reasons.** During an SSR or SSG dev render it goes to the server's terminal, once per process, since a handler-side mistake is the same mistake on every request. In the browser it goes to the console, once per `UnirendHead` instance that has the problem, and again if you navigate away and come back. So the same bad envelope usually says so twice, in two windows. If you saw neither, check that you are actually in development: the whole thing short-circuits in a production build and prints nothing at all, by design.
+
+If you are looking at a tag that is not there and no warning was printed, it is one of the deliberate silences below rather than a failure to report:
+
+| Not in the head | Why | Warns |
+| --- | --- | --- |
+| A named field (`title`, `description`, `canonical`, an `og` member) | Absent, an empty string, or not a string. Unirend never substitutes placeholder text, see [Malformed Envelopes](#malformed-envelopes) | No, this is the normal way to say "no tag" |
+| A `tags` entry | Unusable: not an object, naming neither `meta` nor `link`, a meta with no `content` or no `name`/`property`, a link missing `rel` or `href` | Yes |
+| A `tags` entry's `rel="stylesheet"` | Refused, see [Custom Tags](#custom-tags) | Yes |
+| One attribute of a tag that otherwise rendered | `http-equiv`, `style`, `on*`, React's own props, a non-string value, or a name HTML would not accept | Yes |
+| A `tags` entry whose key a named field already produced | The field wins for single-value keys | Yes |
+| A `tags` entry or field whose key a child claims | The documented child override, and the intended outcome | No |
+| A `<script>`, or any child that is not `<title>`, `<meta>`, `<link>`, `<html>`, or `<body>` | Not collected, see [Supported Tags](#supported-tags) | No |
+| A meta from `index.html` | A page declares one of the same identities, so the template's steps aside, see [Overriding a Template Meta](#overriding-a-template-meta) | No, this is the merge working |
+
+The two rows that most often read as a bug are the last two. A `<script type="application/ld+json">` child is ignored on the server, so render JSON-LD as an ordinary element in your tree instead. And a template meta vanishing is the override contract, not a loss: it comes back the moment no page declares it.
 
 ### Supported Tags
 
