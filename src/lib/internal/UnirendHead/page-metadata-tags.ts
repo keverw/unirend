@@ -678,6 +678,39 @@ function warnTagEntriesLostToChild(
 }
 
 /**
+ * Development-only warning for two `tags` entries occupying one key that may not repeat.
+ *
+ * Both still render, which is where this parts company with the named-field rule above. That one
+ * has a winner to name, since a field and an entry are different ways of saying a thing and the
+ * field is documented to win. Two entries are the same way of saying it twice, so nothing here
+ * knows which the handler meant, and dropping one would make that a coin flip on list order.
+ *
+ * So this only says it out loud, exactly as the cross-instance duplicate warning does. That warning
+ * cannot reach this: it compares one instance against another, and a single instance's keys are
+ * collapsed to a map long before it sees them. Without this a handler appending a second
+ * `canonical` shipped two of them in silence, which is the one outcome the head keys exist to make
+ * visible, and the only `tags` mistake in this file that said nothing at all.
+ */
+function warnTagEntriesRepeatKey(
+  messages: string[],
+  key: string,
+  first: ReactElement,
+  second: ReactElement,
+): void {
+  if (!isTagWarningEnabled()) {
+    return;
+  }
+
+  warnAboutTags(messages, [
+    `[unirend] UnirendHead: two meta.page.tags entries declare ${key}, so both tags are emitted.`,
+    `  first:  ${getTagWarningValue(first)}`,
+    `  second: ${getTagWarningValue(second)}`,
+    '  That key describes the page once, so declare it in one entry.',
+    '  Call setRepeatableHeadKeys if this key is meant to repeat.',
+  ]);
+}
+
+/**
  * Build the head tags a `PageMetadata` describes, skipping every key the instance's own children
  * already claim.
  *
@@ -700,6 +733,11 @@ export function buildPageMetadataTags(
   // entry describing the same thing, so a `rel="canonical"` entry cannot double up with the
   // `canonical` field, and this is what the warning names the losing side against.
   const emittedByField = new Map<string, EmittedField>();
+
+  // What each `tags` entry put on a key, for the repeat check in that loop. Kept apart from
+  // `emittedByField` because the two drive different rules: a named field beats an entry and only
+  // one tag is emitted, while two entries both render and are warned about instead.
+  const emittedByEntry = new Map<string, ReactElement>();
 
   const addMeta = (
     attribute: 'name' | 'property',
@@ -878,9 +916,30 @@ export function buildPageMetadataTags(
         continue;
       }
 
-      // Deliberately not recorded as emitted. Keys that repeat legitimately (`og:image`,
-      // `rel="alternate"`, a light and dark `theme-color`) are the reason `tags` is a list and
-      // not a map, so two entries sharing a key both render.
+      // Two entries on one key that does not repeat is the same mistake as the collision above,
+      // made twice in the list rather than across it, and it is the one the field record cannot
+      // see: a `tags` entry is deliberately never recorded there. Said rather than resolved, see
+      // warnTagEntriesRepeatKey().
+      const repeat = keys
+        .filter((key) => !isRepeatableHeadKey(key))
+        .map((key) => ({ key, first: emittedByEntry.get(key) }))
+        .find((candidate) => candidate.first !== undefined);
+
+      if (repeat !== undefined && repeat.first !== undefined) {
+        warnTagEntriesRepeatKey(messages, repeat.key, repeat.first, tag);
+      }
+
+      // First one wins the record, so a third entry on the key names the tag that was already
+      // there rather than the previous repeat, matching how a scan keeps the first value it meets.
+      for (const key of keys) {
+        if (!emittedByEntry.has(key)) {
+          emittedByEntry.set(key, tag);
+        }
+      }
+
+      // Deliberately not recorded as emitted by a *field*. Keys that repeat legitimately
+      // (`og:image`, `rel="alternate"`, a light and dark `theme-color`) are the reason `tags` is a
+      // list and not a map, so two entries sharing a key both render.
       tags.push(tag);
     }
   } else if (metadata.tags !== undefined && metadata.tags !== null) {

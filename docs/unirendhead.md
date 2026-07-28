@@ -242,6 +242,17 @@ Two limits remain, and neither is about which tag you want:
 
 Named fields win over custom entries with the same non-repeatable key. Repeatable tags such as multiple `og:image` values and alternate links are kept. Invalid or dropped custom entries produce a development warning.
 
+Two entries sharing a non-repeatable key are a different case, since neither is a named field and nothing can say which one you meant. So neither is dropped, and the page really does get both tags. Development warns instead, naming the key and both values so you can tell which of the two entries to remove:
+
+```text
+[unirend] UnirendHead: two meta.page.tags entries declare rel=canonical, so both tags are emitted.
+  first:  "/a"
+  second: "/b"
+  That key describes the page once, so declare it in one entry.
+  Call setRepeatableHeadKeys if this key is meant to repeat.
+  This warning only runs in development.
+```
+
 ##### How Much to Trust an Entry
 
 Every value here is escaped on both sides, so a string that lands in a `content`, an `href`, or a `<title>` cannot break out of it however it is spelled. That covers the ordinary case of user-generated content completely: a post title or a profile bio going into `title`, `description`, or `og.*` is safe, and needs nothing from you.
@@ -447,7 +458,7 @@ Metas and links accumulate across separate `UnirendHead` instances. In developme
 
 Two things have to be true for it to fire: the two instances declare the **same key**, and that key is **not repeatable**. Different keys accumulate in silence, which is the ordinary case, since a layout contributing `og:*` and a page contributing `description` are not in conflict.
 
-The warning ignores titles, repeats within one instance, child overrides, and keys that normally repeat, including `og:image`, `theme-color`, and most link relations. For an application-specific repeatable key, configure it once in code shared by the server and client:
+The warning ignores titles, child overrides, and keys that normally repeat, including `og:image`, `theme-color`, and most link relations. It also ignores a key one instance repeats on its own, which is the page's own markup and its author's business. The exception is two `meta.page.tags` entries, which come from a handler rather than from the page, and have [a warning of their own](#custom-tags). For an application-specific repeatable key, configure it once in code shared by the server and client:
 
 ```ts
 import { setRepeatableHeadKeys } from 'unirend/client';
