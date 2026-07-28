@@ -383,6 +383,41 @@ describe('processTemplate', () => {
     }
   });
 
+  it('should remove a meta whose managed identity is not the first one it declares', async () => {
+    // A meta is whatever its attributes say it is, and one tag can say two things. Read as
+    // `name ?? property`, the unremarkable name answered for the whole tag and the og:title rode
+    // along untouched: it was then served on every page that declared no og:title of its own, and
+    // the client restored it on each navigation back to one. That is exactly the stale template
+    // default this strip exists to prevent, reached through the one spelling that skipped it.
+    const html = `
+      <html>
+        <head>
+          <!--ss-head-->
+          <meta name="site-default" property="og:title" content="Stale OG title">
+          <meta property="unmanaged:thing" name="description" content="Stale description">
+          <meta name="site" property="og:site_name" content="My App">
+        </head>
+        <body>
+          <div id="root"><!--ss-outlet-->Content</div>
+        </body>
+      </html>
+    `;
+
+    const result = await processTemplate(html, 'ssg', false, false);
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // Either attribute carrying a managed identity takes the tag with it, whichever one it is.
+      expect(result.html).not.toContain('Stale OG title');
+      expect(result.html).not.toContain('Stale description');
+
+      // Neither identity here is managed, so the site-wide baseline still survives intact.
+      expect(result.html).toContain('property="og:site_name"');
+      expect(result.html).toContain('name="site"');
+    }
+  });
+
   it('should move scripts after root element', async () => {
     const html = `
       <html>

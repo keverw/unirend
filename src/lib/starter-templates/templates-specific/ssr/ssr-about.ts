@@ -13,12 +13,11 @@ import type { LoggerFunction } from '../../types';
  */
 const fileSrc = `import { useLoaderData } from 'react-router';
 import { UnirendHead } from 'unirend/client';
+import type { PageSuccessResponse } from 'unirend/api-envelope';
 
-interface AboutLoaderEnvelope {
-  data: {
-    serverLine: string;
-  };
-}
+// The whole envelope, typed the same way Home.tsx types its own, so both pages model the loader
+// value the same and either one can hand it to UnirendHead. See the comment in Home.tsx.
+type AboutLoaderEnvelope = PageSuccessResponse<{ serverLine: string }>;
 
 export function About() {
   const { data } = useLoaderData<AboutLoaderEnvelope>();

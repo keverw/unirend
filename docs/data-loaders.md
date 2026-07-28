@@ -218,9 +218,22 @@ function Home() {
 
 Pass the envelope interface as a type parameter to `useLoaderData<T>()`. Declare only the fields you need. The full envelope also includes `status`, `status_code`, `request_id`, `type`, and `error`.
 
+To pass loader data to `UnirendHead`, use the full envelope type instead of a partial interface:
+
+```ts
+import type { PageSuccessResponse } from 'unirend/api-envelope';
+
+type HomeLoaderEnvelope = PageSuccessResponse<{
+  message: string;
+  route: unknown;
+}>;
+```
+
+Use `PageSuccessResponse<T>` in a page component because the component renders after a successful loader. See [`UnirendHead`'s `envelope` prop](./unirendhead.md#the-envelope-prop).
+
 Note: type `T` for the success shape. Error envelopes may still appear in route data (especially rendered page error envelopes), so handle them with `RouteErrorBoundary` and `useDataLoaderEnvelopeError` before assuming the success shape. See [Error Handling (README)](../README.md#error-handling).
 
-`meta.page` comes from the `pageMetadata` returned by your handler or local loader. Pass it to `UnirendHead` for dynamic page titles. See [UnirendHead - Hardcoded vs loader-driven titles](./unirendhead.md#hardcoded-vs-loader-driven-titles).
+`meta.page` comes from the `pageMetadata` returned by your handler or local loader. Pass the full loader envelope to `UnirendHead` to render that metadata. See [UnirendHead - Hardcoded vs loader-driven titles](./unirendhead.md#hardcoded-vs-loader-driven-titles).
 
 ### Loading Indicators
 

@@ -2,10 +2,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
+import { overrideDevMode } from 'lifecycleion/dev-mode';
 import { UnirendHead, _test } from './UnirendHead';
 import { UnirendHeadProvider } from './UnirendHeadProvider';
+import { getLinkHeadKey, getLinkHeadKeys, scanHeadKeys } from './head-keys';
+import { filterRenderableHeadChildren } from './head-children';
+import { serializeHeadCollector } from './serialize-head-collector';
 import type { HeadCollector } from './context';
 import { TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
+
+let nextScopeID = 0;
 
 function createEmptyCollector(): HeadCollector {
   return {
@@ -144,6 +150,28 @@ describe('UnirendHead SSR Collection & Merging', () => {
     ]);
   });
 
+  it('flattens title children to text, contributing nothing for a non-text node', () => {
+    // A title is text, so a number interpolated into it is part of the string. An element is not
+    // something a title can carry, and contributing "[object Object]" for it would be worse than
+    // contributing nothing.
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          <title>
+            {'Page '}
+            {42}
+            {<span key="ignored">dropped</span>}
+            {' - My App'}
+          </title>
+        </UnirendHead>
+      </UnirendHeadProvider>,
+    );
+
+    expect(collector.title).toBe('Page 42 - My App');
+  });
+
   it('merges multiple html tags within the same UnirendHead component', () => {
     const collector = createEmptyCollector();
 
@@ -159,11 +187,518 @@ describe('UnirendHead SSR Collection & Merging', () => {
     expect(collector.htmlAttrs.class).toBe('parent child');
     expect(collector.htmlAttrs.lang).toBe('es');
   });
+
+  it('ignores a script or style child, and still collects the head tags beside it', () => {
+    // The server has no collector field for either, so neither reaches the head. Pinned alongside
+    // the client half below, since the two ignoring it is the whole point: a script that is absent
+    // from the SSR HTML and present after hydration is a mismatch rather than a feature.
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          <title>Home</title>
+          <script src="/analytics.js" />
+          <style>{'body { color: red }'}</style>
+          <meta name="description" content="Home description" />
+        </UnirendHead>
+      </UnirendHeadProvider>,
+    );
+
+    expect(collector.title).toBe('Home');
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+    ]);
+    expect(collector.links).toEqual([]);
+  });
+
+  it('walks through a fragment, at any depth', () => {
+    // A fragment is the absence of a level rather than one, so the tags inside it are collected as
+    // though written in its place. The client always rendered these, since React hoists whatever
+    // renders, so before this the same JSX produced a full head in SPA mode and an empty one in
+    // SSR.
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          <>
+            <title>Home</title>
+            <>
+              <meta name="description" content="Home description" />
+              <link rel="canonical" href="https://example.com/" />
+            </>
+            <html lang="en" />
+          </>
+        </UnirendHead>
+      </UnirendHeadProvider>,
+    );
+
+    expect(collector.title).toBe('Home');
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+    ]);
+    expect(collector.links).toEqual([
+      { rel: 'canonical', href: 'https://example.com/' },
+    ]);
+    expect(collector.htmlAttrs.lang).toBe('en');
+  });
+
+  it('does not walk into a component, which has not rendered yet', () => {
+    // The one case a synchronous walk cannot serve: the element's type is a function, and its tags
+    // do not exist until React renders it. Reuse goes through the component rendering its own
+    // UnirendHead, which the next test covers.
+    function SharedMetas() {
+      return <meta name="description" content="Home description" />;
+    }
+
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          <title>Home</title>
+          <SharedMetas />
+        </UnirendHead>
+      </UnirendHeadProvider>,
+    );
+
+    expect(collector.title).toBe('Home');
+    expect(collector.metas).toEqual([]);
+  });
+
+  it('collects a component that renders its own UnirendHead', () => {
+    // The supported way to share tags, and the reason the case above needs no rescuing: several
+    // instances is the design, so a component contributing its own head is ordinary usage.
+    function SharedMetas() {
+      return (
+        <UnirendHead>
+          <meta name="description" content="Home description" />
+        </UnirendHead>
+      );
+    }
+
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          <title>Home</title>
+        </UnirendHead>
+        <SharedMetas />
+      </UnirendHeadProvider>,
+    );
+
+    expect(collector.title).toBe('Home');
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+    ]);
+  });
+
+  // HTML defines `disabled` on <link> (it is how the alternate-stylesheet theming pattern turns a
+  // sheet off), but React's LinkHTMLAttributes does not list it, so the prop needs a cast here.
+  const disabledLink = (isDisabled: boolean) =>
+    ({ rel: 'stylesheet', href: '/dark.css', disabled: isDisabled }) as any;
+
+  it('leaves a boolean attribute turned off out of the serialized head', () => {
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          <link {...disabledLink(false)} />
+          <meta name="x" content="y" itemScope={false} />
+        </UnirendHead>
+      </UnirendHeadProvider>,
+    );
+
+    const { link, meta } = serializeHeadCollector(collector);
+
+    // 'false' is the marker toHeadAttributes() writes for a boolean an author turned off, not a
+    // value to serialize. Written out it says the opposite: a boolean attribute is true by its
+    // presence, so `disabled="false"` is a disabled stylesheet. React omits the attribute when it
+    // renders the same element on the client, so emitting the marker here shipped an SSR page
+    // whose stylesheet was off until hydration switched it on.
+    expect(link).toBe('<link rel="stylesheet" href="/dark.css" />');
+    expect(meta).toBe('<meta name="x" content="y" />');
+  });
+
+  it('keeps a boolean attribute that is turned on', () => {
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          <link {...disabledLink(true)} />
+        </UnirendHead>
+      </UnirendHeadProvider>,
+    );
+
+    expect(serializeHeadCollector(collector).link).toBe(
+      '<link rel="stylesheet" href="/dark.css" disabled="" />',
+    );
+  });
+});
+
+describe('the development-only warning for an unmanaged child', () => {
+  afterEach(() => {
+    overrideDevMode(false);
+  });
+
+  function captureWarnings(render: () => void): string[] {
+    const messages: string[] = [];
+    const original = console.warn;
+
+    console.warn = (...args: unknown[]) => {
+      messages.push(args.map((arg) => String(arg)).join(' '));
+    };
+
+    try {
+      render();
+    } finally {
+      console.warn = original;
+    }
+
+    return messages;
+  }
+
+  function renderChildren(children: React.ReactNode): string[] {
+    return captureWarnings(() => {
+      renderToString(
+        <UnirendHeadProvider collector={createEmptyCollector()}>
+          <UnirendHead>{children}</UnirendHead>
+        </UnirendHeadProvider>,
+      );
+    });
+  }
+
+  it('names an element by its tag', () => {
+    overrideDevMode(true);
+
+    const warnings = renderChildren(
+      <>
+        <title>Home</title>
+        <div>Child</div>
+      </>,
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('<div> is not a tag UnirendHead manages');
+    expect(warnings[0]).toContain('A fragment is walked through');
+  });
+
+  it('names a component, since that is the thing to go looking for', () => {
+    overrideDevMode(true);
+
+    function SharedMetas() {
+      return null;
+    }
+
+    const warnings = renderChildren(<SharedMetas />);
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('<SharedMetas />');
+    expect(warnings[0]).toContain('Give it its own UnirendHead');
+  });
+
+  it('points a script and a style at where they belong', () => {
+    overrideDevMode(true);
+
+    const warnings = renderChildren(
+      <>
+        <script src="/analytics.js" />
+        <style>{'body { color: red }'}</style>
+      </>,
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('<script>, <style> are not tags');
+    expect(warnings[0]).toContain('templateSlots');
+  });
+
+  it('says nothing for the tags it manages, a fragment included', () => {
+    overrideDevMode(true);
+
+    expect(
+      renderChildren(
+        <>
+          <title>Home</title>
+          <meta name="description" content="Home description" />
+          <link rel="canonical" href="https://example.com/" />
+          <html lang="en" />
+          <body className="page" />
+        </>,
+      ),
+    ).toEqual([]);
+  });
+
+  it('names a wrapped component, which carries no function type', () => {
+    // memo(), forwardRef(), and lazy() make the element's type an object, so a plain function test
+    // misses all three and falls through to the vaguest name this has. That is the worst place to
+    // lose the name: the message deduplicates on what it prints, so three differently wrapped
+    // components would collapse into one entry naming none of them.
+    //
+    // lazy() is the one that has no name to recover, so it gets its own tests below.
+    overrideDevMode(true);
+
+    const Memoized = React.memo(function MemoizedMetas() {
+      return null;
+    });
+
+    const Forwarded = React.forwardRef<HTMLDivElement>(
+      function ForwardedMetas() {
+        return null;
+      },
+    );
+
+    const warnings = renderChildren(
+      <>
+        <Memoized />
+        <Forwarded />
+      </>,
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('<MemoizedMetas />');
+    expect(warnings[0]).toContain('<ForwardedMetas />');
+  });
+
+  it('reads an unnamed lazy as a component rather than as an element', () => {
+    // A lazy is the wrapper that cannot be unwrapped to a name: it holds `_payload` and `_init`
+    // rather than the component, and the component is exactly what has not loaded. Recognizing
+    // the shape is all there is to do, and it is worth doing — "an element" says nothing about
+    // what kind of mistake this is, while "a component" points at the fix the message then gives.
+    overrideDevMode(true);
+
+    const Lazy = React.lazy(() =>
+      Promise.resolve<{ default: React.ComponentType }>({
+        default: function LazyMetas() {
+          return null;
+        },
+      }),
+    );
+
+    const warnings = renderChildren(<Lazy />);
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain(
+      'a component is not a tag UnirendHead manages',
+    );
+    expect(warnings[0]).toContain('Give it its own UnirendHead');
+  });
+
+  it('prefers a displayName over the function name underneath it', () => {
+    // displayName comes first at every level of the unwrapping, since that is what a component
+    // carries when the function behind it is anonymous or minified into something meaningless.
+    overrideDevMode(true);
+
+    function Metas() {
+      return null;
+    }
+
+    Metas.displayName = 'SharedMetas';
+
+    const warnings = renderChildren(<Metas />);
+
+    expect(warnings[0]).toContain('<SharedMetas />');
+    expect(warnings[0]).not.toContain('<Metas />');
+  });
+
+  it('falls back to "an element" for a type it cannot place at all', () => {
+    // Suspense is a symbol rather than a function or a wrapper object, so every branch above it
+    // misses. It still has to name the child something rather than throw on the way to the
+    // message, which is the only promise this fallback makes.
+    overrideDevMode(true);
+
+    const warnings = renderChildren(
+      <React.Suspense fallback={null}>
+        <title>Home</title>
+      </React.Suspense>,
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain(
+      'an element is not a tag UnirendHead manages',
+    );
+  });
+
+  it('counts the names it prints, not the children it found', () => {
+    // Two of one kind is one name, so the sentence has to stay singular or it disagrees with the
+    // list right beside it.
+    overrideDevMode(true);
+
+    const warnings = renderChildren(
+      <>
+        <div>One</div>
+        <div>Two</div>
+      </>,
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('<div> is not a tag');
+    expect(warnings[0]).not.toContain('are not tags');
+  });
+
+  it('stays silent in production', () => {
+    overrideDevMode(false);
+
+    expect(renderChildren(<div>Child</div>)).toEqual([]);
+  });
+});
+
+describe('the head keys a child claims', () => {
+  /**
+   * A child written with an attribute spelling TSX will not accept, which is the whole of what is
+   * under test: `REL` is a `rel` to the browser, and nothing stops a page from writing it.
+   */
+  function oddChild(
+    type: 'meta' | 'link',
+    props: Record<string, string>,
+  ): React.ReactElement {
+    return React.createElement(type, props);
+  }
+
+  it('claims the key of an identity attribute written in any casing', () => {
+    // HTML matches attribute names case-insensitively, and React's setAttribute lands on the same
+    // attribute the browser would, so `REL` reaches the head as a `rel` on both sides. A property
+    // lookup is the odd one out: read as written, the child would claim no key at all, override
+    // no envelope field, and be invisible to the duplicate warning, while its tag shipped beside
+    // the one it was meant to replace.
+    const scan = scanHeadKeys([
+      oddChild('link', { REL: 'canonical', HREF: 'https://example.com/' }),
+      oddChild('meta', { NAME: 'description', CONTENT: 'Child description' }),
+      oddChild('meta', { 'HTTP-EQUIV': 'content-language', content: 'en' }),
+    ]);
+
+    expect([...scan.claimed].sort()).toEqual([
+      'http-equiv=content-language',
+      'name=description',
+      'rel=canonical',
+    ]);
+    expect(scan.values.get('rel=canonical')).toBe('https://example.com/');
+    expect(scan.values.get('name=description')).toBe('Child description');
+  });
+
+  it('keeps the last spelling when a child writes one attribute two ways', () => {
+    // Which is what React leaves in the DOM: it sets each prop in turn, and two casings of one
+    // name are one setAttribute target, so the later write is the value the browser ends up with.
+    const scan = scanHeadKeys(
+      oddChild('meta', { NAME: 'first', name: 'second', content: 'x' }),
+    );
+
+    expect([...scan.claimed]).toEqual(['name=second']);
+  });
+
+  it('serializes one spelling when a child writes one attribute two ways', () => {
+    // The other half of the rule above, and the half that used to disagree with it. Both spellings
+    // stayed in the record, so the served HTML carried a repeated attribute name, and the tokenizer
+    // resolves a repeat the opposite way from React: it keeps the first. The tag was a `first` meta
+    // to anything reading the server-rendered page and became a `second` meta on hydration.
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          {React.createElement('meta', {
+            NAME: 'first',
+            name: 'second',
+            content: 'x',
+          })}
+        </UnirendHead>
+      </UnirendHeadProvider>,
+    );
+
+    expect(collector.metas).toEqual([{ name: 'second', content: 'x' }]);
+    expect(serializeHeadCollector(collector).meta).toBe(
+      '<meta name="second" content="x" />',
+    );
+  });
+
+  it('leaves the ordinary spelling untouched', () => {
+    const scan = scanHeadKeys(
+      <meta name="description" content="Child description" />,
+    );
+
+    expect([...scan.claimed]).toEqual(['name=description']);
+    expect(scan.values.get('name=description')).toBe('Child description');
+  });
+
+  it('reads a rel as the unordered token set HTML defines it to be', () => {
+    // Order is not part of a set's identity, and keyed on the order the author happened to type,
+    // `rel="alternate stylesheet"` and `rel="stylesheet alternate"` were two tags: a child
+    // declaring one would not replace the envelope's other, and both shipped. Repeats are not
+    // part of it either, and left in they put the same singular key in the list twice.
+    expect(getLinkHeadKey('stylesheet alternate')).toBe(
+      getLinkHeadKey('alternate stylesheet'),
+    );
+    expect(getLinkHeadKey('  ALTERNATE   Stylesheet  ')).toBe(
+      'rel=alternate stylesheet',
+    );
+    expect(getLinkHeadKeys('canonical canonical')).toEqual(['rel=canonical']);
+    expect(getLinkHeadKeys('canonical alternate')).toEqual([
+      'rel=alternate canonical',
+      'rel=canonical',
+    ]);
+  });
+
+  it('gives two orderings of one rel the same claim', () => {
+    expect([
+      ...scanHeadKeys(
+        <link rel="stylesheet alternate" href="https://example.com/a.css" />,
+      ).claimed,
+    ]).toEqual([
+      ...scanHeadKeys(
+        <link rel="alternate stylesheet" href="https://example.com/b.css" />,
+      ).claimed,
+    ]);
+  });
+
+  it('keeps a non-identity attribute exactly as React spelled it', () => {
+    // crossOrigin and referrerPolicy warn when lowercased, and neither carries an identity, so
+    // only the attributes a key is read from are re-keyed.
+    const scan = scanHeadKeys(
+      oddChild('link', {
+        REL: 'preload',
+        href: '/hero.png',
+        crossOrigin: 'anonymous',
+      }),
+    );
+
+    expect([...scan.claimed]).toEqual(['rel=preload']);
+    expect(scan.values.get('rel=preload')).toBe('/hero.png');
+  });
+});
+
+describe('the children the client renders', () => {
+  it('keeps only the tags React hoists, and drops what is not an element', () => {
+    // html and body are managed but never rendered into the root, since a <body> inside a div is
+    // invalid DOM. A bare string is passed over the same way, which is what a stray space or an
+    // interpolation that rendered to nothing leaves behind.
+    const rendered = filterRenderableHeadChildren([
+      <title key="t">Home</title>,
+      <meta key="m" name="description" content="Home description" />,
+      <link key="l" rel="canonical" href="https://example.com/" />,
+      <html key="h" lang="en" />,
+      <body key="b" className="page" />,
+      <div key="d">Body content</div>,
+      '  ',
+      null,
+    ]);
+
+    expect(
+      rendered.map((child) =>
+        React.isValidElement(child) ? child.type : child,
+      ),
+    ).toEqual(['title', 'meta', 'link']);
+  });
 });
 
 describe('UnirendHead Client-side Helpers', () => {
   const {
     areRecordsEqual,
+    areHeadKeyMapsEqual,
+    areMessageListsEqual,
+    mergeHeadKeyValues,
     serializeStyleObject,
     toHeadAttributes,
     applyAttributes,
@@ -258,6 +793,178 @@ describe('UnirendHead Client-side Helpers', () => {
     });
   });
 
+  // The property that lets a render walk the children once instead of twice: merging two scans is
+  // the same answer as scanning the concatenated list, so the split is equivalent by construction
+  // rather than by an assumption about the generated tags and the children being disjoint.
+  describe('mergeHeadKeyValues', () => {
+    it('keeps the first side"s value for a key both carry', () => {
+      const merged = mergeHeadKeyValues(
+        new Map([['name=description', 'Envelope description']]),
+        new Map([['name=description', 'Child description']]),
+      );
+
+      expect(merged.get('name=description')).toBe('Envelope description');
+    });
+
+    it('carries every key from either side', () => {
+      const merged = mergeHeadKeyValues(
+        new Map([['title', '']]),
+        new Map([['rel=canonical', 'https://example.com/']]),
+      );
+
+      expect([...merged.entries()]).toEqual([
+        ['title', ''],
+        ['rel=canonical', 'https://example.com/'],
+      ]);
+    });
+
+    it('leaves both inputs alone', () => {
+      const first = new Map([['title', '']]);
+      const second = new Map([['name=keywords', 'a, b']]);
+
+      mergeHeadKeyValues(first, second);
+
+      expect(first.size).toBe(1);
+      expect(second.size).toBe(1);
+    });
+
+    it('matches a single scan of the concatenated list', () => {
+      // The equivalence stated outright, over children that both share a key with the generated
+      // side and add one of their own. If this ever fails, the split walk is no longer safe.
+      const generated = [
+        <meta key="a" name="description" content="Envelope description" />,
+        <link key="b" rel="canonical" href="https://example.com/" />,
+      ];
+
+      const children = [
+        <meta key="c" name="description" content="Child description" />,
+        <meta key="d" name="keywords" content="a, b" />,
+      ];
+
+      const combined = scanHeadKeys([...generated, ...children]).values;
+      const split = mergeHeadKeyValues(
+        scanHeadKeys(generated).values,
+        scanHeadKeys(children).values,
+      );
+
+      expect([...split.entries()]).toEqual([...combined.entries()]);
+    });
+  });
+
+  // Gates whether a client re-render syncs the DOM. Answer true when the head actually changed
+  // and the head goes stale, answer false when nothing did and every render touches the DOM.
+  describe('areHeadKeyMapsEqual', () => {
+    it('returns true for the same reference and for two empty maps', () => {
+      const keys = new Map([['name=description', 'Home description']]);
+
+      expect(areHeadKeyMapsEqual(keys, keys)).toBe(true);
+      expect(areHeadKeyMapsEqual(new Map(), new Map())).toBe(true);
+    });
+
+    it('returns false when one map holds a key the other does not', () => {
+      expect(
+        areHeadKeyMapsEqual(
+          new Map([['name=description', 'Home description']]),
+          new Map([
+            ['name=description', 'Home description'],
+            ['rel=canonical', 'https://example.com/'],
+          ]),
+        ),
+      ).toBe(false);
+    });
+
+    it('returns false when a key holds a different value', () => {
+      expect(
+        areHeadKeyMapsEqual(
+          new Map([['name=description', 'Home description']]),
+          new Map([['name=description', 'Something more specific']]),
+        ),
+      ).toBe(false);
+    });
+
+    it('returns false when the same number of entries are different keys', () => {
+      // The size check alone would call these equal, which would leave the head carrying the
+      // description after the page swapped it for a canonical.
+      expect(
+        areHeadKeyMapsEqual(
+          new Map([['name=description', 'Home description']]),
+          new Map([['name=keywords', 'Home description']]),
+        ),
+      ).toBe(false);
+    });
+
+    it('ignores insertion order, since a key set is not a sequence', () => {
+      expect(
+        areHeadKeyMapsEqual(
+          new Map([
+            ['name=description', 'Home description'],
+            ['rel=canonical', 'https://example.com/'],
+          ]),
+          new Map([
+            ['rel=canonical', 'https://example.com/'],
+            ['name=description', 'Home description'],
+          ]),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  // Overriding a template meta is a set membership question, which is why this compares as a set
+  // rather than in order. Answer true for a list that lost a key and a template meta stays hidden
+  // after the page that hid it stopped declaring it.
+  describe('areKeyListsEqual', () => {
+    it('returns true for the same keys in any order, and for two empty lists', () => {
+      expect(areKeyListsEqual([], [])).toBe(true);
+      expect(
+        areKeyListsEqual(
+          ['name=description', 'rel=canonical'],
+          ['rel=canonical', 'name=description'],
+        ),
+      ).toBe(true);
+    });
+
+    it('returns false when the lists are different lengths', () => {
+      expect(areKeyListsEqual(['name=description'], [])).toBe(false);
+    });
+
+    it('returns false when the same number of keys are different keys', () => {
+      expect(areKeyListsEqual(['name=description'], ['name=keywords'])).toBe(
+        false,
+      );
+    });
+  });
+
+  // The envelope projection's warnings, which do not always change the head: dropping a
+  // forbidden `style` leaves the same keys behind, so this is what carries the fix to the sync.
+  describe('areMessageListsEqual', () => {
+    const first = '[unirend] UnirendHead: meta.page.tags[0] (app-version) …';
+    const second = '[unirend] UnirendHead: meta.page.tags[1] (twitter:card) …';
+
+    it('returns true for two empty lists and for equal lists', () => {
+      expect(areMessageListsEqual([], [])).toBe(true);
+      expect(areMessageListsEqual([first, second], [first, second])).toBe(true);
+    });
+
+    it('returns false when the lengths differ', () => {
+      expect(areMessageListsEqual([first], [first, second])).toBe(false);
+      expect(areMessageListsEqual([first], [])).toBe(false);
+    });
+
+    it('returns false when a message changed in place', () => {
+      // The case the comparison exists for: the head keys are identical either way, so without
+      // this the fixed envelope never reaches the sync and the warning stays on the record.
+      expect(areMessageListsEqual([first], [second])).toBe(false);
+    });
+
+    it('returns false when the same messages arrive in a different order', () => {
+      // Compared in order, since one render produces them in a fixed order and a difference
+      // means a different set of entries went wrong.
+      expect(areMessageListsEqual([first, second], [second, first])).toBe(
+        false,
+      );
+    });
+  });
+
   describe('serializeStyleObject', () => {
     it('serializes style properties to a kebab-case string', () => {
       const style = {
@@ -276,6 +983,21 @@ describe('UnirendHead Client-side Helpers', () => {
 
     it('returns empty string for empty objects', () => {
       expect(serializeStyleObject({})).toBe('');
+    });
+
+    it('skips values that are neither a string nor a number', () => {
+      // A CSSProperties value is one or the other. Anything else would stringify to something
+      // like "[object Object]", which is a declaration the browser drops anyway, so it is left
+      // out rather than written into the style attribute where it reads as a real rule.
+      const style = {
+        color: 'red',
+        background: {} as any,
+        border: [] as any,
+        transform: (() => 'none') as any,
+        outline: true as any,
+      };
+
+      expect(serializeStyleObject(style)).toBe('color:red');
     });
   });
 
@@ -307,6 +1029,9 @@ describe('UnirendHead Client-side Helpers', () => {
     });
 
     it('maps boolean false values to "false" override marker for boolean attributes', () => {
+      // Only the boolean gets the marker. A string spelling of it does not, because React reads
+      // any string as present and writes the bare attribute, so treating `inert="false"` as a
+      // removal would leave the server and the client saying opposite things about the same tag.
       const props = {
         hidden: false,
         disabled: false,
@@ -317,9 +1042,52 @@ describe('UnirendHead Client-side Helpers', () => {
       expect(result).toEqual({
         hidden: 'false',
         disabled: 'false',
-        inert: 'false',
+        inert: '',
         autoplay: '',
       });
+    });
+
+    it('stringifies numbers and bigints, which HTML attributes have no other form for', () => {
+      expect(
+        toHeadAttributes({ 'data-count': 5, 'data-total': 9007199254740993n }),
+      ).toEqual({
+        'data-count': '5',
+        'data-total': '9007199254740993',
+      });
+    });
+
+    it('reads a boolean attribute by truthiness, whatever the value spells', () => {
+      // Presence is all a boolean attribute means, so the value is never written out. React
+      // decides presence from the prop's truthiness and this has to answer the same, or the two
+      // sides disagree about a tag React renders and the server serializes.
+      expect(
+        toHeadAttributes({
+          disabled: 3,
+          hidden: 0,
+          // An empty string is the spelling that used to survive as a set attribute here while
+          // React dropped it. Write `hidden` or `hidden={true}` for the bare attribute.
+          inert: '',
+          checked: 'FALSE',
+        }),
+      ).toEqual({
+        disabled: '',
+        hidden: 'false',
+        inert: 'false',
+        checked: '',
+      });
+    });
+
+    it('drops values with no HTML attribute form rather than coercing them', () => {
+      // "[object Object]" is a worse attribute than no attribute, and a function on a head tag is
+      // a handler that was never going to survive serialization.
+      expect(
+        toHeadAttributes({
+          lang: 'en',
+          'data-config': { theme: 'dark' },
+          'data-list': ['a', 'b'],
+          onClick: () => 'nope',
+        }),
+      ).toEqual({ lang: 'en' });
     });
   });
 
@@ -357,6 +1125,61 @@ describe('UnirendHead Client-side Helpers', () => {
         color: 'red',
         'font-size': '14px',
       });
+    });
+
+    it('unions a class written in an odd casing instead of overwriting the baseline', () => {
+      // `setAttribute` lowercases the name it is given, so `<html CLASS="dark" />` lands on the
+      // real `class` whatever the record calls it, and the server's merge lowercases too. Matched
+      // as written, this missed the union and arrived through the last-write-wins branch instead,
+      // so the template's own classes were replaced rather than joined and the page hydrated
+      // without them. Same for STYLE, which dropped the template's declarations.
+      const mockElement = createMockElement({ class: 'base theme' });
+
+      applyAttributes(
+        mockElement as unknown as HTMLElement,
+        { class: 'base theme', style: 'margin:0' },
+        [{ CLASS: 'dark', STYLE: 'color:red' }],
+      );
+
+      expect(mockElement.getAttribute('class')).toBe('base theme dark');
+      expect(mockElement.getAttribute('CLASS')).toBe(null);
+      expect(mockElement.style.properties).toEqual({
+        margin: '0',
+        color: 'red',
+      });
+    });
+
+    it('carries on past a baseline attribute name the DOM refuses to set', () => {
+      // The HTML parser accepts names XML's `Name` production does not, so `<html ⚡>` (AMP) and
+      // `<body @click="x">` parse and reach the baseline this reads. `setAttribute` throws
+      // InvalidCharacterError for exactly those, and the throw would escape the layout effect that
+      // called this: no html or body attributes applied and no template metas reconciled, on every
+      // page, whether or not the page set an attribute of its own.
+      const mockElement = createMockElement({ '@click': 'x', lang: 'en' });
+      const setAttribute = mockElement.setAttribute.bind(mockElement);
+
+      mockElement.setAttribute = (key: string, value: string) => {
+        if (!/^[a-zA-Z_:][\w.:-]*$/.test(key)) {
+          throw new Error(`'${key}' is not a valid attribute name`);
+        }
+
+        setAttribute(key, value);
+      };
+
+      const initial = { '@click': 'x', lang: 'en' };
+
+      applyAttributes(mockElement as unknown as HTMLElement, initial, [
+        { class: 'dark' },
+      ]);
+
+      expect(mockElement.getAttribute('lang')).toBe('en');
+      expect(mockElement.getAttribute('class')).toBe('dark');
+
+      // And the refused name is not recorded as calculated, so the next sync leaves index.html's
+      // own attribute alone rather than removing what it could never set.
+      applyAttributes(mockElement as unknown as HTMLElement, {}, []);
+
+      expect(mockElement.getAttribute('@click')).toBe('x');
     });
 
     it('removes boolean attributes when they are overridden with "false"', () => {
@@ -440,7 +1263,12 @@ describe('UnirendHead Client-side Helpers', () => {
           ],
         },
         body: {
-          attributes: [{ name: 'class', value: 'body-static body-dynamic' }],
+          attributes: [
+            { name: 'class', value: 'body-static body-dynamic' },
+            // A non-class body attribute is recorded exactly as the template wrote it. Only
+            // classes go through the ignored-class filter, since only they merge as a union.
+            { name: 'data-layout', value: 'wide' },
+          ],
         },
       } as any;
       /* eslint-disable @typescript-eslint/naming-convention */
@@ -458,7 +1286,10 @@ describe('UnirendHead Client-side Helpers', () => {
         lang: 'fr',
         class: 'static-class',
       });
-      expect(getInitialBodyAttrs()).toEqual({ class: 'body-static' });
+      expect(getInitialBodyAttrs()).toEqual({
+        class: 'body-static',
+        'data-layout': 'wide',
+      });
     });
   });
 
@@ -478,6 +1309,19 @@ describe('UnirendHead Client-side Helpers', () => {
       expect(parsed).toEqual({
         'background-image': 'url("data:image/png;base64,12;34")',
         'font-family': '"Courier;New", Courier',
+      });
+    });
+
+    it('treats single quotes as quoting too, since CSS accepts either', () => {
+      // A single-quoted URL is as ordinary as a double-quoted one, and a semicolon inside it is
+      // part of the value. Splitting there would cut the declaration in half.
+      const style =
+        "background-image: url('data:image/png;base64,12;34'); content: 'a;b'; color: red";
+
+      expect(parseStyleString(style)).toEqual({
+        'background-image': "url('data:image/png;base64,12;34')",
+        content: "'a;b'",
+        color: 'red',
       });
     });
   });
@@ -525,6 +1369,26 @@ describe('UnirendHead Client-side Helpers', () => {
 
       expect(mockElement.getAttribute('data-external')).toBe('yes');
     });
+
+    it('removes an attribute a previous run set once no instance still declares it', () => {
+      // Only the ones this module calculated. An attribute that came from a component and then
+      // went away with it has to come off, or a theme a page set would outlive the page. The
+      // external attribute beside it was never ours and stays either way.
+      const mockElement = createMockElement({ 'data-external': 'yes' });
+      const initial = { lang: 'en' };
+
+      applyAttributes(mockElement as unknown as HTMLElement, initial, [
+        { 'data-theme': 'dark' },
+      ]);
+
+      expect(mockElement.getAttribute('data-theme')).toBe('dark');
+
+      applyAttributes(mockElement as unknown as HTMLElement, initial, []);
+
+      expect(mockElement.getAttribute('data-theme')).toBeNull();
+      expect(mockElement.getAttribute('lang')).toBe('en');
+      expect(mockElement.getAttribute('data-external')).toBe('yes');
+    });
   });
 
   describe('client-side render ordering sorting', () => {
@@ -543,6 +1407,74 @@ describe('UnirendHead Client-side Helpers', () => {
       (globalThis as any).document = originalDocument;
       resetInitialAttrs();
       getRegisteredList().length = 0;
+    });
+
+    it('does nothing at all when there is no document to sync to', () => {
+      // The module is imported by the server bundle too, where a registration can never exist but
+      // the guard is what makes that safe to rely on rather than something to remember.
+      (globalThis as any).document = undefined;
+
+      expect(() => updateDOM()).not.toThrow();
+    });
+
+    it('folds body attributes and meta keys from every mounted registration', () => {
+      // The html half is covered by the ordering tests above. This is the other two things a
+      // registration carries into the sync, and the comparator answering something other than
+      // "B follows A": markers that report each other as preceding, and one that reports neither.
+      const mockHTML = createMockElement();
+      const mockBody = createMockElement();
+      const mockDocument = {
+        documentElement: mockHTML,
+        body: mockBody,
+      } as any;
+      /* eslint-disable @typescript-eslint/naming-convention */
+      const mockWindow = {
+        __UNIREND_TEMPLATE_ATTRS__: { html: {}, body: {} },
+      } as any;
+      /* eslint-enable @typescript-eslint/naming-convention */
+
+      (globalThis as any).document = mockDocument;
+      (globalThis as any).window = mockWindow;
+
+      // `position` answers with a bit mask. 2 is "the other precedes me", and 0 is the answer for
+      // two nodes with no order between them, neither of which the ordering tests below reach.
+      const marker = (position: number): any => ({
+        isConnected: true,
+        compareDocumentPosition: () => position,
+      });
+
+      const register = (position: number, bodyClass: string, key: string) => {
+        getRegisteredList().push({
+          html: null,
+          body: { class: bodyClass },
+          metaKeys: [key],
+          headKeys: new Map(),
+          tagMessages: [],
+          warningScopeID: (nextScopeID += 1),
+          markerRef: { current: marker(position) },
+        });
+      };
+
+      register(2, 'bg-white', 'name=description');
+      register(2, 'text-gray-900', 'rel=canonical');
+
+      updateDOM();
+
+      // Body classes union across instances, exactly as the html ones do.
+      let classes = (mockBody.getAttribute('class') || '').split(/\s+/);
+      expect(classes).toContain('bg-white');
+      expect(classes).toContain('text-gray-900');
+
+      getRegisteredList().length = 0;
+      register(0, 'bg-slate-900', 'name=keywords');
+      register(0, 'font-sans', 'name=robots');
+
+      updateDOM();
+
+      classes = (mockBody.getAttribute('class') || '').split(/\s+/);
+      expect(classes).toContain('bg-slate-900');
+      expect(classes).toContain('font-sans');
+      expect(classes).not.toContain('bg-white');
     });
 
     it('sorts active registrations by marker document order', () => {
@@ -585,6 +1517,9 @@ describe('UnirendHead Client-side Helpers', () => {
         html: { lang: 'es' },
         body: null,
         metaKeys: [],
+        headKeys: new Map(),
+        tagMessages: [],
+        warningScopeID: (nextScopeID += 1),
         markerRef: { current: markerB },
       });
 
@@ -592,6 +1527,9 @@ describe('UnirendHead Client-side Helpers', () => {
         html: { lang: 'en' },
         body: null,
         metaKeys: [],
+        headKeys: new Map(),
+        tagMessages: [],
+        warningScopeID: (nextScopeID += 1),
         markerRef: { current: markerA },
       });
 
@@ -640,12 +1578,18 @@ describe('UnirendHead Client-side Helpers', () => {
         html: { lang: 'es' },
         body: null,
         metaKeys: [],
+        headKeys: new Map(),
+        tagMessages: [],
+        warningScopeID: (nextScopeID += 1),
         markerRef: { current: null as any },
       };
       const regA = {
         html: { lang: 'en' },
         body: null,
         metaKeys: [],
+        headKeys: new Map(),
+        tagMessages: [],
+        warningScopeID: (nextScopeID += 1),
         markerRef: { current: null as any },
       };
 
@@ -681,14 +1625,14 @@ describe('UnirendHead Client-side Helpers', () => {
 
       const html = renderToString(
         <UnirendHead>
-          <div>Child</div>
+          <title>Home</title>
         </UnirendHead>,
       );
 
-      // In SPA mode, the template marker must render immediately
-      expect(html).toContain(
-        '<template style="display:none"></template><div>Child</div>',
-      );
+      // In SPA mode, the template marker must render immediately. Asserted separately from the
+      // title rather than as one substring, since React hoists the title ahead of the marker.
+      expect(html).toContain('<template style="display:none"></template>');
+      expect(html).toContain('<title>Home</title>');
     });
 
     it('should NOT render the marker template immediately in server-rendered baseline template mode', () => {
@@ -701,13 +1645,108 @@ describe('UnirendHead Client-side Helpers', () => {
 
       const html = renderToString(
         <UnirendHead>
-          <div>Child</div>
+          <title>Home</title>
         </UnirendHead>,
       );
 
       // In server-rendered mode, it must defer template marker to avoid hydration mismatches
       expect(html).not.toContain('<template');
-      expect(html).toContain('<div>Child</div>');
+      expect(html).toContain('<title>Home</title>');
+    });
+
+    it('renders only the tags it manages into the React root', () => {
+      // The client half of the server test above. None of these is a tag UnirendHead collects, so
+      // rendering them here would put a script, a style, and a div in the body that the server
+      // never emitted, which hydration then has to reconcile.
+      (globalThis as any).window = {};
+
+      const html = renderToString(
+        <UnirendHead>
+          <title>Home</title>
+          <script src="/analytics.js" />
+          <style>{'body { color: red }'}</style>
+          <div>Child</div>
+        </UnirendHead>,
+      );
+
+      expect(html).not.toContain('<script');
+      expect(html).not.toContain('<style');
+      expect(html).not.toContain('<div>');
+      expect(html).toContain('<title>Home</title>');
+    });
+
+    it('keeps html and body out of the root even inside a fragment', () => {
+      // The case the old direct-children filter got wrong once fragments became transparent: a
+      // <body> rendered inside #root is invalid DOM, and it would now arrive there one level down.
+      (globalThis as any).window = {};
+
+      const html = renderToString(
+        <UnirendHead>
+          <>
+            <html lang="en" />
+            <body className="page" />
+            <title>Home</title>
+          </>
+        </UnirendHead>,
+      );
+
+      expect(html).not.toContain('<html');
+      expect(html).not.toContain('<body');
+      expect(html).toContain('<title>Home</title>');
+    });
+
+    it('renders mapped children and keyed fragments', () => {
+      // Every other test here writes literal JSX. A list built with .map() and an explicit keyed
+      // React.Fragment are the two shapes a rewrite of the walker would be most likely to break,
+      // and a lost key shows up as a console error rather than a failed assertion.
+      (globalThis as any).window = {};
+
+      const errors: string[] = [];
+      const originalError = console.error;
+      console.error = (...args: unknown[]) => {
+        errors.push(args.map((arg) => String(arg)).join(' '));
+      };
+
+      let html = '';
+
+      try {
+        html = renderToString(
+          <UnirendHead>
+            <React.Fragment key="grouped">
+              <title>Home</title>
+            </React.Fragment>
+            {['a', 'b'].map((name) => (
+              <meta key={name} name={name} content={name} />
+            ))}
+          </UnirendHead>,
+        );
+      } finally {
+        console.error = originalError;
+      }
+
+      expect(errors).toEqual([]);
+      expect(html).toContain('<title>Home</title>');
+      expect(html).toContain('name="a"');
+      expect(html).toContain('name="b"');
+    });
+
+    it('renders the tags inside a fragment, as the server now collects them', () => {
+      // A fragment is not a level of nesting, so both sides walk through it. Pinned on the client
+      // as well because this half already worked: React hoists whatever renders, which is exactly
+      // what made the server-only gap invisible.
+      (globalThis as any).window = {};
+
+      const html = renderToString(
+        <UnirendHead>
+          <>
+            <title>Home</title>
+            <meta name="description" content="Home description" />
+          </>
+        </UnirendHead>,
+      );
+
+      expect(html).toContain('<title>Home</title>');
+      expect(html).toContain('name="description"');
     });
   });
 
@@ -800,6 +1839,11 @@ describe('UnirendHead Client-side Helpers', () => {
     const metasInHead = (head: any, name: string) =>
       head.children.filter((child: any) => child.getAttribute('name') === name);
 
+    // The baseline is grouped under a serialized identity set, so a group reads back as the list
+    // of identities it covers rather than as one string that has to be spelled exactly.
+    const groupedIdentities = (nodes: Map<string, unknown> | null) =>
+      Array.from(nodes?.keys() ?? []).map((key) => JSON.parse(key) as string[]);
+
     beforeEach(() => {
       originalWindow = (globalThis as any).window;
       originalDocument = (globalThis as any).document;
@@ -810,6 +1854,113 @@ describe('UnirendHead Client-side Helpers', () => {
       (globalThis as any).window = originalWindow;
       (globalThis as any).document = originalDocument;
       resetTemplateMetas();
+    });
+
+    it('rebuilds the half of a split group the server stripped', () => {
+      // Two template metas share `name=site` but carry different properties, so the server strips
+      // them independently. Grouped by that first identity, the survivor would be read as proof
+      // that both were served, and the stripped one would never be rebuilt: gone for good the
+      // moment the page stopped overriding it.
+      const head = setupPage({
+        served: [
+          // Only the og:other one survived the merge, and it is the marked node.
+          {
+            name: 'site',
+            property: 'og:other',
+            content: '#other',
+            [TEMPLATE_META_MARKER_ATTRIBUTE]: '',
+          },
+          // The page's own tag, unmarked, React's to manage.
+          { property: 'og:site_name', content: '#page' },
+        ],
+        baseline: [
+          { name: 'site', property: 'og:site_name', content: '#template' },
+          { name: 'site', property: 'og:other', content: '#other' },
+        ],
+      });
+
+      captureTemplateMetas();
+
+      // While the page overrides og:site_name, only the survivor is in the head.
+      reconcileTemplateMetas(new Set(['property=og:site_name']));
+      expect(metasInHead(head, 'site')).toHaveLength(1);
+
+      // Navigating away: the stripped one has to come back, and the survivor stays.
+      reconcileTemplateMetas(new Set());
+
+      const restored = metasInHead(head, 'site');
+      expect(restored).toHaveLength(2);
+      expect(
+        restored.map((meta: any) => meta.getAttribute('property')).sort(),
+      ).toEqual(['og:other', 'og:site_name']);
+    });
+
+    it('does not read one identity as two because the value contains the separator', () => {
+      // The grouping key is a serialized identity set rather than a joined string, so a `name`
+      // spelling out what a two-identity meta's key list looks like is still one identity. Joined
+      // on a pipe these two are one group, the marked survivor stands in for the stripped one, and
+      // the stripped one is never rebuilt. A meta name like this is nobody's real index.html, but
+      // the value is arbitrary text and the encoding is free to get right.
+      const head = setupPage({
+        served: [
+          {
+            name: 'a',
+            property: 'b',
+            content: '#two',
+            [TEMPLATE_META_MARKER_ATTRIBUTE]: '',
+          },
+          // The page's own override of the other one, unmarked.
+          { name: 'a|property=b', content: '#page' },
+        ],
+        baseline: [
+          { name: 'a|property=b', content: '#one' },
+          { name: 'a', property: 'b', content: '#two' },
+        ],
+      });
+
+      const templateMetas = () =>
+        head.children.filter((child: any) =>
+          child.hasAttribute(TEMPLATE_META_MARKER_ATTRIBUTE),
+        );
+
+      captureTemplateMetas();
+
+      reconcileTemplateMetas(new Set(['name=a|property=b']));
+      expect(templateMetas()).toHaveLength(1);
+
+      reconcileTemplateMetas(new Set());
+      expect(
+        templateMetas()
+          .map((meta: any) => meta.getAttribute('content'))
+          .sort(),
+      ).toEqual(['#one', '#two']);
+    });
+
+    it('steps a dual-identity template meta aside for either identity', () => {
+      // Filed under `name=site`, its first identity, but a page declaring og:site_name overrides
+      // it just the same, matching what the server's template merge strips.
+      const head = setupPage({
+        served: [
+          {
+            name: 'site',
+            property: 'og:site_name',
+            content: '#template',
+            [TEMPLATE_META_MARKER_ATTRIBUTE]: '',
+          },
+        ],
+        baseline: [
+          { name: 'site', property: 'og:site_name', content: '#template' },
+        ],
+      });
+
+      captureTemplateMetas();
+
+      reconcileTemplateMetas(new Set(['property=og:site_name']));
+      expect(metasInHead(head, 'site')).toHaveLength(0);
+
+      // And comes back once nothing declares it.
+      reconcileTemplateMetas(new Set());
+      expect(metasInHead(head, 'site')).toHaveLength(1);
     });
 
     it('restores a template meta when the page overriding it navigates away', () => {
@@ -930,10 +2081,26 @@ describe('UnirendHead Client-side Helpers', () => {
       // must not hold a reference to it or remove it.
       const nodes = getTemplateMetaNodes();
       expect(nodes).not.toBeNull();
-      expect(Array.from(nodes?.keys() ?? [])).toEqual(['name=viewport']);
+      expect(groupedIdentities(nodes)).toEqual([['name=viewport']]);
 
       reconcileTemplateMetas(new Set(['name=description']));
       expect(metasInHead(head, 'description')).toHaveLength(1);
+    });
+
+    it('overrides a template meta of either identity a page meta carries', () => {
+      // Matches what the server's template merge strips by. Keyed on the first attribute found,
+      // the og:site_name identity would be invisible and the template's copy would survive a
+      // client-side navigation, sitting ahead of the page's own in document order.
+      const keys = getMetaKeysFromChildren([
+        <meta
+          key="a"
+          name="twitter:title"
+          property="og:site_name"
+          content="Page site name"
+        />,
+      ]);
+
+      expect(keys).toEqual(['name=twitter:title', 'property=og:site_name']);
     });
 
     it('treats a repeated meta key as overriding once, so a stale key set is never held', () => {
@@ -1055,9 +2222,9 @@ describe('UnirendHead Client-side Helpers', () => {
 
       const nodes = getTemplateMetaNodes();
       expect(nodes).not.toBeNull();
-      expect(Array.from(nodes?.keys() ?? [])).toEqual([
-        'name=viewport',
-        'name=theme-color',
+      expect(groupedIdentities(nodes)).toEqual([
+        ['name=viewport'],
+        ['name=theme-color'],
       ]);
 
       reconcileTemplateMetas(new Set(['name=theme-color']));

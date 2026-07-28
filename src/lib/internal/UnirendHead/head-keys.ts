@@ -1,0 +1,246 @@
+import type { ReactNode } from 'react';
+import { getMetaKeys } from '../html-utils/meta-key';
+import { toHeadAttributes } from './head-attributes';
+import { forEachHeadChild } from './head-children';
+
+/**
+ * The identity of a head tag within a single `UnirendHead`.
+ *
+ * Metas reuse the identity the server-side template merge and the client-side template
+ * reconciliation already agree on, so `og:*` and `http-equiv` are covered for free. Links key on
+ * `rel`, and the document title is a single fixed key because there is only ever one of it.
+ *
+ * A tag can occupy more than one key. A meta carrying both `name` and `property` is both of those
+ * things, and a `rel` is a token set. Overriding and collision detection have to see every identity
+ * a tag has, or a tag hides behind whichever one happened to be checked.
+ *
+ * These keys drive two things: which envelope-derived tags an instance's own children have
+ * already claimed, and which tags two separate instances both emit (the development-only
+ * duplicate warning).
+ */
+export const TITLE_HEAD_KEY = 'title';
+
+/**
+ * Link relations that must not repeat.
+ *
+ * Links are handled the other way round from metas on purpose. Most relations are repeatable by
+ * nature — a page preloads several assets, ships several icon sizes, lists several `alternate`
+ * language variants — so an allowlist of the repeatable ones would be long, incomplete, and a
+ * steady source of false positives. Only a handful of relations describe the document once, and
+ * those are the ones worth flagging.
+ */
+export const SINGULAR_LINK_RELATIONS = new Set([
+  'canonical',
+  'manifest',
+  'amphtml',
+]);
+
+/**
+ * One identity key for a `<link>`, built from its `rel`.
+ *
+ * HTML defines `rel` as "an unordered set of unique space-separated tokens", so the key is built as
+ * one: the whitespace is normalized, the tokens are lowercased, repeats are dropped, and the rest
+ * are sorted. Two spellings of one set are then one key, which is what the override contract needs.
+ * Normalizing whitespace alone was not enough — `rel="alternate stylesheet"` and
+ * `rel="stylesheet alternate"` are the same relation to every browser, and keyed on the order the
+ * author happened to type they were two tags, so a child declaring one would not replace the
+ * envelope's other and both shipped.
+ *
+ * Nothing renders from this. The key decides what overrides and collides with what, and each tag
+ * still goes to the head with its `rel` spelled the way its author wrote it. The one place the
+ * canonical form is visible is the duplicate warning, which names the key rather than either
+ * spelling, and a set has no better name than its sorted members.
+ *
+ * For building a key from a `rel` you already control, such as the `canonical` this file emits for
+ * the envelope field of that name. Deciding what an arbitrary link overrides or collides with
+ * wants `getLinkHeadKeys()`, since a `rel` naming a single-value relation among several tokens is
+ * that relation too, and keying on the set alone hides it.
+ */
+export function getLinkHeadKey(rel: string): string {
+  const tokens = rel.trim().toLowerCase().split(/\s+/).filter(Boolean);
+
+  return `rel=${[...new Set(tokens)].sort().join(' ')}`;
+}
+
+/**
+ * Every identity key a `<link>` occupies: the exact set of relations it declares, plus each
+ * relation in that set that may only appear on the page once.
+ *
+ * One rule, not a primary key with an exception, and it follows from what a `<link>` is. HTML is
+ * explicit that "one link element can create multiple links ... exactly which and how many links
+ * are created depends on the keywords given in the rel attribute", and that a user agent processes
+ * "the links on a per-link basis, not a per-element basis". So `rel="alternate canonical"` is not
+ * one tag with a two-word name, it is an alternate and a canonical, and anything asking what this
+ * link is has to be able to see both.
+ *
+ * What decides which relations become keys of their own is the same repeatability the rest of this
+ * module runs on. A relation that may only exist once has to be found wherever it is declared, or
+ * a page declaring `rel="alternate canonical"` neither replaces the envelope's `canonical` nor
+ * collides with another instance's, and ships a second canonical in silence. A relation that
+ * repeats by nature needs no such key and must not have one: several alternates is a page doing
+ * its job, so a child `rel="alternate stylesheet"` has no business suppressing the envelope's
+ * `rel="alternate"` feed link, and `alternate` and `stylesheet` never become keys of their own.
+ *
+ * The whole-set key is what keeps overriding conservative. A child replaces the tag its author
+ * meant to replace, matched on the relations it actually declares rather than on a token it
+ * happens to share with a neighbor. Which tokens the set holds is what identifies it, and the
+ * order they were typed in is not, see `getLinkHeadKey()`.
+ */
+export function getLinkHeadKeys(rel: string): string[] {
+  const primary = getLinkHeadKey(rel);
+  const keys = [primary];
+
+  for (const token of getHeadKeyValue(primary).split(' ')) {
+    const key = `rel=${token}`;
+
+    if (key !== primary && SINGULAR_LINK_RELATIONS.has(token)) {
+      keys.push(key);
+    }
+  }
+
+  return keys;
+}
+
+/**
+ * The value part of a head key, i.e. `description` for `name=description` and `og:image` for
+ * `property=og:image`. Used to match a key against author-facing key lists, where writing the
+ * plain name reads better than the internal `attribute=value` form.
+ */
+export function getHeadKeyValue(key: string): string {
+  const separator = key.indexOf('=');
+
+  return separator === -1 ? key : key.slice(separator + 1);
+}
+
+/**
+ * What a single `UnirendHead`'s children declare.
+ */
+export interface HeadKeyScan {
+  /**
+   * Every key the children claim, the title included. A claimed key suppresses the
+   * envelope-derived tag for that same key, which is how a child wins over the envelope.
+   */
+  claimed: Set<string>;
+
+  /**
+   * Meta and link keys mapped to the value that identifies them (a meta's `content`, a link's
+   * `href`), for the duplicate warning's message. The title is deliberately absent: titles are
+   * last-write-wins across instances by design, so a second one is never a collision.
+   */
+  values: Map<string, string>;
+}
+
+/**
+ * The attributes a head key is read from, canonicalized below before anything reads them.
+ *
+ * HTML matches attribute names case-insensitively, so a child written `<link REL="canonical">`
+ * reaches the head as a `rel` on both sides: React's `setAttribute` lands on the same attribute
+ * the browser would, and the server's template merge lowercases the name when it parses the
+ * served head. A property lookup is the odd one out, and left as written it would find nothing,
+ * so the child would claim no key at all, override no envelope field, and be invisible to the
+ * duplicate warning while its tag shipped beside the one it was meant to replace.
+ *
+ * The same list, and the same reason, as `IDENTITY_TAG_ATTRIBUTES` in `page-metadata-tags.ts`,
+ * which does this for the tags an envelope provides. `http-equiv` is here as well because a meta
+ * keys on it, and `httpEquiv` is only one of the spellings that reach this.
+ */
+const IDENTITY_CHILD_ATTRIBUTES = new Set([
+  'name',
+  'property',
+  'http-equiv',
+  'rel',
+  'href',
+  'content',
+]);
+
+/**
+ * Re-key the identity attributes to lowercase, leaving every other name exactly as written.
+ *
+ * Everything else keeps its casing, since React's own spellings (`crossOrigin`,
+ * `referrerPolicy`) warn when lowercased and none of them carry an identity.
+ *
+ * Only ever one spelling of an attribute arrives here, since `toHeadAttributes()` has already
+ * collapsed a child that wrote one two ways down to the last of them. So this renames rather than
+ * resolves, and the common case is a single odd spelling. A child with none at all gets its record
+ * back untouched rather than copied.
+ *
+ * Exported because `scanHeadKeys()` is not the only reader of a child's identity. The client's
+ * template-meta reconciliation reads the same children through `getMetaKeysFromChildren()`, and
+ * left out of this it answered with no key at all for an oddly spelled `name`, so the page claimed
+ * the key everywhere except there and the template's copy was appended back beside it.
+ */
+export function withCanonicalIdentityNames(
+  attrs: Record<string, string>,
+): Record<string, string> {
+  const hasOddSpelling = Object.keys(attrs).some(
+    (name) =>
+      name !== name.toLowerCase() &&
+      IDENTITY_CHILD_ATTRIBUTES.has(name.toLowerCase()),
+  );
+
+  if (!hasOddSpelling) {
+    return attrs;
+  }
+
+  const canonical: Record<string, string> = {};
+
+  for (const [name, value] of Object.entries(attrs)) {
+    const lowered = name.toLowerCase();
+
+    canonical[IDENTITY_CHILD_ATTRIBUTES.has(lowered) ? lowered : name] = value;
+  }
+
+  return canonical;
+}
+
+/**
+ * Walk a child list and record the head keys it declares.
+ *
+ * Fragments are walked through and nothing else is, matching how the rest of `UnirendHead`
+ * collects: the server collector and the client attribute readers all use the same walker, so a
+ * child that claims a key here is a child that reaches the head there. See `forEachHeadChild()`.
+ */
+export function scanHeadKeys(children: ReactNode): HeadKeyScan {
+  const claimed = new Set<string>();
+  const values = new Map<string, string>();
+
+  forEachHeadChild(children, (child) => {
+    const type = child.type;
+    const props = child.props as Record<string, unknown>;
+
+    if (type === 'title') {
+      claimed.add(TITLE_HEAD_KEY);
+
+      return;
+    }
+
+    if (type !== 'meta' && type !== 'link') {
+      return;
+    }
+
+    // Canonicalized before the lookups below, since a child may write an identity attribute in
+    // any casing and the browser will still honor it. See withCanonicalIdentityNames().
+    const attrs = withCanonicalIdentityNames(toHeadAttributes(props));
+
+    // Either kind may occupy more than one key: a meta carrying both `name` and `property` is
+    // both identities, and a link's `rel` is a token set. See getMetaKeys() and getLinkHeadKeys().
+    const keys =
+      type === 'meta'
+        ? getMetaKeys(attrs)
+        : attrs.rel
+          ? getLinkHeadKeys(attrs.rel)
+          : [];
+
+    for (const key of keys) {
+      claimed.add(key);
+
+      // First value wins, so the message a duplicate warning prints names the tag that was
+      // already there rather than the last repeat of it.
+      if (!values.has(key)) {
+        values.set(key, attrs.content ?? attrs.href ?? '');
+      }
+    }
+  });
+
+  return { claimed, values };
+}

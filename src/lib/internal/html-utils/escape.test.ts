@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'bun:test';
-import { escapeHTML, escapeHTMLAttr, decodeHTML } from './escape';
+import { escapeHTML, escapeHTMLAttr, decodeHTMLAttributeValue } from './escape';
+
+// Half-written entities, spelled out so the attribute rule can be pinned.
+// cspell:ignore ampy notit
 
 describe('escapeHTML', () => {
   it('should escape ampersands', () => {
@@ -135,44 +138,60 @@ describe('escapeHTMLAttr', () => {
   });
 });
 
-describe('decodeHTML', () => {
+describe('decodeHTMLAttributeValue', () => {
   it('should decode standard named entities', () => {
-    expect(decodeHTML('foo &amp; bar')).toBe('foo & bar');
-    expect(decodeHTML('&quot;hello&quot;')).toBe('"hello"');
-    expect(decodeHTML('&lt;script&gt;')).toBe('<script>');
-    expect(decodeHTML('it&apos;s working')).toBe("it's working");
+    expect(decodeHTMLAttributeValue('foo &amp; bar')).toBe('foo & bar');
+    expect(decodeHTMLAttributeValue('&quot;hello&quot;')).toBe('"hello"');
+    expect(decodeHTMLAttributeValue('&lt;script&gt;')).toBe('<script>');
+    expect(decodeHTMLAttributeValue('it&apos;s working')).toBe("it's working");
   });
 
   it('should decode other named HTML entities like nbsp and copy', () => {
-    expect(decodeHTML('A&nbsp;B')).toBe('A\u00A0B');
-    expect(decodeHTML('&copy;')).toBe('©');
+    expect(decodeHTMLAttributeValue('A&nbsp;B')).toBe('A\u00A0B');
+    expect(decodeHTMLAttributeValue('&copy;')).toBe('©');
   });
 
   it('should decode decimal numeric entities', () => {
-    expect(decodeHTML('&#38;')).toBe('&');
-    expect(decodeHTML('&#60;')).toBe('<');
-    expect(decodeHTML('&#62;')).toBe('>');
+    expect(decodeHTMLAttributeValue('&#38;')).toBe('&');
+    expect(decodeHTMLAttributeValue('&#60;')).toBe('<');
+    expect(decodeHTMLAttributeValue('&#62;')).toBe('>');
   });
 
   it('should decode hexadecimal numeric entities', () => {
-    expect(decodeHTML('&#x26;')).toBe('&');
-    expect(decodeHTML('&#x3c;')).toBe('<');
-    expect(decodeHTML('&#x3E;')).toBe('>');
+    expect(decodeHTMLAttributeValue('&#x26;')).toBe('&');
+    expect(decodeHTMLAttributeValue('&#x3c;')).toBe('<');
+    expect(decodeHTMLAttributeValue('&#x3E;')).toBe('>');
   });
 
   it('should decode entities above 0xFFFF correctly using fromCodePoint', () => {
-    expect(decodeHTML('&#128512;')).toBe('😀');
-    expect(decodeHTML('&#x1f600;')).toBe('😀');
+    expect(decodeHTMLAttributeValue('&#128512;')).toBe('😀');
+    expect(decodeHTMLAttributeValue('&#x1f600;')).toBe('😀');
   });
 
   it('should handle invalid or malformed numeric entities', () => {
-    expect(decodeHTML('&#1114112;')).toBe('\uFFFD'); // > 0x10FFFF becomes replacement character
-    expect(decodeHTML('&#-1;')).toBe('&#-1;'); // '-' is malformed inside entity syntax
+    expect(decodeHTMLAttributeValue('&#1114112;')).toBe('\uFFFD'); // > 0x10FFFF becomes replacement character
+    expect(decodeHTMLAttributeValue('&#-1;')).toBe('&#-1;'); // '-' is malformed inside entity syntax
   });
 
   it('should handle unencoded text and leave unknown entities untouched', () => {
-    expect(decodeHTML('hello world')).toBe('hello world');
-    expect(decodeHTML('&unknown;')).toBe('&unknown;');
-    expect(decodeHTML('&#xyz;')).toBe('&#xyz;');
+    expect(decodeHTMLAttributeValue('hello world')).toBe('hello world');
+    expect(decodeHTMLAttributeValue('&unknown;')).toBe('&unknown;');
+    expect(decodeHTMLAttributeValue('&#xyz;')).toBe('&#xyz;');
+  });
+
+  it('leaves a legacy reference alone when an alphanumeric follows it', () => {
+    // The rule that makes this an attribute decoder rather than the general one. `amp`, `lt`, and
+    // `not` are all legacy, so a missing semicolon still decodes them in character data, and an
+    // attribute value does not when what follows could have been part of a longer name. A parser
+    // reads all three of these as written, and so does the browser the client reads them back
+    // from, so this has to agree or a tag's identity differs by which side computed it.
+    expect(decodeHTMLAttributeValue('x&ampy')).toBe('x&ampy');
+    expect(decodeHTMLAttributeValue('x&lty')).toBe('x&lty');
+    expect(decodeHTMLAttributeValue('x&notit;')).toBe('x&notit;');
+  });
+
+  it('still decodes a legacy reference that ends the value', () => {
+    // Nothing follows, so there is no longer name it could have been part of.
+    expect(decodeHTMLAttributeValue('x&amp')).toBe('x&');
   });
 });

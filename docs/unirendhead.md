@@ -7,14 +7,25 @@
 - [Hardcoded vs Loader-Driven Titles](#hardcoded-vs-loader-driven-titles)
 - [API](#api)
   - [`<UnirendHead>`](#unirendhead)
+  - [The `envelope` Prop](#the-envelope-prop)
+    - [Only `meta.page` Is Read](#only-metapage-is-read)
+    - [The `og` Object](#the-og-object)
+    - [Custom Tags](#custom-tags)
+      - [How Much to Trust an Entry](#how-much-to-trust-an-entry)
+    - [Malformed Envelopes](#malformed-envelopes)
+    - [Overriding a Single Envelope Field](#overriding-a-single-envelope-field)
+  - [A Tag Is Not in the Head](#a-tag-is-not-in-the-head)
   - [Supported Tags](#supported-tags)
     - [Preloading Images](#preloading-images)
   - [Tag Merging and Overrides](#tag-merging-and-overrides)
+    - [Which Rule Applies Where](#which-rule-applies-where)
+  - [Development-Only Duplicate Warning](#development-only-duplicate-warning)
   - [Template Tags vs Page Tags](#template-tags-vs-page-tags)
     - [Overriding a Template Meta](#overriding-a-template-meta)
   - [Shared Layout & Error Component Pattern](#shared-layout--error-component-pattern)
   - [Global Provider Pattern (Theme, Language, Etc.)](#global-provider-pattern-theme-language-etc)
 - [How It Works](#how-it-works)
+  - [The Envelope Prepass](#the-envelope-prepass)
   - [Server-Side (SSR / SSG)](#server-side-ssr--ssg)
   - [Client-Side](#client-side)
   - [Anti-Flicker & Attribute Hydration](#anti-flicker--attribute-hydration)
@@ -62,29 +73,30 @@ There are two common patterns for setting head tags:
 </UnirendHead>
 ```
 
-**2. Dynamic from loader data**, for SSR pages where the server provides the title per-request:
-
-`meta.page` is always present on page-type success envelopes (enforced by the response helpers and `isValidEnvelope`), and a page component only renders when its loader succeeds, so direct destructuring is safe. Note: not-found and error page components / error boundaries (custom 404, generic error, application error) receive `data?: PageErrorResponse | null` as props rather than from `useLoaderData()`, use optional chaining there (`data?.meta?.page?.title`) with a hardcoded fallback, since `data` can be `null` when React Router itself throws the error before any loader runs.
+**2. Dynamic from loader data**, for SSR pages where the server provides the metadata per-request. Pass the loader envelope straight to `UnirendHead` and it renders a tag for every populated `meta.page` field:
 
 ```tsx
 import { UnirendHead } from 'unirend/client';
 import { useLoaderData } from 'react-router';
+import type { PageSuccessResponse } from 'unirend/api-envelope';
+
+type HomeLoaderEnvelope = PageSuccessResponse<{ message: string }>;
 
 function HomePage() {
-  const loaderData = useLoaderData();
-  const { title, description } = loaderData.meta.page;
+  const envelope = useLoaderData<HomeLoaderEnvelope>();
 
   return (
     <>
-      <UnirendHead>
-        <title>{title}</title>
-        <meta name="description" content={description} />
-      </UnirendHead>
+      <UnirendHead envelope={envelope} />
       <main>...</main>
     </>
   );
 }
 ```
+
+Use the real envelope type rather than a partial interface when passing loader data to `UnirendHead`. A page component renders after a successful loader, so `PageSuccessResponse<T>` is the appropriate type. Error components can pass their `PageErrorResponse | null` value directly.
+
+The envelope form includes `canonical`, `keywords`, and `og:*` metadata without copying each field into JSX. You can still declare tags as children when the page owns them locally. See [The `envelope` Prop](#the-envelope-prop) for the field mapping and override rules.
 
 The `meta.page` fields come from the `pageMetadata` you return in your backend handler or local loader:
 
@@ -123,6 +135,217 @@ import { UnirendHead } from 'unirend/client';
 
 **Props on child elements** map directly to HTML attributes, pass any valid attribute you would use on the native HTML tag. The two React prop spellings that are not simply the attribute name are translated for you: `className` becomes `class`, and `httpEquiv` becomes `http-equiv`. Spellings that differ only by case, like `charSet` or `crossOrigin`, need no translation, since HTML matches attribute names case-insensitively.
 
+Two details follow from that, and they hold identically on the server and in the browser:
+
+- **A boolean attribute is written from the truthiness of the prop, never from what the value spells.** `<link rel="stylesheet" href="/dark.css" disabled={false} />` renders without `disabled`, because an HTML boolean attribute is true by its presence whatever its value says. Write `disabled` or `disabled={true}` for the bare attribute. This is React's own rule for these props, and following it is what keeps the served HTML and the hydrated page saying the same thing. Two spellings surprise people: an empty string is falsy, so `disabled=""` emits nothing, and the string `"false"` is truthy, so it emits the attribute and turns the stylesheet off.
+- **Writing one attribute in two casings emits one attribute, the last one.** `<meta NAME="a" name="b" content="c" />` is a single `name="b"`, matching what React leaves in the DOM. Prefer writing it once.
+
+**Component props:**
+
+| Prop | Type | Notes |
+| --- | --- | --- |
+| `children` | `ReactNode` | The head elements above. A child always beats the `envelope` field with the same key. |
+| `envelope` | `PageResponseEnvelope \| null` | A page data loader envelope. Every populated `meta.page` field becomes a tag. See [The `envelope` Prop](#the-envelope-prop). |
+
+Both are optional, so `<UnirendHead>` with children alone is unchanged.
+
+### The `envelope` Prop
+
+Pass the full envelope returned by your page data loader:
+
+```tsx
+const envelope = useLoaderData<HomeLoaderEnvelope>();
+
+<UnirendHead envelope={envelope} />;
+```
+
+`UnirendHead` reads `meta.page` and renders these tags:
+
+| `meta.page` field | Tag rendered |
+| --- | --- |
+| `title` | `<title>…</title>` |
+| `description` | `<meta name="description" content="…">` |
+| `keywords` | `<meta name="keywords" content="…">` |
+| `canonical` | `<link rel="canonical" href="…">` |
+| `og.title` | `<meta property="og:title" content="…">` |
+| `og.description` | `<meta property="og:description" content="…">` |
+| `og.image` | `<meta property="og:image" content="…">` |
+| `og.<anything>` | `<meta property="og:<anything>" content="…">`, see [The `og` Object](#the-og-object) |
+| `tags` | One `<meta>` or `<link>` per entry, see [Custom Tags](#custom-tags) |
+
+Only populated strings render. Missing, empty, or malformed fields are skipped without placeholder values. The prop also accepts error and redirect envelopes and `null`, so the same form works in error components.
+
+#### Only `meta.page` Is Read
+
+Other application metadata is ignored. Custom fields under `meta`, such as account or build information, are never copied into the document head. Add a tag in the page component as a child, or use `meta.page.tags` when the handler needs to provide it.
+
+#### The `og` Object
+
+Every populated `og` member becomes an `og:` property. `title`, `description`, and `image` are named on the type, while the rest of the OpenGraph vocabulary passes through:
+
+```ts
+pageMetadata: {
+  title: 'A Post - My App',
+  description: 'A post',
+  og: {
+    title: 'A Post',
+    image: 'https://example.com/post.png',
+    type: 'article',
+    url: 'https://example.com/posts/1',
+    locale: 'en_US',
+    'image:width': '1200',
+  },
+}
+```
+
+Keys that already start with `og:` are not prefixed again, so `type` and `og:type` both describe the same `og:type` tag. If both spellings are present, the first one processed wins. The named `title`, `description`, and `image` members are always processed first, so `title` wins over an `og:title` alias. Other properties follow their order in the object. Prefer one spelling per property rather than relying on that precedence.
+
+For repeatable properties such as multiple images, keep the first value in `og` and add the others through `tags`:
+
+```ts
+og: { image: 'https://example.com/first.png' },
+tags: [
+  { meta: { property: 'og:image', content: 'https://example.com/second.png' } },
+  { meta: { property: 'og:image:width', content: '1200' } },
+],
+```
+
+#### Custom Tags
+
+Use `tags` for metadata and links that the named fields do not cover. Each entry names exactly one of `meta` or `link`:
+
+```ts
+pageMetadata: {
+  title: 'Home - My App',
+  description: 'Welcome',
+  tags: [
+    { meta: { name: 'app-version', content: '1.2.3' } },
+    { meta: { name: 'twitter:card', content: 'summary_large_image' } },
+    { link: { rel: 'alternate', href: '/feed.xml', type: 'application/rss+xml' } },
+  ],
+}
+```
+
+The exported `PageMetadataTag`, `PageMetadataMetaTag`, and `PageMetadataLinkTag` types enforce the required shape:
+
+- A meta needs `content` and either `name` or `property`.
+- A link needs `rel` and `href`.
+- Omit the unused `meta` or `link` member. An entry naming both describes no single tag, so it renders neither and warns.
+- Additional attributes such as `media`, `hreflang`, `type`, and `sizes` must be strings.
+
+Envelope links accept any `rel`, matching what a `UnirendHead` child may declare. A handler can ship a `stylesheet`, a `preload`, or anything else a page could write in TSX.
+
+Two limits remain, and neither is about which tag you want:
+
+- **`http-equiv` is refused on a meta.** It instructs the browser rather than describing the page, and `http-equiv="refresh"` navigates it. An envelope already has [redirect responses](./api-envelope-structure.md) of its own, so a `refresh` meta from a loader is a sign something went wrong rather than a way to express intent. Declare it as a child if you need it.
+- **Values must be plain strings, and a few attribute names are refused.** `style` (React reads it as an object, so the string form throws, and a head tag is not rendered anyway), React's own props (`children`, `dangerouslySetInnerHTML`, `key`, `ref`), and `on*` handlers. These are about not crashing the page rather than about policy: the attribute is dropped and the tag renders without it, in every build. Development additionally warns and names what was dropped, so the tag never silently loses something you meant to keep.
+
+Named fields win over custom entries with the same non-repeatable key. Repeatable tags such as multiple `og:image` values and alternate links are kept. Invalid or dropped custom entries produce a development warning.
+
+Two entries sharing a non-repeatable key are a different case, since neither is a named field and nothing can say which one you meant. So neither is dropped, and the page really does get both tags. Development warns instead, naming the key and both values so you can tell which of the two entries to remove:
+
+```text
+[unirend] UnirendHead: two meta.page.tags entries declare rel=canonical, so both tags are emitted.
+  first:  "/a"
+  second: "/b"
+  That key describes the page once, so declare it in one entry.
+  Call setRepeatableHeadKeys if this key is meant to repeat.
+  This warning only runs in development.
+```
+
+##### How Much to Trust an Entry
+
+Every value here is escaped on both sides, so a string that lands in a `content`, an `href`, or a `<title>` cannot break out of it however it is spelled. That covers the ordinary case of user-generated content completely: a post title or a profile bio going into `title`, `description`, or `og.*` is safe, and needs nothing from you.
+
+The part worth a second look is that `tags` is a more capable list than the named fields are. A named field can only ever set text on a tag Unirend chose. An entry sets the whole tag, so whatever produces the envelope decides which `<meta>` names and which `<link>` relations reach your document head. Read that as the same trust you already place in the handler that returns the envelope, and note that it is the handler you are trusting rather than the transport, which matters when the value crosses a network boundary on the way in.
+
+Two habits keep that boundary where you want it, and neither is about escaping, since both of these produce perfectly legal HTML that no escaper has grounds to reject:
+
+- **Let untrusted input fill in values, never keys.** Attribute names are checked for shape, not for meaning, so a user-chosen meta `name` can set `robots` to `noindex` or overwrite an `og:` tag you rely on.
+- **Build a URL rather than passing one through.** A user-supplied `canonical` hands your search ranking to another page, and a user-supplied `rel="stylesheet"` hands your styling to another origin. Construct the URL in your handler from an ID you control.
+
+For links to origins you do control, a [Content Security Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CSP) is the right place to say which ones, rather than any check Unirend could make on the tag.
+
+#### Malformed Envelopes
+
+The envelope is read defensively. A missing or unusable `meta.page` produces no generated tags, and an invalid field or custom entry is skipped without affecting valid metadata beside it. Values are not coerced.
+
+Error components can pass their envelope or `null` directly:
+
+```tsx
+export function NotFound({ data }: { data?: PageErrorResponse | null }) {
+  return (
+    <>
+      <UnirendHead envelope={data}>
+        <title>{data?.meta?.page?.title || '404 - Page Not Found'}</title>
+      </UnirendHead>
+      ...
+    </>
+  );
+}
+```
+
+#### Overriding a Single Envelope Field
+
+Declare a child tag to override that key while keeping the rest of the envelope metadata:
+
+```tsx
+<UnirendHead envelope={envelope}>
+  <meta name="description" content="Something more specific" />
+</UnirendHead>
+```
+
+Metas match by `name`, `property`, or `http-equiv`, links match by `rel`, and a child `<title>` replaces the generated title.
+
+`rel` is an unordered set of tokens, so `rel="alternate stylesheet"` and `rel="stylesheet alternate"` are one relation set and match each other. A link also matches on any single-value relation named inside a longer set, since a page may only have one of those: a child `rel="alternate canonical"` replaces the envelope's `canonical`. Relations that repeat by nature do not match that way, so the same child leaves an envelope `rel="alternate"` feed link alone.
+
+A child replaces everything the envelope contributed for that key, however many tags that was. Declaring `og:image` as a child drops the `og.image` field, every `og:image` entry in `tags`, and the sub-properties describing them, such as `og:image:width`. The same grouping applies to `og:video`, `og:audio`, `twitter:image`, and `twitter:player`. Write the child with the attribute the envelope used, which for an `og` member is always `property`, since `name="og:image"` and `property="og:image"` are separate identities and a child on one does not claim the other.
+
+This override applies only within one `UnirendHead`. Tags from separate instances still follow [Tag Merging and Overrides](#tag-merging-and-overrides).
+
+### A Tag Is Not in the Head
+
+In development, invalid or dropped `meta.page.tags` entries warn in the server terminal during SSR or SSG and in the browser console on the client. Named fields that are absent, empty, or malformed are skipped silently because they represent missing metadata.
+
+A child `UnirendHead` does not manage warns on its own and is dropped from both the server and the client, so the warning names the element to look for. `UnirendHead` manages only `<title>`, `<meta>`, `<link>`, `<html>`, and `<body>`, whether written directly or inside a fragment. In particular, do not put a `<script>` inside it. Render JSON-LD as a normal `<script type="application/ld+json">` in the component tree instead.
+
+If there is no warning at all, check that the tag is really a child of a `UnirendHead`. A component placed inside one is not walked into, since its tags do not exist until React renders it, so `<SharedMetas />` warns rather than contributing. See [Supported Tags](#supported-tags) for the pattern that does work.
+
+If a loader supplies the JSON-LD, return the structured object in the envelope's `data` rather than `meta.page.tags`. The page can pass the same envelope to `UnirendHead` for metadata and render the script separately:
+
+```tsx
+import { useLoaderData } from 'react-router';
+import { UnirendHead } from 'unirend/client';
+import type { PageSuccessResponse } from 'unirend/api-envelope';
+
+type ProductEnvelope = PageSuccessResponse<{
+  structuredData: Record<string, unknown>;
+}>;
+
+function ProductPage() {
+  const envelope = useLoaderData<ProductEnvelope>();
+  const jsonLD = JSON.stringify(envelope.data.structuredData).replace(
+    /</g,
+    '\\u003c',
+  );
+
+  return (
+    <>
+      <UnirendHead envelope={envelope} />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: jsonLD }}
+      />
+      <main>...</main>
+    </>
+  );
+}
+```
+
+Replacing `<` prevents a value containing `</script>` from ending the script element early. Because the script sits in the normal component tree, React includes it in the server-rendered page without involving the head collector.
+
+Also check whether an `index.html` meta was replaced by a page tag with the same identity. That is the expected template override behavior, and the template tag returns when no mounted page overrides it. Production builds do not print troubleshooting warnings.
+
 ### Supported Tags
 
 | Tag       | Notes                                                           |
@@ -133,11 +356,36 @@ import { UnirendHead } from 'unirend/client';
 | `<html>`  | Sets attributes on the document `<html>` element.               |
 | `<body>`  | Sets attributes on the document `<body>` element.               |
 
-Other child elements are silently ignored on the server (not collected). On the client, `<title>`, `<meta>`, and `<link>` are natively hoisted by React 19, whereas `<html>` and `<body>` are filtered out from rendering inside the root element and instead applied to the DOM root elements using a client-side stack manager.
+On the client, `<title>`, `<meta>`, and `<link>` are natively hoisted by React 19, whereas `<html>` and `<body>` are filtered out from rendering inside the root element and instead applied to the DOM root elements using a client-side stack manager.
+
+Any other child is dropped, on both the server and the client, and produces a development warning naming it. That includes `<script>` and `<style>`: `UnirendHead` does not manage them, and rendering them on the client while the server collected nothing would mean a tag that is absent from the SSR HTML and appears after hydration. Load scripts and stylesheets through your build or `index.html`, or, for third-party tags like analytics and support chat widgets, through the `templateSlots` option documented in [docs/ssr.md](./ssr.md#template-slots).
+
+**Fragments are transparent.** A fragment is not a level of nesting, so the tags inside one are collected as though written in its place, at any depth:
+
+```tsx
+<UnirendHead>
+  <>
+    <title>Home - My App</title>
+    <meta name="description" content="Welcome" />
+  </>
+</UnirendHead>
+```
+
+**Components are not walked into.** `<SharedMetas />` has not rendered when the server collects, so there are no tags to read yet. Share tags by giving the component its own `UnirendHead`, which works on both sides, since multiple instances are the normal way to compose:
+
+```tsx
+function SharedMetas() {
+  return (
+    <UnirendHead>
+      <meta name="description" content="Welcome" />
+    </UnirendHead>
+  );
+}
+```
 
 #### Preloading Images
 
-`<link rel="preload">` works and is useful for hinting the browser to fetch a hero or above-the-fold image before it is discovered in the page body:
+`<link rel="preload">` is useful for hinting the browser to fetch a hero or above-the-fold image before it is discovered in the page body. It works as a child, and as a `tags` entry when the loader is what knows the URL:
 
 ```tsx
 import { UnirendHead } from 'unirend/client';
@@ -157,7 +405,17 @@ function HeroPage() {
 }
 ```
 
-Unlike `<script>` and `<link>` tags already in your `index.html`, the head content injected by `UnirendHead` is not CDN-rewritten automatically. Prefix asset paths with `useCDNBaseURL()` so the preload hint and the actual image request go to the same origin.
+When the loader is what knows the URL, the same hint can come from the envelope instead, and the page needs no `UnirendHead` child for it at all:
+
+```ts
+pageMetadata: {
+  title: 'Hero - My App',
+  description: 'Welcome',
+  tags: [{ link: { rel: 'preload', as: 'image', href: heroURL } }],
+}
+```
+
+Unlike `<script>` and `<link>` tags already in your `index.html`, the head content injected by `UnirendHead` is not CDN-rewritten automatically. Prefix asset paths with `useCDNBaseURL()` so the preload hint and the actual image request go to the same origin. A handler building the URL for a `tags` entry has to include the CDN base itself, since it runs on the server where that hook is not available.
 
 ### Tag Merging and Overrides
 
@@ -168,6 +426,49 @@ If multiple `<UnirendHead>` components are rendered in the same tree (e.g. in la
 - **`<meta>` and `<link>`**: **Accumulate**. All tags from all `<UnirendHead>` instances are collected and rendered.
 - **`<html>` and `<body>` class names (`class` or `className`)**: **Merge (accumulate)**. If the layout sets `<html className="font-sans" />` and the page sets `<html className="dark" />`, the result is `<html class="font-sans dark">`.
 - **`<html>` and `<body>` styles (`style`)**: **Merge (concatenate)**. If both specify styles, they are concatenated together (separated by a semicolon). Because CSS inline rules evaluate in the order they are defined ("last declaration wins"), this allows nested pages/components to safely override specific inline properties from parent templates or layouts. To prevent clobbering external style mutations on the client (such as modal scroll locks), the client parses and reconciles calculated style properties key-by-key, using a lightweight, quote-aware semicolon-splitting parser that safely supports complex style values (like data URLs, calc values, or inline SVGs) without introducing a heavy CSS parser library dependency.
+
+#### Which Rule Applies Where
+
+The list above is about **separate `<UnirendHead>` instances** in the same tree. Two other scopes come up often enough to be worth seeing side by side:
+
+| Scope | `<title>` | `<meta>` and `<link>` |
+| --- | --- | --- |
+| Two children in one instance | Last wins | Accumulate |
+| Two separate instances | Last wins | Accumulate, and the [duplicate warning](#development-only-duplicate-warning) may fire |
+| A child against the `envelope` prop | Child wins | Child wins |
+
+Only two rules are doing the work here. A `<title>` is last-write-wins in every scope, so a layout can set a default that pages replace. A `<meta>` or `<link>` accumulates in every scope, and they never replace one another.
+
+The third row is not a third rule. The `envelope` is not another instance to merge with, it is a fallback source. `UnirendHead` records the keys your children declare before anything is collected, then builds envelope tags only for the keys left over, so a child never replaces an envelope tag. The envelope tag is simply not built. See [The Envelope Prepass](#the-envelope-prepass).
+
+Template metas from `index.html` are a separate mechanism again, and there a page tag does replace the template's. See [Overriding a Template Meta](#overriding-a-template-meta).
+
+### Development-Only Duplicate Warning
+
+Metas and links accumulate across separate `UnirendHead` instances. In development, Unirend warns when two instances emit the same non-repeatable key, such as `description` or `canonical`:
+
+```text
+[unirend] UnirendHead: two separate instances declare name=description, so both tags are emitted.
+  first:  "Layout description"
+  second: "Page description"
+  Metas and links accumulate across UnirendHead instances (only <title> is last-write-wins).
+  Declare it in one place, or call setRepeatableHeadKeys if this key is meant to repeat.
+  This warning only runs in development.
+```
+
+Two things have to be true for it to fire: the two instances declare the **same key**, and that key is **not repeatable**. Different keys accumulate in silence, which is the ordinary case, since a layout contributing `og:*` and a page contributing `description` are not in conflict.
+
+The warning ignores titles, child overrides, and keys that normally repeat, including `og:image`, `theme-color`, and most link relations. It also ignores a key one instance repeats on its own, which is the page's own markup and its author's business. The exception is two `meta.page.tags` entries, which come from a handler rather than from the page, and have [a warning of their own](#custom-tags). For an application-specific repeatable key, configure it once in code shared by the server and client:
+
+```ts
+import { setRepeatableHeadKeys } from 'unirend/client';
+
+setRepeatableHeadKeys(['description', 'og:title']);
+```
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> Call `setRepeatableHeadKeys` from a module imported by both server and client entries. The setting also controls whether a custom `meta.page.tags` entry can render beside a named field with the same key, so it can affect production output.
 
 ### Template Tags vs Page Tags
 
@@ -186,7 +487,7 @@ Unirend strips page-owned tags from the template, even when the current page doe
 
 Set page-owned tags on every page that needs them, including standalone error components that render outside the normal layout.
 
-Layouts can set metadata shared by all their pages, but a nested page should not declare another meta with the same identity. `<meta>` tags accumulate across `UnirendHead` instances, so setting `description` in both a layout and a page produces two description tags rather than replacing the layout value. Put a meta in a layout only when its nested pages will use that exact value without redeclaring it. Titles are different because the last title wins, so a layout title can act as a default, but a layout description meta cannot act as a default that pages replace.
+Layouts can set metadata shared by all their pages, but a nested page should not declare another meta with the same identity. `<meta>` tags accumulate across `UnirendHead` instances, so setting `description` in both a layout and a page produces two description tags rather than replacing the layout value. Put a meta in a layout only when its nested pages will use that exact value without redeclaring it. Titles are different because the last title wins, so a layout title can act as a default, but a layout description meta cannot act as a default that pages replace. The [development-only duplicate warning](#development-only-duplicate-warning) points this out when it happens.
 
 #### Overriding a Template Meta
 
@@ -253,6 +554,18 @@ export function ThemeProvider({ children }) {
 Since the `rootProviders` wrapper component sits above the entire app tree (including both layouts and standalone error boundary pages), the document attributes are automatically managed globally without requiring any manual imports in your layout or error boundary files.
 
 ## How It Works
+
+### The Envelope Prepass
+
+A child tag declared locally overrides the matching tag from the envelope. All other envelope metadata still renders.
+
+`UnirendHead` resolves that merge before collecting or rendering any head tags:
+
+1. It records the keys declared by the component's children. Metas are identified by `name`, `property`, or `http-equiv`, links by `rel`, and `<title>` has its own key.
+2. It generates tags for populated `meta.page` fields whose keys are not already claimed. This is why a child overrides the matching envelope field without affecting the rest.
+3. It places the generated tags before the children and passes the combined list through the normal `UnirendHead` behavior.
+
+The merge happens the same way during server rendering and in the browser. Both paths therefore collect or render the same tags, with no separate client-side interpretation of the envelope.
 
 ### Server-Side (SSR / SSG)
 

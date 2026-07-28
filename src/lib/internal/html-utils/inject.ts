@@ -4,8 +4,12 @@ import {
   TEMPLATE_METAS_GLOBAL,
 } from '../consts';
 import { getDevMode } from 'lifecycleion/dev-mode';
-import { escapeHTMLAttr, decodeHTML, HTML_BOOLEAN_ATTRIBUTES } from './escape';
-import { getMetaKey } from './meta-key';
+import {
+  escapeHTMLAttr,
+  decodeHTMLAttributeValue,
+  isRemovedBooleanAttribute,
+} from './escape';
+import { getMetaKeys } from './meta-key';
 
 // Prettify all head tags: each tag (<title>, <meta>, <link>, etc.) on its own line, indented
 export function prettifyHeadTags(head: string, indent = TAB_SPACES): string {
@@ -266,9 +270,10 @@ export function mergeTemplateMetas(
   const pageMetaKeys = new Set<string>();
 
   for (const meta of findHeadTags(headContent, 'meta')) {
-    const key = getMetaKey(meta.attrs);
-
-    if (key !== null) {
+    // Every identity the page's meta carries, not just the first. A page meta written as
+    // `name="twitter:title" property="og:site_name"` is both of those tags, so it overrides a
+    // template meta of either identity.
+    for (const key of getMetaKeys(meta.attrs)) {
       pageMetaKeys.add(key);
     }
   }
@@ -277,17 +282,28 @@ export function mergeTemplateMetas(
   const edits: Array<{ start: number; end: number; replacement: string }> = [];
 
   for (const meta of findHeadTags(template, 'meta')) {
-    const key = getMetaKey(meta.attrs);
+    // Every identity this one carries, for the override test just below. A template meta can carry
+    // two the same way a page's can, and a page overriding either of them replaces it.
+    //
+    // Nothing is filed under a key here. The baseline is a flat list of attribute records and the
+    // marker is a valueless attribute, so this side never has to name a meta. The client builds its
+    // own index over that list when it pairs the baseline back up with the marked nodes in the
+    // head, and it groups by the same whole identity set this loop decides from. See
+    // `templateMetaSignature()` in UnirendHead.tsx.
+    const keys = getMetaKeys(meta.attrs);
 
     // Metas with no identifying attribute (<meta charset>) can't be overridden by name, so
     // they're not part of the baseline and are left exactly as the template wrote them.
-    if (key === null) {
+    if (keys.length === 0) {
       continue;
     }
 
     baseline.push(meta.attrs);
 
-    if (pageMetaKeys.has(key)) {
+    // Decided from this meta's whole identity set, so two template metas sharing only their first
+    // identity can go separate ways. The client pairs the baseline back up by the same set, since
+    // it can no longer assume that one survivor speaks for every meta with that first identity.
+    if (keys.some((key) => pageMetaKeys.has(key))) {
       const { start, end } = expandToWholeLine(template, meta);
       edits.push({ start, end, replacement: '' });
       continue;
@@ -648,15 +664,29 @@ export function findOpeningTag(
 function parseAttributesString(attrsStr: string): Record<string, string> {
   const attrs: Record<string, string> = {};
 
-  // Regex to match key="value" or key='value' or key=value or key (boolean)
+  // Regex to match key="value" or key='value' or key=value or key (boolean).
+  //
+  // The name is read the way the HTML tokenizer reads one: everything up to whitespace or one of
+  // the characters that can only end it (`"`, `'`, `>`, `/`, `=`). A name is not a restricted
+  // alphabet, and spelling it as one meant a name carrying anything outside that alphabet was not
+  // rejected, it was *split*. The excluded character ended the name, and the regex then matched the
+  // tail as a whole separate attribute: `data_name="robots"` parsed as `data` plus `name="robots"`,
+  // an identity the tag never declared.
+  //
+  // That reached further than a parsing curiosity. This parser is what the server reads its own
+  // serialized head back through, so a `meta.page.tags` entry off the wire could mint a `name` or
+  // an `http-equiv` out of a name Unirend had already allowed (`_` and `.` are both in
+  // `VALID_ATTRIBUTE_NAME`), and `mergeTemplateMetas()` would strip the matching index.html meta
+  // from the served page. The client reads the real React prop and never saw it that way, so the
+  // tag came back on hydration and only the crawler's copy was missing it.
   const attrRegex =
-    /([a-z0-9\-:]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/gi;
+    /([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
   let match;
 
   while ((match = attrRegex.exec(attrsStr)) !== null) {
     const key = match[1].toLowerCase();
     const val = match[2] ?? match[3] ?? match[4] ?? '';
-    attrs[key] = decodeHTML(val);
+    attrs[key] = decodeHTMLAttributeValue(val);
   }
 
   return attrs;
@@ -670,7 +700,7 @@ function serializeAttributes(attrs: Record<string, string>): string {
         return false;
       }
       // Do not serialize boolean attributes if their value is 'false' (removal marker)
-      if (HTML_BOOLEAN_ATTRIBUTES.has(k.toLowerCase()) && v === 'false') {
+      if (isRemovedBooleanAttribute(k, v)) {
         return false;
       }
       return true;

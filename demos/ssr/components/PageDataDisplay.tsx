@@ -1,32 +1,40 @@
 import { useLoaderData, useParams } from 'react-router';
 import { UnirendHead } from '../../../src/client';
+import type { BaseMeta, PageSuccessResponse } from '../../../src/api-envelope';
+
+// The envelope's second type parameter is its `meta`, which is where an app puts its own fields.
+// `page` comes from BaseMeta, where it is `PageMetadata | undefined`. Redeclaring it here with
+// looser fields would not satisfy the `M extends BaseMeta` constraint, and it does not need to:
+// the field is optional, so the reads below still guard with optional chaining.
+interface PageDataMeta extends BaseMeta {
+  app?: {
+    environment?: string;
+  };
+}
 
 // Component to display page data JSON with proper layout and SEO
 export function PageDataDisplay() {
-  const data: {
-    meta?: {
-      page?: {
-        title?: string;
-        description?: string;
-      };
-      app?: {
-        environment?: string;
-      };
-    };
-  } = useLoaderData();
+  // The success member, the same way the starter templates and docs type a page's loader value.
+  // A page component only renders when its loader succeeded.
+  const data: PageSuccessResponse<unknown, PageDataMeta> | null =
+    useLoaderData();
 
   const params = useParams();
 
-  // Extract meta information for document title and description
+  // Extract meta information for on-page display
   const title = data?.meta?.page?.title || 'Test Page Data';
   const description =
     data?.meta?.page?.description || 'Test page response data';
 
   return (
     <>
-      <UnirendHead>
-        <title>{title}</title>
-        <meta name="description" content={description} />
+      {/*
+        The whole envelope goes in, so every populated meta.page field becomes a tag: title,
+        description, keywords, canonical, and og:*. The og:title below overrides just that one
+        key, the rest still come from the envelope.
+      */}
+      <UnirendHead envelope={data}>
+        <meta property="og:title" content={`${title} (local override)`} />
       </UnirendHead>
 
       <main className="main-content">

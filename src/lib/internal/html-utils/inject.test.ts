@@ -588,6 +588,56 @@ describe('template head baseline merge', () => {
         expect($('meta[charset]').length).toBe(1);
       });
 
+      it('should let a page meta carrying two identities override either one', async () => {
+        // `name="twitter:title" property="og:site_name"` is both of those tags, so it replaces the
+        // template's og:site_name rather than shipping alongside it. Keyed on the first attribute
+        // found, the og:site_name identity would be invisible here and both would be served.
+        const $ = await renderHead(
+          path,
+          '<meta name="twitter:title" property="og:site_name" content="Page site name" />',
+        );
+
+        expect($('meta[property="og:site_name"]').length).toBe(1);
+        expect($('meta[property="og:site_name"]').attr('content')).toBe(
+          'Page site name',
+        );
+      });
+
+      it('should let a page override a template meta by either identity it carries', async () => {
+        // The template's og:site_name is written with a name too, so it keys on `name=site`. A page
+        // declaring og:site_name has to replace it anyway, or both are served.
+        const templateWithDualIdentity = templateHTML.replace(
+          '<meta property="og:site_name" content="My App" />',
+          '<meta name="site" property="og:site_name" content="My App" />',
+        );
+
+        const processed = await processTemplate(
+          templateWithDualIdentity,
+          path.mode,
+          path.isDevelopment,
+          path.isDevServer,
+        );
+
+        expect(processed.success).toBe(true);
+
+        if (!processed.success) {
+          throw new Error(processed.error);
+        }
+
+        const html = await injectContent(
+          processed.html,
+          '<meta property="og:site_name" content="Page site name" />',
+          '<div>App</div>',
+        );
+        const $ = cheerio.load(html);
+
+        expect($('meta[property="og:site_name"]').length).toBe(1);
+        expect($('meta[property="og:site_name"]').attr('content')).toBe(
+          'Page site name',
+        );
+        expect($('meta[name="site"]').length).toBe(0);
+      });
+
       it('should drop the page-owned SEO tags from the template while keeping the site-wide ones', async () => {
         const $ = await renderHead(path, '');
 
@@ -1002,5 +1052,42 @@ describe('template head baseline merge', () => {
     expect($('meta[name="rating"]').length).toBe(1);
     expect($('meta[name="viewport"]').length).toBe(1);
     expect($('meta[property="og:site_name"]').length).toBe(1);
+  });
+
+  it('should read an attribute name carrying an underscore or a dot as one name', async () => {
+    // A name is not a restricted alphabet, and reading it as one did not reject the odd
+    // character, it ended the name there and read the tail as a second attribute. So this page
+    // meta, whose only identity is name="app-version", was read as declaring name="viewport"
+    // and http-equiv="content-language" too, and the template's copies of both were stripped
+    // from the served head. Only the server ever saw it that way: the client reads the real
+    // React prop, so the tags came back on hydration and only the crawler's copy lost them.
+    //
+    // `_` and `.` are both allowed in an envelope tag's attribute name, so the values here
+    // could arrive over the wire. See VALID_ATTRIBUTE_NAME in UnirendHead/page-metadata-tags.ts.
+    const withHTTPEquiv = templateHTML.replace(
+      '<meta name="theme-color" content="#ffffff" />',
+      '<meta http-equiv="content-language" content="en" />',
+    );
+
+    const processed = await processTemplate(withHTTPEquiv, 'ssr', false, false);
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    const html = await injectContent(
+      processed.html,
+      '<meta name="app-version" content="1.2.3" data_name="viewport" x.http-equiv="content-language" />',
+      '<div>App</div>',
+    );
+    const $ = cheerio.load(html);
+
+    expect($('meta[name="viewport"]').length).toBe(1);
+    expect($('meta[name="viewport"]').attr('content')).toBe(
+      'width=device-width, initial-scale=1.0',
+    );
+    expect($('meta[http-equiv="content-language"]').length).toBe(1);
+    expect($('meta[name="app-version"]').length).toBe(1);
   });
 });

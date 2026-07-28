@@ -2,14 +2,61 @@ import React, { useContext } from 'react';
 import type { ReactNode } from 'react';
 import { UnirendHeadContext } from './context';
 import type { HeadCollector } from './context';
-import { HTML_BOOLEAN_ATTRIBUTES } from '../html-utils/escape';
-import { getMetaKey, getMetaKeyFromElement } from '../html-utils/meta-key';
+import { isRemovedBooleanAttribute } from '../html-utils/escape';
+import { getMetaKeys, getMetaKeysFromElement } from '../html-utils/meta-key';
 import { TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
+import { serializeStyleObject, toHeadAttributes } from './head-attributes';
+import {
+  collectUnmanagedChildMessages,
+  filterRenderableHeadChildren,
+  forEachHeadChild,
+} from './head-children';
+import { scanHeadKeys, withCanonicalIdentityNames } from './head-keys';
+import type { HeadKeyScan } from './head-keys';
+import {
+  buildPageMetadataTags,
+  isTagWarningEnabled,
+  resolvePageMetadata,
+  warnTagMessagesOnce,
+} from './page-metadata-tags';
+import {
+  collectDuplicateHeadKeys,
+  isDuplicateHeadWarningEnabled,
+  warnDuplicateHeadKeys,
+} from './duplicate-head-warning';
+import type {
+  DuplicateHeadKeyReport,
+  SeenHeadKeys,
+} from './duplicate-head-warning';
+import type { PageResponseEnvelope } from '../../api-envelope/api-envelope-types';
+
+/**
+ * Props for {@link UnirendHead}.
+ *
+ * Every one is optional, so passing none of them is the original children-only form.
+ */
+export interface UnirendHeadProps {
+  /**
+   * `<title>`, `<meta>`, `<link>`, `<html>`, and `<body>` elements. A child always wins over the
+   * envelope field with the same key: the envelope tag is not built at all in that case.
+   */
+  children?: ReactNode;
+
+  /**
+   * A page data loader envelope. Every populated `meta.page` field becomes a head tag.
+   *
+   * Accepts error and redirect envelopes too, so 404 and error components can pass the envelope
+   * they already receive as a prop, `null` included for the case where React Router threw before
+   * any loader ran.
+   */
+  envelope?: PageResponseEnvelope | null;
+}
 
 /**
  * Framework-native document head manager.
  *
- * Place <title>, <meta>, and <link> tags as direct children.
+ * Place <title>, <meta>, and <link> tags as direct children, or hand it the page data loader
+ * envelope you already have and let it project `meta.page` onto tags for you.
  * Works identically in SSR, SSG, and SPA modes.
  *
  * Server: collects tags via context for injection into the HTML template.
@@ -32,9 +79,84 @@ import { TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
  *   );
  * }
  * ```
+ *
+ * @example Straight from the loader envelope, with one field overridden locally
+ * ```tsx
+ * const envelope = useLoaderData<HomeLoaderEnvelope>();
+ *
+ * // canonical, keywords, and og:* still come from the envelope — only description is replaced.
+ * <UnirendHead envelope={envelope}>
+ *   <meta name="description" content="Something more specific" />
+ * </UnirendHead>
+ * ```
  */
-export function UnirendHead({ children }: { children?: ReactNode }) {
+export function UnirendHead({ children, envelope }: UnirendHeadProps) {
   const collector = useContext(UnirendHeadContext);
+
+  // Identifies this instance to the server-side duplicate record, which outlives a single render
+  // pass. `useId` is derived from the instance's position in the tree rather than from hook state,
+  // so a subtree React renders more than once for one request (a sibling suspending inside the
+  // same boundary) comes back with the same id and is recognized as the same instance. A ref would
+  // not survive that. The client identifies an instance by its registration object instead, see
+  // updateDOM().
+  const instanceID = React.useId();
+
+  // Envelope prepass: resolve the merge before anything is collected, then hand the rest of this
+  // component one ordinary child list. Children claim their keys first, so a declared tag wins
+  // over the envelope field of the same key, and only the child's tag is ever built. Both the
+  // server and the client see the identical merged list, so there is no parity to keep in sync.
+  const pageMetadata = resolvePageMetadata(envelope);
+
+  // What this render had to warn about, collected rather than printed. The server says it below
+  // during this render, and the client hands it to its registration so the DOM sync can report the
+  // mounted instances together, see updateDOM(). Empty outside development, and empty whenever the
+  // envelope and the children were both fine, so the shared empty is the common case.
+  const tagMessages: string[] = [];
+
+  // Children this component does not manage, warned through the same list for the same reason: both
+  // sides now drop them, and a silent drop is what made the old server-only version so hard to
+  // find. Gated here rather than inside, so a production render does not walk the children at all.
+  if (isTagWarningEnabled()) {
+    collectUnmanagedChildMessages(children, tagMessages);
+  }
+
+  // Duplicate detection is development-only, so a production build never pays for its scan. Read
+  // before the projection because the scan below serves both of them.
+  const shouldWarnOnDuplicates = isDuplicateHeadWarningEnabled();
+
+  // One walk of the children, feeding both consumers: the projection needs the keys they claim, and
+  // the duplicate warning needs the values behind those keys. Skipped outright when neither is
+  // asking, which is every production render without an envelope.
+  const childScan =
+    pageMetadata !== null || shouldWarnOnDuplicates
+      ? scanHeadKeys(children)
+      : EMPTY_SCAN;
+
+  const generatedTags =
+    pageMetadata === null
+      ? EMPTY_TAGS
+      : buildPageMetadataTags(pageMetadata, childScan.claimed, tagMessages);
+
+  // Left strictly alone when there is nothing to generate, so every existing call site keeps the
+  // exact child list (and element identities) it had before.
+  const effectiveChildren: ReactNode =
+    generatedTags.length > 0
+      ? [...generatedTags, ...React.Children.toArray(children)]
+      : children;
+
+  // The keys of the merged list, without walking the children a second time to get them. Scanning
+  // `[...generated, ...children]` is exactly the two scans merged with the generated side winning,
+  // since a scan keeps the first value it sees for a key and the generated tags come first. That
+  // holds whether or not the two sides share a key, so this depends on no invariant about which
+  // keys the projection suppressed.
+  const headKeys = !shouldWarnOnDuplicates
+    ? EMPTY_HEAD_KEYS
+    : generatedTags.length === 0
+      ? childScan.values
+      : mergeHeadKeyValues(
+          scanHeadKeys(generatedTags).values,
+          childScan.values,
+        );
 
   /* eslint-disable @typescript-eslint/naming-convention */
   const customWindow =
@@ -57,15 +179,29 @@ export function UnirendHead({ children }: { children?: ReactNode }) {
 
   const markerRef = React.useRef<HTMLTemplateElement | null>(null);
 
+  // This instance's identity for the development warnings, taken during render rather than when
+  // the registration is built. StrictMode replays layout effects on mount as setup, cleanup,
+  // setup, which discards the registration and builds a second one, and an identity that came
+  // from the registration would change with it and read as a new mistake. Lazy state is created
+  // once per mounted instance and survives that replay, while a genuinely new instance, a
+  // different page component at the same slot or the same one remounted, gets its own.
+  const [warningScopeID] = React.useState(takeWarningScopeID);
+
   // Client-side HTML/Body attribute extraction: parses props from children if running
   // on the client (where the server-side context collector is null).
   const htmlAttrs =
-    collector === null ? getTagAttributesFromChildren(children, 'html') : null;
+    collector === null
+      ? getTagAttributesFromChildren(effectiveChildren, 'html')
+      : null;
   const bodyAttrs =
-    collector === null ? getTagAttributesFromChildren(children, 'body') : null;
+    collector === null
+      ? getTagAttributesFromChildren(effectiveChildren, 'body')
+      : null;
 
-  // Which template metas this instance overrides.
-  const metaKeys = collector === null ? getMetaKeysFromChildren(children) : [];
+  // Which template metas this instance overrides. Read off the merged list, so an
+  // envelope-derived description overrides the template's exactly as a declared one would.
+  const metaKeys =
+    collector === null ? getMetaKeysFromChildren(effectiveChildren) : [];
 
   if (collector === null) {
     // Deliberately in the render phase, not an effect. In pure SPA mode the baseline has to be
@@ -101,6 +237,9 @@ export function UnirendHead({ children }: { children?: ReactNode }) {
         html: htmlAttrs,
         body: bodyAttrs,
         metaKeys,
+        headKeys,
+        tagMessages,
+        warningScopeID,
         markerRef,
       };
       registeredList.push(registrationRef.current);
@@ -121,11 +260,19 @@ export function UnirendHead({ children }: { children?: ReactNode }) {
         !areRecordsEqual(prev.html, htmlAttrs) ||
         !areRecordsEqual(prev.body, bodyAttrs) ||
         !areKeyListsEqual(prev.metaKeys, metaKeys) ||
+        !areHeadKeyMapsEqual(prev.headKeys, headKeys) ||
+        // A tag the projection had to complain about is not always a tag that renders differently:
+        // dropping a forbidden `style` leaves the same head keys behind. Without this, fixing that
+        // envelope would never reach the sync, so the warning would stay on the record and putting
+        // the mistake back would be silent.
+        !areMessageListsEqual(prev.tagMessages, tagMessages) ||
         hasMarkerChanged
       ) {
         prev.html = htmlAttrs;
         prev.body = bodyAttrs;
         prev.metaKeys = metaKeys;
+        prev.headKeys = headKeys;
+        prev.tagMessages = tagMessages;
         updateDOM();
       }
     }
@@ -144,7 +291,7 @@ export function UnirendHead({ children }: { children?: ReactNode }) {
         if (index !== -1) {
           registeredList.splice(index, 1);
         }
-        updateDOM();
+        updateDOM({ shouldSyncWarnings: false });
         registrationRef.current = null;
       }
     };
@@ -154,19 +301,29 @@ export function UnirendHead({ children }: { children?: ReactNode }) {
     // Server-side path: walks children synchronously and collects metadata/attributes
     // into the server-side collector object. Renders null to the client React body
     // because the server injects them directly into the template head.
-    collectServerHead(collector, children);
+    if (shouldWarnOnDuplicates) {
+      warnDuplicateHeadKeys(
+        collectDuplicateHeadKeys(
+          getSeenHeadKeys(collector),
+          headKeys,
+          instanceID,
+        ),
+      );
+    }
+
+    // Printed here rather than collected, because the server has no mounted set to derive from: a
+    // render is one-shot per request. The record is scoped to the collector, so a message two
+    // instances both produce, or one a replayed subtree produces twice, is said once for the
+    // request, and the record goes away with the request rather than growing for the process.
+    warnTagMessagesOnce(collector, tagMessages);
+
+    collectServerHead(collector, effectiveChildren);
     return null;
   }
 
-  // Client-side path: filters out <html> and <body> elements from rendering inside the
-  // React root (preventing invalid nested DOM structures like <body> inside #root).
-  const filteredChildren = React.Children.toArray(children).filter((child) => {
-    if (React.isValidElement(child)) {
-      return child.type !== 'html' && child.type !== 'body';
-    }
-
-    return true;
-  });
+  // Client-side path: keeps only the tags React hoists, so the client renders exactly what the
+  // server collected. See filterRenderableHeadChildren().
+  const filteredChildren = filterRenderableHeadChildren(effectiveChildren);
 
   // Hoistable elements like <title>, <meta>, <link> are returned and hoisted by React 19.
   // The hidden template gives this UnirendHead instance a committed DOM position.
@@ -182,10 +339,39 @@ export function UnirendHead({ children }: { children?: ReactNode }) {
   );
 }
 
+interface UpdateDOMOptions {
+  /**
+   * Whether this sync should bring the development warning records up to date. False from an
+   * unmounting instance's cleanup, which needs the attribute and template reconciliation below but
+   * is not a render and must not be read as one.
+   */
+  shouldSyncWarnings?: boolean;
+}
+
 interface RegisteredAttrs {
   html: Record<string, string> | null;
   body: Record<string, string> | null;
   metaKeys: string[];
+  headKeys: Map<string, string>;
+
+  /**
+   * What the envelope projection warned about on this instance's last render. Held here so the
+   * sync can report the mounted instances together and forget an unmounted one's messages, which
+   * is exactly how the duplicate warning already reads `headKeys`.
+   */
+  tagMessages: string[];
+
+  /**
+   * This instance's identity for the development warnings, see `nextWarningScopeID`.
+   *
+   * Taken during render and carried through to here, rather than assigned when this registration is
+   * built. StrictMode replays layout effects on mount as setup, cleanup, setup, which throws the
+   * first registration away and builds a second, so an identity minted here would change with it
+   * and a fresh mount would say everything twice. Lazy state survives that replay, which is why the
+   * component holds it in `useState` and hands it over.
+   */
+  warningScopeID: number;
+
   markerRef: React.RefObject<HTMLTemplateElement | null>;
 }
 
@@ -194,17 +380,107 @@ interface RegisteredAttrs {
 // last-write-wins attributes match server collection order.
 const registeredList: RegisteredAttrs[] = [];
 
+// Shared empties, so a render with no envelope and no duplicate scan allocates nothing and the
+// change detection in effect 1 keeps comparing the same references.
+const EMPTY_TAGS: React.ReactElement[] = [];
+const EMPTY_HEAD_KEYS: Map<string, string> = new Map();
+
+// The scan a render skips entirely: no envelope to project and no duplicate warning to feed, which
+// is every production render of a children-only instance. Shared rather than built, and safe to
+// share because nothing downstream writes to a scan: `buildPageMetadataTags()` only reads
+// `claimed`, and `values` is copied into the registration by reference and compared, never mutated.
+const EMPTY_SCAN: HeadKeyScan = {
+  claimed: new Set<string>(),
+  values: EMPTY_HEAD_KEYS,
+};
+
+// Head keys already claimed during the current server render, one record per collector. Kept
+// outside HeadCollector so the collector stays the plain serializable shape the renderers build,
+// and weak so a finished render's record is collected along with its collector.
+const seenHeadKeysByCollector = new WeakMap<HeadCollector, SeenHeadKeys>();
+
+function getSeenHeadKeys(collector: HeadCollector): SeenHeadKeys {
+  const existing = seenHeadKeysByCollector.get(collector);
+
+  if (existing) {
+    return existing;
+  }
+
+  const created: SeenHeadKeys = new Map();
+  seenHeadKeysByCollector.set(collector, created);
+
+  return created;
+}
+
+// Duplicate keys the client has already warned about, so a re-render or an unrelated attribute
+// change doesn't reprint them. Replaced wholesale on each sync, so a duplicate that goes away on
+// navigation and comes back later warns again.
+let warnedDuplicateKeys = new Set<string>();
+
+/**
+ * Hands out an identity per registration, so a warning can be attributed to the instances that
+ * produced it rather than to whatever the URL happened to be.
+ *
+ * A layout duplicating a description with one page is a bug in that page's file, and duplicating it
+ * with the next page is a bug in that one, so replacing the page has to say it again. But a mistake
+ * made entirely by the layout is one mistake however many pages come and go underneath it. Scoping
+ * by instance gets both: React preserves a persistent layout's registration across navigations, and
+ * gives an unmounted page's replacement a new one.
+ *
+ * That is also why this is not the URL, which was the first attempt. A path changes on every
+ * navigation whether or not the instances behind the warning did, so a layout's own bad tag came
+ * back on each one. It is not the route pattern either, which would mean reading React Router from
+ * a component that imports only React. The registration is already the identity the duplicate
+ * record uses to tell one instance from another.
+ *
+ * Monotonic on purpose, and deliberately not reset by `_test.resetDuplicateWarnings()` alongside
+ * the records that key on it. Those records are derived from these IDs, so they can be thrown away
+ * freely, but an ID is identity: handing a fresh registration one that a still-mounted instance
+ * already holds would make `updateDOM()` read two instances as one and swallow a duplicate warning
+ * that should have fired. A counter guarantees uniqueness for the life of the process, which a
+ * clock-plus-random identity would only make very likely, and it costs an increment to do it.
+ *
+ * Growth is not a concern: this is one integer, not a collection, and a thousand mounts a second
+ * would take longer than the age of civilization to reach `Number.MAX_SAFE_INTEGER`. Nothing should
+ * assert on a concrete value either, since it depends on how many instances mounted before it.
+ */
+let nextWarningScopeID = 0;
+
+/**
+ * The next identity, handed out when a registration is created.
+ */
+function takeWarningScopeID(): number {
+  return (nextWarningScopeID += 1);
+}
+
+/**
+ * A warning's identity for the already-said check: what it says, and which instances said it.
+ *
+ * The scope is prefixed rather than appended so the message can be recovered by slicing at the
+ * first newline, which is what the tag warnings print.
+ */
+function scopeToInstances(scopeIDs: Array<number | null>, key: string): string {
+  return `${scopeIDs.join('|')}\n${key}`;
+}
+
+// The envelope projection's messages the client has already printed. Rebuilt from the mounted
+// instances on every sync, exactly as the duplicate record above is, so a message goes away with
+// the page that produced it and is said again if that page comes back.
+let warnedTagMessages = new Set<string>();
+
 // Clean baseline attributes preserved from index.html (established on first mount).
 let initialHTMLAttrs: Record<string, string> | null = null;
 let initialBodyAttrs: Record<string, string> | null = null;
 
-// The template's <meta> baseline from index.html, grouped by meta identity. The elements held
-// for a key are ones this module owns outright: either the marked nodes the server left in the
-// head, or detached nodes built from the baseline for metas the server stripped because the
-// landing page overrides them. React's hoisted metas are never in here and are never touched.
+// The template's <meta> baseline from index.html, grouped by the whole set of identities each one
+// carries, see `templateMetaSignature()` below. This grouping is the client's own: the baseline
+// arrives as the flat list of attribute records the server's merge built, filed under nothing. The
+// elements held for a key are ones this module owns outright: either the marked nodes the server
+// left in the head, or detached nodes built from the baseline for metas the server stripped because
+// the landing page overrides them. React's hoisted metas are never in here and are never touched.
 //
-// A key maps to a list, not a single node, because one identity can legitimately cover several
-// template metas — the standard light/dark pair being the obvious case:
+// A key maps to a list, not a single node, because one identity set can legitimately cover several
+// template metas. The standard light/dark pair is the obvious case:
 //
 //   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fff" />
 //   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000" />
@@ -215,6 +491,57 @@ let initialBodyAttrs: Record<string, string> | null = null;
 let templateMetaNodes: Map<string, HTMLMetaElement[]> | null = null;
 
 /**
+ * How template metas are grouped: by every identity they carry.
+ *
+ * Not by the first identity alone, which is what the baseline is keyed under on the server. The
+ * server decides whether to strip a template meta from its whole identity set, so that set is what
+ * says which metas share a fate, and it is the only grouping under which "this group was served"
+ * and "this group was stripped" are the only two answers.
+ *
+ * Serialized rather than joined on a separator, so one identity is never spelled the same way as
+ * two. A separator has to be a character no value contains, and a meta's `name` may contain any
+ * character at all: joined on a pipe, `<meta name="a|property=b">` and `<meta name="a"
+ * property="b">` are one group, and if the server served one and stripped the other, the stripped
+ * one reads as already served and is never rebuilt. That takes a self-inflicted meta name in your
+ * own index.html rather than anything off the wire, but the encoding costs nothing to get right,
+ * and this runs once per page load.
+ */
+function templateMetaSignature(keys: string[]): string {
+  return JSON.stringify(keys);
+}
+
+/**
+ * Set one attribute, reporting whether the DOM took the name.
+ *
+ * `setAttribute` throws `InvalidCharacterError` for any name outside XML's `Name` production, and
+ * the HTML parser accepts names that are not in it: `<html ⚡>` and `<body @click="x">` both parse.
+ * Every record that reaches the two callers below is read back off index.html, either as the
+ * html/body baseline or as the template meta baseline, so an author's own template is enough to
+ * put such a name here. Unguarded, the throw escapes a layout effect and takes the whole sync with
+ * it — html and body attributes unapplied, template metas unreconciled — on every page, whether or
+ * not any page sets an attribute of its own.
+ *
+ * The browser is the authority on which names it takes, so this asks rather than reimplementing
+ * the production, which is large and would reject valid names to be safe. A name it refuses is one
+ * this module cannot manage, so it is left exactly as index.html wrote it, which is the same thing
+ * that happens to any attribute the calculated set never covered.
+ */
+function trySetAttribute(
+  element: Element,
+  name: string,
+  value: string,
+): boolean {
+  try {
+    element.setAttribute(name, value);
+
+    return true;
+  } catch {
+    // A name the DOM will not take. See above: the template's own copy stays as authored.
+    return false;
+  }
+}
+
+/**
  * Build a detached <meta> for a template baseline entry the server stripped from the served
  * head, so it's ready to put back the moment no page is overriding it any more.
  */
@@ -222,7 +549,7 @@ function createTemplateMeta(attrs: Record<string, string>): HTMLMetaElement {
   const element = document.createElement('meta');
 
   for (const [key, value] of Object.entries(attrs)) {
-    element.setAttribute(key, value);
+    trySetAttribute(element, key, value);
   }
 
   element.setAttribute(TEMPLATE_META_MARKER_ATTRIBUTE, '');
@@ -257,13 +584,17 @@ function captureTemplateMetas(): void {
   const baseline = customWindow.__UNIREND_TEMPLATE_METAS__;
   const nodes = new Map<string, HTMLMetaElement[]>();
 
-  const track = (key: string, element: HTMLMetaElement) => {
-    const group = nodes.get(key);
+  const track = (
+    group: Map<string, HTMLMetaElement[]>,
+    key: string,
+    element: HTMLMetaElement,
+  ) => {
+    const existing = group.get(key);
 
-    if (group) {
-      group.push(element);
+    if (existing) {
+      existing.push(element);
     } else {
-      nodes.set(key, [element]);
+      group.set(key, [element]);
     }
   };
 
@@ -275,50 +606,51 @@ function captureTemplateMetas(): void {
         `meta[${TEMPLATE_META_MARKER_ATTRIBUTE}]`,
       ),
     )) {
-      const key = getMetaKeyFromElement(element);
+      const keys = getMetaKeysFromElement(element);
 
-      if (key !== null) {
-        const group = marked.get(key);
-
-        if (group) {
-          group.push(element);
-        } else {
-          marked.set(key, [element]);
-        }
+      if (keys.length > 0) {
+        track(marked, templateMetaSignature(keys), element);
       }
     }
 
     for (const attrs of baseline) {
-      const key = getMetaKey(attrs);
+      const keys = getMetaKeys(attrs);
 
-      if (key === null) {
+      if (keys.length === 0) {
         continue;
       }
 
-      // The server strips a key's template metas all together or not at all, so a key that has
-      // any marked node in the head has all of them: adopt that group once and move on.
-      const servedGroup = marked.get(key);
+      // Grouped by the whole identity set, not by the first of them. Whether the server stripped a
+      // template meta is a pure function of that set, so metas sharing one are stripped together
+      // or kept together, and a group either has marked nodes in the head or has none.
+      //
+      // Sharing only a first identity is not enough: two template metas both named `site` but
+      // carrying different `property` values are stripped independently, and keyed on `name=site`
+      // the surviving one would be read as proof that both were served. The stripped one would
+      // never be rebuilt, and would be gone for good the moment no page overrode it.
+      const signature = templateMetaSignature(keys);
+      const servedGroup = marked.get(signature);
 
       if (servedGroup) {
-        if (!nodes.has(key)) {
-          nodes.set(key, servedGroup);
+        if (!nodes.has(signature)) {
+          nodes.set(signature, servedGroup);
         }
 
         continue;
       }
 
-      // Nothing marked for this key means the server stripped it because the page overrides it.
-      // Build the element now and hold it detached until that stops being true.
-      track(key, createTemplateMeta(attrs));
+      // Nothing marked for this identity means the server stripped it because the page overrides
+      // it. Build the element now and hold it detached until that stops being true.
+      track(nodes, signature, createTemplateMeta(attrs));
     }
   } else {
     for (const element of Array.from(
       document.head.querySelectorAll<HTMLMetaElement>('meta'),
     )) {
-      const key = getMetaKeyFromElement(element);
+      const keys = getMetaKeysFromElement(element);
 
-      if (key !== null) {
-        track(key, element);
+      if (keys.length > 0) {
+        track(nodes, templateMetaSignature(keys), element);
       }
     }
   }
@@ -343,10 +675,15 @@ function reconcileTemplateMetas(declaredKeys: Set<string>): void {
     return;
   }
 
-  for (const [key, group] of templateMetaNodes) {
-    const isOverridden = declaredKeys.has(key);
-
+  for (const group of templateMetaNodes.values()) {
     for (const node of group) {
+      // Tested per node and against every identity it carries, which is what the server's merge
+      // does. The map key is only where the baseline is filed, so a template meta written as
+      // `name="site" property="og:site_name"` still steps aside for a page declaring either.
+      const isOverridden = getMetaKeysFromElement(node).some((key) =>
+        declaredKeys.has(key),
+      );
+
       if (isOverridden && node.isConnected) {
         node.remove();
       } else if (!isOverridden && !node.isConnected) {
@@ -364,16 +701,24 @@ function reconcileTemplateMetas(declaredKeys: Set<string>): void {
 function getMetaKeysFromChildren(children: ReactNode): string[] {
   const keys = new Set<string>();
 
-  React.Children.forEach(children, (child) => {
-    if (!React.isValidElement(child) || child.type !== 'meta') {
+  forEachHeadChild(children, (child) => {
+    if (child.type !== 'meta') {
       return;
     }
 
-    const key = getMetaKey(
-      toHeadAttributes(child.props as Record<string, unknown>),
-    );
-
-    if (key !== null) {
+    // Every identity the meta carries, matching what the server's template merge strips by. One
+    // written as `name="twitter:title" property="og:site_name"` overrides a template meta of
+    // either identity, so both have to be in here or the two sides disagree after a navigation.
+    //
+    // Canonicalized first, for the same reason and through the same helper `scanHeadKeys()` uses.
+    // The server reads this child back from the served head, where the name is already lowercased,
+    // so a `<meta NAME="viewport">` strips the template's copy there. Read as written here it
+    // carries no key, and the baseline meta the server stripped would be appended back beside it.
+    for (const key of getMetaKeys(
+      withCanonicalIdentityNames(
+        toHeadAttributes(child.props as Record<string, unknown>),
+      ),
+    )) {
       keys.add(key);
     }
   });
@@ -489,7 +834,14 @@ function applyAttributes(
 
   for (const attrs of stack) {
     for (const [key, value] of Object.entries(attrs)) {
-      if (key === 'class') {
+      // Matched and filed under the lowercased name, the way the server's merge does and the way
+      // the DOM does. `setAttribute` lowercases the name it is given, so a `<html CLASS="dark" />`
+      // lands on `class` in the end whatever this record calls it. Read as written, it missed the
+      // union below and then arrived through the last-write-wins loop instead, overwriting the
+      // template's own classes rather than joining them. See mergeAndSerializeTag() in inject.ts.
+      const normKey = key.toLowerCase();
+
+      if (normKey === 'class') {
         // Classes: Union and deduplicate individual class tokens.
         const existingClasses = (merged['class'] || '')
           .split(/\s+/)
@@ -498,7 +850,7 @@ function applyAttributes(
         merged['class'] = Array.from(
           new Set([...existingClasses, ...newClasses]),
         ).join(' ');
-      } else if (key === 'style') {
+      } else if (normKey === 'style') {
         // Styles: Concatenate the raw strings (separated by a semicolon if needed).
         // Browser CSS precedence handles any overrides.
         const existingStyle = merged['style'] || '';
@@ -506,7 +858,7 @@ function applyAttributes(
         merged['style'] = existingStyle + sep + value;
       } else {
         // All other attributes: Overwrite existing values (last-write-wins).
-        merged[key] = value;
+        merged[normKey] = value;
       }
     }
   }
@@ -597,12 +949,16 @@ function applyAttributes(
   // Set the new calculated attributes
   const nextCalculatedAttrs = new Set<string>();
   for (const [key, value] of Object.entries(merged)) {
-    if (HTML_BOOLEAN_ATTRIBUTES.has(key.toLowerCase()) && value === 'false') {
+    if (isRemovedBooleanAttribute(key, value)) {
       element.removeAttribute(key);
       continue;
     }
-    element.setAttribute(key, value);
-    nextCalculatedAttrs.add(key);
+    // Recorded as calculated only if it was actually set, so a name the DOM refuses is not one
+    // the next sync tries to remove: `removeAttribute` takes any name, so it would strip the
+    // attribute index.html authored rather than leaving it alone. See trySetAttribute().
+    if (trySetAttribute(element, key, value)) {
+      nextCalculatedAttrs.add(key);
+    }
   }
   ext.__unirendCalculatedAttrs__ = nextCalculatedAttrs;
 }
@@ -610,7 +966,7 @@ function applyAttributes(
 /**
  * Synchronize current cumulative configuration states of html/body elements to the active DOM.
  */
-function updateDOM(): void {
+function updateDOM({ shouldSyncWarnings = true }: UpdateDOMOptions = {}): void {
   if (typeof document === 'undefined') {
     return;
   }
@@ -644,6 +1000,33 @@ function updateDOM(): void {
   const bodyStack: Array<Record<string, string>> = [];
   const declaredMetaKeys = new Set<string>();
 
+  // Development-only: detect the same key coming from two separate instances. Done here rather
+  // than during render so it reads the committed, document-ordered set of mounted instances once,
+  // instead of firing twice under StrictMode's double render.
+  // Skipped when an unmounting instance drove this sync. Both records describe what the mounted
+  // instances currently say, and a cleanup is not a render: mid-commit the list is whatever has
+  // been spliced so far, so reading it there reports an emptier tree than actually exists. Under
+  // StrictMode that is not even a real unmount, and turning the records over on it made a fresh
+  // mount say everything twice. The next render-driven sync brings them up to date.
+  const shouldWarnOnDuplicates =
+    shouldSyncWarnings && isDuplicateHeadWarningEnabled();
+  const seenHeadKeys: SeenHeadKeys = new Map();
+  const duplicateReports: DuplicateHeadKeyReport[] = [];
+
+  // The envelope projection's warnings are produced during render, so unlike the duplicate reports
+  // they are read off the registrations rather than recomputed. Same shape either way: what the
+  // currently mounted instances say, which is what makes an unmounted page's message disappear.
+  const shouldWarnOnTags = shouldSyncWarnings && isTagWarningEnabled();
+  const currentTagMessages = new Set<string>();
+
+  // Which instance is which, for attributing a warning below. Built from the mounted set, so an
+  // owner that has since unmounted simply has no scope and can never match a standing warning.
+  const scopeIDs = new Map<unknown, number>();
+
+  for (const item of sortedRegistrations) {
+    scopeIDs.set(item, item.warningScopeID);
+  }
+
   for (const item of sortedRegistrations) {
     if (item.html) {
       htmlStack.push(item.html);
@@ -656,11 +1039,125 @@ function updateDOM(): void {
     for (const key of item.metaKeys) {
       declaredMetaKeys.add(key);
     }
+
+    if (shouldWarnOnTags) {
+      for (const message of item.tagMessages) {
+        // Attributed to the instance that produced it, so a layout's complaint survives a
+        // navigation unchanged while a page's leaves with the page.
+        currentTagMessages.add(
+          scopeToInstances([item.warningScopeID], message),
+        );
+      }
+    }
+
+    if (shouldWarnOnDuplicates) {
+      duplicateReports.push(
+        ...collectDuplicateHeadKeys(
+          seenHeadKeys,
+          item.headKeys,
+          // The registration object is the instance here: one per mounted instance, and this
+          // record is built fresh in document order on every sync, so it is never fed twice.
+          item,
+        ),
+      );
+    }
+  }
+
+  if (shouldWarnOnDuplicates) {
+    const scopeOf = (report: DuplicateHeadKeyReport): string =>
+      scopeToInstances(
+        [
+          scopeIDs.get(report.firstOwner) ?? null,
+          scopeIDs.get(report.secondOwner) ?? null,
+        ],
+        report.key,
+      );
+
+    const fresh = duplicateReports.filter(
+      (report) => !warnedDuplicateKeys.has(scopeOf(report)),
+    );
+
+    warnedDuplicateKeys = new Set(duplicateReports.map(scopeOf));
+    warnDuplicateHeadKeys(fresh);
+  }
+
+  if (shouldWarnOnTags) {
+    const fresh = [...currentTagMessages].filter(
+      (scoped) => !warnedTagMessages.has(scoped),
+    );
+
+    warnedTagMessages = currentTagMessages;
+
+    for (const scoped of fresh) {
+      // eslint-disable-next-line no-console
+      console.warn(scoped.slice(scoped.indexOf('\n') + 1));
+    }
   }
 
   applyAttributes(document.documentElement, initialHTMLAttrs || {}, htmlStack);
   applyAttributes(document.body, initialBodyAttrs || {}, bodyStack);
   reconcileTemplateMetas(declaredMetaKeys);
+}
+
+/**
+ * Merge two head key scans into what one scan of the concatenated list would have produced.
+ *
+ * `first` is the side that appears earlier in the merged child list, so its value wins for a key
+ * both carry. That is the whole of what `scanHeadKeys()` does across a list: it records the first
+ * value it meets for a key and ignores the rest, so splitting the walk in two and merging this way
+ * is equivalent by construction rather than by an assumption about the two sides being disjoint.
+ *
+ * Exists so the children are walked once per render instead of twice. The projection wants the keys
+ * they claim, the duplicate warning wants the values behind them, and both come from the same walk.
+ */
+function mergeHeadKeyValues(
+  first: Map<string, string>,
+  second: Map<string, string>,
+): Map<string, string> {
+  const merged = new Map(first);
+
+  for (const [key, value] of second) {
+    if (!merged.has(key)) {
+      merged.set(key, value);
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Compares two head key maps for equality, so effect 1 only touches the DOM when the set of tags
+ * an instance emits actually changed.
+ */
+function areHeadKeyMapsEqual(
+  a: Map<string, string>,
+  b: Map<string, string>,
+): boolean {
+  if (a === b) {
+    return true;
+  }
+
+  if (a.size !== b.size) {
+    return false;
+  }
+
+  for (const [key, value] of a) {
+    if (b.get(key) !== value) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Compares two message lists in order, since one render produces them in a fixed order and any
+ * difference at all is a change worth syncing for.
+ */
+function areMessageListsEqual(a: string[], b: string[]): boolean {
+  return (
+    a.length === b.length && a.every((message, index) => message === b[index])
+  );
 }
 
 /**
@@ -739,8 +1236,8 @@ function getTagAttributesFromChildren(
   let attrs: Record<string, string> | null = null;
 
   // Walk all children nodes looking for the target react element.
-  React.Children.forEach(children, (child) => {
-    if (React.isValidElement(child) && child.type === tagName) {
+  forEachHeadChild(children, (child) => {
+    if (child.type === tagName) {
       if (attrs === null) {
         attrs = {};
       }
@@ -760,11 +1257,7 @@ function collectServerHead(
   collector: HeadCollector,
   children: ReactNode,
 ): void {
-  React.Children.forEach(children, (child) => {
-    if (!React.isValidElement(child)) {
-      return;
-    }
-
+  forEachHeadChild(children, (child) => {
     const type = child.type as string;
     const props = child.props as Record<string, unknown>;
 
@@ -789,7 +1282,12 @@ function mergeAttributeRecords(
   newAttrs: Record<string, string>,
 ): void {
   for (const [key, value] of Object.entries(newAttrs)) {
-    if (key === 'class') {
+    // Lowercased for the same reason as applyAttributes() above: an attribute name is matched
+    // case-insensitively everywhere this record eventually lands, so two `<html>` children writing
+    // `className` and `CLASS` are one attribute and have to union rather than sit side by side.
+    const normKey = key.toLowerCase();
+
+    if (normKey === 'class') {
       // Classes: Union and deduplicate individual class tokens.
       const existingValue = existing['class'] || '';
       const newClasses = value.split(/\s+/).filter(Boolean);
@@ -797,7 +1295,7 @@ function mergeAttributeRecords(
       existing['class'] = Array.from(
         new Set([...existingClasses, ...newClasses]),
       ).join(' ');
-    } else if (key === 'style') {
+    } else if (normKey === 'style') {
       // Styles: Concatenate the raw strings (separated by a semicolon if needed).
       // We append instead of parsing property-by-property to prevent breaking complex
       // values like inline SVGs or data URLs. Browser CSS precedence handles any overrides.
@@ -806,7 +1304,7 @@ function mergeAttributeRecords(
       existing['style'] = existingValue + sep + value;
     } else {
       // All other attributes: Overwrite existing values (last-write-wins).
-      existing[key] = value;
+      existing[normKey] = value;
     }
   }
 }
@@ -831,164 +1329,13 @@ function toTitleText(children: ReactNode): string {
     .join('');
 }
 
-/**
- * React prop names whose HTML attribute is not just the prop lowercased, so writing them out
- * verbatim would produce an attribute that doesn't exist.
- *
- * Only the ones that differ by more than case belong here. HTML attribute names are matched
- * case-insensitively, so React spellings like `charSet` or `crossOrigin` already land on the
- * right attribute on their own. `className` and `httpEquiv` do not: `class` is a different word,
- * and `http-equiv` carries a hyphen. An unmapped `httpEquiv` would be serialized as an
- * `httpEquiv=""` attribute, which no parser reads as `http-equiv` — so the tag would not do its
- * job, and it could not be matched against the template's `http-equiv` baseline either.
- */
-const REACT_PROP_TO_HTML_ATTRIBUTE: Record<string, string> = {
-  className: 'class',
-  httpEquiv: 'http-equiv',
-};
-
-/**
- * Converts React element properties into standard HTML attribute key-value records.
- */
-function toHeadAttributes(
-  props: Record<string, unknown>,
-): Record<string, string> {
-  const attrs: Record<string, string> = {};
-
-  for (const [key, value] of Object.entries(props)) {
-    // Exclude special children props and null/undefined values.
-    if (key === 'children' || value === null || value === undefined) {
-      continue;
-    }
-
-    // Map React prop spellings onto their real HTML attribute names (className -> class,
-    // httpEquiv -> http-equiv); everything else is already the attribute name.
-    const normKey = REACT_PROP_TO_HTML_ATTRIBUTE[key] ?? key;
-
-    // Handle React style objects by serializing them to a standard inline style string.
-    if (normKey === 'style' && typeof value === 'object') {
-      attrs[normKey] = serializeStyleObject(value as Record<string, unknown>);
-    } else {
-      const attrValue = toHeadAttributeValue(normKey, value);
-      if (attrValue !== null) {
-        attrs[normKey] = attrValue;
-      }
-    }
-  }
-
-  return attrs;
-}
-
-/**
- * Normalizes React property values (strings, numbers, booleans) into standard
- * HTML attribute string values, returning null for unsupported types or omitted booleans.
- */
-function toHeadAttributeValue(key: string, value: unknown): string | null {
-  const normKey = key.toLowerCase();
-  if (HTML_BOOLEAN_ATTRIBUTES.has(normKey)) {
-    if (typeof value === 'boolean' || value === 'true' || value === 'false') {
-      return value === true || value === 'true' ? '' : 'false';
-    }
-  }
-
-  if (typeof value === 'string') {
-    return value;
-  } else if (typeof value === 'number' || typeof value === 'bigint') {
-    return String(value);
-  } else if (typeof value === 'boolean') {
-    return value ? 'true' : 'false';
-  } else {
-    return null;
-  }
-}
-
-/**
- * Common unitless CSS properties for which numeric values should not be suffixed with 'px'.
- */
-const UNITLESS_CSS_PROPERTIES = new Set([
-  'animation-iteration-count',
-  'border-image-outset',
-  'border-image-slice',
-  'border-image-width',
-  'box-flex',
-  'box-flex-group',
-  'box-ordinal-group',
-  'column-count',
-  'columns',
-  'flex',
-  'flex-grow',
-  'flex-positive',
-  'flex-shrink',
-  'flex-negative',
-  'flex-order',
-  'grid-row',
-  'grid-row-align',
-  'grid-row-end',
-  'grid-row-span',
-  'grid-row-start',
-  'grid-column',
-  'grid-column-align',
-  'grid-column-end',
-  'grid-column-span',
-  'grid-column-start',
-  'font-weight',
-  'line-clamp',
-  'line-height',
-  'opacity',
-  'order',
-  'orphans',
-  'tab-size',
-  'widows',
-  'z-index',
-  'zoom',
-  'fill-opacity',
-  'flood-opacity',
-  'stop-opacity',
-  'stroke-dasharray',
-  'stroke-dashoffset',
-  'stroke-miterlimit',
-  'stroke-opacity',
-  'stroke-width',
-]);
-
-/**
- * Serializes a React CSSProperties object into a standard HTML inline style string.
- */
-function serializeStyleObject(styleObj: Record<string, unknown>): string {
-  return Object.entries(styleObj)
-    .map(([key, value]) => {
-      if (value === null || value === undefined || value === '') {
-        return '';
-      }
-
-      // Convert camelCase key (e.g. backgroundColor) to kebab-case (e.g. background-color)
-      const kebabKey = key.replace(
-        /[A-Z]/g,
-        (match) => `-${match.toLowerCase()}`,
-      );
-
-      // CSSProperties values are strings or numbers; skip anything else rather
-      // than emitting a useless '[object Object]' value.
-      if (typeof value !== 'string' && typeof value !== 'number') {
-        return '';
-      }
-
-      let formattedValue = String(value);
-      // Append 'px' to numbers unless the CSS property is unitless
-      if (typeof value === 'number' && !UNITLESS_CSS_PROPERTIES.has(kebabKey)) {
-        formattedValue = `${value}px`;
-      }
-
-      return `${kebabKey}:${formattedValue}`;
-    })
-    .filter(Boolean)
-    .join(';');
-}
-
 // Exported for testing purposes only
 // eslint-disable-next-line react-refresh/only-export-components
 export const _test = {
   areRecordsEqual,
+  areHeadKeyMapsEqual,
+  areMessageListsEqual,
+  mergeHeadKeyValues,
   applyAttributes,
   captureInitialAttrs,
   toHeadAttributes,
@@ -1010,6 +1357,18 @@ export const _test = {
   resetTemplateMetas: () => {
     templateMetaNodes = null;
   },
+  resetDuplicateWarnings: () => {
+    warnedDuplicateKeys = new Set();
+    warnedTagMessages = new Set();
+  },
+
+  /**
+   * The real allocator, so a test registration is identified the way a mounted one is rather than
+   * by a counter the suite keeps of its own. A parallel implementation would agree with this one
+   * on the only property either is asked for, uniqueness, right up until this one stopped having
+   * it, which is the case worth catching. See `nextWarningScopeID` for why that is silent.
+   */
+  takeWarningScopeID,
 };
 
 /**
