@@ -695,6 +695,26 @@ function warnTagsNotAList(messages: string[]): void {
 }
 
 /**
+ * Development-only warning for an `og` member whose name cannot become a property.
+ *
+ * The one skip in the projection that used to say nothing, and it reads exactly like the `tags`
+ * mistakes the rest of this file reports: the handler asked for a tag and the head does not have
+ * one. A trailing space off a CMS field is the way to arrive here without noticing, since the
+ * member still looks right everywhere it is printed.
+ */
+function warnOpenGraphMemberSkipped(messages: string[], member: string): void {
+  if (!isTagWarningEnabled()) {
+    return;
+  }
+
+  warnAboutTags(messages, [
+    `[unirend] UnirendHead: meta.page.og[${JSON.stringify(member)}] was skipped, because that name cannot spell a property.`,
+    '  A member starts with a letter and carries only letters, digits, and : _ . - after it,',
+    '  so a stray space or a leading digit is the usual cause.',
+  ]);
+}
+
+/**
  * Development-only warning for attributes stripped from a tag that otherwise rendered.
  */
 function warnTagAttributesDropped(
@@ -959,6 +979,7 @@ export function buildPageMetadataTags(
       }
 
       if (!VALID_ATTRIBUTE_NAME.test(member)) {
+        warnOpenGraphMemberSkipped(messages, member);
         continue;
       }
 
