@@ -2679,6 +2679,89 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
     ]);
   });
 
+  it.each([
+    ['the HTML spelling first', { class: 'first', className: 'second' }],
+    ['the React spelling first', { className: 'first', class: 'second' }],
+  ])(
+    'keeps only the first of class and className, with %s',
+    (_label, spellings) => {
+      // The one pair that differs by more than case, so neither the arriving names nor their
+      // lowercased forms match. Both set `class`, so the repeat has to be caught from the
+      // attribute they land on or the second silently overwrites the first.
+      const collector = collect(
+        <UnirendHead
+          envelope={
+            {
+              meta: {
+                page: {
+                  title: 'Home',
+                  tags: [
+                    {
+                      meta: {
+                        name: 'app-version',
+                        content: '1.2.3',
+                        ...spellings,
+                      },
+                    },
+                  ],
+                },
+              },
+            } as unknown as PageSuccessResponse<null>
+          }
+        />,
+      );
+
+      expect(collector.metas).toEqual([
+        { name: 'app-version', content: '1.2.3', class: 'first' },
+      ]);
+    },
+  );
+
+  it.each([
+    ['the junk spelling first', { classname: 'junk', class: 'real' }],
+    ['the real spelling first', { class: 'real', classname: 'junk' }],
+  ])(
+    'keeps class and a lowercase classname apart, with %s',
+    (_label, spellings) => {
+      // Two attributes, not two spellings of one. React passes an unknown `classname` through as
+      // written, so it sets `classname` while `class` sets `class`, which makes this pair no more
+      // a repeat than `class` and `media` would be. Read as one, whichever came first took the
+      // slot and the other was reported as its duplicate — so writing the meaningless one ahead of
+      // the real one shipped the tag with no CSS class at all.
+      const collector = collect(
+        <UnirendHead
+          envelope={
+            {
+              meta: {
+                page: {
+                  title: 'Home',
+                  tags: [
+                    {
+                      meta: {
+                        name: 'app-version',
+                        content: '1.2.3',
+                        ...spellings,
+                      },
+                    },
+                  ],
+                },
+              },
+            } as unknown as PageSuccessResponse<null>
+          }
+        />,
+      );
+
+      expect(collector.metas).toEqual([
+        {
+          name: 'app-version',
+          content: '1.2.3',
+          class: 'real',
+          classname: 'junk',
+        },
+      ]);
+    },
+  );
+
   it('leaves React prop spellings alone, since lowercasing them would warn', () => {
     const collector = collect(
       <UnirendHead

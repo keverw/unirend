@@ -147,6 +147,38 @@ function toTagAttributeName(lowered: string, name: string): string {
 }
 
 /**
+ * The filed React prop spellings whose DOM attribute is not just the name lowercased, so two
+ * arrivals landing on one attribute can be recognized as one.
+ *
+ * Matched on the exact filed spelling rather than a lowercased one, which is the whole reason this
+ * is a map and not a `toLowerCase()` call. `className` sets `class` and a lowercase `classname`
+ * sets `classname`, an unknown attribute React passes through as written, so they are two
+ * attributes and the pair `class` plus `classname` is no more a repeat than `class` plus `media`
+ * is. Lowercasing the filed name first collapses that distinction, and the collapse costs the
+ * real attribute: with `classname` written ahead of `class`, the tag shipped the meaningless one
+ * and reported the CSS class as a duplicate of it.
+ *
+ * The reverse of `REACT_PROP_TO_HTML_ATTRIBUTE` in `head-attributes.ts`, which is what the server
+ * applies when it serializes this record, restricted to the entries that differ by more than case.
+ * `httpEquiv` is that map's only other entry and never reaches here, see
+ * `FORBIDDEN_TAG_ATTRIBUTES`.
+ */
+const FILED_PROP_TO_CLAIMED_ATTRIBUTE = new Map<string, string>([
+  ['className', 'class'],
+]);
+
+/**
+ * The attribute a filed name actually sets, lowercased, since HTML matches attribute names
+ * case-insensitively and a repeat is a repeat however either side spelled it.
+ */
+function getClaimedTagAttribute(attributeName: string): string {
+  return (
+    FILED_PROP_TO_CLAIMED_ATTRIBUTE.get(attributeName) ??
+    attributeName.toLowerCase()
+  );
+}
+
+/**
  * A name React will pass through to the DOM as written, rather than warning about or mangling.
  */
 const VALID_ATTRIBUTE_NAME = /^[a-zA-Z][a-zA-Z0-9:_.-]*$/;
@@ -221,14 +253,23 @@ function sanitizeTagAttributes(
     // hydration. `toHeadAttributes()` settles the same question for a child by keeping the last,
     // which is the same rule reached from the other end: leave the page with one spelling, so both
     // halves are reading the same tag.
-    if (claimed.has(lowered)) {
+    //
+    // Recorded under the attribute the filed name ends up setting, not the name it arrived as,
+    // since that is what makes two arrivals one attribute. Keyed on the arriving name, `class` and
+    // `className` were two: `class` files as `className`, so the second matched nothing, slipped
+    // the check, and overwrote the first value with nothing said. See
+    // `getClaimedTagAttribute()` for why the answer is not simply the filed name lowercased.
+    const attributeName = toTagAttributeName(lowered, name);
+    const claim = getClaimedTagAttribute(attributeName);
+
+    if (claimed.has(claim)) {
       dropped.push(name);
       continue;
     }
 
-    claimed.add(lowered);
+    claimed.add(claim);
 
-    attributes[toTagAttributeName(lowered, name)] = value;
+    attributes[attributeName] = value;
   }
 
   return attributes;
