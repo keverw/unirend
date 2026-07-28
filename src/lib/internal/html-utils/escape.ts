@@ -103,3 +103,25 @@ export const HTML_BOOLEAN_ATTRIBUTES = new Set([
   'reversed',
   'selected',
 ]);
+
+/**
+ * Whether an attribute record entry is a boolean attribute carrying that removal marker, so a
+ * writer emits nothing for it rather than the marker itself.
+ *
+ * A predicate rather than the rule written out at each writer, because the marker only works if
+ * every writer knows to read it, and one that does not is silently wrong in the worst direction:
+ * `disabled="false"` is not a disabled of false, it is a disabled, since a boolean attribute is
+ * true by presence whatever its value says. So the writer that forgets emits the opposite of what
+ * the author asked for. That already happened once, to `serializeHeadCollector()`, which shipped a
+ * `<link rel="stylesheet" disabled={false}>` to the server-rendered page as a disabled stylesheet
+ * while the client rendered it enabled.
+ *
+ * Matched on the lowercased name, because the browser does, and because a record can reach this
+ * with React's own spelling: `itemScope={false}` is encoded here as `itemScope="false"`.
+ */
+export function isRemovedBooleanAttribute(
+  name: string,
+  value: string,
+): boolean {
+  return HTML_BOOLEAN_ATTRIBUTES.has(name.toLowerCase()) && value === 'false';
+}

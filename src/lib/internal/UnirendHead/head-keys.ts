@@ -159,10 +159,10 @@ const IDENTITY_CHILD_ATTRIBUTES = new Set([
  * Everything else keeps its casing, since React's own spellings (`crossOrigin`,
  * `referrerPolicy`) warn when lowercased and none of them carry an identity.
  *
- * Last spelling wins where a child writes one attribute two ways, which is what React leaves in
- * the DOM: it sets each prop in turn, and two casings of one name are one `setAttribute` target.
- * The common case is a single odd spelling, and a child with none at all gets its record back
- * untouched rather than copied.
+ * Only ever one spelling of an attribute arrives here, since `toHeadAttributes()` has already
+ * collapsed a child that wrote one two ways down to the last of them. So this renames rather than
+ * resolves, and the common case is a single odd spelling. A child with none at all gets its record
+ * back untouched rather than copied.
  *
  * Exported because `scanHeadKeys()` is not the only reader of a child's identity. The client's
  * template-meta reconciliation reads the same children through `getMetaKeysFromChildren()`, and

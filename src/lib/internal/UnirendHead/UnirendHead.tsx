@@ -2,7 +2,7 @@ import React, { useContext } from 'react';
 import type { ReactNode } from 'react';
 import { UnirendHeadContext } from './context';
 import type { HeadCollector } from './context';
-import { HTML_BOOLEAN_ATTRIBUTES } from '../html-utils/escape';
+import { isRemovedBooleanAttribute } from '../html-utils/escape';
 import { getMetaKeys, getMetaKeysFromElement } from '../html-utils/meta-key';
 import { TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
 import { serializeStyleObject, toHeadAttributes } from './head-attributes';
@@ -803,7 +803,14 @@ function applyAttributes(
 
   for (const attrs of stack) {
     for (const [key, value] of Object.entries(attrs)) {
-      if (key === 'class') {
+      // Matched and filed under the lowercased name, the way the server's merge does and the way
+      // the DOM does. `setAttribute` lowercases the name it is given, so a `<html CLASS="dark" />`
+      // lands on `class` in the end whatever this record calls it. Read as written, it missed the
+      // union below and then arrived through the last-write-wins loop instead, overwriting the
+      // template's own classes rather than joining them. See mergeAndSerializeTag() in inject.ts.
+      const normKey = key.toLowerCase();
+
+      if (normKey === 'class') {
         // Classes: Union and deduplicate individual class tokens.
         const existingClasses = (merged['class'] || '')
           .split(/\s+/)
@@ -812,7 +819,7 @@ function applyAttributes(
         merged['class'] = Array.from(
           new Set([...existingClasses, ...newClasses]),
         ).join(' ');
-      } else if (key === 'style') {
+      } else if (normKey === 'style') {
         // Styles: Concatenate the raw strings (separated by a semicolon if needed).
         // Browser CSS precedence handles any overrides.
         const existingStyle = merged['style'] || '';
@@ -820,7 +827,7 @@ function applyAttributes(
         merged['style'] = existingStyle + sep + value;
       } else {
         // All other attributes: Overwrite existing values (last-write-wins).
-        merged[key] = value;
+        merged[normKey] = value;
       }
     }
   }
@@ -911,7 +918,7 @@ function applyAttributes(
   // Set the new calculated attributes
   const nextCalculatedAttrs = new Set<string>();
   for (const [key, value] of Object.entries(merged)) {
-    if (HTML_BOOLEAN_ATTRIBUTES.has(key.toLowerCase()) && value === 'false') {
+    if (isRemovedBooleanAttribute(key, value)) {
       element.removeAttribute(key);
       continue;
     }
@@ -1240,7 +1247,12 @@ function mergeAttributeRecords(
   newAttrs: Record<string, string>,
 ): void {
   for (const [key, value] of Object.entries(newAttrs)) {
-    if (key === 'class') {
+    // Lowercased for the same reason as applyAttributes() above: an attribute name is matched
+    // case-insensitively everywhere this record eventually lands, so two `<html>` children writing
+    // `className` and `CLASS` are one attribute and have to union rather than sit side by side.
+    const normKey = key.toLowerCase();
+
+    if (normKey === 'class') {
       // Classes: Union and deduplicate individual class tokens.
       const existingValue = existing['class'] || '';
       const newClasses = value.split(/\s+/).filter(Boolean);
@@ -1248,7 +1260,7 @@ function mergeAttributeRecords(
       existing['class'] = Array.from(
         new Set([...existingClasses, ...newClasses]),
       ).join(' ');
-    } else if (key === 'style') {
+    } else if (normKey === 'style') {
       // Styles: Concatenate the raw strings (separated by a semicolon if needed).
       // We append instead of parsing property-by-property to prevent breaking complex
       // values like inline SVGs or data URLs. Browser CSS precedence handles any overrides.
@@ -1257,7 +1269,7 @@ function mergeAttributeRecords(
       existing['style'] = existingValue + sep + value;
     } else {
       // All other attributes: Overwrite existing values (last-write-wins).
-      existing[key] = value;
+      existing[normKey] = value;
     }
   }
 }

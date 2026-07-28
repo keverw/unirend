@@ -4,7 +4,11 @@ import {
   TEMPLATE_METAS_GLOBAL,
 } from '../consts';
 import { getDevMode } from 'lifecycleion/dev-mode';
-import { escapeHTMLAttr, decodeHTML, HTML_BOOLEAN_ATTRIBUTES } from './escape';
+import {
+  escapeHTMLAttr,
+  decodeHTML,
+  isRemovedBooleanAttribute,
+} from './escape';
 import { getMetaKeys } from './meta-key';
 
 // Prettify all head tags: each tag (<title>, <meta>, <link>, etc.) on its own line, indented
@@ -660,9 +664,23 @@ export function findOpeningTag(
 function parseAttributesString(attrsStr: string): Record<string, string> {
   const attrs: Record<string, string> = {};
 
-  // Regex to match key="value" or key='value' or key=value or key (boolean)
+  // Regex to match key="value" or key='value' or key=value or key (boolean).
+  //
+  // The name is read the way the HTML tokenizer reads one: everything up to whitespace or one of
+  // the characters that can only end it (`"`, `'`, `>`, `/`, `=`). A name is not a restricted
+  // alphabet, and spelling it as one meant a name carrying anything outside that alphabet was not
+  // rejected, it was *split*. The excluded character ended the name, and the regex then matched the
+  // tail as a whole separate attribute: `data_name="robots"` parsed as `data` plus `name="robots"`,
+  // an identity the tag never declared.
+  //
+  // That reached further than a parsing curiosity. This parser is what the server reads its own
+  // serialized head back through, so a `meta.page.tags` entry off the wire could mint a `name` or
+  // an `http-equiv` out of a name Unirend had already allowed (`_` and `.` are both in
+  // `VALID_ATTRIBUTE_NAME`), and `mergeTemplateMetas()` would strip the matching index.html meta
+  // from the served page. The client reads the real React prop and never saw it that way, so the
+  // tag came back on hydration and only the crawler's copy was missing it.
   const attrRegex =
-    /([a-z0-9\-:]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/gi;
+    /([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
   let match;
 
   while ((match = attrRegex.exec(attrsStr)) !== null) {
@@ -682,7 +700,7 @@ function serializeAttributes(attrs: Record<string, string>): string {
         return false;
       }
       // Do not serialize boolean attributes if their value is 'false' (removal marker)
-      if (HTML_BOOLEAN_ATTRIBUTES.has(k.toLowerCase()) && v === 'false') {
+      if (isRemovedBooleanAttribute(k, v)) {
         return false;
       }
       return true;

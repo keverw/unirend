@@ -24,11 +24,36 @@ const REACT_PROP_TO_HTML_ATTRIBUTE = new Map<string, string>([
 
 /**
  * Converts React element properties into standard HTML attribute key-value records.
+ *
+ * Two props naming one attribute produce one entry, the last of them, because that is what the
+ * page ends up with: React assigns each prop in turn and two casings of a name are one
+ * `setAttribute` target. Keeping both would put both spellings in the record, and the record is
+ * what the server serializes, so the served HTML carried a repeated attribute name. The tokenizer
+ * resolves that the other way, keeping the first, so `<meta NAME="viewport" name="app-x">` was a
+ * viewport meta to a crawler and an app-x meta the moment React hydrated it.
  */
 export function toHeadAttributes(
   props: Record<string, unknown>,
 ): Record<string, string> {
   const attrs: Record<string, string> = {};
+
+  // The name each attribute is currently filed under, found by its lowercased form, so a second
+  // spelling can replace the first rather than sit beside it. Only ever more than a formality when
+  // a child writes one attribute twice, which is why the record is written directly below and only
+  // revisited here.
+  const filedAs = new Map<string, string>();
+
+  const file = (name: string, value: string): void => {
+    const lowered = name.toLowerCase();
+    const previous = filedAs.get(lowered);
+
+    if (previous !== undefined && previous !== name) {
+      delete attrs[previous];
+    }
+
+    filedAs.set(lowered, name);
+    attrs[name] = value;
+  };
 
   for (const [key, value] of Object.entries(props)) {
     // Exclude special children props and null/undefined values.
@@ -42,11 +67,11 @@ export function toHeadAttributes(
 
     // Handle React style objects by serializing them to a standard inline style string.
     if (normKey === 'style' && typeof value === 'object') {
-      attrs[normKey] = serializeStyleObject(value as Record<string, unknown>);
+      file(normKey, serializeStyleObject(value as Record<string, unknown>));
     } else {
       const attrValue = toHeadAttributeValue(normKey, value);
       if (attrValue !== null) {
-        attrs[normKey] = attrValue;
+        file(normKey, attrValue);
       }
     }
   }

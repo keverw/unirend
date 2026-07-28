@@ -7,6 +7,7 @@ import { UnirendHead, _test } from './UnirendHead';
 import { UnirendHeadProvider } from './UnirendHeadProvider';
 import { getLinkHeadKey, getLinkHeadKeys, scanHeadKeys } from './head-keys';
 import { filterRenderableHeadChildren } from './head-children';
+import { serializeHeadCollector } from './serialize-head-collector';
 import type { HeadCollector } from './context';
 import { TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
 
@@ -293,6 +294,50 @@ describe('UnirendHead SSR Collection & Merging', () => {
       { name: 'description', content: 'Home description' },
     ]);
   });
+
+  // HTML defines `disabled` on <link> (it is how the alternate-stylesheet theming pattern turns a
+  // sheet off), but React's LinkHTMLAttributes does not list it, so the prop needs a cast here.
+  const disabledLink = (isDisabled: boolean) =>
+    ({ rel: 'stylesheet', href: '/dark.css', disabled: isDisabled }) as any;
+
+  it('leaves a boolean attribute turned off out of the serialized head', () => {
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          <link {...disabledLink(false)} />
+          <meta name="x" content="y" itemScope={false} />
+        </UnirendHead>
+      </UnirendHeadProvider>,
+    );
+
+    const { link, meta } = serializeHeadCollector(collector);
+
+    // 'false' is the marker toHeadAttributes() writes for a boolean an author turned off, not a
+    // value to serialize. Written out it says the opposite: a boolean attribute is true by its
+    // presence, so `disabled="false"` is a disabled stylesheet. React omits the attribute when it
+    // renders the same element on the client, so emitting the marker here shipped an SSR page
+    // whose stylesheet was off until hydration switched it on.
+    expect(link).toBe('<link rel="stylesheet" href="/dark.css" />');
+    expect(meta).toBe('<meta name="x" content="y" />');
+  });
+
+  it('keeps a boolean attribute that is turned on', () => {
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          <link {...disabledLink(true)} />
+        </UnirendHead>
+      </UnirendHeadProvider>,
+    );
+
+    expect(serializeHeadCollector(collector).link).toBe(
+      '<link rel="stylesheet" href="/dark.css" disabled="" />',
+    );
+  });
 });
 
 describe('the development-only warning for an unmanaged child', () => {
@@ -472,7 +517,9 @@ describe('the development-only warning for an unmanaged child', () => {
     );
 
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain('an element is not a tag UnirendHead manages');
+    expect(warnings[0]).toContain(
+      'an element is not a tag UnirendHead manages',
+    );
   });
 
   it('counts the names it prints, not the children it found', () => {
@@ -540,6 +587,31 @@ describe('the head keys a child claims', () => {
     );
 
     expect([...scan.claimed]).toEqual(['name=second']);
+  });
+
+  it('serializes one spelling when a child writes one attribute two ways', () => {
+    // The other half of the rule above, and the half that used to disagree with it. Both spellings
+    // stayed in the record, so the served HTML carried a repeated attribute name, and the tokenizer
+    // resolves a repeat the opposite way from React: it keeps the first. The tag was a `first` meta
+    // to anything reading the server-rendered page and became a `second` meta on hydration.
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          {React.createElement('meta', {
+            NAME: 'first',
+            name: 'second',
+            content: 'x',
+          })}
+        </UnirendHead>
+      </UnirendHeadProvider>,
+    );
+
+    expect(collector.metas).toEqual([{ name: 'second', content: 'x' }]);
+    expect(serializeHeadCollector(collector).meta).toBe(
+      '<meta name="second" content="x" />',
+    );
   });
 
   it('leaves the ordinary spelling untouched', () => {
@@ -1038,6 +1110,28 @@ describe('UnirendHead Client-side Helpers', () => {
       expect(mockElement.style.properties).toEqual({
         color: 'red',
         'font-size': '14px',
+      });
+    });
+
+    it('unions a class written in an odd casing instead of overwriting the baseline', () => {
+      // `setAttribute` lowercases the name it is given, so `<html CLASS="dark" />` lands on the
+      // real `class` whatever the record calls it, and the server's merge lowercases too. Matched
+      // as written, this missed the union and arrived through the last-write-wins branch instead,
+      // so the template's own classes were replaced rather than joined and the page hydrated
+      // without them. Same for STYLE, which dropped the template's declarations.
+      const mockElement = createMockElement({ class: 'base theme' });
+
+      applyAttributes(
+        mockElement as unknown as HTMLElement,
+        { class: 'base theme', style: 'margin:0' },
+        [{ CLASS: 'dark', STYLE: 'color:red' }],
+      );
+
+      expect(mockElement.getAttribute('class')).toBe('base theme dark');
+      expect(mockElement.getAttribute('CLASS')).toBe(null);
+      expect(mockElement.style.properties).toEqual({
+        margin: '0',
+        color: 'red',
       });
     });
 

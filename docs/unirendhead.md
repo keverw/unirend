@@ -134,6 +134,11 @@ import { UnirendHead } from 'unirend/client';
 
 **Props on child elements** map directly to HTML attributes, pass any valid attribute you would use on the native HTML tag. The two React prop spellings that are not simply the attribute name are translated for you: `className` becomes `class`, and `httpEquiv` becomes `http-equiv`. Spellings that differ only by case, like `charSet` or `crossOrigin`, need no translation, since HTML matches attribute names case-insensitively.
 
+Two details follow from that, and they hold identically on the server and in the browser:
+
+- **A boolean prop set to `false` emits no attribute.** `<link rel="stylesheet" href="/dark.css" disabled={false} />` renders without `disabled`, because an HTML boolean attribute is true by its presence whatever its value says. Set it to `true` to get the bare attribute.
+- **Writing one attribute in two casings emits one attribute, the last one.** `<meta NAME="a" name="b" content="c" />` is a single `name="b"`, matching what React leaves in the DOM. Prefer writing it once.
+
 **Component props:**
 
 | Prop | Type | Notes |

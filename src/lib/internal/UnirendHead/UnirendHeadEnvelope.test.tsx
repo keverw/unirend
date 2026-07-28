@@ -1569,10 +1569,7 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
           ],
         })}
       >
-        <link
-          rel="stylesheet alternate"
-          href="https://example.com/local.css"
-        />
+        <link rel="stylesheet alternate" href="https://example.com/local.css" />
       </UnirendHead>,
     );
 

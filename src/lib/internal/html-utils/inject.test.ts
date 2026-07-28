@@ -1053,4 +1053,41 @@ describe('template head baseline merge', () => {
     expect($('meta[name="viewport"]').length).toBe(1);
     expect($('meta[property="og:site_name"]').length).toBe(1);
   });
+
+  it('should read an attribute name carrying an underscore or a dot as one name', async () => {
+    // A name is not a restricted alphabet, and reading it as one did not reject the odd
+    // character, it ended the name there and read the tail as a second attribute. So this page
+    // meta, whose only identity is name="app-version", was read as declaring name="viewport"
+    // and http-equiv="content-language" too, and the template's copies of both were stripped
+    // from the served head. Only the server ever saw it that way: the client reads the real
+    // React prop, so the tags came back on hydration and only the crawler's copy lost them.
+    //
+    // `_` and `.` are both allowed in an envelope tag's attribute name, so the values here
+    // could arrive over the wire. See VALID_ATTRIBUTE_NAME in UnirendHead/page-metadata-tags.ts.
+    const withHTTPEquiv = templateHTML.replace(
+      '<meta name="theme-color" content="#ffffff" />',
+      '<meta http-equiv="content-language" content="en" />',
+    );
+
+    const processed = await processTemplate(withHTTPEquiv, 'ssr', false, false);
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    const html = await injectContent(
+      processed.html,
+      '<meta name="app-version" content="1.2.3" data_name="viewport" x.http-equiv="content-language" />',
+      '<div>App</div>',
+    );
+    const $ = cheerio.load(html);
+
+    expect($('meta[name="viewport"]').length).toBe(1);
+    expect($('meta[name="viewport"]').attr('content')).toBe(
+      'width=device-width, initial-scale=1.0',
+    );
+    expect($('meta[http-equiv="content-language"]').length).toBe(1);
+    expect($('meta[name="app-version"]').length).toBe(1);
+  });
 });

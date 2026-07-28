@@ -133,9 +133,17 @@ function sanitizeTagAttributes(
       continue;
     }
 
-    // Two spellings of one attribute are one attribute. The browser keeps the first and ignores
-    // the rest, so this drops the rest rather than emitting a tag whose rendered value is not the
-    // one the checks below read.
+    // Two spellings of one attribute are one attribute, so this keeps the first and drops the rest
+    // rather than emitting a tag whose rendered value is not the one the checks below read. The
+    // extra spelling is reported, since an envelope naming an attribute twice is a handler bug
+    // worth hearing about, where a page writing it in TSX is its own author's business.
+    //
+    // Whichever one survives, the point is that only one does. The two sides resolve a repeat
+    // differently, the HTML tokenizer keeping the first and React keeping the last, so a tag
+    // carrying both would read as one attribute in the server-rendered HTML and the other after
+    // hydration. `toHeadAttributes()` settles the same question for a child by keeping the last,
+    // which is the same rule reached from the other end: leave the page with one spelling, so both
+    // halves are reading the same tag.
     if (claimed.has(lowered)) {
       dropped.push(name);
       continue;
