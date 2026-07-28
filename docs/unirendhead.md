@@ -266,6 +266,8 @@ Declare a child tag to override that key while keeping the rest of the envelope 
 
 Metas match by `name`, `property`, or `http-equiv`, links match by `rel`, and a child `<title>` replaces the generated title.
 
+`rel` is an unordered set of tokens, so `rel="alternate stylesheet"` and `rel="stylesheet alternate"` are one relation set and match each other. A link also matches on any single-value relation named inside a longer set, since a page may only have one of those: a child `rel="alternate canonical"` replaces the envelope's `canonical`. Relations that repeat by nature do not match that way, so the same child leaves an envelope `rel="alternate"` feed link alone.
+
 A child replaces everything the envelope contributed for that key, however many tags that was. Declaring `og:image` as a child drops the `og.image` field, every `og:image` entry in `tags`, and the sub-properties describing them, such as `og:image:width`. The same grouping applies to `og:video`, `og:audio`, `twitter:image`, and `twitter:player`. Write the child with the attribute the envelope used, which for an `og` member is always `property`, since `name="og:image"` and `property="og:image"` are separate identities and a child on one does not claim the other.
 
 This override applies only within one `UnirendHead`. Tags from separate instances still follow [Tag Merging and Overrides](#tag-merging-and-overrides).

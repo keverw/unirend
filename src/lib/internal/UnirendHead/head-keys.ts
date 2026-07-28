@@ -38,9 +38,9 @@ export const SINGULAR_LINK_RELATIONS = new Set([
 /**
  * One identity key for a `<link>`, built from its `rel`.
  *
- * HTML defines `rel` as an unordered set of space-separated tokens, so the key is built as one:
- * the whitespace is normalized, the tokens are lowercased, repeats are dropped, and the rest are
- * sorted. Two spellings of one set are then one key, which is what the override contract needs.
+ * HTML defines `rel` as "an unordered set of unique space-separated tokens", so the key is built as
+ * one: the whitespace is normalized, the tokens are lowercased, repeats are dropped, and the rest
+ * are sorted. Two spellings of one set are then one key, which is what the override contract needs.
  * Normalizing whitespace alone was not enough — `rel="alternate stylesheet"` and
  * `rel="stylesheet alternate"` are the same relation to every browser, and keyed on the order the
  * author happened to type they were two tags, so a child declaring one would not replace the
@@ -63,19 +63,28 @@ export function getLinkHeadKey(rel: string): string {
 }
 
 /**
- * Every identity key a `<link>` occupies.
+ * Every identity key a `<link>` occupies: the exact set of relations it declares, plus each
+ * relation in that set that may only appear on the page once.
  *
- * The whole token set is the primary key, because overriding should replace the tag an author
- * declared and not a neighbor that happens to share a token: a child `rel="alternate stylesheet"`
- * has no business suppressing the envelope's `rel="alternate"` feed link. Which tokens the set
- * holds is what identifies it, and the order they were typed in is not, see `getLinkHeadKey()`.
+ * One rule, not a primary key with an exception, and it follows from what a `<link>` is. HTML is
+ * explicit that "one link element can create multiple links ... exactly which and how many links
+ * are created depends on the keywords given in the rel attribute", and that a user agent processes
+ * "the links on a per-link basis, not a per-element basis". So `rel="alternate canonical"` is not
+ * one tag with a two-word name, it is an alternate and a canonical, and anything asking what this
+ * link is has to be able to see both.
  *
- * A singular relation named inside a longer list is the exception and gets a key of its own. Those
- * are the relations where a second one is a mistake rather than a feature, so they are the only
- * ones where the difference has a consequence — without this a `rel="alternate canonical"` would
- * neither override the `canonical` field nor collide with another instance's canonical, which is
- * precisely the case the warning exists for. Adding only these keys is what keeps it from
- * over-claiming: `alternate` and `stylesheet` never become keys of their own.
+ * What decides which relations become keys of their own is the same repeatability the rest of this
+ * module runs on. A relation that may only exist once has to be found wherever it is declared, or
+ * a page declaring `rel="alternate canonical"` neither replaces the envelope's `canonical` nor
+ * collides with another instance's, and ships a second canonical in silence. A relation that
+ * repeats by nature needs no such key and must not have one: several alternates is a page doing
+ * its job, so a child `rel="alternate stylesheet"` has no business suppressing the envelope's
+ * `rel="alternate"` feed link, and `alternate` and `stylesheet` never become keys of their own.
+ *
+ * The whole-set key is what keeps overriding conservative. A child replaces the tag its author
+ * meant to replace, matched on the relations it actually declares rather than on a token it
+ * happens to share with a neighbor. Which tokens the set holds is what identifies it, and the
+ * order they were typed in is not, see `getLinkHeadKey()`.
  */
 export function getLinkHeadKeys(rel: string): string[] {
   const primary = getLinkHeadKey(rel);
