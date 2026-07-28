@@ -17,6 +17,7 @@
   - [Supported Tags](#supported-tags)
     - [Preloading Images](#preloading-images)
   - [Tag Merging and Overrides](#tag-merging-and-overrides)
+    - [Which Rule Applies Where](#which-rule-applies-where)
   - [Development-Only Duplicate Warning](#development-only-duplicate-warning)
   - [Template Tags vs Page Tags](#template-tags-vs-page-tags)
     - [Overriding a Template Meta](#overriding-a-template-meta)
@@ -396,7 +397,21 @@ If multiple `<UnirendHead>` components are rendered in the same tree (e.g. in la
 - **`<html>` and `<body>` class names (`class` or `className`)**: **Merge (accumulate)**. If the layout sets `<html className="font-sans" />` and the page sets `<html className="dark" />`, the result is `<html class="font-sans dark">`.
 - **`<html>` and `<body>` styles (`style`)**: **Merge (concatenate)**. If both specify styles, they are concatenated together (separated by a semicolon). Because CSS inline rules evaluate in the order they are defined ("last declaration wins"), this allows nested pages/components to safely override specific inline properties from parent templates or layouts. To prevent clobbering external style mutations on the client (such as modal scroll locks), the client parses and reconciles calculated style properties key-by-key, using a lightweight, quote-aware semicolon-splitting parser that safely supports complex style values (like data URLs, calc values, or inline SVGs) without introducing a heavy CSS parser library dependency.
 
-Note the two scopes at work. The table above is about **separate `<UnirendHead>` instances** in the same tree. Within **one** instance, a child beats the `envelope` field with the same key instead of accumulating alongside it, see [Overriding a Single Envelope Field](#overriding-a-single-envelope-field).
+#### Which Rule Applies Where
+
+The list above is about **separate `<UnirendHead>` instances** in the same tree. Two other scopes come up often enough to be worth seeing side by side:
+
+| Scope | `<title>` | `<meta>` and `<link>` |
+| --- | --- | --- |
+| Two children in one instance | Last wins | Accumulate |
+| Two separate instances | Last wins | Accumulate, and the [duplicate warning](#development-only-duplicate-warning) may fire |
+| A child against the `envelope` prop | Child wins | Child wins |
+
+Only two rules are doing the work here. A `<title>` is last-write-wins in every scope, so a layout can set a default that pages replace. A `<meta>` or `<link>` accumulates in every scope, and they never replace one another.
+
+The third row is not a third rule. The `envelope` is not another instance to merge with, it is a fallback source. `UnirendHead` records the keys your children declare before anything is collected, then builds envelope tags only for the keys left over, so a child never replaces an envelope tag. The envelope tag is simply not built. See [The Envelope Prepass](#the-envelope-prepass).
+
+Template metas from `index.html` are a separate mechanism again, and there a page tag does replace the template's. See [Overriding a Template Meta](#overriding-a-template-meta).
 
 ### Development-Only Duplicate Warning
 
@@ -410,6 +425,8 @@ Metas and links accumulate across separate `UnirendHead` instances. In developme
   Declare it in one place, or call setRepeatableHeadKeys if this key is meant to repeat.
   This warning only runs in development.
 ```
+
+Two things have to be true for it to fire: the two instances declare the **same key**, and that key is **not repeatable**. Different keys accumulate in silence, which is the ordinary case, since a layout contributing `og:*` and a page contributing `description` are not in conflict.
 
 The warning ignores titles, repeats within one instance, child overrides, and keys that normally repeat, including `og:image`, `theme-color`, and most link relations. For an application-specific repeatable key, configure it once in code shared by the server and client:
 
