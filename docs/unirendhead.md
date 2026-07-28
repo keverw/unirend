@@ -11,6 +11,7 @@
     - [Only `meta.page` Is Read](#only-metapage-is-read)
     - [The `og` Object](#the-og-object)
     - [Custom Tags](#custom-tags)
+      - [How Much to Trust an Entry](#how-much-to-trust-an-entry)
     - [Malformed Envelopes](#malformed-envelopes)
     - [Overriding a Single Envelope Field](#overriding-a-single-envelope-field)
   - [A Tag Is Not in the Head](#a-tag-is-not-in-the-head)
@@ -240,6 +241,19 @@ Two limits remain, and neither is about which tag you want:
 - **Values must be plain strings, and a few attribute names are refused.** `style` (React reads it as an object, so the string form throws, and a head tag is not rendered anyway), React's own props (`children`, `dangerouslySetInnerHTML`, `key`, `ref`), and `on*` handlers. These are about not crashing the page rather than about policy: the attribute is dropped and the tag renders without it, in every build. Development additionally warns and names what was dropped, so the tag never silently loses something you meant to keep.
 
 Named fields win over custom entries with the same non-repeatable key. Repeatable tags such as multiple `og:image` values and alternate links are kept. Invalid or dropped custom entries produce a development warning.
+
+##### How Much to Trust an Entry
+
+Every value here is escaped on both sides, so a string that lands in a `content`, an `href`, or a `<title>` cannot break out of it however it is spelled. That covers the ordinary case of user-generated content completely: a post title or a profile bio going into `title`, `description`, or `og.*` is safe, and needs nothing from you.
+
+The part worth a second look is that `tags` is a more capable list than the named fields are. A named field can only ever set text on a tag Unirend chose. An entry sets the whole tag, so whatever produces the envelope decides which `<meta>` names and which `<link>` relations reach your document head. Read that as the same trust you already place in the handler that returns the envelope, and note that it is the handler you are trusting rather than the transport, which matters when the value crosses a network boundary on the way in.
+
+Two habits keep that boundary where you want it, and neither is about escaping, since both of these produce perfectly legal HTML that no escaper has grounds to reject:
+
+- **Let untrusted input fill in values, never keys.** Attribute names are checked for shape, not for meaning, so a user-chosen meta `name` can set `robots` to `noindex` or overwrite an `og:` tag you rely on.
+- **Build a URL rather than passing one through.** A user-supplied `canonical` hands your search ranking to another page, and a user-supplied `rel="stylesheet"` hands your styling to another origin. Construct the URL in your handler from an ID you control.
+
+For links to origins you do control, a [Content Security Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CSP) is the right place to say which ones, rather than any check Unirend could make on the tag.
 
 #### Malformed Envelopes
 
