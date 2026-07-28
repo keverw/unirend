@@ -372,7 +372,17 @@ function HeroPage() {
 }
 ```
 
-Unlike `<script>` and `<link>` tags already in your `index.html`, the head content injected by `UnirendHead` is not CDN-rewritten automatically. Prefix asset paths with `useCDNBaseURL()` so the preload hint and the actual image request go to the same origin.
+When the loader is what knows the URL, the same hint can come from the envelope instead, and the page needs no `UnirendHead` child for it at all:
+
+```ts
+pageMetadata: {
+  title: 'Hero - My App',
+  description: 'Welcome',
+  tags: [{ link: { rel: 'preload', as: 'image', href: heroURL } }],
+}
+```
+
+Unlike `<script>` and `<link>` tags already in your `index.html`, the head content injected by `UnirendHead` is not CDN-rewritten automatically. Prefix asset paths with `useCDNBaseURL()` so the preload hint and the actual image request go to the same origin. A handler building the URL for a `tags` entry has to include the CDN base itself, since it runs on the server where that hook is not available.
 
 ### Tag Merging and Overrides
 

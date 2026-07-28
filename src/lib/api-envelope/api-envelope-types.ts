@@ -90,8 +90,15 @@ export type PageMetadataMetaTag =
  * (`hreflang`, `type`, `sizes`, `as`, and so on) passes through as written, barring the ones
  * {@link ForbiddenTagAttributes} rules out.
  *
- * `rel="stylesheet"` is refused too, but that is a value rather than a name, so it stays a runtime
- * check. `rel` is a token set with an open vocabulary and cannot be enumerated as a type.
+ * The relation itself is not judged. A `UnirendHead` child may declare any `rel`, and an envelope
+ * link matches it, so a handler can ship a `stylesheet` or a `preload` exactly as a page writing
+ * the tag in TSX can. `http-equiv` is the one thing held back, and it belongs to a meta rather than
+ * a link, see {@link PageMetadataMetaTag}.
+ *
+ * A `rel` of nothing but whitespace is refused at runtime, since it names no relation and would
+ * give the link no identity for a child to override or the duplicate warning to see. That is a
+ * value rather than a name, so no type can express it: `rel` is a token set with an open
+ * vocabulary.
  */
 export interface PageMetadataLinkTag extends ForbiddenTagAttributes {
   rel: string;
