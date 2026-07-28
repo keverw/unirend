@@ -1537,10 +1537,10 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
     ]);
   });
 
-  it('skips a link asking for a stylesheet', () => {
-    // Same argument as http-equiv: a stylesheet is applied to the document rather than describing
-    // it, and this URL arrives over the wire. Read as a token list, so a second token is not a way
-    // around it.
+  it('takes any relation a child could declare', () => {
+    // The envelope matches the child path rather than narrowing it: a handler that wants to ship a
+    // stylesheet or a preload can, exactly as a page writing the tag in TSX can. `http-equiv` is
+    // the one thing held back, and it is not a relation, so nothing here judges the rel itself.
     const collector = collect(
       <UnirendHead
         envelope={createSuccessEnvelope({
@@ -1548,12 +1548,9 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
           description: 'Home description',
           tags: [
             { link: { rel: 'stylesheet', href: 'https://example.com/x.css' } },
-            {
-              link: {
-                rel: 'alternate STYLESHEET',
-                href: 'https://example.com/y.css',
-              },
-            },
+            { link: { rel: 'preload', as: 'image', href: '/hero.jpg' } },
+            { link: { rel: 'preconnect', href: 'https://cdn.example.com' } },
+            { link: { rel: 'shortcut icon', href: '/favicon.ico' } },
             {
               link: { rel: 'alternate', href: 'https://example.com/feed.xml' },
             },
@@ -1563,38 +1560,17 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
     );
 
     expect(collector.links).toEqual([
+      { rel: 'stylesheet', href: 'https://example.com/x.css' },
+      { rel: 'preload', as: 'image', href: '/hero.jpg' },
+      { rel: 'preconnect', href: 'https://cdn.example.com' },
+      { rel: 'shortcut icon', href: '/favicon.ico' },
       { rel: 'alternate', href: 'https://example.com/feed.xml' },
     ]);
   });
 
-  it('skips a link asking for a resource hint', () => {
-    // A hint names an asset the build knows about and a page handler does not, and it points the
-    // browser at a host the payload chose. Cheaper than a stylesheet and still not page metadata,
-    // so the relation list is an allowlist and these are simply not on it.
-    const collector = collect(
-      <UnirendHead
-        envelope={createSuccessEnvelope({
-          title: 'Home',
-          description: 'Home description',
-          tags: [
-            { link: { rel: 'preload', href: 'https://example.com/a.js' } },
-            {
-              link: { rel: 'modulepreload', href: 'https://example.com/b.js' },
-            },
-            { link: { rel: 'preconnect', href: 'https://cdn.example.com' } },
-            { link: { rel: 'dns-prefetch', href: 'https://cdn.example.com' } },
-            { link: { rel: 'prefetch', href: 'https://example.com/next' } },
-          ],
-        })}
-      />,
-    );
-
-    expect(collector.links).toEqual([]);
-  });
-
   it('keeps every relation that describes the page', () => {
-    // The other half of the allowlist. These say where the page lives, what else it is available
-    // as, what to draw for it, and who wrote it, none of which directs a fetch.
+    // The ordinary case the field exists for. These say where the page lives, what else it is
+    // available as, what to draw for it, and who wrote it.
     const collector = collect(
       <UnirendHead
         envelope={createSuccessEnvelope({
@@ -1624,33 +1600,10 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
     ]);
   });
 
-  it('keeps a multi-token rel when every token is permitted', () => {
-    // The allowlist is read token by token, so a list has to clear all of them rather than the
-    // first. `shortcut icon` is the spelling half the web writes, this project's own scaffolded
-    // index.html included, and refusing it while the warning listed `icon` as permitted would read
-    // as the filter contradicting itself.
-    const collector = collect(
-      <UnirendHead
-        envelope={createSuccessEnvelope({
-          title: 'Home',
-          description: 'Home description',
-          tags: [
-            { link: { rel: 'shortcut icon', href: '/favicon.ico' } },
-            { link: { rel: 'alternate canonical', href: '/canonical' } },
-          ],
-        })}
-      />,
-    );
-
-    expect(collector.links).toEqual([
-      { rel: 'shortcut icon', href: '/favicon.ico' },
-      { rel: 'alternate canonical', href: '/canonical' },
-    ]);
-  });
-
   it('skips a link whose rel names no relation at all', () => {
-    // Whitespace passes the populated check and names nothing, so an allowlist read token by token
-    // would otherwise clear it vacuously and render a link no head key can identify.
+    // Whitespace passes the populated check and names nothing, so without this it would render a
+    // link that no head key can identify: invisible to the child-override check and to the
+    // duplicate warning both.
     const collector = collect(
       <UnirendHead
         envelope={createSuccessEnvelope({
@@ -1723,7 +1676,7 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       return createSuccessEnvelope({
         title: 'Home',
         description: '',
-        tags: [{ link: { rel: 'stylesheet', href } }],
+        tags: [{ link: { rel: '   ', href } }],
       });
     }
 
@@ -1758,7 +1711,7 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       });
 
       expect(warnings).toHaveLength(1);
-      expect(warnings[0]).toContain('not a relation an envelope may ask for');
+      expect(warnings[0]).toContain('its rel names no relation');
     });
 
     it('says it again on the next request, since the record went with the last one', () => {
@@ -1778,7 +1731,7 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       expect(renderWithCanonicalCollision()).toEqual([]);
     });
 
-    it('says why a stylesheet link was skipped, and where to declare it instead', () => {
+    it('says why a link naming no relation was skipped', () => {
       overrideDevMode(true);
 
       const warnings = captureWarnings(() => {
@@ -1790,8 +1743,8 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
               tags: [
                 {
                   link: {
-                    rel: 'stylesheet',
-                    href: 'https://example.com/x.css',
+                    rel: '   ',
+                    href: 'https://example.com/x',
                   },
                 },
               ],
@@ -1801,12 +1754,10 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       });
 
       expect(warnings).toHaveLength(1);
-      expect(warnings[0]).toContain('meta.page.tags[0] (stylesheet)');
-      expect(warnings[0]).toContain('not a relation an envelope may ask for');
-      // Names what is permitted, since the reason an entry was refused is only actionable next to
-      // the list it failed against.
-      expect(warnings[0]).toContain('canonical, alternate, icon');
-      expect(warnings[0]).toContain('Declare it as a UnirendHead child');
+      expect(warnings[0]).toContain('its rel names no relation');
+      // Says what the consequence would have been, since "whitespace is not a relation" is obvious
+      // and "so nothing could ever override it" is the part worth knowing.
+      expect(warnings[0]).toContain('no identity');
       // The shape advice would be wrong here, the entry had both rel and href.
       expect(warnings[0]).not.toContain('a link needs rel and href');
     });
@@ -2213,14 +2164,14 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
               tags: [
                 {
                   link: {
-                    rel: 'stylesheet',
-                    href: 'https://example.com/a.css',
+                    rel: '   ',
+                    href: 'https://example.com/a',
                   },
                 },
                 {
                   link: {
-                    rel: 'stylesheet',
-                    href: 'https://example.com/a.css',
+                    rel: '   ',
+                    href: 'https://example.com/a',
                   },
                 },
               ],
@@ -2230,8 +2181,8 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       });
 
       expect(warnings).toHaveLength(2);
-      expect(warnings[0]).toContain('meta.page.tags[0] (stylesheet)');
-      expect(warnings[1]).toContain('meta.page.tags[1] (stylesheet)');
+      expect(warnings[0]).toContain('meta.page.tags[0]');
+      expect(warnings[1]).toContain('meta.page.tags[1]');
     });
 
     it('enters nothing in a production build', () => {

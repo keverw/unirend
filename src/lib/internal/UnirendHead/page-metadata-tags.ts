@@ -34,69 +34,21 @@ const FORBIDDEN_TAG_ATTRIBUTES = new Set(
 );
 
 /**
- * Link relations an envelope-provided tag may ask for.
+ * Whether a `rel` names any relation at all.
  *
- * An allowlist, unlike `FORBIDDEN_TAG_ATTRIBUTES` above, because the two answer different
- * questions. An attribute is named on a tag the envelope already described, so the set worth
- * refusing is small and known. A relation decides what the browser does with a URL that arrived
- * over the wire, and that set grows: the resource hints were not always there, and whatever
- * replaces them would be permitted by default under a denylist. Deny by default is the posture the
- * rest of this file already takes toward the envelope.
+ * The relation itself is deliberately not judged. A `UnirendHead` child may declare any `rel`, and
+ * the envelope matches it, so a handler that wants to ship a stylesheet or a preload can. The line
+ * this file draws is `http-equiv`, which is not a relation and is refused on the meta side: an
+ * envelope already has a redirect of its own, so a `refresh` meta could only ever be a broken
+ * loader expressing itself the wrong way round.
  *
- * What is listed describes the page: where it canonically lives, what else it is available as, what
- * to draw for it, who wrote it. What is deliberately absent directs a fetch. `stylesheet` is the
- * sharpest case, the one relation whose value the browser retrieves and then applies to the
- * document, which is enough to restyle the page over its own content or to read it back out through
- * attribute selectors. The resource hints (`preload`, `modulepreload`, `preconnect`, `prefetch`,
- * `dns-prefetch`) only warm the cache, but they name assets that a build knows about and a page
- * handler does not, and they point the visitor's browser at a host the payload chose. Neither is
- * page metadata, which is what this field is called.
- *
- * None of this narrows what a page itself may declare. A `UnirendHead` child goes into the
- * collector with no relation filtering at all, so a page that genuinely owns a stylesheet or a
- * preload writes it as a child, or in `index.html`, where the URL is not wire-controlled.
+ * What is left is a shape check. A `rel` of nothing but whitespace passes the populated test above
+ * and names nothing, so it would render a link that no head key can identify, invisible to the
+ * child-override check and to the duplicate warning both. Read as the space-separated token list
+ * HTML defines it to be, which is also how the key is built. See `getLinkHeadKeys()`.
  */
-const ALLOWED_LINK_RELATIONS = new Set([
-  'canonical',
-  'alternate',
-  'icon',
-  // `rel="shortcut icon"` is the spelling half the web still writes, this project's own scaffolded
-  // index.html included. Every token has to pass, so leaving `shortcut` out would refuse it while
-  // the warning went on listing `icon` as permitted, which reads as the filter contradicting
-  // itself. It names no relation of its own and directs no fetch that `icon` does not.
-  'shortcut',
-  'apple-touch-icon',
-  'apple-touch-icon-precomposed',
-  'mask-icon',
-  'manifest',
-  'author',
-  'license',
-  'prev',
-  'next',
-  'search',
-  'me',
-  'amphtml',
-]);
-
-/**
- * Whether every relation a `rel` names is one an envelope may ask for.
- *
- * Read as the space-separated token list HTML defines it to be, and lowercased, since
- * `rel="alternate STYLESHEET"` is a stylesheet to the browser and would otherwise be a filter the
- * caller opts out of by writing two tokens. Every token has to pass, because a list is all of its
- * relations at once rather than the most permissive one in it.
- *
- * A `rel` of nothing but whitespace names no relation at all, so it fails here rather than passing
- * vacuously. It would otherwise render a link that no key can identify, which is the same hole the
- * lowercasing above closes: invisible to the child-override check and to the duplicate warning.
- */
-function hasOnlyAllowedLinkRelations(rel: string): boolean {
-  const tokens = rel.toLowerCase().split(/\s+/).filter(Boolean);
-
-  return (
-    tokens.length > 0 &&
-    tokens.every((token) => ALLOWED_LINK_RELATIONS.has(token))
-  );
+function hasNamedLinkRelation(rel: string): boolean {
+  return rel.trim().length > 0;
 }
 
 /**
@@ -297,16 +249,15 @@ function buildCustomTag(
       return null;
     }
 
-    if (!hasOnlyAllowedLinkRelations(attributes.rel)) {
+    if (!hasNamedLinkRelation(attributes.rel)) {
       warnTagEntrySkipped(
         messages,
         index,
-        'its rel is not a relation an envelope may ask for',
+        'its rel names no relation',
         attributes,
         dropped,
-        `  An envelope link may only describe the page: ${[...ALLOWED_LINK_RELATIONS].join(', ')}.\n` +
-          '  A stylesheet or a resource hint instead directs the browser to fetch a URL that arrived over the wire.\n' +
-          '  Declare it as a UnirendHead child, or in index.html, where it is not wire-controlled.',
+        '  A rel of nothing but whitespace gives the link no identity, so no child could override it\n' +
+          '  and the duplicate warning could not see it.',
       );
       return null;
     }

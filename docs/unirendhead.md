@@ -226,11 +226,12 @@ The exported `PageMetadataTag`, `PageMetadataMetaTag`, and `PageMetadataLinkTag`
 - Omit the unused `meta` or `link` member. An entry naming both describes no single tag, so it renders neither and warns.
 - Additional attributes such as `media`, `hreflang`, `type`, and `sizes` must be strings.
 
-Because these values can arrive over the wire, envelope tags cannot include `http-equiv`, `style`, React-only props, or `on*` handlers.
+Envelope links accept any `rel`, matching what a `UnirendHead` child may declare. A handler can ship a `stylesheet`, a `preload`, or anything else a page could write in TSX.
 
-Envelope links are also limited to relations that describe the page: `canonical`, `alternate`, `icon`, `apple-touch-icon`, `mask-icon`, `manifest`, `author`, `license`, `prev`, `next`, `search`, `me`, and `amphtml`. A `rel` is read as the token list HTML defines it to be, so every token has to be on that list. Relations that instead direct the browser to fetch a URL, `stylesheet` and the resource hints (`preload`, `modulepreload`, `preconnect`, `prefetch`, `dns-prefetch`), are rejected: they name assets your build knows about rather than facts about the page.
+Two limits remain, and neither is about which tag you want:
 
-This limits only the envelope. A `UnirendHead` child is trusted application code and may declare any relation, so a page that owns a stylesheet or a preload writes it as a child, or in `index.html`.
+- **`http-equiv` is refused on a meta.** It instructs the browser rather than describing the page, and `http-equiv="refresh"` navigates it. An envelope already has [redirect responses](./api-envelope-structure.md) of its own, so a `refresh` meta from a loader is a sign something went wrong rather than a way to express intent. Declare it as a child if you need it.
+- **Values must be plain strings, and a few attribute names are refused.** `style` (React reads it as an object, so the string form throws, and a head tag is not rendered anyway), React's own props (`children`, `dangerouslySetInnerHTML`, `key`, `ref`), and `on*` handlers. These are about not crashing the page rather than about policy: the attribute is dropped and the tag renders without it, in every build. Development additionally warns and names what was dropped, so the tag never silently loses something you meant to keep.
 
 Named fields win over custom entries with the same non-repeatable key. Repeatable tags such as multiple `og:image` values and alternate links are kept. Invalid or dropped custom entries produce a development warning.
 
@@ -351,7 +352,7 @@ function SharedMetas() {
 
 #### Preloading Images
 
-`<link rel="preload">` works as a child and is useful for hinting the browser to fetch a hero or above-the-fold image before it is discovered in the page body. It is a child-only relation: [Custom Tags](#custom-tags) explains why an envelope cannot ask for one.
+`<link rel="preload">` is useful for hinting the browser to fetch a hero or above-the-fold image before it is discovered in the page body. It works as a child, and as a `tags` entry when the loader is what knows the URL:
 
 ```tsx
 import { UnirendHead } from 'unirend/client';
