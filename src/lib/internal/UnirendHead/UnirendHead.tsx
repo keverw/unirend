@@ -12,6 +12,7 @@ import {
   forEachHeadChild,
 } from './head-children';
 import { scanHeadKeys } from './head-keys';
+import type { HeadKeyScan } from './head-keys';
 import {
   buildPageMetadataTags,
   isTagWarningEnabled,
@@ -119,14 +120,22 @@ export function UnirendHead({ children, envelope }: UnirendHeadProps) {
     collectUnmanagedChildMessages(children, tagMessages);
   }
 
+  // Duplicate detection is development-only, so a production build never pays for its scan. Read
+  // before the projection because the scan below serves both of them.
+  const shouldWarnOnDuplicates = isDuplicateHeadWarningEnabled();
+
+  // One walk of the children, feeding both consumers: the projection needs the keys they claim, and
+  // the duplicate warning needs the values behind those keys. Skipped outright when neither is
+  // asking, which is every production render without an envelope.
+  const childScan =
+    pageMetadata !== null || shouldWarnOnDuplicates
+      ? scanHeadKeys(children)
+      : EMPTY_SCAN;
+
   const generatedTags =
     pageMetadata === null
       ? EMPTY_TAGS
-      : buildPageMetadataTags(
-          pageMetadata,
-          scanHeadKeys(children).claimed,
-          tagMessages,
-        );
+      : buildPageMetadataTags(pageMetadata, childScan.claimed, tagMessages);
 
   // Left strictly alone when there is nothing to generate, so every existing call site keeps the
   // exact child list (and element identities) it had before.
@@ -135,11 +144,19 @@ export function UnirendHead({ children, envelope }: UnirendHeadProps) {
       ? [...generatedTags, ...React.Children.toArray(children)]
       : children;
 
-  // Duplicate detection is development-only, so a production build never pays for the scan.
-  const shouldWarnOnDuplicates = isDuplicateHeadWarningEnabled();
-  const headKeys = shouldWarnOnDuplicates
-    ? scanHeadKeys(effectiveChildren).values
-    : EMPTY_HEAD_KEYS;
+  // The keys of the merged list, without walking the children a second time to get them. Scanning
+  // `[...generated, ...children]` is exactly the two scans merged with the generated side winning,
+  // since a scan keeps the first value it sees for a key and the generated tags come first. That
+  // holds whether or not the two sides share a key, so this depends on no invariant about which
+  // keys the projection suppressed.
+  const headKeys = !shouldWarnOnDuplicates
+    ? EMPTY_HEAD_KEYS
+    : generatedTags.length === 0
+      ? childScan.values
+      : mergeHeadKeyValues(
+          scanHeadKeys(generatedTags).values,
+          childScan.values,
+        );
 
   /* eslint-disable @typescript-eslint/naming-convention */
   const customWindow =
@@ -368,6 +385,15 @@ const registeredList: RegisteredAttrs[] = [];
 const EMPTY_TAGS: React.ReactElement[] = [];
 const EMPTY_HEAD_KEYS: Map<string, string> = new Map();
 
+// The scan a render skips entirely: no envelope to project and no duplicate warning to feed, which
+// is every production render of a children-only instance. Shared rather than built, and safe to
+// share because nothing downstream writes to a scan: `buildPageMetadataTags()` only reads
+// `claimed`, and `values` is copied into the registration by reference and compared, never mutated.
+const EMPTY_SCAN: HeadKeyScan = {
+  claimed: new Set<string>(),
+  values: EMPTY_HEAD_KEYS,
+};
+
 // Head keys already claimed during the current server render, one record per collector. Kept
 // outside HeadCollector so the collector stays the plain serializable shape the renderers build,
 // and weak so a finished render's record is collected along with its collector.
@@ -406,6 +432,17 @@ let warnedDuplicateKeys = new Set<string>();
  * back on each one. It is not the route pattern either, which would mean reading React Router from
  * a component that imports only React. The registration is already the identity the duplicate
  * record uses to tell one instance from another.
+ *
+ * Monotonic on purpose, and deliberately not reset by `_test.resetDuplicateWarnings()` alongside
+ * the records that key on it. Those records are derived from these IDs, so they can be thrown away
+ * freely, but an ID is identity: handing a fresh registration one that a still-mounted instance
+ * already holds would make `updateDOM()` read two instances as one and swallow a duplicate warning
+ * that should have fired. A counter guarantees uniqueness for the life of the process, which a
+ * clock-plus-random identity would only make very likely, and it costs an increment to do it.
+ *
+ * Growth is not a concern: this is one integer, not a collection, and a thousand mounts a second
+ * would take longer than the age of civilization to reach `Number.MAX_SAFE_INTEGER`. Nothing should
+ * assert on a concrete value either, since it depends on how many instances mounted before it.
  */
 let nextWarningScopeID = 0;
 
@@ -1014,6 +1051,32 @@ function updateDOM({ shouldSyncWarnings = true }: UpdateDOMOptions = {}): void {
 }
 
 /**
+ * Merge two head key scans into what one scan of the concatenated list would have produced.
+ *
+ * `first` is the side that appears earlier in the merged child list, so its value wins for a key
+ * both carry. That is the whole of what `scanHeadKeys()` does across a list: it records the first
+ * value it meets for a key and ignores the rest, so splitting the walk in two and merging this way
+ * is equivalent by construction rather than by an assumption about the two sides being disjoint.
+ *
+ * Exists so the children are walked once per render instead of twice. The projection wants the keys
+ * they claim, the duplicate warning wants the values behind them, and both come from the same walk.
+ */
+function mergeHeadKeyValues(
+  first: Map<string, string>,
+  second: Map<string, string>,
+): Map<string, string> {
+  const merged = new Map(first);
+
+  for (const [key, value] of second) {
+    if (!merged.has(key)) {
+      merged.set(key, value);
+    }
+  }
+
+  return merged;
+}
+
+/**
  * Compares two head key maps for equality, so effect 1 only touches the DOM when the set of tags
  * an instance emits actually changed.
  */
@@ -1218,6 +1281,7 @@ export const _test = {
   areRecordsEqual,
   areHeadKeyMapsEqual,
   areMessageListsEqual,
+  mergeHeadKeyValues,
   applyAttributes,
   captureInitialAttrs,
   toHeadAttributes,

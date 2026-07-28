@@ -5,6 +5,7 @@ import { renderToString } from 'react-dom/server';
 import { overrideDevMode } from 'lifecycleion/dev-mode';
 import { UnirendHead, _test } from './UnirendHead';
 import { UnirendHeadProvider } from './UnirendHeadProvider';
+import { scanHeadKeys } from './head-keys';
 import type { HeadCollector } from './context';
 import { TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
 
@@ -443,6 +444,7 @@ describe('UnirendHead Client-side Helpers', () => {
     areRecordsEqual,
     areHeadKeyMapsEqual,
     areMessageListsEqual,
+    mergeHeadKeyValues,
     serializeStyleObject,
     toHeadAttributes,
     applyAttributes,
@@ -534,6 +536,64 @@ describe('UnirendHead Client-side Helpers', () => {
       expect(areRecordsEqual({ a: '1', b: '2' }, { a: '1', b: '2' })).toBe(
         true,
       );
+    });
+  });
+
+  // The property that lets a render walk the children once instead of twice: merging two scans is
+  // the same answer as scanning the concatenated list, so the split is equivalent by construction
+  // rather than by an assumption about the generated tags and the children being disjoint.
+  describe('mergeHeadKeyValues', () => {
+    it('keeps the first side"s value for a key both carry', () => {
+      const merged = mergeHeadKeyValues(
+        new Map([['name=description', 'Envelope description']]),
+        new Map([['name=description', 'Child description']]),
+      );
+
+      expect(merged.get('name=description')).toBe('Envelope description');
+    });
+
+    it('carries every key from either side', () => {
+      const merged = mergeHeadKeyValues(
+        new Map([['title', '']]),
+        new Map([['rel=canonical', 'https://example.com/']]),
+      );
+
+      expect([...merged.entries()]).toEqual([
+        ['title', ''],
+        ['rel=canonical', 'https://example.com/'],
+      ]);
+    });
+
+    it('leaves both inputs alone', () => {
+      const first = new Map([['title', '']]);
+      const second = new Map([['name=keywords', 'a, b']]);
+
+      mergeHeadKeyValues(first, second);
+
+      expect(first.size).toBe(1);
+      expect(second.size).toBe(1);
+    });
+
+    it('matches a single scan of the concatenated list', () => {
+      // The equivalence stated outright, over children that both share a key with the generated
+      // side and add one of their own. If this ever fails, the split walk is no longer safe.
+      const generated = [
+        <meta key="a" name="description" content="Envelope description" />,
+        <link key="b" rel="canonical" href="https://example.com/" />,
+      ];
+
+      const children = [
+        <meta key="c" name="description" content="Child description" />,
+        <meta key="d" name="keywords" content="a, b" />,
+      ];
+
+      const combined = scanHeadKeys([...generated, ...children]).values;
+      const split = mergeHeadKeyValues(
+        scanHeadKeys(generated).values,
+        scanHeadKeys(children).values,
+      );
+
+      expect([...split.entries()]).toEqual([...combined.entries()]);
     });
   });
 
