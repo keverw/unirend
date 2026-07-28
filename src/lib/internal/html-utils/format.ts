@@ -541,10 +541,26 @@ export async function processTemplate(
     // will declare.
     $('head title').remove();
 
+    // Every identity the tag carries, not just the first one it happens to declare. A meta is
+    // whatever its attributes say it is, so `<meta name="site-default" property="og:title">` is a
+    // page-owned og:title however unremarkable its `name` looks. Read as `name ?? property`, the
+    // unmanaged name answered for the whole tag and the og:title rode along: it survived here, so
+    // it was served on every page that declared no og:title of its own, and the client restored it
+    // on each navigation back to one. That is the stale template default this strip exists to
+    // prevent, arrived at through the one spelling that skipped the check.
+    //
+    // Any managed identity is enough to remove it, matching how mergeTemplateMetas() decides what
+    // a page overrides. A tag carrying a page-owned identity alongside a template-owned one
+    // (`name="twitter:title" property="og:site_name"`) goes with the page-owned reading, so keep
+    // site-wide baselines on tags of their own rather than hanging one on a per-page tag.
     $('meta[name], meta[property]').each((_, el) => {
-      const identifier = $(el).attr('name') ?? $(el).attr('property');
+      const identifiers = [$(el).attr('name'), $(el).attr('property')];
 
-      if (identifier && isUnirendHeadManagedMeta(identifier)) {
+      if (
+        identifiers.some(
+          (identifier) => identifier && isUnirendHeadManagedMeta(identifier),
+        )
+      ) {
         $(el).remove();
       }
     });
