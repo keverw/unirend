@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <title>Unirend SSR Demo</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Here to be overridden, which is the part of UnirendHead the rest of this template
+         cannot show. A template meta is a baseline: the server strips it from the served head
+         while a page declares the same name, and the client puts it back once no mounted page
+         does. Every other meta here is one no page ever overrides, so that strip-and-restore
+         never runs and a break in it would look exactly like everything working.
+
+         robots is the tag that can show it because UnirendHead never manages robots per page,
+         so it survives processTemplate() and reaches the baseline. See
+         UNIREND_HEAD_MANAGED_META_NAMES in src/lib/internal/html-utils/format.ts.
+
+         About.tsx declares the overriding copy, and the About page explains what to click. -->
+    <meta name="robots" content="index, follow" />
     <style>
       html.dark,
       html.dark body {
