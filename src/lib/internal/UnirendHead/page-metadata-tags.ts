@@ -1003,13 +1003,20 @@ export function buildPageMetadataTags(
       // made twice in the list rather than across it, and it is the one the field record cannot
       // see: a `tags` entry is deliberately never recorded there. Said rather than resolved, see
       // warnTagEntriesRepeatKey().
-      const repeat = keys
+      //
+      // Every colliding key is said, unlike the field collision above, and the difference is what
+      // happens to the entry. That one names the key that cost it the tag and stops, since the tag
+      // is gone either way. This one renders, so a `<meta name="a" property="b">` repeating both
+      // identities really does ship two of each, and reporting only the first would leave the
+      // second duplicate exactly as silent as it was before this check existed.
+      const repeats = keys
         .filter((key) => !isRepeatableHeadKey(key))
-        .map((key) => ({ key, first: emittedByEntry.get(key) }))
-        .find((candidate) => candidate.first !== undefined);
+        .map((key) => ({ key, first: emittedByEntry.get(key) }));
 
-      if (repeat !== undefined && repeat.first !== undefined) {
-        warnTagEntriesRepeatKey(messages, repeat.key, repeat.first, tag);
+      for (const repeat of repeats) {
+        if (repeat.first !== undefined) {
+          warnTagEntriesRepeatKey(messages, repeat.key, repeat.first, tag);
+        }
       }
 
       // First one wins the record, so a third entry on the key names the tag that was already
