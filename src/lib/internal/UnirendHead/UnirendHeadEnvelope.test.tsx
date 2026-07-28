@@ -1550,6 +1550,38 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
     ]);
   });
 
+  it('lets a child win over an entry whose rel names the same tokens in another order', () => {
+    // HTML defines `rel` as an unordered token set, so these two links are the same relation to
+    // every browser. Keyed on the order the author happened to type, they were two tags: the
+    // documented child override failed and both stylesheets shipped.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: [
+            {
+              link: {
+                rel: 'alternate stylesheet',
+                href: 'https://example.com/envelope.css',
+              },
+            },
+          ],
+        })}
+      >
+        <link
+          rel="stylesheet alternate"
+          href="https://example.com/local.css"
+        />
+      </UnirendHead>,
+    );
+
+    // The child's own spelling reaches the head, since only the key is canonicalized.
+    expect(collector.links).toEqual([
+      { rel: 'stylesheet alternate', href: 'https://example.com/local.css' },
+    ]);
+  });
+
   it('does not let a multi-token rel claim its repeatable tokens', () => {
     // The other half of the same rule. Only the singular relations get a key of their own, so a
     // child sharing the `alternate` token has no business suppressing the envelope's feed link.

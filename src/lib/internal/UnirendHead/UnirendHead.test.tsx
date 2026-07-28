@@ -5,7 +5,7 @@ import { renderToString } from 'react-dom/server';
 import { overrideDevMode } from 'lifecycleion/dev-mode';
 import { UnirendHead, _test } from './UnirendHead';
 import { UnirendHeadProvider } from './UnirendHeadProvider';
-import { scanHeadKeys } from './head-keys';
+import { getLinkHeadKey, getLinkHeadKeys, scanHeadKeys } from './head-keys';
 import { filterRenderableHeadChildren } from './head-children';
 import type { HeadCollector } from './context';
 import { TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
@@ -549,6 +549,36 @@ describe('the head keys a child claims', () => {
 
     expect([...scan.claimed]).toEqual(['name=description']);
     expect(scan.values.get('name=description')).toBe('Child description');
+  });
+
+  it('reads a rel as the unordered token set HTML defines it to be', () => {
+    // Order is not part of a set's identity, and keyed on the order the author happened to type,
+    // `rel="alternate stylesheet"` and `rel="stylesheet alternate"` were two tags: a child
+    // declaring one would not replace the envelope's other, and both shipped. Repeats are not
+    // part of it either, and left in they put the same singular key in the list twice.
+    expect(getLinkHeadKey('stylesheet alternate')).toBe(
+      getLinkHeadKey('alternate stylesheet'),
+    );
+    expect(getLinkHeadKey('  ALTERNATE   Stylesheet  ')).toBe(
+      'rel=alternate stylesheet',
+    );
+    expect(getLinkHeadKeys('canonical canonical')).toEqual(['rel=canonical']);
+    expect(getLinkHeadKeys('canonical alternate')).toEqual([
+      'rel=alternate canonical',
+      'rel=canonical',
+    ]);
+  });
+
+  it('gives two orderings of one rel the same claim', () => {
+    expect([
+      ...scanHeadKeys(
+        <link rel="stylesheet alternate" href="https://example.com/a.css" />,
+      ).claimed,
+    ]).toEqual([
+      ...scanHeadKeys(
+        <link rel="alternate stylesheet" href="https://example.com/b.css" />,
+      ).claimed,
+    ]);
   });
 
   it('keeps a non-identity attribute exactly as React spelled it', () => {

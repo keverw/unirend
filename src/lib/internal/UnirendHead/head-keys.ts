@@ -38,24 +38,37 @@ export const SINGULAR_LINK_RELATIONS = new Set([
 /**
  * One identity key for a `<link>`, built from its `rel`.
  *
- * `rel` is a space-separated token set, so the whitespace is normalized on the way in and two
- * spellings of one list are one key.
+ * HTML defines `rel` as an unordered set of space-separated tokens, so the key is built as one:
+ * the whitespace is normalized, the tokens are lowercased, repeats are dropped, and the rest are
+ * sorted. Two spellings of one set are then one key, which is what the override contract needs.
+ * Normalizing whitespace alone was not enough — `rel="alternate stylesheet"` and
+ * `rel="stylesheet alternate"` are the same relation to every browser, and keyed on the order the
+ * author happened to type they were two tags, so a child declaring one would not replace the
+ * envelope's other and both shipped.
+ *
+ * Nothing renders from this. The key decides what overrides and collides with what, and each tag
+ * still goes to the head with its `rel` spelled the way its author wrote it. The one place the
+ * canonical form is visible is the duplicate warning, which names the key rather than either
+ * spelling, and a set has no better name than its sorted members.
  *
  * For building a key from a `rel` you already control, such as the `canonical` this file emits for
  * the envelope field of that name. Deciding what an arbitrary link overrides or collides with
  * wants `getLinkHeadKeys()`, since a `rel` naming a single-value relation among several tokens is
- * that relation too, and keying on the list alone hides it.
+ * that relation too, and keying on the set alone hides it.
  */
 export function getLinkHeadKey(rel: string): string {
-  return `rel=${rel.trim().toLowerCase().split(/\s+/).join(' ')}`;
+  const tokens = rel.trim().toLowerCase().split(/\s+/).filter(Boolean);
+
+  return `rel=${[...new Set(tokens)].sort().join(' ')}`;
 }
 
 /**
  * Every identity key a `<link>` occupies.
  *
- * The `rel` as written is the primary key, because overriding should replace the tag an author
+ * The whole token set is the primary key, because overriding should replace the tag an author
  * declared and not a neighbor that happens to share a token: a child `rel="alternate stylesheet"`
- * has no business suppressing the envelope's `rel="alternate"` feed link.
+ * has no business suppressing the envelope's `rel="alternate"` feed link. Which tokens the set
+ * holds is what identifies it, and the order they were typed in is not, see `getLinkHeadKey()`.
  *
  * A singular relation named inside a longer list is the exception and gets a key of its own. Those
  * are the relations where a second one is a mistake rather than a feature, so they are the only
