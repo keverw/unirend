@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
+import { overrideDevMode } from 'lifecycleion/dev-mode';
 import { UnirendHead, _test } from './UnirendHead';
 import { UnirendHeadProvider } from './UnirendHeadProvider';
 import type { HeadCollector } from './context';
@@ -182,6 +183,258 @@ describe('UnirendHead SSR Collection & Merging', () => {
 
     expect(collector.htmlAttrs.class).toBe('parent child');
     expect(collector.htmlAttrs.lang).toBe('es');
+  });
+
+  it('ignores a script or style child, and still collects the head tags beside it', () => {
+    // The server has no collector field for either, so neither reaches the head. Pinned alongside
+    // the client half below, since the two ignoring it is the whole point: a script that is absent
+    // from the SSR HTML and present after hydration is a mismatch rather than a feature.
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          <title>Home</title>
+          <script src="/analytics.js" />
+          <style>{'body { color: red }'}</style>
+          <meta name="description" content="Home description" />
+        </UnirendHead>
+      </UnirendHeadProvider>,
+    );
+
+    expect(collector.title).toBe('Home');
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+    ]);
+    expect(collector.links).toEqual([]);
+  });
+
+  it('walks through a fragment, at any depth', () => {
+    // A fragment is the absence of a level rather than one, so the tags inside it are collected as
+    // though written in its place. The client always rendered these, since React hoists whatever
+    // renders, so before this the same JSX produced a full head in SPA mode and an empty one in
+    // SSR.
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          <>
+            <title>Home</title>
+            <>
+              <meta name="description" content="Home description" />
+              <link rel="canonical" href="https://example.com/" />
+            </>
+            <html lang="en" />
+          </>
+        </UnirendHead>
+      </UnirendHeadProvider>,
+    );
+
+    expect(collector.title).toBe('Home');
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+    ]);
+    expect(collector.links).toEqual([
+      { rel: 'canonical', href: 'https://example.com/' },
+    ]);
+    expect(collector.htmlAttrs.lang).toBe('en');
+  });
+
+  it('does not walk into a component, which has not rendered yet', () => {
+    // The one case a synchronous walk cannot serve: the element's type is a function, and its tags
+    // do not exist until React renders it. Reuse goes through the component rendering its own
+    // UnirendHead, which the next test covers.
+    function SharedMetas() {
+      return <meta name="description" content="Home description" />;
+    }
+
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          <title>Home</title>
+          <SharedMetas />
+        </UnirendHead>
+      </UnirendHeadProvider>,
+    );
+
+    expect(collector.title).toBe('Home');
+    expect(collector.metas).toEqual([]);
+  });
+
+  it('collects a component that renders its own UnirendHead', () => {
+    // The supported way to share tags, and the reason the case above needs no rescuing: several
+    // instances is the design, so a component contributing its own head is ordinary usage.
+    function SharedMetas() {
+      return (
+        <UnirendHead>
+          <meta name="description" content="Home description" />
+        </UnirendHead>
+      );
+    }
+
+    const collector = createEmptyCollector();
+
+    renderToString(
+      <UnirendHeadProvider collector={collector}>
+        <UnirendHead>
+          <title>Home</title>
+        </UnirendHead>
+        <SharedMetas />
+      </UnirendHeadProvider>,
+    );
+
+    expect(collector.title).toBe('Home');
+    expect(collector.metas).toEqual([
+      { name: 'description', content: 'Home description' },
+    ]);
+  });
+});
+
+describe('the development-only warning for an unmanaged child', () => {
+  afterEach(() => {
+    overrideDevMode(false);
+  });
+
+  function captureWarnings(render: () => void): string[] {
+    const messages: string[] = [];
+    const original = console.warn;
+
+    console.warn = (...args: unknown[]) => {
+      messages.push(args.map((arg) => String(arg)).join(' '));
+    };
+
+    try {
+      render();
+    } finally {
+      console.warn = original;
+    }
+
+    return messages;
+  }
+
+  function renderChildren(children: React.ReactNode): string[] {
+    return captureWarnings(() => {
+      renderToString(
+        <UnirendHeadProvider collector={createEmptyCollector()}>
+          <UnirendHead>{children}</UnirendHead>
+        </UnirendHeadProvider>,
+      );
+    });
+  }
+
+  it('names an element by its tag', () => {
+    overrideDevMode(true);
+
+    const warnings = renderChildren(
+      <>
+        <title>Home</title>
+        <div>Child</div>
+      </>,
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('<div> is not a tag UnirendHead manages');
+    expect(warnings[0]).toContain('A fragment is walked through');
+  });
+
+  it('names a component, since that is the thing to go looking for', () => {
+    overrideDevMode(true);
+
+    function SharedMetas() {
+      return null;
+    }
+
+    const warnings = renderChildren(<SharedMetas />);
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('<SharedMetas />');
+    expect(warnings[0]).toContain('Give it its own UnirendHead');
+  });
+
+  it('points a script and a style at where they belong', () => {
+    overrideDevMode(true);
+
+    const warnings = renderChildren(
+      <>
+        <script src="/analytics.js" />
+        <style>{'body { color: red }'}</style>
+      </>,
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('<script>, <style> are not tags');
+    expect(warnings[0]).toContain('templateSlots');
+  });
+
+  it('says nothing for the tags it manages, a fragment included', () => {
+    overrideDevMode(true);
+
+    expect(
+      renderChildren(
+        <>
+          <title>Home</title>
+          <meta name="description" content="Home description" />
+          <link rel="canonical" href="https://example.com/" />
+          <html lang="en" />
+          <body className="page" />
+        </>,
+      ),
+    ).toEqual([]);
+  });
+
+  it('names a wrapped component, which carries no function type', () => {
+    // memo(), forwardRef(), and lazy() make the element's type an object, so a plain function test
+    // misses all three and falls through to the vaguest name this has. That is the worst place to
+    // lose the name: the message deduplicates on what it prints, so three differently wrapped
+    // components would collapse into one entry naming none of them.
+    overrideDevMode(true);
+
+    const Memoized = React.memo(function MemoizedMetas() {
+      return null;
+    });
+
+    const Forwarded = React.forwardRef<HTMLDivElement>(
+      function ForwardedMetas() {
+        return null;
+      },
+    );
+
+    const warnings = renderChildren(
+      <>
+        <Memoized />
+        <Forwarded />
+      </>,
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('<MemoizedMetas />');
+    expect(warnings[0]).toContain('<ForwardedMetas />');
+  });
+
+  it('counts the names it prints, not the children it found', () => {
+    // Two of one kind is one name, so the sentence has to stay singular or it disagrees with the
+    // list right beside it.
+    overrideDevMode(true);
+
+    const warnings = renderChildren(
+      <>
+        <div>One</div>
+        <div>Two</div>
+      </>,
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('<div> is not a tag');
+    expect(warnings[0]).not.toContain('are not tags');
+  });
+
+  it('stays silent in production', () => {
+    overrideDevMode(false);
+
+    expect(renderChildren(<div>Child</div>)).toEqual([]);
   });
 });
 
@@ -989,14 +1242,14 @@ describe('UnirendHead Client-side Helpers', () => {
 
       const html = renderToString(
         <UnirendHead>
-          <div>Child</div>
+          <title>Home</title>
         </UnirendHead>,
       );
 
-      // In SPA mode, the template marker must render immediately
-      expect(html).toContain(
-        '<template style="display:none"></template><div>Child</div>',
-      );
+      // In SPA mode, the template marker must render immediately. Asserted separately from the
+      // title rather than as one substring, since React hoists the title ahead of the marker.
+      expect(html).toContain('<template style="display:none"></template>');
+      expect(html).toContain('<title>Home</title>');
     });
 
     it('should NOT render the marker template immediately in server-rendered baseline template mode', () => {
@@ -1009,13 +1262,108 @@ describe('UnirendHead Client-side Helpers', () => {
 
       const html = renderToString(
         <UnirendHead>
-          <div>Child</div>
+          <title>Home</title>
         </UnirendHead>,
       );
 
       // In server-rendered mode, it must defer template marker to avoid hydration mismatches
       expect(html).not.toContain('<template');
-      expect(html).toContain('<div>Child</div>');
+      expect(html).toContain('<title>Home</title>');
+    });
+
+    it('renders only the tags it manages into the React root', () => {
+      // The client half of the server test above. None of these is a tag UnirendHead collects, so
+      // rendering them here would put a script, a style, and a div in the body that the server
+      // never emitted, which hydration then has to reconcile.
+      (globalThis as any).window = {};
+
+      const html = renderToString(
+        <UnirendHead>
+          <title>Home</title>
+          <script src="/analytics.js" />
+          <style>{'body { color: red }'}</style>
+          <div>Child</div>
+        </UnirendHead>,
+      );
+
+      expect(html).not.toContain('<script');
+      expect(html).not.toContain('<style');
+      expect(html).not.toContain('<div>');
+      expect(html).toContain('<title>Home</title>');
+    });
+
+    it('keeps html and body out of the root even inside a fragment', () => {
+      // The case the old direct-children filter got wrong once fragments became transparent: a
+      // <body> rendered inside #root is invalid DOM, and it would now arrive there one level down.
+      (globalThis as any).window = {};
+
+      const html = renderToString(
+        <UnirendHead>
+          <>
+            <html lang="en" />
+            <body className="page" />
+            <title>Home</title>
+          </>
+        </UnirendHead>,
+      );
+
+      expect(html).not.toContain('<html');
+      expect(html).not.toContain('<body');
+      expect(html).toContain('<title>Home</title>');
+    });
+
+    it('renders mapped children and keyed fragments', () => {
+      // Every other test here writes literal JSX. A list built with .map() and an explicit keyed
+      // React.Fragment are the two shapes a rewrite of the walker would be most likely to break,
+      // and a lost key shows up as a console error rather than a failed assertion.
+      (globalThis as any).window = {};
+
+      const errors: string[] = [];
+      const originalError = console.error;
+      console.error = (...args: unknown[]) => {
+        errors.push(args.map((arg) => String(arg)).join(' '));
+      };
+
+      let html = '';
+
+      try {
+        html = renderToString(
+          <UnirendHead>
+            <React.Fragment key="grouped">
+              <title>Home</title>
+            </React.Fragment>
+            {['a', 'b'].map((name) => (
+              <meta key={name} name={name} content={name} />
+            ))}
+          </UnirendHead>,
+        );
+      } finally {
+        console.error = originalError;
+      }
+
+      expect(errors).toEqual([]);
+      expect(html).toContain('<title>Home</title>');
+      expect(html).toContain('name="a"');
+      expect(html).toContain('name="b"');
+    });
+
+    it('renders the tags inside a fragment, as the server now collects them', () => {
+      // A fragment is not a level of nesting, so both sides walk through it. Pinned on the client
+      // as well because this half already worked: React hoists whatever renders, which is exactly
+      // what made the server-only gap invisible.
+      (globalThis as any).window = {};
+
+      const html = renderToString(
+        <UnirendHead>
+          <>
+            <title>Home</title>
+            <meta name="description" content="Home description" />
+          </>
+        </UnirendHead>,
+      );
+
+      expect(html).toContain('<title>Home</title>');
+      expect(html).toContain('name="description"');
     });
   });
 

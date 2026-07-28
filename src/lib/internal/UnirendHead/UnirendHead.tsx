@@ -6,6 +6,11 @@ import { HTML_BOOLEAN_ATTRIBUTES } from '../html-utils/escape';
 import { getMetaKeys, getMetaKeysFromElement } from '../html-utils/meta-key';
 import { TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
 import { serializeStyleObject, toHeadAttributes } from './head-attributes';
+import {
+  collectUnmanagedChildMessages,
+  filterRenderableHeadChildren,
+  forEachHeadChild,
+} from './head-children';
 import { scanHeadKeys } from './head-keys';
 import {
   buildPageMetadataTags,
@@ -101,11 +106,18 @@ export function UnirendHead({ children, envelope }: UnirendHeadProps) {
   // server and the client see the identical merged list, so there is no parity to keep in sync.
   const pageMetadata = resolvePageMetadata(envelope);
 
-  // What the projection had to warn about, collected rather than printed. The server says it below
+  // What this render had to warn about, collected rather than printed. The server says it below
   // during this render, and the client hands it to its registration so the DOM sync can report the
   // mounted instances together, see updateDOM(). Empty outside development, and empty whenever the
-  // envelope was fine, so the shared empty is the common case.
+  // envelope and the children were both fine, so the shared empty is the common case.
   const tagMessages: string[] = [];
+
+  // Children this component does not manage, warned through the same list for the same reason: both
+  // sides now drop them, and a silent drop is what made the old server-only version so hard to
+  // find. Gated here rather than inside, so a production render does not walk the children at all.
+  if (isTagWarningEnabled()) {
+    collectUnmanagedChildMessages(children, tagMessages);
+  }
 
   const generatedTags =
     pageMetadata === null
@@ -292,17 +304,9 @@ export function UnirendHead({ children, envelope }: UnirendHeadProps) {
     return null;
   }
 
-  // Client-side path: filters out <html> and <body> elements from rendering inside the
-  // React root (preventing invalid nested DOM structures like <body> inside #root).
-  const filteredChildren = React.Children.toArray(effectiveChildren).filter(
-    (child) => {
-      if (React.isValidElement(child)) {
-        return child.type !== 'html' && child.type !== 'body';
-      }
-
-      return true;
-    },
-  );
+  // Client-side path: keeps only the tags React hoists, so the client renders exactly what the
+  // server collected. See filterRenderableHeadChildren().
+  const filteredChildren = filterRenderableHeadChildren(effectiveChildren);
 
   // Hoistable elements like <title>, <meta>, <link> are returned and hoisted by React 19.
   // The hidden template gives this UnirendHead instance a committed DOM position.
@@ -629,8 +633,8 @@ function reconcileTemplateMetas(declaredKeys: Set<string>): void {
 function getMetaKeysFromChildren(children: ReactNode): string[] {
   const keys = new Set<string>();
 
-  React.Children.forEach(children, (child) => {
-    if (!React.isValidElement(child) || child.type !== 'meta') {
+  forEachHeadChild(children, (child) => {
+    if (child.type !== 'meta') {
       return;
     }
 
@@ -1120,8 +1124,8 @@ function getTagAttributesFromChildren(
   let attrs: Record<string, string> | null = null;
 
   // Walk all children nodes looking for the target react element.
-  React.Children.forEach(children, (child) => {
-    if (React.isValidElement(child) && child.type === tagName) {
+  forEachHeadChild(children, (child) => {
+    if (child.type === tagName) {
       if (attrs === null) {
         attrs = {};
       }
@@ -1141,11 +1145,7 @@ function collectServerHead(
   collector: HeadCollector,
   children: ReactNode,
 ): void {
-  React.Children.forEach(children, (child) => {
-    if (!React.isValidElement(child)) {
-      return;
-    }
-
+  forEachHeadChild(children, (child) => {
     const type = child.type as string;
     const props = child.props as Record<string, unknown>;
 

@@ -226,7 +226,11 @@ The exported `PageMetadataTag`, `PageMetadataMetaTag`, and `PageMetadataLinkTag`
 - Omit the unused `meta` or `link` member. An entry naming both describes no single tag, so it renders neither and warns.
 - Additional attributes such as `media`, `hreflang`, `type`, and `sizes` must be strings.
 
-Because these values can arrive over the wire, envelope tags cannot include `http-equiv`, `style`, React-only props, or `on*` handlers. Stylesheet links are also rejected. Put those directly in trusted application code or `index.html` instead.
+Because these values can arrive over the wire, envelope tags cannot include `http-equiv`, `style`, React-only props, or `on*` handlers.
+
+Envelope links are also limited to relations that describe the page: `canonical`, `alternate`, `icon`, `apple-touch-icon`, `mask-icon`, `manifest`, `author`, `license`, `prev`, `next`, `search`, `me`, and `amphtml`. A `rel` is read as the token list HTML defines it to be, so every token has to be on that list. Relations that instead direct the browser to fetch a URL, `stylesheet` and the resource hints (`preload`, `modulepreload`, `preconnect`, `prefetch`, `dns-prefetch`), are rejected: they name assets your build knows about rather than facts about the page.
+
+This limits only the envelope. A `UnirendHead` child is trusted application code and may declare any relation, so a page that owns a stylesheet or a preload writes it as a child, or in `index.html`.
 
 Named fields win over custom entries with the same non-repeatable key. Repeatable tags such as multiple `og:image` values and alternate links are kept. Invalid or dropped custom entries produce a development warning.
 
@@ -269,7 +273,9 @@ This override applies only within one `UnirendHead`. Tags from separate instance
 
 In development, invalid or dropped `meta.page.tags` entries warn in the server terminal during SSR or SSG and in the browser console on the client. Named fields that are absent, empty, or malformed are skipped silently because they represent missing metadata.
 
-If there is no warning, first check that the element is a supported direct child. `UnirendHead` manages only `<title>`, `<meta>`, `<link>`, `<html>`, and `<body>`. In particular, do not put a `<script>` inside it. Scripts are not collected on the server, so including one can create different server and client output. Render JSON-LD as a normal `<script type="application/ld+json">` in the component tree instead.
+A child `UnirendHead` does not manage warns on its own and is dropped from both the server and the client, so the warning names the element to look for. `UnirendHead` manages only `<title>`, `<meta>`, `<link>`, `<html>`, and `<body>`, whether written directly or inside a fragment. In particular, do not put a `<script>` inside it. Render JSON-LD as a normal `<script type="application/ld+json">` in the component tree instead.
+
+If there is no warning at all, check that the tag is really a child of a `UnirendHead`. A component placed inside one is not walked into, since its tags do not exist until React renders it, so `<SharedMetas />` warns rather than contributing. See [Supported Tags](#supported-tags) for the pattern that does work.
 
 If a loader supplies the JSON-LD, return the structured object in the envelope's `data` rather than `meta.page.tags`. The page can pass the same envelope to `UnirendHead` for metadata and render the script separately:
 
@@ -316,11 +322,36 @@ Also check whether an `index.html` meta was replaced by a page tag with the same
 | `<html>`  | Sets attributes on the document `<html>` element.               |
 | `<body>`  | Sets attributes on the document `<body>` element.               |
 
-Other child elements are silently ignored on the server (not collected). On the client, `<title>`, `<meta>`, and `<link>` are natively hoisted by React 19, whereas `<html>` and `<body>` are filtered out from rendering inside the root element and instead applied to the DOM root elements using a client-side stack manager.
+On the client, `<title>`, `<meta>`, and `<link>` are natively hoisted by React 19, whereas `<html>` and `<body>` are filtered out from rendering inside the root element and instead applied to the DOM root elements using a client-side stack manager.
+
+Any other child is dropped, on both the server and the client, and produces a development warning naming it. That includes `<script>` and `<style>`: `UnirendHead` does not manage them, and rendering them on the client while the server collected nothing would mean a tag that is absent from the SSR HTML and appears after hydration. Load scripts and stylesheets through your build or `index.html`, or, for third-party tags like analytics and support chat widgets, through the `templateSlots` option documented in [docs/ssr.md](./ssr.md#template-slots).
+
+**Fragments are transparent.** A fragment is not a level of nesting, so the tags inside one are collected as though written in its place, at any depth:
+
+```tsx
+<UnirendHead>
+  <>
+    <title>Home - My App</title>
+    <meta name="description" content="Welcome" />
+  </>
+</UnirendHead>
+```
+
+**Components are not walked into.** `<SharedMetas />` has not rendered when the server collects, so there are no tags to read yet. Share tags by giving the component its own `UnirendHead`, which works on both sides, since multiple instances are the normal way to compose:
+
+```tsx
+function SharedMetas() {
+  return (
+    <UnirendHead>
+      <meta name="description" content="Welcome" />
+    </UnirendHead>
+  );
+}
+```
 
 #### Preloading Images
 
-`<link rel="preload">` works and is useful for hinting the browser to fetch a hero or above-the-fold image before it is discovered in the page body:
+`<link rel="preload">` works as a child and is useful for hinting the browser to fetch a hero or above-the-fold image before it is discovered in the page body. It is a child-only relation: [Custom Tags](#custom-tags) explains why an envelope cannot ask for one.
 
 ```tsx
 import { UnirendHead } from 'unirend/client';

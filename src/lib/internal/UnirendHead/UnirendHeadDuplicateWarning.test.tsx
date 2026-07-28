@@ -322,6 +322,30 @@ describe('UnirendHead duplicate warning (server render)', () => {
     expect(warnings[0]).toContain('Page description');
   });
 
+  it('sees a key declared inside a fragment', () => {
+    // scanHeadKeys walks through fragments now, so a tag wrapped in one claims its key like any
+    // other. Before that it claimed nothing, and this pair went unreported on the server while the
+    // client, which renders whatever React hoists, warned about it.
+    overrideDevMode(true);
+
+    const warnings = collectWarnings(
+      <>
+        <UnirendHead>
+          <>
+            <meta name="description" content="Layout description" />
+          </>
+        </UnirendHead>
+        <UnirendHead>
+          <meta name="description" content="Page description" />
+        </UnirendHead>
+      </>,
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('name=description');
+    expect(warnings[0]).toContain('Layout description');
+  });
+
   it('warns when two separate instances declare the same canonical link', () => {
     overrideDevMode(true);
 

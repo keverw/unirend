@@ -1243,26 +1243,28 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
   });
 
   it('lets a child replace a repeatable relation the handler listed', () => {
-    // preload is the case that stings: a page preloading one asset of its own is not thinking
-    // about the handler's at all. The rule is the same one everywhere, so the entries go, and the
-    // warning below is what keeps that from being a silent loss.
+    // alternate is the case that stings: a page declaring one language variant of its own is not
+    // thinking about the handler's list at all. The rule is the same one everywhere, so the entries
+    // go, and the warning below is what keeps that from being a silent loss.
     const collector = collect(
       <UnirendHead
         envelope={createSuccessEnvelope({
           title: 'Home',
           description: 'Home description',
           tags: [
-            { link: { rel: 'preload', as: 'font', href: '/a.woff2' } },
-            { link: { rel: 'preload', as: 'font', href: '/b.woff2' } },
+            { link: { rel: 'alternate', hreflang: 'fr', href: '/fr' } },
+            { link: { rel: 'alternate', hreflang: 'de', href: '/de' } },
           ],
         })}
       >
-        <link rel="preload" as="image" href="/hero.png" />
+        <link rel="alternate" hrefLang="es" href="/es" />
       </UnirendHead>,
     );
 
+    // The child keeps its React spelling, since HTML matches attribute names case-insensitively
+    // and only className and httpEquiv are translated.
     expect(collector.links).toEqual([
-      { rel: 'preload', as: 'image', href: '/hero.png' },
+      { rel: 'alternate', hrefLang: 'es', href: '/es' },
     ]);
   });
 
@@ -1565,6 +1567,103 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
     ]);
   });
 
+  it('skips a link asking for a resource hint', () => {
+    // A hint names an asset the build knows about and a page handler does not, and it points the
+    // browser at a host the payload chose. Cheaper than a stylesheet and still not page metadata,
+    // so the relation list is an allowlist and these are simply not on it.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: [
+            { link: { rel: 'preload', href: 'https://example.com/a.js' } },
+            {
+              link: { rel: 'modulepreload', href: 'https://example.com/b.js' },
+            },
+            { link: { rel: 'preconnect', href: 'https://cdn.example.com' } },
+            { link: { rel: 'dns-prefetch', href: 'https://cdn.example.com' } },
+            { link: { rel: 'prefetch', href: 'https://example.com/next' } },
+          ],
+        })}
+      />,
+    );
+
+    expect(collector.links).toEqual([]);
+  });
+
+  it('keeps every relation that describes the page', () => {
+    // The other half of the allowlist. These say where the page lives, what else it is available
+    // as, what to draw for it, and who wrote it, none of which directs a fetch.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: [
+            { link: { rel: 'icon', href: '/icon.png', sizes: '32x32' } },
+            { link: { rel: 'apple-touch-icon', href: '/touch.png' } },
+            { link: { rel: 'manifest', href: '/app.webmanifest' } },
+            { link: { rel: 'author', href: 'https://example.com/about' } },
+            { link: { rel: 'license', href: 'https://example.com/license' } },
+            { link: { rel: 'next', href: 'https://example.com/page/2' } },
+            { link: { rel: 'search', href: '/opensearch.xml' } },
+          ],
+        })}
+      />,
+    );
+
+    expect(collector.links).toEqual([
+      { rel: 'icon', href: '/icon.png', sizes: '32x32' },
+      { rel: 'apple-touch-icon', href: '/touch.png' },
+      { rel: 'manifest', href: '/app.webmanifest' },
+      { rel: 'author', href: 'https://example.com/about' },
+      { rel: 'license', href: 'https://example.com/license' },
+      { rel: 'next', href: 'https://example.com/page/2' },
+      { rel: 'search', href: '/opensearch.xml' },
+    ]);
+  });
+
+  it('keeps a multi-token rel when every token is permitted', () => {
+    // The allowlist is read token by token, so a list has to clear all of them rather than the
+    // first. `shortcut icon` is the spelling half the web writes, this project's own scaffolded
+    // index.html included, and refusing it while the warning listed `icon` as permitted would read
+    // as the filter contradicting itself.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: [
+            { link: { rel: 'shortcut icon', href: '/favicon.ico' } },
+            { link: { rel: 'alternate canonical', href: '/canonical' } },
+          ],
+        })}
+      />,
+    );
+
+    expect(collector.links).toEqual([
+      { rel: 'shortcut icon', href: '/favicon.ico' },
+      { rel: 'alternate canonical', href: '/canonical' },
+    ]);
+  });
+
+  it('skips a link whose rel names no relation at all', () => {
+    // Whitespace passes the populated check and names nothing, so an allowlist read token by token
+    // would otherwise clear it vacuously and render a link no head key can identify.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: [{ link: { rel: '   ', href: 'https://example.com/x' } }],
+        })}
+      />,
+    );
+
+    expect(collector.links).toEqual([]);
+  });
+
   describe('the development-only warning for a dropped entry', () => {
     afterEach(() => {
       overrideDevMode(false);
@@ -1659,7 +1758,7 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       });
 
       expect(warnings).toHaveLength(1);
-      expect(warnings[0]).toContain('an envelope may not load');
+      expect(warnings[0]).toContain('not a relation an envelope may ask for');
     });
 
     it('says it again on the next request, since the record went with the last one', () => {
@@ -1703,7 +1802,10 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
 
       expect(warnings).toHaveLength(1);
       expect(warnings[0]).toContain('meta.page.tags[0] (stylesheet)');
-      expect(warnings[0]).toContain('an envelope may not load');
+      expect(warnings[0]).toContain('not a relation an envelope may ask for');
+      // Names what is permitted, since the reason an entry was refused is only actionable next to
+      // the list it failed against.
+      expect(warnings[0]).toContain('canonical, alternate, icon');
       expect(warnings[0]).toContain('Declare it as a UnirendHead child');
       // The shape advice would be wrong here, the entry had both rel and href.
       expect(warnings[0]).not.toContain('a link needs rel and href');
@@ -1781,21 +1883,21 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
               title: 'Home',
               description: 'Home description',
               tags: [
-                { link: { rel: 'preload', as: 'font', href: '/a.woff2' } },
-                { link: { rel: 'preload', as: 'font', href: '/b.woff2' } },
+                { link: { rel: 'alternate', hreflang: 'fr', href: '/fr' } },
+                { link: { rel: 'alternate', hreflang: 'de', href: '/de' } },
               ],
             })}
           >
-            <link rel="preload" as="image" href="/hero.png" />
+            <link rel="alternate" hrefLang="es" href="/es" />
           </UnirendHead>,
         );
       });
 
       expect(warnings).toHaveLength(1);
       expect(warnings[0]).toContain(
-        '2 meta.page.tags entries for rel=preload were dropped',
+        '2 meta.page.tags entries for rel=alternate were dropped',
       );
-      expect(warnings[0]).toContain('"/a.woff2", "/b.woff2"');
+      expect(warnings[0]).toContain('"/fr", "/de"');
     });
 
     it('stays silent for an og member sub-property a child swept up', () => {
@@ -2373,9 +2475,9 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
           tags: [
             {
               link: {
-                rel: 'preload',
-                href: 'https://cdn.example.com/hero.jpg',
-                as: 'image',
+                rel: 'icon',
+                href: 'https://cdn.example.com/icon.png',
+                sizes: '32x32',
                 crossOrigin: 'anonymous',
                 referrerPolicy: 'no-referrer',
               },
@@ -2387,9 +2489,9 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
 
     expect(collector.links).toEqual([
       {
-        rel: 'preload',
-        href: 'https://cdn.example.com/hero.jpg',
-        as: 'image',
+        rel: 'icon',
+        href: 'https://cdn.example.com/icon.png',
+        sizes: '32x32',
         crossOrigin: 'anonymous',
         referrerPolicy: 'no-referrer',
       },

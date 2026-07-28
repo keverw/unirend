@@ -34,30 +34,69 @@ const FORBIDDEN_TAG_ATTRIBUTES = new Set(
 );
 
 /**
- * Link relations an envelope-provided tag may not ask for.
+ * Link relations an envelope-provided tag may ask for.
  *
- * `http-equiv` is dropped from a meta because it instructs the browser rather than describing the
- * page, and `rel="stylesheet"` is the same argument on a link: it is the one relation whose value
- * the browser fetches and then applies to the document, which is enough to restyle the page over
- * its own content or to read it back out through attribute selectors. Every other relation either
- * describes the page (`canonical`, `alternate`, `icon`) or only warms the cache (`preload`,
- * `modulepreload`, `dns-prefetch`), so those are left alone. Declare a stylesheet as a
- * `UnirendHead` child, or in `index.html`, where the URL is not wire-controlled.
+ * An allowlist, unlike `FORBIDDEN_TAG_ATTRIBUTES` above, because the two answer different
+ * questions. An attribute is named on a tag the envelope already described, so the set worth
+ * refusing is small and known. A relation decides what the browser does with a URL that arrived
+ * over the wire, and that set grows: the resource hints were not always there, and whatever
+ * replaces them would be permitted by default under a denylist. Deny by default is the posture the
+ * rest of this file already takes toward the envelope.
+ *
+ * What is listed describes the page: where it canonically lives, what else it is available as, what
+ * to draw for it, who wrote it. What is deliberately absent directs a fetch. `stylesheet` is the
+ * sharpest case, the one relation whose value the browser retrieves and then applies to the
+ * document, which is enough to restyle the page over its own content or to read it back out through
+ * attribute selectors. The resource hints (`preload`, `modulepreload`, `preconnect`, `prefetch`,
+ * `dns-prefetch`) only warm the cache, but they name assets that a build knows about and a page
+ * handler does not, and they point the visitor's browser at a host the payload chose. Neither is
+ * page metadata, which is what this field is called.
+ *
+ * None of this narrows what a page itself may declare. A `UnirendHead` child goes into the
+ * collector with no relation filtering at all, so a page that genuinely owns a stylesheet or a
+ * preload writes it as a child, or in `index.html`, where the URL is not wire-controlled.
  */
-const FORBIDDEN_LINK_RELATIONS = new Set(['stylesheet']);
+const ALLOWED_LINK_RELATIONS = new Set([
+  'canonical',
+  'alternate',
+  'icon',
+  // `rel="shortcut icon"` is the spelling half the web still writes, this project's own scaffolded
+  // index.html included. Every token has to pass, so leaving `shortcut` out would refuse it while
+  // the warning went on listing `icon` as permitted, which reads as the filter contradicting
+  // itself. It names no relation of its own and directs no fetch that `icon` does not.
+  'shortcut',
+  'apple-touch-icon',
+  'apple-touch-icon-precomposed',
+  'mask-icon',
+  'manifest',
+  'author',
+  'license',
+  'prev',
+  'next',
+  'search',
+  'me',
+  'amphtml',
+]);
 
 /**
- * Whether a `rel` names a forbidden relation.
+ * Whether every relation a `rel` names is one an envelope may ask for.
  *
  * Read as the space-separated token list HTML defines it to be, and lowercased, since
  * `rel="alternate STYLESHEET"` is a stylesheet to the browser and would otherwise be a filter the
- * caller opts out of by writing two tokens.
+ * caller opts out of by writing two tokens. Every token has to pass, because a list is all of its
+ * relations at once rather than the most permissive one in it.
+ *
+ * A `rel` of nothing but whitespace names no relation at all, so it fails here rather than passing
+ * vacuously. It would otherwise render a link that no key can identify, which is the same hole the
+ * lowercasing above closes: invisible to the child-override check and to the duplicate warning.
  */
-function hasForbiddenLinkRelation(rel: string): boolean {
-  return rel
-    .toLowerCase()
-    .split(/\s+/)
-    .some((token) => FORBIDDEN_LINK_RELATIONS.has(token));
+function hasOnlyAllowedLinkRelations(rel: string): boolean {
+  const tokens = rel.toLowerCase().split(/\s+/).filter(Boolean);
+
+  return (
+    tokens.length > 0 &&
+    tokens.every((token) => ALLOWED_LINK_RELATIONS.has(token))
+  );
 }
 
 /**
@@ -258,14 +297,15 @@ function buildCustomTag(
       return null;
     }
 
-    if (hasForbiddenLinkRelation(attributes.rel)) {
+    if (!hasOnlyAllowedLinkRelations(attributes.rel)) {
       warnTagEntrySkipped(
         messages,
         index,
-        'its rel names a stylesheet, which an envelope may not load',
+        'its rel is not a relation an envelope may ask for',
         attributes,
         dropped,
-        '  A stylesheet is applied to the document rather than describing it, and this URL arrives over the wire.\n' +
+        `  An envelope link may only describe the page: ${[...ALLOWED_LINK_RELATIONS].join(', ')}.\n` +
+          '  A stylesheet or a resource hint instead directs the browser to fetch a URL that arrived over the wire.\n' +
           '  Declare it as a UnirendHead child, or in index.html, where it is not wire-controlled.',
       );
       return null;
@@ -635,8 +675,9 @@ function getTagWarningValue(tag: ReactElement): string {
  * A named field a child replaces stays quiet, because that is the documented point of the prop and
  * saying so on every page would be noise. This is the other half and reads nothing like it: the
  * handler wrote a list, and some of it is not in the head. Left silent, the only way to find out is
- * to notice a tag missing and go looking for who took it, and `rel="preload"` is the case that
- * stings, since a page preloading one asset of its own is not thinking about the handler's at all.
+ * to notice a tag missing and go looking for who took it, and `rel="alternate"` is the case that
+ * stings, since a page declaring one language variant of its own is not thinking about the
+ * handler's list at all.
  */
 function warnTagEntriesLostToChild(
   messages: string[],

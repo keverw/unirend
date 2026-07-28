@@ -1,7 +1,7 @@
-import React from 'react';
 import type { ReactNode } from 'react';
 import { getMetaKeys } from '../html-utils/meta-key';
 import { toHeadAttributes } from './head-attributes';
+import { forEachHeadChild } from './head-children';
 
 /**
  * The identity of a head tag within a single `UnirendHead`.
@@ -111,18 +111,15 @@ export interface HeadKeyScan {
 /**
  * Walk a child list and record the head keys it declares.
  *
- * Only direct children are considered, matching how the rest of `UnirendHead` collects: the
- * server collector and the client attribute readers all walk the same single level.
+ * Fragments are walked through and nothing else is, matching how the rest of `UnirendHead`
+ * collects: the server collector and the client attribute readers all use the same walker, so a
+ * child that claims a key here is a child that reaches the head there. See `forEachHeadChild()`.
  */
 export function scanHeadKeys(children: ReactNode): HeadKeyScan {
   const claimed = new Set<string>();
   const values = new Map<string, string>();
 
-  React.Children.forEach(children, (child) => {
-    if (!React.isValidElement(child)) {
-      return;
-    }
-
+  forEachHeadChild(children, (child) => {
     const type = child.type;
     const props = child.props as Record<string, unknown>;
 
