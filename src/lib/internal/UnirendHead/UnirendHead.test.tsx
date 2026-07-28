@@ -1029,6 +1029,9 @@ describe('UnirendHead Client-side Helpers', () => {
     });
 
     it('maps boolean false values to "false" override marker for boolean attributes', () => {
+      // Only the boolean gets the marker. A string spelling of it does not, because React reads
+      // any string as present and writes the bare attribute, so treating `inert="false"` as a
+      // removal would leave the server and the client saying opposite things about the same tag.
       const props = {
         hidden: false,
         disabled: false,
@@ -1039,7 +1042,7 @@ describe('UnirendHead Client-side Helpers', () => {
       expect(result).toEqual({
         hidden: 'false',
         disabled: 'false',
-        inert: 'false',
+        inert: '',
         autoplay: '',
       });
     });

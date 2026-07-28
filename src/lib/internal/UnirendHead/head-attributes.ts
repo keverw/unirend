@@ -87,7 +87,14 @@ function toHeadAttributeValue(key: string, value: unknown): string | null {
   const normKey = key.toLowerCase();
   if (HTML_BOOLEAN_ATTRIBUTES.has(normKey)) {
     if (typeof value === 'boolean' || value === 'true' || value === 'false') {
-      return value === true || value === 'true' ? '' : 'false';
+      // Only an actual boolean false asks for the attribute to be left out. A string never does,
+      // however it is spelled, because React reads any string as present: it writes `disabled=""`
+      // for `disabled="false"` and warns that the browser will read it as truthy. Treating the
+      // string as the removal marker had the server strip an attribute React went on to set, so a
+      // `<link rel="stylesheet" disabled="false">` was live in the served HTML and off after
+      // hydration. That spelling is the only one an envelope can send, since a `meta.page.tags`
+      // value must be a string. See isRemovedBooleanAttribute() for what the marker means.
+      return value === false ? 'false' : '';
     }
   }
 
