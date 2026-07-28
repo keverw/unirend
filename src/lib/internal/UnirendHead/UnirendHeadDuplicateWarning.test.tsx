@@ -17,8 +17,6 @@ import {
 import { _test as tagsTest } from './page-metadata-tags';
 import type { PageSuccessResponse } from '../../api-envelope/api-envelope-types';
 
-let nextScopeID = 0;
-
 function createEmptyCollector(): HeadCollector {
   return {
     title: '',
@@ -123,6 +121,32 @@ describe('duplicate head key helpers', () => {
       expect(isStructuredParent('property=og:image')).toBe(true);
       expect(isRepeatableHeadKey('name=og:image')).toBe(false);
       expect(isRepeatableHeadKey('property=og:image')).toBe(true);
+    });
+  });
+
+  describe('takeWarningScopeID', () => {
+    it('never hands out an ID twice', () => {
+      // The one property anything asks of it. Two mounted instances holding one ID would read as
+      // a single instance to updateDOM(), which collides a key with itself and reports nothing,
+      // so the whole duplicate warning goes quiet for that pair.
+      const taken = Array.from({ length: 100 }, () =>
+        _test.takeWarningScopeID(),
+      );
+
+      expect(new Set(taken).size).toBe(taken.length);
+    });
+
+    it('is not rewound by resetDuplicateWarnings', () => {
+      // The records that key on an ID are derived and can be thrown away freely. The IDs are
+      // identity and cannot: rewinding the counter here would hand a fresh registration one a
+      // still-mounted instance already holds, which is the collision above. Tidying this reset
+      // into "clear everything in this module" is the obvious way to arrive there, and it fails
+      // silently, so it is pinned rather than left to the comment on nextWarningScopeID.
+      const before = _test.takeWarningScopeID();
+
+      _test.resetDuplicateWarnings();
+
+      expect(_test.takeWarningScopeID()).toBeGreaterThan(before);
     });
   });
 
@@ -663,7 +687,12 @@ describe('UnirendHead duplicate warning (server render)', () => {
 });
 
 describe('UnirendHead duplicate warning (client DOM sync)', () => {
-  const { getRegisteredList, updateDOM, resetInitialAttrs } = _test;
+  const {
+    getRegisteredList,
+    updateDOM,
+    resetInitialAttrs,
+    takeWarningScopeID,
+  } = _test;
 
   let originalWindow: unknown;
   let originalDocument: unknown;
@@ -706,7 +735,9 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
       metaKeys: [],
       headKeys,
       tagMessages: [] as string[],
-      warningScopeID: (nextScopeID += 1),
+      // The production allocator, so these registrations are identified exactly as mounted ones
+      // are. See the note on _test.takeWarningScopeID.
+      warningScopeID: takeWarningScopeID(),
       markerRef: { current: null },
     };
 
@@ -999,8 +1030,11 @@ describe('UnirendHead duplicate warning (client DOM sync)', () => {
     const message =
       '[unirend] UnirendHead: meta.page.tags[0] (app-version) was skipped.';
 
-    // The instance renders once and keeps that identity across the replay.
-    const scopeID = 4242;
+    // The instance renders once and keeps that identity across the replay. Taken from the real
+    // allocator rather than written as a constant, since a constant is the premise this test is
+    // meant to be checking the consequences of: the component takes one of these in lazy state,
+    // which outlives the replay, and hands the same one to whichever registration exists.
+    const scopeID = takeWarningScopeID();
 
     function mount() {
       const entry = register(new Map([['name=description', 'Page']]));

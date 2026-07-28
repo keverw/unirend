@@ -1361,6 +1361,14 @@ export const _test = {
     warnedDuplicateKeys = new Set();
     warnedTagMessages = new Set();
   },
+
+  /**
+   * The real allocator, so a test registration is identified the way a mounted one is rather than
+   * by a counter the suite keeps of its own. A parallel implementation would agree with this one
+   * on the only property either is asked for, uniqueness, right up until this one stopped having
+   * it, which is the case worth catching. See `nextWarningScopeID` for why that is silent.
+   */
+  takeWarningScopeID,
 };
 
 /**
