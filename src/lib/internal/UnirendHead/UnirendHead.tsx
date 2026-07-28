@@ -11,7 +11,7 @@ import {
   filterRenderableHeadChildren,
   forEachHeadChild,
 } from './head-children';
-import { scanHeadKeys } from './head-keys';
+import { scanHeadKeys, withCanonicalIdentityNames } from './head-keys';
 import type { HeadKeyScan } from './head-keys';
 import {
   buildPageMetadataTags,
@@ -678,8 +678,15 @@ function getMetaKeysFromChildren(children: ReactNode): string[] {
     // Every identity the meta carries, matching what the server's template merge strips by. One
     // written as `name="twitter:title" property="og:site_name"` overrides a template meta of
     // either identity, so both have to be in here or the two sides disagree after a navigation.
+    //
+    // Canonicalized first, for the same reason and through the same helper `scanHeadKeys()` uses.
+    // The server reads this child back from the served head, where the name is already lowercased,
+    // so a `<meta NAME="viewport">` strips the template's copy there. Read as written here it
+    // carries no key, and the baseline meta the server stripped would be appended back beside it.
     for (const key of getMetaKeys(
-      toHeadAttributes(child.props as Record<string, unknown>),
+      withCanonicalIdentityNames(
+        toHeadAttributes(child.props as Record<string, unknown>),
+      ),
     )) {
       keys.add(key);
     }

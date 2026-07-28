@@ -163,8 +163,13 @@ const IDENTITY_CHILD_ATTRIBUTES = new Set([
  * the DOM: it sets each prop in turn, and two casings of one name are one `setAttribute` target.
  * The common case is a single odd spelling, and a child with none at all gets its record back
  * untouched rather than copied.
+ *
+ * Exported because `scanHeadKeys()` is not the only reader of a child's identity. The client's
+ * template-meta reconciliation reads the same children through `getMetaKeysFromChildren()`, and
+ * left out of this it answered with no key at all for an oddly spelled `name`, so the page claimed
+ * the key everywhere except there and the template's copy was appended back beside it.
  */
-function withCanonicalIdentityNames(
+export function withCanonicalIdentityNames(
   attrs: Record<string, string>,
 ): Record<string, string> {
   const hasOddSpelling = Object.keys(attrs).some(
