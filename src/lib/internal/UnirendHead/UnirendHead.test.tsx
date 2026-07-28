@@ -6,6 +6,7 @@ import { overrideDevMode } from 'lifecycleion/dev-mode';
 import { UnirendHead, _test } from './UnirendHead';
 import { UnirendHeadProvider } from './UnirendHeadProvider';
 import { scanHeadKeys } from './head-keys';
+import { filterRenderableHeadChildren } from './head-children';
 import type { HeadCollector } from './context';
 import { TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
 
@@ -391,6 +392,8 @@ describe('the development-only warning for an unmanaged child', () => {
     // misses all three and falls through to the vaguest name this has. That is the worst place to
     // lose the name: the message deduplicates on what it prints, so three differently wrapped
     // components would collapse into one entry naming none of them.
+    //
+    // lazy() is the one that has no name to recover, so it gets its own tests below.
     overrideDevMode(true);
 
     const Memoized = React.memo(function MemoizedMetas() {
@@ -415,6 +418,63 @@ describe('the development-only warning for an unmanaged child', () => {
     expect(warnings[0]).toContain('<ForwardedMetas />');
   });
 
+  it('reads an unnamed lazy as a component rather than as an element', () => {
+    // A lazy is the wrapper that cannot be unwrapped to a name: it holds `_payload` and `_init`
+    // rather than the component, and the component is exactly what has not loaded. Recognizing
+    // the shape is all there is to do, and it is worth doing — "an element" says nothing about
+    // what kind of mistake this is, while "a component" points at the fix the message then gives.
+    overrideDevMode(true);
+
+    const Lazy = React.lazy(() =>
+      Promise.resolve<{ default: React.ComponentType }>({
+        default: function LazyMetas() {
+          return null;
+        },
+      }),
+    );
+
+    const warnings = renderChildren(<Lazy />);
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain(
+      'a component is not a tag UnirendHead manages',
+    );
+    expect(warnings[0]).toContain('Give it its own UnirendHead');
+  });
+
+  it('prefers a displayName over the function name underneath it', () => {
+    // displayName comes first at every level of the unwrapping, since that is what a component
+    // carries when the function behind it is anonymous or minified into something meaningless.
+    overrideDevMode(true);
+
+    function Metas() {
+      return null;
+    }
+
+    Metas.displayName = 'SharedMetas';
+
+    const warnings = renderChildren(<Metas />);
+
+    expect(warnings[0]).toContain('<SharedMetas />');
+    expect(warnings[0]).not.toContain('<Metas />');
+  });
+
+  it('falls back to "an element" for a type it cannot place at all', () => {
+    // Suspense is a symbol rather than a function or a wrapper object, so every branch above it
+    // misses. It still has to name the child something rather than throw on the way to the
+    // message, which is the only promise this fallback makes.
+    overrideDevMode(true);
+
+    const warnings = renderChildren(
+      <React.Suspense fallback={null}>
+        <title>Home</title>
+      </React.Suspense>,
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('an element is not a tag UnirendHead manages');
+  });
+
   it('counts the names it prints, not the children it found', () => {
     // Two of one kind is one name, so the sentence has to stay singular or it disagrees with the
     // list right beside it.
@@ -436,6 +496,98 @@ describe('the development-only warning for an unmanaged child', () => {
     overrideDevMode(false);
 
     expect(renderChildren(<div>Child</div>)).toEqual([]);
+  });
+});
+
+describe('the head keys a child claims', () => {
+  /**
+   * A child written with an attribute spelling TSX will not accept, which is the whole of what is
+   * under test: `REL` is a `rel` to the browser, and nothing stops a page from writing it.
+   */
+  function oddChild(
+    type: 'meta' | 'link',
+    props: Record<string, string>,
+  ): React.ReactElement {
+    return React.createElement(type, props);
+  }
+
+  it('claims the key of an identity attribute written in any casing', () => {
+    // HTML matches attribute names case-insensitively, and React's setAttribute lands on the same
+    // attribute the browser would, so `REL` reaches the head as a `rel` on both sides. A property
+    // lookup is the odd one out: read as written, the child would claim no key at all, override
+    // no envelope field, and be invisible to the duplicate warning, while its tag shipped beside
+    // the one it was meant to replace.
+    const scan = scanHeadKeys([
+      oddChild('link', { REL: 'canonical', HREF: 'https://example.com/' }),
+      oddChild('meta', { NAME: 'description', CONTENT: 'Child description' }),
+      oddChild('meta', { 'HTTP-EQUIV': 'content-language', content: 'en' }),
+    ]);
+
+    expect([...scan.claimed].sort()).toEqual([
+      'http-equiv=content-language',
+      'name=description',
+      'rel=canonical',
+    ]);
+    expect(scan.values.get('rel=canonical')).toBe('https://example.com/');
+    expect(scan.values.get('name=description')).toBe('Child description');
+  });
+
+  it('keeps the last spelling when a child writes one attribute two ways', () => {
+    // Which is what React leaves in the DOM: it sets each prop in turn, and two casings of one
+    // name are one setAttribute target, so the later write is the value the browser ends up with.
+    const scan = scanHeadKeys(
+      oddChild('meta', { NAME: 'first', name: 'second', content: 'x' }),
+    );
+
+    expect([...scan.claimed]).toEqual(['name=second']);
+  });
+
+  it('leaves the ordinary spelling untouched', () => {
+    const scan = scanHeadKeys(
+      <meta name="description" content="Child description" />,
+    );
+
+    expect([...scan.claimed]).toEqual(['name=description']);
+    expect(scan.values.get('name=description')).toBe('Child description');
+  });
+
+  it('keeps a non-identity attribute exactly as React spelled it', () => {
+    // crossOrigin and referrerPolicy warn when lowercased, and neither carries an identity, so
+    // only the attributes a key is read from are re-keyed.
+    const scan = scanHeadKeys(
+      oddChild('link', {
+        REL: 'preload',
+        href: '/hero.png',
+        crossOrigin: 'anonymous',
+      }),
+    );
+
+    expect([...scan.claimed]).toEqual(['rel=preload']);
+    expect(scan.values.get('rel=preload')).toBe('/hero.png');
+  });
+});
+
+describe('the children the client renders', () => {
+  it('keeps only the tags React hoists, and drops what is not an element', () => {
+    // html and body are managed but never rendered into the root, since a <body> inside a div is
+    // invalid DOM. A bare string is passed over the same way, which is what a stray space or an
+    // interpolation that rendered to nothing leaves behind.
+    const rendered = filterRenderableHeadChildren([
+      <title key="t">Home</title>,
+      <meta key="m" name="description" content="Home description" />,
+      <link key="l" rel="canonical" href="https://example.com/" />,
+      <html key="h" lang="en" />,
+      <body key="b" className="page" />,
+      <div key="d">Body content</div>,
+      '  ',
+      null,
+    ]);
+
+    expect(
+      rendered.map((child) =>
+        React.isValidElement(child) ? child.type : child,
+      ),
+    ).toEqual(['title', 'meta', 'link']);
   });
 });
 

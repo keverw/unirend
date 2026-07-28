@@ -105,14 +105,20 @@ export function filterRenderableHeadChildren(children: ReactNode): ReactNode[] {
  * A component is named where React knows one, since `<SharedMetas />` is the thing to go looking
  * for and "a component" is not.
  *
- * `memo()`, `forwardRef()`, and `lazy()` are unwrapped rather than given up on, because a wrapper
+ * `memo()`, `forwardRef()`, and `lazy()` are recognized rather than given up on, because a wrapper
  * makes the element's type an object rather than a function: a plain `typeof type === 'function'`
  * test misses all three and falls through to the vaguest answer this has. That is the case where
  * the name matters most, since the warning deduplicates by what it prints, and three differently
  * wrapped components would otherwise collapse into one anonymous entry naming none of them.
  *
  * `displayName` comes first at every level, since that is what a wrapper carries when the function
- * underneath is anonymous. `type` is what memo and lazy hold, `render` is what forwardRef holds.
+ * underneath is anonymous. `type` is what memo holds, `render` is what forwardRef holds.
+ *
+ * A lazy is the one that cannot be unwrapped to a name. It holds `_payload` and `_init` rather
+ * than the component, and the component is exactly what has not loaded yet — a child placed here
+ * never renders, so nothing will ever resolve it. Naming it takes a `displayName` on the lazy
+ * itself. Failing that it still reads as a component rather than as an unrecognizable element,
+ * which is the difference between a warning that points somewhere and one that does not.
  */
 function describeChild(type: unknown): string {
   if (typeof type === 'string') {
@@ -133,12 +139,16 @@ function describeChild(type: unknown): string {
 /**
  * Whether a type is one of React's wrapper objects, so an unnamed one still reads as a component
  * rather than as something unrecognizable.
+ *
+ * `_payload` is what makes a lazy one of these. It carries neither `type` nor `render`, so the
+ * two fields the unwrapping walks are not enough on their own here, and without this a lazy child
+ * is described as "an element" and the warning names nothing to go looking for.
  */
 function isWrappedComponent(type: unknown): boolean {
   return (
     typeof type === 'object' &&
     type !== null &&
-    ('type' in type || 'render' in type)
+    ('type' in type || 'render' in type || '_payload' in type)
   );
 }
 

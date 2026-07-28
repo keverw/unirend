@@ -227,6 +227,38 @@ describe('UnirendHead envelope projection (server collection)', () => {
     ]);
   });
 
+  it('lets a child win when it spells its identity attribute in another casing', () => {
+    // HTML matches attribute names case-insensitively, so `REL` and `NAME` reach the head as a
+    // `rel` and a `name`: React's setAttribute lands on the same attribute the browser would, and
+    // the server's template merge lowercases the name when it parses the served head. Read as
+    // written, the child would claim no key, so the envelope's canonical and description would be
+    // built anyway and ship beside the ones the page declared to replace them.
+    const collector = collect(
+      <UnirendHead envelope={createSuccessEnvelope(FULL_METADATA)}>
+        {React.createElement('link', {
+          REL: 'canonical',
+          href: 'https://example.com/local',
+        })}
+        {React.createElement('meta', {
+          NAME: 'description',
+          content: 'Child description',
+        })}
+      </UnirendHead>,
+    );
+
+    expect(collector.links).toEqual([
+      { REL: 'canonical', href: 'https://example.com/local' },
+    ]);
+    expect(collector.metas).not.toContainEqual({
+      name: 'description',
+      content: 'Envelope description',
+    });
+    expect(collector.metas).toContainEqual({
+      NAME: 'description',
+      content: 'Child description',
+    });
+  });
+
   it('emits additive children alongside the generated tags', () => {
     const collector = collect(
       <UnirendHead envelope={createSuccessEnvelope(FULL_METADATA)}>
@@ -959,6 +991,36 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       collector.metas.filter((meta) => meta.name === 'theme-color'),
     ).toHaveLength(2);
     expect(collector.links).toHaveLength(2);
+  });
+
+  it('ignores a tags that is not a list, keeping the named fields beside it', () => {
+    // Writing the single entry without the array around it is the obvious way to arrive here, and
+    // the named fields have nothing to do with the mistake, so they still render.
+    for (const [index, tags] of [
+      { meta: { name: 'app-version', content: '1.2.3' } },
+      'app-version',
+      42,
+      true,
+    ].entries()) {
+      const collector = collect(
+        <UnirendHead
+          key={`bad-tags-${index}`}
+          envelope={
+            {
+              meta: {
+                page: { title: 'Home', description: 'Home description', tags },
+              },
+            } as unknown as PageSuccessResponse<null>
+          }
+        />,
+      );
+
+      expect(collector.title).toBe('Home');
+      expect(collector.metas).toEqual([
+        { name: 'description', content: 'Home description' },
+      ]);
+      expect(collector.links).toEqual([]);
+    }
   });
 
   it('lets a child win over an entry with the same key', () => {
@@ -1729,6 +1791,81 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       overrideDevMode(false);
 
       expect(renderWithCanonicalCollision()).toEqual([]);
+    });
+
+    it('says that a tags which is not a list was ignored whole', () => {
+      // The one malformed shape the entry loop never reports, because it never runs. Left silent
+      // it looks exactly like a handler that set no tags, so there is nothing to work backwards
+      // from: the entry is well formed, and only the array around it is missing.
+      overrideDevMode(true);
+
+      const warnings = captureWarnings(() => {
+        collect(
+          <UnirendHead
+            envelope={
+              {
+                meta: {
+                  page: {
+                    title: 'Home',
+                    description: 'Home description',
+                    tags: { meta: { name: 'app-version', content: '1.2.3' } },
+                  },
+                },
+              } as unknown as PageSuccessResponse<null>
+            }
+          />,
+        );
+      });
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain(
+        'meta.page.tags was ignored, because it is not a list',
+      );
+      expect(warnings[0]).toContain('Entries live in an array');
+      expect(warnings[0]).toContain('This warning only runs in development');
+    });
+
+    it('says nothing for a tags that is simply absent', () => {
+      // Absent is the ordinary case, not a malformed one, so the fields beside it render and this
+      // has no business commenting on a handler that set no tags.
+      overrideDevMode(true);
+
+      expect(
+        captureWarnings(() => {
+          collect(
+            <UnirendHead
+              envelope={createSuccessEnvelope({
+                title: 'Home',
+                description: 'Home description',
+              })}
+            />,
+          );
+        }),
+      ).toEqual([]);
+    });
+
+    it('stays silent about a tags that is not a list in production', () => {
+      overrideDevMode(false);
+
+      expect(
+        captureWarnings(() => {
+          collect(
+            <UnirendHead
+              envelope={
+                {
+                  meta: {
+                    page: {
+                      title: 'Home',
+                      description: 'Home description',
+                      tags: 'app-version',
+                    },
+                  },
+                } as unknown as PageSuccessResponse<null>
+              }
+            />,
+          );
+        }),
+      ).toEqual([]);
     });
 
     it('says why a link naming no relation was skipped', () => {

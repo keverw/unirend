@@ -109,6 +109,64 @@ export interface HeadKeyScan {
 }
 
 /**
+ * The attributes a head key is read from, canonicalized below before anything reads them.
+ *
+ * HTML matches attribute names case-insensitively, so a child written `<link REL="canonical">`
+ * reaches the head as a `rel` on both sides: React's `setAttribute` lands on the same attribute
+ * the browser would, and the server's template merge lowercases the name when it parses the
+ * served head. A property lookup is the odd one out, and left as written it would find nothing,
+ * so the child would claim no key at all, override no envelope field, and be invisible to the
+ * duplicate warning while its tag shipped beside the one it was meant to replace.
+ *
+ * The same list, and the same reason, as `IDENTITY_TAG_ATTRIBUTES` in `page-metadata-tags.ts`,
+ * which does this for the tags an envelope provides. `http-equiv` is here as well because a meta
+ * keys on it, and `httpEquiv` is only one of the spellings that reach this.
+ */
+const IDENTITY_CHILD_ATTRIBUTES = new Set([
+  'name',
+  'property',
+  'http-equiv',
+  'rel',
+  'href',
+  'content',
+]);
+
+/**
+ * Re-key the identity attributes to lowercase, leaving every other name exactly as written.
+ *
+ * Everything else keeps its casing, since React's own spellings (`crossOrigin`,
+ * `referrerPolicy`) warn when lowercased and none of them carry an identity.
+ *
+ * Last spelling wins where a child writes one attribute two ways, which is what React leaves in
+ * the DOM: it sets each prop in turn, and two casings of one name are one `setAttribute` target.
+ * The common case is a single odd spelling, and a child with none at all gets its record back
+ * untouched rather than copied.
+ */
+function withCanonicalIdentityNames(
+  attrs: Record<string, string>,
+): Record<string, string> {
+  const hasOddSpelling = Object.keys(attrs).some(
+    (name) =>
+      name !== name.toLowerCase() &&
+      IDENTITY_CHILD_ATTRIBUTES.has(name.toLowerCase()),
+  );
+
+  if (!hasOddSpelling) {
+    return attrs;
+  }
+
+  const canonical: Record<string, string> = {};
+
+  for (const [name, value] of Object.entries(attrs)) {
+    const lowered = name.toLowerCase();
+
+    canonical[IDENTITY_CHILD_ATTRIBUTES.has(lowered) ? lowered : name] = value;
+  }
+
+  return canonical;
+}
+
+/**
  * Walk a child list and record the head keys it declares.
  *
  * Fragments are walked through and nothing else is, matching how the rest of `UnirendHead`
@@ -133,7 +191,9 @@ export function scanHeadKeys(children: ReactNode): HeadKeyScan {
       return;
     }
 
-    const attrs = toHeadAttributes(props);
+    // Canonicalized before the lookups below, since a child may write an identity attribute in
+    // any casing and the browser will still honor it. See withCanonicalIdentityNames().
+    const attrs = withCanonicalIdentityNames(toHeadAttributes(props));
 
     // Either kind may occupy more than one key: a meta carrying both `name` and `property` is
     // both identities, and a link's `rel` is a token set. See getMetaKeys() and getLinkHeadKeys().

@@ -544,6 +544,25 @@ function warnTagEntrySkipped(
 }
 
 /**
+ * Development-only warning for a `tags` that is not a list at all.
+ *
+ * The one malformed shape the entry loop never reports, because it never runs: everything else
+ * here is caught per entry. Writing a single entry without the array around it is the obvious way
+ * to arrive at this, and left silent it looks exactly like a handler that set no tags.
+ */
+function warnTagsNotAList(messages: string[]): void {
+  if (!isTagWarningEnabled()) {
+    return;
+  }
+
+  warnAboutTags(messages, [
+    '[unirend] UnirendHead: meta.page.tags was ignored, because it is not a list.',
+    '  Entries live in an array, a single one included:',
+    '  tags: [{ meta: { name: "app-version", content: "1.2.3" } }].',
+  ]);
+}
+
+/**
  * Development-only warning for attributes stripped from a tag that otherwise rendered.
  */
 function warnTagAttributesDropped(
@@ -856,6 +875,10 @@ export function buildPageMetadataTags(
       // not a map, so two entries sharing a key both render.
       tags.push(tag);
     }
+  } else if (metadata.tags !== undefined && metadata.tags !== null) {
+    // Absent is the ordinary case and says nothing. Present and not a list is a handler asking
+    // for tags and getting none of them, which is worth saying out loud.
+    warnTagsNotAList(messages);
   }
 
   for (const [key, dropped] of droppedToChild) {

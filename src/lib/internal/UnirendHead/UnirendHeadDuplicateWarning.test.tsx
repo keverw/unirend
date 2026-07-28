@@ -346,6 +346,32 @@ describe('UnirendHead duplicate warning (server render)', () => {
     expect(warnings[0]).toContain('Layout description');
   });
 
+  it('sees a key whose attribute was written in another casing', () => {
+    // `NAME` is a `name` to the browser, so these two really do both ship a description. Read as
+    // written it would claim no key at all and this pair would go unreported, which is the same
+    // gap the fragment walk above closed, one attribute lower down.
+    overrideDevMode(true);
+
+    const warnings = collectWarnings(
+      <>
+        <UnirendHead>
+          {React.createElement('meta', {
+            NAME: 'description',
+            content: 'Layout description',
+          })}
+        </UnirendHead>
+        <UnirendHead>
+          <meta name="description" content="Page description" />
+        </UnirendHead>
+      </>,
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('name=description');
+    expect(warnings[0]).toContain('Layout description');
+    expect(warnings[0]).toContain('Page description');
+  });
+
   it('warns when two separate instances declare the same canonical link', () => {
     overrideDevMode(true);
 
