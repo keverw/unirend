@@ -1135,6 +1135,39 @@ describe('UnirendHead Client-side Helpers', () => {
       });
     });
 
+    it('carries on past a baseline attribute name the DOM refuses to set', () => {
+      // The HTML parser accepts names XML's `Name` production does not, so `<html ⚡>` (AMP) and
+      // `<body @click="x">` parse and reach the baseline this reads. `setAttribute` throws
+      // InvalidCharacterError for exactly those, and the throw would escape the layout effect that
+      // called this: no html or body attributes applied and no template metas reconciled, on every
+      // page, whether or not the page set an attribute of its own.
+      const mockElement = createMockElement({ '@click': 'x', lang: 'en' });
+      const setAttribute = mockElement.setAttribute.bind(mockElement);
+
+      mockElement.setAttribute = (key: string, value: string) => {
+        if (!/^[a-zA-Z_:][\w.:-]*$/.test(key)) {
+          throw new Error(`'${key}' is not a valid attribute name`);
+        }
+
+        setAttribute(key, value);
+      };
+
+      const initial = { '@click': 'x', lang: 'en' };
+
+      applyAttributes(mockElement as unknown as HTMLElement, initial, [
+        { class: 'dark' },
+      ]);
+
+      expect(mockElement.getAttribute('lang')).toBe('en');
+      expect(mockElement.getAttribute('class')).toBe('dark');
+
+      // And the refused name is not recorded as calculated, so the next sync leaves index.html's
+      // own attribute alone rather than removing what it could never set.
+      applyAttributes(mockElement as unknown as HTMLElement, {}, []);
+
+      expect(mockElement.getAttribute('@click')).toBe('x');
+    });
+
     it('removes boolean attributes when they are overridden with "false"', () => {
       const mockElement = createMockElement({
         hidden: '',

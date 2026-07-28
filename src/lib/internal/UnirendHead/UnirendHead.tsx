@@ -511,6 +511,37 @@ function templateMetaSignature(keys: string[]): string {
 }
 
 /**
+ * Set one attribute, reporting whether the DOM took the name.
+ *
+ * `setAttribute` throws `InvalidCharacterError` for any name outside XML's `Name` production, and
+ * the HTML parser accepts names that are not in it: `<html ⚡>` and `<body @click="x">` both parse.
+ * Every record that reaches the two callers below is read back off index.html, either as the
+ * html/body baseline or as the template meta baseline, so an author's own template is enough to
+ * put such a name here. Unguarded, the throw escapes a layout effect and takes the whole sync with
+ * it — html and body attributes unapplied, template metas unreconciled — on every page, whether or
+ * not any page sets an attribute of its own.
+ *
+ * The browser is the authority on which names it takes, so this asks rather than reimplementing
+ * the production, which is large and would reject valid names to be safe. A name it refuses is one
+ * this module cannot manage, so it is left exactly as index.html wrote it, which is the same thing
+ * that happens to any attribute the calculated set never covered.
+ */
+function trySetAttribute(
+  element: Element,
+  name: string,
+  value: string,
+): boolean {
+  try {
+    element.setAttribute(name, value);
+
+    return true;
+  } catch {
+    // A name the DOM will not take. See above: the template's own copy stays as authored.
+    return false;
+  }
+}
+
+/**
  * Build a detached <meta> for a template baseline entry the server stripped from the served
  * head, so it's ready to put back the moment no page is overriding it any more.
  */
@@ -518,7 +549,7 @@ function createTemplateMeta(attrs: Record<string, string>): HTMLMetaElement {
   const element = document.createElement('meta');
 
   for (const [key, value] of Object.entries(attrs)) {
-    element.setAttribute(key, value);
+    trySetAttribute(element, key, value);
   }
 
   element.setAttribute(TEMPLATE_META_MARKER_ATTRIBUTE, '');
@@ -922,8 +953,12 @@ function applyAttributes(
       element.removeAttribute(key);
       continue;
     }
-    element.setAttribute(key, value);
-    nextCalculatedAttrs.add(key);
+    // Recorded as calculated only if it was actually set, so a name the DOM refuses is not one
+    // the next sync tries to remove: `removeAttribute` takes any name, so it would strip the
+    // attribute index.html authored rather than leaving it alone. See trySetAttribute().
+    if (trySetAttribute(element, key, value)) {
+      nextCalculatedAttrs.add(key);
+    }
   }
   ext.__unirendCalculatedAttrs__ = nextCalculatedAttrs;
 }
