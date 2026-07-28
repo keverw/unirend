@@ -6,7 +6,7 @@ import {
 import { getDevMode } from 'lifecycleion/dev-mode';
 import {
   escapeHTMLAttr,
-  decodeHTML,
+  decodeHTMLAttributeValue,
   isRemovedBooleanAttribute,
 } from './escape';
 import { getMetaKeys } from './meta-key';
@@ -686,7 +686,7 @@ function parseAttributesString(attrsStr: string): Record<string, string> {
   while ((match = attrRegex.exec(attrsStr)) !== null) {
     const key = match[1].toLowerCase();
     const val = match[2] ?? match[3] ?? match[4] ?? '';
-    attrs[key] = decodeHTML(val);
+    attrs[key] = decodeHTMLAttributeValue(val);
   }
 
   return attrs;
