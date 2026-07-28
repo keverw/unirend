@@ -85,16 +85,29 @@ export function toHeadAttributes(
  */
 function toHeadAttributeValue(key: string, value: unknown): string | null {
   const normKey = key.toLowerCase();
+
   if (HTML_BOOLEAN_ATTRIBUTES.has(normKey)) {
-    if (typeof value === 'boolean' || value === 'true' || value === 'false') {
-      // Only an actual boolean false asks for the attribute to be left out. A string never does,
-      // however it is spelled, because React reads any string as present: it writes `disabled=""`
-      // for `disabled="false"` and warns that the browser will read it as truthy. Treating the
-      // string as the removal marker had the server strip an attribute React went on to set, so a
-      // `<link rel="stylesheet" disabled="false">` was live in the served HTML and off after
-      // hydration. That spelling is the only one an envelope can send, since a `meta.page.tags`
-      // value must be a string. See isRemovedBooleanAttribute() for what the marker means.
-      return value === false ? 'false' : '';
+    if (
+      typeof value === 'boolean' ||
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'bigint'
+    ) {
+      // Presence is the whole meaning of a boolean attribute, and truthiness of the prop is what
+      // decides it, not what the value spells. That is React's rule, and matching it is the point:
+      // React renders these tags on the client while this record is what the server writes, so any
+      // disagreement ships a page that changes the moment it hydrates. React writes the bare
+      // attribute for every truthy prop, `disabled="false"` included (warning that the browser will
+      // read it as truthy), and nothing at all for a falsy one, `disabled=""` and `disabled={0}`
+      // included. Read the two spellings apart and the server said the opposite of the client on
+      // both, and the string is the only form an envelope can send, since a `meta.page.tags` value
+      // must be a string.
+      //
+      // A falsy prop answers with the removal marker rather than dropping out, because this record
+      // has further to travel than the head: an `<html>` or `<body>` attribute is merged onto what
+      // index.html already declared, so "leave this one out" has to be sayable rather than merely
+      // unsaid. See isRemovedBooleanAttribute() for the reading end of that.
+      return value ? '' : 'false';
     }
   }
 

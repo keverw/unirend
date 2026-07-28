@@ -1056,13 +1056,24 @@ describe('UnirendHead Client-side Helpers', () => {
       });
     });
 
-    it('falls through to the value rules for a boolean attribute holding neither', () => {
-      // The boolean branch only answers for true, false, and their two string spellings. A
-      // number on a boolean attribute is not one of those, so it is stringified like any other
-      // value rather than being read as present or absent.
-      expect(toHeadAttributes({ disabled: 3, hidden: 0 })).toEqual({
-        disabled: '3',
-        hidden: '0',
+    it('reads a boolean attribute by truthiness, whatever the value spells', () => {
+      // Presence is all a boolean attribute means, so the value is never written out. React
+      // decides presence from the prop's truthiness and this has to answer the same, or the two
+      // sides disagree about a tag React renders and the server serializes.
+      expect(
+        toHeadAttributes({
+          disabled: 3,
+          hidden: 0,
+          // An empty string is the spelling that used to survive as a set attribute here while
+          // React dropped it. Write `hidden` or `hidden={true}` for the bare attribute.
+          inert: '',
+          checked: 'FALSE',
+        }),
+      ).toEqual({
+        disabled: '',
+        hidden: 'false',
+        inert: 'false',
+        checked: '',
       });
     });
 

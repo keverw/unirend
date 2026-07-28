@@ -136,7 +136,7 @@ import { UnirendHead } from 'unirend/client';
 
 Two details follow from that, and they hold identically on the server and in the browser:
 
-- **A boolean prop set to `false` emits no attribute.** `<link rel="stylesheet" href="/dark.css" disabled={false} />` renders without `disabled`, because an HTML boolean attribute is true by its presence whatever its value says. Set it to `true` to get the bare attribute.
+- **A boolean attribute is written from the truthiness of the prop, never from what the value spells.** `<link rel="stylesheet" href="/dark.css" disabled={false} />` renders without `disabled`, because an HTML boolean attribute is true by its presence whatever its value says. Write `disabled` or `disabled={true}` for the bare attribute. This is React's own rule for these props, and following it is what keeps the served HTML and the hydrated page saying the same thing. Two spellings surprise people: an empty string is falsy, so `disabled=""` emits nothing, and the string `"false"` is truthy, so it emits the attribute and turns the stylesheet off.
 - **Writing one attribute in two casings emits one attribute, the last one.** `<meta NAME="a" name="b" content="c" />` is a single `name="b"`, matching what React leaves in the DOM. Prefer writing it once.
 
 **Component props:**
