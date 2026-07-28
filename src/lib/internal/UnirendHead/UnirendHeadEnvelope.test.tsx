@@ -950,11 +950,107 @@ describe('UnirendHead envelope projection (meta.page.tags)', () => {
       content: '#000',
       media: '(prefers-color-scheme: dark)',
     });
+    // Filed under React's spelling, since the client spreads this record onto createElement and
+    // React complains about the lowercase form. The served attribute is the same either way, as
+    // HTML matches attribute names case-insensitively. See HTML_ATTRIBUTE_TO_REACT_PROP.
     expect(collector.links).toContainEqual({
       rel: 'alternate',
       href: 'https://example.com/es/',
-      hreflang: 'es',
+      hrefLang: 'es',
     });
+  });
+
+  it('takes an attribute React spells differently in either spelling', () => {
+    // An entry is HTML, and whatever built the envelope need not know React's prop names, so the
+    // documented `hreflang` has to work. A handler that does know them must not be punished for
+    // it, which is what reading the lowercased name buys.
+    const collector = collect(
+      <UnirendHead
+        envelope={createSuccessEnvelope({
+          title: 'Home',
+          description: 'Home description',
+          tags: [
+            { link: { rel: 'alternate', href: '/es', hreflang: 'es' } },
+            { link: { rel: 'alternate', href: '/de', hrefLang: 'de' } },
+            {
+              link: {
+                rel: 'preload',
+                href: '/a.png',
+                as: 'image',
+                imagesrcset: '/a.png 1x',
+                crossorigin: 'anonymous',
+                referrerpolicy: 'no-referrer',
+              },
+            },
+            { meta: { name: 'v', content: '1', itemprop: 'version' } },
+          ],
+        })}
+      />,
+    );
+
+    expect(collector.links).toEqual([
+      { rel: 'alternate', href: '/es', hrefLang: 'es' },
+      { rel: 'alternate', href: '/de', hrefLang: 'de' },
+      {
+        rel: 'preload',
+        href: '/a.png',
+        as: 'image',
+        imageSrcSet: '/a.png 1x',
+        crossOrigin: 'anonymous',
+        referrerPolicy: 'no-referrer',
+      },
+    ]);
+    expect(collector.metas).toContainEqual({
+      name: 'v',
+      content: '1',
+      itemProp: 'version',
+    });
+  });
+
+  it('renders those tags on the client without React complaining', () => {
+    // The half the server never exercises: the server serializes this record, while the client
+    // hands it to createElement, so a prop name React does not recognize was noise on every
+    // client render of a tag the docs recommend spelling exactly that way, and silence in SSR.
+    const seen: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+      seen.push(String(args[0]));
+    };
+
+    let html = '';
+
+    try {
+      html = renderToString(
+        <UnirendHeadProvider collector={null}>
+          <UnirendHead
+            envelope={createSuccessEnvelope({
+              title: 'Home',
+              description: 'Home description',
+              tags: [
+                {
+                  link: {
+                    rel: 'alternate',
+                    href: '/es',
+                    hreflang: 'es',
+                    media: 'screen',
+                  },
+                },
+                { meta: { name: 'v', content: '1', itemprop: 'version' } },
+              ],
+            })}
+          />
+        </UnirendHeadProvider>,
+      );
+    } finally {
+      console.error = original;
+    }
+
+    expect(seen).toEqual([]);
+
+    // Renamed, not dropped: the attribute still reaches the tag.
+    expect(html).toContain('hrefLang="es"');
+    expect(html).toContain('media="screen"');
+    expect(html).toContain('itemProp="version"');
   });
 
   it('renders every entry that shares a key, since those are the ones a list is for', () => {
@@ -2857,5 +2953,160 @@ describe('UnirendHead envelope projection (client render path)', () => {
     expect(html).not.toContain('<html');
     expect(html).not.toContain('<body');
     expect(html).toContain('<title>Home - My App</title>');
+  });
+});
+
+describe('the attribute names React spells its own way', () => {
+  /**
+   * What React answered for a name already asked about, since it will not answer twice.
+   *
+   * React records each prop name it has complained about and stays quiet from then on, so a second
+   * ask reads as "React is happy with this" no matter what the first one said. Without this the
+   * checks below would pass or fail on the order they happen to run in.
+   */
+  const spellings = new Map<string, string | null>();
+
+  /**
+   * Ask React which spelling it wants for an attribute name, by rendering a tag carrying it and
+   * reading the name back out of the warning React prints.
+   *
+   * React's table is not exported, and mirroring all 305 names it spells differently would be
+   * copying a part of React into this repo. So the source of truth stays React, and this reads it
+   * through the one channel React offers: `Invalid DOM property \`%s\`. Did you mean \`%s\`?`,
+   * whose third argument is the answer.
+   *
+   * Returns null when React is content with the name as written, which is both "React does not
+   * know this attribute" and "this spelling is already the right one".
+   */
+  function askReactForSpelling(name: string): string | null {
+    const remembered = spellings.get(name);
+
+    if (remembered !== undefined) {
+      return remembered;
+    }
+
+    const suggestions: string[] = [];
+    const original = console.error;
+
+    console.error = (...args: unknown[]) => {
+      if (
+        typeof args[0] === 'string' &&
+        args[0].startsWith('Invalid DOM property') &&
+        typeof args[2] === 'string'
+      ) {
+        suggestions.push(args[2]);
+      }
+    };
+
+    try {
+      renderToString(React.createElement('link', { [name]: 'v' }));
+    } finally {
+      console.error = original;
+    }
+
+    const answer = suggestions[0] ?? null;
+    spellings.set(name, answer);
+
+    return answer;
+  }
+
+  /**
+   * Attributes HTML permits on `<meta>` or `<link>`, which is every element an entry can describe,
+   * plus the global attributes it inherits. This is the scope boundary the projection's table
+   * claims to cover, written from the HTML spec rather than from React, so the two lists are
+   * independent and the comparison below means something.
+   *
+   * Deliberately not every name React knows. `popovertarget` belongs to a `<button>` and
+   * `radiogroup` to a `<menuitem>`, so on a `<link>` React warning about them is a true statement
+   * rather than the false alarm this is here to prevent.
+   *
+   * `http-equiv` and `style` are left out for a different reason: both are refused outright, so
+   * neither can reach the table, and listing them here would demand an entry that must not exist.
+   */
+  const ATTRIBUTES_IN_SCOPE = [
+    // <link>
+    'href',
+    'crossorigin',
+    'rel',
+    'as',
+    'media',
+    'hreflang',
+    'type',
+    'sizes',
+    'imagesrcset',
+    'imagesizes',
+    'referrerpolicy',
+    'integrity',
+    'blocking',
+    'color',
+    'disabled',
+    'fetchpriority',
+    // <meta>
+    'name',
+    'content',
+    'charset',
+    // global
+    'accesskey',
+    'autocapitalize',
+    'autocorrect',
+    'autofocus',
+    'class',
+    'contenteditable',
+    'contextmenu',
+    'dir',
+    'draggable',
+    'enterkeyhint',
+    'hidden',
+    'id',
+    'inert',
+    'inputmode',
+    'is',
+    'itemid',
+    'itemprop',
+    'itemref',
+    'itemscope',
+    'itemtype',
+    'lang',
+    'nonce',
+    'popover',
+    'role',
+    'slot',
+    'spellcheck',
+    'tabindex',
+    'title',
+    'translate',
+    'writingsuggestions',
+  ];
+
+  it('reads a spelling back from React, so the checks below are not comparing a copy', () => {
+    // The guard on the reader itself. If React ever changes that message, askReactForSpelling()
+    // starts answering null for everything and both checks below would pass by finding nothing.
+    //
+    // Asked about a form attribute rather than one of ours on purpose. React answers for a given
+    // name once per process, so a name this repo renders anywhere could have had its answer taken
+    // already, and the guard would report a broken reader when the reader is fine.
+    expect(askReactForSpelling('acceptcharset')).toBe('acceptCharset');
+    expect(askReactForSpelling('media')).toBeNull();
+  });
+
+  it('agrees with React on every spelling it claims', () => {
+    // Catches a typo, and catches React renaming one out from under us.
+    for (const [htmlName, reactName] of _test.htmlAttributeToReactProp) {
+      expect({ [htmlName]: askReactForSpelling(htmlName) }).toEqual({
+        [htmlName]: reactName,
+      });
+    }
+  });
+
+  it('covers every attribute in scope that React spells differently', () => {
+    // The other direction, and the one that drifts silently: a React upgrade adding a name here
+    // would put the warning back on a tag an envelope is documented to be able to describe.
+    const missing = ATTRIBUTES_IN_SCOPE.filter(
+      (name) =>
+        askReactForSpelling(name) !== null &&
+        !_test.htmlAttributeToReactProp.has(name),
+    );
+
+    expect(missing).toEqual([]);
   });
 });

@@ -59,7 +59,8 @@ function hasNamedLinkRelation(rel: string): boolean {
  * case-insensitively, so `REL` is a `rel` to the browser, but it is not one to a property lookup:
  * left as written, a `<link REL="canonical">` would render with no key at all, escaping the
  * child-override check and the duplicate warning both. Every other attribute keeps the casing it
- * arrived with, since React's own spellings (`crossOrigin`, `referrerPolicy`) warn when lowercased.
+ * arrived with, unless it is one React spells differently, see `HTML_ATTRIBUTE_TO_REACT_PROP`.
+ * None of these five is, so lowercasing them costs nothing on that side.
  */
 const IDENTITY_TAG_ATTRIBUTES = new Set([
   'name',
@@ -68,6 +69,82 @@ const IDENTITY_TAG_ATTRIBUTES = new Set([
   'href',
   'content',
 ]);
+
+/**
+ * HTML attribute names whose React prop spelling differs by more than case.
+ *
+ * An entry is written in HTML, which is the point of `tags`: the envelope is wire data, and
+ * whatever produced it (a PHP handler, a CMS, a stored fixture) has no reason to know React's prop
+ * names. The docs hold `hreflang` up as an example for exactly that reason. But the client spreads
+ * these attributes onto `createElement`, and React matches a lowercased prop name against its own
+ * list and says "Invalid DOM property `hreflang`. Did you mean `hrefLang`?".
+ *
+ * The attribute still renders correctly, so this is console noise rather than a broken tag. What
+ * makes it worth fixing anyway is where the noise falls: only on the client, because the server
+ * never renders these through React, it serializes the collected record. So an SSR page stayed
+ * quiet and the identical envelope started complaining the moment it hydrated, on every render,
+ * about a spelling the documentation recommends.
+ *
+ * Renamed rather than dropped, so the tag keeps the attribute. The server writes the record's name
+ * out verbatim and HTML matches attribute names case-insensitively, so a `hrefLang="fr"` in the
+ * served markup is the same `hreflang` to a parser that React sets on the client. Reading the
+ * lowercased name also means a handler that writes React's spelling already lands here unchanged,
+ * which is what the old keep-the-casing rule was protecting.
+ *
+ * Scoped to the attributes HTML permits on `<meta>` or `<link>`, global attributes included, since
+ * those are the only two elements an entry can describe. React's own table is 305 names that
+ * disagree with their HTML spelling, nearly all of them SVG presentation attributes and form
+ * fields, and copying it wholesale would be reimplementing a part of React that is React's to
+ * change. `popovertarget` and `radiogroup` are the shape of what is left out: React knows them,
+ * they belong to a `<button>` and a `<menuitem>`, and on a `<link>` React's complaint is a true
+ * statement about a meaningless attribute rather than noise to suppress.
+ *
+ * The risk in scoping it is drift, which is why the boundary is enforced instead of asserted. A
+ * test asks React directly, by rendering each name and reading the spelling React suggests, and
+ * fails on either side of the contract: a spelling here React no longer agrees with, and an
+ * attribute in scope React spells differently that is missing here. So a React upgrade that
+ * renames or adds one breaks the build rather than quietly reintroducing the warning. See
+ * "the attribute names React spells its own way" in UnirendHeadEnvelope.test.tsx.
+ *
+ * `http-equiv` is absent because it never reaches here, see `FORBIDDEN_TAG_ATTRIBUTES`.
+ */
+const HTML_ATTRIBUTE_TO_REACT_PROP = new Map<string, string>([
+  ['accesskey', 'accessKey'],
+  ['autocapitalize', 'autoCapitalize'],
+  ['autocorrect', 'autoCorrect'],
+  ['autofocus', 'autoFocus'],
+  ['charset', 'charSet'],
+  ['class', 'className'],
+  ['contenteditable', 'contentEditable'],
+  ['contextmenu', 'contextMenu'],
+  ['crossorigin', 'crossOrigin'],
+  ['enterkeyhint', 'enterKeyHint'],
+  ['fetchpriority', 'fetchPriority'],
+  ['hreflang', 'hrefLang'],
+  ['imagesizes', 'imageSizes'],
+  ['imagesrcset', 'imageSrcSet'],
+  ['inputmode', 'inputMode'],
+  ['itemid', 'itemID'],
+  ['itemprop', 'itemProp'],
+  ['itemref', 'itemRef'],
+  ['itemscope', 'itemScope'],
+  ['itemtype', 'itemType'],
+  ['referrerpolicy', 'referrerPolicy'],
+  ['spellcheck', 'spellCheck'],
+  ['tabindex', 'tabIndex'],
+]);
+
+/**
+ * The name an attribute is filed under: lowercased where this file reads it back as an identity,
+ * React's spelling where the two differ, and exactly as written otherwise.
+ */
+function toTagAttributeName(lowered: string, name: string): string {
+  if (IDENTITY_TAG_ATTRIBUTES.has(lowered)) {
+    return lowered;
+  }
+
+  return HTML_ATTRIBUTE_TO_REACT_PROP.get(lowered) ?? name;
+}
 
 /**
  * A name React will pass through to the DOM as written, rather than warning about or mangling.
@@ -151,7 +228,7 @@ function sanitizeTagAttributes(
 
     claimed.add(lowered);
 
-    attributes[IDENTITY_TAG_ATTRIBUTES.has(lowered) ? lowered : name] = value;
+    attributes[toTagAttributeName(lowered, name)] = value;
   }
 
   return attributes;
@@ -475,6 +552,12 @@ export const _test = {
    * the two are ever merged. See the note on `REPEATABLE_META_KEYS` for why they must not be.
    */
   structuredParentKeys: STRUCTURED_PARENT_KEYS,
+
+  /**
+   * The React spelling table, so a test can hold it against React itself rather than against a
+   * copy of it. See the note on `HTML_ATTRIBUTE_TO_REACT_PROP`.
+   */
+  htmlAttributeToReactProp: HTML_ATTRIBUTE_TO_REACT_PROP,
 };
 
 /**
