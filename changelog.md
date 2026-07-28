@@ -14,7 +14,7 @@
 - [0.1.8 (July 20, 2026)](#018-july-20-2026)
 - [0.1.9 (July 24, 2026)](#019-july-24-2026)
 - [0.2.0 (July 26, 2026)](#020-july-26-2026)
-- [Unreleased](#unreleased)
+- [0.3.0 (July 28, 2026)](#030-july-28-2026)
 
 <!-- tocstop -->
 
@@ -158,7 +158,7 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 
 - Inline plugins passed to `serveAPI` are now typed instead of getting an implicitly `any` `pluginHost`. `serveAPI` took the `APIServerOptions` union as a single parameter, and TypeScript does not contextually type a function nested inside a union-typed object literal, so the annotated form was the only workable one for API server plugins while the SSR servers had no such limitation. It is now overloaded per mode, each with a single non-union parameter type, in both API and plain web mode. Configuration held or returned as the `APIServerOptions` union stays callable.
 
-## Unreleased
+## 0.3.0 (July 28, 2026)
 
 **Breaking:** `UnirendHead` now ignores every child it does not manage, on the client as well as the server, and warns in development naming what it dropped. It manages `<title>`, `<meta>`, and `<link>`, plus `<html>` and `<body>` for their attributes. Previously the server collected nothing for other children while the client rendered them into the app root, so markup such as a `<script>` or a `<div>` was missing from the server-rendered HTML and appeared after hydration. Bare text children are dropped too, without a warning. Move scripts and stylesheets to your build, `index.html`, or the server `templateSlots` option.
 
