@@ -15,7 +15,7 @@
 - [0.1.9 (July 24, 2026)](#019-july-24-2026)
 - [0.2.0 (July 26, 2026)](#020-july-26-2026)
 - [0.3.0 (July 28, 2026)](#030-july-28-2026)
-- [Unreleased](#unreleased)
+- [0.3.1 (August 1, 2026)](#031-august-1-2026)
 
 <!-- tocstop -->
 
@@ -172,7 +172,7 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 - The new metadata tag types are exported from `unirend/api-envelope`, and `UnirendHeadProps` is exported from `unirend/client`. Scaffolded SSR pages now use the full `PageSuccessResponse` loader type so they can pass their envelope to `UnirendHead`.
 - A `<meta>` in `index.html` carrying more than one identity is now matched on every one of them. A tag such as `<meta name="site-default" property="og:title">` is a page-owned `og:title` whichever attribute you read first, but only the first was checked, so it stayed in the template, shipped on every page that set no `og:title` of its own, and came back on each client navigation to one. Metas whose identities are all template-owned, `og:site_name` included, are unaffected. If you have been relying on a per-page identity to reach the served head this way, move that value into `UnirendHead` or your loader's `pageMetadata`.
 
-## Unreleased
+## 0.3.1 (August 1, 2026)
 
 - The `check` script scaffolded into a new repo now runs `bun run format:check` alongside the other checks, so a file that Prettier would reformat fails the same run that lint and type errors do rather than surfacing later in a review. The `format:check` script itself was already being scaffolded, it just was not wired into the chain. A repo scaffolded before this gets the new chain by re-running `unirend create`, provided its `check` is still byte-identical to a version this generator wrote. A customized `check` is left exactly as written and is told that `format:check` is one of the targets it does not run.
 - The scaffolded `eslint.config.js` now applies `react-hooks/rules-of-hooks` and `react-hooks/exhaustive-deps` to every source file rather than only to the ones that can hold JSX. Hooks are routinely written as plain `.ts` modules, a `use-*.ts` helper or a context module, and neither rule keys off JSX, so a file scope of `**/*.tsx` meant the hook files most likely to accumulate a dependency mistake were the ones nothing was checking. The rest of the plugin's recommended set, the React Compiler rules such as `immutability`, `purity`, and `set-state-in-effect`, stays scoped to the JSX blocks, since holding a whole codebase to those is a separate decision from getting hook files covered at all. The generated config says so at the widened block, so switching it to the full recommended set is a one-line change. Only new scaffolds get this, since the file is never overwritten.
