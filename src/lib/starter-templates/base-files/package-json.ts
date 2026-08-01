@@ -27,7 +27,7 @@ const defaultScripts = {
   // which would hamper debugging any later failure in the same run.
   'check:null-bytes': 'bun run scripts/check-null-bytes.ts',
   check:
-    'bun run check:null-bytes && bun audit && bun run type-check && bun run lint && bun run spellcheck && bun run check:public-assets && bun run check:overrides && bun test --pass-with-no-tests',
+    'bun run check:null-bytes && bun audit && bun run type-check && bun run lint && bun run format:check && bun run spellcheck && bun run check:public-assets && bun run check:overrides && bun test --pass-with-no-tests',
 };
 
 /**
@@ -57,6 +57,7 @@ const previousCheckScripts = [
   'bun run type-check && bun run lint && bun run spellcheck && bun test --pass-with-no-tests',
   'bun audit && bun run type-check && bun run lint && bun run spellcheck && bun test --pass-with-no-tests',
   'bun audit && bun run type-check && bun run lint && bun run spellcheck && bun run check:public-assets && bun test --pass-with-no-tests',
+  'bun run check:null-bytes && bun audit && bun run type-check && bun run lint && bun run spellcheck && bun run check:public-assets && bun run check:overrides && bun test --pass-with-no-tests',
 ];
 
 /**
