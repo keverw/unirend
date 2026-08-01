@@ -60,7 +60,7 @@
     "dist"
   ],
   "scripts": {
-    "prepublishOnly": "bun run check:null-bytes && bun audit && bun run check:overrides && bun run build && bun run type-check && bun run lint && bun run spellcheck && bun test",
+    "prepublishOnly": "bun run check:null-bytes && bun audit && bun run check:overrides && bun run build && bun run type-check && bun run lint && bun run format:check && bun run spellcheck && bun test",
     "sync-version": "bun run scripts/sync-version.ts",
     "php-publish": "bun run php-test && bun run scripts/publish-php.ts",
     "php-install-deps": "cd unirend-php && composer install --no-interaction",
@@ -70,6 +70,7 @@
     "type-check": "tsc --noEmit",
     "test": "bun test",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,scss,md,html,php}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,scss,md,html,php}\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "spellcheck": "cspell lint \"**/*.{ts,tsx,js,jsx,md,html,css,json}\"",

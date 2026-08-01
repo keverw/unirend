@@ -368,11 +368,31 @@ export default [
     },
   },
   {
+    // The two core Hooks rules, applied to every source file rather than only
+    // the ones that can hold JSX. Hooks are routinely written in plain .ts
+    // modules (a use-*.ts helper, a context module), and a file scope of TSX/JSX
+    // means these never look at them, so the next missing dependency there goes
+    // uncaught. Nothing here keys off JSX: both rules fire on hook calls and on
+    // functions named like a hook, so a module with neither is unaffected.
+    //
+    // Only these two are widened. The rest of the plugin's recommended set (the
+    // React Compiler rules: immutability, purity, set-state-in-effect, and so
+    // on) stays on the JSX blocks below. Spread the recommended rules here
+    // instead if you want the whole codebase held to them.
+    files: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
+    plugins: {
+      'react-hooks': reactHooks,
+    },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
+    },
+  },
+  {
     // React/JSX specific config for TSX files
     files: ['**/*.tsx'],
     plugins: {
       react,
-      'react-hooks': reactHooks,
       'jsx-a11y': jsxA11y,
       'react-refresh': reactRefresh,
     },
@@ -398,6 +418,8 @@ export default [
       'react/jsx-uses-vars': 'error',
       'react/react-in-jsx-scope': 'off', // Not needed for React 17+
       // React Hooks rules (recommended config)
+      // rules-of-hooks and exhaustive-deps are already on from the all-files
+      // block above; re-spreading here adds the React Compiler rules
       ...reactHooks.configs.recommended.rules,
       // JSX Accessibility rules
       ...jsxA11y.flatConfigs.recommended.rules,
@@ -427,7 +449,6 @@ export default [
     files: ['**/*.jsx'],
     plugins: {
       react,
-      'react-hooks': reactHooks,
       'jsx-a11y': jsxA11y,
       'react-refresh': reactRefresh,
     },
@@ -451,6 +472,8 @@ export default [
       'react/jsx-uses-vars': 'error',
       'react/react-in-jsx-scope': 'off', // Not needed for React 17+
       // React Hooks rules (recommended config)
+      // rules-of-hooks and exhaustive-deps are already on from the all-files
+      // block above; re-spreading here adds the React Compiler rules
       ...reactHooks.configs.recommended.rules,
       // JSX Accessibility rules
       ...jsxA11y.flatConfigs.recommended.rules,

@@ -74,7 +74,7 @@ describe('ensurePackageJSON', () => {
         'bun run scripts/refresh-lockfile.ts',
       );
       expect(pkg.scripts.check).toBe(
-        'bun run check:null-bytes && bun audit && bun run type-check && bun run lint && bun run spellcheck && bun run check:public-assets && bun run check:overrides && bun test --pass-with-no-tests',
+        'bun run check:null-bytes && bun audit && bun run type-check && bun run lint && bun run format:check && bun run spellcheck && bun run check:public-assets && bun run check:overrides && bun test --pass-with-no-tests',
       );
     });
   });
@@ -122,6 +122,7 @@ describe('ensurePackageJSON', () => {
       const pkg = JSON.parse(memRoot['package.json'] as string);
       expect(pkg.scripts.check).toContain('bun run check:null-bytes');
       expect(pkg.scripts.check).toContain('bun run check:overrides');
+      expect(pkg.scripts.check).toContain('bun run format:check');
       expect(logs.some((entry) => entry.message.includes('Updated the'))).toBe(
         true,
       );
@@ -189,7 +190,7 @@ describe('ensurePackageJSON', () => {
           name: 'test-repo',
           scripts: {
             check:
-              'bun run check:null-bytes && bun run type-check && bun run lint && bun run spellcheck && bun run check:public-assets && bun run check:overrides && bun run my-extra-step',
+              'bun run check:null-bytes && bun run type-check && bun run lint && bun run format:check && bun run spellcheck && bun run check:public-assets && bun run check:overrides && bun run my-extra-step',
           },
         }),
       };
