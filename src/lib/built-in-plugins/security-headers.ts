@@ -23,9 +23,13 @@ export type CORSOrigin =
     ) => boolean | Promise<boolean>);
 
 /**
- * Configuration for dynamic CORS handling and browser security headers
+ * Configuration for dynamic CORS handling.
+ *
+ * These options are negotiated per-origin. The non-negotiated headers that
+ * apply to every response regardless of origin live on
+ * {@link SecurityHeadersConfig} alongside this block.
  */
-export interface SecurityHeadersConfig {
+export interface CORSConfig {
   /**
    * Allowed origins for CORS requests
    * - string: Single origin (e.g., "https://example.com")
@@ -130,6 +134,30 @@ export interface SecurityHeadersConfig {
    * @default false
    */
   allowCredentialsWithProtocolWildcard?: boolean;
+}
+
+/**
+ * Strict-Transport-Security (HSTS) header parameters.
+ */
+export interface HSTSConfig {
+  /** max-age in seconds */
+  maxAge: number;
+  includeSubDomains?: boolean;
+  preload?: boolean;
+}
+
+/**
+ * Browser security header configuration.
+ *
+ * Every field is a default. When `resolve` is supplied, its return value is
+ * merged over these per request, which is how a multi-tenant deployment varies
+ * policy by domain without giving up config-time validation of the defaults.
+ */
+export interface SecurityHeadersConfig {
+  /**
+   * Cross-Origin Resource Sharing policy, negotiated per-origin.
+   */
+  cors?: CORSConfig;
 
   /**
    * Controls the X-Frame-Options response header.
@@ -138,7 +166,7 @@ export interface SecurityHeadersConfig {
    *
    * @default false
    */
-  xFrameOptions?: false | 'DENY' | 'SAMEORIGIN';
+  frameOptions?: false | 'DENY' | 'SAMEORIGIN';
 
   /**
    * Controls the Strict-Transport-Security (HSTS) response header.
@@ -148,22 +176,22 @@ export interface SecurityHeadersConfig {
    * Note: HSTS is typically only appropriate over HTTPS in production.
    * This plugin does not inspect the connection security; enable with care.
    *
+   * Take particular care with `includeSubDomains` on a domain you do not
+   * control, such as a customer's custom domain. It forces HTTPS across every
+   * other subdomain of that domain, and browsers honor it for the full
+   * `maxAge`, so shipping a fix later does not revoke it. Use `resolve` to send
+   * a narrower policy for those domains.
+   *
    * @default false
    */
-  hsts?:
-    | false
-    | {
-        maxAge: number; // seconds
-        includeSubDomains?: boolean;
-        preload?: boolean;
-      };
+  hsts?: false | HSTSConfig;
 }
 
 /**
  * Default CORS configuration
  */
-const DEFAULT_CONFIG: Required<
-  Omit<SecurityHeadersConfig, 'credentials' | 'origin'>
+const DEFAULT_CORS_CONFIG: Required<
+  Omit<CORSConfig, 'credentials' | 'origin'>
 > & {
   origin: CORSOrigin;
   credentials: boolean;
@@ -179,8 +207,6 @@ const DEFAULT_CONFIG: Required<
   allowPrivateNetwork: false,
   credentialsAllowWildcardSubdomains: false,
   allowCredentialsWithProtocolWildcard: false,
-  xFrameOptions: false,
-  hsts: false,
 };
 
 // Limit how many headers we reflect/allow on preflight to avoid abuse
@@ -189,8 +215,8 @@ const MAX_ALLOWED_HEADERS = 100;
 // Limit the length of each reflected header name to avoid pathological values
 const MAX_HEADER_LEN = 256;
 
-type ResolvedSecurityHeadersConfig = Required<
-  Omit<SecurityHeadersConfig, 'credentials' | 'origin'>
+type ResolvedCORSConfig = Required<
+  Omit<CORSConfig, 'credentials' | 'origin'>
 > & {
   origin: CORSOrigin;
   credentials:
@@ -200,6 +226,12 @@ type ResolvedSecurityHeadersConfig = Required<
         origin: string | undefined,
         request: FastifyRequest,
       ) => boolean | Promise<boolean>);
+};
+
+type ResolvedSecurityHeadersConfig = {
+  cors: ResolvedCORSConfig;
+  frameOptions: false | 'DENY' | 'SAMEORIGIN';
+  hsts: false | HSTSConfig;
 };
 
 /**
@@ -279,7 +311,7 @@ async function isOriginAllowed(
  */
 async function areCredentialsAllowed(
   origin: string | undefined,
-  credentialsConfig: SecurityHeadersConfig['credentials'],
+  credentialsConfig: CORSConfig['credentials'],
   request: FastifyRequest,
   allowWildcardSubdomains: boolean,
 ): Promise<boolean> {
@@ -318,8 +350,8 @@ function applyUnconditionalSecurityHeaders(
   addToVaryHeader(reply, 'Origin');
 
   // Security headers (applied for all requests early in lifecycle)
-  if (resolvedConfig.xFrameOptions) {
-    reply.header('X-Frame-Options', resolvedConfig.xFrameOptions);
+  if (resolvedConfig.frameOptions) {
+    reply.header('X-Frame-Options', resolvedConfig.frameOptions);
   }
 
   if (resolvedConfig.hsts) {
@@ -343,10 +375,11 @@ async function applyCORSActualResponseHeaders(
   resolvedConfig: ResolvedSecurityHeadersConfig,
   isOriginAllowedResult?: boolean,
 ): Promise<void> {
+  const cors = resolvedConfig.cors;
   const origin = request.headers.origin;
   const isAllowed =
     isOriginAllowedResult ??
-    (await isOriginAllowed(origin, resolvedConfig.origin, request));
+    (await isOriginAllowed(origin, cors.origin, request));
 
   // Apply the unconditional security/Vary headers first, then layer the
   // origin-negotiated CORS headers on top if this request is allowed.
@@ -366,9 +399,9 @@ async function applyCORSActualResponseHeaders(
 
     const isCredentialsAllowed = await areCredentialsAllowed(
       origin,
-      resolvedConfig.credentials,
+      cors.credentials,
       request,
-      resolvedConfig.credentialsAllowWildcardSubdomains,
+      cors.credentialsAllowWildcardSubdomains,
     );
 
     // Never send credentials for the special 'null' origin
@@ -376,13 +409,13 @@ async function applyCORSActualResponseHeaders(
       reply.header('Access-Control-Allow-Credentials', 'true');
     }
 
-    if (resolvedConfig.exposedHeaders.length > 0) {
+    if (cors.exposedHeaders.length > 0) {
       reply.header(
         'Access-Control-Expose-Headers',
-        resolvedConfig.exposedHeaders.join(', '),
+        cors.exposedHeaders.join(', '),
       );
     }
-  } else if (!origin && resolvedConfig.origin === '*') {
+  } else if (!origin && cors.origin === '*') {
     // Requests without an Origin header are non-browser/same-origin style
     // traffic. When policy is fully wildcard, keep the public wildcard signal.
     reply.header('Access-Control-Allow-Origin', '*');
@@ -433,7 +466,7 @@ async function applyCORSActualResponseHeaders(
 export function securityHeaders(
   config: SecurityHeadersConfig = {},
 ): ServerPlugin<UnirendServerMode> {
-  const resolvedConfig = { ...DEFAULT_CONFIG, ...config };
+  const corsConfig = { ...DEFAULT_CORS_CONFIG, ...(config.cors ?? {}) };
 
   // Config-time validations:
   // - Origin '*' special handling:
@@ -448,7 +481,7 @@ export function securityHeaders(
   //   - Disallow global/protocol wildcards in credentials allowlists
   //   - Allow subdomain wildcards in credentials only when credentialsAllowWildcardSubdomains: true
 
-  if (resolvedConfig.origin === '*' && resolvedConfig.credentials === true) {
+  if (corsConfig.origin === '*' && corsConfig.credentials === true) {
     throw new Error(
       "Cannot use credentials: true with origin: '*'. The CORS specification prohibits Access-Control-Allow-Credentials: true with Access-Control-Allow-Origin: *. Use specific origins instead.",
     );
@@ -456,7 +489,7 @@ export function securityHeaders(
 
   // Guard: credentials: true with protocol wildcard (e.g., https://*) is high risk.
   // Require explicit opt-in via allowCredentialsWithProtocolWildcard: true
-  if (resolvedConfig.credentials === true) {
+  if (corsConfig.credentials === true) {
     const hasProtocolWildcard = (value: CORSOrigin): boolean => {
       if (typeof value === 'string') {
         return value === 'https://*' || value === 'http://*';
@@ -470,8 +503,8 @@ export function securityHeaders(
     };
 
     if (
-      hasProtocolWildcard(resolvedConfig.origin) &&
-      !resolvedConfig.allowCredentialsWithProtocolWildcard
+      hasProtocolWildcard(corsConfig.origin) &&
+      !corsConfig.allowCredentialsWithProtocolWildcard
     ) {
       throw new Error(
         'Cannot use credentials: true with protocol wildcard origins unless allowCredentialsWithProtocolWildcard: true. Use specific origins instead.',
@@ -480,62 +513,62 @@ export function securityHeaders(
   }
 
   // Additional guard: prevent reflect+credentials when origin is '*'
-  if (resolvedConfig.origin === '*') {
+  if (corsConfig.origin === '*') {
     // Dynamic function with '*' would enable reflecting arbitrary origins with credentials
-    if (typeof resolvedConfig.credentials === 'function') {
+    if (typeof corsConfig.credentials === 'function') {
       throw new TypeError(
         "Unsafe CORS: cannot combine origin '*' with dynamic credentials. Use a concrete origin list when enabling credentials.",
       );
     }
 
     // If credentials is an allowlist, validate and upgrade origin to that list
-    if (Array.isArray(resolvedConfig.credentials)) {
+    if (Array.isArray(corsConfig.credentials)) {
       validateCredentialsOrigins(
-        resolvedConfig.credentials,
-        resolvedConfig.credentialsAllowWildcardSubdomains,
+        corsConfig.credentials,
+        corsConfig.credentialsAllowWildcardSubdomains,
       );
 
-      const allowlist = Array.from(new Set(resolvedConfig.credentials));
+      const allowlist = Array.from(new Set(corsConfig.credentials));
       if (allowlist.length === 0) {
         throw new Error(
           "Invalid CORS config: credentials list is empty; cannot combine origin '*' with credentials.",
         );
       }
       // Upgrade: stop using '*' and switch to a concrete allowlist for origin
-      resolvedConfig.origin = allowlist;
+      corsConfig.origin = allowlist;
       // Keep origin and credentials aligned to reduce misconfiguration
-      resolvedConfig.credentials = allowlist;
+      corsConfig.credentials = allowlist;
     }
   }
 
   // Validate credentials wildcard patterns
-  if (Array.isArray(resolvedConfig.credentials)) {
+  if (Array.isArray(corsConfig.credentials)) {
     validateCredentialsOrigins(
-      resolvedConfig.credentials,
-      resolvedConfig.credentialsAllowWildcardSubdomains,
+      corsConfig.credentials,
+      corsConfig.credentialsAllowWildcardSubdomains,
     );
   }
 
   // Validate origin entries using centralized validator with appropriate wildcard policies
-  if (typeof resolvedConfig.origin === 'string') {
-    if (resolvedConfig.origin !== '*') {
-      const verdict = validateConfigEntry(resolvedConfig.origin, 'origin', {
+  if (typeof corsConfig.origin === 'string') {
+    if (corsConfig.origin !== '*') {
+      const verdict = validateConfigEntry(corsConfig.origin, 'origin', {
         allowGlobalWildcard: false, // Global wildcard handled separately above
         allowProtocolWildcard: true, // Allow protocol wildcards in origin
       });
 
       if (!verdict.valid) {
         throw new Error(
-          `Invalid CORS origin "${resolvedConfig.origin}"${verdict.info ? ': ' + verdict.info : ''}`,
+          `Invalid CORS origin "${corsConfig.origin}"${verdict.info ? ': ' + verdict.info : ''}`,
         );
       }
     }
-  } else if (Array.isArray(resolvedConfig.origin)) {
-    const entries = resolvedConfig.origin;
+  } else if (Array.isArray(corsConfig.origin)) {
+    const entries = corsConfig.origin;
     // Normalize ["*"] to "*"
     const unique = Array.from(new Set(entries));
     if (unique.length === 1 && unique[0] === '*') {
-      resolvedConfig.origin = '*';
+      corsConfig.origin = '*';
     } else {
       // Special policy: '*' inside an array is only allowed when paired solely with 'null'
       if (entries.includes('*')) {
@@ -604,12 +637,12 @@ export function securityHeaders(
       // disallow credentials: true and dynamic credentials function to avoid
       // reflecting arbitrary origins with credentials.
       if (entries.includes('*')) {
-        if (resolvedConfig.credentials === true) {
+        if (corsConfig.credentials === true) {
           throw new Error(
             "Cannot use credentials: true when origin array contains '*'. Use specific origins instead or remove credentials: true.",
           );
         }
-        if (typeof resolvedConfig.credentials === 'function') {
+        if (typeof corsConfig.credentials === 'function') {
           throw new TypeError(
             "Unsafe CORS: cannot combine an origin array containing '*' with dynamic credentials. Use a concrete origin list when enabling credentials.",
           );
@@ -625,32 +658,32 @@ export function securityHeaders(
   // Note: credentials controls Access-Control-Allow-Credentials header, which tells browsers
   // whether to include cookies/auth headers in requests - it doesn't automatically allow cookies
   if (
-    Array.isArray(resolvedConfig.credentials) &&
-    Array.isArray(resolvedConfig.origin)
+    Array.isArray(corsConfig.credentials) &&
+    Array.isArray(corsConfig.origin)
   ) {
     // Merge credentials origins into origin list to ensure they're allowed for CORS
-    const credentialsOrigins = resolvedConfig.credentials;
-    const existingOrigins = resolvedConfig.origin;
+    const credentialsOrigins = corsConfig.credentials;
+    const existingOrigins = corsConfig.origin;
     const mergedOrigins = [
       ...new Set([...existingOrigins, ...credentialsOrigins]),
     ];
-    resolvedConfig.origin = mergedOrigins;
+    corsConfig.origin = mergedOrigins;
   } else if (
-    Array.isArray(resolvedConfig.credentials) &&
-    typeof resolvedConfig.origin === 'string' &&
-    resolvedConfig.origin !== '*'
+    Array.isArray(corsConfig.credentials) &&
+    typeof corsConfig.origin === 'string' &&
+    corsConfig.origin !== '*'
   ) {
     // Convert single origin to array and merge with credentials origins
-    const credentialsOrigins = resolvedConfig.credentials;
+    const credentialsOrigins = corsConfig.credentials;
     const mergedOrigins = [
-      ...new Set([resolvedConfig.origin, ...credentialsOrigins]),
+      ...new Set([corsConfig.origin, ...credentialsOrigins]),
     ];
-    resolvedConfig.origin = mergedOrigins;
+    corsConfig.origin = mergedOrigins;
   }
 
   // Validate security header options at config-time
-  if (resolvedConfig.hsts) {
-    const cfg = resolvedConfig.hsts;
+  if (config.hsts) {
+    const cfg = config.hsts;
 
     if (
       typeof cfg.maxAge !== 'number' ||
@@ -679,6 +712,15 @@ export function securityHeaders(
       }
     }
   }
+
+  // Assemble the validated blocks into the shape the request-time helpers read.
+  // Keeping CORS in its own block means a future per-request override can
+  // replace one block without touching the others.
+  const resolvedConfig: ResolvedSecurityHeadersConfig = {
+    cors: corsConfig,
+    frameOptions: config.frameOptions ?? false,
+    hsts: config.hsts ?? false,
+  };
 
   return async (fastify: PluginHostInstance<UnirendServerMode>) => {
     fastify.decorateRequest(
@@ -714,7 +756,7 @@ export function securityHeaders(
         // Check if origin is allowed and cache result on request
         const isOriginAllowedResult = await isOriginAllowed(
           origin,
-          resolvedConfig.origin,
+          resolvedConfig.cors.origin,
           request,
         );
 
@@ -746,7 +788,7 @@ export function securityHeaders(
 
           // Build allowed methods using Set for deduplication and normalize to uppercase
           const methodSet = new Set(
-            resolvedConfig.methods.map((m) => m.toUpperCase()),
+            resolvedConfig.cors.methods.map((m) => m.toUpperCase()),
           );
 
           const allowedMethods = Array.from(methodSet);
@@ -754,7 +796,7 @@ export function securityHeaders(
           // Build allowed headers (merge requested headers with configured ones)
           let allowedHeaders: string[];
 
-          if (resolvedConfig.allowedHeaders.includes('*')) {
+          if (resolvedConfig.cors.allowedHeaders.includes('*')) {
             if (requestedHeaders) {
               // Reflect exactly what was requested (case-insensitive dedupe + cap)
               const requested = requestedHeaders
@@ -792,13 +834,13 @@ export function securityHeaders(
               allowedHeaders = reflected;
             } else {
               // Fallback to configured list without the '*'
-              allowedHeaders = resolvedConfig.allowedHeaders.filter(
+              allowedHeaders = resolvedConfig.cors.allowedHeaders.filter(
                 (h) => h !== '*',
               );
             }
           } else {
             // Start with configured headers
-            allowedHeaders = [...resolvedConfig.allowedHeaders];
+            allowedHeaders = [...resolvedConfig.cors.allowedHeaders];
 
             if (requestedHeaders) {
               // Merge requested headers that are in our allowed list
@@ -807,8 +849,8 @@ export function securityHeaders(
                 .map((h) => h.trim())
                 .filter(Boolean);
 
-              const configuredLower = resolvedConfig.allowedHeaders.map((h) =>
-                h.toLowerCase(),
+              const configuredLower = resolvedConfig.cors.allowedHeaders.map(
+                (h) => h.toLowerCase(),
               );
 
               const token = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
@@ -830,9 +872,10 @@ export function securityHeaders(
                   )
                 ) {
                   // Find the original configured header to preserve casing
-                  const configuredHeader = resolvedConfig.allowedHeaders.find(
-                    (h) => h.toLowerCase() === requestedLower,
-                  );
+                  const configuredHeader =
+                    resolvedConfig.cors.allowedHeaders.find(
+                      (h) => h.toLowerCase() === requestedLower,
+                    );
 
                   allowedHeaders.push(configuredHeader || requestedHeader);
                 }
@@ -861,7 +904,7 @@ export function securityHeaders(
 
           reply.header(
             'Access-Control-Max-Age',
-            resolvedConfig.maxAge.toString(),
+            resolvedConfig.cors.maxAge.toString(),
           );
 
           // Handle private network requests (Chrome feature)
@@ -870,12 +913,12 @@ export function securityHeaders(
 
           if (
             requestPrivateNetwork === 'true' &&
-            resolvedConfig.allowPrivateNetwork
+            resolvedConfig.cors.allowPrivateNetwork
           ) {
             reply.header('Access-Control-Allow-Private-Network', 'true');
           }
 
-          if (resolvedConfig.preflightContinue) {
+          if (resolvedConfig.cors.preflightContinue) {
             // Continue to route handler but set CORS headers first
             await applyCORSActualResponseHeaders(
               request,
@@ -894,7 +937,7 @@ export function securityHeaders(
               isOriginAllowedResult,
             );
 
-            reply.code(resolvedConfig.optionsSuccessStatus);
+            reply.code(resolvedConfig.cors.optionsSuccessStatus);
             return reply.send();
           }
         }

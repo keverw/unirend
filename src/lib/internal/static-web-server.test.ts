@@ -941,9 +941,11 @@ describe('StaticWebServer', () => {
       server = makeServer({
         plugins: [
           securityHeaders({
-            origin: ['https://app.example.com'],
-            exposedHeaders: ['X-Response-Time'],
-            xFrameOptions: 'SAMEORIGIN',
+            cors: {
+              origin: ['https://app.example.com'],
+              exposedHeaders: ['X-Response-Time'],
+            },
+            frameOptions: 'SAMEORIGIN',
           }),
         ],
         accessLog: { events: 'none' },

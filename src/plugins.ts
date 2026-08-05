@@ -10,7 +10,9 @@ import {
 // Re-export browser security headers plugin (CORS negotiation, HSTS, X-Frame-Options)
 export {
   type SecurityHeadersConfig,
+  type CORSConfig,
   type CORSOrigin,
+  type HSTSConfig,
   securityHeaders,
 } from './lib/built-in-plugins/security-headers';
 

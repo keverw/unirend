@@ -29,6 +29,7 @@
     "dirents",
     "domhandler",
     "donotpresent",
+    "EADDRINUSE",
     "ehthumbs",
     "Emptyish",
     "encryptable",
