@@ -124,6 +124,12 @@ That gap is exploitable when the app is reachable directly rather than only thro
 
 - [ ] `securityHeaders` reads `request.protocol` and needs no proxy option of its own
 - [ ] Remove `domainValidation.trustProxyHeaders` in favor of `fastifyOptions.trustProxy`, so proxy trust is configured once, in one place, with peer validation. Pre-release, so removal beats deprecation.
+
+  Sharing `getProtocol()` between the plugins instead was considered and rejected. It fixes duplication, which is not the problem. The problem is that the bare boolean is a weaker trust model than what Fastify already offers, and sharing it hands that weakness to a second plugin while leaving two proxy-trust settings that can disagree. Since these plugins are usually deployed together, a config where "which domain am I" and "am I secure" resolve from different trust models is exactly the failure worth designing out.
+
+  Middle path if removal is unwanted: keep the option but make it defer. When `fastifyOptions.trustProxy` is set, ignore the boolean and use `request.protocol`. When it is not, warn at startup that the boolean trusts headers no one has validated. Keeps existing configs working, costs more code, and leaves the footgun in place.
+
+- [ ] **Verify before migrating:** `domainValidation` needs the port, and it currently gets it via `parseHostHeader()`. Fastify's `request.hostname` strips the port while `request.host` keeps it, so the replacement is likely `request.host`. Confirm against Fastify 5's actual behavior rather than assuming, since getting this wrong silently breaks `preservePort` and any port-bearing canonical redirect.
 - [ ] Changelog: this is a second breaking change and a security fix. Say plainly that a repo setting `trustProxyHeaders: true` must move to `fastifyOptions.trustProxy`, and that the new setting should name the proxy rather than being a bare `true` wherever the origin is directly reachable.
 - [ ] Test: `hsts` configured, request over HTTP, header absent
 - [ ] Test: `hsts` configured, HTTP request behind a trusted proxy sending `x-forwarded-proto: https`, header present
