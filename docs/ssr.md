@@ -1703,6 +1703,8 @@ Build scripts chain each app's client and server builds back to back. The serve 
 
 Keep the SSR starter template's serve build and run scripts in place alongside the per-app bundle scripts.
 
+Give each app's Vite config a distinct `appKey` through `withUnirendViteConfig(config, { appKey: 'app-a' })`. Using the same names as the SSR app registrations makes the cache folders easy to recognize. An app without a usable key, root, or config-file identity uses Vite's `__unidentified__` cache folder, which is unrelated to SSR's `__default__` app and is shared by every app that falls back to it.
+
 If you started from the SSR starter template (which puts source at the folder root), moving the default app into a subfolder is a manual step. Update the Vite config paths and serve entry accordingly. The framework has no opinion on folder layout.
 
 **If you use the build info option:** add an entry to `build-info.config.json` for each new app's `current-build-info.ts` output path, and add those paths to `.gitignore` and `.prettierignore` so the generated files are excluded.

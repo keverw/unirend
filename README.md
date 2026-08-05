@@ -214,6 +214,41 @@ export default defineConfig(
 
 `withUnirendViteConfig()` merges with your existing Vite config, so settings like `resolve.alias` and `ssr.noExternal` are preserved. It configures Vite to avoid externalizing `unirend` during SSR and dedupes `react`, `react-dom`, and `react-router` so SSR/SSG rendering uses the same React/React Router package instances. This prevents split React Router contexts. Without it, router hooks like `useLocation()` can fail because they read a different context than the provider created.
 
+It also gives each app its own Vite dependency cache. Without this, apps in the same repo can share Vite's default cache and invalidate each other's optimized dependencies, which can surface as `504 (Outdated Optimize Dep)` errors.
+
+Usually, no extra configuration is needed. Unirend chooses a cache directory in this order:
+
+| Situation | Cache directory |
+| --- | --- |
+| You set Vite's `cacheDir` | Your `cacheDir` value, unchanged |
+| You pass an `appKey` | `node_modules/.vite/<appKey>` |
+| The app has a distinct `root` | A directory derived from the root's path within its package |
+| The root is shared, and Vite was given a config file path | A directory derived from that config file's path |
+| None of the above identifies the app | `node_modules/.vite/__unidentified__` |
+
+Pass an app key when you want a clear, stable cache name, or when multiple apps share a root:
+
+```typescript
+export default defineConfig(
+  withUnirendViteConfig(
+    {
+      plugins: [react()],
+      root: import.meta.dirname,
+      build: {
+        manifest: true,
+      },
+    },
+    { appKey: 'marketing' },
+  ),
+);
+```
+
+Choose a unique, simple lowercase key for each app. `marketing` gives you `node_modules/.vite/marketing`. The `__unidentified__` directory keeps an otherwise unidentified app separate from Vite's bare default cache, but multiple apps using it still share a cache, so give those apps distinct keys. If a key cannot be used as a directory name, Unirend converts it to a safe name and adds a short hash to keep it unique. If there is no readable text left after conversion, it uses `app-<hash>` instead. This only changes the cache folder name.
+
+Setting `cacheDir` yourself opts out and takes precedence.
+
+The SSR and SSG starter templates already pass each generated app's name as its `appKey`, so scaffolded apps have clear, separate cache directories from the start.
+
 **Build Structure:** Both SSG and SSR require building client and server separately:
 
 - **Client build**: Contains static assets, client-side code, regular manifest, and SSR manifest (intended for pre-loading)

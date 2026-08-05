@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+import type { Plugin, UserConfig } from 'vite';
 import { withUnirendViteConfig } from './config-vite';
+import { resolveAppCacheDir } from '../lib/internal/vite-cache-dir';
 
 describe('withUnirendViteConfig', () => {
   it('adds unirend SSR package dedupe defaults', () => {
@@ -75,5 +77,58 @@ describe('withUnirendViteConfig', () => {
     });
 
     expect(config.ssr?.noExternal).toBe(true);
+  });
+
+  describe('per-app dep-optimizer cache', () => {
+    // Vite's PluginOption is deeply recursive, so flatten through `unknown[]`
+    // rather than the declared type — flat(Infinity) over it blows TypeScript's
+    // instantiation depth limit.
+    function flattenPlugins(config: UserConfig): Plugin[] {
+      return ((config.plugins ?? []) as unknown[])
+        .flat(Infinity)
+        .filter(
+          (plugin): plugin is Plugin =>
+            typeof plugin === 'object' && plugin !== null && 'name' in plugin,
+        );
+    }
+
+    function cacheDirPluginNames(config: UserConfig): string[] {
+      return flattenPlugins(config)
+        .map((plugin) => plugin.name)
+        .filter((name) => name === 'unirend:per-app-cache-dir');
+    }
+
+    it('adds the cache directory plugin', () => {
+      expect(cacheDirPluginNames(withUnirendViteConfig())).toEqual([
+        'unirend:per-app-cache-dir',
+      ]);
+    });
+
+    it('keeps the user plugins alongside it', () => {
+      const userPlugin: Plugin = { name: 'user-plugin' };
+      const config = withUnirendViteConfig({ plugins: [userPlugin] });
+
+      expect(config.plugins).toContain(userPlugin);
+      expect(cacheDirPluginNames(config)).toHaveLength(1);
+    });
+
+    it('points the app key at its own cache directory', () => {
+      const config = withUnirendViteConfig(
+        { root: import.meta.dirname },
+        { appKey: 'admin' },
+      );
+      const [plugin] = flattenPlugins(config);
+      const hook = plugin.config;
+      const handler = typeof hook === 'function' ? hook : hook?.handler;
+      const result = handler?.call(
+        undefined as never,
+        { root: import.meta.dirname },
+        { command: 'serve', mode: 'development' } as never,
+      );
+
+      expect(result).toEqual({
+        cacheDir: resolveAppCacheDir(import.meta.dirname, 'admin'),
+      });
+    });
   });
 });
