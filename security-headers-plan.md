@@ -65,6 +65,17 @@ No cache key. An earlier draft had a `resolveCacheKey` so header strings could b
 - [ ] Decide whether `resolve` can be async. Tenant lookups usually hit a store, so probably yes, which means it must be awaited before headers are applied in `onRequest`.
 - [ ] Document that `cors.origin` as a function and `resolve` overlap. Prefer `resolve` for per-tenant policy, keep the callbacks for pure origin decisions.
 
+### Late-bound resolver (pattern to support and document)
+
+A resolver that needs a database cannot run at config time, but the plugin must be registered early so its `onRequest` beats everything that might short-circuit. Those two pull in opposite directions.
+
+Resolution: keep them separate. Register the plugin early with a validated static baseline that does no I/O, and let a later-initialized dependency install the real resolver afterward. Until it is installed, the baseline applies. Requests served during startup get the safe defaults rather than nothing.
+
+This is the same fallback the throw and invalid-result cases already need, so it is one mechanism rather than a special case: whenever there is no usable resolver result, the baseline stands.
+
+- [ ] Provide a way to install the resolver after registration (setter on the plugin's returned handle, or a mutable ref the caller closes over)
+- [ ] Document the pattern, since "register early, resolve late" is not obvious and the naive fix is to move the plugin later in the array, which reintroduces the ordering bug this branch exists to fix
+
 ## Commit order
 
 Nesting lands next, before the ordering fix, since the ordering work rewrites the same application path and should only be written once against the final config shape. Then: ordering → throwing callbacks → error pages → CSP. Correctness before surface area.
@@ -103,7 +114,13 @@ Config-time validation is well covered. Request-time throws are not covered at a
 - [ ] SHA-256 the generated style text at module load via `node:crypto` (Node API, not `Bun.*`, per AGENTS.md Runtime Target) and export the hashes
 - [ ] Auto-include those hashes in `style-src` when unirend emits its own CSP
 - [ ] Same treatment for the 404 and 503 pages
-- [ ] Check the SSR starter template's 500 page (`SSR_GET_500_ERROR_PAGE_*`) for the same inline patterns
+- [ ] The SSR starter template's 500 page (`ssr-get-500-error-page.ts`) has an inline `<style>` block but **no** inline `onclick`, it already uses an `<a>`. So it needs the style handled, not the button.
+
+**The scaffolded copy is the harder half.** That file is generated into the user's repo and never overwritten, so an existing scaffolded repo keeps its own copy and unirend cannot fix it from the package. Under a strict `style-src` their 500 page renders unstyled, and it is their file to hash.
+
+- [ ] Update the template so new scaffolds are CSP-clean out of the box
+- [ ] Export a small helper so a user can hash their own inline block without hand-rolling `node:crypto` and base64. Without it, "add your own hash" is a paper cut on every scaffolded repo.
+- [ ] **Changelog must tell scaffolded-repo users to update their own copy**, since re-running `unirend create` will not replace it. Name the file explicitly. This is the kind of thing that is invisible until someone turns CSP on months later and cannot work out why only the error page looks broken.
 
 Only one of the two reload buttons is actually a problem. `error-page-utils.ts:177` is a raw HTML `onclick="..."` attribute in a server-generated string, which CSP blocks. `starter-templates/templates-shared/react-components/application-error.ts:82` is a JSX `onClick={() => window.location.reload()}`, which React attaches as a JS listener rather than emitting an HTML attribute, so CSP never sees it and it keeps working. Leave the React one alone.
 
