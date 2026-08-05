@@ -6,6 +6,8 @@
 - [Key Features](#key-features)
 - [Usage](#usage)
 - [Configuration](#configuration)
+  - [`cors`](#cors)
+  - [Non-Negotiated Headers](#non-negotiated-headers)
 - [Advanced Features](#advanced-features)
 - [Security Notes](#security-notes)
   - [Security Model (at a Glance)](#security-model-at-a-glance)
@@ -116,7 +118,7 @@ These are sent on every response, whether or not the request carries an `Origin`
   - `false`: do not send the header
   - `{ maxAge: number; includeSubDomains?: boolean; preload?: boolean }`
     - `maxAge` is in seconds
-    - Only enable HSTS over HTTPS (typically production), this plugin does not auto-detect TLS
+    - The header is sent only on requests that arrived over a secure transport, which RFC 6797 section 7.2 requires. Behind a proxy that terminates TLS, set [`fastifyOptions.trustProxy`](../https.md#behind-a-tls-terminating-proxy) so Fastify resolves the request as HTTPS, otherwise no HSTS header is sent.
     - If `preload: true`, then `maxAge` must be at least `31536000` (1 year) and `includeSubDomains` must be `true` (Chrome preload list requirement)
 
 <!-- prettier-ignore -->
@@ -339,7 +341,8 @@ securityHeaders({
   cors: { origin: ['**.myapp.com', 'https://myapp.com'] },
   frameOptions: 'SAMEORIGIN', // or "DENY"
   hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
-  // Note: enable HSTS only when serving over HTTPS in production
+  // HSTS is sent only on requests that arrived over HTTPS. Behind a
+  // TLS-terminating proxy, set fastifyOptions.trustProxy so Fastify can tell.
 });
 ```
 

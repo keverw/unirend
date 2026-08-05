@@ -5,6 +5,9 @@ Both `SSRServer` (via `serveSSRWithHMR`/`serveSSRBuilt`) and `APIServer` (via `s
 <!-- toc -->
 
 - [Basic HTTPS Setup](#basic-https-setup)
+- [Behind a TLS-Terminating Proxy](#behind-a-tls-terminating-proxy)
+  - [Reading the Original vs. the Resolved Value](#reading-the-original-vs-the-resolved-value)
+- [HSTS](#hsts)
 - [SNI Callback for Multi-Tenant SaaS](#sni-callback-for-multi-tenant-saas)
 - [HTTP to HTTPS Redirect Server](#http-to-https-redirect-server)
 - [Development vs Production](#development-vs-production)
@@ -46,6 +49,72 @@ console.log('HTTPS server running on port 443');
     - **Runtime loading**: Read certificates from secure files at startup
   - **Why avoid env vars for secrets**: They leak in logs, process listings, and error reports. Modern secret managers provide rotation, auditing, and better security.
 - Set appropriate file permissions (0600 for private keys)
+
+## Behind a TLS-Terminating Proxy
+
+A common deployment terminates TLS at nginx, OpenResty, a load balancer, or a CDN, and forwards plain HTTP to the app. Unirend then sees an HTTP request, and the only record of the original HTTPS hop is the `x-forwarded-proto` header the proxy set.
+
+Fastify believes that header only when `fastifyOptions.trustProxy` vouches for the peer that sent it. Set it, and `request.protocol` and `request.host` reflect what the browser actually asked for.
+
+```typescript
+const server = serveSSRBuilt('./build', {
+  fastifyOptions: {
+    // Trust only the proxy. See the guidance below before using a bare `true`.
+    trustProxy: '10.0.0.0/8',
+  },
+});
+```
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> If you use the `domainValidation` plugin with `enforceHTTPS: true` behind such a proxy, `fastifyOptions.trustProxy` is **required**. Without it Fastify sees the plain HTTP hop, the plugin redirects to HTTPS, the proxy forwards HTTP again, and the browser reports `ERR_TOO_MANY_REDIRECTS`. The symptom is an infinite redirect loop and the site is down until `trustProxy` is set.
+
+Guidance on what to set it to:
+
+- **Origin reachable only from the proxy** (loopback bind, private network, container network): `trustProxy: true` is fine, because no untrusted peer can connect.
+- **Origin reachable from anywhere else**: name the proxy, for example `trustProxy: '10.0.0.0/8'` or its specific address. A bare `true` lets any client forge forwarded headers.
+- **A CDN in front of a proxy** is more than one hop, so use a hop count or the full trusted set.
+
+### Reading the Original vs. the Resolved Value
+
+Trusting a proxy does not rewrite anything. `request.headers` still holds exactly what arrived on the wire, and the resolved values are getters computed alongside it. Both views stay available, which is what you want when an access log or an audit trail should record what a client claimed as well as what was believed.
+
+Given `trustProxy: true` and a request carrying `Host: internal.upstream:8080`, `X-Forwarded-Host: evil.com, real.example.com:8443`, and `X-Forwarded-Proto: https, http`:
+
+| What you want | Read | Value in this example |
+| --- | --- | --- |
+| Host as received | `request.headers.host` | `internal.upstream:8080` |
+| Forwarded host as sent | `request.headers['x-forwarded-host']` | `evil.com, real.example.com:8443` |
+| Resolved host with port | `request.host` | `real.example.com:8443` |
+| Resolved host, no port | `request.hostname` | `real.example.com` |
+| Resolved port | `request.port` | `8443` |
+| Forwarded proto as sent | `request.headers['x-forwarded-proto']` | `https, http` |
+| Resolved protocol | `request.protocol` | `http` |
+| Resolved client IP | `request.ip` | `9.9.9.9` |
+| Full IP chain | `request.ips` | `['127.0.0.1', '10.0.0.5', '9.9.9.9']` |
+
+Note which end of a multi-value header wins. For host and protocol the **last** entry is the one the trusted proxy appended, so that is what Fastify resolves, and the leading `evil.com` and `https` here are whatever the client sent. `X-Forwarded-For` runs the other way by convention, with the client leftmost, which is why `request.ip` is the first entry rather than the last. `request.ips` is the only ready-made chain accessor; for hosts you would split the raw header yourself.
+
+See [domainValidation](./built-in-plugins/domainValidation.md#proxy-support) for the plugin-side details.
+
+## HSTS
+
+`Strict-Transport-Security` tells a browser to use HTTPS for a domain for a fixed period. Configure it through the `securityHeaders` plugin:
+
+```typescript
+import { securityHeaders } from 'unirend/plugins';
+
+securityHeaders({
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+});
+```
+
+Unirend sends the header only on requests that arrived over a secure transport, which RFC 6797 requires. Behind a TLS-terminating proxy that means `fastifyOptions.trustProxy` must be set, otherwise Fastify sees plain HTTP and no HSTS header is sent at all.
+
+Two things to weigh before enabling it:
+
+- `maxAge` is not revocable. A browser that has seen the header honors it for the full duration even if you stop sending it, so start with a short value and raise it once you are confident.
+- `includeSubDomains` on a domain you do not control, such as a customer's custom domain, forces HTTPS across every other subdomain of that domain, including things unrelated to your app.
 
 ## SNI Callback for Multi-Tenant SaaS
 

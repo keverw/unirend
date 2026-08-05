@@ -173,8 +173,10 @@ export interface SecurityHeadersConfig {
    * - false: do not send the header (default)
    * - { maxAge, includeSubDomains?, preload? }: header parameters
    *
-   * Note: HSTS is typically only appropriate over HTTPS in production.
-   * This plugin does not inspect the connection security; enable with care.
+   * The header is only sent when the request arrived over a secure transport,
+   * per RFC 6797 section 7.2, which forbids sending it over plain HTTP. Behind
+   * a TLS-terminating proxy that means `fastifyOptions.trustProxy` must be set,
+   * otherwise Fastify sees plain HTTP and no HSTS header is sent.
    *
    * Take particular care with `includeSubDomains` on a domain you do not
    * control, such as a customer's custom domain. It forces HTTPS across every
@@ -337,6 +339,7 @@ async function areCredentialsAllowed(
 }
 
 function applyUnconditionalSecurityHeaders(
+  request: FastifyRequest,
   reply: FastifyReply,
   resolvedConfig: ResolvedSecurityHeadersConfig,
 ): void {
@@ -354,7 +357,15 @@ function applyUnconditionalSecurityHeaders(
     reply.header('X-Frame-Options', resolvedConfig.frameOptions);
   }
 
-  if (resolvedConfig.hsts) {
+  // RFC 6797 section 7.2: a host MUST NOT send Strict-Transport-Security over
+  // a non-secure transport, and user agents MUST ignore it when they receive
+  // it that way. So the header is only meaningful on an HTTPS response.
+  //
+  // `request.protocol` is Fastify's resolution, which reads x-forwarded-proto
+  // only when `fastifyOptions.trustProxy` says the peer may be believed. That
+  // matters for the common TLS-terminating-proxy deployment: without
+  // trustProxy the app sees plain HTTP and sends no HSTS at all.
+  if (resolvedConfig.hsts && request.protocol === 'https') {
     const parts = [`max-age=${Math.floor(resolvedConfig.hsts.maxAge)}`];
 
     if (resolvedConfig.hsts.includeSubDomains) {
@@ -383,7 +394,7 @@ async function applyCORSActualResponseHeaders(
 
   // Apply the unconditional security/Vary headers first, then layer the
   // origin-negotiated CORS headers on top if this request is allowed.
-  applyUnconditionalSecurityHeaders(reply, resolvedConfig);
+  applyUnconditionalSecurityHeaders(request, reply, resolvedConfig);
 
   // For non-preflight requests, let them proceed without CORS headers if the
   // origin is not allowed. Same-origin requests still work; browsers enforce
@@ -751,7 +762,7 @@ export function securityHeaders(
         const origin = request.headers.origin;
         const method = request.method;
 
-        applyUnconditionalSecurityHeaders(reply, resolvedConfig);
+        applyUnconditionalSecurityHeaders(request, reply, resolvedConfig);
 
         // Check if origin is allowed and cache result on request
         const isOriginAllowedResult = await isOriginAllowed(

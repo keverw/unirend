@@ -18,6 +18,13 @@ interface MockRequest {
   url: string;
   method: string;
   headers: Record<string, string | undefined>;
+  /**
+   * Stands in for Fastify's resolved `request.protocol`. Fastify derives it
+   * from the socket, or from x-forwarded-proto when `fastifyOptions.trustProxy`
+   * vouches for the peer, so a test sets the resolved value directly rather
+   * than the header. Defaults to https since that is the ordinary case.
+   */
+  protocol: string;
   corsOriginAllowed?: boolean;
   [key: string]: unknown;
 }
@@ -42,6 +49,7 @@ const createMockRequest = (
     origin: 'https://example.com',
     ...overrides.headers,
   },
+  protocol: 'https',
   ...overrides,
 });
 
@@ -1008,6 +1016,99 @@ describe('securityHeaders', () => {
       expect(reply.header).toHaveBeenCalledWith(
         'Strict-Transport-Security',
         'max-age=31536000; includeSubDomains; preload',
+      );
+    });
+
+    it('should not send HSTS over plain HTTP', async () => {
+      // RFC 6797 section 7.2: a host MUST NOT send Strict-Transport-Security
+      // over a non-secure transport, and user agents MUST ignore it there.
+      const pluginHost = createMockPluginHost();
+      const plugin = securityHeaders({
+        cors: { origin: 'https://example.com' },
+        frameOptions: 'DENY',
+        hsts: { maxAge: 31536000 },
+      });
+      await plugin(pluginHost, createMockOptions());
+
+      const onRequestHook = pluginHost
+        .getHooks()
+        .find((h) => h.event === 'onRequest');
+
+      const request = createMockRequest({
+        protocol: 'http',
+        headers: { origin: 'https://example.com' },
+      });
+      const reply = createMockReply();
+      await onRequestHook?.handler(request, reply);
+
+      expect(reply.header).not.toHaveBeenCalledWith(
+        'Strict-Transport-Security',
+        expect.any(String),
+      );
+
+      // The other non-negotiated headers are unaffected by transport.
+      expect(reply.header).toHaveBeenCalledWith('X-Frame-Options', 'DENY');
+    });
+
+    it('should not send HSTS when only an untrusted forwarded header claims HTTPS', async () => {
+      // Without fastifyOptions.trustProxy, Fastify leaves request.protocol as
+      // the socket's protocol, so a client-supplied x-forwarded-proto cannot
+      // switch HSTS on.
+      const pluginHost = createMockPluginHost();
+      const plugin = securityHeaders({
+        cors: { origin: 'https://example.com' },
+        hsts: { maxAge: 31536000 },
+      });
+      await plugin(pluginHost, createMockOptions());
+
+      const onRequestHook = pluginHost
+        .getHooks()
+        .find((h) => h.event === 'onRequest');
+
+      const request = createMockRequest({
+        protocol: 'http',
+        headers: {
+          origin: 'https://example.com',
+          'x-forwarded-proto': 'https',
+        },
+      });
+      const reply = createMockReply();
+      await onRequestHook?.handler(request, reply);
+
+      expect(reply.header).not.toHaveBeenCalledWith(
+        'Strict-Transport-Security',
+        expect.any(String),
+      );
+    });
+
+    it('should send HSTS when a trusted proxy resolved the request as HTTPS', async () => {
+      // With trustProxy configured, Fastify resolves request.protocol to
+      // 'https' from the forwarded header, which is the normal shape of a
+      // TLS-terminating proxy in front of a plain-HTTP origin.
+      const pluginHost = createMockPluginHost();
+      const plugin = securityHeaders({
+        cors: { origin: 'https://example.com' },
+        hsts: { maxAge: 31536000 },
+      });
+      await plugin(pluginHost, createMockOptions());
+
+      const onRequestHook = pluginHost
+        .getHooks()
+        .find((h) => h.event === 'onRequest');
+
+      const request = createMockRequest({
+        protocol: 'https',
+        headers: {
+          origin: 'https://example.com',
+          'x-forwarded-proto': 'https',
+        },
+      });
+      const reply = createMockReply();
+      await onRequestHook?.handler(request, reply);
+
+      expect(reply.header).toHaveBeenCalledWith(
+        'Strict-Transport-Security',
+        'max-age=31536000',
       );
     });
 

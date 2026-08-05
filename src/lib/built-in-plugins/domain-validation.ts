@@ -104,14 +104,6 @@ export interface DomainValidationConfig {
   skipInDevelopment?: boolean;
 
   /**
-   * Whether to trust proxy headers (x-forwarded-host/proto) when determining
-   * the original host and protocol. Only enable this when running behind a
-   * trusted proxy/load balancer that sets these headers.
-   * @default false
-   */
-  trustProxyHeaders?: boolean;
-
-  /**
    * Optional custom handler for invalid domain responses
    * If not provided, returns a default 403 plain text or JSON error response
    * based on if detected as an API endpoint
@@ -149,54 +141,6 @@ function checkIfAPIEndpoint(
   // and strips query strings internally
   const { isAPI } = classifyRequest(url, apiPrefix, pageDataEndpoint);
   return isAPI;
-}
-
-/**
- * Helper function to safely extract protocol from headers
- */
-function getProtocol(
-  request: FastifyRequest,
-  shouldTrustProxyHeaders: boolean,
-): string {
-  if (shouldTrustProxyHeaders) {
-    const forwardedProto = request.headers['x-forwarded-proto'];
-
-    if (forwardedProto) {
-      // Handle comma-separated list, take first value
-      const proto = Array.isArray(forwardedProto)
-        ? forwardedProto[0]
-        : forwardedProto.split(',')[0].trim();
-
-      return proto.toLowerCase();
-    }
-  }
-
-  // Fallback to request.protocol (accurate when Fastify trustProxy is enabled)
-  return (request.protocol || 'http').toLowerCase();
-}
-
-/**
- * Helper function to safely extract host from headers (proxy-aware)
- */
-function getHost(
-  request: FastifyRequest,
-  shouldTrustProxyHeaders: boolean,
-): string {
-  // Prefer x-forwarded-host only when explicitly trusted
-  if (shouldTrustProxyHeaders) {
-    const forwardedHost = request.headers['x-forwarded-host'];
-
-    if (forwardedHost) {
-      // Handle comma-separated list, take first value
-      const host = Array.isArray(forwardedHost)
-        ? forwardedHost[0]
-        : forwardedHost.split(',')[0].trim();
-      return host;
-    }
-  }
-
-  // Fallback to standard host header
-  return request.headers.host || '';
 }
 
 /**
@@ -245,14 +189,18 @@ export function domainValidation(
       }
 
       const isAPIEndpoint = checkIfAPIEndpoint(request.url, options);
-      const shouldTrustProxyHeaders = !!config.trustProxyHeaders;
 
-      const host = getHost(request, shouldTrustProxyHeaders);
-      const parsed = parseHostHeader(host);
+      // `request.host` and `request.protocol` are Fastify's own resolution.
+      // They consult x-forwarded-host / x-forwarded-proto only when
+      // `fastifyOptions.trustProxy` vouches for the peer that sent them, and
+      // they read the last comma-separated entry, which is the one the trusted
+      // proxy appended rather than anything the client supplied. Proxy trust is
+      // therefore configured once, at the server, for every plugin at once.
+      const parsed = parseHostHeader(request.host);
       const originalDomain = parsed.domain; // Keep original for error messages
       const domain = normalizeDomain(originalDomain);
       const port = parsed.port;
-      const protocol = getProtocol(request, shouldTrustProxyHeaders);
+      const protocol = (request.protocol || 'http').toLowerCase();
 
       // Reject requests with a missing or unparseable Host header before any
       // redirect logic runs — an empty domain would otherwise produce a

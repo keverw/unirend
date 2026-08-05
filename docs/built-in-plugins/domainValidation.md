@@ -8,22 +8,24 @@
 - [Configuration](#configuration)
 - [Examples](#examples)
 - [Proxy Support](#proxy-support)
+  - [What to Set `trustProxy` To](#what-to-set-trustproxy-to)
+  - [On Multi-Value Forwarded Headers](#on-multi-value-forwarded-headers)
 - [Error Responses](#error-responses)
 
 <!-- tocstop -->
 
 ## About
 
-The `domainValidation` plugin provides comprehensive domain security and normalization for production deployments. It handles domain validation, canonical redirects, HTTPS enforcement, WWW prefix management, and proxy header support.
+The `domainValidation` plugin provides comprehensive domain security and normalization for production deployments. It handles domain validation, canonical redirects, HTTPS enforcement, and WWW prefix management.
 
 ## Features
 
 - **Domain validation**: Validates requests against allowed production domains with wildcard support or request-aware custom logic
 - **Canonical domain redirects**: Redirects to the preferred domain when multiple domains are configured
-- **HTTPS enforcement**: Automatically redirects HTTP requests to HTTPS with proxy header support
+- **HTTPS enforcement**: Automatically redirects HTTP requests to HTTPS
 - **WWW prefix handling**: Add or remove WWW prefix with smart apex domain detection (no changes to subdomains)
 - **Punycode normalization**: Handles international domains (IDN) safely with punycode conversion
-- **Proxy-aware**: Supports `x-forwarded-host` and `x-forwarded-proto` headers
+- **Proxy-aware**: Uses the host and protocol Fastify resolves from `fastifyOptions.trustProxy`, so proxy trust is configured once for the whole server
 - **API endpoint detection**: Different error handling for API vs web requests
 - **Single redirect**: Combines multiple redirect conditions to avoid redirect chains
 - **Port preservation**: Configurable port handling for development and custom setups
@@ -69,8 +71,10 @@ const server = serveSSRBuilt(buildDir, {
   - `"preserve"`: Keep www prefix as-is
 - `redirectStatusCode` (default: `301`): HTTP status code for redirects (301, 302, 307, or 308)
 - `skipInDevelopment` (default: `true`): Skip validation in development mode
-- `trustProxyHeaders` (default: `false`): Only when `true`, the plugin will read `x-forwarded-host` and `x-forwarded-proto` from requests to determine original host and protocol. Enable this only when behind a trusted proxy/load balancer.
-- `preservePort` (default: `false`): Whether to preserve port numbers in redirects
+- `preservePort` (default: `false`): Whether to keep the port number when building a redirect URL
+  - The port comes from the same resolved host everything else uses, so behind a trusted proxy it is the public port the browser connected to, not the internal one the app is listening on. Without `fastifyOptions.trustProxy` it is whatever port reached the app.
+  - The port is always dropped when the protocol changes, since an HTTP port is meaningless on the HTTPS URL being redirected to. `preservePort` only applies to redirects that stay on the same protocol, such as a canonical domain or www change.
+  - Mostly useful for non-standard ports: a development host, or an internal deployment reached directly on a port rather than through a proxy on 443.
 - `invalidDomainHandler` (optional): Custom function to format the error response for blocked requests (e.g., JSON/text/HTML). Does not bypass validation or allow the request to proceed.
   - **Security Note**: When returning HTML with dynamic values, always escape them using `escapeHTML` from `unirend/utils` to prevent XSS attacks.
 
@@ -140,10 +144,40 @@ domainValidation({
 
 ## Proxy Support
 
-When `trustProxyHeaders: true`, the plugin handles common proxy headers (first value used if comma-separated):
+The plugin does not read `x-forwarded-host` or `x-forwarded-proto` itself. It reads the host and protocol Fastify has already resolved, and Fastify consults those headers only when `fastifyOptions.trustProxy` says the peer that sent them may be believed. Proxy trust is therefore configured once, on the server, and applies to every plugin at the same time.
 
-- `x-forwarded-host`: Uses the forwarded host for domain validation
-- `x-forwarded-proto`: Respects the original protocol for HTTPS enforcement
+```typescript
+const server = serveSSRBuilt(buildDir, {
+  fastifyOptions: {
+    // Name the proxy whenever the origin is reachable from anywhere else.
+    trustProxy: '10.0.0.0/8',
+  },
+  plugins: [
+    domainValidation({
+      validProductionDomains: ['example.com'],
+      canonicalDomain: 'example.com',
+    }),
+  ],
+});
+```
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> Behind a proxy that terminates TLS, `enforceHTTPS: true` **requires** `fastifyOptions.trustProxy`. Without it Fastify sees the plain HTTP hop from the proxy, the plugin redirects to HTTPS, the proxy forwards HTTP again, and the browser reports `ERR_TOO_MANY_REDIRECTS`. An infinite redirect loop is the symptom, and the site is down until `trustProxy` is set. `canonicalDomain` fails the same way for the same reason: without a trusted `x-forwarded-host` the plugin compares against the internal upstream host rather than the public one, so it redirects on every request.
+
+### What to Set `trustProxy` To
+
+`fastifyOptions.trustProxy` accepts a boolean, an address, a CIDR range, a list, a hop count, or a predicate function.
+
+- **Origin reachable only from the proxy** (bound to loopback, a private network, or a container network): `trustProxy: true` is fine, because no untrusted peer can open a connection in the first place.
+- **Origin reachable from anywhere else**: name the proxy, for example `trustProxy: '10.0.0.0/8'` or its specific address. A bare `true` here is what lets any client forge `x-forwarded-host` and walk straight past domain validation.
+- **A CDN in front of a proxy** (Cloudflare to OpenResty to the app) is more than one hop, so you need a hop count or the full trusted set rather than a single address.
+
+### On Multi-Value Forwarded Headers
+
+Fastify reads the **last** comma-separated entry, which is the one the trusted proxy appended. Earlier entries can be anything a client sent. nginx and OpenResty configured with `proxy_set_header X-Forwarded-Proto $scheme` overwrite rather than append, so a single-hop setup usually carries one value regardless.
+
+Nothing is rewritten in the process: `request.headers` still holds the raw values while `request.host` and `request.protocol` report the resolved ones, so you can log both. See [Reading the Original vs. the Resolved Value](../https.md#reading-the-original-vs-the-resolved-value) for the full set of accessors.
 
 ## Error Responses
 

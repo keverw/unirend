@@ -196,5 +196,31 @@ Grouping is what lets a policy be varied per request later without re-specifying
 
 The exported types follow: `CORSConfig` is now the `cors` block specifically, `SecurityHeadersConfig` is the whole object, and `HSTSConfig` is newly exported. `CORSOrigin` keeps its name, since it really does describe a CORS origin. The request-scoped helper that raw and hijacked response paths call before `writeHead(...)` is now `request.applySecurityHeaders(reply)` rather than `request.applyCORSHeaders(reply)`, which matters only if you have written your own hijacked path against it. Documentation moved to [docs/built-in-plugins/security-headers.md](docs/built-in-plugins/security-headers.md).
 
+**Breaking, and a security fix:** the `domainValidation` plugin's `trustProxyHeaders` option is removed. Proxy trust is now configured once for the whole server through `fastifyOptions.trustProxy`, and the plugin reads the host and protocol Fastify has already resolved.
+
+The option was parsing `x-forwarded-host` and `x-forwarded-proto` itself, and it got two things wrong. It performed no peer validation, so wherever the origin was reachable directly rather than only through the proxy, any client could send those headers and walk straight past domain validation and HTTPS enforcement. It also read the **first** comma-separated entry. A proxy that appends rather than replaces leaves `evil.com, real.example.com`, where the last entry is what the trusted proxy wrote and the first is whatever the client sent. That means a deployment behind a correctly configured appending proxy was affected regardless of how carefully it was set up. Fastify reads the last entry and validates the peer before believing either header, so moving to it fixes both.
+
+```typescript
+// Before
+domainValidation({
+  validProductionDomains: ['example.com'],
+  trustProxyHeaders: true,
+});
+
+// After
+serveSSRBuilt(buildDir, {
+  // Name the proxy rather than passing `true` wherever the origin is
+  // reachable from anywhere other than the proxy itself.
+  fastifyOptions: { trustProxy: '10.0.0.0/8' },
+  plugins: [domainValidation({ validProductionDomains: ['example.com'] })],
+});
+```
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> Removing `trustProxyHeaders` without setting `fastifyOptions.trustProxy` will take a proxied site down. Where the proxy terminates TLS, Fastify sees the plain HTTP hop, `enforceHTTPS` redirects to HTTPS, the proxy forwards HTTP again, and the browser reports `ERR_TOO_MANY_REDIRECTS`. `canonicalDomain` fails the same way, comparing against the internal upstream host and redirecting on every request. See [docs/built-in-plugins/domainValidation.md](docs/built-in-plugins/domainValidation.md#proxy-support).
+
+**Breaking:** `securityHeaders` now sends `Strict-Transport-Security` only on requests that arrived over a secure transport. RFC 6797 section 7.2 forbids sending it over plain HTTP and requires browsers to ignore it there, so the header was being emitted on requests where it could never take effect, including plain-HTTP local runs and any app speaking HTTP behind a TLS-terminating proxy. Browsers discarded it, but it showed up in security scans. If you terminate TLS at a proxy and want HSTS, set `fastifyOptions.trustProxy` so Fastify can resolve the request as HTTPS.
+
 - `withUnirendViteConfig()` now gives each app a separate Vite dependency cache, preventing shared-repo apps from invalidating one another's optimized dependencies and causing `504 (Outdated Optimize Dep)` errors. It derives an app identity from `root` when possible, supports an explicit `appKey`, and uses a named unidentified cache when neither identifies the app. A project-set `cacheDir` still takes precedence. SSR and SSG starter templates pass their generated app name as the key. The first run after upgrading performs one dependency optimization in the new cache directory.
 - The GitHub CLI section of the scaffolded `AGENTS.md` now covers pull request drafts and merging. Agents open a pull request with `gh pr create --draft`, so nothing an agent opens lands in a reviewer's queue before the human has looked at it, and the branch cannot be merged while it is still moving. Marking it ready with `gh pr ready` waits for the user to ask. Merging is called out separately as the one write that cannot be undone by editing a comment, so `gh pr merge` is off limits until the user asks for that specific pull request to be merged. A request to open a pull request is not permission to merge it, and neither is a green CI run or an approving review. The same applies to `gh pr merge --auto`, which merges later with nobody watching. Only new scaffolds get this, since the file is never overwritten.

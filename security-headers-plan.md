@@ -81,14 +81,26 @@ This is the same fallback the throw and invalid-result cases already need, so it
 Planning is complete. Everything below is specified well enough to implement without further design decisions.
 
 1. **Done** — `99f700b` rename, `afa338b` config nesting
-2. **Proxy trust and HSTS transport.** Delete `getHost()` / `getProtocol()`, remove `trustProxyHeaders`, read `request.host` and `request.protocol`, gate HSTS on secure transport. Fixes three findings at once. No open questions.
+2. **Done** — proxy trust and HSTS transport. `getHost()` / `getProtocol()` and `trustProxyHeaders` deleted, both plugins read Fastify's resolved `request.host` / `request.protocol`, HSTS gated on secure transport. See the notes below for what turned up while doing it.
 3. **Static content bypass.** Split detect from serve in the two built-in servers, leaving the `staticContent` plugin unchanged. Repro exists at `tmp/static-domain-bypass.test.ts` and moves into `static-web-server.test.ts`. Its own commit and its own changelog entry, since it is an access-control fix rather than a header one. Kept in this branch because the refactor is contained.
 4. **Order-independent application.** Server owns the resolved policy, `onSend` backstop, HSTS skipped on rejected hosts via the request marker.
 5. **Throwing callbacks.** Fail closed rather than 500, cache the decision so the error path does not re-invoke.
 6. **Error pages under CSP.** Anchor instead of inline `onclick`, hash the inline style, export a hashing helper, tell scaffolded repos to update their own copy.
 7. **CSP.** Directive config, presets, `reportOnly`, automatic hashes for slots and error pages, `strict-dynamic` for third-party widgets. Verify the JSON data-block behavior in a real browser before relying on it.
 
-Steps 2 and 3 are independent of each other and of everything after them. Either can land first.
+Steps 3 onward are independent of what has landed so far.
+
+### Notes from implementing step 2
+
+**Fastify rewrites nothing.** Verified by running it: with `trustProxy` on and `x-forwarded-host: evil.com, real.example.com:8443`, `request.headers.host` still holds the raw upstream Host and `request.headers['x-forwarded-host']` still holds the full list, while `request.host`, `request.hostname`, `request.port`, and `request.protocol` are getters returning the resolved values. Both the claim and the verdict stay available, which is what an access log or an audit trail would want. `request.ips` gives the full IP chain; there is no equivalent accessor for hosts, so a caller wanting the chain splits the raw header itself.
+
+Confirms the earlier note that `request.hostname` and `request.port` replace the `parseHostHeader()` split. The plugin still calls `parseHostHeader(request.host)` rather than reading the two separately, because that function also rejects a malformed host, which is what drives the existing 400 path.
+
+**Bun does not honor an async hook short-circuit, and Node does.** An `async` `onRequest` hook that calls `reply.send()` stops the hook chain on Node exactly as Fastify documents. Under Bun the route handler runs anyway and the second send throws `ERR_HTTP_HEADERS_SENT`. Verified with the same script under both runtimes, with and without `return reply`.
+
+Node is the runtime target, so this is not a product bug, but it constrains testing: any test that drives `domainValidation` through a real Fastify instance and expects a 403 or a redirect will fail under `bun test` for reasons that have nothing to do with the plugin. The proxy-trust tests work around it by allowing every domain and recording what the plugin was handed, which measures the resolution without ever short-circuiting. Worth remembering for step 3 and step 4, both of which want end-to-end coverage of short-circuiting paths.
+
+- [ ] Decide how to cover short-circuit paths end to end. Options are a Node-run test script outside `bun test`, or keeping those assertions at the mock level.
 
 ## Commit 3: order-independent application
 

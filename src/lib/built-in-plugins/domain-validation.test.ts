@@ -1,4 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
+import fastify from 'fastify';
+import type { FastifyServerOptions } from 'fastify';
 import { domainValidation } from './domain-validation';
 import type { DomainValidationConfig } from './domain-validation';
 import type { PluginOptions, PluginHostInstance } from '../types';
@@ -8,17 +10,34 @@ interface MockRequestOverrides {
   url?: string;
   headers?: Record<string, string>;
   protocol?: string;
+  host?: string;
 }
 
-const createMockRequest = (overrides: MockRequestOverrides = {}): unknown => ({
-  url: '/test',
-  headers: {
+/**
+ * The plugin reads Fastify's resolved `request.host` and `request.protocol`
+ * rather than parsing forwarded headers itself. Fastify consults
+ * x-forwarded-host / x-forwarded-proto only when `fastifyOptions.trustProxy`
+ * vouches for the peer, so these unit mocks model the untrusted case by
+ * default: `host` comes from the plain Host header. Pass `host` or `protocol`
+ * explicitly to stand in for what Fastify would resolve behind a trusted
+ * proxy. Real trust and multi-value parsing are covered by the integration
+ * tests at the bottom of this file, which run against an actual Fastify
+ * instance.
+ */
+const createMockRequest = (overrides: MockRequestOverrides = {}): unknown => {
+  const headers = {
     host: 'example.com',
     ...overrides.headers,
-  },
-  protocol: 'https',
-  ...overrides,
-});
+  };
+
+  return {
+    url: '/test',
+    protocol: 'https',
+    ...overrides,
+    headers,
+    host: overrides.host ?? headers.host ?? '',
+  };
+};
 
 const createMockReply = () => {
   const reply = {
@@ -162,14 +181,15 @@ describe('domainValidation', () => {
       expect(reply.code).not.toHaveBeenCalled();
     });
 
-    it('should accept x-forwarded-host with port when domain matches (trusted)', async () => {
+    it('should accept a resolved host that carries a port when the domain matches', async () => {
       const config: DomainValidationConfig = {
         validProductionDomains: ['example.com'],
-        trustProxyHeaders: true,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
+        // What Fastify resolves from a trusted x-forwarded-host.
+        host: 'example.com:8443',
         headers: {
           host: 'internal.proxy',
           'x-forwarded-host': 'example.com:8443',
@@ -186,10 +206,12 @@ describe('domainValidation', () => {
       expect(reply.redirect).not.toHaveBeenCalled();
       expect(reply.code).not.toHaveBeenCalled();
     });
-    it('should ignore x-forwarded-host when not trusted (default)', async () => {
+
+    it('should ignore x-forwarded-host when the proxy is not trusted', async () => {
       const config: DomainValidationConfig = {
+        // No fastifyOptions.trustProxy, so Fastify resolves host from the
+        // plain Host header and the forwarded value is never consulted.
         validProductionDomains: ['example.com'],
-        // trustProxyHeaders: false by default
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
@@ -693,14 +715,15 @@ describe('domainValidation', () => {
       expect(reply.redirect).toHaveBeenCalledWith('https://example.com/test');
     });
 
-    it('should respect x-forwarded-proto header when trusted', async () => {
+    it('should redirect when a trusted proxy reports the request arrived over HTTP', async () => {
       const config: DomainValidationConfig = {
         enforceHTTPS: true,
-        trustProxyHeaders: true,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
+        // What Fastify resolves from a trusted x-forwarded-proto: http.
+        protocol: 'http',
         headers: {
           host: 'example.com',
           'x-forwarded-proto': 'http',
@@ -1122,60 +1145,6 @@ describe('domainValidation', () => {
     });
   });
 
-  describe('proxy headers', () => {
-    it('should respect x-forwarded-host header', async () => {
-      const config: DomainValidationConfig = {
-        validProductionDomains: ['example.com'],
-        trustProxyHeaders: true,
-      };
-      const pluginHost = createMockPluginHost();
-      const options = createMockOptions();
-      const request = createMockRequest({
-        headers: {
-          host: 'internal.proxy.com',
-          'x-forwarded-host': 'example.com',
-        },
-      });
-      const reply = createMockReply();
-
-      const plugin = domainValidation(config);
-      await plugin(pluginHost, options);
-
-      const hook = pluginHost.getHooks()[0];
-      await hook.handler(request, reply);
-
-      expect(reply.code).not.toHaveBeenCalled();
-      expect(reply.redirect).not.toHaveBeenCalled();
-    });
-
-    it('should handle comma-separated forwarded headers', async () => {
-      const config: DomainValidationConfig = {
-        validProductionDomains: ['example.com'],
-        trustProxyHeaders: true,
-      };
-
-      const pluginHost = createMockPluginHost();
-      const options = createMockOptions();
-      const request = createMockRequest({
-        headers: {
-          host: 'internal.proxy.com',
-          'x-forwarded-host': 'example.com, proxy.internal.com',
-        },
-      });
-
-      const reply = createMockReply();
-
-      const plugin = domainValidation(config);
-      await plugin(pluginHost, options);
-
-      const hook = pluginHost.getHooks()[0];
-      await hook.handler(request, reply);
-
-      expect(reply.code).not.toHaveBeenCalled();
-      expect(reply.redirect).not.toHaveBeenCalled();
-    });
-  });
-
   describe('configuration validation', () => {
     it("should reject global wildcard '*' in validProductionDomains", () => {
       const config: DomainValidationConfig = {
@@ -1460,33 +1429,133 @@ describe('domainValidation', () => {
     });
   });
 
-  describe('comma-separated proxy headers', () => {
-    it('should honor first value in comma-separated x-forwarded-proto', async () => {
-      const config: DomainValidationConfig = {
-        validProductionDomains: ['example.com'],
-        enforceHTTPS: true,
-        trustProxyHeaders: true,
-      };
-      const pluginHost = createMockPluginHost();
-      const options = createMockOptions();
-      const request = createMockRequest({
-        headers: {
-          host: 'example.com',
-          'x-forwarded-proto': 'http, https',
+  /**
+   * These run against a real Fastify instance rather than the mocks above,
+   * because the behavior under test is Fastify's own proxy trust: whether a
+   * forwarded header is believed at all, and which comma-separated entry wins.
+   * A mock that asserted those answers would be asserting its own definition.
+   *
+   * The helper never lets the plugin short-circuit. It allows every domain and
+   * records what the plugin was handed, which is the value the whole trust
+   * question comes down to. That is deliberate: under Bun, an async onRequest
+   * hook that calls reply.send() does not stop the hook chain the way it does
+   * on Node, so a test that asserted on a 403 or a redirect here would trip a
+   * double-send inside the test runner rather than measure the plugin. Node is
+   * the runtime target and behaves correctly; the short-circuit paths are
+   * covered by the mock-based tests above.
+   */
+  describe('proxy trust (real Fastify)', () => {
+    async function resolvedBy(
+      headers: Record<string, string>,
+      fastifyOptions: FastifyServerOptions = {},
+    ) {
+      const seen: Array<{ domain: string; protocol: string }> = [];
+      const app = fastify(fastifyOptions);
+
+      const plugin = domainValidation({
+        enforceHTTPS: false,
+        validProductionDomains: (domain, request) => {
+          seen.push({ domain, protocol: request.protocol });
+          return true;
         },
-        url: '/test',
-        protocol: 'https',
       });
-      const reply = createMockReply();
 
-      const plugin = domainValidation(config);
-      await plugin(pluginHost, options);
+      await plugin(app as unknown as PluginHostInstance, createMockOptions());
 
-      const hook = pluginHost.getHooks()[0];
-      await hook.handler(request, reply);
+      app.get('/test', () => ({ ok: true }));
+      await app.ready();
 
-      expect(reply.code).toHaveBeenCalledWith(301);
-      expect(reply.redirect).toHaveBeenCalledWith('https://example.com/test');
+      await app.inject({ method: 'GET', url: '/test', headers });
+      await app.close();
+
+      return seen[0];
+    }
+
+    it('reads the last x-forwarded-host entry, which is the one the proxy appended', async () => {
+      // A client sends "evil.com"; a proxy that appends rather than replaces
+      // leaves "evil.com, real.example.com". The trusted proxy wrote the last
+      // entry, so that is the one that counts. Reading the first entry, as the
+      // plugin used to, would have validated the attacker's value instead.
+      const resolved = await resolvedBy(
+        {
+          host: 'internal.upstream',
+          'x-forwarded-host': 'evil.com, real.example.com',
+        },
+        { trustProxy: true },
+      );
+
+      expect(resolved.domain).toBe('real.example.com');
+    });
+
+    it('honors a single trusted x-forwarded-host', async () => {
+      const resolved = await resolvedBy(
+        {
+          host: 'internal.upstream',
+          'x-forwarded-host': 'example.com',
+        },
+        { trustProxy: true },
+      );
+
+      expect(resolved.domain).toBe('example.com');
+    });
+
+    it('ignores a forged x-forwarded-host when no proxy is trusted', async () => {
+      const resolved = await resolvedBy({
+        host: 'internal.upstream',
+        'x-forwarded-host': 'example.com',
+      });
+
+      expect(resolved.domain).toBe('internal.upstream');
+    });
+
+    it('ignores a forged x-forwarded-host when the peer is not the trusted proxy', async () => {
+      // inject() presents 127.0.0.1 as the peer, which is not in the trusted
+      // set, so the forwarded header must be disregarded even though
+      // trustProxy is configured.
+      const resolved = await resolvedBy(
+        {
+          host: 'internal.upstream',
+          'x-forwarded-host': 'example.com',
+        },
+        { trustProxy: '10.0.0.1' },
+      );
+
+      expect(resolved.domain).toBe('internal.upstream');
+    });
+
+    it('reads the last x-forwarded-proto entry', async () => {
+      // Client claims https, proxy appends the truth. Reading the first entry
+      // would report https and skip HTTPS enforcement entirely.
+      const resolved = await resolvedBy(
+        {
+          host: 'example.com',
+          'x-forwarded-proto': 'https, http',
+        },
+        { trustProxy: true },
+      );
+
+      expect(resolved.protocol).toBe('http');
+    });
+
+    it('ignores x-forwarded-proto when no proxy is trusted', async () => {
+      const resolved = await resolvedBy({
+        host: 'example.com',
+        'x-forwarded-proto': 'https',
+      });
+
+      expect(resolved.protocol).toBe('http');
+    });
+
+    it('honors a trusted x-forwarded-proto', async () => {
+      const resolved = await resolvedBy(
+        {
+          host: 'example.com',
+          'x-forwarded-proto': 'https',
+        },
+        { trustProxy: true },
+      );
+
+      expect(resolved.protocol).toBe('https');
     });
   });
 });
