@@ -16,6 +16,8 @@ import { ... } from 'unirend/utils';
 - [HTML Utilities](#html-utilities)
   - [`escapeHTML(str: string): string`](#escapehtmlstr-string-string)
   - [`escapeHTMLAttr(str: string): string`](#escapehtmlattrstr-string-string)
+- [Content-Security-Policy Utilities](#content-security-policy-utilities)
+  - [`hashInlineContentForCSP(content: string, algorithm?): string`](#hashinlinecontentforcspcontent-string-algorithm-string)
 - [StaticContentCache](#staticcontentcache)
   - [Overview](#overview)
   - [Basic Usage](#basic-usage)
@@ -155,6 +157,41 @@ import { escapeHTMLAttr } from 'unirend/utils';
 const href = escapeHTMLAttr('https://example.com/?q="x"&next=<home>');
 // Returns: 'https://example.com/?q=&quot;x&quot;&amp;next=&lt;home&gt;'
 ```
+
+## Content-Security-Policy Utilities
+
+### `hashInlineContentForCSP(content: string, algorithm?): string`
+
+Returns the CSP source expression for a piece of inline content, unquoted, for example `sha256-K/x...=`. Quoting is left to whoever assembles the directive, since a source list has unquoted members too. `algorithm` accepts `'sha256'` (default), `'sha384'`, or `'sha512'`, which is the whole list a browser understands.
+
+Reach for this when your own code emits an inline `<style>` or `<script>` and the page has to keep working under a strict CSP. A custom 500 page is the usual case: it renders only when something has already gone wrong, so an unstyled one is easy to ship and hard to notice.
+
+```typescript
+import { hashInlineContentForCSP } from 'unirend/utils';
+
+// Keep the inline text in its own constant, so the value you hash and the
+// value the page emits cannot drift apart.
+const PAGE_STYLES = `
+  body { margin: 0; }
+`;
+
+export const PAGE_STYLE_HASH = hashInlineContentForCSP(PAGE_STYLES);
+
+export function renderPage(): string {
+  // Nothing between the tags and the interpolation.
+  return `<html><head><style>${PAGE_STYLES}</style></head><body></body></html>`;
+}
+```
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> Hash exactly what the browser will receive. The digest covers the element's text content byte for byte, with no trimming and no normalization, and the tags themselves are not part of it. Leading and trailing whitespace, indentation, newlines, and capitalization all change the answer.
+
+That is why the example above keeps its own newline and indentation inside `PAGE_STYLES` rather than pretty-printing the markup around it. Formatting the output is fine, as long as the formatting lives in the value being hashed. Put a newline between `<style>` and `${PAGE_STYLES}` and the hash silently stops matching, with no error anywhere and a page that just renders unstyled.
+
+The helper is exact for raw HTML strings sent straight to the transport, which is what an error page is. Content that passes through unirend's template pipeline is different: cheerio parses it and writes it out again, so it has to be hashed after serialization, which unirend does internally so you never touch it.
+
+Hashes cover inline `<script>` and `<style>` **elements** only. An `onclick=` handler or a `style=""` attribute is not an element, so no hash covers it. Those need `'unsafe-hashes'`, or better, rewriting so they are not inline attributes at all. Unirend's own error pages took the second route: the refresh control is an anchor back to the same URL rather than a button with an inline `onclick`.
 
 ## StaticContentCache
 

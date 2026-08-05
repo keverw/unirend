@@ -13,55 +13,39 @@ import type { LoggerFunction } from '../../types';
  *
  * No per-project substitutions — fully static. Template-literal escaping
  * required for:
- *  • The outer `return \`...\`` backtick pair and the nested isDevelopment
- *    ternary backtick pair (4 backtick escapes total).
- *  • Eight runtime `\${...}` interpolations: `preference` (class attr),
- *    `JSON.stringify(preference)` (script block), `isDevelopment` (card class),
- *    the ternary `\${...}` block itself, `safeMessage`, `safeStack`,
- *    `escapeHTML(request.url)`, `request.method`.
+ *  • The `PAGE_STYLES` backtick pair, the outer `return \`...\`` backtick pair,
+ *    and the nested isDevelopment ternary backtick pair (6 backtick escapes
+ *    total).
+ *  • Nine runtime `\${...}` interpolations: `PAGE_STYLES` (style element),
+ *    `preference` (class attr), `JSON.stringify(preference)` (script block),
+ *    `isDevelopment` (card class), the ternary `\${...}` block itself,
+ *    `safeMessage`, `safeStack`, `escapeHTML(request.url)`, `request.method`.
  *  • Two `\\s` regex patterns inside the return template literal — each needs
  *    `\\\\s` in the generator so the emitted file contains `\\s` (which the
  *    browser evaluates to `\s` when running the inline script).
+ *
+ * The emitted page still carries two inline `<script>` blocks, one of which
+ * varies per request, so it is not yet fully CSP-clean. Those are handled with
+ * the JSON data-block work rather than here, since that convention has to exist
+ * in the framework before a template can demonstrate it.
  */
 const GET_500_ERROR_PAGE_SRC = `import type { FastifyRequest } from 'unirend/server';
-import { escapeHTML } from 'unirend/utils';
+import { escapeHTML, hashInlineContentForCSP } from 'unirend/utils';
 
 /**
- * Custom 500 error page generator.
- * Mirrored from the SGGs template static 500.html page style and functionality,
- * but adapted for SSR and customized to display error details in development mode.
+ * The page's inline CSS, kept as its own constant so it can be hashed for a
+ * Content-Security-Policy.
+ *
+ * A CSP hash covers the element's text content byte for byte, with no trimming
+ * and no normalization, so the only way to publish one that matches is to hash
+ * the exact value the page interpolates. That is why the markup below writes
+ * \`<style>\${PAGE_STYLES}</style>\` with nothing between the tags and the
+ * value, and why this constant keeps its own leading newline and trailing
+ * indent: that whitespace is what makes the rendered page readable, and it is
+ * inside the digest either way, so it belongs here where it is hashed rather
+ * than in the markup where it would not be.
  */
-export function get500ErrorPage(
-  request: FastifyRequest,
-  error: Error,
-  isDevelopment: boolean,
-): string {
-  const requestContext = (
-    request as FastifyRequest & {
-      requestContext?: Record<string, unknown>;
-    }
-  ).requestContext;
-
-  const preference =
-    requestContext?.themePreference === 'dark' ||
-    requestContext?.themePreference === 'light' ||
-    requestContext?.themePreference === 'auto'
-      ? requestContext.themePreference
-      : 'auto';
-
-  const safeMessage = escapeHTML(error.message || 'Unexpected server error');
-  const safeStack = error.stack
-    ? escapeHTML(error.stack)
-    : 'No stack trace available';
-
-  return \`<!doctype html>
-<html lang="en"\${preference === 'dark' ? ' class="dark"' : ''}>
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>500 - Server Error</title>
-    <meta name="description" content="An unexpected server error occurred." />
-    <style>
+const PAGE_STYLES = \`
       *,
       *::before,
       *::after {
@@ -205,7 +189,57 @@ export function get500ErrorPage(
         max-height: 250px;
         overflow-y: auto;
       }
-    </style>
+    \`;
+
+/**
+ * CSP source expression for this page's inline \`<style>\` block.
+ *
+ * A strict \`style-src\` blocks inline styles, and an error page is the worst
+ * place to find that out: it only renders on requests where something has
+ * already gone wrong, so it looks fine right up until it matters. Add this to
+ * your \`style-src\` so the page keeps its styling.
+ *
+ * Recompute rather than hardcode. This file is yours to edit, and a hash
+ * pasted in as a literal goes stale the moment you change a color.
+ */
+export const ERROR_PAGE_STYLE_HASH = hashInlineContentForCSP(PAGE_STYLES);
+
+/**
+ * Custom 500 error page generator.
+ * Mirrored from the SGGs template static 500.html page style and functionality,
+ * but adapted for SSR and customized to display error details in development mode.
+ */
+export function get500ErrorPage(
+  request: FastifyRequest,
+  error: Error,
+  isDevelopment: boolean,
+): string {
+  const requestContext = (
+    request as FastifyRequest & {
+      requestContext?: Record<string, unknown>;
+    }
+  ).requestContext;
+
+  const preference =
+    requestContext?.themePreference === 'dark' ||
+    requestContext?.themePreference === 'light' ||
+    requestContext?.themePreference === 'auto'
+      ? requestContext.themePreference
+      : 'auto';
+
+  const safeMessage = escapeHTML(error.message || 'Unexpected server error');
+  const safeStack = error.stack
+    ? escapeHTML(error.stack)
+    : 'No stack trace available';
+
+  return \`<!doctype html>
+<html lang="en"\${preference === 'dark' ? ' class="dark"' : ''}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>500 - Server Error</title>
+    <meta name="description" content="An unexpected server error occurred." />
+    <style>\${PAGE_STYLES}</style>
     <script>
       window.__FRONTEND_REQUEST_CONTEXT__ = {
         themePreference: \${JSON.stringify(preference)}

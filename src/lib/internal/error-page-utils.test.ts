@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'bun:test';
 import type { FastifyRequest } from 'fastify';
 import {
+  generateDefault404NotFoundPage,
   generateDefault500ErrorPage,
   generateDefault503ClosingPage,
+  UNIREND_ERROR_PAGE_STYLE_HASHES,
 } from './error-page-utils';
+import { hashInlineContentForCSP } from './csp-hash';
 
 function makeRequest(
   overrides: Partial<{ url: string; method: string }> = {},
@@ -154,5 +157,75 @@ describe('generateDefault503ClosingPage', () => {
     expect(generateDefault503ClosingPage()).toBe(
       generateDefault503ClosingPage(),
     );
+  });
+});
+
+describe('CSP compatibility', () => {
+  /**
+   * Pull out what a browser would treat as the element's text content: the
+   * exact bytes between the tags, with no trimming, since that is what the
+   * digest covers.
+   */
+  function inlineStyleContents(html: string): string[] {
+    return [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]);
+  }
+
+  const pages: Array<[string, string]> = [
+    [
+      '500',
+      generateDefault500ErrorPage(makeRequest(), new Error('boom'), false),
+    ],
+    [
+      '500 (development)',
+      generateDefault500ErrorPage(makeRequest(), new Error('boom'), true),
+    ],
+    ['404', generateDefault404NotFoundPage(makeRequest())],
+    ['503', generateDefault503ClosingPage()],
+  ];
+
+  for (const [label, html] of pages) {
+    it(`publishes a matching style-src hash for the ${label} page`, () => {
+      // The regression this exists for: someone reformats the template, the
+      // delivered bytes shift, and the published hash silently stops matching.
+      // Nothing fails at runtime, the page just renders unstyled under CSP, on
+      // exactly the requests where something has already gone wrong.
+      const blocks = inlineStyleContents(html);
+
+      expect(blocks).toHaveLength(1);
+      expect(UNIREND_ERROR_PAGE_STYLE_HASHES).toContain(
+        hashInlineContentForCSP(blocks[0]),
+      );
+    });
+  }
+
+  it('has no inline event handler attributes', () => {
+    // CSP hashes cover <script> and <style> elements, never an on* attribute,
+    // so an inline handler needs 'unsafe-hashes' or it simply does not run.
+    // The 500 page's refresh control used to be a button with onclick.
+    for (const [, html] of pages) {
+      expect(html).not.toMatch(/\son[a-z]+\s*=/i);
+    }
+  });
+
+  it('offers refresh as a link back to the same URL', () => {
+    const html = generateDefault500ErrorPage(
+      makeRequest({ url: '/orders?page=2' }),
+      new Error('boom'),
+      false,
+    );
+
+    // An anchor rather than a scripted reload, which also avoids re-submitting
+    // a POST that failed.
+    expect(html).toContain('<a class="ep-btn" href="/orders?page=2">');
+  });
+
+  it('escapes the refresh target, which is attacker-controlled', () => {
+    const html = generateDefault500ErrorPage(
+      makeRequest({ url: '/x"><script>alert(1)</script>' }),
+      new Error('boom'),
+      false,
+    );
+
+    expect(html).not.toContain('"><script>alert(1)');
   });
 });

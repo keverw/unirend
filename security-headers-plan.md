@@ -93,7 +93,7 @@ Planning is complete. Everything below is specified well enough to implement wit
 3. **Done** — static content bypass. `StaticWebServer` registers static serving after user plugins rather than before, matching the SSR server. No new API. A richer detect/serve split was built and rejected; two follow-up branches came out of that. See below.
 4. **Done** — order-independent application. `onSend` backstop in the plugin, fill-if-absent, plus HSTS suppressed on a host `domainValidation` disclaimed. The server does not own the policy after all, see below for why.
 5. **Done** — throwing callbacks. Fail closed rather than 500, decisions cached so the error path does not re-invoke. Two more callbacks than the list started with, see below.
-6. **Error pages under CSP.** Anchor instead of inline `onclick`, hash the inline style, export a hashing helper, tell scaffolded repos to update their own copy.
+6. **Done** — error pages under CSP. Anchor instead of inline `onclick`, inline styles hashed, `hashInlineContentForCSP` exported, template updated, changelog tells scaffolded repos to update their own copy.
 7. **CSP.** Directive config, presets, `reportOnly`, automatic hashes for slots and error pages, `strict-dynamic` for third-party widgets. Verify the JSON data-block behavior in a real browser before relying on it.
 
 Steps 3 onward are independent of what has landed so far.
@@ -383,20 +383,31 @@ Two things turned up while doing it.
 
 Not carried over from the original list: nothing. The `resolve` resolver's own fail-closed path is still outstanding, but it belongs with the feature that introduces it rather than here, and it is already written down under the per-tenant section above.
 
-## Commit 5: error pages under CSP
+## Commit 5: error pages under CSP (done)
 
-`error-page-utils.ts` uses an inline `<style>` block and an inline `onclick="window.location.reload()"` (line 177). Any CSP without `unsafe-inline` renders the 500 page unstyled with a dead button.
+`error-page-utils.ts` used an inline `<style>` block and an inline `onclick="window.location.reload()"`. Any CSP without `unsafe-inline` rendered the 500 page unstyled with a dead button.
 
-- [ ] Replace the button with `<a class="ep-btn" href="{escaped request.url}">Refresh Page</a>`. No inline JS at all. Also avoids re-POSTing on a failed POST. Use the existing `escapeHTML`, `request.url` is attacker-controlled.
-- [ ] SHA-256 the generated style text at module load via `node:crypto` (Node API, not `Bun.*`, per AGENTS.md Runtime Target) and export the hashes
-- [ ] Auto-include those hashes in `style-src` when unirend emits its own CSP
-- [ ] Same treatment for the 404 and 503 pages
-- [ ] The SSR starter template's 500 page (`ssr-get-500-error-page.ts`) has an inline `<style>` block but **no** inline `onclick`, it already uses an `<a>`. So it needs the style handled, not the button.
+- [x] Replace the button with `<a class="ep-btn" href="{escaped request.url}">Refresh Page</a>`. No inline JS at all. Also avoids re-POSTing on a failed POST. Uses `escapeHTMLAttr` rather than `escapeHTML`, since the value lands in a quoted attribute; `request.url` is attacker-controlled.
+- [x] SHA-256 the generated style text at module load via `node:crypto` (Node API, not `Bun.*`, per AGENTS.md Runtime Target) and export the hashes as `UNIREND_ERROR_PAGE_STYLE_HASHES`
+- [ ] Auto-include those hashes in `style-src` when unirend emits its own CSP. Deferred to commit 6, where there is a CSP to put them in.
+- [x] Same treatment for the 404 and 503 pages
+- [x] The SSR starter template's 500 page (`ssr-get-500-error-page.ts`) has an inline `<style>` block but **no** inline `onclick`, it already uses an `<a>`. So it needed the style handled, not the button.
+
+### Readable output and a matching hash are not a trade-off
+
+Worth writing down, because the first cut got it backwards. Pulling the style text into a constant and emitting `<style>${CONSTANT}</style>` made the hash correct but flattened the rendered page, since the newline and closing indent that used to sit in the markup were gone.
+
+The fix is to keep that whitespace, just move it inside the constant. A digest covers the element's text content byte for byte either way, so the real choice is not between a readable page and a hashable one. It is between hashing what the page actually contains and hashing something adjacent to it. Formatting that lives in the value is covered; formatting that lives in the markup around the interpolation is what silently breaks the match.
+
+So the rule for every one of these, package and template alike: **the constant is the element's text content, verbatim, pretty-printing included, and the markup writes `<style>${CONSTANT}</style>` with nothing in between.**
+
+- [x] Verified end to end for the template by generating the file, importing it, rendering the page, and comparing the exported hash against one recomputed from the delivered `<style>` content. Also confirmed the rendered markup is unchanged: `<style>` on its own line, CSS indented, `</style>` back at four spaces.
+- [x] Regression test in `error-page-utils.test.ts` does the same for all four package pages, extracting the delivered content and rehashing it. That is the test that catches a future formatting change breaking CSP silently.
 
 **The scaffolded copy is the harder half.** That file is generated into the user's repo and never overwritten, so an existing scaffolded repo keeps its own copy and unirend cannot fix it from the package. Under a strict `style-src` their 500 page renders unstyled, and it is their file to hash.
 
-- [ ] Update the template so new scaffolds are CSP-clean out of the box
-- [ ] Export a small helper so a user can hash their own inline block without hand-rolling `node:crypto` and base64. Without it, "add your own hash" is a paper cut on every scaffolded repo.
+- [x] Update the template so new scaffolds are CSP-clean out of the box. It imports the helper rather than embedding a literal hash, deliberately: the file exists to be edited, and a pasted-in hash goes stale the moment someone changes a color.
+- [x] Export a small helper so a user can hash their own inline block without hand-rolling `node:crypto` and base64. Without it, "add your own hash" is a paper cut on every scaffolded repo.
 
   **The helper is exact for this case, precisely because the error page bypasses the format pipeline.** The "hash after serialization" rule exists because cheerio re-serializes template slots and can shift bytes. A custom error page is a raw template string returned straight to the transport, never parsed, so what the function returns is byte-for-byte what the browser receives. Hashing the string directly is correct here, with no pipeline caveat.
 
@@ -404,7 +415,16 @@ Not carried over from the original list: nothing. The `resolve` resolver's own f
   - Raw strings sent directly (error pages) → hash the string, exact
   - Content passing through cheerio (template slots) → hash after serialization, which unirend does internally so users never touch it
 
-- [ ] **Changelog must tell scaffolded-repo users to update their own copy**, since re-running `unirend create` will not replace it. Name the file explicitly. This is the kind of thing that is invisible until someone turns CSP on months later and cannot work out why only the error page looks broken.
+- [x] **Changelog must tell scaffolded-repo users to update their own copy**, since re-running `unirend create` will not replace it. Name the file explicitly. This is the kind of thing that is invisible until someone turns CSP on months later and cannot work out why only the error page looks broken.
+
+### Left for commit 6: the template's two script blocks
+
+The plan said the template needed the style handled and not the button, which was right as far as it went and missed that the emitted page also carries two inline `<script>` elements.
+
+- The theme bootstrap script is static, so it hashes exactly like the style block does.
+- The one above it assigns `window.__FRONTEND_REQUEST_CONTEXT__` from `JSON.stringify(preference)`, so it **varies per request** and cannot be hashed at all. This is case 3 from the CSP section below, and the JSON data-block technique is the answer.
+
+Both are deliberately left to commit 6 rather than done here. The data block is a convention the framework has to establish in `inject.ts` first; demonstrating it in a generated template beforehand would mean inventing it twice and then reconciling the two. The generator's doc comment says so, so nobody reads the emitted file as already CSP-clean.
 
 Only one of the two reload buttons is actually a problem. `error-page-utils.ts:177` is a raw HTML `onclick="..."` attribute in a server-generated string, which CSP blocks. `starter-templates/templates-shared/react-components/application-error.ts:82` is a JSX `onClick={() => window.location.reload()}`, which React attaches as a JS listener rather than emitting an HTML attribute, so CSP never sees it and it keeps working. Leave the React one alone.
 

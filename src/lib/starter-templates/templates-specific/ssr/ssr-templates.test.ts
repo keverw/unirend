@@ -389,6 +389,29 @@ describe('ensureSSRGet500ErrorPage', () => {
     await ensureSSRGet500ErrorPage(mem, 'src/apps/my-app', log);
     expect(calls).toHaveLength(0);
   });
+
+  test('emits a page whose style block can be hashed for CSP', async () => {
+    const mem: InMemoryDir = {};
+    await ensureSSRGet500ErrorPage(mem, 'src/apps/my-app');
+    const src = mem['src/apps/my-app/server/get-500-error-page.ts'] as string;
+
+    // The whole scheme rests on the style element's text content being exactly
+    // the constant that gets hashed. Anything between the tags and the
+    // interpolation, a newline or an indent from pretty-printing the markup,
+    // lands inside the digest and silently breaks the match.
+    expect(src).toContain('<style>${PAGE_STYLES}</style>');
+    expect(src).toContain(
+      'export const ERROR_PAGE_STYLE_HASH = hashInlineContentForCSP(PAGE_STYLES);',
+    );
+    expect(src).toContain(
+      "import { escapeHTML, hashInlineContentForCSP } from 'unirend/utils';",
+    );
+
+    // The formatting that keeps the rendered page readable belongs inside the
+    // constant, where the hash covers it.
+    expect(src).toMatch(/const PAGE_STYLES = `\n/);
+    expect(src).toMatch(/\n {4}`;/);
+  });
 });
 
 // ---------------------------------------------------------------------------

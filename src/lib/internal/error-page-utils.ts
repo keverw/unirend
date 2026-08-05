@@ -1,5 +1,6 @@
 import type { FastifyRequest } from 'fastify';
-import { escapeHTML } from './html-utils/escape';
+import { escapeHTML, escapeHTMLAttr } from './html-utils/escape';
+import { hashInlineContentForCSP } from './csp-hash';
 
 type ErrorPageStyleRules = Record<string, Record<string, string>>;
 
@@ -73,44 +74,37 @@ ${Object.entries(declarations)
 }
 
 /**
- * Generates a default 500 error page.
- * @param request The Fastify request object
- * @param error The error that occurred
- * @param isDevelopment Whether running in development mode
- * @returns HTML string for the error page
+ * Build a `<style>` element's text content: the generated rules, wrapped in the
+ * newline and closing indent that make the emitted page read like hand-written
+ * HTML.
+ *
+ * The whitespace is part of the value on purpose. A CSP hash covers the text
+ * content byte for byte, so the choice is not between a readable page and a
+ * hashable one. It is between hashing what the page actually contains and
+ * hashing something adjacent to it. Keeping the pretty-printing inside the
+ * constant gets both.
  */
-export function generateDefault500ErrorPage(
-  request: FastifyRequest,
-  error: Error,
-  isDevelopment: boolean,
-): string {
-  // Panels for dev mode
-  const devPanels = isDevelopment
-    ? `<div class="ep-section">
-      <div class="ep-label">Message:</div>
-      <div class="ep-panel">${escapeHTML(error.message)}</div>
-    </div>
-    <div class="ep-section">
-      <div class="ep-label">Stack Trace:</div>
-      <div class="ep-panel ep-stack">${escapeHTML(error.stack || 'No stack trace available')}</div>
-    </div>
-    <div class="ep-section">
-      <div class="ep-label">Request Info:</div>
-      <div class="ep-panel">
-        URL: ${escapeHTML(request.url)}<br>
-        Method: ${request.method}
-      </div>
-    </div>`
-    : '';
+function inlineStyleBlock(overrides: ErrorPageStyleRules): string {
+  return `\n${generateErrorPageStyles(overrides)}\n  `;
+}
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>500 - Internal Server Error</title>
-  <style>
-${generateErrorPageStyles({
+/**
+ * The style text each built-in error page emits, computed once at module load.
+ *
+ * These are constants rather than expressions inlined into the templates so
+ * they can be hashed for CSP. A hash covers the delivered bytes exactly, so the
+ * only way to publish one that matches is to hash the same value the page
+ * interpolates. Recomputing the styles per request and hashing them separately
+ * would work right up until the two drifted, and then fail silently, with the
+ * page rendering unstyled and nothing in the logs to say why.
+ *
+ * The invariant each template below has to preserve: a constant is the `<style>`
+ * element's text content **verbatim**, so it is written as
+ * `<style>${CONSTANT}</style>` with nothing between the tags and the value. The
+ * formatting that makes the output readable lives inside the constant instead,
+ * where it is covered by the hash.
+ */
+const ERROR_PAGE_500_STYLES = inlineStyleBlock({
   '.ep-title': {
     color: '#e53935',
     'letter-spacing': '0.01em',
@@ -155,13 +149,88 @@ ${generateErrorPageStyles({
     cursor: 'pointer',
     'box-shadow': '0 1px 3px rgba(0,0,0,0.1)',
     transition: 'background 0.15s',
+    // The refresh control is an anchor rather than a button, so it needs the
+    // link decoration removed and the text centered to still look like one.
+    'text-decoration': 'none',
+    'text-align': 'center',
+    'max-width': 'fit-content',
   },
   '.ep-btn:hover, .ep-btn:focus': {
     background: '#1d4ed8',
     outline: 'none',
   },
-})}
-  </style>
+});
+
+const ERROR_PAGE_404_STYLES = inlineStyleBlock({
+  '.ep-title': {
+    color: '#374151',
+  },
+});
+
+// Identical to the 404 styles today. Kept separate rather than shared because
+// the pages are independent and either may gain its own rules, and the hash
+// list below dedupes anyway.
+const ERROR_PAGE_503_STYLES = inlineStyleBlock({
+  '.ep-title': {
+    color: '#374151',
+  },
+});
+
+/**
+ * CSP `style-src` source expressions covering every inline `<style>` block
+ * unirend's own error pages emit, unquoted and deduplicated.
+ *
+ * A strict `style-src` blocks inline styles, and an error page is exactly where
+ * that goes unnoticed: it renders unstyled, but only on the requests where
+ * something has already gone wrong. Publishing the hashes lets unirend keep its
+ * own pages working without asking anyone to allow `'unsafe-inline'`.
+ */
+export const UNIREND_ERROR_PAGE_STYLE_HASHES: readonly string[] = Array.from(
+  new Set(
+    [ERROR_PAGE_500_STYLES, ERROR_PAGE_404_STYLES, ERROR_PAGE_503_STYLES].map(
+      (styles) => hashInlineContentForCSP(styles),
+    ),
+  ),
+);
+
+/**
+ * Generates a default 500 error page.
+ * @param request The Fastify request object
+ * @param error The error that occurred
+ * @param isDevelopment Whether running in development mode
+ * @returns HTML string for the error page
+ */
+export function generateDefault500ErrorPage(
+  request: FastifyRequest,
+  error: Error,
+  isDevelopment: boolean,
+): string {
+  // Panels for dev mode
+  const devPanels = isDevelopment
+    ? `<div class="ep-section">
+      <div class="ep-label">Message:</div>
+      <div class="ep-panel">${escapeHTML(error.message)}</div>
+    </div>
+    <div class="ep-section">
+      <div class="ep-label">Stack Trace:</div>
+      <div class="ep-panel ep-stack">${escapeHTML(error.stack || 'No stack trace available')}</div>
+    </div>
+    <div class="ep-section">
+      <div class="ep-label">Request Info:</div>
+      <div class="ep-panel">
+        URL: ${escapeHTML(request.url)}<br>
+        Method: ${request.method}
+      </div>
+    </div>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>500 - Internal Server Error</title>
+  <style>${ERROR_PAGE_500_STYLES}</style>
 </head>
 <body>
   <main class="ep-card">
@@ -174,7 +243,7 @@ ${generateErrorPageStyles({
         ? devPanels
         : '<div class="ep-panel">An unexpected error occurred. Please try again later.</div>'
     }
-    <button class="ep-btn" onclick="window.location.reload()" type="button">Refresh Page</button>
+    <a class="ep-btn" href="${escapeHTMLAttr(request.url)}">Refresh Page</a>
     ${
       isDevelopment
         ? '<div class="ep-note"><b>Note:</b> Detailed error information is only shown in development mode.</div>'
@@ -200,13 +269,7 @@ export function generateDefault404NotFoundPage(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>404 - Not Found</title>
-  <style>
-${generateErrorPageStyles({
-  '.ep-title': {
-    color: '#374151',
-  },
-})}
-  </style>
+  <style>${ERROR_PAGE_404_STYLES}</style>
 </head>
 <body>
   <main class="ep-card">
@@ -229,13 +292,7 @@ export function generateDefault503ClosingPage(): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>503 - Service Unavailable</title>
-  <style>
-${generateErrorPageStyles({
-  '.ep-title': {
-    color: '#374151',
-  },
-})}
-  </style>
+  <style>${ERROR_PAGE_503_STYLES}</style>
 </head>
 <body>
   <main class="ep-card">
