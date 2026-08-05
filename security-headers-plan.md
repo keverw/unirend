@@ -83,7 +83,7 @@ Planning is complete. Everything below is specified well enough to implement wit
 1. **Done** — `99f700b` rename, `afa338b` config nesting
 2. **Done** — proxy trust and HSTS transport. `getHost()` / `getProtocol()` and `trustProxyHeaders` deleted, both plugins read Fastify's resolved `request.host` / `request.protocol`, HSTS gated on secure transport. See the notes below for what turned up while doing it.
 3. **Done** — static content bypass. `StaticWebServer` registers static serving after user plugins rather than before, matching the SSR server. No new API. A richer detect/serve split was built and rejected; two follow-up branches came out of that. See below.
-4. **Order-independent application.** Server owns the resolved policy, `onSend` backstop, HSTS skipped on rejected hosts via the request marker.
+4. **Done** — order-independent application. `onSend` backstop in the plugin, fill-if-absent, plus HSTS suppressed on a host `domainValidation` disclaimed. The server does not own the policy after all, see below for why.
 5. **Throwing callbacks.** Fail closed rather than 500, cache the decision so the error path does not re-invoke.
 6. **Error pages under CSP.** Anchor instead of inline `onclick`, hash the inline style, export a hashing helper, tell scaffolded repos to update their own copy.
 7. **CSP.** Directive config, presets, `reportOnly`, automatic hashes for slots and error pages, `strict-dynamic` for third-party widgets. Verify the JSON data-block behavior in a real browser before relying on it.
@@ -144,23 +144,33 @@ The responses that genuinely lose headers to this bug are the ones already serve
 - canonical-domain and www redirects that are already HTTPS, which do need HSTS and do not get it
 - the 400 for a missing or unparseable Host header
 
-Fix: the server owns the resolved policy, not the plugin. Apply at three points.
+Fix: apply at three points.
 
-- [ ] `onRequest` (early) — unchanged, so normal responses and short-circuits after it are covered
-- [ ] `onSend` (backstop) — fill-if-absent for any security header not already set, registered by the server rather than by user plugin order
-- [ ] `request.applySecurityHeaders()` — for raw/hijacked paths, which bypass `onSend`. Keep and expand, per the 7 existing call sites in `error-envelope-send.ts` and `static-content-cache.ts`
-- [ ] Test: `domainValidation` before `securityHeaders` in the array still yields HSTS on the redirect
-- [ ] Test: 500 error page carries the full header set
-- [ ] Test: hijacked static file response carries CSP, not just CORS
+- [x] `onRequest` (early) — unchanged, so normal responses and short-circuits after it are covered
+- [x] `onSend` (backstop) — fill-if-absent for any security header not already set
+- [x] `request.applySecurityHeaders()` — for raw/hijacked paths, which bypass `onSend`. Kept, and it now honors the HSTS suppression below along with everything else, since it shares the same two apply functions.
+- [x] Test: `domainValidation` before `securityHeaders` in the array still yields the full header set on the 403
+- [x] Test: the reverse order strips HSTS that the early hook had already set
+- [x] Test: fill-if-absent leaves a header the short-circuiting responder set itself
+- [ ] Test: hijacked static file response carries CSP, not just CORS. Moved to commit 7, since there is no CSP to assert on yet.
 
 Fill-if-absent, not overwrite, so a handler that deliberately set its own CSP on one route wins.
 
-### Coverage across server types
+### Correction: the plugin owns the backstop, not the server
 
-`APIServer` (API mode and plain web mode) and `SSRServer` both extend `BaseServer` and have their own `registerPlugins()`. `StaticWebServer` and `RedirectServer` do not extend it, but both construct an `APIServer` internally and pass plugins through (`static-web-server.ts:404`, `redirect-server.ts:261`). So covering the two real servers covers all four surfaces.
+This plan said the server should own the resolved policy and register the backstop, so it would not depend on user plugin order. The premise was wrong, and checking it is what settled the design.
 
-- [ ] Follow the existing shared-helper pattern (`registerClosingResponseHook`, `registerClientInfoResolution`, `registerResponseTimeHijackPatch`) rather than duplicating the hook in each server
-- [ ] `RedirectServer` is the sharpest case: it registers its redirect as an `onRequest` hook inside the first plugin, so it short-circuits before anything a user registers. The backstop is the only mechanism that reaches it.
+Hook registration happens once at boot, not per request, and `onSend` runs for every reply Fastify sends regardless of which hook sent it. So an `onSend` hook is already order-independent as long as it is registered on the same instance the responses are served from, and it is: `createControlledInstance` (`server-utils.ts:827`) delegates `addHook` straight to the root Fastify instance rather than going through `register()`, so user plugins are not encapsulated. A plugin listed last registers a hook that covers a response sent by a plugin listed first.
+
+Moving ownership to the server would therefore buy nothing and cost a lot. The server would need its own copy of the `securityHeaders` config surface to have a policy to resolve, which is a second place to configure the same thing, and it would apply headers on servers where the user never asked for the plugin at all.
+
+`RedirectServer` was the one case that looked like it needed a server-owned backstop, and it does not. It accepts no `plugins` option and has no header configuration, so there is no policy to apply and nothing for a backstop to serve. Its redirect stays as it is.
+
+That leaves the shared-helper pattern (`registerClosingResponseHook` and friends) unused here, which is the right outcome rather than a gap: those helpers exist because each server has to install the hook itself, and this one does not.
+
+### Verifying the tests are load-bearing
+
+Ran the new block with the `onSend` registration disabled: 5 failures, all of them in that block, none anywhere else. So each new test fails for the reason it claims to. Worth doing for a fix like this, where a test can pass because the bug is not reachable in the harness rather than because the fix works, which is exactly what the mock-based tests in this file would have done.
 
 ### Bug: StaticWebServer serves files before user plugins run
 
@@ -220,10 +230,14 @@ HSTS is the header that seems most important here and is actually **wrong**. `do
 
 The discriminator is not the status, it is that `domainValidation` determined the host is unclaimed. Only that plugin knows it, so it publishes the fact on the request and the backstop reads it:
 
-- [ ] `domainValidation` decorates the request when it rejects a host, and also on the 400 for a missing or unparseable `Host` header, since in that case the host is unknown rather than merely wrong
-- [ ] Backstop skips HSTS when that marker is present, and applies it normally otherwise
-- [ ] No ordering hazard: the marker is set in `onRequest` before the response is sent, and the backstop runs on `onSend`, always after
-- [ ] When `domainValidation` is not registered there is no marker and behavior is unchanged, which matches today
+- [x] `domainValidation` sets `request.domainValidationRejected` when it rejects a host, and also on the 400 for a missing or unparseable `Host` header, since in that case the host is unknown rather than merely wrong
+- [x] Backstop skips HSTS when that marker is present, and applies it normally otherwise
+- [x] When `domainValidation` is not registered there is no marker and behavior is unchanged, which matches today
+- [x] Declared on `FastifyRequest` in `types.ts` rather than cast inline, since it is a fact worth reading from a user's own hooks for the same reason we read it
+
+**One ordering hazard after all, and skipping is not enough to handle it.** The marker is set before the rejection response is sent and the backstop runs on `onSend`, so the backstop always sees it. But `securityHeaders` may be listed _first_, in which case its `onRequest` already put HSTS on the reply before `domainValidation` had an opinion. Declining to add a header does nothing about a header that is already there.
+
+- [x] So the backstop calls `removeHeader('Strict-Transport-Security')` whenever the marker is set, before the fill-if-absent pass, and that runs whether or not the early hook did. Covered by the reverse-order test.
 
 This is a request decoration publishing a fact, not plugin-to-plugin deferral of the kind rejected for protocol resolution above. The difference is real: protocol is a value both plugins derive from the same input, so the server should compute it once. Whether a host was rejected is knowable only inside `domainValidation`, so publishing it is the only option. Same shape as the existing `corsOriginAllowed` decoration.
 

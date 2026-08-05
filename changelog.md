@@ -16,6 +16,7 @@
 - [0.2.0 (July 26, 2026)](#020-july-26-2026)
 - [0.3.0 (July 28, 2026)](#030-july-28-2026)
 - [0.3.1 (August 1, 2026)](#031-august-1-2026)
+- [Unreleased](#unreleased)
 
 <!-- tocstop -->
 
@@ -221,6 +222,10 @@ serveSSRBuilt(buildDir, {
 > Removing `trustProxyHeaders` without setting `fastifyOptions.trustProxy` will take a proxied site down. Where the proxy terminates TLS, Fastify sees the plain HTTP hop, `enforceHTTPS` redirects to HTTPS, the proxy forwards HTTP again, and the browser reports `ERR_TOO_MANY_REDIRECTS`. `canonicalDomain` fails the same way, comparing against the internal upstream host and redirecting on every request. See [docs/built-in-plugins/domainValidation.md](docs/built-in-plugins/domainValidation.md#proxy-support).
 
 **Breaking:** `securityHeaders` now sends `Strict-Transport-Security` only on requests that arrived over a secure transport. RFC 6797 section 7.2 forbids sending it over plain HTTP and requires browsers to ignore it there, so the header was being emitted on requests where it could never take effect, including plain-HTTP local runs and any app speaking HTTP behind a TLS-terminating proxy. Browsers discarded it, but it showed up in security scans. If you terminate TLS at a proxy and want HSTS, set `fastifyOptions.trustProxy` so Fastify can resolve the request as HTTPS.
+
+**Bug fix:** `securityHeaders` now applies its headers to every response, not only to the ones that reached its own `onRequest` hook. A plugin listed earlier in `plugins` that ends the request, such as `domainValidation`'s 403 for an unauthorized host, its 400 for an unparseable `Host` header, its canonical and www redirects, or an auth gate of your own, produced a response carrying no CORS headers, no `X-Frame-Options`, and no HSTS at all. Which responses were covered depended silently on the order of the array. A fill-if-absent `onSend` backstop now covers them wherever the plugin sits, and a route that deliberately set its own value keeps it. Hijacked responses still bypass `onSend` and are still covered by `request.applySecurityHeaders(reply)`.
+
+One exception comes with it: `Strict-Transport-Security` is not sent when `domainValidation` rejects the request's host. Sending it there would set an HTTPS policy for a domain the server has just declared is not its own, and browsers honor that for the full `max-age` with no way to revoke it. The suppression is keyed on the rejection rather than on the 403 status, so an authorization failure from your own application, on a domain the server does serve, keeps HSTS like any other response. `domainValidation` publishes the fact as `request.domainValidationRejected`, which your own hooks can read for the same purpose.
 
 **Security fix:** `StaticWebServer` registered its static file serving ahead of the plugins passed in `options.plugins`, so a plugin that gates requests never ran for any path that matched a file. On a static server that is nearly all real traffic. A `domainValidation` plugin, or any auth or gating plugin, protected only the paths the server did not handle, so an unauthorized host got its 403 on a 404 and the actual content everywhere else. Static serving is now registered after your plugins, which is the order the SSR server has always used, so a plugin can reject a request before any file is opened. No configuration changes. The `staticContent()` plugin registered directly is unaffected, since where it sits is already your choice.
 

@@ -338,10 +338,43 @@ async function areCredentialsAllowed(
   return false;
 }
 
+/**
+ * How a header write should treat a value that is already on the reply.
+ *
+ * - `'apply'`: set it, which is what the early `onRequest` pass does since
+ *   nothing has run yet
+ * - `'fill'`: leave an existing value alone, which is what the `onSend`
+ *   backstop does so a handler that deliberately set its own value wins
+ */
+type HeaderWriteMode = 'apply' | 'fill';
+
+function writeSecurityHeader(
+  reply: FastifyReply,
+  mode: HeaderWriteMode,
+  name: string,
+  value: string,
+): void {
+  if (mode === 'fill' && reply.hasHeader(name)) {
+    return;
+  }
+
+  reply.header(name, value);
+}
+
+/**
+ * True when `domainValidation` determined this request's host is not one the
+ * server claims, either because it failed the allow list or because the Host
+ * header was missing or unparseable.
+ */
+function isHostDisclaimed(request: FastifyRequest): boolean {
+  return request.domainValidationRejected === true;
+}
+
 function applyUnconditionalSecurityHeaders(
   request: FastifyRequest,
   reply: FastifyReply,
   resolvedConfig: ResolvedSecurityHeadersConfig,
+  mode: HeaderWriteMode = 'apply',
 ): void {
   // These headers are not negotiated per-origin. They are safe to apply even
   // on requests that will ultimately receive no Access-Control-Allow-Origin
@@ -354,7 +387,12 @@ function applyUnconditionalSecurityHeaders(
 
   // Security headers (applied for all requests early in lifecycle)
   if (resolvedConfig.frameOptions) {
-    reply.header('X-Frame-Options', resolvedConfig.frameOptions);
+    writeSecurityHeader(
+      reply,
+      mode,
+      'X-Frame-Options',
+      resolvedConfig.frameOptions,
+    );
   }
 
   // RFC 6797 section 7.2: a host MUST NOT send Strict-Transport-Security over
@@ -365,7 +403,18 @@ function applyUnconditionalSecurityHeaders(
   // only when `fastifyOptions.trustProxy` says the peer may be believed. That
   // matters for the common TLS-terminating-proxy deployment: without
   // trustProxy the app sees plain HTTP and sends no HSTS at all.
-  if (resolvedConfig.hsts && request.protocol === 'https') {
+  //
+  // Secure transport is necessary but not sufficient. HSTS also has to be a
+  // header this host is entitled to send, and a host `domainValidation` just
+  // disclaimed is not: setting an HTTPS policy for a domain the operator says
+  // is not theirs binds the browser for the full max-age with no way to revoke
+  // it. Keyed on the rejection rather than on the 403 status, so an ordinary
+  // application authorization failure on a domain we do serve keeps its HSTS.
+  if (
+    resolvedConfig.hsts &&
+    request.protocol === 'https' &&
+    !isHostDisclaimed(request)
+  ) {
     const parts = [`max-age=${Math.floor(resolvedConfig.hsts.maxAge)}`];
 
     if (resolvedConfig.hsts.includeSubDomains) {
@@ -376,7 +425,12 @@ function applyUnconditionalSecurityHeaders(
       parts.push('preload');
     }
 
-    reply.header('Strict-Transport-Security', parts.join('; '));
+    writeSecurityHeader(
+      reply,
+      mode,
+      'Strict-Transport-Security',
+      parts.join('; '),
+    );
   }
 }
 
@@ -385,6 +439,7 @@ async function applyCORSActualResponseHeaders(
   reply: FastifyReply,
   resolvedConfig: ResolvedSecurityHeadersConfig,
   isOriginAllowedResult?: boolean,
+  mode: HeaderWriteMode = 'apply',
 ): Promise<void> {
   const cors = resolvedConfig.cors;
   const origin = request.headers.origin;
@@ -394,7 +449,7 @@ async function applyCORSActualResponseHeaders(
 
   // Apply the unconditional security/Vary headers first, then layer the
   // origin-negotiated CORS headers on top if this request is allowed.
-  applyUnconditionalSecurityHeaders(request, reply, resolvedConfig);
+  applyUnconditionalSecurityHeaders(request, reply, resolvedConfig, mode);
 
   // For non-preflight requests, let them proceed without CORS headers if the
   // origin is not allowed. Same-origin requests still work; browsers enforce
@@ -406,7 +461,7 @@ async function applyCORSActualResponseHeaders(
   if (origin && isAllowed) {
     // For allowed cross-origin requests we echo the specific origin rather than
     // using '*' so credentials/exposed-headers semantics stay correct.
-    reply.header('Access-Control-Allow-Origin', origin);
+    writeSecurityHeader(reply, mode, 'Access-Control-Allow-Origin', origin);
 
     const isCredentialsAllowed = await areCredentialsAllowed(
       origin,
@@ -417,11 +472,18 @@ async function applyCORSActualResponseHeaders(
 
     // Never send credentials for the special 'null' origin
     if (isCredentialsAllowed && origin !== 'null') {
-      reply.header('Access-Control-Allow-Credentials', 'true');
+      writeSecurityHeader(
+        reply,
+        mode,
+        'Access-Control-Allow-Credentials',
+        'true',
+      );
     }
 
     if (cors.exposedHeaders.length > 0) {
-      reply.header(
+      writeSecurityHeader(
+        reply,
+        mode,
         'Access-Control-Expose-Headers',
         cors.exposedHeaders.join(', '),
       );
@@ -429,7 +491,7 @@ async function applyCORSActualResponseHeaders(
   } else if (!origin && cors.origin === '*') {
     // Requests without an Origin header are non-browser/same-origin style
     // traffic. When policy is fully wildcard, keep the public wildcard signal.
-    reply.header('Access-Control-Allow-Origin', '*');
+    writeSecurityHeader(reply, mode, 'Access-Control-Allow-Origin', '*');
   }
 }
 
@@ -776,6 +838,13 @@ export function securityHeaders(
           request as FastifyRequest & { corsOriginAllowed?: boolean }
         ).corsOriginAllowed = isOriginAllowedResult;
 
+        // Record that this hook reached the negotiation, so the onSend backstop
+        // below knows it has nothing left to do. Anything that short-circuited
+        // before this point leaves the marker unset.
+        (
+          request as FastifyRequest & { securityHeadersApplied?: boolean }
+        ).securityHeadersApplied = true;
+
         // Handle preflight OPTIONS requests
         if (method === 'OPTIONS') {
           // Add Vary headers for preflight caching
@@ -959,6 +1028,50 @@ export function securityHeaders(
           resolvedConfig,
           isOriginAllowedResult,
         );
+      },
+    );
+
+    // Backstop for responses that never reached the hook above.
+    //
+    // An `onRequest` hook only covers what runs after it, so a plugin listed
+    // earlier in the array that ends the request produced a response with no
+    // security headers at all. That covers `domainValidation`'s 403, its 400
+    // for an unparseable Host, its canonical/www redirects, and any gate an
+    // application registers of its own. Which responses were covered therefore
+    // depended silently on the order of the plugins array.
+    //
+    // `onSend` runs for every reply Fastify sends, whoever sent it and whenever
+    // they registered, so it makes the header set order-independent. Writes are
+    // fill-if-absent, so a route that deliberately set its own value keeps it.
+    // Hijacked responses bypass `onSend` entirely and are covered instead by
+    // `request.applySecurityHeaders()`.
+    fastify.addHook(
+      'onSend',
+      async (request: FastifyRequest, reply: FastifyReply, ...args) => {
+        const payload = args[0];
+
+        // The hook above may have run before `domainValidation` rejected the
+        // host, in which case HSTS is already on the reply and has to come off.
+        if (isHostDisclaimed(request)) {
+          reply.removeHeader('Strict-Transport-Security');
+        }
+
+        const requestWithMarkers = request as FastifyRequest & {
+          securityHeadersApplied?: boolean;
+          corsOriginAllowed?: boolean;
+        };
+
+        if (!requestWithMarkers.securityHeadersApplied) {
+          await applyCORSActualResponseHeaders(
+            request,
+            reply,
+            resolvedConfig,
+            requestWithMarkers.corsOriginAllowed,
+            'fill',
+          );
+        }
+
+        return payload;
       },
     );
 

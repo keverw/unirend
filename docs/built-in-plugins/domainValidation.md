@@ -11,6 +11,7 @@
   - [What to Set `trustProxy` To](#what-to-set-trustproxy-to)
   - [On Multi-Value Forwarded Headers](#on-multi-value-forwarded-headers)
 - [Error Responses](#error-responses)
+  - [`request.domainValidationRejected`](#requestdomainvalidationrejected)
 
 <!-- tocstop -->
 
@@ -185,3 +186,11 @@ Nothing is rewritten in the process: `request.headers` still holds the raw value
 - **Web requests**: Returns plain text error by default (or HTML if your custom handler returns it)
 - **Custom handler**: Use `invalidDomainHandler` for custom error handling (domain validation failures only)
 - **Missing/invalid Host header**: Returns `400 Bad Request` before any redirect logic runs, JSON for API endpoints, plain text for web requests. Not customizable (protocol-level error, not business logic).
+
+### `request.domainValidationRejected`
+
+Both rejection paths above set `request.domainValidationRejected` to `true` before responding. It means this server does not claim the request's host, which is narrower than "the response was a 403", since an authorization failure from your own application, on a domain the server does serve, never sets it.
+
+[`securityHeaders`](security-headers.md#hsts-on-a-rejected-host) reads it to suppress `Strict-Transport-Security`, and your own hooks can read it wherever the same reasoning applies. Any header that binds a domain in the browser for a long time should not be sent for a domain the server has just disclaimed.
+
+The property is unset when the plugin is not registered, or when it did not reject.

@@ -2821,6 +2821,22 @@ declare module 'fastify' {
      */
     applySecurityHeaders?: (reply: FastifyReply) => void | Promise<void>;
     /**
+     * Set to `true` by the built-in `domainValidation` plugin when it rejects
+     * the request's host, either because the host failed
+     * `validProductionDomains` or because the `Host` header was missing or
+     * unparseable.
+     *
+     * It means the server does not claim this host, which is narrower than "the
+     * response was a 403". An application's own authorization failure, on a
+     * domain the server does serve, never sets it. `securityHeaders` reads it to
+     * suppress HSTS, and your own hooks can read it for the same reason: a
+     * policy header that binds a domain should not be sent for a domain this
+     * server has just disclaimed.
+     *
+     * Unset when `domainValidation` is not registered or did not reject.
+     */
+    domainValidationRejected?: boolean;
+    /**
      * Internal request-start timestamp captured by the framework.
      *
      * Used by framework features that need a stable "request received" time,

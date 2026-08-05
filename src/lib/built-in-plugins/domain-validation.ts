@@ -144,6 +144,24 @@ function checkIfAPIEndpoint(
 }
 
 /**
+ * Publish on the request that this host is not one the server claims.
+ *
+ * Set when the host fails the allow list, and also when the Host header is
+ * missing or unparseable, where the host is unknown rather than merely wrong.
+ * Only this plugin can know that, so it states the fact and leaves the
+ * consequences to whoever cares. `securityHeaders` reads it to suppress HSTS,
+ * since promising a browser that a domain is HTTPS-only right after declaring
+ * the domain is not ours binds it for the full max-age with no way back.
+ *
+ * Deliberately not keyed on the 403 status: an application's own authorization
+ * failure, on a domain the server does serve, is a different thing entirely and
+ * should keep every header a normal response gets.
+ */
+function markHostDisclaimed(request: FastifyRequest): void {
+  request.domainValidationRejected = true;
+}
+
+/**
  * Domain security plugin that handles:
  * - Domain validation and canonical domain redirects
  * - HTTPS enforcement (HTTP to HTTPS redirects)
@@ -206,6 +224,8 @@ export function domainValidation(
       // redirect logic runs — an empty domain would otherwise produce a
       // malformed redirect URL (e.g. "https:///path").
       if (!domain) {
+        markHostDisclaimed(request);
+
         if (isAPIEndpoint) {
           reply
             .code(400)
@@ -257,6 +277,8 @@ export function domainValidation(
         }
 
         if (!isAllowedDomain) {
+          markHostDisclaimed(request);
+
           // Use custom handler if provided, otherwise use default response
           const response = config.invalidDomainHandler
             ? config.invalidDomainHandler(

@@ -11,6 +11,8 @@
 - [Advanced Features](#advanced-features)
 - [Security Notes](#security-notes)
   - [Security Model (at a Glance)](#security-model-at-a-glance)
+- [Plugin Order and Short-Circuited Responses](#plugin-order-and-short-circuited-responses)
+  - [HSTS on a Rejected Host](#hsts-on-a-rejected-host)
 - [Hijacked Responses](#hijacked-responses)
 - [Advanced Configuration](#advanced-configuration)
 - [Advanced Use Cases](#advanced-use-cases)
@@ -119,6 +121,7 @@ These are sent on every response, whether or not the request carries an `Origin`
   - `{ maxAge: number; includeSubDomains?: boolean; preload?: boolean }`
     - `maxAge` is in seconds
     - The header is sent only on requests that arrived over a secure transport, which RFC 6797 section 7.2 requires. Behind a proxy that terminates TLS, set [`fastifyOptions.trustProxy`](../https.md#behind-a-tls-terminating-proxy) so Fastify resolves the request as HTTPS, otherwise no HSTS header is sent.
+    - It is also skipped when [`domainValidation`](domainValidation.md) rejected the request's host. See [Plugin Order and Short-Circuited Responses](#plugin-order-and-short-circuited-responses).
     - If `preload: true`, then `maxAge` must be at least `31536000` (1 year) and `includeSubDomains` must be `true` (Chrome preload list requirement)
 
 <!-- prettier-ignore -->
@@ -265,6 +268,39 @@ securityHeaders({
 - All origin/pattern entries are validated up-front (rejects PSL/IP tails, partial-label wildcards, URL-ish characters, and protocol/global wildcards where disallowed).
 - Protocol wildcards (`https://*`, `http://*`) are permitted only in origin lists, not in credentials.
 - Header reflection (`allowedHeaders: ["*"]`) reflects only what the browser requested, with caps: at most 100 header names, names longer than 256 characters are ignored.
+
+## Plugin Order and Short-Circuited Responses
+
+Where you put `securityHeaders` in the `plugins` array does not change which responses get its headers.
+
+That is worth stating because it is not what a hook alone would give you. The plugin does its work in an `onRequest` hook, and an `onRequest` hook only covers what runs after it, so a plugin listed earlier that ends the request never reaches it. `domainValidation` does exactly that for a 403 on an unauthorized host, a 400 on an unparseable `Host` header, and its canonical-domain, www, and HTTPS redirects, and any auth or gating plugin of your own does the same. Those responses used to go out with no CORS headers, no `X-Frame-Options`, and no HSTS.
+
+The plugin also registers an `onSend` hook, which Fastify runs for every reply it sends no matter who sent it or when the hook was registered. Anything the `onRequest` pass missed is filled in there. Two consequences to know about:
+
+- Headers are filled in only where they are absent. A route or a gate that deliberately set its own value keeps it, so this backstop never overwrites a decision you made on purpose.
+- Hijacked responses bypass `onSend` entirely and are covered separately. See [Hijacked Responses](#hijacked-responses).
+
+### HSTS on a Rejected Host
+
+One header is deliberately not filled in. When `domainValidation` rejects the request's host, `Strict-Transport-Security` is left off, and taken back off if it was already set.
+
+`domainValidation` returns 403 precisely because the domain is not one this server claims. Sending HSTS on that response would set an HTTPS policy for a domain the operator has just disclaimed, and the browser honors it for the full `maxAge` with no way to revoke it. The same applies to the 400 for a missing or unparseable `Host` header, where the host is not merely wrong but unknown.
+
+This is keyed on the rejection, not on the status code. A 403 from your own authorization logic, on a domain the server does serve, gets HSTS like any other response. The host is yours, the user simply is not allowed in.
+
+`domainValidation` publishes the fact as `request.domainValidationRejected`, so your own hooks can read it wherever the same reasoning applies:
+
+```ts
+if (request.domainValidationRejected) {
+  // Not a host this server claims. Do not set policy headers that bind it.
+}
+```
+
+The property is unset when `domainValidation` is not registered, or when it did not reject.
+
+<!-- prettier-ignore -->
+> [!NOTE]
+> A rejected host still gets the rest of the header set. `X-Frame-Options` and CORS headers are cheap defense in depth, and the CORS headers in particular mean a cross-origin caller sees the real 403 instead of an opaque network error.
 
 ## Hijacked Responses
 

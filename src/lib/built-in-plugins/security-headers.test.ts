@@ -1,7 +1,14 @@
 import { describe, it, expect, mock } from 'bun:test';
+import fastify from 'fastify';
 import { securityHeaders } from './security-headers';
 import type { CORSConfig } from './security-headers';
-import type { PluginOptions, PluginHostInstance } from '../types';
+import { domainValidation } from './domain-validation';
+import type {
+  PluginOptions,
+  PluginHostInstance,
+  ServerPlugin,
+  UnirendServerMode,
+} from '../types';
 
 /**
  * Most tests in this file exercise CORS behavior, which lives in its own
@@ -126,8 +133,13 @@ describe('securityHeaders', () => {
         'onRequest',
         expect.any(Function),
       );
-      // CORS actual-response headers are now applied from onRequest/raw helpers.
-      expect(pluginHost.addHook).toHaveBeenCalledTimes(1);
+      // The onSend backstop covers responses that ended before the onRequest
+      // hook could run, so the header set no longer depends on plugin order.
+      expect(pluginHost.addHook).toHaveBeenCalledWith(
+        'onSend',
+        expect.any(Function),
+      );
+      expect(pluginHost.addHook).toHaveBeenCalledTimes(2);
     });
 
     it('should keep registration the same when exposedHeaders are configured', async () => {
@@ -148,7 +160,7 @@ describe('securityHeaders', () => {
         'onRequest',
         expect.any(Function),
       );
-      expect(pluginHost.addHook).toHaveBeenCalledTimes(1);
+      expect(pluginHost.addHook).toHaveBeenCalledTimes(2);
     });
 
     it("should throw when '*' is included in an origin array with other entries", () => {
@@ -2373,6 +2385,162 @@ describe('securityHeaders', () => {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const headerValue = allowHeadersCall![1];
       expect(headerValue).not.toContain('bad header');
+    });
+  });
+
+  /**
+   * These run against a real listening server rather than the mocks above,
+   * because what is under test is a response that ends before securityHeaders'
+   * own onRequest hook can run. A mock host cannot express that: it hands each
+   * hook a fresh reply and never runs a lifecycle, so the ordering the bug is
+   * about does not exist there.
+   *
+   * A real socket rather than app.inject(): under Bun, light-my-request leaves
+   * raw.writableEnded false right after reply.send(), so Fastify's reply.sent
+   * check lets the chain continue into the route handler and the second send
+   * throws ERR_HTTP_HEADERS_SENT. Against a listening server Bun stops the
+   * chain correctly, same as Node.
+   *
+   * trustProxy is on so x-forwarded-host and x-forwarded-proto can stand in for
+   * a Host header and TLS, neither of which fetch() will let a test set.
+   */
+  describe('order-independent application (real server)', () => {
+    interface OrderedPluginsCase {
+      /** Plugin order under test, built fresh per case. */
+      plugins: Array<ServerPlugin<UnirendServerMode>>;
+      host: string;
+      origin?: string;
+      protocol?: string;
+    }
+
+    async function respondTo({
+      plugins,
+      host,
+      origin,
+      protocol = 'https',
+    }: OrderedPluginsCase) {
+      const app = fastify({ trustProxy: true });
+
+      for (const plugin of plugins) {
+        await plugin(app as unknown as PluginHostInstance, createMockOptions());
+      }
+
+      app.get('/test', () => ({ ok: true }));
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const address = app.server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+
+      try {
+        return await fetch(`http://127.0.0.1:${port}/test`, {
+          headers: {
+            'x-forwarded-host': host,
+            'x-forwarded-proto': protocol,
+            ...(origin ? { origin } : {}),
+          },
+          redirect: 'manual',
+        });
+      } finally {
+        await app.close();
+      }
+    }
+
+    const gatekeeper = () =>
+      domainValidation({
+        enforceHTTPS: false,
+        validProductionDomains: ['allowed.example.com'],
+      });
+
+    const headers = () =>
+      securityHeaders({
+        cors: { origin: ['https://app.example.com'] },
+        frameOptions: 'DENY',
+        hsts: { maxAge: 31536000 },
+      });
+
+    it('applies security headers to a 403 sent by a plugin listed earlier', async () => {
+      // The ordering the bug was about: domainValidation ends the request from
+      // its own onRequest hook, so securityHeaders' onRequest never runs.
+      const response = await respondTo({
+        plugins: [gatekeeper(), headers()],
+        host: 'evil.example.com',
+        origin: 'https://app.example.com',
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.headers.get('x-frame-options')).toBe('DENY');
+      expect(response.headers.get('access-control-allow-origin')).toBe(
+        'https://app.example.com',
+      );
+      expect(response.headers.get('vary')).toContain('Origin');
+    });
+
+    it('does not send HSTS for a host domainValidation disclaimed', async () => {
+      const response = await respondTo({
+        plugins: [gatekeeper(), headers()],
+        host: 'evil.example.com',
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.headers.get('strict-transport-security')).toBeNull();
+    });
+
+    it('strips HSTS already set when securityHeaders ran first', async () => {
+      // Reverse order: securityHeaders' onRequest ran and set HSTS before
+      // domainValidation decided the host is not ours, so the backstop has to
+      // take it back off rather than merely decline to add it.
+      const response = await respondTo({
+        plugins: [headers(), gatekeeper()],
+        host: 'evil.example.com',
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.headers.get('strict-transport-security')).toBeNull();
+      expect(response.headers.get('x-frame-options')).toBe('DENY');
+    });
+
+    it('still sends HSTS on an allowed host, in either plugin order', async () => {
+      for (const plugins of [
+        [gatekeeper(), headers()],
+        [headers(), gatekeeper()],
+      ]) {
+        const response = await respondTo({
+          plugins,
+          host: 'allowed.example.com',
+        });
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('strict-transport-security')).toBe(
+          'max-age=31536000',
+        );
+      }
+    });
+
+    it('leaves a header the short-circuiting responder set itself', async () => {
+      // Fill-if-absent: a gate that deliberately framed its own response keeps
+      // its value, rather than having the configured default written over it.
+      const ownFrameOptions: ServerPlugin<UnirendServerMode> = (host) => {
+        host.addHook('onRequest', async (_request, reply) => {
+          await reply
+            .code(401)
+            .header('X-Frame-Options', 'SAMEORIGIN')
+            .send('nope');
+        });
+
+        return Promise.resolve();
+      };
+
+      const response = await respondTo({
+        plugins: [ownFrameOptions, headers()],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.status).toBe(401);
+      expect(response.headers.get('x-frame-options')).toBe('SAMEORIGIN');
+      // An ordinary application 401 is not a disclaimed host, so HSTS stands.
+      expect(response.headers.get('strict-transport-security')).toBe(
+        'max-age=31536000',
+      );
     });
   });
 });
