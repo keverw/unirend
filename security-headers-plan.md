@@ -189,6 +189,20 @@ Same for the SSR server, which also owns the composition.
 - [ ] SSR server does the same, so its plugins can skip assets
 - [ ] Document the distinction. The public plugin serves where you put it; the built-in servers split the phases so gating runs in between. Someone reading only one of the two will otherwise be surprised by the other.
 
+**Do not overload `isStaticAsset`. Add a second signal.**
+
+Today `isStaticAsset` means "static content took ownership of this response" (`static-content-cache.ts:829`), which is what the access log records (`access-log-plugin.ts:166`). Setting it at detect time instead would quietly change that meaning: a request that detect matched but a gating plugin then blocked would log as a static asset despite never being served. That is a silent semantic change to an existing consumed flag, and access-log output would start lying.
+
+Keep them separate:
+
+- `request.isStaticAsset` — unchanged. Set at serve time, means "static content served this." Access log and `onResponse` consumers keep working exactly as they do.
+- A new detect-time signal, meaning "this path matches static content and will be served unless something blocks it." This is what a gating or auth plugin reads to skip expensive work.
+
+- [ ] Name it for what it asserts, not for when it runs. Something like `staticContentMatched` reads correctly at any point; `staticPhase` invites a reader to wonder what the other phases are.
+- [ ] Decide whether it is a boolean or something richer. A boolean covers the known use case (skip session work for assets). A wider request-kind classification would overlap `classifyRequest()`, which already derives `isAPI` and `isPageData`, so unifying those is a separate design question and should not be smuggled in here.
+- [ ] Both need documenting in `types.ts` with the distinction stated plainly, since two similar-sounding flags is exactly where someone reaches for the wrong one.
+- [ ] Test that a request blocked by a gating plugin after detect does **not** appear as a static asset in the access log
+
 This keeps the refactor contained: two small hook factories, two registration sites, and no change to the plugin API. Small enough to do in this branch.
 
 - [ ] Check `RedirectServer` for the same shape. Its redirect hook is also the only plugin, so a user plugin could never gate it either.
