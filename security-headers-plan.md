@@ -154,6 +154,31 @@ Precondition is a proxy that appends or adds a second header rather than overwri
 - [ ] Test: `x-forwarded-host: evil.com, real.example.com` behind a trusted proxy resolves to `real.example.com`
 - [ ] Test: `x-forwarded-proto: https, http` behind a trusted proxy resolves to `http`, so no HSTS and HTTPS enforcement still fires
 - [ ] Changelog: this is the security fix that justifies the break on its own. Note that a deployment behind an appending proxy was affected regardless of how carefully it was configured.
+
+### Migration hazard: this can take a proxied site down
+
+Today someone behind nginx, OpenResty, or a CDN can get correct behavior from `trustProxyHeaders: true` alone, having never touched `fastifyOptions`. Remove the boolean and Fastify ignores forwarded headers entirely, falling back to the socket and the `Host` header.
+
+The failure is not subtle. Where the proxy terminates TLS and forwards plain HTTP, Fastify reports `protocol: 'http'`, so `enforceHTTPS` redirects to HTTPS, the proxy forwards HTTP again, and the result is an **infinite redirect loop**. The site is down and the cause is not obvious from the symptom.
+
+`canonicalDomain` has the same shape of failure: without a trusted `x-forwarded-host`, the plugin compares against the internal upstream host rather than the public one, so it redirects to the canonical domain on every request.
+
+This cannot ship as "delete it and mention it in the changelog."
+
+- [ ] **Runtime guard.** When `enforceHTTPS` or `canonicalDomain` is active, Fastify's `trustProxy` is not configured, and a request arrives carrying `x-forwarded-proto` or `x-forwarded-host`, log a one-time warning naming `fastifyOptions.trustProxy` as the fix. That combination is almost always a misconfigured proxy deployment, and it is cheap to detect.
+- [ ] Consider going further and suppressing the HTTPS redirect in exactly that state, on the grounds that a redirect loop is worse than a missed redirect. Decide deliberately rather than by omission.
+- [ ] Startup warning when a removed `trustProxyHeaders` key is still present in the config object, rather than ignoring an unknown key in silence. A typed build catches it, but a plain-JS config or a stale object does not.
+- [ ] Changelog needs a migration snippet, not a sentence. Show the before and after side by side.
+
+### Guidance for what to set `trustProxy` to
+
+- Origin reachable only from the proxy (loopback bind, private network, container network): `trustProxy: true` is fine, since no untrusted peer can connect.
+- Origin reachable from elsewhere: name the proxy. `trustProxy: '10.0.0.0/8'` or the specific address. A bare `true` here is what lets any client forge forwarded headers.
+- CDN in front of the proxy (Cloudflare → OpenResty → app) is more than one hop, so a hop count or the full trusted set is needed. This is also the setup where the first-vs-last bug above is most likely to be live, since more hops means more chance of an appended header.
+- nginx and OpenResty with `proxy_set_header X-Forwarded-Proto $scheme` **overwrite** rather than append, so single-hop setups avoid the first-vs-last issue. Worth saying so in the docs, since it tells a reader whether they were exposed.
+
+- [ ] Document the above in `docs/built-in-plugins/domainValidation.md`, replacing the current Proxy Support section, which describes the `trustProxyHeaders` behavior being removed
+- [ ] `docs/https.md` should point at `fastifyOptions.trustProxy` too, since TLS termination is exactly where readers arrive at this problem
 - [ ] Changelog: this is a second breaking change and a security fix. Say plainly that a repo setting `trustProxyHeaders: true` must move to `fastifyOptions.trustProxy`, and that the new setting should name the proxy rather than being a bare `true` wherever the origin is directly reachable.
 - [ ] Test: `hsts` configured, request over HTTP, header absent
 - [ ] Test: `hsts` configured, HTTP request behind a trusted proxy sending `x-forwarded-proto: https`, header present
