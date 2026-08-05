@@ -82,10 +82,36 @@ export function serializeContextData(data: UnirendContextData): string {
  * Written to survive a missing or malformed block rather than throwing. A throw
  * here happens while the head is still parsing and takes out every later script
  * on the page, so a data problem would become a blank page.
+ *
+ * Assembled from one statement per line and joined with nothing between them.
+ * The delivered bytes are the same either way, and the digest covers them
+ * exactly, so the only thing at stake is whether the next person can read it.
+ * Every global assigned here is one line to find, change, or add.
  */
-export const UNIREND_BOOTSTRAP_SCRIPT = `(function(){var e=document.getElementById(${JSON.stringify(
-  UNIREND_DATA_BLOCK_ID,
-)}),d={};if(e&&e.textContent){try{d=JSON.parse(e.textContent)}catch(x){}}globalThis.${DEV_MODE_GLOBAL}=d.isDev===true;if("requestContext" in d){window.__FRONTEND_REQUEST_CONTEXT__=d.requestContext}if("appConfig" in d){window.__PUBLIC_APP_CONFIG__=d.appConfig}window.__CDN_BASE_URL__=typeof d.cdnBaseURL==="string"?d.cdnBaseURL:"";window.__DOMAIN_INFO__=d.domainInfo!==undefined?d.domainInfo:null;window.__UNIREND_TEMPLATE_ATTRS__=d.templateAttrs||{html:{},body:{}};window.${TEMPLATE_METAS_GLOBAL}=d.templateMetas||[];if(typeof d.routerHydration==="string"){try{window.__staticRouterHydrationData=JSON.parse(d.routerHydration)}catch(x){}}})();`;
+const BOOTSTRAP_STATEMENTS: string[] = [
+  // Wrapped in an IIFE so `e` and `d` never reach the page's global scope.
+  `(function(){`,
+  `var e=document.getElementById(${JSON.stringify(UNIREND_DATA_BLOCK_ID)}),d={};`,
+  // A missing or unparseable block leaves d as {}, and every assignment below
+  // falls back to the same default it would use for an absent member.
+  `if(e&&e.textContent){try{d=JSON.parse(e.textContent)}catch(x){}}`,
+  `globalThis.${DEV_MODE_GLOBAL}=d.isDev===true;`,
+  // Tested with `in` rather than by reading: an absent member means the server
+  // did not provide one, and the global should stay undefined rather than be
+  // defined as undefined.
+  `if("requestContext" in d){window.__FRONTEND_REQUEST_CONTEXT__=d.requestContext}`,
+  `if("appConfig" in d){window.__PUBLIC_APP_CONFIG__=d.appConfig}`,
+  `window.__CDN_BASE_URL__=typeof d.cdnBaseURL==="string"?d.cdnBaseURL:"";`,
+  `window.__DOMAIN_INFO__=d.domainInfo!==undefined?d.domainInfo:null;`,
+  `window.__UNIREND_TEMPLATE_ATTRS__=d.templateAttrs||{html:{},body:{}};`,
+  `window.${TEMPLATE_METAS_GLOBAL}=d.templateMetas||[];`,
+  // Last, and separately guarded: everything above is already assigned by now,
+  // so a malformed hydration payload must not undo it.
+  `if(typeof d.routerHydration==="string"){try{window.__staticRouterHydrationData=JSON.parse(d.routerHydration)}catch(x){}}`,
+  `})();`,
+];
+
+export const UNIREND_BOOTSTRAP_SCRIPT = BOOTSTRAP_STATEMENTS.join('');
 
 /**
  * CSP `script-src` source expression for {@link UNIREND_BOOTSTRAP_SCRIPT}.

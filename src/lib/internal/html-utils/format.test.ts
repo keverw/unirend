@@ -311,7 +311,7 @@ describe('processTemplate', () => {
 
     if (result.success) {
       expect(result.html).toContain(
-        'React hydration relies on data attributes',
+        'React hydration relies on the data attributes',
       );
       expect(result.html).toContain('<div id="root">');
       expect(result.html).toContain('Content');
@@ -334,7 +334,7 @@ describe('processTemplate', () => {
 
     if (result.success) {
       expect(result.html).not.toContain(
-        'React hydration relies on data attributes',
+        'React hydration relies on the data attributes',
       );
       expect(result.html).toContain('<div id="root">');
       expect(result.html).toContain('Content');
@@ -766,7 +766,7 @@ describe('processTemplate', () => {
 
       // Should add development comment and preserve it
       expect(result.html).toContain(
-        'React hydration relies on data attributes',
+        'React hydration relies on the data attributes',
       );
 
       // Should move script after root
@@ -1345,7 +1345,12 @@ describe('processTemplate templateSlots', () => {
     }
   });
 
-  it('should keep the development comment first in body when bodyPrepend is set', async () => {
+  it('should keep the development comment next to the container, not above bodyPrepend', async () => {
+    // It used to be prepended to <body>, which put it immediately above
+    // whatever bodyPrepend contributed. Reading top-down, a note saying
+    // "hydration relies on these, do not remove them" directly above a noscript
+    // block describes the noscript block, and the element it means was far
+    // below. It now sits where its subject is.
     const result = await processTemplate(baseHTML, 'ssr', true, true, 'root', {
       bodyPrepend: '<noscript><p>JavaScript is required.</p></noscript>',
     });
@@ -1353,9 +1358,32 @@ describe('processTemplate templateSlots', () => {
     expect(result.success).toBe(true);
 
     if (result.success) {
-      expect(
-        result.html.indexOf('React hydration relies on data attributes'),
-      ).toBeLessThan(result.html.indexOf('<noscript>'));
+      const commentIndex = result.html.indexOf(
+        'React hydration relies on the data attributes',
+      );
+
+      expect(commentIndex).toBeGreaterThan(result.html.indexOf('<noscript>'));
+      expect(commentIndex).toBeLessThan(result.html.indexOf('<div id="root">'));
+    }
+  });
+
+  it('should fall back to prepending the development comment when the container is missing', async () => {
+    // Not a valid template, but the note is worth keeping anyway rather than
+    // silently dropping it because the anchor it wanted was absent.
+    const result = await processTemplate(
+      '<html><head><!--ss-head--></head><body><!--ss-outlet--></body></html>',
+      'ssr',
+      true,
+      true,
+      'nonexistent-container',
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain(
+        'React hydration relies on the data attributes',
+      );
     }
   });
 

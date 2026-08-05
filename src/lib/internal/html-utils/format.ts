@@ -32,9 +32,11 @@ const isElementNode = (node: AnyNode): node is Element => {
   return type === 'tag' || type === 'script' || type === 'style';
 };
 
-// Development comment that should be preserved
+// Development comment that should be preserved. Names the element it is about,
+// because it is emitted next to that element and a bare "them" reads as though
+// it refers to whatever markup happens to follow.
 const DEVELOPMENT_COMMENT =
-  'React hydration relies on data attributes. Do not remove them.';
+  'React hydration relies on the data attributes on the app container below. Do not remove them.';
 
 // <meta> tags UnirendHead manages per page, and so strips from the template: the page's
 // content metadata (description) and its social preview tags (OpenGraph, Twitter cards),
@@ -727,10 +729,24 @@ export async function processTemplate(
       $('body').prepend(templateSlots.bodyPrepend);
     }
 
-    // Prepended after the slot content so the note stays the first thing in <body>, which is
-    // where a developer reading source expects it. Nothing below it depends on the position.
+    // Emitted directly above the app container, which is what it is about.
+    //
+    // It used to be prepended to <body> instead, on the reasoning that a note is
+    // easiest to find at the top. In practice that put it immediately above
+    // whatever bodyPrepend contributed — a noscript block in both the starter
+    // template and the demos — so top-down it read as a note about that, and the
+    // element it actually describes was hundreds of lines further down.
+    //
+    // Falls back to the old position if the container is missing, which is not a
+    // valid template but is not worth losing the note over.
     if (isDevelopment) {
-      $('body').prepend(`<!-- ${DEVELOPMENT_COMMENT} -->\n`);
+      const container = $(`#${containerID}`);
+
+      if (container.length > 0) {
+        container.before(`<!-- ${DEVELOPMENT_COMMENT} -->\n`);
+      } else {
+        $('body').prepend(`<!-- ${DEVELOPMENT_COMMENT} -->\n`);
+      }
     }
 
     return {
