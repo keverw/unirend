@@ -2677,6 +2677,72 @@ describe('securityHeaders', () => {
       expect(response.headers.get('x-frame-options')).toBe('DENY');
     });
 
+    it('applies the CSP to a short-circuited response too', async () => {
+      // CSP goes out through the same helper as the other non-negotiated
+      // headers, so it inherits the onSend backstop rather than needing its own.
+      const response = await respondTo({
+        plugins: [
+          gatekeeper(),
+          securityHeaders({
+            csp: { defaultSrc: ["'self'"], frameAncestors: ["'none'"] },
+          }),
+        ],
+        host: 'evil.example.com',
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.headers.get('content-security-policy')).toBe(
+        "default-src 'self'; frame-ancestors 'none'",
+      );
+    });
+
+    it('quotes the hashes it contributes to script-src and style-src', async () => {
+      // Quoting is what makes a hash a hash. Unquoted, sha256-... is read as a
+      // host name, matches nothing, and the inline content it was meant to
+      // allow is blocked with no clue as to why — which is exactly what shipped
+      // the first time this was wired up.
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            csp: { scriptSrc: ["'self'"], styleSrc: ["'self'"] },
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      const csp = response.headers.get('content-security-policy') ?? '';
+
+      expect(csp).toMatch(/script-src 'self' 'sha256-[^']+'/);
+      expect(csp).toMatch(/style-src 'self'(?: 'sha256-[^']+')+/);
+      expect(csp).not.toMatch(/ sha256-/);
+    });
+
+    it('sends the report-only header when asked, and not the enforcing one', async () => {
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            csp: { defaultSrc: ["'self'"], reportOnly: true },
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.headers.get('content-security-policy')).toBeNull();
+      expect(response.headers.get('content-security-policy-report-only')).toBe(
+        "default-src 'self'",
+      );
+    });
+
+    it('sends no CSP header when none is configured', async () => {
+      const response = await respondTo({
+        plugins: [securityHeaders({ frameOptions: 'DENY' })],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.headers.get('content-security-policy')).toBeNull();
+      expect(response.headers.get('x-frame-options')).toBe('DENY');
+    });
+
     it('leaves a header the short-circuiting responder set itself', async () => {
       // Fill-if-absent: a gate that deliberately framed its own response keeps
       // its value, rather than having the configured default written over it.

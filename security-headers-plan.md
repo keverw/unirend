@@ -95,6 +95,9 @@ Planning is complete. Everything below is specified well enough to implement wit
 5. **Done** — throwing callbacks. Fail closed rather than 500, decisions cached so the error path does not re-invoke. Two more callbacks than the list started with, see below.
 6. **Done** — error pages under CSP. Anchor instead of inline `onclick`, inline styles hashed, `hashInlineContentForCSP` exported, template updated, changelog tells scaffolded repos to update their own copy.
 7. **CSP.** Directive config, presets, `reportOnly`, automatic hashes for slots and error pages, `strict-dynamic` for third-party widgets. Verify the JSON data-block behavior in a real browser before relying on it.
+8. **Per-tenant `resolve`.** Baseline config plus a callback that can rewrite it per request, with the failure handling below. Stays on this branch rather than moving to its own: it is the case that motivated the work, and the nesting in step 1 exists to serve it. Comes after CSP because a resolver returning a `csp` block needs `csp` to exist.
+
+The order below is by dependency, not by size. Step 7 is larger than steps 2 through 6 put together, and splitting it at "emit a validated header" / "hash the app's own content" is reasonable if it wants to land in two pieces.
 
 Steps 3 onward are independent of what has landed so far.
 
@@ -431,6 +434,27 @@ Only one of the two reload buttons is actually a problem. `error-page-utils.ts:1
 Hashes, not nonces: the style text is deterministic, so it is computed once at module load with no per-request state and no plumbing through render paths.
 
 ## Commit 6: CSP itself
+
+### Part one: config, validation, emission (done)
+
+`csp: {}` on `securityHeaders`, validated once at config time and serialized once, since nothing in it varies per request. Landed as its own commit; automatic hashing of the app's own inline content is part two.
+
+- [x] Directive config object, flat keys as the plan's example showed, camelCase mapping to the kebab-case directive names
+- [x] Fixed serialization order rather than object-key order, so the same config always produces byte-identical output. Keeps the header stable for caches and lets a test assert the whole string.
+- [x] Keyword sources validated against the real list and required to carry their quotes. An unquoted `self` is a valid host name, so it has to be an error rather than a guess.
+- [x] Host sources go through `validateConfigEntry` from `lifecycleion/domain-utils`, the same one CORS origins use, after stripping a path it does not understand. Schemes (`data:`, `https:`) and `*` are handled separately, since that validator rejects both.
+- [x] `reportOnly`, which is only a change of header name
+- [x] Config-time rejection of the footgun set: `'unsafe-inline'` in a script directive without `allowUnsafeInlineScript`, `'unsafe-eval'` without `allowUnsafeEval`, `'none'` combined with other sources, `javascript:`/`vbscript:`, quoted near-miss keywords, and any source carrying whitespace or `;`/`,` that could rewrite the rest of the policy
+- [x] Emitted from `applyUnconditionalSecurityHeaders`, so it inherits the `onSend` backstop and `applySecurityHeaders()` for free. Verified against a real server: a `domainValidation` 403 carries the policy without either plugin knowing CSP exists.
+- [x] Unirend contributes `UNIREND_BOOTSTRAP_SCRIPT_HASH` and `UNIREND_ERROR_PAGE_STYLE_HASHES` automatically, **only to directives the caller set**. Adding a hash to an unset `script-src` would create one, which then overrides `default-src` and blocks whatever the caller expected `default-src` to cover.
+- [ ] `frame-ancestors` overlaps `frameOptions`. Still to warn or reconcile when both are set.
+
+**Two bugs caught by running it rather than reading it**, both of which type-check and both of which fail silently in a browser:
+
+- The `'unsafe-inline'` guard compared the display label (`csp.scriptSrc`) against the directive key (`scriptSrc`), so it matched nothing and the one setting the guard exists for walked straight through. Fixed by keeping the label and the key as separate values.
+- Hashes were emitted **unquoted**. `hashInlineContentForCSP` returns the bare expression by design, since a source list has unquoted members too, and the assembler is supposed to add the quotes. Unquoted, `sha256-...` is read as a host name, matches nothing, and the inline content it was meant to allow is blocked with no clue why. There is now a test asserting the quotes are there and that no bare `sha256-` appears.
+
+Both are the same shape: a mistake that produces a well-formed header which quietly does the wrong thing. That is the failure mode this whole feature has to be tested against, so prefer assertions on real response headers over assertions on config objects.
 
 Rich JSON policy rather than a hand-written string. Reuse `validateConfigEntry` / `matchesOriginList` from `lifecycleion/domain-utils` for source lists, so `*.cdn.example.com` and `https://*` parse and get rejected at config time with a real message, matching how CORS origins already behave.
 

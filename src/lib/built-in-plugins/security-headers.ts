@@ -10,6 +10,16 @@ import {
   validateConfigEntry,
 } from 'lifecycleion/domain-utils';
 import { addToVaryHeader } from '../internal/http-header-utils';
+import {
+  cspHeaderName,
+  serializeCSP,
+  validateCSPConfig,
+  type CSPConfig,
+} from '../internal/csp-policy';
+import { UNIREND_ERROR_PAGE_STYLE_HASHES } from '../internal/error-page-utils';
+import { UNIREND_BOOTSTRAP_SCRIPT_HASH } from '../internal/html-utils/context-data-block';
+
+export type { CSPConfig } from '../internal/csp-policy';
 
 /**
  * CORS origin configuration - can be a string, array, or function
@@ -169,6 +179,35 @@ export interface SecurityHeadersConfig {
   frameOptions?: false | 'DENY' | 'SAMEORIGIN';
 
   /**
+   * Content-Security-Policy, the header a browser enforces against the page
+   * itself rather than against who may read it.
+   *
+   * Each source-list directive takes sources written as they appear in the
+   * header, keywords with their quotes and hosts without:
+   *
+   * ```ts
+   * csp: {
+   *   defaultSrc: ["'self'"],
+   *   imgSrc: ["'self'", 'data:', 'https://cdn.example.com'],
+   *   frameAncestors: ["'none'"],
+   *   reportOnly: true,
+   * }
+   * ```
+   *
+   * Unirend adds its own hashes to `scriptSrc` and `styleSrc` for the inline
+   * content it emits, so its error pages and injected globals keep working
+   * without `'unsafe-inline'`. It only adds to a directive you have set, since
+   * creating one you did not ask for would override `defaultSrc` and block
+   * whatever you expected `defaultSrc` to cover.
+   *
+   * Start with `reportOnly: true` on a live site. Violations are reported and
+   * nothing is blocked, so you find what breaks without breaking it.
+   *
+   * @default false
+   */
+  csp?: false | CSPConfig;
+
+  /**
    * Controls the Strict-Transport-Security (HSTS) response header.
    * - false: do not send the header (default)
    * - { maxAge, includeSubDomains?, preload? }: header parameters
@@ -234,6 +273,13 @@ type ResolvedSecurityHeadersConfig = {
   cors: ResolvedCORSConfig;
   frameOptions: false | 'DENY' | 'SAMEORIGIN';
   hsts: false | HSTSConfig;
+  /**
+   * The serialized policy and the header it goes in, both computed once at
+   * config time. The policy does not vary per request, so there is nothing to
+   * rebuild: string concatenation on every response for a value that never
+   * changes is work with no result.
+   */
+  csp: false | { headerName: string; value: string };
 };
 
 /**
@@ -504,6 +550,20 @@ function applyUnconditionalSecurityHeaders(
   // non-CORS response (which lacks Access-Control-Allow-Origin) to a
   // later CORS request for the same URL.
   addToVaryHeader(reply, 'Origin');
+
+  // Sits here rather than anywhere else so it inherits everything this function
+  // already gets: the early onRequest pass, the onSend backstop that covers
+  // responses which short-circuited before it, and applySecurityHeaders() for
+  // hijacked paths. A 403 from domainValidation and a static file served by
+  // reply.hijack() both carry the policy without any of them knowing about CSP.
+  if (resolvedConfig.csp) {
+    writeSecurityHeader(
+      reply,
+      mode,
+      resolvedConfig.csp.headerName,
+      resolvedConfig.csp.value,
+    );
+  }
 
   // Security headers (applied for all requests early in lifecycle)
   if (resolvedConfig.frameOptions) {
@@ -906,10 +966,40 @@ export function securityHeaders(
   // Assemble the validated blocks into the shape the request-time helpers read.
   // Keeping CORS in its own block means a future per-request override can
   // replace one block without touching the others.
+  // Validate and serialize the policy once. Nothing about it depends on the
+  // request, so the header value is fixed for the life of the process.
+  let resolvedCSP: false | { headerName: string; value: string } = false;
+
+  if (config.csp) {
+    validateCSPConfig(config.csp);
+
+    // Unirend contributes hashes for the inline content it emits itself: the
+    // bootstrap that assigns the injected globals, and the styles on its error
+    // pages. The framework is the only thing that knows what it emitted, so
+    // asking the caller to list these would be asking them to track bytes they
+    // never see.
+    // Quoted here. hashInlineContentForCSP returns the bare expression, since a
+    // source list has unquoted members too and quoting is the assembler's job.
+    // Getting this wrong is quiet: an unquoted sha256-... is read as a host
+    // name, matches nothing, and the inline content it was meant to allow is
+    // blocked with no clue as to why.
+    const quote = (hash: string) => `'${hash}'`;
+
+    const value = serializeCSP(config.csp, {
+      scriptSrc: [quote(UNIREND_BOOTSTRAP_SCRIPT_HASH)],
+      styleSrc: UNIREND_ERROR_PAGE_STYLE_HASHES.map(quote),
+    });
+
+    if (value) {
+      resolvedCSP = { headerName: cspHeaderName(config.csp), value };
+    }
+  }
+
   const resolvedConfig: ResolvedSecurityHeadersConfig = {
     cors: corsConfig,
     frameOptions: config.frameOptions ?? false,
     hsts: config.hsts ?? false,
+    csp: resolvedCSP,
   };
 
   return async (fastify: PluginHostInstance<UnirendServerMode>) => {

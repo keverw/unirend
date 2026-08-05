@@ -11,6 +11,10 @@
 - [Advanced Features](#advanced-features)
 - [Security Notes](#security-notes)
   - [Security Model (at a Glance)](#security-model-at-a-glance)
+- [Content-Security-Policy](#content-security-policy)
+  - [Roll It Out With `reportOnly`](#roll-it-out-with-reportonly)
+  - [What Unirend Contributes Automatically](#what-unirend-contributes-automatically)
+  - [Config-Time Validation](#config-time-validation)
 - [When a Callback Throws](#when-a-callback-throws)
 - [Plugin Order and Short-Circuited Responses](#plugin-order-and-short-circuited-responses)
   - [HSTS on a Rejected Host](#hsts-on-a-rejected-host)
@@ -116,6 +120,8 @@ These are sent on every response, whether or not the request carries an `Origin`
 - `frameOptions` (default: `false`): Controls the `X-Frame-Options` header
   - `false`: do not send the header
   - `"DENY" | "SAMEORIGIN"`: header value to send
+
+- `csp` (default: `false`): Controls the `Content-Security-Policy` header. See [Content-Security-Policy](#content-security-policy) below.
 
 - `hsts` (default: `false`): Controls the `Strict-Transport-Security` (HSTS) header
   - `false`: do not send the header
@@ -269,6 +275,63 @@ securityHeaders({
 - All origin/pattern entries are validated up-front (rejects PSL/IP tails, partial-label wildcards, URL-ish characters, and protocol/global wildcards where disallowed).
 - Protocol wildcards (`https://*`, `http://*`) are permitted only in origin lists, not in credentials.
 - Header reflection (`allowedHeaders: ["*"]`) reflects only what the browser requested, with caps: at most 100 header names, names longer than 256 characters are ignored.
+
+## Content-Security-Policy
+
+Every source-list directive takes an array of source expressions, written exactly as they appear in the header: keywords carry their quotes, hosts do not.
+
+```typescript
+securityHeaders({
+  csp: {
+    defaultSrc: ["'self'"],
+    scriptSrc: ["'self'"],
+    styleSrc: ["'self'"],
+    imgSrc: ["'self'", 'data:', 'https://cdn.example.com'],
+    connectSrc: ["'self'", 'https://api.example.com'],
+    frameAncestors: ["'none'"],
+    baseURI: ["'self'"],
+    upgradeInsecureRequests: true,
+    reportURI: '/csp-report',
+  },
+});
+```
+
+Available source-list directives: `defaultSrc`, `scriptSrc`, `scriptSrcElem`, `scriptSrcAttr`, `styleSrc`, `styleSrcElem`, `styleSrcAttr`, `imgSrc`, `fontSrc`, `connectSrc`, `mediaSrc`, `objectSrc`, `childSrc`, `frameSrc`, `workerSrc`, `manifestSrc`, `prefetchSrc`, `formAction`, `frameAncestors`, `baseURI`. Alongside them: `sandbox` (an array of tokens, or an empty array for the bare directive), `upgradeInsecureRequests`, `reportURI`, and `reportTo`.
+
+### Roll It Out With `reportOnly`
+
+```typescript
+csp: { defaultSrc: ["'self'"], reportOnly: true }
+```
+
+Sends `Content-Security-Policy-Report-Only` instead. Violations are reported and nothing is blocked, so you find what a policy would break without breaking it. Worth staying here until the reports go quiet, especially on a site that is already serving traffic.
+
+### What Unirend Contributes Automatically
+
+Unirend emits inline content of its own: the bootstrap script that assigns the injected SSR globals, and the styles on its built-in error pages. It knows what it emitted, so it adds the matching hashes to `scriptSrc` and `styleSrc` for you. Without that, a strict policy would render the framework's own error page unstyled, which is exactly the trap that makes CSP support look present without being useful.
+
+Two things worth knowing about how that works:
+
+- It only adds to a directive **you have set**. If you configure `defaultSrc` but not `scriptSrc`, no `scriptSrc` appears. Creating one would silently override `defaultSrc` for scripts and block whatever you expected `defaultSrc` to cover.
+- Your own inline content is still yours to cover. Use [`hashInlineContentForCSP`](../utilities.md#content-security-policy-utilities), which is the same helper unirend uses.
+
+### Config-Time Validation
+
+The policy is checked once at startup and the process fails to start on anything a browser would silently ignore, which is the failure mode CSP is worst at surfacing:
+
+| Rejected | Why |
+| --- | --- |
+| `'self'` written unquoted as `self` | A browser reads it as a host name, matches nothing, and the policy is quietly stricter |
+| `'unsafe-inline-scripts'` and other near-miss keywords | Ignored by the browser, so the directive is not what it looks like |
+| `'none'` alongside other sources | `'none'` means "allow nothing", so combining it cannot be what was meant |
+| A `javascript:` or scripting-scheme source | Reintroduces exactly the injection a policy exists to stop |
+| A source containing whitespace, `;` or `,` | Would split into two entries or end the directive, letting a value rewrite the policy |
+| A host the CORS origin validator rejects | Same validator, so `*.co.uk` fails identically in both places |
+
+Two require an explicit opt-in rather than being refused outright:
+
+- `'unsafe-inline'` in a script directive needs `allowUnsafeInlineScript: true`. It is the one setting that stops a policy defending against the attack it exists for, and it is usually reached for to fix a single inline script. Unirend hashes its own inline content, so the common reasons to need it do not apply. It is **not** gated in `styleSrc`, which is a real but far narrower risk.
+- `'unsafe-eval'` needs `allowUnsafeEval: true`. Some older bundlers and template engines still require it.
 
 ## When a Callback Throws
 

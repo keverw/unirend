@@ -242,6 +242,26 @@ Two related fixes come with it. The origin and credentials decisions are now com
 
 If you were relying on a throw to produce a 500, catch it in your callback and decide there. Only your code can tell a genuine "not allowed" from "the store is down".
 
+**New:** `securityHeaders` takes a `csp` block and emits `Content-Security-Policy`. Directives are configured as arrays of source expressions written the way they appear in the header, and the policy is validated once at startup rather than at request time:
+
+```typescript
+securityHeaders({
+  csp: {
+    defaultSrc: ["'self'"],
+    scriptSrc: ["'self'"],
+    imgSrc: ["'self'", 'data:', 'https://cdn.example.com'],
+    frameAncestors: ["'none'"],
+    reportOnly: true,
+  },
+});
+```
+
+Unirend adds hashes for the inline content it emits itself, the SSR bootstrap script and its error page styles, so its own markup keeps working under a policy with no `'unsafe-inline'`. It only adds to a directive you set, since creating one you did not ask for would override `defaultSrc` and block what you expected `defaultSrc` to cover.
+
+Validation refuses what a browser would silently ignore, which is the failure mode CSP is worst at surfacing: an unquoted `self`, a near-miss keyword such as `'unsafe-inline-scripts'`, `'none'` combined with other sources, `javascript:` in a source list, and any source carrying whitespace or a `;` that would let it rewrite the rest of the policy. Host sources go through the same validator as CORS origins, so `*.co.uk` fails identically in both places. `'unsafe-inline'` in a script directive and `'unsafe-eval'` anywhere require an explicit `allowUnsafeInlineScript` / `allowUnsafeEval` opt-in.
+
+Start with `reportOnly: true` on a site already serving traffic: violations are reported and nothing is blocked. See [docs/built-in-plugins/security-headers.md](docs/built-in-plugins/security-headers.md#content-security-policy).
+
 **Behavior change:** SSR and SSG pages now carry their server context in a `<script type="application/json">` data block plus one small fixed script that reads it, rather than seven inline scripts each assigning one global. The globals themselves are unchanged: `window.__PUBLIC_APP_CONFIG__`, `window.__FRONTEND_REQUEST_CONTEXT__`, `window.__CDN_BASE_URL__`, `window.__DOMAIN_INFO__` and friends are set in the same place, in the same order, with the same values, and inline `<head>` scripts and template slots still read them exactly as before.
 
 React Router's hydration payload rides in the same block. `window.__staticRouterHydrationData` is still set, with the same value, before your client entry runs. It was previously the one remaining inline script whose text changed on every response. The payload is carried as the exact JSON text React Router encoded, so nothing re-serializes it, and a hydration script in an unrecognized shape is left alone and emitted as-is rather than taken apart on a guess.
