@@ -1,7 +1,8 @@
 import type { RenderType, TemplateSlots } from '../../types';
-import type { CheerioAPI } from 'cheerio';
+import type { CheerioAPI, load as cheerioLoad } from 'cheerio';
 import type { AnyNode, Comment, Document, Element, Text } from 'domhandler';
 import { escapeHTMLAttr, escapeHTMLText } from './escape';
+import { hashInlineContentForCSP } from '../csp-hash';
 
 // cheerio's load(), narrowed to the fragment-parsing call validateTemplateSlots() makes.
 // Passed in rather than imported so the dynamic import in processTemplate() stays the only
@@ -486,8 +487,95 @@ export function prettifyHTML($: CheerioAPI, containerID = 'root'): string {
   return html;
 }
 
+/**
+ * CSP source expressions covering the inline content of a processed template,
+ * quoted and ready to drop into a directive.
+ *
+ * Computed from the **final serialized output**, never from the slot values the
+ * caller passed in. The pipeline parses and rewrites everything it touches, so
+ * a hash of the input can differ from a hash of what ships, and CSP would then
+ * block the very script the hash was meant to allow, silently.
+ */
+export interface TemplateCSPHashes {
+  scriptSrc: string[];
+  styleSrc: string[];
+}
+
 export type ProcessTemplateResult =
-  { success: true; html: string } | { success: false; error: string };
+  | { success: true; html: string; cspHashes: TemplateCSPHashes }
+  | { success: false; error: string };
+
+/**
+ * Hash every inline `<script>` and `<style>` in a finished template.
+ *
+ * Parsing back what was just serialized looks wasteful, and is the point: it reads
+ * the same bytes a browser will, so there is no way for the hash and the
+ * delivered content to disagree. Runs once per app at startup, not per request.
+ *
+ * Scripts with a `src` are skipped, having no inline content to cover, and so
+ * are non-JavaScript types such as the JSON data block, which a browser never
+ * executes and `script-src` therefore never governs.
+ */
+export async function collectTemplateCSPHashes(
+  html: string,
+): Promise<TemplateCSPHashes> {
+  // Dynamic import for the same reason processTemplate uses one: cheerio must
+  // not be pulled into client bundles.
+  const cheerio = await import('cheerio');
+
+  return collectTemplateCSPHashesWith(html, cheerio.load);
+}
+
+function collectTemplateCSPHashesWith(
+  html: string,
+  load: typeof cheerioLoad,
+): TemplateCSPHashes {
+  const $ = load(html);
+  const scriptSrc = new Set<string>();
+  const styleSrc = new Set<string>();
+
+  $('script').each((_, el) => {
+    const element = $(el);
+
+    if (element.attr('src')) {
+      return;
+    }
+
+    const type = element.attr('type');
+
+    if (type && !JAVASCRIPT_SCRIPT_TYPES.has(type.trim().toLowerCase())) {
+      return;
+    }
+
+    const content = element.html();
+
+    if (content) {
+      scriptSrc.add(`'${hashInlineContentForCSP(content)}'`);
+    }
+  });
+
+  $('style').each((_, el) => {
+    const content = $(el).html();
+
+    if (content) {
+      styleSrc.add(`'${hashInlineContentForCSP(content)}'`);
+    }
+  });
+
+  return { scriptSrc: [...scriptSrc], styleSrc: [...styleSrc] };
+}
+
+/**
+ * `type` values a browser treats as JavaScript. Anything else, including the
+ * `application/json` data block, is inert and outside `script-src`.
+ */
+const JAVASCRIPT_SCRIPT_TYPES = new Set([
+  'text/javascript',
+  'application/javascript',
+  'module',
+  'text/ecmascript',
+  'application/ecmascript',
+]);
 
 export async function processTemplate(
   html: string,
@@ -749,9 +837,16 @@ export async function processTemplate(
       }
     }
 
+    // Serialize first, then hash what came out. Anything that reformats the
+    // document has already run by this point, so these hashes describe the
+    // bytes that ship. injectContent only replaces markers and rewrites the
+    // <html>/<body> attributes afterwards, so it cannot disturb them.
+    const processedHTML = prettifyHTML($, containerID);
+
     return {
       success: true,
-      html: prettifyHTML($, containerID),
+      html: processedHTML,
+      cspHashes: collectTemplateCSPHashesWith(processedHTML, cheerio.load),
     };
   } catch (error) {
     return {

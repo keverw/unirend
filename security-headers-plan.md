@@ -61,13 +61,35 @@ No cache key. An earlier draft had a `resolveCacheKey` so header strings could b
 - [ ] `request.domainInfo` (`types.ts:2858`, `hostname` + `rootDomain`) is what a resolver keys off, and it is already populated
 - [ ] Static defaults keep every existing config-time guard. Do not weaken them by making everything dynamic.
 - [ ] Validate the resolver's returned policy per request. Correctness first, measure before optimizing.
-- [ ] **Fall back to the static defaults and log** when a resolver throws or returns an invalid policy, rather than 500ing. The request is fine, it is the per-tenant override that could not be computed, so the response goes out carrying the baseline policy instead of the tailored one. Shares the decision cache with the throwing-callback work below.
 
-  **Except for HSTS, where the baseline is the wrong fallback and calling this "fail closed" was hiding that.** The baseline is whatever suits the domains the operator owns, which is typically a long `max-age` with `includeSubDomains` and possibly `preload`. The reason a resolver exists at all is to send something narrower on a customer's custom domain. So a resolver that throws while serving a custom domain would send the most binding policy available to the domain least entitled to it, and the browser honors it for the full `max-age` with no way to revoke it. That is worse than a 500: a 500 is visible and recoverable, a wrongly-sent `includeSubDomains` silently breaks unrelated subdomains the customer owns for a year.
+### Decided: a throwing resolver propagates, like any other hook
 
-  The asymmetry is the point. Falling back to the baseline is only safe for a header whose baseline cannot be actively harmful on a domain it was not written for:
-  - `cors`, `csp`, `frameOptions`: baseline is fine. Too strict at worst, and the effect ends with the response.
-  - `hsts`: **send nothing.** A resolver that could not answer has not established that this is a domain we are entitled to bind, which is the same reasoning as the `domainValidation` rejection case already implemented in commit 3.
+Earlier drafts had this failing back to the static defaults, and then had an option to choose between that and throwing. Both are wrong, and the reason is consistency: **a resolver that throws should behave exactly like any other piece of middleware that throws.** It propagates and Fastify turns it into a 500. That is what every user plugin, hook, and route handler in the framework already does, and inventing a special rule for this one callback makes the framework harder to predict for no gain.
+
+It also removes the need for the option entirely. Anyone who would rather degrade than fail can do it in their own resolver, in one line, where they can tell a genuine "no override needed" from "the store is down":
+
+```ts
+resolve: (request) => {
+  try {
+    return lookupTenantPolicy(request.domainInfo.hostname);
+  } catch (error) {
+    log.error(error);
+    return null; // null = use the validated defaults
+  }
+};
+```
+
+That is strictly better than a framework option, because the caller is the only one who can make that judgment, and `null` already means "use the defaults" for the ordinary case.
+
+Note this is **not** inconsistent with the fail-closed callbacks in commit 4. Those decide allow or deny, so "could not decide" has an obviously correct answer and returning it is better than a 500. `resolve` decides nothing about the request; it tailors headers for a request that is otherwise fine. There is no correct answer to substitute, so there is nothing to substitute.
+
+- [ ] Let the throw propagate. Log it on the way past, since a stack trace pointing into user code is more useful than a bare 500.
+
+- [ ] **The 500 still needs headers, and that is where the care goes.** The error path calls `applySecurityHeaders`, which would invoke `resolve` a second time and throw again inside the handler dealing with the first throw. This is exactly the double fault fixed for the CORS callbacks in commit 4, so it gets the same treatment: mark the request as resolve-failed, and have every later reader use the baseline rather than calling again.
+
+- [ ] **The error response sends no HSTS.** Not a preference. The baseline is whatever suits the domains the operator owns, typically a long `max-age` with `includeSubDomains`, and the whole reason a resolver exists is to send something narrower on a domain the operator does not own. Falling back to the baseline on a customer domain would bind it for a year with no way to revoke, which is worse than the 500 that prompted it. `cors`, `csp` and `frameOptions` are safe to fall back on: too strict at worst, and the effect ends with the response.
+
+- [ ] Same handling when a resolver returns something that fails validation, which is a bug in the same place with the same consequences.
 
 - [ ] Decide whether "send nothing" should instead be "send the baseline only when the request's host matches a statically configured domain". More precise, since a resolver throwing on the operator's own domain then keeps working normally, but it needs a notion of which hosts are statically ours that does not exist yet. Start with send-nothing, which is never wrong, and revisit if the logs say resolvers throw often enough on first-party hosts to matter.
 - [ ] Decide whether `resolve` can be async. Tenant lookups usually hit a store, so probably yes, which means it must be awaited before headers are applied in `onRequest`.

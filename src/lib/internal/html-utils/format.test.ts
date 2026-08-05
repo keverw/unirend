@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import * as cheerio from 'cheerio';
 import { prettifyHTML, processTemplate } from './format';
 import type { TemplateSlots } from '../../types';
+import { hashInlineContentForCSP } from '../csp-hash';
 
 // Helper: split output by new lines (trim the trailing \n added by prettifyHTML)
 // and assert that each expected line appears in the output **in the given order**.
@@ -2006,6 +2007,116 @@ describe('processTemplate templateSlots', () => {
       expect(result.html).toContain('<noscript>');
       expect(result.html).toContain('No JS');
       expect(result.html).toContain('widget-mount');
+    }
+  });
+});
+
+describe('template CSP hashes', () => {
+  const template =
+    '<!doctype html><html><head><title>t</title><!--ss-head--></head><body><div id="root"><!--ss-outlet--></div></body></html>';
+
+  it('hashes the inline scripts and styles the template ships with', async () => {
+    const result = await processTemplate(
+      '<!doctype html><html><head><title>t</title><style>body{margin:0}</style><script>window.x=1</script><!--ss-head--></head><body><div id="root"><!--ss-outlet--></div></body></html>',
+      'ssr',
+      false,
+      false,
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.cspHashes.scriptSrc).toHaveLength(1);
+      expect(result.cspHashes.styleSrc).toHaveLength(1);
+      expect(result.cspHashes.scriptSrc[0]).toMatch(/^'sha256-.+'$/);
+    }
+  });
+
+  it('hashes slot content too', async () => {
+    const result = await processTemplate(
+      template,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        headInlineScripts: 'window.fromSlot = true',
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.cspHashes.scriptSrc).toHaveLength(1);
+    }
+  });
+
+  it('hashes what shipped, not what was passed in', async () => {
+    // The whole reason this happens here rather than in the caller. The
+    // pipeline parses and rewrites everything it touches, so a hash taken
+    // from the slot value can differ from a hash of the delivered bytes, and
+    // CSP would then block the script the hash was meant to allow.
+    const source = '  window.fromSlot = true  ';
+    const result = await processTemplate(
+      template,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        headInlineScripts: source,
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      const delivered = /<script>([\s\S]*?)<\/script>/.exec(result.html)?.[1];
+
+      expect(delivered).toBeDefined();
+      expect(result.cspHashes.scriptSrc).toContain(
+        `'${hashInlineContentForCSP(delivered ?? '')}'`,
+      );
+      // And that is not the same as hashing the value handed in.
+      expect(result.cspHashes.scriptSrc).not.toContain(
+        `'${hashInlineContentForCSP(source)}'`,
+      );
+    }
+  });
+
+  it('skips external scripts and non-executable types', async () => {
+    // A src script has no inline content to cover, and a non-JavaScript type is
+    // never executed, so script-src does not govern it.
+    const result = await processTemplate(
+      '<!doctype html><html><head><title>t</title><script src="/a.js"></script><script type="application/ld+json">{"@type":"Thing"}</script><!--ss-head--></head><body><div id="root"><!--ss-outlet--></div></body></html>',
+      'ssr',
+      false,
+      false,
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.cspHashes.scriptSrc).toHaveLength(0);
+    }
+  });
+
+  it('deduplicates identical blocks', async () => {
+    const result = await processTemplate(
+      template,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        headInlineScripts: ['window.same = 1', 'window.same = 1'],
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.cspHashes.scriptSrc).toHaveLength(1);
     }
   });
 });
