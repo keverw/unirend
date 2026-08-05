@@ -37,6 +37,23 @@ Rough shape: a server-level list of URL patterns, exposed to plugins as a boolea
 - [ ] Must not become a way to skip security checks by accident. Domain validation is cheap string matching and should always run; this is aimed at session and database work.
 - [ ] Name it for what it means to the app, not for static content. It has nothing to do with static content, which is the whole point.
 
+### The skip is per plugin, not per request
+
+The important part, and the thing that has to be documented loudly: a pattern match does **not** mean "run no plugins". It means "a plugin may choose to skip itself". Which plugins those are is layered, and getting the layers wrong breaks things in different ways.
+
+Take a multi-tenant SaaS on a multi-app SSR server. Two plugins, and only one of them may skip:
+
+- **Tenant / workspace resolution must always run.** It is what calls `setActiveSSRApp`, and static serving picks its cache from `request.activeSSRApp`. A tenant plugin that skipped itself on `/assets/*` would leave no active app, and the asset would not be served at all. The plugin whose whole job is deciding which app a request belongs to cannot opt out of asset requests, because assets belong to an app too.
+- **Individual user resolution may skip.** Session lookup, permission loading, the per-user database work. A favicon does not have a user, and nothing about serving it depends on knowing who asked.
+
+So the rule is roughly: anything that identifies **which app or tenant** the request is for has to run; anything that identifies **which person** is asking usually does not. Domain validation sits on the must-run side too, though for a different reason, it is cheap string matching and it is a security check.
+
+This is also the strongest argument for publishing the match and never acting on it. Unirend cannot tell a tenant resolver from a session loader, and guessing wrong in the tenant direction breaks asset serving on exactly the multi-app deployments that most need the optimization.
+
+- [ ] Document the two-tier pattern with the SaaS example, since "which app" versus "which user" is the distinction that makes it click
+- [ ] Say plainly that a plugin calling `setActiveSSRApp` must not skip, and consider whether that can be enforced or only documented
+- [ ] Starter template example should show both layers, so the skip lands in the right one
+
 ## A Static Asset 404 Handler
 
 Independent of the above and worth doing on its own merits.
