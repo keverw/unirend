@@ -199,7 +199,12 @@ Keep them separate:
 - A new detect-time signal, meaning "this path matches static content and will be served unless something blocks it." This is what a gating or auth plugin reads to skip expensive work.
 
 - [ ] Name it for what it asserts, not for when it runs. Something like `staticContentMatched` reads correctly at any point; `staticPhase` invites a reader to wonder what the other phases are.
-- [ ] Decide whether it is a boolean or something richer. A boolean covers the known use case (skip session work for assets). A wider request-kind classification would overlap `classifyRequest()`, which already derives `isAPI` and `isPageData`, so unifying those is a separate design question and should not be smuggled in here.
+
+**No phase variable.** A richer "which phase are we in" value was considered and dropped: Fastify's hook identity already carries that. Code running in `onRequest` knows it is before the response, `onSend` knows the response is being written, `onResponse` knows it is over. Encoding the same thing in a request property would duplicate it and invite the two to disagree.
+
+The fact Fastify cannot supply is whether this path matches static content, which is exactly one boolean. That is the whole gap.
+
+- [ ] Keep it a boolean. A wider request-kind classification would overlap `classifyRequest()`, which already derives `isAPI` and `isPageData`. Unifying those is a separate design question and should not be smuggled in here.
 - [ ] Both need documenting in `types.ts` with the distinction stated plainly, since two similar-sounding flags is exactly where someone reaches for the wrong one.
 - [ ] Test that a request blocked by a gating plugin after detect does **not** appear as a static asset in the access log
 
