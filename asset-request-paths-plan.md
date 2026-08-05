@@ -6,6 +6,13 @@ Both come from the same observation, reached from opposite directions while fixi
 
 They are separable but land better together, since anyone reading one will ask about the other.
 
+**Both are opt-in.** An app that configures neither behaves exactly as it does today: every plugin runs for every request, and a missing static file falls through to the full application 404. Nothing here changes a default. That matters for more than politeness, since both features trade a guarantee for a saving, and which trade is acceptable is the app's call:
+
+- Skipping plugin work means some requests are served without state the app normally has. Safe for a favicon, not something to switch on for everyone by default.
+- A dedicated static 404 means a URL that used to render the branded application page stops doing so. Reasonable for `/assets/*`, surprising if an app was relying on the old behavior for a path a user might actually visit.
+
+So neither is a breaking change, and neither needs a migration note. They are two knobs an app turns on once it knows it wants them.
+
 ## Background: what was rejected, and why
 
 An earlier attempt inferred all of this from the static content mappings. Static handling was split into a match phase before user plugins and a serve phase after, with the match setting a `request.staticContentMatched` flag that plugins could read to skip work.
@@ -29,7 +36,7 @@ The mechanism should be **URL patterns declared at the server**, not anything de
 - **Uniform.** Identical behavior on `APIServer`, `SSRServer`, and `StaticWebServer`, because none of them need to know anything the others do not.
 - **Explicit.** The app declares which paths are cheap. The framework does not guess from whether a file happens to be mapped, which was the original mistake.
 
-Rough shape: a server-level list of URL patterns, exposed to plugins as a boolean on the request or a helper they call. `['/favicon.ico', '/robots.txt', '/assets/*']` covers most of it.
+Rough shape: a server-level list of URL patterns, exposed to plugins as a boolean on the request or a helper they call. `['/favicon.ico', '/robots.txt', '/assets/*']` covers most of it. Unset means an empty list, which means every plugin runs for everything, which is today's behavior.
 
 - [ ] Decide the pattern syntax. Prefix and glob probably suffice; check whether an existing matcher in the codebase already covers it rather than adding a third pattern dialect.
 - [ ] Decide the surface: a config list plus a request boolean, or a helper a plugin calls with its own criteria
@@ -62,8 +69,9 @@ Today a mapped-but-missing static path on SSR falls through to the catch-all rou
 
 Direct URL access to an asset is rare but real, an image someone linked to directly or a stale link, so the answer is not a bare status line. Mirror what already exists for the 500 page: a default unirend provides, overridable per app, with an example in the starter templates. Branded enough not to look broken, light enough to cost nothing.
 
-- [ ] Serve a dedicated static 404 for a URL that matched static mappings but resolved to no file, rather than falling through to page rendering
+- [ ] Opt-in. Off by default, so a missing asset keeps falling through to the application 404 exactly as it does today.
+- [ ] When enabled, serve a dedicated static 404 for a URL that matched static mappings but resolved to no file, rather than falling through to page rendering
 - [ ] Default provided by unirend, following `get500ErrorPage`'s shape for consistency
 - [ ] Starter template example, since the whole point is that an app can brand it
 - [ ] Decide the boundary: only paths that matched a static mapping, so an ordinary unknown route still renders the real application 404
-- [ ] Changelog: behavior change. A missing asset stops returning the full app 404 page.
+- [ ] Changelog: a new option, not a behavior change, since the default is unchanged. Say what turning it on costs you as well as what it saves.
