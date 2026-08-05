@@ -78,7 +78,17 @@ This is the same fallback the throw and invalid-result cases already need, so it
 
 ## Commit order
 
-Nesting lands next, before the ordering fix, since the ordering work rewrites the same application path and should only be written once against the final config shape. Then: ordering → throwing callbacks → error pages → CSP. Correctness before surface area.
+Planning is complete. Everything below is specified well enough to implement without further design decisions.
+
+1. **Done** — `99f700b` rename, `afa338b` config nesting
+2. **Proxy trust and HSTS transport.** Delete `getHost()` / `getProtocol()`, remove `trustProxyHeaders`, read `request.host` and `request.protocol`, gate HSTS on secure transport. Fixes three findings at once. No open questions.
+3. **Static content bypass.** Split detect from serve in the two built-in servers, leaving the `staticContent` plugin unchanged. Repro exists at `tmp/static-domain-bypass.test.ts` and moves into `static-web-server.test.ts`. Its own commit and its own changelog entry, since it is an access-control fix rather than a header one. Kept in this branch because the refactor is contained.
+4. **Order-independent application.** Server owns the resolved policy, `onSend` backstop, HSTS skipped on rejected hosts via the request marker.
+5. **Throwing callbacks.** Fail closed rather than 500, cache the decision so the error path does not re-invoke.
+6. **Error pages under CSP.** Anchor instead of inline `onclick`, hash the inline style, export a hashing helper, tell scaffolded repos to update their own copy.
+7. **CSP.** Directive config, presets, `reportOnly`, automatic hashes for slots and error pages, `strict-dynamic` for third-party widgets. Verify the JSON data-block behavior in a real browser before relying on it.
+
+Steps 2 and 3 are independent of each other and of everything after them. Either can land first.
 
 ## Commit 3: order-independent application
 
@@ -164,7 +174,23 @@ The flip side is that `SSRServer` has the performance problem instead: because u
 The detect/serve split fixes both with one change. `StaticWebServer` gains the gating it currently skips, and `SSRServer` gains a way for plugins to bail out early on assets via `request.isStaticAsset`.
 
 - [ ] Apply the split to both servers, not just `StaticWebServer`
-- [ ] User-registered `staticContent(...)` in a plugins array is out of scope. The user controls that order, so putting it ahead of a gating plugin is their choice. Worth a documentation note, not a code change.
+
+**The plugin and the server are different cases, and only the server changes.**
+
+When someone registers `staticContent(...)` in their own plugins array, they have already chosen where it sits. Detect-and-serve in a single hook is correct there, and it should keep behaving exactly as it does today. Nothing about the public plugin changes.
+
+`StaticWebServer` is different because it composes the plugin on the user's behalf and fixes the position for them. That is the case where the phases need to straddle user plugins: detect, then user middleware, then serve.
+
+Same for the SSR server, which also owns the composition.
+
+- [ ] Keep `staticContent()` as-is. No new option, no behavior change, no break for direct users.
+- [ ] Export internal `createStaticContentDetectHook(cache)` and `createStaticContentServeHook(cache)` alongside the existing `createStaticContentHook`, which stays as the combined form the plugin uses
+- [ ] `StaticWebServer` registers detect → user plugins → serve
+- [ ] SSR server does the same, so its plugins can skip assets
+- [ ] Document the distinction. The public plugin serves where you put it; the built-in servers split the phases so gating runs in between. Someone reading only one of the two will otherwise be surprised by the other.
+
+This keeps the refactor contained: two small hook factories, two registration sites, and no change to the plugin API. Small enough to do in this branch.
+
 - [ ] Check `RedirectServer` for the same shape. Its redirect hook is also the only plugin, so a user plugin could never gate it either.
 - [ ] Test: `StaticWebServer` with `domainValidation` rejects a bad host on a request that matches a real file, not only on a 404
 - [ ] Audit any other built-in plugin registered ahead of user plugins for the same bypass
