@@ -148,8 +148,23 @@ That resolves both concerns with one change:
 - [ ] Split `createStaticContentHook` into detect and serve phases
 - [ ] `StaticWebServer` registers detect, then user plugins, then serve
 - [ ] Confirm the detect phase stays free of I/O, or the saving is lost
-- [ ] Document `request.isStaticAsset` as the way to skip expensive middleware for assets, with the favicon-and-DB-session example, since that is the case people will recognize
-- [ ] Check whether the SSR server's static router has the same ordering, since it serves assets too
+- [ ] Document `request.isStaticAsset` as the way to skip expensive middleware for assets, with the favicon-and-DB-session example, since that is the case people will recognize **Checked: the SSR server does not have this bug, and each server has one half of the problem.**
+
+`SSRServer` registers user plugins at `ssr-server.ts:1017` and its static content hook at `ssr-server.ts:1315`, so user plugins run first. The intent is written down at `ssr-server.ts:1147`: "We use onRequest instead of @fastify/middie because we need this to run AFTER user plugin hooks (which can call setActiveSSRApp and run auth)".
+
+So this is not a design disagreement. The convention is stated explicitly in the codebase and `StaticWebServer` is the single place that deviates from it.
+
+The flip side is that `SSRServer` has the performance problem instead: because user plugins run first there, every static asset already pays for whatever auth or session middleware the app registers.
+
+| Server | Ordering | Consequence |
+| --- | --- | --- |
+| `StaticWebServer` | content, then user plugins | gating bypassed for every asset |
+| `SSRServer` | user plugins, then content | assets pay for session and auth work |
+
+The detect/serve split fixes both with one change. `StaticWebServer` gains the gating it currently skips, and `SSRServer` gains a way for plugins to bail out early on assets via `request.isStaticAsset`.
+
+- [ ] Apply the split to both servers, not just `StaticWebServer`
+- [ ] User-registered `staticContent(...)` in a plugins array is out of scope. The user controls that order, so putting it ahead of a gating plugin is their choice. Worth a documentation note, not a code change.
 - [ ] Check `RedirectServer` for the same shape. Its redirect hook is also the only plugin, so a user plugin could never gate it either.
 - [ ] Test: `StaticWebServer` with `domainValidation` rejects a bad host on a request that matches a real file, not only on a 404
 - [ ] Audit any other built-in plugin registered ahead of user plugins for the same bypass
