@@ -32,6 +32,20 @@ export interface UnirendContextData {
     body: Record<string, string>;
   };
   templateMetas: unknown[];
+  /**
+   * React Router's hydration payload, carried as the JSON **text** React Router
+   * itself emitted rather than as a parsed object.
+   *
+   * Two reasons it stays a string. It is what React Router chose to emit, and
+   * `JSON.parse` of one large string is measurably faster than parsing an
+   * equivalent object literal, which is the whole point of the double encoding.
+   * And carrying the exact characters means nothing here re-serializes a payload
+   * this file does not own.
+   *
+   * Absent when the page has no hydration data, or when the emitted script did
+   * not match the shape this can safely take apart.
+   */
+  routerHydration?: string;
 }
 
 /**
@@ -71,7 +85,7 @@ export function serializeContextData(data: UnirendContextData): string {
  */
 export const UNIREND_BOOTSTRAP_SCRIPT = `(function(){var e=document.getElementById(${JSON.stringify(
   UNIREND_DATA_BLOCK_ID,
-)}),d={};if(e&&e.textContent){try{d=JSON.parse(e.textContent)}catch(x){}}globalThis.${DEV_MODE_GLOBAL}=d.isDev===true;if("requestContext" in d){window.__FRONTEND_REQUEST_CONTEXT__=d.requestContext}if("appConfig" in d){window.__PUBLIC_APP_CONFIG__=d.appConfig}window.__CDN_BASE_URL__=typeof d.cdnBaseURL==="string"?d.cdnBaseURL:"";window.__DOMAIN_INFO__=d.domainInfo!==undefined?d.domainInfo:null;window.__UNIREND_TEMPLATE_ATTRS__=d.templateAttrs||{html:{},body:{}};window.${TEMPLATE_METAS_GLOBAL}=d.templateMetas||[]})();`;
+)}),d={};if(e&&e.textContent){try{d=JSON.parse(e.textContent)}catch(x){}}globalThis.${DEV_MODE_GLOBAL}=d.isDev===true;if("requestContext" in d){window.__FRONTEND_REQUEST_CONTEXT__=d.requestContext}if("appConfig" in d){window.__PUBLIC_APP_CONFIG__=d.appConfig}window.__CDN_BASE_URL__=typeof d.cdnBaseURL==="string"?d.cdnBaseURL:"";window.__DOMAIN_INFO__=d.domainInfo!==undefined?d.domainInfo:null;window.__UNIREND_TEMPLATE_ATTRS__=d.templateAttrs||{html:{},body:{}};window.${TEMPLATE_METAS_GLOBAL}=d.templateMetas||[];if(typeof d.routerHydration==="string"){try{window.__staticRouterHydrationData=JSON.parse(d.routerHydration)}catch(x){}}})();`;
 
 /**
  * CSP `script-src` source expression for {@link UNIREND_BOOTSTRAP_SCRIPT}.

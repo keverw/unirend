@@ -498,11 +498,17 @@ The two rendering modes are not in the same position, and an earlier note here f
 
 This is exactly the split SvelteKit landed on (hashes for prerendered, nonces for dynamic), which is worth knowing before reinventing it.
 
-Options for the SSR case, to decide in the CSP commit rather than assume away:
+### Resolved: the payload rides in the same data block (done)
 
-- [ ] Give the hydration script the same data-block treatment: move the payload into the JSON block the bootstrap already reads, and assign `window.__staticRouterHydrationData` from there. Attractive because the mechanism already exists and the result stays nonce-free. Needs checking against what React Router actually guarantees about that global's timing, and against the existing comment warning that its serializer output must not be re-serialized. Note the payload is already `JSON.parse` of a string literal, so it is data, not code, which is what makes this plausible at all.
-- [ ] Opt-in nonce mode covering just this script, with the rest of the pipeline staying hash-only. Works, but it reintroduces the per-request coupling for everyone doing SSR.
-- [ ] Emit hashes for SSG and require a nonce only for SSR. Matches the prior art, at the cost of two behaviors to document.
+The hydration payload now travels as `routerHydration` in the existing JSON block, and the existing bootstrap assigns `window.__staticRouterHydrationData` from it. No second block, no second script, still one hash for the whole pipeline.
+
+**What made it legal.** The `Do not use $body.html(el)` comment is about cheerio rewriting the bytes, not about where the element sits, and being outside the root is what already makes relocation hydration-safe. Carrying the string verbatim is not re-serializing it. Confirmed against real output: the argument is a JSON string token, so `JSON.stringify(JSON.parse(literal)) === literal` holds exactly, and the characters React Router encoded are the characters the client parses.
+
+**Rejected: hash it per request and put the hash in the header.** It does work for SSR, and a per-response hash is as sound as a nonce. It breaks on the other half. SSG pages are served as hijacked static files that bypass `onSend`, so every prerendered page would need its hash precomputed at build and stored in per-file metadata that does not exist. Two mechanisms instead of one, and a CSP header that can never be set uniformly upstream. Not worth it when the payload can simply stop being executable.
+
+- [x] Extraction refuses anything it does not recognize and emits the script verbatim instead. React Router owns that output and may change it: declining costs only the hash, guessing wrong breaks hydration.
+- [x] Bootstrap wraps the parse so a malformed payload cannot take down the assignments that already happened above it.
+- [x] Verified on a real SSR page that the only executable inline scripts left are the bootstrap and the app template's own theme script. The latter is static per app and is the template-slot hashing case below.
 
 Do not ship a CSP that quietly needs `'unsafe-inline'` in `script-src` to make the framework's own markup work. That is the SvelteKit trap recorded under prior art, and it makes the feature worse than not having it, since it looks like protection and is not.
 

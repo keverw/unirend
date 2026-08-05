@@ -361,6 +361,61 @@ describe('injectContent', () => {
     );
   });
 
+  describe('React Router hydration payload', () => {
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><div id="root"><!--ss-outlet--></div></body></html>';
+
+    it('carries the payload in the data block rather than an executable script', async () => {
+      // The reason this matters: the payload changes on every SSR response, so
+      // as executable JavaScript no CSP hash can ever cover it and only a nonce
+      // would do — which prerendered output cannot have, there being no request
+      // to mint one for. In the data block it is not executable at all.
+      const payload = '{"loaderData":{"root":{"id":7}},"errors":null}';
+      const bodyContent = `<div><script>window.__staticRouterHydrationData = JSON.parse(${JSON.stringify(
+        payload,
+      )});</script></div>`;
+
+      const result = await injectContent(template, '', bodyContent);
+
+      expect(dataBlockPayload(result).routerHydration).toBe(payload);
+      expect(result).not.toContain('JSON.parse("{\\"loaderData');
+    });
+
+    it('carries the payload characters exactly as React Router encoded them', async () => {
+      // Nothing here re-encodes a payload this code does not own. The string
+      // that goes out is the one that came in.
+      const payload = '{"loaderData":{"note":"a \\"quoted\\" <tag>"}}';
+      const bodyContent = `<div><script>window.__staticRouterHydrationData = JSON.parse(${JSON.stringify(
+        payload,
+      )});</script></div>`;
+
+      const result = await injectContent(template, '', bodyContent);
+
+      expect(dataBlockPayload(result).routerHydration).toBe(payload);
+      // And the < inside it is still escaped out of the element.
+      expect(result).not.toContain('<tag>');
+    });
+
+    it('omits the key when the page has no hydration script', async () => {
+      const result = await injectContent(template, '', '<div>plain</div>');
+
+      expect(dataBlockPayload(result)).not.toHaveProperty('routerHydration');
+    });
+
+    it('emits an unrecognized hydration script verbatim instead of guessing', async () => {
+      // React Router owns that output and may change it. Declining to take
+      // apart a shape we do not recognize costs only the CSP hash; guessing
+      // wrong would break hydration.
+      const odd =
+        '<script>window.__staticRouterHydrationData = someOtherThing();</script>';
+
+      const result = await injectContent(template, '', `<div>${odd}</div>`);
+
+      expect(dataBlockPayload(result)).not.toHaveProperty('routerHydration');
+      expect(result).toContain(odd);
+    });
+  });
+
   it('should preserve React hydration markers while moving router hydration data', async () => {
     const template =
       '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><div id="root"><!--ss-outlet--></div></body></html>';
@@ -461,11 +516,14 @@ describe('injectContent', () => {
         result.indexOf('</body>'),
       );
 
-      // The script is NOT moved to the head, and remains in the body
-      expect(headContentResult).not.toContain(
-        'window.__staticRouterHydrationData',
-      );
+      // The script is NOT touched, and remains in the body untouched.
       expect(bodyContentResult).toContain(hydrationScript);
+
+      // Nothing was lifted into the data block either. Asserting on the payload
+      // rather than on the global's name, since the bootstrap in the head names
+      // it unconditionally.
+      expect(dataBlockPayload(result)).not.toHaveProperty('routerHydration');
+      expect(headContentResult).not.toContain(hydrationScript);
     } finally {
       loadSpy.mockRestore();
     }

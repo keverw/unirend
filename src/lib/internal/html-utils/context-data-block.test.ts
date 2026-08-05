@@ -191,6 +191,37 @@ describe('the bootstrap script', () => {
     ]);
   });
 
+  it('parses the router hydration payload into the global React Router reads', () => {
+    const assigned = runBootstrap(
+      serializeContextData({
+        ...BASE,
+        routerHydration: '{"loaderData":{"root":{"id":7}},"errors":null}',
+      }),
+    );
+
+    expect(assigned.__staticRouterHydrationData).toEqual({
+      loaderData: { root: { id: 7 } },
+      errors: null,
+    });
+  });
+
+  it('leaves the hydration global unset when there is no payload', () => {
+    const assigned = runBootstrap(serializeContextData(BASE));
+
+    expect(assigned).not.toHaveProperty('__staticRouterHydrationData');
+  });
+
+  it('survives a hydration payload that is not valid JSON', () => {
+    // Everything before it is already assigned by this point, so a bad payload
+    // must not take the rest of the page down with it.
+    const assigned = runBootstrap(
+      serializeContextData({ ...BASE, routerHydration: '{ not json' }),
+    );
+
+    expect(assigned).not.toHaveProperty('__staticRouterHydrationData');
+    expect(assigned.__CDN_BASE_URL__).toBe('');
+  });
+
   it('decodes escaped < back to the original character', () => {
     const assigned = runBootstrap(
       serializeContextData({ ...BASE, appConfig: { note: '<b>hi</b>' } }),

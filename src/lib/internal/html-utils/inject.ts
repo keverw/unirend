@@ -11,6 +11,53 @@ import {
 } from './escape';
 import { getMetaKeys } from './meta-key';
 
+/**
+ * React Router's hydration script, as it emits it:
+ *
+ * ```html
+ * <script>window.__staticRouterHydrationData = JSON.parse("{\"loaderData\":…}");</script>
+ * ```
+ *
+ * The argument is a JSON string token whose contents are themselves JSON. That
+ * double encoding is deliberate on React Router's part, since parsing one large
+ * string beats parsing an equivalent object literal.
+ *
+ * Matching the whole element rather than just the call keeps this from firing on
+ * anything else that happens to mention the global.
+ */
+const ROUTER_HYDRATION_SCRIPT =
+  /^<script(?:\s[^>]*)?>\s*window\.__staticRouterHydrationData\s*=\s*JSON\.parse\(\s*("(?:[^"\\]|\\.)*")\s*\)\s*;?\s*<\/script>$/;
+
+/**
+ * Pull the hydration payload out of React Router's assignment script.
+ *
+ * Returns the inner JSON **text**, character for character as React Router
+ * encoded it, so it can be handed to the client to `JSON.parse` exactly as the
+ * original script would have. Nothing here re-encodes the payload.
+ *
+ * Returns `null` when the script is not the expected shape, which is the signal
+ * to leave it alone and emit it verbatim. React Router owns that output and may
+ * change it; guessing at a shape we do not recognize would break hydration,
+ * where declining costs only the ability to cover it with a CSP hash.
+ */
+function extractRouterHydrationPayload(script: string): string | null {
+  const match = ROUTER_HYDRATION_SCRIPT.exec(script.trim());
+
+  if (!match) {
+    return null;
+  }
+
+  try {
+    // The captured group is a JSON string token, so parsing it yields the inner
+    // JSON text. A non-string result means the shape is not what it looked like.
+    const payload: unknown = JSON.parse(match[1]);
+
+    return typeof payload === 'string' ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
 // Prettify all head tags: each tag (<title>, <meta>, <link>, etc.) on its own line, indented
 export function prettifyHeadTags(head: string, indent = TAB_SPACES): string {
   // Use a non-capturing group so tag names are not included in the split output
@@ -379,6 +426,12 @@ export async function injectContent(
   const routerHydrationScripts: string[] = [];
   const removalRanges: Array<{ start: number; end: number }> = [];
 
+  // The hydration payload, lifted out of React Router's assignment script so it
+  // can ride in the JSON data block with everything else. Left undefined when
+  // there is no hydration script, or when one was found in a shape this cannot
+  // safely take apart.
+  let routerHydration: string | undefined;
+
   $body('script').each((_, el) => {
     if (($body(el).html() ?? '').includes('__staticRouterHydrationData')) {
       const location = (
@@ -391,11 +444,24 @@ export async function injectContent(
         return;
       }
 
-      // Keep the script exactly as React Router emitted it. Do not use
-      // $body.html(el), because serializer output is not hydration-safe.
-      routerHydrationScripts.push(
-        bodyContent.slice(location.startOffset, location.endOffset),
+      // Read the raw source rather than $body.html(el): cheerio's serializer
+      // output is not hydration-safe, and re-serializing a payload this file
+      // does not own is exactly the thing to avoid.
+      const rawScript = bodyContent.slice(
+        location.startOffset,
+        location.endOffset,
       );
+
+      const payload = extractRouterHydrationPayload(rawScript);
+
+      if (payload === null) {
+        // Unrecognized shape, so leave it alone and emit it verbatim as before.
+        // Better a script that CSP has to be told about than a hydration
+        // payload mangled by a guess at what React Router meant.
+        routerHydrationScripts.push(rawScript);
+      } else {
+        routerHydration = payload;
+      }
 
       removalRanges.push({
         start: location.startOffset,
@@ -476,6 +542,10 @@ export async function injectContent(
     // cannot describe it, and without this there would be nothing to restore
     // when the user navigates to a page that does not override them.
     templateMetas,
+    // React Router's hydration payload, when it was in a shape we could lift
+    // out of its assignment script. Undefined otherwise, and the script is
+    // emitted verbatim below instead.
+    routerHydration,
   };
 
   // Build context scripts array
