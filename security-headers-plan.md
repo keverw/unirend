@@ -122,7 +122,34 @@ The `onSend` backstop does not help here. The file is still served to an unautho
 
 The codebase already knows this pattern matters: `ssr-server.ts:1020` registers file-upload hooks _after_ user plugins, commented "This ensures user plugin hooks (auth, etc.) run before upload validation." `StaticWebServer` does the opposite.
 
-- [ ] Register user plugins before `staticContent` in `StaticWebServer`
+**Confirmed by reproduction**, not just by reading the code. A `StaticWebServer` with `domainValidation({ validProductionDomains: ['allowed.example.com'] })`, requested with `Host: evil.example.com`:
+
+| Request                              | Result                       |
+| ------------------------------------ | ---------------------------- |
+| `/` (matches a file in the page map) | **200, file content served** |
+| `/no-such-page` (no matching file)   | 403 rejected                 |
+
+So the plugin gates only what the static server does not handle. The repro lives in `tmp/static-domain-bypass.test.ts` (gitignored) and should move into `static-web-server.test.ts` when the fix lands.
+
+**Do not fix it by simply moving user plugins first.** That would make every static asset pay for whatever auth or session middleware the app registers, and a favicon has no business touching a database session.
+
+Split the static hook into two phases instead:
+
+1. **Detect**, registered _before_ user plugins. Page-map lookup only, in memory, no I/O. Sets `request.isStaticAsset`.
+2. **Serve**, registered _after_ user plugins. Opens and streams the file.
+
+That resolves both concerns with one change:
+
+- A gating plugin runs between the phases and can reject before anything is served, closing the bypass
+- An expensive plugin checks `request.isStaticAsset` at the top of its hook and returns early, so static assets skip session and auth work entirely
+
+`request.isStaticAsset` already exists (`types.ts:2872`), defaults to `false` (`api-server.ts:322`, `ssr-server.ts:809`), is already consumed by the access log (`access-log-plugin.ts:166`) and by the scaffolded theme plugin (`ssr-theme-plugin.ts:46`). Today it is set only when static content takes ownership of the response (`static-content-cache.ts:829`), which is too late for any plugin to act on. Phase one moves that signal early enough to be useful.
+
+- [ ] Split `createStaticContentHook` into detect and serve phases
+- [ ] `StaticWebServer` registers detect, then user plugins, then serve
+- [ ] Confirm the detect phase stays free of I/O, or the saving is lost
+- [ ] Document `request.isStaticAsset` as the way to skip expensive middleware for assets, with the favicon-and-DB-session example, since that is the case people will recognize
+- [ ] Check whether the SSR server's static router has the same ordering, since it serves assets too
 - [ ] Check `RedirectServer` for the same shape. Its redirect hook is also the only plugin, so a user plugin could never gate it either.
 - [ ] Test: `StaticWebServer` with `domainValidation` rejects a bad host on a request that matches a real file, not only on a 404
 - [ ] Audit any other built-in plugin registered ahead of user plugins for the same bypass
