@@ -110,11 +110,25 @@ Fill-if-absent, not overwrite, so a handler that deliberately set its own CSP on
 Harmless in the sense that browsers ignore it, but it is wrong, it shows up in security scans, and it is trivially avoidable.
 
 - [ ] Only emit HSTS when the request arrived over a secure transport
-- [ ] `domainValidation` already solves the proxy-aware half of this in `getProtocol()` (`domain-validation.ts:157`), honoring `x-forwarded-proto` only when `trustProxyHeaders` is set. Extract that into a shared internal helper rather than writing a second copy that can drift from the first.
-- [ ] `securityHeaders` needs its own `trustProxyHeaders` option to use it, since the two plugins are configured independently
+
+**Do not extract a shared `getProtocol()` helper.** An earlier draft of this plan said to. The better answer is that the decision is already made once, by Fastify, and both plugins should just read it.
+
+The server already forwards `fastifyOptions.trustProxy` to Fastify (`api-server.ts:237`, `ssr-server.ts:681`). With it set, Fastify resolves `request.protocol` and `request.hostname` from the forwarded headers itself, which is exactly what `domainValidation.getProtocol()` reimplements. Its own comment at `domain-validation.ts:174` concedes the point.
+
+The two are not equivalent, and the plugin-level one is weaker:
+
+- `fastifyOptions.trustProxy` accepts `boolean | string | string[] | number | function` (`types.ts:749`), so it can trust specific IPs, subnets, or a hop count, and validates the peer before believing a forwarded header.
+- `domainValidation.trustProxyHeaders` is a bare boolean that reads `x-forwarded-proto` and `x-forwarded-host` with no peer validation at all.
+
+That gap is exploitable when the app is reachable directly rather than only through the proxy. Any client can then send `x-forwarded-host` and `x-forwarded-proto` and walk straight past domain validation, since `getHost()` prefers the forwarded value. The blunt boolean is doing real work here and it is the wrong tool.
+
+- [ ] `securityHeaders` reads `request.protocol` and needs no proxy option of its own
+- [ ] Remove `domainValidation.trustProxyHeaders` in favor of `fastifyOptions.trustProxy`, so proxy trust is configured once, in one place, with peer validation. Pre-release, so removal beats deprecation.
+- [ ] Changelog: this is a second breaking change and a security fix. Say plainly that a repo setting `trustProxyHeaders: true` must move to `fastifyOptions.trustProxy`, and that the new setting should name the proxy rather than being a bare `true` wherever the origin is directly reachable.
 - [ ] Test: `hsts` configured, request over HTTP, header absent
-- [ ] Test: `hsts` configured, HTTP request with `x-forwarded-proto: https` and `trustProxyHeaders: true`, header present
-- [ ] Test: same but with `trustProxyHeaders` unset, header absent, since an untrusted header must not be able to turn HSTS on
+- [ ] Test: `hsts` configured, HTTP request behind a trusted proxy sending `x-forwarded-proto: https`, header present
+- [ ] Test: same forwarded header with no `trustProxy` configured, header absent, since an untrusted header must not be able to turn HSTS on
+- [ ] Test: the same untrusted-header case against `domainValidation`, confirming a forged `x-forwarded-host` no longer passes domain validation
 
 ## Commit 4: throwing callbacks
 
