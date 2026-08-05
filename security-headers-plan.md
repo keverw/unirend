@@ -82,7 +82,7 @@ Planning is complete. Everything below is specified well enough to implement wit
 
 1. **Done** — `99f700b` rename, `afa338b` config nesting
 2. **Done** — proxy trust and HSTS transport. `getHost()` / `getProtocol()` and `trustProxyHeaders` deleted, both plugins read Fastify's resolved `request.host` / `request.protocol`, HSTS gated on secure transport. See the notes below for what turned up while doing it.
-3. **Static content bypass.** Split detect from serve in the two built-in servers, leaving the `staticContent` plugin unchanged. Repro exists at `tmp/static-domain-bypass.test.ts` and moves into `static-web-server.test.ts`. Its own commit and its own changelog entry, since it is an access-control fix rather than a header one. Kept in this branch because the refactor is contained.
+3. **Done** — static content bypass. `StaticWebServer` registers static serving after user plugins rather than before, matching the SSR server. No new API. A richer detect/serve split was built and rejected; two follow-up branches came out of that. See below.
 4. **Order-independent application.** Server owns the resolved policy, `onSend` backstop, HSTS skipped on rejected hosts via the request marker.
 5. **Throwing callbacks.** Fail closed rather than 500, cache the decision so the error path does not re-invoke.
 6. **Error pages under CSP.** Anchor instead of inline `onclick`, hash the inline style, export a hashing helper, tell scaffolded repos to update their own copy.
@@ -96,11 +96,41 @@ Steps 3 onward are independent of what has landed so far.
 
 Confirms the earlier note that `request.hostname` and `request.port` replace the `parseHostHeader()` split. The plugin still calls `parseHostHeader(request.host)` rather than reading the two separately, because that function also rejects a malformed host, which is what drives the existing 400 path.
 
-**Bun does not honor an async hook short-circuit, and Node does.** An `async` `onRequest` hook that calls `reply.send()` stops the hook chain on Node exactly as Fastify documents. Under Bun the route handler runs anyway and the second send throws `ERR_HTTP_HEADERS_SENT`. Verified with the same script under both runtimes, with and without `return reply`.
+**Async hook short-circuit breaks under `inject()` on Bun, and only there.** Corrects an earlier reading of this that blamed Bun as a runtime.
 
-Node is the runtime target, so this is not a product bug, but it constrains testing: any test that drives `domainValidation` through a real Fastify instance and expects a 403 or a redirect will fail under `bun test` for reasons that have nothing to do with the plugin. The proxy-trust tests work around it by allowing every domain and recording what the plugin was handed, which measures the resolution without ever short-circuiting. Worth remembering for step 3 and step 4, both of which want end-to-end coverage of short-circuiting paths.
+Fastify decides whether a hook ended the request by reading `reply.sent`, which is defined as `this[kReplyHijacked] || this.raw.writableEnded` (`fastify/lib/reply.js:101-107`). Under `app.inject()` on Bun, `writableEnded` is still `false` immediately after `reply.send()` returns, so the chain continues into the route handler and the second send throws `ERR_HTTP_HEADERS_SENT`. On Node it is `true` and the chain stops.
 
-- [ ] Decide how to cover short-circuit paths end to end. Options are a Node-run test script outside `bun test`, or keeping those assertions at the mock level.
+`inject()` uses `light-my-request`, whose `Response` subclasses `http.ServerResponse`, so the gap is in that interaction rather than in Bun's HTTP server. **Against a real listening server, Bun behaves correctly**: `writableEnded` is `true`, the route handler does not run, and the 403 is served. Verified with the same script four ways (Node and Bun, `inject()` and a real socket).
+
+So Bun is fine to run on, and the constraint is narrow: **do not use `app.inject()` to test a short-circuiting hook.** Bind a port and make a real request instead, which is what `static-web-server.test.ts` already does and why its 403 assertions pass under `bun test`. The proxy-trust tests in `domain-validation.test.ts` avoid short-circuiting altogether by allowing every domain and recording what the plugin was handed, which is the right shape for those regardless.
+
+- [ ] Worth reporting upstream to `light-my-request` or Bun. Minimal repro: an `async` `onRequest` hook that calls `reply.send()`, driven by `app.inject()`, with `reply.sent` logged right after.
+
+### Rejected: a detect/serve split with a `request.staticContentMatched` flag
+
+Worth recording, because it was built twice and thrown away twice, and the reasoning is not obvious from the code that survived.
+
+The idea was to split static handling into a match phase before user plugins and a serve phase after them. Matching would set `request.staticContentMatched`, so a gating plugin could reject early **and** an expensive plugin could bail out on assets. Two problems with one change.
+
+It was dropped for three reasons that compound.
+
+**The flag is what the split was for.** Serving after user plugins is what fixes the gating bug, on its own. Take the flag away and the match phase does nothing at all. So the split is not "the fix plus a bonus", it is the fix plus a feature that costs a public request property.
+
+**It could not be uniform.** On SSR the cache that serves is chosen by `request.activeSSRApp`, which a user plugin sets. A unanimity rule ("mark it only when every app's mappings resolve the URL") makes that safe and does work, but the value is thin: assets sit behind a CDN in any real deployment, so what is left is a favicon. A request property that exists on one server type and not another is a smell that outlives whatever it bought.
+
+**Matching is mappings, not existence.** Deliberately, since checking existence is the I/O the early phase exists to avoid. So a mapped-but-missing file is marked and then not served: deleted between deploys, never built, or `updateConfig()` changing mappings between phases. On `StaticWebServer` the fall-through is a static 404 and costs nothing. On SSR it renders a page, without whatever the plugin skipped, and a 404 page can legitimately carry user-specific chrome.
+
+What shipped instead is the one-line version: `StaticWebServer` registers static serving after `options.plugins` rather than before. Same order the SSR server has always used, no new API, no server-specific behavior.
+
+- [x] Both servers now behave identically: user plugins, then static serving
+- [x] `staticContent()` plugin untouched, `StaticContentCache` gains no new public method
+- [ ] Accepted cost: a static asset request runs the app's plugin chain. Uniform across server types, and addressed properly by the skip-list below rather than by inference.
+
+### Follow-up work, moved out of this file
+
+Two related pieces came out of the rejected split, and both belong on their own branch together: URL patterns that plugins may skip, and a dedicated static asset 404. They are planned out in [asset-request-paths-plan.md](asset-request-paths-plan.md), which is deliberately a separate file so it survives this one being deleted at merge.
+
+`RedirectServer` was checked and needs nothing. Its options carry no `plugins` array at all, so its redirect hook is the only plugin and there is no user hook to bypass.
 
 ## Commit 3: order-independent application
 
@@ -136,13 +166,13 @@ Fill-if-absent, not overwrite, so a handler that deliberately set its own CSP on
 
 Found while checking how `domainValidation` and the built-in static server interact. This one is an access-control bypass, not a missing header.
 
-`staticContent` registers an `onRequest` hook (`static-content.ts:183`) that hijacks and writes a matched file directly. `StaticWebServer` builds its plugin array as `[staticContent(...), ...options.plugins]` (`static-web-server.ts:398`), so the static hook is registered first and runs first.
+`staticContent` registers an `onRequest` hook (`static-content.ts:183`) that hijacks and writes a matched file directly. `StaticWebServer` built its plugin array as `[staticContent(...), ...options.plugins]` (`static-web-server.ts:398`), so the static hook was registered first and ran first.
 
-Consequence: a `domainValidation` passed via `options.plugins` never runs for any request that matches a file, which on a static server is nearly all real traffic. Domain validation, canonical redirects, and HTTPS enforcement are all bypassed for the content itself. Only non-matching paths fall through. The same applies to any user auth or gating plugin.
+Consequence: a `domainValidation` passed via `options.plugins` never ran for any request that matched a file, which on a static server is nearly all real traffic. Domain validation, canonical redirects, and HTTPS enforcement were all bypassed for the content itself. Only non-matching paths fell through. The same applied to any user auth or gating plugin.
 
 The `onSend` backstop does not help here. The file is still served to an unauthorized host, just with correct headers on it.
 
-The codebase already knows this pattern matters: `ssr-server.ts:1020` registers file-upload hooks _after_ user plugins, commented "This ensures user plugin hooks (auth, etc.) run before upload validation." `StaticWebServer` does the opposite.
+The codebase already knew this pattern mattered: `ssr-server.ts:1020` registers file-upload hooks _after_ user plugins, commented "This ensures user plugin hooks (auth, etc.) run before upload validation." `StaticWebServer` did the opposite.
 
 **Confirmed by reproduction**, not just by reading the code. A `StaticWebServer` with `domainValidation({ validProductionDomains: ['allowed.example.com'] })`, requested with `Host: evil.example.com`:
 
@@ -151,83 +181,34 @@ The codebase already knows this pattern matters: `ssr-server.ts:1020` registers 
 | `/` (matches a file in the page map) | **200, file content served** |
 | `/no-such-page` (no matching file)   | 403 rejected                 |
 
-So the plugin gates only what the static server does not handle. The repro lives in `tmp/static-domain-bypass.test.ts` (gitignored) and should move into `static-web-server.test.ts` when the fix lands.
+So the plugin gated only what the static server did not handle. That reproduction now lives in `static-web-server.test.ts`.
 
-**Do not fix it by simply moving user plugins first.** That would make every static asset pay for whatever auth or session middleware the app registers, and a favicon has no business touching a database session.
+**Fix: register static serving after `options.plugins` instead of before.** Hooks run in registration order, so that is the whole change. It is also the order `SSRServer` has always used (`ssr-server.ts:1147` states the intent explicitly), so this brings the one deviating server in line rather than inventing a convention.
 
-Split the static hook into two phases instead:
+- [x] `StaticWebServer` plugin array becomes `[...options.plugins, staticContent(cache)]`
+- [x] `staticContent()` plugin unchanged. Where it sits is already the caller's choice.
+- [x] Test: `StaticWebServer` with `domainValidation` rejects a bad host on a request that matches a real file, not only on a 404
+- [x] Test: an allowed host still gets the file
+- [x] Test: a blocked request is not logged as a served static asset
+- [x] `RedirectServer` checked, no user plugins to bypass
+- [x] Audited every other built-in registration ahead of user plugins, no second offender (see below)
+- [x] Changelog: an access-control bypass, so its own entry rather than folding into the headers work
 
-1. **Detect**, registered _before_ user plugins. Page-map lookup only, in memory, no I/O. Sets `request.isStaticAsset`.
-2. **Serve**, registered _after_ user plugins. Opens and streams the file.
+Accepted cost, stated in the changelog: a static asset request now runs the app's plugin chain. That is what SSR has always done, so both servers behave the same, and the skip-list follow-up below addresses it for every server type at once rather than only for this one.
 
-That resolves both concerns with one change:
+#### Audit: is anything else registered ahead of user plugins?
 
-- A gating plugin runs between the phases and can reject before anything is served, closing the bypass
-- An expensive plugin checks `request.isStaticAsset` at the top of its hook and returns early, so static assets skip session and auth work entirely
+Checked all four servers. `StaticWebServer` was the only offender.
 
-`request.isStaticAsset` already exists (`types.ts:2872`), defaults to `false` (`api-server.ts:322`, `ssr-server.ts:809`), is already consumed by the access log (`access-log-plugin.ts:166`) and by the scaffolded theme plugin (`ssr-theme-plugin.ts:46`). Today it is set only when static content takes ownership of the response (`static-content-cache.ts:829`), which is too late for any plugin to act on. Phase one moves that signal early enough to be useful.
+Everything `APIServer` installs before `registerPlugins()` (`api-server.ts:389`) either parses a body, decorates the request, or logs: `formbody`, the context-init `onRequest` hook, `registerRequestIDDecoration`, `registerConnectionIPDecoration`, `registerClientInfoResolution`, the access log, and the `reply.hijack()` patch. None of them can end a request. `SSRServer` has the same set at `ssr-server.ts:885-929` and nothing else before `registerPlugins()` at 1017.
 
-- [ ] Split `createStaticContentHook` into detect and serve phases
-- [ ] `StaticWebServer` registers detect, then user plugins, then serve
-- [ ] Confirm the detect phase stays free of I/O, or the saving is lost
-- [ ] Document `request.isStaticAsset` as the way to skip expensive middleware for assets, with the favicon-and-DB-session example, since that is the case people will recognize **Checked: the SSR server does not have this bug, and each server has one half of the problem.**
+Exactly one pre-plugin hook does short-circuit: `registerClosingResponseHook` (`server-utils.ts:513`), which answers 503 while the server is shutting down. That is correct where it is. It serves no content, and gating a shutdown response behind an app plugin would only give a stopping server more work to do.
 
-`SSRServer` registers user plugins at `ssr-server.ts:1017` and its static content hook at `ssr-server.ts:1315`, so user plugins run first. The intent is written down at `ssr-server.ts:1147`: "We use onRequest instead of @fastify/middie because we need this to run AFTER user plugin hooks (which can call setActiveSSRApp and run auth)".
+Routes were checked too, since a Fastify hook only applies to routes registered after it. Every built-in route comes after user plugins: page-data and API routes at `api-server.ts:422` and `431`, WebSocket routes at `443` and `ssr-server.ts:1072`, the SSR catch-all at `ssr-server.ts:1329`. File-upload hooks are explicitly registered after user plugins with a comment saying why. So a user plugin's `onRequest` hook reaches all of them, WebSocket upgrades included.
 
-So this is not a design disagreement. The convention is stated explicitly in the codebase and `StaticWebServer` is the single place that deviates from it.
+`RedirectServer` accepts no `plugins` option at all, so its redirect hook is the only one and there is nothing to bypass.
 
-The flip side is that `SSRServer` has the performance problem instead: because user plugins run first there, every static asset already pays for whatever auth or session middleware the app registers.
-
-| Server | Ordering | Consequence |
-| --- | --- | --- |
-| `StaticWebServer` | content, then user plugins | gating bypassed for every asset |
-| `SSRServer` | user plugins, then content | assets pay for session and auth work |
-
-The detect/serve split fixes both with one change. `StaticWebServer` gains the gating it currently skips, and `SSRServer` gains a way for plugins to bail out early on assets via `request.isStaticAsset`.
-
-- [ ] Apply the split to both servers, not just `StaticWebServer`
-
-**The plugin and the server are different cases, and only the server changes.**
-
-When someone registers `staticContent(...)` in their own plugins array, they have already chosen where it sits. Detect-and-serve in a single hook is correct there, and it should keep behaving exactly as it does today. Nothing about the public plugin changes.
-
-`StaticWebServer` is different because it composes the plugin on the user's behalf and fixes the position for them. That is the case where the phases need to straddle user plugins: detect, then user middleware, then serve.
-
-Same for the SSR server, which also owns the composition.
-
-- [ ] Keep `staticContent()` as-is. No new option, no behavior change, no break for direct users.
-- [ ] Export internal `createStaticContentDetectHook(cache)` and `createStaticContentServeHook(cache)` alongside the existing `createStaticContentHook`, which stays as the combined form the plugin uses
-- [ ] `StaticWebServer` registers detect → user plugins → serve
-- [ ] SSR server does the same, so its plugins can skip assets
-- [ ] Document the distinction. The public plugin serves where you put it; the built-in servers split the phases so gating runs in between. Someone reading only one of the two will otherwise be surprised by the other.
-
-**Do not overload `isStaticAsset`. Add a second signal.**
-
-Today `isStaticAsset` means "static content took ownership of this response" (`static-content-cache.ts:829`), which is what the access log records (`access-log-plugin.ts:166`). Setting it at detect time instead would quietly change that meaning: a request that detect matched but a gating plugin then blocked would log as a static asset despite never being served. That is a silent semantic change to an existing consumed flag, and access-log output would start lying.
-
-Keep them separate:
-
-- `request.isStaticAsset` — unchanged. Set at serve time, means "static content served this." Access log and `onResponse` consumers keep working exactly as they do.
-- A new detect-time signal, meaning "this path matches static content and will be served unless something blocks it." This is what a gating or auth plugin reads to skip expensive work.
-
-- [ ] Name it for what it asserts, not for when it runs. Something like `staticContentMatched` reads correctly at any point; `staticPhase` invites a reader to wonder what the other phases are.
-
-**No phase variable.** A richer "which phase are we in" value was considered and dropped: Fastify's hook identity already carries that. Code running in `onRequest` knows it is before the response, `onSend` knows the response is being written, `onResponse` knows it is over. Encoding the same thing in a request property would duplicate it and invite the two to disagree.
-
-The fact Fastify cannot supply is whether this path matches static content, which is exactly one boolean. That is the whole gap.
-
-- [ ] Keep it a boolean. A wider request-kind classification would overlap `classifyRequest()`, which already derives `isAPI` and `isPageData`. Unifying those is a separate design question and should not be smuggled in here.
-- [ ] Both need documenting in `types.ts` with the distinction stated plainly, since two similar-sounding flags is exactly where someone reaches for the wrong one.
-- [ ] Test that a request blocked by a gating plugin after detect does **not** appear as a static asset in the access log
-
-This keeps the refactor contained: two small hook factories, two registration sites, and no change to the plugin API. Small enough to do in this branch.
-
-- [ ] Check `RedirectServer` for the same shape. Its redirect hook is also the only plugin, so a user plugin could never gate it either.
-- [ ] Test: `StaticWebServer` with `domainValidation` rejects a bad host on a request that matches a real file, not only on a 404
-- [ ] Audit any other built-in plugin registered ahead of user plugins for the same bypass
-- [ ] Changelog: an access-control bypass, so it needs its own entry rather than folding into the headers work
-
-Scope note: this is a different bug from the header work and arguably belongs on its own branch. It is small and closely related, so folding it in is defensible, but it should be its own commit and its own changelog entry either way.
+Scope note: this is a different bug from the header work and arguably belongs on its own branch. It is small and closely related, so folding it in is defensible, but it is its own commit and its own changelog entry either way.
 
 ### Do not send HSTS on a rejected domain
 

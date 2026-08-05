@@ -489,6 +489,9 @@ Static file serving uses `reply.hijack()` internally, which bypasses Fastify's `
 
 - For the `staticContent` plugin, hooks registered before the plugin run first. Hooks registered after it may not run for matching static assets because `staticContent` can hijack the response. Register plugins that need to read cookies, seed `requestContext`, or gate static asset access before `staticContent`.
 - For the SSR server's built-in `staticContentRouter`, app plugins are registered first, so app plugin `onRequest` hooks run before built-in `/assets` serving.
+- `StaticWebServer` composes `staticContent` on your behalf and registers it after the plugins you pass in `options.plugins`, so your gating and auth hooks run before any file is served. Same order as the SSR server.
+
+The cost of that order is that a static asset request runs your plugin chain like any other request. If a plugin does something expensive, such as opening a database session, guard it on whatever your app already knows about the request rather than doing that work for every `.js` and `.css` file.
 
 **`onSend` is never called for static asset responses** because `reply.hijack()` skips the hook pipeline. If you use `onSend` to set or renew a cookie, it will naturally not fire for `.js`, `.css`, image, and other static file responses. This is almost always the correct behavior:
 

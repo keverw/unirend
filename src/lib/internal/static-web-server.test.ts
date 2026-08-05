@@ -2,6 +2,7 @@ import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { StaticWebServer } from './static-web-server';
 import { StaticContentCache } from './static-content-cache';
 import { securityHeaders } from '../built-in-plugins/security-headers';
+import { domainValidation } from '../built-in-plugins/domain-validation';
 import { overrideDevMode } from 'lifecycleion/dev-mode';
 import { createTempDir } from 'lifecycleion/tmp-dir';
 import fs from 'fs';
@@ -1321,6 +1322,156 @@ describe('StaticWebServer', () => {
         expect(await logoResponse.text()).toBe('<svg/>');
       } finally {
         await normalizeTmpDir.cleanup();
+        (fs.promises as { readFile: unknown }).readFile = mockReadFile;
+      }
+    });
+  });
+
+  // ─── Plugin ordering ────────────────────────────────────────────────────────
+
+  describe('Plugin ordering', () => {
+    // Static serving is registered after the app's own plugins, so a gating
+    // plugin gets to reject a request before any file is opened. It used to be
+    // registered first, which meant a plugin passed in options.plugins never
+    // saw any request that matched a file.
+
+    it('lets a rejecting plugin block a path that matches a real file', async () => {
+      (fs.promises as { readFile: unknown }).readFile = originalReadFile;
+      overrideDevMode(false);
+
+      const tempDir = await createTempDir({
+        prefix: 'unirend-static-gating-',
+        unsafeCleanup: true,
+      });
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir.path, 'page-map.json'),
+          JSON.stringify({ '/': 'index.html' }),
+        );
+        fs.writeFileSync(
+          path.join(tempDir.path, 'index.html'),
+          '<!doctype html><html><body>SECRET-CONTENT</body></html>',
+        );
+
+        server = new StaticWebServer({
+          buildDir: tempDir.path,
+          pageMapPath: 'page-map.json',
+          accessLog: { events: 'none' },
+          plugins: [
+            domainValidation({
+              validProductionDomains: ['allowed.example.com'],
+              // Keep the test on plain HTTP; gating is what is under test here,
+              // not redirects.
+              enforceHTTPS: false,
+              skipInDevelopment: false,
+            }),
+          ],
+        });
+
+        await server.listen(testPort);
+
+        // "/" maps to a real file, and the host is neither allowed nor one of
+        // the localhost names domainValidation skips outright.
+        const matched = await makeRawRequest({
+          port: testPort,
+          path: '/',
+          headers: { Host: 'evil.example.com' },
+        });
+
+        expect(matched.statusCode).toBe(403);
+        expect(matched.body.toString('utf8')).not.toContain('SECRET-CONTENT');
+
+        // A path with no matching file was rejected even before the fix, so it
+        // is the control that tells a regression here apart from the plugin
+        // simply not being registered at all.
+        const unmatched = await makeRawRequest({
+          port: testPort,
+          path: '/no-such-page',
+          headers: { Host: 'evil.example.com' },
+        });
+
+        expect(unmatched.statusCode).toBe(403);
+
+        // An allowed host still gets the file.
+        const allowed = await makeRawRequest({
+          port: testPort,
+          path: '/',
+          headers: { Host: 'allowed.example.com' },
+        });
+
+        expect(allowed.statusCode).toBe(200);
+        expect(allowed.body.toString('utf8')).toContain('SECRET-CONTENT');
+      } finally {
+        await tempDir.cleanup();
+        (fs.promises as { readFile: unknown }).readFile = mockReadFile;
+      }
+    });
+
+    it('does not log a blocked request as a served static asset', async () => {
+      // isStaticAsset means "static content served this response" and drives
+      // the access log. A request a plugin blocked was never served, so it must
+      // not be reported as an asset.
+      (fs.promises as { readFile: unknown }).readFile = originalReadFile;
+      overrideDevMode(false);
+
+      const tempDir = await createTempDir({
+        prefix: 'unirend-static-log-',
+        unsafeCleanup: true,
+      });
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir.path, 'page-map.json'),
+          JSON.stringify({ '/': 'index.html' }),
+        );
+        fs.writeFileSync(
+          path.join(tempDir.path, 'index.html'),
+          '<html></html>',
+        );
+
+        const logged: Array<{ url: string; isStaticAsset: boolean }> = [];
+
+        server = new StaticWebServer({
+          buildDir: tempDir.path,
+          pageMapPath: 'page-map.json',
+          accessLog: {
+            events: 'finish',
+            onResponse: (info) => {
+              logged.push({
+                url: info.url,
+                isStaticAsset: info.isStaticAsset,
+              });
+            },
+          },
+          plugins: [
+            domainValidation({
+              validProductionDomains: ['allowed.example.com'],
+              enforceHTTPS: false,
+              skipInDevelopment: false,
+            }),
+          ],
+        });
+
+        await server.listen(testPort);
+
+        await makeRawRequest({
+          port: testPort,
+          path: '/',
+          headers: { Host: 'evil.example.com' },
+        });
+        await makeRawRequest({
+          port: testPort,
+          path: '/',
+          headers: { Host: 'allowed.example.com' },
+        });
+
+        expect(logged).toEqual([
+          { url: '/', isStaticAsset: false },
+          { url: '/', isStaticAsset: true },
+        ]);
+      } finally {
+        await tempDir.cleanup();
         (fs.promises as { readFile: unknown }).readFile = mockReadFile;
       }
     });
