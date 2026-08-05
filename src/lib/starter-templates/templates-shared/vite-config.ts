@@ -30,65 +30,81 @@ export default defineConfig((configEnv) => {
   // below only apply to the client build, so they're skipped for it.
   const isServerEntryPoint = Boolean(configEnv.isSsrBuild);
 
-  return withUnirendViteConfig({
-    // run Vite's own dev server on port 8080 instead of port 5173
-    // server: {
-    //   host: '::',
-    //   port: 8080,
-    // },
-    // Setup React and Tailwind plugins
-    plugins: [
-      react(),
-      tailwindcss(),
-      // Keep three client bundle reports:
-      // - overall: quick top-level size view
-      // - app: starter/app code only
-      // - deps: framework and npm dependency cost only
-      !isServerEntryPoint &&
-        visualizer({
-          filename: resolve(__dirname, '../../../build/${appName}/client-stats.html'),
-          template: 'treemap',
-          gzipSize: true,
-          brotliSize: true,
-        }),
-      !isServerEntryPoint &&
-        visualizer({
-          filename: resolve(
-            __dirname,
-            '../../../build/${appName}/client-stats-app.html',
-          ),
-          template: 'treemap',
-          gzipSize: true,
-          brotliSize: true,
-          exclude: [{ file: '**/node_modules/**' }],
-        }),
-      !isServerEntryPoint &&
-        visualizer({
-          filename: resolve(
-            __dirname,
-            '../../../build/${appName}/client-stats-deps.html',
-          ),
-          template: 'treemap',
-          gzipSize: true,
-          brotliSize: true,
-          include: [{ file: '**/node_modules/**' }],
-        }),
-    ].filter(Boolean),
-    root: __dirname, // app directory — absolute so it works regardless of CWD
-    publicDir: 'public',
-    resolve: {
-      alias: {
-        '@': resolve(__dirname, '../../../src'),
+  return withUnirendViteConfig(
+    {
+      // run Vite's own dev server on port 8080 instead of port 5173
+      // server: {
+      //   host: '::',
+      //   port: 8080,
+      // },
+      // Setup React and Tailwind plugins
+      plugins: [
+        react(),
+        tailwindcss(),
+        // Keep three client bundle reports:
+        // - overall: quick top-level size view
+        // - app: starter/app code only
+        // - deps: framework and npm dependency cost only
+        !isServerEntryPoint &&
+          visualizer({
+            filename: resolve(
+              __dirname,
+              '../../../build/${appName}/client-stats.html',
+            ),
+            template: 'treemap',
+            gzipSize: true,
+            brotliSize: true,
+          }),
+        !isServerEntryPoint &&
+          visualizer({
+            filename: resolve(
+              __dirname,
+              '../../../build/${appName}/client-stats-app.html',
+            ),
+            template: 'treemap',
+            gzipSize: true,
+            brotliSize: true,
+            exclude: [{ file: '**/node_modules/**' }],
+          }),
+        !isServerEntryPoint &&
+          visualizer({
+            filename: resolve(
+              __dirname,
+              '../../../build/${appName}/client-stats-deps.html',
+            ),
+            template: 'treemap',
+            gzipSize: true,
+            brotliSize: true,
+            include: [{ file: '**/node_modules/**' }],
+          }),
+      ].filter(Boolean),
+      root: __dirname, // app directory — absolute so it works regardless of CWD
+      publicDir: 'public',
+      resolve: {
+        alias: {
+          '@': resolve(__dirname, '../../../src'),
+        },
+      },
+      build: {
+        // Use --outDir in npm scripts for client/server builds instead of this config property
+        outDir: resolve(
+          __dirname,
+          '../../../dist/apps/${appName}/set-via-cli-instead',
+        ),
+        emptyOutDir: true,
+        manifest: true, // Always generate manifest.json
+        chunkSizeWarningLimit: 750,
       },
     },
-    build: {
-      // Use --outDir in npm scripts for client/server builds instead of this config property
-      outDir: resolve(__dirname, '../../../dist/apps/${appName}/set-via-cli-instead'),
-      emptyOutDir: true,
-      manifest: true, // Always generate manifest.json
-      chunkSizeWarningLimit: 750,
+    {
+      // Every app in this project shares one node_modules, and so would share
+      // one Vite dependency cache. That cache is rewritten on every optimizer
+      // run, so a shared one makes each app invalidate the others and the
+      // browser reports "504 (Outdated Optimize Dep)" on a dependency URL. The
+      // app key gives this app its own node_modules/.vite/${appName} instead.
+      appKey: '${appName}',
     },
-  });
+  );
 });
 `;
 }
