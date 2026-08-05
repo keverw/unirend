@@ -487,7 +487,24 @@ Done ahead of the CSP config itself, since the config needs this to exist before
 - [x] `UNIREND_BOOTSTRAP_SCRIPT_HASH` exported for the CSP config to feed into `script-src`, computed from the same constant the markup interpolates
 - [ ] ~~Fallback if the claim does not hold: opt-in nonce mode~~. Not needed, the claim holds.
 
-**Still executable, and no hash can cover it: React Router's hydration scripts.** `inject.ts` relocates them verbatim from the body, deliberately, because the serializer's output is not hydration-safe if re-serialized. They vary per request, so they cannot be hashed, and the data-block treatment is not available without rewriting what React Router emits. This is the one remaining gap in a nonce-free strict `script-src` and it needs deciding in the CSP commit, not assuming away.
+### Still executable: React Router's hydration script
+
+`inject.ts` relocates `window.__staticRouterHydrationData = JSON.parse("...")` verbatim from the body to the head. That relocation is a **hydration** fix, not a CSP one: React reconciles what it finds inside the container, so a stray script there mismatches. Being outside the root does nothing for `script-src`, which governs every inline script that executes regardless of where it sits in the document.
+
+The two rendering modes are not in the same position, and an earlier note here flattened them into "cannot be hashed", which is only half right:
+
+- **SSG** — the payload is serialized at build time and then never changes, so each prerendered page's script is fixed text. It **can** be hashed, at build time, per page. Verified against `demos/ssg/build/client`: 7 prerendered pages, and each one's script is stable output rather than something regenerated per request.
+- **SSR** — `loaderData` carries per-request values, so the script text differs on every response. No hash can cover it, by construction.
+
+This is exactly the split SvelteKit landed on (hashes for prerendered, nonces for dynamic), which is worth knowing before reinventing it.
+
+Options for the SSR case, to decide in the CSP commit rather than assume away:
+
+- [ ] Give the hydration script the same data-block treatment: move the payload into the JSON block the bootstrap already reads, and assign `window.__staticRouterHydrationData` from there. Attractive because the mechanism already exists and the result stays nonce-free. Needs checking against what React Router actually guarantees about that global's timing, and against the existing comment warning that its serializer output must not be re-serialized. Note the payload is already `JSON.parse` of a string literal, so it is data, not code, which is what makes this plausible at all.
+- [ ] Opt-in nonce mode covering just this script, with the rest of the pipeline staying hash-only. Works, but it reintroduces the per-request coupling for everyone doing SSR.
+- [ ] Emit hashes for SSG and require a nonce only for SSR. Matches the prior art, at the cost of two behaviors to document.
+
+Do not ship a CSP that quietly needs `'unsafe-inline'` in `script-src` to make the framework's own markup work. That is the SvelteKit trap recorded under prior art, and it makes the feature worse than not having it, since it looks like protection and is not.
 
 ## Docs
 
