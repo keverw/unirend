@@ -110,6 +110,26 @@ Fill-if-absent, not overwrite, so a handler that deliberately set its own CSP on
 - [ ] Follow the existing shared-helper pattern (`registerClosingResponseHook`, `registerClientInfoResolution`, `registerResponseTimeHijackPatch`) rather than duplicating the hook in each server
 - [ ] `RedirectServer` is the sharpest case: it registers its redirect as an `onRequest` hook inside the first plugin, so it short-circuits before anything a user registers. The backstop is the only mechanism that reaches it.
 
+### Bug: StaticWebServer serves files before user plugins run
+
+Found while checking how `domainValidation` and the built-in static server interact. This one is an access-control bypass, not a missing header.
+
+`staticContent` registers an `onRequest` hook (`static-content.ts:183`) that hijacks and writes a matched file directly. `StaticWebServer` builds its plugin array as `[staticContent(...), ...options.plugins]` (`static-web-server.ts:398`), so the static hook is registered first and runs first.
+
+Consequence: a `domainValidation` passed via `options.plugins` never runs for any request that matches a file, which on a static server is nearly all real traffic. Domain validation, canonical redirects, and HTTPS enforcement are all bypassed for the content itself. Only non-matching paths fall through. The same applies to any user auth or gating plugin.
+
+The `onSend` backstop does not help here. The file is still served to an unauthorized host, just with correct headers on it.
+
+The codebase already knows this pattern matters: `ssr-server.ts:1020` registers file-upload hooks _after_ user plugins, commented "This ensures user plugin hooks (auth, etc.) run before upload validation." `StaticWebServer` does the opposite.
+
+- [ ] Register user plugins before `staticContent` in `StaticWebServer`
+- [ ] Check `RedirectServer` for the same shape. Its redirect hook is also the only plugin, so a user plugin could never gate it either.
+- [ ] Test: `StaticWebServer` with `domainValidation` rejects a bad host on a request that matches a real file, not only on a 404
+- [ ] Audit any other built-in plugin registered ahead of user plugins for the same bypass
+- [ ] Changelog: an access-control bypass, so it needs its own entry rather than folding into the headers work
+
+Scope note: this is a different bug from the header work and arguably belongs on its own branch. It is small and closely related, so folding it in is defensible, but it should be its own commit and its own changelog entry either way.
+
 ### Do not send HSTS on a rejected domain
 
 Raised as "if we reject a domain, why care": mostly right, and it inverts what the backstop should do.
