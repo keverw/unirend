@@ -167,7 +167,16 @@ This cannot ship as "delete it and mention it in the changelog."
 
 - [ ] **Runtime guard.** When `enforceHTTPS` or `canonicalDomain` is active, Fastify's `trustProxy` is not configured, and a request arrives carrying `x-forwarded-proto` or `x-forwarded-host`, log a one-time warning naming `fastifyOptions.trustProxy` as the fix. That combination is almost always a misconfigured proxy deployment, and it is cheap to detect.
 - [ ] Consider going further and suppressing the HTTPS redirect in exactly that state, on the grounds that a redirect loop is worse than a missed redirect. Decide deliberately rather than by omission.
-- [ ] Startup warning when a removed `trustProxyHeaders` key is still present in the config object, rather than ignoring an unknown key in silence. A typed build catches it, but a plain-JS config or a stale object does not.
+- [ ] ~~Startup warning when a removed `trustProxyHeaders` key is still present~~. Dropped. That is migration scaffolding with a one-release lifespan, and the changelog carries it. Keep the removal clean.
+
+  Worth keeping the two warnings separate when deciding. The deprecation notice is temporary and exists only to bridge this release. The misconfiguration guard above is permanent: `enforceHTTPS` on, `trustProxy` unset, and `x-forwarded-proto` present is a broken deployment whenever it occurs, including for someone who first puts unirend behind a proxy long after this change ships. Following the framework's standard behavior is what makes that failure reachable, since Fastify correctly declines to trust headers nobody vouched for.
+
+### Survey: is anything else doing this?
+
+Checked, and `domainValidation` is the only offender. The one other raw header read in a plugin is `access-control-request-private-network` in `security-headers.ts:912`, a real CORS request header with no Fastify equivalent. `client-info-resolution.ts` and `redirect-server.ts` already defer to Fastify and reference `fastifyOptions.trustProxy` rather than parsing forwarded headers themselves.
+
+So this is bringing one straggler in line with what the rest of the codebase already does, not an architectural change. Nothing else needs the same treatment.
+
 - [ ] Changelog needs a migration snippet, not a sentence. Show the before and after side by side.
 
 ### Guidance for what to set `trustProxy` to
