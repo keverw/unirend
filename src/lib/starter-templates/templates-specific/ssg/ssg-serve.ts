@@ -48,7 +48,7 @@ import { PUBLIC_FILES, PUBLIC_FOLDERS } from './consts';
 const BUILD_DIR = path.resolve(__dirname, '../../../build/${appName}/client');
 // Read port from ${portEnvVarName} env var, default 3000.
 // Production HTTPS: use a reverse proxy (nginx, Caddy, etc.) for TLS termination,
-// or see https://github.com/keverw/unirend/blob/master/docs/https.md to handle it in code.
+// or see https://github.com/keverw/unirend/blob/main/docs/https.md to handle it in code.
 // If using serveRedirect(), set its targetPort to ${portEnvVarName} and use a separate
 // HTTP_REDIRECT_PORT env var with a default. Then run both servers in the same
 // component in parallel, or add a dedicated redirect component.

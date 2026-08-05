@@ -35,7 +35,7 @@ import { refreshLockfile } from 'unirend/repo-tools';
 // pin. Where it helps with overrides is the opposite question, which no offline
 // check can answer: is this pin still needed? Delete the suspect override, run
 // this, and read the change report for the version the package moves to. See
-// https://github.com/keverw/unirend/blob/master/docs/starter-templates.md,
+// https://github.com/keverw/unirend/blob/main/docs/starter-templates.md,
 // which is where the bun behavior above is verified and kept current.
 //
 // A fresh resolve picks up every in-range update at once, so the change report

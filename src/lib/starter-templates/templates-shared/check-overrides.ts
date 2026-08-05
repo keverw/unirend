@@ -31,7 +31,7 @@ import { checkOverrides } from 'unirend/repo-tools';
 //
 // The individual cases, and the bun behavior verified behind each, are
 // documented in
-// https://github.com/keverw/unirend/blob/master/docs/starter-templates.md
+// https://github.com/keverw/unirend/blob/main/docs/starter-templates.md
 // rather than restated here. That list tracks what a given bun release
 // actually does, so it belongs somewhere it can be corrected once, not copied
 // into every generated repo where it would quietly go stale.

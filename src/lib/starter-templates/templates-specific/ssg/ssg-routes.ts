@@ -108,7 +108,7 @@ export const routes: RouteObject[] = [
       // users looking for?). If you tailor your APIResponseHelpers to include auth state
       // or other shared metadata, you can return a consistent loader shape across all
       // routes — including 404s — so the shell always has what it needs (e.g. a logged-in
-      // nav bar). See: https://github.com/keverw/unirend/blob/master/docs/data-loaders.md
+      // nav bar). See: https://github.com/keverw/unirend/blob/main/docs/data-loaders.md
       // {
       //   path: '*',
       //   element: <NotFound />,

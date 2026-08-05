@@ -30,8 +30,8 @@ function buildAPIServeSrc(appName: string): string {
  * with page data loaders hosted here and fetched over HTTP by the SSR server during
  * rendering. Request context, cookies, and correlation IDs are forwarded automatically
  * between the two servers. Handlers work the same whether co-located or separated.
- * See: https://github.com/keverw/unirend/blob/master/docs/ssr.md (Short-Circuit Data Handlers, Separated SSR/API Architecture)
- * See: https://github.com/keverw/unirend/blob/master/docs/data-loaders.md
+ * See: https://github.com/keverw/unirend/blob/main/docs/ssr.md (Short-Circuit Data Handlers, Separated SSR/API Architecture)
+ * See: https://github.com/keverw/unirend/blob/main/docs/data-loaders.md
  *
  * Signals:
  *   SIGINT / Ctrl+C / ESC — graceful shutdown

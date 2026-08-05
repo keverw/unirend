@@ -48,7 +48,7 @@ import { SimulateComponentError } from './pages/SimulateComponentError';
 // host selection, or TLS over a private network — use resolvePageDataRequestOptions on the
 // SSR server instead of INTERNAL_API_ENDPOINT. See docs/ssr.md for details.
 //
-// See: https://github.com/keverw/unirend/blob/master/README.md#public-app-config-pattern
+// See: https://github.com/keverw/unirend/blob/main/README.md#public-app-config-pattern
 const API_BASE_URL =
   typeof window !== 'undefined'
     ? // eslint-disable-next-line @typescript-eslint/naming-convention
@@ -130,7 +130,7 @@ export const routes: RouteObject[] = [
       // users looking for?). If you tailor your APIResponseHelpers to include auth state
       // or other shared metadata, you can return a consistent loader shape across all
       // routes — including 404s — so the shell always has what it needs (e.g. a logged-in
-      // nav bar). See: https://github.com/keverw/unirend/blob/master/docs/data-loaders.md
+      // nav bar). See: https://github.com/keverw/unirend/blob/main/docs/data-loaders.md
       {
         path: '*',
         loader: createPageDataLoader(pageDataLoaderConfig, 'not-found'),
