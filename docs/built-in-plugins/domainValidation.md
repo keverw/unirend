@@ -12,6 +12,7 @@
   - [On Multi-Value Forwarded Headers](#on-multi-value-forwarded-headers)
 - [Error Responses](#error-responses)
   - [`request.domainValidationRejected`](#requestdomainvalidationrejected)
+  - [When a Callback Throws](#when-a-callback-throws)
 
 <!-- tocstop -->
 
@@ -194,3 +195,14 @@ Both rejection paths above set `request.domainValidationRejected` to `true` befo
 [`securityHeaders`](security-headers.md#hsts-on-a-rejected-host) reads it to suppress `Strict-Transport-Security`, and your own hooks can read it wherever the same reasoning applies. Any header that binds a domain in the browser for a long time should not be sent for a domain the server has just disclaimed.
 
 The property is unset when the plugin is not registered, or when it did not reject.
+
+### When a Callback Throws
+
+Both `validProductionDomains` as a function and `invalidDomainHandler` can fail, and neither failure escapes the plugin. The error is logged once through the request logger at the point it is caught.
+
+- **`validProductionDomains` throws**: the domain is rejected. A validator that could not answer has not said the domain is yours, and reading "the tenant lookup timed out" as "welcome in" is how a `Host` header attack gets through on a bad day for the database. The visitor gets the same 403 an unknown domain gets.
+- **`invalidDomainHandler` throws**: the default rejection response is sent instead. The rejection itself already happened and is not in question, so a throw here costs the custom wording and nothing else. The same fallback covers a handler that returns an unrecognized `contentType`, which previously matched no branch and left the request hanging with nothing sent at all.
+
+<!-- prettier-ignore -->
+> [!NOTE]
+> Fail-closed is a backstop, not a strategy. A validator that reaches a store should handle its own failures, since only you can tell a genuine "not one of ours" from "the store is down" and decide what your deployment should do about it.

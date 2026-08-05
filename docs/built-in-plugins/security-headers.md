@@ -11,6 +11,7 @@
 - [Advanced Features](#advanced-features)
 - [Security Notes](#security-notes)
   - [Security Model (at a Glance)](#security-model-at-a-glance)
+- [When a Callback Throws](#when-a-callback-throws)
 - [Plugin Order and Short-Circuited Responses](#plugin-order-and-short-circuited-responses)
   - [HSTS on a Rejected Host](#hsts-on-a-rejected-host)
 - [Hijacked Responses](#hijacked-responses)
@@ -268,6 +269,25 @@ securityHeaders({
 - All origin/pattern entries are validated up-front (rejects PSL/IP tails, partial-label wildcards, URL-ish characters, and protocol/global wildcards where disallowed).
 - Protocol wildcards (`https://*`, `http://*`) are permitted only in origin lists, not in credentials.
 - Header reflection (`allowedHeaders: ["*"]`) reflects only what the browser requested, with caps: at most 100 header names, names longer than 256 characters are ignored.
+
+## When a Callback Throws
+
+`origin` and `credentials` accept functions, and a function that reaches a database, a cache, or a tenant lookup can fail. When one throws, the plugin fails closed rather than letting the error escape:
+
+| Callback | On throw |
+| --- | --- |
+| `origin` | The origin is denied. No `Access-Control-Allow-Origin` header is sent. |
+| `credentials` | Credentials are withheld. The origin decision stands, so CORS still applies. |
+
+The error is logged once, through the request logger, at the point it is caught.
+
+Denying rather than propagating is the important part. Propagating turns a policy that could not be evaluated into a 500, and a 500 is served to everyone, including the same-origin and non-browser traffic the callback was never consulted about. A denial costs one cross-origin caller its response and leaves the rest of the site working.
+
+Each decision is computed at most once per request and reused for the rest of the lifecycle, including the error path and any hijacked response. So a callback that throws throws once. Before, the 500 it caused ran the error path, the error path applied security headers, and the callback was invoked a second time from inside the handler dealing with the first failure.
+
+<!-- prettier-ignore -->
+> [!NOTE]
+> Fail-closed is a backstop, not a strategy. A callback that reaches a store should handle its own failures, since only you can tell a genuine "not allowed" from "the store is down" and decide whether a cached answer or a stricter default is better for your deployment.
 
 ## Plugin Order and Short-Circuited Responses
 

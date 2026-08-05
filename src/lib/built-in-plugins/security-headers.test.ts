@@ -2168,6 +2168,140 @@ describe('securityHeaders', () => {
   });
 
   // -------------------------------------------------------------------------
+  // Callbacks that throw — fail closed rather than 500
+  // -------------------------------------------------------------------------
+
+  describe('callbacks that throw', () => {
+    it('denies the origin instead of propagating', async () => {
+      const config: CORSConfig = {
+        origin: () => {
+          throw new Error('origin lookup failed');
+        },
+      };
+
+      const pluginHost = createMockPluginHost();
+      await corsHeaders(config)(pluginHost, createMockOptions());
+
+      const onRequestHook = pluginHost
+        .getHooks()
+        .find((h) => h.event === 'onRequest');
+
+      const request = createMockRequest({
+        headers: { origin: 'https://caller.example.com' },
+      });
+      const reply = createMockReply();
+
+      await onRequestHook?.handler(request, reply);
+
+      expect(reply.header).not.toHaveBeenCalledWith(
+        'Access-Control-Allow-Origin',
+        expect.anything(),
+      );
+      expect(request.corsOriginAllowed).toBe(false);
+    });
+
+    it('invokes a throwing origin callback once per request', async () => {
+      // The double-fault this prevents: the callback throws, the 500 that used
+      // to cause runs the error path, the error path applies security headers,
+      // and the callback throws a second time from inside the handler dealing
+      // with the first throw. Caching the denial is what breaks the loop.
+      const originFn = mock(() => {
+        throw new Error('origin lookup failed');
+      });
+
+      const pluginHost = createMockPluginHost();
+      await corsHeaders({ origin: originFn })(pluginHost, createMockOptions());
+
+      const decorateCall = (
+        pluginHost.decorateRequest as unknown as {
+          mock: { calls: Array<[string, (reply: unknown) => Promise<void>]> };
+        }
+      ).mock.calls[0];
+      const applySecurityHeaders = decorateCall[1];
+
+      const onRequestHook = pluginHost
+        .getHooks()
+        .find((h) => h.event === 'onRequest');
+
+      const request = createMockRequest({
+        headers: { origin: 'https://caller.example.com' },
+      });
+
+      await onRequestHook?.handler(request, createMockReply());
+      // Stands in for the raw/hijacked path, which is what the error path uses.
+      await applySecurityHeaders.call(request, createMockReply());
+
+      expect(originFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('withholds credentials instead of propagating', async () => {
+      const config: CORSConfig = {
+        origin: ['https://caller.example.com'],
+        credentials: () => {
+          throw new Error('credentials lookup failed');
+        },
+      };
+
+      const pluginHost = createMockPluginHost();
+      await corsHeaders(config)(pluginHost, createMockOptions());
+
+      const onRequestHook = pluginHost
+        .getHooks()
+        .find((h) => h.event === 'onRequest');
+
+      const request = createMockRequest({
+        headers: { origin: 'https://caller.example.com' },
+      });
+      const reply = createMockReply();
+
+      await onRequestHook?.handler(request, reply);
+
+      // The origin decision stands on its own, so the request is still CORS
+      // enabled. Only the credentials grant is withheld.
+      expect(reply.header).toHaveBeenCalledWith(
+        'Access-Control-Allow-Origin',
+        'https://caller.example.com',
+      );
+      expect(reply.header).not.toHaveBeenCalledWith(
+        'Access-Control-Allow-Credentials',
+        expect.anything(),
+      );
+    });
+
+    it('invokes a throwing credentials callback once per request', async () => {
+      const credentialsFn = mock(() => {
+        throw new Error('credentials lookup failed');
+      });
+
+      const pluginHost = createMockPluginHost();
+      await corsHeaders({
+        origin: ['https://caller.example.com'],
+        credentials: credentialsFn,
+      })(pluginHost, createMockOptions());
+
+      const decorateCall = (
+        pluginHost.decorateRequest as unknown as {
+          mock: { calls: Array<[string, (reply: unknown) => Promise<void>]> };
+        }
+      ).mock.calls[0];
+      const applySecurityHeaders = decorateCall[1];
+
+      const onRequestHook = pluginHost
+        .getHooks()
+        .find((h) => h.event === 'onRequest');
+
+      const request = createMockRequest({
+        headers: { origin: 'https://caller.example.com' },
+      });
+
+      await onRequestHook?.handler(request, createMockReply());
+      await applySecurityHeaders.call(request, createMockReply());
+
+      expect(credentialsFn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // credentials as a function — areCredentialsAllowed function branch
   // -------------------------------------------------------------------------
 
@@ -2514,6 +2648,33 @@ describe('securityHeaders', () => {
           'max-age=31536000',
         );
       }
+    });
+
+    it('serves the route when an origin callback throws', async () => {
+      // The point of failing closed rather than propagating: the request is
+      // fine, it is the policy that could not be evaluated. Propagating turned
+      // an unavailable tenant lookup into a 500 for everyone, including the
+      // same-origin traffic the callback was never consulted about.
+      const throwingOrigin: ServerPlugin<UnirendServerMode> = (host, opts) =>
+        securityHeaders({
+          cors: {
+            origin: () => {
+              throw new Error('origin lookup failed');
+            },
+          },
+          frameOptions: 'DENY',
+        })(host, opts);
+
+      const response = await respondTo({
+        plugins: [throwingOrigin],
+        host: 'allowed.example.com',
+        origin: 'https://app.example.com',
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('access-control-allow-origin')).toBeNull();
+      // Headers that do not depend on the failed decision are unaffected.
+      expect(response.headers.get('x-frame-options')).toBe('DENY');
     });
 
     it('leaves a header the short-circuiting responder set itself', async () => {

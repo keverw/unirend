@@ -339,6 +339,126 @@ async function areCredentialsAllowed(
 }
 
 /**
+ * Per-request cache of the two origin-negotiated decisions.
+ *
+ * Both are computed at most once per request and reused everywhere else in the
+ * lifecycle. That is partly to avoid paying for a user callback several times,
+ * and partly because a callback that throws must not be given a second chance
+ * to throw from the error path that is already handling the first throw.
+ */
+interface CORSDecisionCache {
+  corsOriginAllowed?: boolean;
+  corsCredentialsAllowed?: boolean;
+}
+
+/**
+ * Report a user callback that threw.
+ *
+ * Read defensively because this runs on paths that predate the request having a
+ * logger, and a failure to log must never become the thing that breaks the
+ * response we are in the middle of rescuing.
+ */
+function logCallbackError(
+  request: FastifyRequest,
+  error: unknown,
+  message: string,
+): void {
+  const log = (request as Partial<FastifyRequest>).log;
+  log?.error({ err: error }, `[securityHeaders] ${message}`);
+}
+
+/**
+ * Decide whether this request's origin is allowed, once per request.
+ *
+ * A callback that throws denies rather than 500s. The request itself is fine,
+ * it is the policy that could not be evaluated, and the safe reading of an
+ * unevaluated policy is that the origin is not on it. Denying costs a
+ * cross-origin caller its response; 500ing costs everyone theirs, including
+ * same-origin traffic that was never subject to the callback in the first
+ * place.
+ */
+async function resolveOriginAllowed(
+  request: FastifyRequest,
+  cors: ResolvedCORSConfig,
+  isOriginAllowedResult?: boolean,
+): Promise<boolean> {
+  if (isOriginAllowedResult !== undefined) {
+    return isOriginAllowedResult;
+  }
+
+  const cache = request as FastifyRequest & CORSDecisionCache;
+
+  if (cache.corsOriginAllowed !== undefined) {
+    return cache.corsOriginAllowed;
+  }
+
+  let isAllowed: boolean;
+
+  try {
+    isAllowed = await isOriginAllowed(
+      request.headers.origin,
+      cors.origin,
+      request,
+    );
+  } catch (error) {
+    logCallbackError(
+      request,
+      error,
+      'origin callback threw, denying the origin for this request',
+    );
+    isAllowed = false;
+  }
+
+  // Cached even when the callback threw. Without this the 500 the throw would
+  // otherwise produce runs the error path, the error path applies security
+  // headers, and the callback is invoked a second time from inside the handler
+  // dealing with the first failure.
+  cache.corsOriginAllowed = isAllowed;
+
+  return isAllowed;
+}
+
+/**
+ * Decide whether this request's origin may send credentials, once per request.
+ *
+ * Same fail-closed rule as the origin decision, and the stakes are higher: the
+ * header this gates is what lets a cross-origin caller read a response made
+ * with the user's cookies.
+ */
+async function resolveCredentialsAllowed(
+  request: FastifyRequest,
+  cors: ResolvedCORSConfig,
+): Promise<boolean> {
+  const cache = request as FastifyRequest & CORSDecisionCache;
+
+  if (cache.corsCredentialsAllowed !== undefined) {
+    return cache.corsCredentialsAllowed;
+  }
+
+  let isAllowed: boolean;
+
+  try {
+    isAllowed = await areCredentialsAllowed(
+      request.headers.origin,
+      cors.credentials,
+      request,
+      cors.credentialsAllowWildcardSubdomains,
+    );
+  } catch (error) {
+    logCallbackError(
+      request,
+      error,
+      'credentials callback threw, withholding Access-Control-Allow-Credentials',
+    );
+    isAllowed = false;
+  }
+
+  cache.corsCredentialsAllowed = isAllowed;
+
+  return isAllowed;
+}
+
+/**
  * How a header write should treat a value that is already on the reply.
  *
  * - `'apply'`: set it, which is what the early `onRequest` pass does since
@@ -443,9 +563,11 @@ async function applyCORSActualResponseHeaders(
 ): Promise<void> {
   const cors = resolvedConfig.cors;
   const origin = request.headers.origin;
-  const isAllowed =
-    isOriginAllowedResult ??
-    (await isOriginAllowed(origin, cors.origin, request));
+  const isAllowed = await resolveOriginAllowed(
+    request,
+    cors,
+    isOriginAllowedResult,
+  );
 
   // Apply the unconditional security/Vary headers first, then layer the
   // origin-negotiated CORS headers on top if this request is allowed.
@@ -463,12 +585,7 @@ async function applyCORSActualResponseHeaders(
     // using '*' so credentials/exposed-headers semantics stay correct.
     writeSecurityHeader(reply, mode, 'Access-Control-Allow-Origin', origin);
 
-    const isCredentialsAllowed = await areCredentialsAllowed(
-      origin,
-      cors.credentials,
-      request,
-      cors.credentialsAllowWildcardSubdomains,
-    );
+    const isCredentialsAllowed = await resolveCredentialsAllowed(request, cors);
 
     // Never send credentials for the special 'null' origin
     if (isCredentialsAllowed && origin !== 'null') {
@@ -802,16 +919,10 @@ export function securityHeaders(
         this: FastifyRequest,
         reply: FastifyReply,
       ) {
-        const isOriginAllowedCached = (
-          this as FastifyRequest & { corsOriginAllowed?: boolean }
-        ).corsOriginAllowed;
-
-        await applyCORSActualResponseHeaders(
-          this,
-          reply,
-          resolvedConfig,
-          isOriginAllowedCached,
-        );
+        // Pass nothing for the origin verdict: applyCORSActualResponseHeaders
+        // reads the per-request cache itself, and computes it fail-closed if
+        // this raw path is the first thing to ask.
+        await applyCORSActualResponseHeaders(this, reply, resolvedConfig);
       },
     );
 
@@ -826,17 +937,13 @@ export function securityHeaders(
 
         applyUnconditionalSecurityHeaders(request, reply, resolvedConfig);
 
-        // Check if origin is allowed and cache result on request
-        const isOriginAllowedResult = await isOriginAllowed(
-          origin,
-          resolvedConfig.cors.origin,
+        // Decide the origin once. resolveOriginAllowed caches it on the request
+        // for the onSend backstop, the hijacked-response helper, and the error
+        // path, and denies rather than throwing if the callback throws.
+        const isOriginAllowedResult = await resolveOriginAllowed(
           request,
+          resolvedConfig.cors,
         );
-
-        // Cache the result to avoid recomputing in onSend hook
-        (
-          request as FastifyRequest & { corsOriginAllowed?: boolean }
-        ).corsOriginAllowed = isOriginAllowedResult;
 
         // Record that this hook reached the negotiation, so the onSend backstop
         // below knows it has nothing left to do. Anything that short-circuited
@@ -1056,17 +1163,19 @@ export function securityHeaders(
           reply.removeHeader('Strict-Transport-Security');
         }
 
-        const requestWithMarkers = request as FastifyRequest & {
-          securityHeadersApplied?: boolean;
-          corsOriginAllowed?: boolean;
-        };
+        const hasRunEarly = (
+          request as FastifyRequest & { securityHeadersApplied?: boolean }
+        ).securityHeadersApplied;
 
-        if (!requestWithMarkers.securityHeadersApplied) {
+        if (!hasRunEarly) {
+          // No verdict argument: the per-request cache is consulted inside, so
+          // a decision the early hook did reach is reused rather than recomputed
+          // and a callback is never invoked twice for one request.
           await applyCORSActualResponseHeaders(
             request,
             reply,
             resolvedConfig,
-            requestWithMarkers.corsOriginAllowed,
+            undefined,
             'fill',
           );
         }

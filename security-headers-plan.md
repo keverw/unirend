@@ -61,7 +61,15 @@ No cache key. An earlier draft had a `resolveCacheKey` so header strings could b
 - [ ] `request.domainInfo` (`types.ts:2858`, `hostname` + `rootDomain`) is what a resolver keys off, and it is already populated
 - [ ] Static defaults keep every existing config-time guard. Do not weaken them by making everything dynamic.
 - [ ] Validate the resolver's returned policy per request. Correctness first, measure before optimizing.
-- [ ] **Fail closed to the static defaults and log** when a resolver throws or returns an invalid policy. One broken tenant record degrades that tenant, it does not 500 them. Shares the decision cache with the throwing-callback work below.
+- [ ] **Fall back to the static defaults and log** when a resolver throws or returns an invalid policy, rather than 500ing. The request is fine, it is the per-tenant override that could not be computed, so the response goes out carrying the baseline policy instead of the tailored one. Shares the decision cache with the throwing-callback work below.
+
+  **Except for HSTS, where the baseline is the wrong fallback and calling this "fail closed" was hiding that.** The baseline is whatever suits the domains the operator owns, which is typically a long `max-age` with `includeSubDomains` and possibly `preload`. The reason a resolver exists at all is to send something narrower on a customer's custom domain. So a resolver that throws while serving a custom domain would send the most binding policy available to the domain least entitled to it, and the browser honors it for the full `max-age` with no way to revoke it. That is worse than a 500: a 500 is visible and recoverable, a wrongly-sent `includeSubDomains` silently breaks unrelated subdomains the customer owns for a year.
+
+  The asymmetry is the point. Falling back to the baseline is only safe for a header whose baseline cannot be actively harmful on a domain it was not written for:
+  - `cors`, `csp`, `frameOptions`: baseline is fine. Too strict at worst, and the effect ends with the response.
+  - `hsts`: **send nothing.** A resolver that could not answer has not established that this is a domain we are entitled to bind, which is the same reasoning as the `domainValidation` rejection case already implemented in commit 3.
+
+- [ ] Decide whether "send nothing" should instead be "send the baseline only when the request's host matches a statically configured domain". More precise, since a resolver throwing on the operator's own domain then keeps working normally, but it needs a notion of which hosts are statically ours that does not exist yet. Start with send-nothing, which is never wrong, and revisit if the logs say resolvers throw often enough on first-party hosts to matter.
 - [ ] Decide whether `resolve` can be async. Tenant lookups usually hit a store, so probably yes, which means it must be awaited before headers are applied in `onRequest`.
 - [ ] Document that `cors.origin` as a function and `resolve` overlap. Prefer `resolve` for per-tenant policy, keep the callbacks for pure origin decisions.
 
@@ -84,7 +92,7 @@ Planning is complete. Everything below is specified well enough to implement wit
 2. **Done** — proxy trust and HSTS transport. `getHost()` / `getProtocol()` and `trustProxyHeaders` deleted, both plugins read Fastify's resolved `request.host` / `request.protocol`, HSTS gated on secure transport. See the notes below for what turned up while doing it.
 3. **Done** — static content bypass. `StaticWebServer` registers static serving after user plugins rather than before, matching the SSR server. No new API. A richer detect/serve split was built and rejected; two follow-up branches came out of that. See below.
 4. **Done** — order-independent application. `onSend` backstop in the plugin, fill-if-absent, plus HSTS suppressed on a host `domainValidation` disclaimed. The server does not own the policy after all, see below for why.
-5. **Throwing callbacks.** Fail closed rather than 500, cache the decision so the error path does not re-invoke.
+5. **Done** — throwing callbacks. Fail closed rather than 500, decisions cached so the error path does not re-invoke. Two more callbacks than the list started with, see below.
 6. **Error pages under CSP.** Anchor instead of inline `onclick`, hash the inline style, export a hashing helper, tell scaffolded repos to update their own copy.
 7. **CSP.** Directive config, presets, `reportOnly`, automatic hashes for slots and error pages, `strict-dynamic` for third-party widgets. Verify the JSON data-block behavior in a real browser before relying on it.
 
@@ -354,16 +362,26 @@ Since there is no warning, the docs carry the whole burden. Name the symptom, no
 - [ ] Test: same forwarded header with no `trustProxy` configured, header absent, since an untrusted header must not be able to turn HSTS on
 - [ ] Test: the same untrusted-header case against `domainValidation`, confirming a forged `x-forwarded-host` no longer passes domain validation
 
-## Commit 4: throwing callbacks
+## Commit 4: throwing callbacks (done)
 
-Config-time validation is well covered. Request-time throws are not covered at all.
+Config-time validation is well covered. Request-time throws were not covered at all.
 
-- [ ] `isOriginAllowed` awaits the user function with no try/catch (`security-headers.ts`, `originConfig(origin, request)`)
-- [ ] `validProductionDomains` same (`domain-validation.ts:297`)
-- [ ] Double-fault path: origin callback throws → 500 → error path calls `applySecurityHeaders` → calls the callback again → throws again inside the error handler
-- [ ] Decide fail-closed semantics: a throwing origin callback should deny (no ACAO header), not 500. A throwing `validProductionDomains` should 403, not 500.
-- [ ] Cache the decision on the request so the error path reuses it instead of re-invoking (the `corsOriginAllowed` cache already exists, extend it to cover the thrown case)
-- [ ] Log the callback error once, at the point it throws
+- [x] `isOriginAllowed` awaited the user function with no try/catch. Now behind `resolveOriginAllowed`, which denies and logs.
+- [x] `areCredentialsAllowed` had the same gap. Now behind `resolveCredentialsAllowed`, which withholds the grant and logs. Not in the original list, found while wrapping the origin one, and the stakes are higher since that header is what lets a cross-origin caller read a response made with the user's cookies.
+- [x] `validProductionDomains` same. Rejects with the ordinary 403 and logs.
+- [x] Double-fault path closed: both decisions are cached on the request, including the thrown case, so the error path reuses the denial rather than re-invoking the callback that caused it.
+- [x] Fail-closed semantics decided as specified: deny, withhold, 403. Never 500.
+- [x] Log the callback error once, at the point it is caught. Both plugins read `request.log` defensively, since a failure to log must not become the thing that breaks the response being rescued.
+
+Two things turned up while doing it.
+
+**`invalidDomainHandler` is the fourth callback and was missed by the original list.** It runs on the rejection path, so a throw there 500s a request that had already been correctly refused. It now falls back to the default rejection response. Different fail-closed shape from the others deliberately: the rejection itself is not in question, the handler was only asked to phrase it, so a throw costs the custom wording and nothing else.
+
+**The same handler could hang the request outright.** The send is an `if / else if / else if` over `contentType` with no final `else`, so a handler returning anything outside the three known values matched no branch, sent nothing, and left the client waiting for a response that was never coming. TypeScript rules that out for a typed caller, which is exactly why it needed a runtime arm: the handlers that reach it untyped are the ones that get it wrong. Now falls back to the default response and logs.
+
+**One existing test asserted the old behavior** (`should propagate function-based validation errors`) and was rewritten rather than deleted, since the behavior it covers still matters, just with the opposite verdict.
+
+Not carried over from the original list: nothing. The `resolve` resolver's own fail-closed path is still outstanding, but it belongs with the feature that introduces it rather than here, and it is already written down under the per-tenant section above.
 
 ## Commit 5: error pages under CSP
 

@@ -144,6 +144,21 @@ function checkIfAPIEndpoint(
 }
 
 /**
+ * Report a user callback that threw.
+ *
+ * Read defensively because a failure to log must never become the thing that
+ * breaks the response we are in the middle of rescuing.
+ */
+function logCallbackError(
+  request: FastifyRequest,
+  error: unknown,
+  message: string,
+): void {
+  const log = (request as Partial<FastifyRequest>).log;
+  log?.error({ err: error }, `[domainValidation] ${message}`);
+}
+
+/**
  * Publish on the request that this host is not one the server claims.
  *
  * Set when the host fails the allow list, and also when the Host header is
@@ -260,12 +275,26 @@ export function domainValidation(
         let isAllowedDomain: boolean;
 
         if (typeof config.validProductionDomains === 'function') {
-          // Let callers make request-aware validation decisions, matching the
-          // function-based CORS API style.
-          isAllowedDomain = await config.validProductionDomains(
-            domain,
-            request,
-          );
+          try {
+            // Let callers make request-aware validation decisions, matching the
+            // function-based CORS API style.
+            isAllowedDomain = await config.validProductionDomains(
+              domain,
+              request,
+            );
+          } catch (error) {
+            // Fail closed. A validator that cannot answer has not said this
+            // domain is ours, and treating "the tenant lookup timed out" as
+            // "welcome in" is how a host-header attack gets through on a bad
+            // day for the database. The visitor gets the same 403 an unknown
+            // domain gets, and the operator gets the error in the log.
+            logCallbackError(
+              request,
+              error,
+              `validProductionDomains threw for "${domain}", rejecting the request`,
+            );
+            isAllowedDomain = false;
+          }
         } else {
           // Normalize validProductionDomains to array
           const validDomains = Array.isArray(config.validProductionDomains)
@@ -279,26 +308,44 @@ export function domainValidation(
         if (!isAllowedDomain) {
           markHostDisclaimed(request);
 
-          // Use custom handler if provided, otherwise use default response
-          const response = config.invalidDomainHandler
-            ? config.invalidDomainHandler(
+          // Built first so it is available as the fallback below, rather than
+          // only as the other arm of a conditional.
+          const defaultResponse: InvalidDomainResponse = isAPIEndpoint
+            ? {
+                contentType: 'json',
+                content: {
+                  error: 'invalid_domain',
+                  // Pass original domain for human-friendly messages
+                  message: `Domain "${originalDomain}" is not authorized to access this server`,
+                },
+              }
+            : {
+                contentType: 'text',
+                content: `Access denied: Domain "${originalDomain}" is not authorized`,
+              };
+
+          let response = defaultResponse;
+
+          if (config.invalidDomainHandler) {
+            try {
+              response = config.invalidDomainHandler(
                 request,
-                originalDomain, // Pass original domain for human-friendly messages
+                originalDomain,
                 options.isDevelopment,
                 isAPIEndpoint,
-              )
-            : isAPIEndpoint
-              ? {
-                  contentType: 'json' as const,
-                  content: {
-                    error: 'invalid_domain',
-                    message: `Domain "${originalDomain}" is not authorized to access this server`,
-                  },
-                }
-              : {
-                  contentType: 'text' as const,
-                  content: `Access denied: Domain "${originalDomain}" is not authorized`,
-                };
+              );
+            } catch (error) {
+              // The rejection itself already happened and is not in question.
+              // All the handler was asked to do is phrase it, so a throw there
+              // costs the custom wording and nothing else.
+              logCallbackError(
+                request,
+                error,
+                'invalidDomainHandler threw, sending the default rejection response',
+              );
+              response = defaultResponse;
+            }
+          }
 
           // Set appropriate content type and send response (do not cache)
           if (response.contentType === 'json') {
@@ -319,6 +366,28 @@ export function domainValidation(
               .header('Cache-Control', 'no-store')
               .type('text/plain')
               .send(response.content);
+          } else {
+            // A handler that returned an unrecognized contentType used to match
+            // none of the branches above, so nothing was ever sent and the
+            // request hung until the client gave up. TypeScript rules this out
+            // for a typed caller, which is exactly why it needs a runtime arm:
+            // the handlers that reach here untyped are the ones that get it
+            // wrong.
+            logCallbackError(
+              request,
+              new Error(
+                `invalidDomainHandler returned an unsupported contentType: ${String(
+                  response.contentType,
+                )}`,
+              ),
+              'invalidDomainHandler returned an unsupported contentType, sending the default rejection response',
+            );
+
+            reply
+              .code(403)
+              .header('Cache-Control', 'no-store')
+              .type(isAPIEndpoint ? 'application/json' : 'text/plain')
+              .send(defaultResponse.content);
           }
           return;
         }

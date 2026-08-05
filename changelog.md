@@ -227,6 +227,21 @@ serveSSRBuilt(buildDir, {
 
 One exception comes with it: `Strict-Transport-Security` is not sent when `domainValidation` rejects the request's host. Sending it there would set an HTTPS policy for a domain the server has just declared is not its own, and browsers honor that for the full `max-age` with no way to revoke it. The suppression is keyed on the rejection rather than on the 403 status, so an authorization failure from your own application, on a domain the server does serve, keeps HSTS like any other response. `domainValidation` publishes the fact as `request.domainValidationRejected`, which your own hooks can read for the same purpose.
 
+**Behavior change:** the request-time callbacks on `securityHeaders` and `domainValidation` now fail closed instead of propagating. Each of them reaches a store in a real deployment, and each of them used to turn a store being unavailable into a 500 for the whole request:
+
+| Callback | Previously | Now |
+| --- | --- | --- |
+| `securityHeaders` `cors.origin` | 500 | Origin denied, no `Access-Control-Allow-Origin` sent |
+| `securityHeaders` `cors.credentials` | 500 | Credentials withheld, the origin decision stands |
+| `domainValidation` `validProductionDomains` | 500 | Domain rejected with the usual 403 |
+| `domainValidation` `invalidDomainHandler` | 500 | Default rejection response sent |
+
+Each error is logged once through the request logger at the point it is caught. A 500 was both the wrong answer and the widest possible blast radius, since it was served to same-origin and non-browser traffic that the callback was never consulted about.
+
+Two related fixes come with it. The origin and credentials decisions are now computed at most once per request and reused everywhere else in the lifecycle, so a throwing callback is no longer invoked a second time by the error path that is handling its first throw. And an `invalidDomainHandler` that returns an unrecognized `contentType` now falls back to the default response rather than matching no branch and leaving the request hanging with nothing sent.
+
+If you were relying on a throw to produce a 500, catch it in your callback and decide there. Only your code can tell a genuine "not allowed" from "the store is down".
+
 **Security fix:** `StaticWebServer` registered its static file serving ahead of the plugins passed in `options.plugins`, so a plugin that gates requests never ran for any path that matched a file. On a static server that is nearly all real traffic. A `domainValidation` plugin, or any auth or gating plugin, protected only the paths the server did not handle, so an unauthorized host got its 403 on a 404 and the actual content everywhere else. Static serving is now registered after your plugins, which is the order the SSR server has always used, so a plugin can reject a request before any file is opened. No configuration changes. The `staticContent()` plugin registered directly is unaffected, since where it sits is already your choice.
 
 One consequence worth knowing: a static asset request now runs your plugin chain like any other request. If a plugin does expensive per-request work, guard it rather than paying for it on every `.js` and `.css`.

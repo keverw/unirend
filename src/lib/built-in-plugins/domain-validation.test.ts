@@ -2,7 +2,10 @@ import { describe, it, expect, mock } from 'bun:test';
 import fastify from 'fastify';
 import type { FastifyServerOptions } from 'fastify';
 import { domainValidation } from './domain-validation';
-import type { DomainValidationConfig } from './domain-validation';
+import type {
+  DomainValidationConfig,
+  InvalidDomainResponse,
+} from './domain-validation';
 import type { PluginOptions, PluginHostInstance } from '../types';
 
 // Mock Fastify request/reply objects
@@ -394,11 +397,13 @@ describe('domainValidation', () => {
       );
     });
 
-    it('should propagate function-based validation errors', async () => {
-      const error = new Error('validator failed');
+    it('should reject rather than throw when the validator throws', async () => {
+      // Fail closed: a validator that could not answer has not said the domain
+      // is ours. This used to propagate, which turned an unavailable tenant
+      // lookup into a 500 on a request that should simply have been refused.
       const config: DomainValidationConfig = {
         validProductionDomains: () => {
-          throw error;
+          throw new Error('validator failed');
         },
       };
 
@@ -411,16 +416,75 @@ describe('domainValidation', () => {
       await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
 
-      try {
-        await hook.handler(request, reply);
-        throw new Error('Expected domain validator to throw');
-      } catch (error_) {
-        expect(error_).toBe(error);
-      }
+      expect(reply.code).toHaveBeenCalledWith(403);
+      expect(reply.send).toHaveBeenCalledWith(
+        'Access denied: Domain "example.com" is not authorized',
+      );
+      expect(
+        (request as { domainValidationRejected?: boolean })
+          .domainValidationRejected,
+      ).toBe(true);
+    });
 
-      expect(reply.code).not.toHaveBeenCalled();
-      expect(reply.send).not.toHaveBeenCalled();
+    it('should send the default rejection when invalidDomainHandler throws', async () => {
+      // The rejection already happened and is not in question. The handler was
+      // only asked to phrase it, so a throw costs the custom wording and
+      // nothing else.
+      const config: DomainValidationConfig = {
+        validProductionDomains: ['allowed.example.com'],
+        invalidDomainHandler: () => {
+          throw new Error('handler failed');
+        },
+      };
+
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({ headers: { host: 'blocked.com' } });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.code).toHaveBeenCalledWith(403);
+      expect(reply.send).toHaveBeenCalledWith(
+        'Access denied: Domain "blocked.com" is not authorized',
+      );
+    });
+
+    it('should send the default rejection for an unsupported contentType', async () => {
+      // TypeScript rules this out for a typed caller, so the handlers that
+      // reach here are the untyped ones. Before, no branch matched and nothing
+      // was sent at all, leaving the request hanging until the client gave up.
+      const config: DomainValidationConfig = {
+        validProductionDomains: ['allowed.example.com'],
+        invalidDomainHandler: () =>
+          ({
+            contentType: 'xml',
+            content: '<denied/>',
+          }) as unknown as InvalidDomainResponse,
+      };
+
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({ headers: { host: 'blocked.com' } });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.code).toHaveBeenCalledWith(403);
+      expect(reply.type).toHaveBeenCalledWith('text/plain');
+      expect(reply.send).toHaveBeenCalledWith(
+        'Access denied: Domain "blocked.com" is not authorized',
+      );
     });
 
     it('should support wildcard subdomains', async () => {
