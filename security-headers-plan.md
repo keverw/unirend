@@ -82,7 +82,15 @@ Nesting lands next, before the ordering fix, since the ordering work rewrites th
 
 ## Commit 3: order-independent application
 
-The bug: headers are only set in the plugin's `onRequest` hook, so anything that short-circuits earlier escapes them entirely. `domainValidation` sends its 403 (`domain-validation.ts:334`), its 400 for a bad Host, and its HTTP→HTTPS redirect (`domain-validation.ts:428`) from its own `onRequest`. Listed before `securityHeaders` in the plugins array, none of those responses get CORS or HSTS. An HTTP→HTTPS redirect with no HSTS is exactly the case HSTS exists for, and today it depends silently on array order.
+The bug: headers are only set in the plugin's `onRequest` hook, so anything that short-circuits earlier escapes them entirely. `domainValidation` sends its 403 (`domain-validation.ts:334`), its 400 for a bad Host, and its redirects (`domain-validation.ts:428`) from its own `onRequest`. Listed before `securityHeaders` in the plugins array, none of those responses get any security headers, and today that depends silently on array order.
+
+Correction to an earlier draft of this plan, which used the HTTP→HTTPS redirect as the motivating example. That example was wrong. RFC 6797 §7.2 says a host MUST NOT send HSTS over non-secure transport, and user agents MUST ignore it when received over HTTP, so the HTTP redirect response cannot carry a useful HSTS header at all. The header has to arrive on the HTTPS response after the redirect.
+
+The responses that genuinely lose headers to this bug are the ones already served over HTTPS:
+
+- the 403 for an unauthorized domain, which gets no CORS, no `frameOptions`, and no CSP
+- canonical-domain and www redirects that are already HTTPS, which do need HSTS and do not get it
+- the 400 for a missing or unparseable Host header
 
 Fix: the server owns the resolved policy, not the plugin. Apply at three points.
 
@@ -94,6 +102,19 @@ Fix: the server owns the resolved policy, not the plugin. Apply at three points.
 - [ ] Test: hijacked static file response carries CSP, not just CORS
 
 Fill-if-absent, not overwrite, so a handler that deliberately set its own CSP on one route wins.
+
+### Bug found while checking the above: HSTS is sent over plain HTTP
+
+`applyUnconditionalSecurityHeaders()` emits `Strict-Transport-Security` whenever `hsts` is configured, without looking at whether the connection is secure. The current docs acknowledge this ("this plugin does not inspect the connection security, enable with care") and push the problem to the user, but RFC 6797 §7.2 is a MUST NOT, so this is a spec violation rather than a configuration preference. It fires on any HTTP request to a deployment with `hsts` set, including a plain-HTTP local run and any setup where the app speaks HTTP behind a TLS-terminating proxy.
+
+Harmless in the sense that browsers ignore it, but it is wrong, it shows up in security scans, and it is trivially avoidable.
+
+- [ ] Only emit HSTS when the request arrived over a secure transport
+- [ ] `domainValidation` already solves the proxy-aware half of this in `getProtocol()` (`domain-validation.ts:157`), honoring `x-forwarded-proto` only when `trustProxyHeaders` is set. Extract that into a shared internal helper rather than writing a second copy that can drift from the first.
+- [ ] `securityHeaders` needs its own `trustProxyHeaders` option to use it, since the two plugins are configured independently
+- [ ] Test: `hsts` configured, request over HTTP, header absent
+- [ ] Test: `hsts` configured, HTTP request with `x-forwarded-proto: https` and `trustProxyHeaders: true`, header present
+- [ ] Test: same but with `trustProxyHeaders` unset, header absent, since an untrusted header must not be able to turn HSTS on
 
 ## Commit 4: throwing callbacks
 
@@ -120,6 +141,13 @@ Config-time validation is well covered. Request-time throws are not covered at a
 
 - [ ] Update the template so new scaffolds are CSP-clean out of the box
 - [ ] Export a small helper so a user can hash their own inline block without hand-rolling `node:crypto` and base64. Without it, "add your own hash" is a paper cut on every scaffolded repo.
+
+  **The helper is exact for this case, precisely because the error page bypasses the format pipeline.** The "hash after serialization" rule exists because cheerio re-serializes template slots and can shift bytes. A custom error page is a raw template string returned straight to the transport, never parsed, so what the function returns is byte-for-byte what the browser receives. Hashing the string directly is correct here, with no pipeline caveat.
+
+  That makes the boundary worth stating plainly in the docs, since it is the difference between a helper that always works and one that silently produces wrong hashes:
+  - Raw strings sent directly (error pages) → hash the string, exact
+  - Content passing through cheerio (template slots) → hash after serialization, which unirend does internally so users never touch it
+
 - [ ] **Changelog must tell scaffolded-repo users to update their own copy**, since re-running `unirend create` will not replace it. Name the file explicitly. This is the kind of thing that is invisible until someone turns CSP on months later and cannot work out why only the error page looks broken.
 
 Only one of the two reload buttons is actually a problem. `error-page-utils.ts:177` is a raw HTML `onclick="..."` attribute in a server-generated string, which CSP blocks. `starter-templates/templates-shared/react-components/application-error.ts:82` is a JSX `onClick={() => window.location.reload()}`, which React attaches as a JS listener rather than emitting an HTML attribute, so CSP never sees it and it keeps working. Leave the React one alone.
