@@ -302,6 +302,25 @@ Preferred: consolidate the seven into one `<script type="application/json">` dat
 - [ ] Note the ordering fix in `docs/server-plugins.md`, since the old advice implicitly depended on array order
 - [ ] Fold the commit-1 changelog Breaking note into one entry describing the final release delta, per AGENTS.md. Do not append a bullet per commit.
 
+## Prior art
+
+Checked what other frameworks ship, to avoid reinventing and to find where the real gap is.
+
+**SvelteKit** is the closest precedent and is ahead of the rest. `svelte.config.js` takes a `csp` block with `mode: 'hash' | 'nonce' | 'auto'` (hashes for prerendered pages, nonces for dynamic ones, nonces on prerendered pages forbidden as insecure) and it generates hashes for its own inline scripts and styles. It also exposes a `%sveltekit.nonce%` placeholder for hand-written tags in `app.html`. So the "framework knows its own inline content" idea is proven rather than speculative.
+
+It doubles as a warning. SvelteKit has open issues where its own framework-generated inline styles cannot be covered ([kit#11747](https://github.com/sveltejs/kit/issues/11747), [kit#9368](https://github.com/sveltejs/kit/issues/9368)), and the docs concede that Svelte transitions emit inline `<style>`, so `style-src` must be left unset or allow `unsafe-inline`. That is exactly the error-page trap identified above: shipping CSP support while the framework's own markup punches a hole through it. Worth catching before shipping rather than after.
+
+**Next.js** has no zero-config story. It is middleware plus a hand-rolled nonce, and the docs state plainly that static pages cannot carry a nonce, since there is no request at build time. That limitation is what the JSON data-block approach sidesteps, because a hash works on static output where a nonce cannot exist.
+
+Not found in any of them:
+
+- CORS, CSP, HSTS, and frame options as one validated configuration. SvelteKit covers CSP only, CORS is left to the user.
+- Config-time rejection of unsafe combinations, which the existing CORS guards here already do well
+- Per-tenant policy resolution for custom domains
+- Coverage of error pages and hijacked responses, which is the part most likely to be missed because it is invisible until it bites
+
+Positioning, honestly: not first to first-class CSP, but first to treat the whole header surface as one thing and to get it right on the paths everyone else forgets.
+
 ## Out of scope for this branch
 
 - `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy` and friends. Easy to add once the application path is order-independent, but they are additive and should not hold up CSP.
