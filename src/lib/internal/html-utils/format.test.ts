@@ -2120,3 +2120,45 @@ describe('template CSP hashes', () => {
     }
   });
 });
+
+describe('template CSP hashes inside <noscript>', () => {
+  it('hashes a <style> inside a <noscript>', async () => {
+    // Missing this is silent in the worst way. Cheerio parses with scripting
+    // enabled, so noscript contents are raw text and the normal selectors see
+    // nothing in there. A browser with JavaScript disabled parses the same
+    // bytes as markup, so the style goes live and a strict style-src without
+    // its hash blocks it: the noscript fallback renders unstyled for exactly
+    // the users it exists for, and nobody testing with JavaScript on would see
+    // it. Both the starter template and the demos put a style in theirs.
+    const result = await processTemplate(
+      '<!doctype html><html><head><title>t</title><!--ss-head--></head><body><noscript><style>.ns{color:red}</style></noscript><div id="root"><!--ss-outlet--></div></body></html>',
+      'ssr',
+      false,
+      false,
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.cspHashes.styleSrc).toContain(
+        `'${hashInlineContentForCSP('.ns{color:red}')}'`,
+      );
+    }
+  });
+
+  it('leaves a <noscript> without inline content alone', async () => {
+    const result = await processTemplate(
+      '<!doctype html><html><head><title>t</title><!--ss-head--></head><body><noscript><p>JavaScript is required.</p></noscript><div id="root"><!--ss-outlet--></div></body></html>',
+      'ssr',
+      false,
+      false,
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.cspHashes.styleSrc).toHaveLength(0);
+      expect(result.cspHashes.scriptSrc).toHaveLength(0);
+    }
+  });
+});

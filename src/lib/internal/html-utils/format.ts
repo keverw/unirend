@@ -530,37 +530,58 @@ function collectTemplateCSPHashesWith(
   html: string,
   load: typeof cheerioLoad,
 ): TemplateCSPHashes {
-  const $ = load(html);
   const scriptSrc = new Set<string>();
   const styleSrc = new Set<string>();
 
-  $('script').each((_, el) => {
-    const element = $(el);
+  const collectFrom = ($: CheerioAPI): void => {
+    $('script').each((_, el) => {
+      const element = $(el);
 
-    if (element.attr('src')) {
-      return;
-    }
+      if (element.attr('src')) {
+        return;
+      }
 
-    const type = element.attr('type');
+      const type = element.attr('type');
 
-    if (type && !JAVASCRIPT_SCRIPT_TYPES.has(type.trim().toLowerCase())) {
-      return;
-    }
+      if (type && !JAVASCRIPT_SCRIPT_TYPES.has(type.trim().toLowerCase())) {
+        return;
+      }
 
-    const content = element.html();
+      const content = element.html();
 
-    if (content) {
-      scriptSrc.add(`'${hashInlineContentForCSP(content)}'`);
-    }
-  });
+      if (content) {
+        scriptSrc.add(`'${hashInlineContentForCSP(content)}'`);
+      }
+    });
 
-  $('style').each((_, el) => {
-    const content = $(el).html();
+    $('style').each((_, el) => {
+      const content = $(el).html();
 
-    if (content) {
-      styleSrc.add(`'${hashInlineContentForCSP(content)}'`);
-    }
-  });
+      if (content) {
+        styleSrc.add(`'${hashInlineContentForCSP(content)}'`);
+      }
+    });
+
+    // <noscript> has to be parsed separately, and missing this is silent in the
+    // worst way. A parser with scripting enabled, which is what cheerio is,
+    // treats the element's contents as raw text, so the selectors above see
+    // nothing inside it. A browser with JavaScript *disabled* parses the same
+    // bytes as real markup, so a <style> in there becomes a live style element
+    // and a strict style-src without its hash blocks it.
+    //
+    // The result would be a noscript fallback rendering unstyled for exactly
+    // the users it exists for, and invisible to anyone testing with JavaScript
+    // on. Both the starter template and the demos put a <style> in theirs.
+    $('noscript').each((_, el) => {
+      const inner = $(el).html();
+
+      if (inner && /<(?:script|style)\b/i.test(inner)) {
+        collectFrom(load(inner, null, false));
+      }
+    });
+  };
+
+  collectFrom(load(html));
 
   return { scriptSrc: [...scriptSrc], styleSrc: [...styleSrc] };
 }
