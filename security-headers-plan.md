@@ -103,6 +103,30 @@ Fix: the server owns the resolved policy, not the plugin. Apply at three points.
 
 Fill-if-absent, not overwrite, so a handler that deliberately set its own CSP on one route wins.
 
+### Coverage across server types
+
+`APIServer` (API mode and plain web mode) and `SSRServer` both extend `BaseServer` and have their own `registerPlugins()`. `StaticWebServer` and `RedirectServer` do not extend it, but both construct an `APIServer` internally and pass plugins through (`static-web-server.ts:404`, `redirect-server.ts:261`). So covering the two real servers covers all four surfaces.
+
+- [ ] Follow the existing shared-helper pattern (`registerClosingResponseHook`, `registerClientInfoResolution`, `registerResponseTimeHijackPatch`) rather than duplicating the hook in each server
+- [ ] `RedirectServer` is the sharpest case: it registers its redirect as an `onRequest` hook inside the first plugin, so it short-circuits before anything a user registers. The backstop is the only mechanism that reaches it.
+
+### Do not send HSTS on a rejected domain
+
+Raised as "if we reject a domain, why care": mostly right, and it inverts what the backstop should do.
+
+HSTS is the header that seems most important here and is actually **wrong**. `domainValidation` returns 403 precisely because the domain is not one this server claims. Sending `Strict-Transport-Security` on that response sets an HTTPS policy for a domain the operator has just disclaimed, and the browser honors it for the full `maxAge`. Same footgun class as `includeSubDomains` on a customer domain, but worse, because here we have explicitly said the domain is not ours.
+
+- [ ] Backstop must **not** blanket-apply HSTS. Skip it whenever the response is a domain rejection.
+- [ ] More generally, HSTS should only be sent for a host the server actually serves, which is a stronger condition than "the transport was secure"
+
+What is still worth applying to a 403, in descending order of actual value:
+
+- **CSP**, as defense in depth. The default response is `text/plain` and safe, but `invalidDomainHandler` may return `contentType: 'html'`, and the attacker-controlled `originalDomain` is exactly the kind of value a custom handler would interpolate into it.
+- **CORS**, not for security but so a cross-origin caller sees the real 403 instead of an opaque network error. A debuggability win.
+- **frameOptions**, marginal on a plain-text 403.
+
+- [ ] Document that `invalidDomainHandler` receives an attacker-controlled `domain` string and must escape it when returning `contentType: 'html'`. Unirend sends that content verbatim. Not a bug, but an unmarked sharp edge.
+
 ### Bug found while checking the above: HSTS is sent over plain HTTP
 
 `applyUnconditionalSecurityHeaders()` emits `Strict-Transport-Security` whenever `hsts` is configured, without looking at whether the connection is secure. The current docs acknowledge this ("this plugin does not inspect the connection security, enable with care") and push the problem to the user, but RFC 6797 §7.2 is a MUST NOT, so this is a spec violation rather than a configuration preference. It fires on any HTTP request to a deployment with `hsts` set, including a plain-HTTP local run and any setup where the app speaks HTTP behind a TLS-terminating proxy.
