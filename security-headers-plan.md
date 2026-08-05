@@ -116,7 +116,17 @@ Raised as "if we reject a domain, why care": mostly right, and it inverts what t
 
 HSTS is the header that seems most important here and is actually **wrong**. `domainValidation` returns 403 precisely because the domain is not one this server claims. Sending `Strict-Transport-Security` on that response sets an HTTPS policy for a domain the operator has just disclaimed, and the browser honors it for the full `maxAge`. Same footgun class as `includeSubDomains` on a customer domain, but worse, because here we have explicitly said the domain is not ours.
 
-- [ ] Backstop must **not** blanket-apply HSTS. Skip it whenever the response is a domain rejection.
+**Key the skip on the rejection, not on the status code.** A 403 from the application's own authorization logic, on a domain the server does claim, should get HSTS like any other response. The host is ours, the user simply is not allowed in. Suppressing HSTS on every 403 would strip it from a large share of perfectly normal traffic.
+
+The discriminator is not the status, it is that `domainValidation` determined the host is unclaimed. Only that plugin knows it, so it publishes the fact on the request and the backstop reads it:
+
+- [ ] `domainValidation` decorates the request when it rejects a host, and also on the 400 for a missing or unparseable `Host` header, since in that case the host is unknown rather than merely wrong
+- [ ] Backstop skips HSTS when that marker is present, and applies it normally otherwise
+- [ ] No ordering hazard: the marker is set in `onRequest` before the response is sent, and the backstop runs on `onSend`, always after
+- [ ] When `domainValidation` is not registered there is no marker and behavior is unchanged, which matches today
+
+This is a request decoration publishing a fact, not plugin-to-plugin deferral of the kind rejected for protocol resolution above. The difference is real: protocol is a value both plugins derive from the same input, so the server should compute it once. Whether a host was rejected is knowable only inside `domainValidation`, so publishing it is the only option. Same shape as the existing `corsOriginAllowed` decoration.
+
 - [ ] More generally, HSTS should only be sent for a host the server actually serves, which is a stronger condition than "the transport was secure"
 
 What is still worth applying to a 403, in descending order of actual value:
