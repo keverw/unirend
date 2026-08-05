@@ -125,9 +125,18 @@ That gap is exploitable when the app is reachable directly rather than only thro
 - [ ] `securityHeaders` reads `request.protocol` and needs no proxy option of its own
 - [ ] Remove `domainValidation.trustProxyHeaders` in favor of `fastifyOptions.trustProxy`, so proxy trust is configured once, in one place, with peer validation. Pre-release, so removal beats deprecation.
 
-  Sharing `getProtocol()` between the plugins instead was considered and rejected. It fixes duplication, which is not the problem. The problem is that the bare boolean is a weaker trust model than what Fastify already offers, and sharing it hands that weakness to a second plugin while leaving two proxy-trust settings that can disagree. Since these plugins are usually deployed together, a config where "which domain am I" and "am I secure" resolve from different trust models is exactly the failure worth designing out.
+  **Why the plugin has its own in the first place:** the history records no rationale, so this is reconstruction. The likely goal was for the plugin to work standalone without requiring server-level config, which is what the fallback comment at `domain-validation.ts:174` reads like: prefer `request.protocol`, which is correct when Fastify is configured, and otherwise read the headers directly. A legitimate goal. The cost is a convenience path that skips peer validation.
 
-  Middle path if removal is unwanted: keep the option but make it defer. When `fastifyOptions.trustProxy` is set, ignore the boolean and use `request.protocol`. When it is not, warn at startup that the boolean trusts headers no one has validated. Keeps existing configs working, costs more code, and leaves the footgun in place.
+  Note that the boolean offers no customization. `getProtocol()` is internal and unexported, and `trustProxyHeaders` is a bare on/off. Fastify's `trustProxy` is the one that takes a predicate function, so moving to it gains flexibility rather than losing it.
+
+  **Preferred resolution: the server resolves it once, before user plugins, and decorates the request.** Both plugins read `request.resolvedProtocol` / `request.resolvedHost`. One config (`fastifyOptions.trustProxy`), one resolution point, no ordering sensitivity, and neither plugin needs a proxy option of its own.
+
+  This is the same architectural move as the ordering fix (the server owns what plugins currently each compute), so it is one idea rather than two. It also preserves the standalone-friendliness that probably motivated `trustProxyHeaders`, because resolution now happens whether or not either plugin is registered.
+
+  Rejected alternatives:
+  - **Share `getProtocol()` between the plugins.** Fixes duplication, which is not the problem. It hands the weaker trust model to a second plugin and still leaves two settings that can disagree.
+  - **Have `securityHeaders` detect `domainValidation` and defer to it.** Plugin-to-plugin coupling reintroduces the ordering dependency this branch exists to remove.
+  - **Defer-and-warn.** Keep the boolean, ignore it when `fastifyOptions.trustProxy` is set, warn at startup otherwise. Non-breaking, but more code and the footgun survives. Fallback only if the break is unwanted.
 
 - [ ] **Verify before migrating:** `domainValidation` needs the port, and it currently gets it via `parseHostHeader()`. Fastify's `request.hostname` strips the port while `request.host` keeps it, so the replacement is likely `request.host`. Confirm against Fastify 5's actual behavior rather than assuming, since getting this wrong silently breaks `preservePort` and any port-bearing canonical redirect.
 - [ ] Changelog: this is a second breaking change and a security fix. Say plainly that a repo setting `trustProxyHeaders: true` must move to `fastifyOptions.trustProxy`, and that the new setting should name the proxy rather than being a bare `true` wherever the origin is directly reachable.
