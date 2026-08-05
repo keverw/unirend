@@ -27,7 +27,7 @@ export async function sendRawErrorEnvelopeResponse(
   // reply.hijack() so header-application failures still propagate through
   // Fastify's normal error handling instead of failing after raw ownership has
   // already been taken.
-  await request.applyCORSHeaders?.(reply);
+  await request.applySecurityHeaders?.(reply);
 
   // Keep Fastify's reply state aligned with the status/content-type we are
   // about to send even though the final body write happens on reply.raw.

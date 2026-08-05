@@ -1,6 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { cors } from './cors';
-import type { CORSConfig } from './cors';
+import { securityHeaders } from './security-headers';
+import type { SecurityHeadersConfig } from './security-headers';
 import type { PluginOptions, PluginHostInstance } from '../types';
 
 interface MockRequest {
@@ -89,17 +89,17 @@ const createMockOptions = (
   ...overrides,
 });
 
-describe('cors', () => {
+describe('securityHeaders', () => {
   describe('plugin registration', () => {
     it('should register onRequest hook', async () => {
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors({ origin: 'https://example.com' });
+      const plugin = securityHeaders({ origin: 'https://example.com' });
 
       await plugin(pluginHost, options);
 
       expect(pluginHost.decorateRequest).toHaveBeenCalledWith(
-        'applyCORSHeaders',
+        'applySecurityHeaders',
         expect.any(Function),
       );
 
@@ -114,7 +114,7 @@ describe('cors', () => {
     it('should keep registration the same when exposedHeaders are configured', async () => {
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors({
+      const plugin = securityHeaders({
         origin: 'https://example.com',
         exposedHeaders: ['X-Custom-Header'],
       });
@@ -122,7 +122,7 @@ describe('cors', () => {
       await plugin(pluginHost, options);
 
       expect(pluginHost.decorateRequest).toHaveBeenCalledWith(
-        'applyCORSHeaders',
+        'applySecurityHeaders',
         expect.any(Function),
       );
       expect(pluginHost.addHook).toHaveBeenCalledWith(
@@ -133,24 +133,24 @@ describe('cors', () => {
     });
 
     it("should throw when '*' is included in an origin array with other entries", () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['*', 'https://*'],
       };
 
       // This is validated earlier than the multi-special-wildcard check
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         /do not include '\*' inside an origin array/i,
       );
     });
 
     it("should allow combining '*' with 'null' in origin array", async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['*', 'null'],
       };
 
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const onRequestHook = pluginHost
@@ -169,13 +169,13 @@ describe('cors', () => {
     });
 
     it("should allow combining 'https://*' with 'null' in origin array", async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://*', 'null'],
       };
 
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const onRequestHook = pluginHost
@@ -204,13 +204,13 @@ describe('cors', () => {
     });
 
     it("should allow combining 'http://*' with 'null' in origin array", async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['http://*', 'null'],
       };
 
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const onRequestHook = pluginHost
@@ -239,33 +239,33 @@ describe('cors', () => {
     });
 
     it('should throw when both protocol wildcards are present in origin array (https://* and http://*)', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://*', 'http://*'],
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         /only one of '\*', 'https:\/\/\*', or 'http:\/\/\*' may be specified in origin/i,
       );
     });
 
     it('should throw when the same protocol wildcard appears more than once in origin array', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://*', 'https://*'],
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         /only one of '\*', 'https:\/\/\*', or 'http:\/\/\*' may be specified in origin/i,
       );
     });
 
     it('should allow a single protocol wildcard inside an origin array', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://*'],
       };
 
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const onRequestHook = pluginHost
@@ -287,13 +287,13 @@ describe('cors', () => {
 
   describe('origin validation', () => {
     it('should allow requests with no origin header', async () => {
-      const config: CORSConfig = { origin: ['https://example.com'] };
+      const config: SecurityHeadersConfig = { origin: ['https://example.com'] };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({ headers: {} });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const onRequestHook = pluginHost
@@ -307,7 +307,7 @@ describe('cors', () => {
     it('should not set CORS headers for disallowed origins on regular requests', async () => {
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors({ origin: 'https://allowed.com' });
+      const plugin = securityHeaders({ origin: 'https://allowed.com' });
       await plugin(pluginHost, options);
 
       const request = createMockRequest({
@@ -331,7 +331,7 @@ describe('cors', () => {
     });
 
     it('should support wildcard origins', async () => {
-      const config: CORSConfig = { origin: ['*.example.com'] };
+      const config: SecurityHeadersConfig = { origin: ['*.example.com'] };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
@@ -339,7 +339,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const onRequestHook = pluginHost
@@ -353,7 +353,7 @@ describe('cors', () => {
     it('should not set CORS headers for HTTP origins when using https://* wildcard', async () => {
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors({ origin: 'https://*' });
+      const plugin = securityHeaders({ origin: 'https://*' });
       await plugin(pluginHost, options);
 
       const request = createMockRequest({
@@ -376,12 +376,12 @@ describe('cors', () => {
     });
 
     it('should support function-based origin validation', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: (origin, _request) => origin === 'https://dynamic.com',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const request = createMockRequest({
@@ -398,12 +398,12 @@ describe('cors', () => {
     });
 
     it('should reject origins when function-based validation returns false', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: (origin, _request) => origin === 'https://allowed.com',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const request = createMockRequest({
@@ -420,12 +420,12 @@ describe('cors', () => {
     });
 
     it("should reject origins when string config doesn't match", async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: 'https://allowed.com',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const request = createMockRequest({
@@ -442,12 +442,12 @@ describe('cors', () => {
     });
 
     it("should reject origins when array config doesn't include origin", async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://allowed1.com', 'https://allowed2.com'],
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const request = createMockRequest({
@@ -464,12 +464,12 @@ describe('cors', () => {
     });
 
     it('should reject requests when origin is undefined and config is not wildcard', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: 'https://allowed.com',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const request = createMockRequest({
@@ -486,12 +486,12 @@ describe('cors', () => {
     });
 
     it('should return 403 for disallowed origins on preflight OPTIONS requests', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: 'https://allowed.com',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const request = createMockRequest({
@@ -514,12 +514,12 @@ describe('cors', () => {
     });
 
     it('should return 403 for function-based origin rejection on preflight OPTIONS requests', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: (origin, _request) => origin === 'https://allowed.com',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const request = createMockRequest({
@@ -542,12 +542,12 @@ describe('cors', () => {
     });
 
     it('should set wildcard origin for preflight OPTIONS with no origin header and wildcard config', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const request = createMockRequest({
@@ -572,7 +572,7 @@ describe('cors', () => {
     });
 
     it("should throw when origin '*' is combined with function-based credentials", () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         credentials: (origin, request) => {
           return (
@@ -582,7 +582,7 @@ describe('cors', () => {
         },
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         "Unsafe CORS: cannot combine origin '*' with dynamic credentials. Use a concrete origin list when enabling credentials.",
       );
     });
@@ -592,7 +592,7 @@ describe('cors', () => {
     it('should set Access-Control-Allow-Origin header for allowed origins', async () => {
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors({ origin: 'https://example.com' });
+      const plugin = securityHeaders({ origin: 'https://example.com' });
       await plugin(pluginHost, options);
 
       const request = createMockRequest({
@@ -614,7 +614,7 @@ describe('cors', () => {
     it('should allow credentials with protocol wildcard origins (https://*) when explicitly opted in', async () => {
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors({
+      const plugin = securityHeaders({
         origin: 'https://*',
         credentials: true,
         allowCredentialsWithProtocolWildcard: true,
@@ -642,13 +642,13 @@ describe('cors', () => {
     });
 
     it('should throw when credentials: true is used with protocol wildcard without opt-in', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: 'https://*',
         credentials: true,
         // allowCredentialsWithProtocolWildcard not set (defaults to false)
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         /Cannot use credentials: true with protocol wildcard origins/i,
       );
     });
@@ -656,7 +656,7 @@ describe('cors', () => {
     it('should set Vary: Origin header for non-wildcard origins', async () => {
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors({ origin: 'https://example.com' });
+      const plugin = securityHeaders({ origin: 'https://example.com' });
       await plugin(pluginHost, options);
 
       const request = createMockRequest({
@@ -675,7 +675,7 @@ describe('cors', () => {
     it('should set Access-Control-Allow-Credentials when credentials enabled', async () => {
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors({
+      const plugin = securityHeaders({
         origin: 'https://example.com',
         credentials: true,
       });
@@ -698,7 +698,7 @@ describe('cors', () => {
     });
 
     it('should set custom allowed methods', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://example.com'],
         methods: ['GET', 'POST', 'PUT'],
       };
@@ -713,7 +713,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const onRequestHook = pluginHost
@@ -728,7 +728,7 @@ describe('cors', () => {
     });
 
     it('should set custom allowed headers', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://example.com'],
         allowedHeaders: ['Content-Type', 'Authorization'],
       };
@@ -744,7 +744,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const onRequestHook = pluginHost
@@ -759,7 +759,7 @@ describe('cors', () => {
     });
 
     it('should set exposed headers', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://example.com'],
         exposedHeaders: ['X-Total-Count', 'X-Rate-Limit'],
       };
@@ -771,7 +771,7 @@ describe('cors', () => {
       const reply = createMockReply();
       request.corsOriginAllowed = true;
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const onRequestHook = pluginHost
@@ -786,7 +786,7 @@ describe('cors', () => {
     });
 
     it('should set max age for preflight cache', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://example.com'],
         maxAge: 86400,
       };
@@ -801,7 +801,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const onRequestHook = pluginHost
@@ -819,7 +819,7 @@ describe('cors', () => {
   describe('credentials function behavior', () => {
     it("should not set credentials for 'null' even if credentials function returns true", async () => {
       const pluginHost = createMockPluginHost();
-      const plugin = cors({
+      const plugin = securityHeaders({
         origin: ['https://allowed.com', 'null'],
         credentials: (origin) => !!origin, // always true when present
       });
@@ -848,7 +848,7 @@ describe('cors', () => {
 
     it('should set credentials when credentials function returns true for trusted origin', async () => {
       const pluginHost = createMockPluginHost();
-      const plugin = cors({
+      const plugin = securityHeaders({
         origin: ['https://allowed.com'],
         credentials: (origin) => origin === 'https://allowed.com',
       });
@@ -879,7 +879,7 @@ describe('cors', () => {
   describe('allowedHeaders reflection limits', () => {
     it("caps reflected headers at 100 when allowedHeaders is ['*']", async () => {
       const pluginHost = createMockPluginHost();
-      const plugin = cors({
+      const plugin = securityHeaders({
         origin: 'https://example.com',
         allowedHeaders: ['*'],
       });
@@ -915,7 +915,7 @@ describe('cors', () => {
 
     it('filters out header names longer than 256 chars when reflecting', async () => {
       const pluginHost = createMockPluginHost();
-      const plugin = cors({
+      const plugin = securityHeaders({
         origin: 'https://example.com',
         allowedHeaders: ['*'],
       });
@@ -949,7 +949,7 @@ describe('cors', () => {
   describe('security headers', () => {
     it('should not set X-Frame-Options or HSTS by default', async () => {
       const pluginHost = createMockPluginHost();
-      const plugin = cors({ origin: 'https://example.com' });
+      const plugin = securityHeaders({ origin: 'https://example.com' });
       await plugin(pluginHost, createMockOptions());
 
       const onRequestHook = pluginHost
@@ -974,7 +974,7 @@ describe('cors', () => {
 
     it('should set X-Frame-Options and HSTS when configured', async () => {
       const pluginHost = createMockPluginHost();
-      const plugin = cors({
+      const plugin = securityHeaders({
         origin: 'https://example.com',
         xFrameOptions: 'DENY',
         hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
@@ -1000,7 +1000,7 @@ describe('cors', () => {
 
     it('should validate hsts.maxAge as non-negative number', () => {
       expect(() =>
-        cors({
+        securityHeaders({
           origin: 'https://example.com',
           hsts: { maxAge: -1 },
         }),
@@ -1010,7 +1010,7 @@ describe('cors', () => {
     it('should enforce preload requirements: maxAge >= 31536000 and includeSubDomains', () => {
       // Too small max-age
       expect(() =>
-        cors({
+        securityHeaders({
           origin: 'https://example.com',
           hsts: { maxAge: 300, preload: true, includeSubDomains: true },
         }),
@@ -1018,7 +1018,7 @@ describe('cors', () => {
 
       // Missing includeSubDomains
       expect(() =>
-        cors({
+        securityHeaders({
           origin: 'https://example.com',
           hsts: { maxAge: 31536000, preload: true },
         }),
@@ -1026,7 +1026,7 @@ describe('cors', () => {
 
       // Valid preload config
       expect(() =>
-        cors({
+        securityHeaders({
           origin: 'https://example.com',
           hsts: { maxAge: 31536000, preload: true, includeSubDomains: true },
         }),
@@ -1036,7 +1036,7 @@ describe('cors', () => {
 
   describe('edge cases', () => {
     it('should not set CORS headers for null origin when not explicitly allowed', async () => {
-      const config: CORSConfig = { origin: ['https://example.com'] };
+      const config: SecurityHeadersConfig = { origin: ['https://example.com'] };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
@@ -1045,7 +1045,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const onRequestHook = pluginHost
@@ -1063,7 +1063,7 @@ describe('cors', () => {
     });
 
     it('should handle case-insensitive origin matching', async () => {
-      const config: CORSConfig = { origin: ['https://example.com'] };
+      const config: SecurityHeadersConfig = { origin: ['https://example.com'] };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
@@ -1071,7 +1071,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const onRequestHook = pluginHost
@@ -1083,7 +1083,9 @@ describe('cors', () => {
     });
 
     it('should handle origins with ports', async () => {
-      const config: CORSConfig = { origin: ['https://example.com:8080'] };
+      const config: SecurityHeadersConfig = {
+        origin: ['https://example.com:8080'],
+      };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
@@ -1091,7 +1093,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const onRequestHook = pluginHost
@@ -1103,7 +1105,7 @@ describe('cors', () => {
     });
 
     it('should auto-merge credentials origins into main origin list', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://example.com'],
         credentials: ['https://app.example.com'],
       };
@@ -1114,7 +1116,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const onRequestHook = pluginHost
@@ -1126,13 +1128,13 @@ describe('cors', () => {
     });
 
     it('should convert single origin to array and merge with credentials origins', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: 'https://app.com', // Single string origin (not "*")
         credentials: ['https://auth.com', 'https://admin.com'],
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       // Test that the original single origin still works
@@ -1166,24 +1168,24 @@ describe('cors', () => {
 
   describe('configuration validation', () => {
     it("should throw error when credentials: true is used with origin: '*'", () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         credentials: true,
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         "Cannot use credentials: true with origin: '*'. The CORS specification prohibits Access-Control-Allow-Credentials: true with Access-Control-Allow-Origin: *. Use specific origins instead.",
       );
     });
 
     it("should normalize ['*'] to '*' and behave as wildcard", async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['*'],
       };
 
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const request = createMockRequest({
@@ -1207,14 +1209,14 @@ describe('cors', () => {
     });
 
     it("should upgrade origin '*' to credentials allowlist when credentials is an array", async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         credentials: ['https://allow.com', 'https://also-allow.com'],
       };
 
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, options);
 
       const onRequestHook = pluginHost
@@ -1254,7 +1256,7 @@ describe('cors', () => {
 
   describe('preflightContinue', () => {
     it('should set CORS headers and continue to route handler when preflightContinue is true', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: 'https://example.com',
         preflightContinue: true,
         credentials: true,
@@ -1269,7 +1271,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, createMockOptions());
 
       const onRequestHook = pluginHost
@@ -1290,7 +1292,7 @@ describe('cors', () => {
     });
 
     it('should set wildcard origin when preflightContinue is true and no origin header', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         preflightContinue: true,
       };
@@ -1303,7 +1305,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, createMockOptions());
 
       const onRequestHook = pluginHost
@@ -1322,7 +1324,7 @@ describe('cors', () => {
 
   describe('private network access', () => {
     it('should set Access-Control-Allow-Private-Network header when allowPrivateNetwork is true and request includes private network header', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         allowPrivateNetwork: true,
       };
@@ -1337,7 +1339,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, createMockOptions());
 
       const onRequestHook = pluginHost
@@ -1352,7 +1354,7 @@ describe('cors', () => {
     });
 
     it('should not set Access-Control-Allow-Private-Network header when allowPrivateNetwork is false', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         allowPrivateNetwork: false,
       };
@@ -1367,7 +1369,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, createMockOptions());
 
       const onRequestHook = pluginHost
@@ -1382,7 +1384,7 @@ describe('cors', () => {
     });
 
     it("should not set Access-Control-Allow-Private-Network header when request header is not 'true'", async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         allowPrivateNetwork: true,
       };
@@ -1397,7 +1399,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, createMockOptions());
 
       const onRequestHook = pluginHost
@@ -1412,7 +1414,7 @@ describe('cors', () => {
     });
 
     it('should not set Access-Control-Allow-Private-Network header when request header is missing', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         allowPrivateNetwork: true,
       };
@@ -1426,7 +1428,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, createMockOptions());
 
       const onRequestHook = pluginHost
@@ -1443,7 +1445,7 @@ describe('cors', () => {
 
   describe('matchesCredentialsListWithWildcard', () => {
     it('should match exact origins', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         credentials: ['https://example.com', 'https://api.example.com'],
         credentialsAllowWildcardSubdomains: true,
@@ -1454,7 +1456,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, createMockOptions());
 
       const onRequestHook = pluginHost
@@ -1469,7 +1471,7 @@ describe('cors', () => {
     });
 
     it('should match wildcard patterns like *.example.com', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         credentials: ['*.example.com'],
         credentialsAllowWildcardSubdomains: true,
@@ -1480,7 +1482,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, createMockOptions());
 
       const onRequestHook = pluginHost
@@ -1495,7 +1497,7 @@ describe('cors', () => {
     });
 
     it('should match nested subdomains with wildcard', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         credentials: ['*.example.com'],
         credentialsAllowWildcardSubdomains: true,
@@ -1506,7 +1508,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, createMockOptions());
 
       const onRequestHook = pluginHost
@@ -1521,7 +1523,7 @@ describe('cors', () => {
     });
 
     it('should NOT match apex domain with wildcard pattern', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         credentials: ['*.example.com'],
         credentialsAllowWildcardSubdomains: true,
@@ -1532,7 +1534,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, createMockOptions());
 
       const onRequestHook = pluginHost
@@ -1547,7 +1549,7 @@ describe('cors', () => {
     });
 
     it('should handle undefined origin', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         credentials: ['*.example.com'],
         credentialsAllowWildcardSubdomains: true,
@@ -1558,7 +1560,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, createMockOptions());
 
       const onRequestHook = pluginHost
@@ -1573,18 +1575,18 @@ describe('cors', () => {
     });
 
     it('should allow multi-label wildcard patterns that match matcher capabilities', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         credentials: ['*.*.example.com', '*.api.*.example.com'], // Now valid patterns
         credentialsAllowWildcardSubdomains: true,
       };
 
       // Should NOT throw error - these patterns are now supported
-      expect(() => cors(config)).not.toThrow();
+      expect(() => securityHeaders(config)).not.toThrow();
     });
 
     it('should handle mixed exact and wildcard patterns', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         credentials: ['https://exact.com', '*.wildcard.com'],
         credentialsAllowWildcardSubdomains: true,
@@ -1596,7 +1598,7 @@ describe('cors', () => {
         headers: { origin: 'https://exact.com' },
       });
       const exactReply = createMockReply();
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
 
       await plugin(pluginHost, createMockOptions());
 
@@ -1625,7 +1627,7 @@ describe('cors', () => {
     });
 
     it('should be case-insensitive for wildcard matching', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         credentials: ['*.Example.COM'],
         credentialsAllowWildcardSubdomains: true,
@@ -1636,7 +1638,7 @@ describe('cors', () => {
       });
       const reply = createMockReply();
 
-      const plugin = cors(config);
+      const plugin = securityHeaders(config);
       await plugin(pluginHost, createMockOptions());
 
       const onRequestHook = pluginHost
@@ -1651,26 +1653,26 @@ describe('cors', () => {
     });
 
     it('should reject wildcard patterns when credentialsAllowWildcardSubdomains is false', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         credentials: ['*.example.com'],
         credentialsAllowWildcardSubdomains: false, // Disabled
       };
 
       // Should throw error during plugin creation
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         'Wildcard pattern "*.example.com" in credentials requires credentialsAllowWildcardSubdomains: true or use explicit origins.',
       );
     });
 
     it("should reject raw wildcard '*' in credentials", () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         credentials: ['*'],
         credentialsAllowWildcardSubdomains: true,
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         'Invalid CORS credentials origin "*": global wildcard \'*\' not allowed in this context',
       );
     });
@@ -1693,13 +1695,13 @@ describe('cors', () => {
       ];
 
       for (const { pattern, expectedError } of testCases) {
-        const config: CORSConfig = {
+        const config: SecurityHeadersConfig = {
           origin: '*',
           credentials: [pattern],
           credentialsAllowWildcardSubdomains: true,
         };
 
-        expect(() => cors(config)).toThrow(
+        expect(() => securityHeaders(config)).toThrow(
           `Invalid CORS credentials origin "${pattern}": ${expectedError}`,
         );
       }
@@ -1708,14 +1710,14 @@ describe('cors', () => {
 
   describe('allowedHeaders wildcard behavior', () => {
     it("should reflect exactly the requested headers when allowedHeaders is ['*']", async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: 'https://example.com',
         allowedHeaders: ['*'],
       };
 
       const mockHost = createMockPluginHost();
       const mockOptions = createMockOptions();
-      await cors(config)(mockHost, mockOptions);
+      await securityHeaders(config)(mockHost, mockOptions);
 
       const hooks = mockHost.getHooks();
       const onRequestHook = hooks.find((h) => h.event === 'onRequest');
@@ -1743,14 +1745,14 @@ describe('cors', () => {
     });
 
     it("should handle empty access-control-request-headers with allowedHeaders: ['*']", async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: 'https://example.com',
         allowedHeaders: ['*'],
       };
 
       const mockHost = createMockPluginHost();
       const mockOptions = createMockOptions();
-      await cors(config)(mockHost, mockOptions);
+      await securityHeaders(config)(mockHost, mockOptions);
 
       const hooks = mockHost.getHooks();
       const onRequestHook = hooks.find((h) => h.event === 'onRequest');
@@ -1777,7 +1779,7 @@ describe('cors', () => {
 
   describe('credentials wildcard configuration', () => {
     it('should allow credentials for nested subdomains with credentialsAllowWildcardSubdomains: true and **.example.com', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://example.com'],
         credentials: ['**.example.com'],
         credentialsAllowWildcardSubdomains: true,
@@ -1785,7 +1787,7 @@ describe('cors', () => {
 
       const mockHost = createMockPluginHost();
       const mockOptions = createMockOptions();
-      await cors(config)(mockHost, mockOptions);
+      await securityHeaders(config)(mockHost, mockOptions);
 
       const hooks = mockHost.getHooks();
       const onRequestHook = hooks.find((h) => h.event === 'onRequest');
@@ -1811,7 +1813,7 @@ describe('cors', () => {
     });
 
     it('should NOT allow credentials for apex domain with **.example.com pattern', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://example.com'],
         credentials: ['**.example.com'],
         credentialsAllowWildcardSubdomains: true,
@@ -1819,7 +1821,7 @@ describe('cors', () => {
 
       const mockHost = createMockPluginHost();
       const mockOptions = createMockOptions();
-      await cors(config)(mockHost, mockOptions);
+      await securityHeaders(config)(mockHost, mockOptions);
 
       const hooks = mockHost.getHooks();
       const onRequestHook = hooks.find((h) => h.event === 'onRequest');
@@ -1846,25 +1848,25 @@ describe('cors', () => {
     });
 
     it('should reject wildcard credentials configuration when credentialsAllowWildcardSubdomains: false', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: 'https://example.com',
         credentials: ['*.example.com'],
         credentialsAllowWildcardSubdomains: false,
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         'Wildcard pattern "*.example.com" in credentials requires credentialsAllowWildcardSubdomains: true or use explicit origins.',
       );
     });
 
     it('should reject wildcard credentials configuration when credentialsAllowWildcardSubdomains is undefined', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: 'https://example.com',
         credentials: ['*.example.com'],
         // credentialsAllowWildcardSubdomains not set (defaults to false)
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         'Wildcard pattern "*.example.com" in credentials requires credentialsAllowWildcardSubdomains: true or use explicit origins.',
       );
     });
@@ -1872,95 +1874,95 @@ describe('cors', () => {
 
   describe('enhanced validateConfigEntry integration', () => {
     it('should reject global wildcard in credentials using validateConfigEntry', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://example.com'],
         credentials: ['*'],
         credentialsAllowWildcardSubdomains: true,
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         'Invalid CORS credentials origin "*": global wildcard \'*\' not allowed in this context',
       );
     });
 
     it('should reject protocol wildcards in credentials using validateConfigEntry', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://example.com'],
         credentials: ['https://*'],
         credentialsAllowWildcardSubdomains: true,
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         'Invalid CORS credentials origin "https://*": protocol wildcard not allowed',
       );
     });
 
     it('should reject invalid domain patterns in credentials using validateConfigEntry', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://example.com'],
         credentials: ['*.com'], // Public suffix - should be rejected
         credentialsAllowWildcardSubdomains: true,
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         'Invalid CORS credentials origin "*.com": wildcard tail targets public suffix or IP (disallowed)',
       );
     });
 
     it('should reject invalid origins using validateConfigEntry', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://example.com/path'], // Path not allowed in origin
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         'Invalid CORS origin "https://example.com/path": origin must not contain path, query, or fragment',
       );
     });
 
     it('should reject protocol wildcards in origin arrays when not allowed', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://*', 'http://*'], // Multiple protocol wildcards
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         "Invalid CORS config: only one of '*', 'https://*', or 'http://*' may be specified in origin. Found: https://*, http://*",
       );
     });
 
     it('should accept valid protocol wildcards in origin', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://*'], // Single protocol wildcard should be allowed
       };
 
-      expect(() => cors(config)).not.toThrow();
+      expect(() => securityHeaders(config)).not.toThrow();
     });
 
     it('should accept valid subdomain patterns in credentials', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://example.com'],
         credentials: ['*.example.com', '**.api.example.com'],
         credentialsAllowWildcardSubdomains: true,
       };
 
-      expect(() => cors(config)).not.toThrow();
+      expect(() => securityHeaders(config)).not.toThrow();
     });
 
     it('should reject partial-label wildcards using validateConfigEntry', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['api*.example.com'], // Partial label wildcard
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         'Invalid CORS origin "api*.example.com": partial-label wildcards are not allowed',
       );
     });
 
     it('should reject all-wildcard patterns using validateConfigEntry', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['*.*'], // All wildcards pattern
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         'Invalid CORS origin "*.*": all-wildcards pattern is not allowed',
       );
     });
@@ -1972,12 +1974,12 @@ describe('cors', () => {
 
   describe("credentials: ['null'] rejection", () => {
     it("rejects 'null' as a credentials origin", () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://example.com'],
         credentials: ['null'],
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         "credentials cannot be enabled for the 'null' origin",
       );
     });
@@ -1990,13 +1992,13 @@ describe('cors', () => {
   describe('origin as a function', () => {
     it('calls the origin function and allows when it returns true', async () => {
       const originFn = mock((_origin: string | undefined) => true);
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: originFn,
       };
 
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      await cors(config)(pluginHost, options);
+      await securityHeaders(config)(pluginHost, options);
 
       const onRequestHook = pluginHost
         .getHooks()
@@ -2015,13 +2017,13 @@ describe('cors', () => {
     });
 
     it('calls the origin function and blocks when it returns false', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: mock((_origin: string | undefined) => false),
       };
 
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      await cors(config)(pluginHost, options);
+      await securityHeaders(config)(pluginHost, options);
 
       const onRequestHook = pluginHost
         .getHooks()
@@ -2046,14 +2048,14 @@ describe('cors', () => {
   describe('credentials as a function', () => {
     it('calls the credentials function and allows when it returns true', async () => {
       const credFn = mock((_origin: string | undefined) => true);
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://example.com'],
         credentials: credFn,
       };
 
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      await cors(config)(pluginHost, options);
+      await securityHeaders(config)(pluginHost, options);
 
       const onRequestHook = pluginHost
         .getHooks()
@@ -2078,13 +2080,13 @@ describe('cors', () => {
 
   describe('credentials: true + protocol-wildcard array origin', () => {
     it('throws when origin array contains https://* and credentials: true without opt-in', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://*'],
         credentials: true,
         // allowCredentialsWithProtocolWildcard not set → throws
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         'Cannot use credentials: true with protocol wildcard origins',
       );
     });
@@ -2096,12 +2098,12 @@ describe('cors', () => {
 
   describe("origin: '*' + empty credentials array", () => {
     it('throws when credentials is an empty array combined with origin: *', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: '*',
         credentials: [],
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         "credentials list is empty; cannot combine origin '*' with credentials",
       );
     });
@@ -2113,11 +2115,11 @@ describe('cors', () => {
 
   describe('single-string origin validation', () => {
     it('rejects a string origin with a path component', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: 'https://example.com/path',
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         'Invalid CORS origin "https://example.com/path"',
       );
     });
@@ -2129,11 +2131,11 @@ describe('cors', () => {
 
   describe('wildcard + non-null entry in origin array', () => {
     it('throws when a non-null regular origin follows a protocol wildcard', () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['https://*', 'https://specific.example.com'],
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         "when a wildcard token is present, the only other allowed entry is the literal 'null'",
       );
     });
@@ -2145,33 +2147,33 @@ describe('cors', () => {
 
   describe("origin array with '*' and null + credentials guards", () => {
     it("throws when credentials: true is combined with origin array containing '*'", () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['*', 'null'],
         credentials: true,
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         "Cannot use credentials: true when origin array contains '*'",
       );
     });
 
     it("throws when a credentials function is combined with origin array containing '*'", () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: ['*', 'null'],
         credentials: mock((_origin: string | undefined) => true),
       };
 
-      expect(() => cors(config)).toThrow(
+      expect(() => securityHeaders(config)).toThrow(
         "Unsafe CORS: cannot combine an origin array containing '*' with dynamic credentials",
       );
     });
   });
 
   // -------------------------------------------------------------------------
-  // applyCORSHeaders decorator body
+  // applySecurityHeaders decorator body
   // -------------------------------------------------------------------------
 
-  describe('applyCORSHeaders decorator', () => {
+  describe('applySecurityHeaders decorator', () => {
     it('calls applyCORSActualResponseHeaders when the decorator is invoked', async () => {
       let capturedDecorator:
         ((...args: unknown[]) => Promise<void>) | undefined;
@@ -2194,7 +2196,10 @@ describe('cors', () => {
       } as unknown as MockPluginHost;
 
       const options = createMockOptions();
-      await cors({ origin: 'https://example.com' })(capturingHost, options);
+      await securityHeaders({ origin: 'https://example.com' })(
+        capturingHost,
+        options,
+      );
 
       expect(capturedDecorator).toBeDefined();
 
@@ -2218,14 +2223,14 @@ describe('cors', () => {
 
   describe('non-wildcard allowedHeaders preflight — invalid header filtering', () => {
     it('skips header names containing spaces', async () => {
-      const config: CORSConfig = {
+      const config: SecurityHeadersConfig = {
         origin: 'https://example.com',
         allowedHeaders: ['Content-Type', 'Authorization'],
       };
 
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      await cors(config)(pluginHost, options);
+      await securityHeaders(config)(pluginHost, options);
 
       const hooks = pluginHost.getHooks();
       const onRequestHook = hooks.find((h) => h.event === 'onRequest');

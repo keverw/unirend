@@ -515,7 +515,7 @@ export interface ControlledReply {
    *
    * This is installed by the framework's controlled-reply wrapper so helpers
    * can terminate with the same raw/hijacked path while still reusing shared
-   * header logic such as CORS application.
+   * header logic such as security header application.
    *
    * ControlledReply intentionally does not expose general-purpose send/write
    * methods to user handlers. This internal escape hatch exists only so
@@ -2812,13 +2812,14 @@ declare module 'fastify' {
      */
     CDNBaseURL?: string;
     /**
-     * Optional request-scoped helper installed by the built-in CORS plugin.
+     * Optional request-scoped helper installed by the built-in securityHeaders
+     * plugin.
      *
      * Raw/hijacked response paths can call this before `writeHead(...)` to
      * apply the same actual-response CORS/security headers that normal
      * Fastify-managed responses receive.
      */
-    applyCORSHeaders?: (reply: FastifyReply) => void | Promise<void>;
+    applySecurityHeaders?: (reply: FastifyReply) => void | Promise<void>;
     /**
      * Internal request-start timestamp captured by the framework.
      *

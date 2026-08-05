@@ -1,4 +1,4 @@
-# cors
+# securityHeaders
 
 <!-- toc -->
 
@@ -18,7 +18,7 @@
 
 ## About
 
-The `cors` plugin provides dynamic CORS (Cross-Origin Resource Sharing) handling with advanced features not available in standard CORS libraries. Unlike `@fastify/cors`, this plugin supports dynamic credentials based on origin, allowing you to create public APIs while restricting credential access to trusted domains.
+The `securityHeaders` plugin provides dynamic CORS (Cross-Origin Resource Sharing) handling with advanced features not available in standard CORS libraries. Unlike `@fastify/cors`, this plugin supports dynamic credentials based on origin, allowing you to create public APIs while restricting credential access to trusted domains.
 
 ## Key Features
 
@@ -31,11 +31,11 @@ The `cors` plugin provides dynamic CORS (Cross-Origin Resource Sharing) handling
 ## Usage
 
 ```typescript
-import { cors } from 'unirend/plugins';
+import { securityHeaders } from 'unirend/plugins';
 
 const server = serveSSRBuilt(buildDir, {
   plugins: [
-    cors({
+    securityHeaders({
       origin: '*', // Allow any origin for public API access
       credentials: ['https://myapp.com', 'https://admin.myapp.com'], // Only these can send cookies
       methods: ['GET', 'POST', 'PUT', 'DELETE'],
@@ -115,13 +115,13 @@ const server = serveSSRBuilt(buildDir, {
 - **Header Preservation**: Maintains configured header casing (e.g., "Content-Type")
 - **Private Network Support**: Configurable Chrome private network access feature
 - **Declarative Methods**: Only returns methods that are actually configured
-- **Raw response compatibility**: This is mostly an internal/advanced concern. When this plugin is registered, it decorates the request with an internal `request.applyCORSHeaders(reply)` helper. Unirend's own hijacked/raw response paths can feature-detect that helper and call it before `writeHead(...)` snapshots `reply.getHeaders()`, so those responses still receive the same CORS/security headers even though they bypass Fastify's normal send pipeline.
+- **Raw response compatibility**: This is mostly an internal/advanced concern. When this plugin is registered, it decorates the request with an internal `request.applySecurityHeaders(reply)` helper. Unirend's own hijacked/raw response paths can feature-detect that helper and call it before `writeHead(...)` snapshots `reply.getHeaders()`, so those responses still receive the same CORS/security headers even though they bypass Fastify's normal send pipeline.
 
 **Examples:**
 
 ```typescript
 // Wildcard origins with explicit credentials (recommended)
-cors({
+securityHeaders({
   origin: ['**.myapp.com', 'https://myapp.com'], // All subdomains + explicit apex
   credentials: ['https://app.myapp.com', 'https://admin.myapp.com'], // Explicit only
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
@@ -129,7 +129,7 @@ cors({
 });
 
 // Protocol-specific wildcards
-cors({
+securityHeaders({
   origin: ['https://*.myapp.com'], // HTTPS subdomains
   credentials: ['https://app.myapp.com'],
   // To allow wildcard credentials for subdomains, enable the flag and list patterns explicitly
@@ -138,26 +138,26 @@ cors({
 });
 
 // Protocol wildcard + credentials (explicit opt-in)
-cors({
+securityHeaders({
   origin: ['https://*'],
   credentials: true,
   allowCredentialsWithProtocolWildcard: true,
 });
 
 // Global wildcard with explicit null (sandboxed/file contexts)
-cors({
+securityHeaders({
   origin: ['*', 'null'],
   credentials: false,
 });
 
 // Mixed wildcard patterns (with explicit null)
-cors({
+securityHeaders({
   origin: ['https://*', 'null'], // Any HTTPS + sandboxed/file contexts
   credentials: false, // No credentials for broad access
 });
 
 // Dynamic validation based on request path
-cors({
+securityHeaders({
   origin: (origin, request) => {
     // Allow any origin for public endpoints
     if (request.url?.startsWith('/api/public/')) return true;
@@ -173,7 +173,7 @@ cors({
 });
 
 // Traditional CORS (like @fastify/cors)
-cors({
+securityHeaders({
   origin: ['https://myapp.com', 'https://www.myapp.com'],
   credentials: true, // Allow credentials for all allowed origins
   methods: ['GET', 'POST'],
@@ -182,7 +182,7 @@ cors({
 });
 
 // Development setup with flexible origins
-cors({
+securityHeaders({
   origin: (origin, request) => {
     // Allow localhost and development domains
     if (!origin) return true; // Mobile apps, curl, etc.
@@ -230,17 +230,17 @@ Most plugin authors do not need to think about this section. It matters when an 
 
 In those cases, Fastify's normal `onSend` pipeline will not run for that response.
 
-When the `cors` plugin is registered, it decorates the request with an internal `request.applyCORSHeaders(reply)` helper. Hijacked/raw paths that need CORS headers should feature-detect that helper and call it before `writeHead(...)`:
+When the `securityHeaders` plugin is registered, it decorates the request with an internal `request.applySecurityHeaders(reply)` helper. Hijacked/raw paths that need CORS headers should feature-detect that helper and call it before `writeHead(...)`:
 
 ```ts
-await request.applyCORSHeaders?.(reply);
+await request.applySecurityHeaders?.(reply);
 reply.hijack();
 reply.raw.writeHead(statusCode, reply.getHeaders());
 ```
 
 Apply the helper before `reply.hijack()`, not after. If CORS/header logic throws while Fastify still owns the reply, the normal error path can still run.
 
-If the `cors` plugin is not registered, that helper will be absent and nothing extra needs to happen. Likewise, if your code stays on Fastify's normal managed response path and does not switch to `reply.hijack()` / raw `writeHead(...)`, the plugin's ordinary hook flow is enough.
+If the `securityHeaders` plugin is not registered, that helper will be absent and nothing extra needs to happen. Likewise, if your code stays on Fastify's normal managed response path and does not switch to `reply.hijack()` / raw `writeHead(...)`, the plugin's ordinary hook flow is enough.
 
 Fastify `reply.hijack()` bypasses the normal `onSend` pipeline. For ordinary CORS-managed responses that is fine, because the plugin applies actual-response headers during `onRequest`. But a raw/hijacked path that ends the response with `reply.raw.writeHead(...)` must make sure those headers are on the reply before it snapshots `reply.getHeaders()`.
 
@@ -250,7 +250,7 @@ Unirend's built-in static content cache does this by calling the plugin's shared
 
 ```typescript
 // Comprehensive production setup
-cors({
+securityHeaders({
   origin: ['**.myapp.com', 'https://myapp.com'], // All subdomains + explicit apex
   credentials: [
     'https://app.myapp.com',
@@ -274,7 +274,7 @@ fetch('https://api.myapp.com/data', {
 });
 
 // Header reflection with fallback
-cors({
+securityHeaders({
   origin: '*',
   allowedHeaders: ['*'], // Reflects Access-Control-Request-Headers
   // If no headers requested, falls back to configured list (minus '*')
@@ -282,14 +282,14 @@ cors({
 });
 
 // Local development with private network access
-cors({
+securityHeaders({
   origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
   credentials: true,
   allowPrivateNetwork: true, // Enable Chrome private network requests
 });
 
-// Security headers via CORS plugin (off by default)
-cors({
+// Non-CORS security headers (off by default)
+securityHeaders({
   origin: ['**.myapp.com', 'https://myapp.com'],
   xFrameOptions: 'SAMEORIGIN', // or "DENY"
   hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
@@ -299,7 +299,7 @@ cors({
 
 ## Advanced Use Cases
 
-The dynamic nature of this CORS plugin makes it perfect for:
+The dynamic nature of this plugin's CORS handling makes it perfect for:
 
 - **Public APIs**: Accept requests from any origin while restricting credentials
 - **Dynamic credentials**: Control cookie/auth header access per origin and request

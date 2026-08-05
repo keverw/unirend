@@ -1,7 +1,7 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { StaticWebServer } from './static-web-server';
 import { StaticContentCache } from './static-content-cache';
-import { cors } from '../built-in-plugins/cors';
+import { securityHeaders } from '../built-in-plugins/security-headers';
 import { overrideDevMode } from 'lifecycleion/dev-mode';
 import { createTempDir } from 'lifecycleion/tmp-dir';
 import fs from 'fs';
@@ -940,7 +940,7 @@ describe('StaticWebServer', () => {
 
       server = makeServer({
         plugins: [
-          cors({
+          securityHeaders({
             origin: ['https://app.example.com'],
             exposedHeaders: ['X-Response-Time'],
             xFrameOptions: 'SAMEORIGIN',

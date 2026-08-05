@@ -363,8 +363,8 @@ async function main() {
           wwwHandling: 'remove', // Redirect www.example.com → example.com
         }),
         // Note: Cross-origin requests are blocked by default (secure)
-        // Add cors() plugin only if you need to allow cross-origin API access
-        // See docs/built-in-plugins/cors.md for configuration
+        // Add securityHeaders() plugin only if you need to allow cross-origin API access
+        // See docs/built-in-plugins/security-headers.md for configuration
       ],
 
       publicAppConfig: {

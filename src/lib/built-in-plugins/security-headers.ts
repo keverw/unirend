@@ -23,9 +23,9 @@ export type CORSOrigin =
     ) => boolean | Promise<boolean>);
 
 /**
- * Configuration for dynamic CORS handling
+ * Configuration for dynamic CORS handling and browser security headers
  */
-export interface CORSConfig {
+export interface SecurityHeadersConfig {
   /**
    * Allowed origins for CORS requests
    * - string: Single origin (e.g., "https://example.com")
@@ -162,7 +162,9 @@ export interface CORSConfig {
 /**
  * Default CORS configuration
  */
-const DEFAULT_CONFIG: Required<Omit<CORSConfig, 'credentials' | 'origin'>> & {
+const DEFAULT_CONFIG: Required<
+  Omit<SecurityHeadersConfig, 'credentials' | 'origin'>
+> & {
   origin: CORSOrigin;
   credentials: boolean;
 } = {
@@ -187,8 +189,8 @@ const MAX_ALLOWED_HEADERS = 100;
 // Limit the length of each reflected header name to avoid pathological values
 const MAX_HEADER_LEN = 256;
 
-type ResolvedCORSConfig = Required<
-  Omit<CORSConfig, 'credentials' | 'origin'>
+type ResolvedSecurityHeadersConfig = Required<
+  Omit<SecurityHeadersConfig, 'credentials' | 'origin'>
 > & {
   origin: CORSOrigin;
   credentials:
@@ -277,7 +279,7 @@ async function isOriginAllowed(
  */
 async function areCredentialsAllowed(
   origin: string | undefined,
-  credentialsConfig: CORSConfig['credentials'],
+  credentialsConfig: SecurityHeadersConfig['credentials'],
   request: FastifyRequest,
   allowWildcardSubdomains: boolean,
 ): Promise<boolean> {
@@ -302,9 +304,9 @@ async function areCredentialsAllowed(
   return false;
 }
 
-function applyCORSSecurityHeaders(
+function applyUnconditionalSecurityHeaders(
   reply: FastifyReply,
-  resolvedConfig: ResolvedCORSConfig,
+  resolvedConfig: ResolvedSecurityHeadersConfig,
 ): void {
   // These headers are not negotiated per-origin. They are safe to apply even
   // on requests that will ultimately receive no Access-Control-Allow-Origin
@@ -338,7 +340,7 @@ function applyCORSSecurityHeaders(
 async function applyCORSActualResponseHeaders(
   request: FastifyRequest,
   reply: FastifyReply,
-  resolvedConfig: ResolvedCORSConfig,
+  resolvedConfig: ResolvedSecurityHeadersConfig,
   isOriginAllowedResult?: boolean,
 ): Promise<void> {
   const origin = request.headers.origin;
@@ -348,7 +350,7 @@ async function applyCORSActualResponseHeaders(
 
   // Apply the unconditional security/Vary headers first, then layer the
   // origin-negotiated CORS headers on top if this request is allowed.
-  applyCORSSecurityHeaders(reply, resolvedConfig);
+  applyUnconditionalSecurityHeaders(reply, resolvedConfig);
 
   // For non-preflight requests, let them proceed without CORS headers if the
   // origin is not allowed. Same-origin requests still work; browsers enforce
@@ -388,7 +390,10 @@ async function applyCORSActualResponseHeaders(
 }
 
 /**
- * Dynamic CORS plugin for Unirend
+ * Browser security headers plugin for Unirend
+ *
+ * Owns the response headers a browser enforces policy from: CORS negotiation
+ * plus the non-negotiated headers such as X-Frame-Options and HSTS.
  *
  * Provides more flexible CORS handling than @fastify/cors, specifically:
  * - Dynamic credentials based on origin
@@ -398,20 +403,20 @@ async function applyCORSActualResponseHeaders(
  * @example
  * ```typescript
  * // Allow public API access but only credentials for trusted origins
- * cors({
+ * securityHeaders({
  *   origin: "*", // Allow any origin for public API
  *   credentials: ["https://myapp.com", "https://admin.myapp.com"], // Only these can send cookies
  *   methods: ["GET", "POST"],
  * })
  *
  * // Handle "null" origins from sandboxed documents or file:// URLs
- * cors({
+ * securityHeaders({
  *   origin: ["https://app.com", "null"], // Explicitly allow null origins
  *   credentials: ["https://app.com"], // Credentials not allowed for null origins
  * })
  *
  * // Dynamic validation based on request
- * cors({
+ * securityHeaders({
  *   origin: (origin, request) => {
  *     // Allow any origin for public endpoints
  *     if (request.url?.startsWith('/api/public/')) return true;
@@ -425,7 +430,9 @@ async function applyCORSActualResponseHeaders(
  * })
  * ```
  */
-export function cors(config: CORSConfig = {}): ServerPlugin<UnirendServerMode> {
+export function securityHeaders(
+  config: SecurityHeadersConfig = {},
+): ServerPlugin<UnirendServerMode> {
   const resolvedConfig = { ...DEFAULT_CONFIG, ...config };
 
   // Config-time validations:
@@ -651,7 +658,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin<UnirendServerMode> {
       cfg.maxAge < 0
     ) {
       throw new Error(
-        'Invalid CORS config: hsts.maxAge must be a non-negative number (seconds)',
+        'Invalid securityHeaders config: hsts.maxAge must be a non-negative number (seconds)',
       );
     }
 
@@ -661,13 +668,13 @@ export function cors(config: CORSConfig = {}): ServerPlugin<UnirendServerMode> {
     if (cfg.preload) {
       if (cfg.maxAge < 31536000) {
         throw new Error(
-          'Invalid CORS config: HSTS preload requires maxAge >= 31536000 (1 year)',
+          'Invalid securityHeaders config: HSTS preload requires maxAge >= 31536000 (1 year)',
         );
       }
 
       if (!cfg.includeSubDomains) {
         throw new Error(
-          'Invalid CORS config: HSTS preload requires includeSubDomains: true',
+          'Invalid securityHeaders config: HSTS preload requires includeSubDomains: true',
         );
       }
     }
@@ -675,8 +682,8 @@ export function cors(config: CORSConfig = {}): ServerPlugin<UnirendServerMode> {
 
   return async (fastify: PluginHostInstance<UnirendServerMode>) => {
     fastify.decorateRequest(
-      'applyCORSHeaders',
-      async function applyCORSHeaders(
+      'applySecurityHeaders',
+      async function applySecurityHeaders(
         this: FastifyRequest,
         reply: FastifyReply,
       ) {
@@ -702,7 +709,7 @@ export function cors(config: CORSConfig = {}): ServerPlugin<UnirendServerMode> {
         const origin = request.headers.origin;
         const method = request.method;
 
-        applyCORSSecurityHeaders(reply, resolvedConfig);
+        applyUnconditionalSecurityHeaders(reply, resolvedConfig);
 
         // Check if origin is allowed and cache result on request
         const isOriginAllowedResult = await isOriginAllowed(

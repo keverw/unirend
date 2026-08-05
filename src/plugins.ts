@@ -7,12 +7,12 @@ import {
   signerFactory as createCookieSigner,
 } from '@fastify/cookie';
 
-// Re-export CORS plugin for cross-origin request handling
+// Re-export browser security headers plugin (CORS negotiation, HSTS, X-Frame-Options)
 export {
-  type CORSConfig,
+  type SecurityHeadersConfig,
   type CORSOrigin,
-  cors,
-} from './lib/built-in-plugins/cors';
+  securityHeaders,
+} from './lib/built-in-plugins/security-headers';
 
 // Re-export domain validation plugin for enforcing canonical domains
 export {
