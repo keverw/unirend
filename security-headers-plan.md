@@ -165,8 +165,13 @@ The failure is not subtle. Where the proxy terminates TLS and forwards plain HTT
 
 This cannot ship as "delete it and mention it in the changelog."
 
-- [ ] **Runtime guard.** When `enforceHTTPS` or `canonicalDomain` is active, Fastify's `trustProxy` is not configured, and a request arrives carrying `x-forwarded-proto` or `x-forwarded-host`, log a one-time warning naming `fastifyOptions.trustProxy` as the fix. That combination is almost always a misconfigured proxy deployment, and it is cheap to detect.
-- [ ] Consider going further and suppressing the HTTPS redirect in exactly that state, on the grounds that a redirect loop is worse than a missed redirect. Decide deliberately rather than by omission.
+- [x] **No runtime guard.** An earlier draft proposed warning when `enforceHTTPS` was active, `trustProxy` unset, and a request arrived carrying `x-forwarded-proto`. That is unworkable, and the reason is the point of the whole change: with `trustProxy` unset, the header is untrusted input. Any client can send it, so a healthy non-proxied deployment would warn about a misconfiguration that does not exist, and the warning becomes something an outsider can trigger. A false positive under attacker control is worse than no warning.
+
+  The only version surviving that objection is config-only at startup (`enforceHTTPS` on, `trustProxy` unset, no request data), which is deterministic and cannot be triggered externally. Rejected anyway: it misfires for anyone terminating TLS at the app itself, which is legitimate, and a warning people learn to ignore is worse than none.
+
+  Document the failure mode instead, where someone hits it.
+
+- [ ] Do **not** suppress the HTTPS redirect either. Deciding to skip it would depend on the same untrusted header.
 - [ ] ~~Startup warning when a removed `trustProxyHeaders` key is still present~~. Dropped. That is migration scaffolding with a one-release lifespan, and the changelog carries it. Keep the removal clean.
 
   Worth keeping the two warnings separate when deciding. The deprecation notice is temporary and exists only to bridge this release. The misconfiguration guard above is permanent: `enforceHTTPS` on, `trustProxy` unset, and `x-forwarded-proto` present is a broken deployment whenever it occurs, including for someone who first puts unirend behind a proxy long after this change ships. Following the framework's standard behavior is what makes that failure reachable, since Fastify correctly declines to trust headers nobody vouched for.
@@ -188,6 +193,13 @@ So this is bringing one straggler in line with what the rest of the codebase alr
 
 - [ ] Document the above in `docs/built-in-plugins/domainValidation.md`, replacing the current Proxy Support section, which describes the `trustProxyHeaders` behavior being removed
 - [ ] `docs/https.md` should point at `fastifyOptions.trustProxy` too, since TLS termination is exactly where readers arrive at this problem
+
+Since there is no warning, the docs carry the whole burden. Name the symptom, not just the setting, so someone already looking at a broken deploy can search for it:
+
+- [ ] State plainly that `enforceHTTPS` behind a TLS-terminating proxy **requires** `fastifyOptions.trustProxy`, and that without it the result is a redirect loop rather than a subtle misbehavior
+- [ ] Say the same for `canonicalDomain`, which without a trusted `x-forwarded-host` compares against the internal upstream host and redirects on every request
+- [ ] Use the words a person would actually search: "redirect loop", "ERR_TOO_MANY_REDIRECTS", "infinite redirect"
+- [ ] Put it in a GitHub alert block rather than a paragraph, so it survives skim-reading
 - [ ] Changelog: this is a second breaking change and a security fix. Say plainly that a repo setting `trustProxyHeaders: true` must move to `fastifyOptions.trustProxy`, and that the new setting should name the proxy rather than being a bare `true` wherever the origin is directly reachable.
 - [ ] Test: `hsts` configured, request over HTTP, header absent
 - [ ] Test: `hsts` configured, HTTP request behind a trusted proxy sending `x-forwarded-proto: https`, header present
