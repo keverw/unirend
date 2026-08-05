@@ -138,7 +138,22 @@ That gap is exploitable when the app is reachable directly rather than only thro
   - **Have `securityHeaders` detect `domainValidation` and defer to it.** Plugin-to-plugin coupling reintroduces the ordering dependency this branch exists to remove.
   - **Defer-and-warn.** Keep the boolean, ignore it when `fastifyOptions.trustProxy` is set, warn at startup otherwise. Non-breaking, but more code and the footgun survives. Fallback only if the break is unwanted.
 
-- [ ] **Verify before migrating:** `domainValidation` needs the port, and it currently gets it via `parseHostHeader()`. Fastify's `request.hostname` strips the port while `request.host` keeps it, so the replacement is likely `request.host`. Confirm against Fastify 5's actual behavior rather than assuming, since getting this wrong silently breaks `preservePort` and any port-bearing canonical redirect.
+- [ ] Verified: `request.host` keeps the port, `request.hostname` strips it and is IPv6-aware (brackets handled), and `request.port` exists separately. Together they replace the `parseHostHeader()` split, so the earlier port concern is resolved. `request.host` also falls back to HTTP/2 `:authority`, which the hand-rolled version does not.
+
+### Second bug, worse than the first: first-vs-last forwarded entry
+
+Fastify reads the **last** comma-separated entry of `x-forwarded-host` and `x-forwarded-proto` (`getLastEntryInMultiHeaderValue`, `fastify/lib/request.js:96-100`, commented "we use the last one if the header is set more than once"). `domainValidation` reads the **first**, via `.split(',')[0]`, in both `getHost()` (line 195) and `getProtocol()` (line 168).
+
+The ordering is the security property, and first is the wrong end. A client sends `X-Forwarded-Host: evil.com`. A proxy that appends rather than replaces yields `evil.com, real.example.com`. The last entry is what the trusted proxy wrote; the first is attacker-supplied. Reading the first means the bypass works **even behind a correctly configured proxy**, which is a materially larger exposure than the directly-reachable case noted above.
+
+Same shape for the protocol: client sends `X-Forwarded-Proto: https`, proxy appends the real `http`, first-entry logic reads `https`. Result is HSTS emitted over plain HTTP and HTTPS enforcement skipped.
+
+Precondition is a proxy that appends or adds a second header rather than overwriting. Many overwrite (nginx `proxy_set_header` does), so this is not live in every deployment, but it is exactly the case the trust setting exists to handle.
+
+- [ ] Migrating to `request.host` / `request.protocol` fixes this for free, since Fastify already reads the correct end. Another reason to delete the hand-rolled pair rather than share it.
+- [ ] Test: `x-forwarded-host: evil.com, real.example.com` behind a trusted proxy resolves to `real.example.com`
+- [ ] Test: `x-forwarded-proto: https, http` behind a trusted proxy resolves to `http`, so no HSTS and HTTPS enforcement still fires
+- [ ] Changelog: this is the security fix that justifies the break on its own. Note that a deployment behind an appending proxy was affected regardless of how carefully it was configured.
 - [ ] Changelog: this is a second breaking change and a security fix. Say plainly that a repo setting `trustProxyHeaders: true` must move to `fastifyOptions.trustProxy`, and that the new setting should name the proxy rather than being a bare `true` wherever the origin is directly reachable.
 - [ ] Test: `hsts` configured, request over HTTP, header absent
 - [ ] Test: `hsts` configured, HTTP request behind a trusted proxy sending `x-forwarded-proto: https`, header present
