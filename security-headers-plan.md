@@ -470,14 +470,24 @@ Three sources of inline content, and they do not behave the same way.
 
 3. **Per-request injected globals** — `inject.ts:428-516` emits seven inline scripts whose content varies per request: `__lifecycleion_is_dev__`, `__FRONTEND_REQUEST_CONTEXT__`, `__PUBLIC_APP_CONFIG__`, `__CDN_BASE_URL__`, `__DOMAIN_INFO__`, `__UNIREND_TEMPLATE_ATTRS__`, template metas. **Hashes do not work here.** This is the one genuine nonce case.
 
-### Avoiding nonces for case 3
+### Avoiding nonces for case 3 (done)
 
-Preferred: consolidate the seven into one `<script type="application/json">` data block plus one _static_ bootstrap script that reads it and assigns the globals. A non-executable script type is a CSP data block and is not governed by `script-src`, and the bootstrap script is fixed text so it hashes like everything else. Result: the whole SSR pipeline works under a strict CSP with no nonces anywhere.
+Consolidate the seven into one `<script type="application/json">` data block plus one _static_ bootstrap script that reads it and assigns the globals. A non-executable script type is a CSP data block and is not governed by `script-src`, and the bootstrap script is fixed text so it hashes like everything else. Result: the whole SSR pipeline works under a strict CSP with no nonces anywhere.
 
-- [x] **Verified.** A `<script>` with a non-JavaScript `type` is never executed by any browser, so CSP does not treat it as executable and `script-src` does not apply. This is an established technique, not a loophole. One requirement that comes with it: any `</script` inside the JSON must be escaped as `<\/script`, or the element closes early. Check whether `inject.ts`'s existing `safeContextJSON` / `safeConfigJSON` helpers already do this, since the naming suggests they might.
-- [ ] Consolidating seven script tags into one is a small perf win regardless
-- [ ] Changes the shape of what a slotted script can read at startup — check ordering, the bootstrap must run before any slot script that reads a global
-- [ ] Fallback if the claim does not hold: support an opt-in nonce mode for these injected scripts only, still not required for the default path
+Done ahead of the CSP config itself, since the config needs this to exist before it has a `script-src` worth writing.
+
+- [x] **Verified.** A `<script>` with a non-JavaScript `type` is never executed by any browser, so CSP does not treat it as executable and `script-src` does not apply. This is an established technique, not a loophole. One requirement that comes with it: any `</script` inside the JSON must be escaped, or the element closes early.
+- [x] The existing escaping already covered it. Every one of the seven scripts ran `.replace(/</g, '\\u003c')`, so no `<` reaches the output at all, and JSON decodes the escape back on the client. Kept as-is in `serializeContextData`, with a test proving a payload containing `</script><script>alert(1)</script>` cannot break out.
+- [x] Consolidating seven script tags into two is a small perf win regardless
+- [x] Ordering checked, and the answer is that nothing had to change. `processTemplate` deliberately relocates every head script, the template's own and the slotted ones, to _after_ the context-scripts placeholder (`format.ts:612`), so anything reading a global already ran after the assignments. The data block and bootstrap take exactly the placeholder's position, so the guarantee is preserved rather than re-established.
+
+  Worth recording how nearly this went wrong: the first measurement said the template's theme flash-prevention script ran _before_ the globals were assigned, which would have been a real regression. It was measuring `demos/ssr/index.html` straight from disk, which has no placeholder marker, so `injectContent` took its before-`</head>` fallback. `processTemplate` inserts the marker, and the real pipeline always runs it first. Measuring the wrong half of a two-stage pipeline produces a confident, entirely wrong answer.
+
+- [x] Bootstrap survives a missing or malformed data block rather than throwing. It runs while the head is still parsing, so a throw takes out every later script and turns a data problem into a blank page.
+- [x] `UNIREND_BOOTSTRAP_SCRIPT_HASH` exported for the CSP config to feed into `script-src`, computed from the same constant the markup interpolates
+- [ ] ~~Fallback if the claim does not hold: opt-in nonce mode~~. Not needed, the claim holds.
+
+**Still executable, and no hash can cover it: React Router's hydration scripts.** `inject.ts` relocates them verbatim from the body, deliberately, because the serializer's output is not hydration-safe if re-serialized. They vary per request, so they cannot be hashed, and the data-block treatment is not available without rewriting what React Router emits. This is the one remaining gap in a nonce-free strict `script-src` and it needs deciding in the CSP commit, not assuming away.
 
 ## Docs
 

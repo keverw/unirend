@@ -3,6 +3,48 @@ import * as cheerio from 'cheerio';
 import { prettifyHeadTags, injectContent } from './inject';
 import { processTemplate } from './format';
 import { TAB_SPACES } from '../consts';
+import {
+  renderContextDataElements,
+  UNIREND_DATA_BLOCK_ID,
+  type UnirendContextData,
+} from './context-data-block';
+
+/**
+ * The two elements injectContent emits in place of the seven per-global
+ * assignment scripts it used to.
+ *
+ * Built through the same renderer the implementation uses, deliberately. These
+ * tests are about placement and the surrounding markup; restating the
+ * bootstrap's minified source in an expected string would make every one of
+ * them fail on an unrelated edit to it, which is how a suite stops being worth
+ * reading.
+ */
+function contextElements(overrides: Partial<UnirendContextData> = {}): string {
+  return renderContextDataElements({
+    isDev: false,
+    cdnBaseURL: '',
+    domainInfo: null,
+    templateAttrs: { html: {}, body: {} },
+    templateMetas: [],
+    ...overrides,
+  }).join('\n');
+}
+
+/**
+ * Read the JSON data block back out of rendered HTML, the way the client
+ * bootstrap does.
+ */
+function dataBlockPayload(html: string): Record<string, unknown> {
+  const match = new RegExp(
+    `<script type="application/json" id="${UNIREND_DATA_BLOCK_ID}">([\\s\\S]*?)</script>`,
+  ).exec(html);
+
+  if (!match) {
+    throw new Error('no unirend data block found in output');
+  }
+
+  return JSON.parse(match[1]) as Record<string, unknown>;
+}
 
 describe('prettifyHeadTags', () => {
   it('should prettify head tags with default indentation', () => {
@@ -64,11 +106,7 @@ describe('injectContent', () => {
       '<!DOCTYPE html><html><head>' +
       `<title>Test Title</title>\n` +
       `${TAB_SPACES}<meta name="description" content="Test">` +
-      '<script>globalThis.__lifecycleion_is_dev__=false;</script>\n' +
-      '<script>window.__CDN_BASE_URL__="";</script>\n' +
-      '<script>window.__DOMAIN_INFO__=null;</script>\n' +
-      '<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>\n' +
-      '<script>window.__UNIREND_TEMPLATE_METAS__=[];</script>' +
+      contextElements() +
       '</head><body><div>Hello World</div></body></html>';
 
     expect(await injectContent(template, headContent, bodyContent)).toBe(
@@ -81,7 +119,9 @@ describe('injectContent', () => {
       '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
 
     const expected =
-      '<!DOCTYPE html><html><head><script>globalThis.__lifecycleion_is_dev__=false;</script>\n<script>window.__CDN_BASE_URL__="";</script>\n<script>window.__DOMAIN_INFO__=null;</script>\n<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>\n<script>window.__UNIREND_TEMPLATE_METAS__=[];</script></head><body></body></html>';
+      '<!DOCTYPE html><html><head>' +
+      contextElements() +
+      '</head><body></body></html>';
 
     expect(await injectContent(template, '', '')).toBe(expected);
   });
@@ -97,11 +137,7 @@ describe('injectContent', () => {
       '<!DOCTYPE html><html><head>' +
       `<title>React App</title>` +
       '</head><body><div id="root" data-reactroot=""><div>React Content</div></div>' +
-      '<script>globalThis.__lifecycleion_is_dev__=false;</script>\n' +
-      '<script>window.__CDN_BASE_URL__="";</script>\n' +
-      '<script>window.__DOMAIN_INFO__=null;</script>\n' +
-      '<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>\n' +
-      '<script>window.__UNIREND_TEMPLATE_METAS__=[];</script>' +
+      contextElements() +
       '</body></html>';
 
     expect(await injectContent(template, headContent, bodyContent)).toBe(
@@ -163,8 +199,15 @@ describe('injectContent', () => {
     const result = await injectContent(template, '', '');
 
     expect(result).not.toContain('<!--context-scripts-injection-point-->');
-    expect(result).not.toContain('window.__FRONTEND_REQUEST_CONTEXT__');
-    expect(result).not.toContain('window.__PUBLIC_APP_CONFIG__');
+
+    // The bootstrap is fixed text, so it names both globals whether or not
+    // they were provided. What says "not provided" is the key being absent
+    // from the payload, which is what makes the bootstrap skip the assignment
+    // and leave the global undefined rather than defining it as undefined.
+    const payload = dataBlockPayload(result);
+
+    expect(payload).not.toHaveProperty('requestContext');
+    expect(payload).not.toHaveProperty('appConfig');
   });
 
   it('should inject both app config and request context', async () => {
@@ -259,7 +302,7 @@ describe('injectContent', () => {
     expect(result).not.toContain('__CDN__INJECTION__POINT__');
   });
 
-  it('should inject window.__CDN_BASE_URL__ with the CDN URL when provided', async () => {
+  it('should carry the CDN URL in the data block when provided', async () => {
     const template =
       '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
 
@@ -267,21 +310,21 @@ describe('injectContent', () => {
       CDNBaseURL: 'https://cdn.example.com',
     });
 
-    expect(result).toContain(
-      'window.__CDN_BASE_URL__="https://cdn.example.com"',
-    );
+    expect(dataBlockPayload(result).cdnBaseURL).toBe('https://cdn.example.com');
   });
 
-  it('should inject window.__CDN_BASE_URL__ as empty string when no CDN URL provided', async () => {
+  it('should carry an empty CDN URL when none is provided', async () => {
     const template =
       '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
 
     const result = await injectContent(template, '', '');
 
-    expect(result).toContain('window.__CDN_BASE_URL__=""');
+    // Empty string rather than absent, so client code can read it
+    // unconditionally without guarding against undefined.
+    expect(dataBlockPayload(result).cdnBaseURL).toBe('');
   });
 
-  it('should strip trailing slash from CDN URL in window.__CDN_BASE_URL__', async () => {
+  it('should strip a trailing slash from the CDN URL', async () => {
     const template =
       '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
 
@@ -289,12 +332,7 @@ describe('injectContent', () => {
       CDNBaseURL: 'https://cdn.example.com/',
     });
 
-    expect(result).toContain(
-      'window.__CDN_BASE_URL__="https://cdn.example.com"',
-    );
-    expect(result).not.toContain(
-      'window.__CDN_BASE_URL__="https://cdn.example.com/"',
-    );
+    expect(dataBlockPayload(result).cdnBaseURL).toBe('https://cdn.example.com');
   });
 
   it('should extract React Router hydration script from body and move it to head', async () => {
@@ -467,9 +505,14 @@ describe('injectContent', () => {
     expect(result).toContain('data-name="A &amp; B"');
     expect(result).toContain('data-label="A\u00A0B"');
     expect(result).toContain('data-copy="©"');
-    expect(result).toContain(
-      'window.__UNIREND_TEMPLATE_ATTRS__={"html":{"lang":"en"},"body":{"data-name":"A & B","data-label":"A\u00A0B","data-copy":"©"}}',
-    );
+    expect(dataBlockPayload(result).templateAttrs).toEqual({
+      html: { lang: 'en' },
+      body: {
+        'data-name': 'A & B',
+        'data-label': 'A\u00A0B',
+        'data-copy': '©',
+      },
+    });
   });
 
   it('should correctly handle tags containing > inside attribute quotes without corrupting the document', async () => {
@@ -486,7 +529,7 @@ describe('injectContent', () => {
     const template =
       '<!DOCTYPE html><html><head><!--ss-head--></head><body><!--ss-outlet--></body></html>';
     const result = await injectContent(template, '', '');
-    expect(result).toContain('window.__UNIREND_TEMPLATE_ATTRS__=');
+    expect(dataBlockPayload(result).templateAttrs).toBeDefined();
     expect(result).toContain('</head>');
   });
 
@@ -741,13 +784,7 @@ describe('template head baseline merge', () => {
       '<div>App</div>',
     );
 
-    const globalMatch = html.match(
-      /window\.__UNIREND_TEMPLATE_METAS__=(\[.*?\]);/,
-    );
-
-    expect(globalMatch).not.toBeNull();
-
-    const baseline = JSON.parse(globalMatch?.[1] ?? '[]') as Array<
+    const baseline = dataBlockPayload(html).templateMetas as Array<
       Record<string, string>
     >;
     const names = baseline.map((attrs) => attrs.name ?? attrs.property);
@@ -889,10 +926,7 @@ describe('template head baseline merge', () => {
     );
 
     // And it is not in the baseline the client would restore from twice over.
-    const globalMatch = html.match(
-      /window\.__UNIREND_TEMPLATE_METAS__=(\[.*?\]);/,
-    );
-    const baseline = JSON.parse(globalMatch?.[1] ?? '[]') as Array<
+    const baseline = dataBlockPayload(html).templateMetas as Array<
       Record<string, string>
     >;
     expect(baseline).toHaveLength(1);
@@ -936,10 +970,7 @@ describe('template head baseline merge', () => {
     expect($('meta[name="theme-color"]').attr('content')).toBe('#page');
 
     // Both are still in the baseline the client restores from, media attribute included.
-    const globalMatch = html.match(
-      /window\.__UNIREND_TEMPLATE_METAS__=(\[.*?\]);/,
-    );
-    const baseline = JSON.parse(globalMatch?.[1] ?? '[]') as Array<
+    const baseline = dataBlockPayload(html).templateMetas as Array<
       Record<string, string>
     >;
     const themeColors = baseline.filter(

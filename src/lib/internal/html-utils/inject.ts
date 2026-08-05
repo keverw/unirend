@@ -1,9 +1,9 @@
-import {
-  TAB_SPACES,
-  TEMPLATE_META_MARKER_ATTRIBUTE,
-  TEMPLATE_METAS_GLOBAL,
-} from '../consts';
+import { TAB_SPACES, TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
 import { getDevMode } from 'lifecycleion/dev-mode';
+import {
+  renderContextDataElements,
+  type UnirendContextData,
+} from './context-data-block';
 import {
   escapeHTMLAttr,
   decodeHTMLAttributeValue,
@@ -420,35 +420,6 @@ export async function injectContent(
     .replace('<!--ss-head-->', compactedHead)
     .replace('<!--ss-outlet-->', cleanBodyContent);
 
-  // Build context scripts array
-  const contextScripts: string[] = [];
-
-  // Inject dev mode global so the client always matches the server
-  contextScripts.push(
-    `<script>globalThis.__lifecycleion_is_dev__=${String(getDevMode())};</script>`,
-  );
-
-  // Add __FRONTEND_REQUEST_CONTEXT__ if provided (even if empty object)
-  if (context?.request !== undefined) {
-    const safeContextJSON = JSON.stringify(context.request).replace(
-      /</g,
-      '\\u003c',
-    );
-
-    contextScripts.push(
-      `<script>window.__FRONTEND_REQUEST_CONTEXT__=${safeContextJSON};</script>`,
-    );
-  }
-
-  // Add __PUBLIC_APP_CONFIG__ if provided (even if empty object)
-  if (context?.app !== undefined) {
-    const safeConfigJSON = JSON.stringify(context.app).replace(/</g, '\\u003c');
-
-    contextScripts.push(
-      `<script>window.__PUBLIC_APP_CONFIG__=${safeConfigJSON};</script>`,
-    );
-  }
-
   // Normalize CDN base URL (strip trailing slash) so it's consistent everywhere
   const normalizedCDN = CDNBaseURL
     ? CDNBaseURL.endsWith('/')
@@ -456,27 +427,8 @@ export async function injectContent(
       : CDNBaseURL
     : '';
 
-  // Always inject __CDN_BASE_URL__ — empty string when no CDN configured so client
-  // code can read it unconditionally without guarding against undefined
-  const safeCDNJSON = JSON.stringify(normalizedCDN).replace(/</g, '\\u003c');
-
-  contextScripts.push(
-    `<script>window.__CDN_BASE_URL__=${safeCDNJSON};</script>`,
-  );
-
-  // Inject __DOMAIN_INFO__ — null when hostname not known (SSG without hostname configured, or SPA)
-  // so client code can check for null rather than guarding against undefined
-  const safeDomainJSON = JSON.stringify(domainInfo ?? null).replace(
-    /</g,
-    '\\u003c',
-  );
-
-  contextScripts.push(
-    `<script>window.__DOMAIN_INFO__=${safeDomainJSON};</script>`,
-  );
-
-  // Inject __UNIREND_TEMPLATE_ATTRS__ so client-side DOM reconciliation
-  // knows the clean, unmodified attributes from the original index.html template.
+  // Collect the template's baseline <html> and <body> attributes so client-side
+  // DOM reconciliation knows the clean, unmodified values from index.html.
 
   // 1. Locate the opening <html> and <body> tags in the raw HTML template string.
   const htmlTagMatch = findOpeningTag(mergedTemplate, 'html');
@@ -490,31 +442,44 @@ export async function injectContent(
     ? parseAttributesString(bodyTagMatch.attrsStr)
     : {};
 
-  // 3. Serialize the parsed baseline attributes into a JSON string and escape '<' characters
-  //    to prevent closing-script-tag XSS injection vulnerabilities.
-  const safeTemplateAttrsJSON = JSON.stringify({
-    html: templateHTMLAttrs,
-    body: templateBodyAttrs,
-  }).replace(/</g, '\\u003c');
+  // Build the single payload the client bootstrap reads.
+  //
+  // This used to be seven separate inline scripts, one per global, each with
+  // the value written directly into executable JavaScript. That made the script
+  // text different on every request, so no CSP hash could cover it and nonces
+  // were the only way to allow it — which in turn rules out prerendered output,
+  // where there is no request to mint a nonce for. Moving the varying bytes into
+  // a non-executable JSON block leaves one fixed bootstrap script that hashes
+  // once. Consolidating seven elements into two is a small win on its own.
+  //
+  // request and app stay conditional, since "not provided" and "provided as
+  // empty" are different: JSON.stringify drops an undefined member entirely,
+  // and the bootstrap tests for the key rather than its value.
+  const contextData: UnirendContextData = {
+    // Dev mode comes from the server so the client always agrees with it
+    isDev: getDevMode(),
+    requestContext: context?.request,
+    appConfig: context?.app,
+    // Empty string when no CDN is configured, so client code can read it
+    // unconditionally without guarding against undefined
+    cdnBaseURL: normalizedCDN,
+    // null when hostname is not known (SSG without a configured hostname, or
+    // SPA), so client code can check for null rather than undefined
+    domainInfo: domainInfo ?? null,
+    templateAttrs: {
+      html: templateHTMLAttrs,
+      body: templateBodyAttrs,
+    },
+    // The template's <meta> baseline. The client reconciles template metas
+    // across navigations and needs them as the template authored them: the ones
+    // this page overrides are absent from the served head, so the DOM alone
+    // cannot describe it, and without this there would be nothing to restore
+    // when the user navigates to a page that does not override them.
+    templateMetas,
+  };
 
-  // 4. Push the global variable declaration script into the contextScripts list.
-  contextScripts.push(
-    `<script>window.__UNIREND_TEMPLATE_ATTRS__=${safeTemplateAttrsJSON};</script>`,
-  );
-
-  // Inject the template's <meta> baseline for the same reason: the client reconciles template
-  // metas across navigations, and it needs the baseline as the template authored it. The metas
-  // this page overrides are absent from the served head, so the DOM alone can't describe it —
-  // without this the client would have nothing to restore when the user navigates to a page
-  // that doesn't override them.
-  const safeTemplateMetasJSON = JSON.stringify(templateMetas).replace(
-    /</g,
-    '\\u003c',
-  );
-
-  contextScripts.push(
-    `<script>window.${TEMPLATE_METAS_GLOBAL}=${safeTemplateMetasJSON};</script>`,
-  );
+  // Build context scripts array
+  const contextScripts: string[] = renderContextDataElements(contextData);
 
   // Router hydration data last — only needed once the client module runs, order relative
   // to other head scripts doesn't matter since all head scripts run before any module script
