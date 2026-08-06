@@ -25,136 +25,28 @@ import { UNIREND_ERROR_PAGE_STYLE_HASHES } from '../internal/error-page-utils';
 import { UNIREND_BOOTSTRAP_SCRIPT_HASH } from '../internal/html-utils/context-data-block';
 import type { InlineAttributeFinding } from '../internal/html-utils/format';
 import {
+  collectFrameOptionsIssues,
   collectFramingIssues,
   collectHSTSIssues,
 } from '../internal/security-headers-validation';
+import {
+  collectCORSIssues,
+  type CORSConfig,
+  type CORSOrigin,
+  type ResolvedCORSConfig,
+} from '../internal/cors-validation';
 
 export type { CSPConfig } from '../internal/csp-policy';
 
-/**
- * CORS origin configuration - can be a string, array, or function
- */
-export type CORSOrigin =
-  | string
-  | string[]
-  | ((
-      origin: string | undefined,
-      request: FastifyRequest,
-    ) => boolean | Promise<boolean>);
-
-/**
- * Configuration for dynamic CORS handling.
- *
- * These options are negotiated per-origin. The non-negotiated headers that
- * apply to every response regardless of origin live on
- * {@link SecurityHeadersConfig} alongside this block.
- */
-export interface CORSConfig {
-  /**
-   * Allowed origins for CORS requests
-   * - string: Single origin (e.g., "https://example.com")
-   * - string[]: Multiple origins with wildcard support
-   * - function: Dynamic origin validation
-   * - "*": Allow all origins (not recommended with credentials)
-   *
-   * Wildcard patterns supported:
-   * - "*.example.com": Direct subdomains only (api.example.com ✅, app.api.example.com ❌)
-   * - "**.example.com": All subdomains including nested (api.example.com ✅, app.api.example.com ✅)
-   * - "https://*": Any domain with HTTPS protocol
-   * - "http://*": Any domain with HTTP protocol
-   * - "https://*.example.com": HTTPS subdomains only
-   * - "http://**.example.com": HTTP subdomains including nested
-   *
-   * Note: "null" origins (from sandboxed documents, file:// URLs) are treated as regular string values.
-   * Include "null" in your origin array or handle it in your validation function if needed.
-   *
-   * @default "*"
-   */
-  origin?: CORSOrigin;
-
-  /**
-   * Origins that are allowed to send credentials (cookies, auth headers)
-   * This enables more granular control than standard CORS libraries
-   *
-   * - string[]: List of trusted origins that can send credentials
-   * - function: Dynamic credential validation based on origin
-   * - true: Allow credentials for all allowed origins (same as @fastify/cors)
-   * - false: Never allow credentials
-   *
-   * @default false
-   */
-  credentials?:
-    | boolean
-    | string[]
-    | ((
-        origin: string | undefined,
-        request: FastifyRequest,
-      ) => boolean | Promise<boolean>);
-
-  /**
-   * Allowed HTTP methods
-   * @default ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]
-   */
-  methods?: string[];
-
-  /**
-   * Allowed request headers
-   * - string[]: List of specific headers (e.g., ["Content-Type", "Authorization"])
-   * - ["*"]: Reflect exactly what the browser requests (useful for public APIs)
-   * @default ["Content-Type", "Authorization", "X-Requested-With"]
-   */
-  allowedHeaders?: string[];
-
-  /**
-   * Headers exposed to the client
-   * @default []
-   */
-  exposedHeaders?: string[];
-
-  /**
-   * Max age for preflight cache (in seconds)
-   * @default 86400 (24 hours)
-   */
-  maxAge?: number;
-
-  /**
-   * Whether to pass control to next handler on preflight OPTIONS requests
-   * @default false
-   */
-  preflightContinue?: boolean;
-
-  /**
-   * Status code for successful preflight responses
-   * @default 204
-   */
-  optionsSuccessStatus?: number;
-
-  /**
-   * Whether to allow private network requests (Chrome feature)
-   * When true, responds to Access-Control-Request-Private-Network with Access-Control-Allow-Private-Network
-   * @default false
-   */
-  allowPrivateNetwork?: boolean;
-
-  /**
-   * Opt-in: allow wildcard subdomain patterns (e.g., "*.example.com") in `credentials` array
-   * When true, patterns like "*.example.com", "**.example.com", "*.*.example.com" are permitted.
-   * Apex domains are NOT matched by wildcard patterns; include the apex explicitly if needed.
-   * Invalid patterns (bare "*", protocol wildcards like "https://*") are rejected.
-   *
-   * @default false
-   */
-  credentialsAllowWildcardSubdomains?: boolean;
-
-  /**
-   * Opt-in: allow credentials: true when origin includes a protocol wildcard (e.g., "https://*")
-   * By default this is disallowed for safety because it enables credentials for any origin
-   * on that protocol.
-   *
-   * @default false
-   */
-  allowCredentialsWithProtocolWildcard?: boolean;
-}
+// The CORS types live next to the rules that judge them, so the collectors can
+// be written against them without the plugin and the validator importing each
+// other. Re-exported here because this is where they have always been imported
+// from.
+export type {
+  CORSConfig,
+  CORSOrigin,
+  ResolvedCORSConfig,
+} from '../internal/cors-validation';
 
 /**
  * Strict-Transport-Security (HSTS) header parameters.
@@ -345,46 +237,11 @@ export interface SecurityHeadersConfig {
   ownDomains?: string | string[];
 }
 
-/**
- * Default CORS configuration
- */
-const DEFAULT_CORS_CONFIG: Required<
-  Omit<CORSConfig, 'credentials' | 'origin'>
-> & {
-  origin: CORSOrigin;
-  credentials: boolean;
-} = {
-  origin: '*',
-  credentials: false,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  exposedHeaders: [],
-  maxAge: 86400,
-  preflightContinue: false,
-  optionsSuccessStatus: 204,
-  allowPrivateNetwork: false,
-  credentialsAllowWildcardSubdomains: false,
-  allowCredentialsWithProtocolWildcard: false,
-};
-
 // Limit how many headers we reflect/allow on preflight to avoid abuse
 const MAX_ALLOWED_HEADERS = 100;
 
 // Limit the length of each reflected header name to avoid pathological values
 const MAX_HEADER_LEN = 256;
-
-type ResolvedCORSConfig = Required<
-  Omit<CORSConfig, 'credentials' | 'origin'>
-> & {
-  origin: CORSOrigin;
-  credentials:
-    | boolean
-    | string[]
-    | ((
-        origin: string | undefined,
-        request: FastifyRequest,
-      ) => boolean | Promise<boolean>);
-};
 
 /**
  * A validated policy, the header it belongs in, and the serialized value.
@@ -433,54 +290,6 @@ async function effectiveConfigFor(
   config: ResolvedSecurityHeadersConfig,
 ): Promise<ResolvedSecurityHeadersConfig> {
   return config.resolveEffective ? config.resolveEffective(request) : config;
-}
-
-/**
- * Validate credentials origins using centralized validateConfigEntry
- */
-function validateCredentialsOrigins(
-  credentials: string[],
-  allowWildcard: boolean,
-): void {
-  for (const o of credentials) {
-    // Never allow credentials for the special "null" origin
-    if (o === 'null') {
-      throw new Error(
-        "Invalid CORS config: credentials cannot be enabled for the 'null' origin. Remove 'null' from the credentials list.",
-      );
-    }
-
-    // Use validateConfigEntry to get comprehensive validation
-    const verdict = validateConfigEntry(o, 'origin', {
-      allowGlobalWildcard: false, // Never allow global wildcard in credentials
-      allowProtocolWildcard: false, // Never allow protocol wildcards in credentials
-    });
-
-    if (!verdict.valid) {
-      throw new Error(
-        `Invalid CORS credentials origin "${o}"${verdict.info ? ': ' + verdict.info : ''}`,
-      );
-    }
-
-    // Use wildcardKind from validateConfigEntry to determine policy
-    if (verdict.wildcardKind === 'global') {
-      throw new Error(
-        `Global wildcard "${o}" is not allowed in credentials. Use specific origins or subdomain patterns like "*.example.com".`,
-      );
-    }
-
-    if (verdict.wildcardKind === 'protocol') {
-      throw new Error(
-        `Protocol wildcard "${o}" is not allowed in credentials. Use domain patterns like "*.example.com" or "**.example.com".`,
-      );
-    }
-
-    if (verdict.wildcardKind === 'subdomain' && !allowWildcard) {
-      throw new Error(
-        `Wildcard pattern "${o}" in credentials requires credentialsAllowWildcardSubdomains: true or use explicit origins.`,
-      );
-    }
-  }
 }
 
 /**
@@ -705,6 +514,23 @@ function validateHSTSConfig(cfg: HSTSConfig): void {
 }
 
 /**
+ * Check an X-Frame-Options value.
+ *
+ * Same arrangement as `validateHSTSConfig`: the rule lives in the collector the
+ * public validator uses, and this is the startup-shaped view of it. Worth
+ * having as its own check because the value is written to the header verbatim
+ * and a browser ignores one it does not recognize, so an unvetted `'ALLOWALL'`
+ * disables framing protection without failing anywhere.
+ */
+function validateFrameOptions(value: unknown): void {
+  const [first] = collectFrameOptionsIssues(value);
+
+  if (first) {
+    throw new Error(first.message);
+  }
+}
+
+/**
  * The directive a browser would actually consult for an inline attribute.
  *
  * CSP fallback stops at the first directive that is set, it does not union the
@@ -875,6 +701,10 @@ async function resolveEffectiveConfig(
   if (override.hsts !== undefined && override.hsts !== false) {
     validateHSTSConfig(override.hsts);
   }
+
+  // Checked before the merge below, where `??` would otherwise let a `null`
+  // through as "inherit" and anything else through as a header value.
+  validateFrameOptions(override.frameOptions);
 
   let csp = baseConfig.csp;
 
@@ -1103,225 +933,41 @@ async function applyCORSActualResponseHeaders(
 export function securityHeaders(
   config: SecurityHeadersConfig = {},
 ): SecurityHeadersPlugin {
-  const corsConfig = { ...DEFAULT_CORS_CONFIG, ...(config.cors ?? {}) };
+  // Validated and normalized in one pass, by the same collectors the public
+  // `validateCORSPolicy` uses, so a block that function accepts is one the
+  // plugin accepts. Startup wants the first problem rather than the list, since
+  // there is nobody to show a list to and the config came from the repository.
+  //
+  // The error class carries through because two of these rules have raised a
+  // TypeError since long before they moved, and which class a startup failure
+  // throws is something a caller may well be catching on.
+  const cors = collectCORSIssues(config.cors);
+  const [firstCORSIssue] = cors.issues;
 
-  // Config-time validations:
-  // - Origin '*' special handling:
-  //   - Disallow credentials: true (spec prohibits ACA-C: true with ACA-O: *)
-  //   - Disallow dynamic credentials function (avoid reflect+credentials footgun)
-  //   - If credentials is a string[] allowlist, validate and upgrade origin to that list
-  // - Origin arrays are validated using validateConfigEntry (domain-utils) plus policy:
-  //   - Allow at most one wildcard token ('*' or a protocol wildcard)
-  //   - If a wildcard token is present, the only other allowed entry is 'null' string literal
-  // Credentials policy highlights:
-  //   - Never allow credentials for the literal 'null' origin
-  //   - Disallow global/protocol wildcards in credentials allowlists
-  //   - Allow subdomain wildcards in credentials only when credentialsAllowWildcardSubdomains: true
-
-  if (corsConfig.origin === '*' && corsConfig.credentials === true) {
-    throw new Error(
-      "Cannot use credentials: true with origin: '*'. The CORS specification prohibits Access-Control-Allow-Credentials: true with Access-Control-Allow-Origin: *. Use specific origins instead.",
-    );
+  if (firstCORSIssue) {
+    throw firstCORSIssue.typeError
+      ? new TypeError(firstCORSIssue.message)
+      : new Error(firstCORSIssue.message);
   }
 
-  // Guard: credentials: true with protocol wildcard (e.g., https://*) is high risk.
-  // Require explicit opt-in via allowCredentialsWithProtocolWildcard: true
-  if (corsConfig.credentials === true) {
-    const hasProtocolWildcard = (value: CORSOrigin): boolean => {
-      if (typeof value === 'string') {
-        return value === 'https://*' || value === 'http://*';
-      }
+  const corsConfig: ResolvedCORSConfig = cors.normalized;
 
-      if (Array.isArray(value)) {
-        return value.some((v) => v === 'https://*' || v === 'http://*');
-      }
-
-      return false; // functions are evaluated per-request; not considered a blanket wildcard here
-    };
-
-    if (
-      hasProtocolWildcard(corsConfig.origin) &&
-      !corsConfig.allowCredentialsWithProtocolWildcard
-    ) {
-      throw new Error(
-        'Cannot use credentials: true with protocol wildcard origins unless allowCredentialsWithProtocolWildcard: true. Use specific origins instead.',
-      );
-    }
-  }
-
-  // Additional guard: prevent reflect+credentials when origin is '*'
-  if (corsConfig.origin === '*') {
-    // Dynamic function with '*' would enable reflecting arbitrary origins with credentials
-    if (typeof corsConfig.credentials === 'function') {
-      throw new TypeError(
-        "Unsafe CORS: cannot combine origin '*' with dynamic credentials. Use a concrete origin list when enabling credentials.",
-      );
-    }
-
-    // If credentials is an allowlist, validate and upgrade origin to that list
-    if (Array.isArray(corsConfig.credentials)) {
-      validateCredentialsOrigins(
-        corsConfig.credentials,
-        corsConfig.credentialsAllowWildcardSubdomains,
-      );
-
-      const allowlist = Array.from(new Set(corsConfig.credentials));
-      if (allowlist.length === 0) {
-        throw new Error(
-          "Invalid CORS config: credentials list is empty; cannot combine origin '*' with credentials.",
-        );
-      }
-      // Upgrade: stop using '*' and switch to a concrete allowlist for origin
-      corsConfig.origin = allowlist;
-      // Keep origin and credentials aligned to reduce misconfiguration
-      corsConfig.credentials = allowlist;
-    }
-  }
-
-  // Validate credentials wildcard patterns
-  if (Array.isArray(corsConfig.credentials)) {
-    validateCredentialsOrigins(
-      corsConfig.credentials,
-      corsConfig.credentialsAllowWildcardSubdomains,
-    );
-  }
-
-  // Validate origin entries using centralized validator with appropriate wildcard policies
-  if (typeof corsConfig.origin === 'string') {
-    if (corsConfig.origin !== '*') {
-      const verdict = validateConfigEntry(corsConfig.origin, 'origin', {
-        allowGlobalWildcard: false, // Global wildcard handled separately above
-        allowProtocolWildcard: true, // Allow protocol wildcards in origin
-      });
-
-      if (!verdict.valid) {
-        throw new Error(
-          `Invalid CORS origin "${corsConfig.origin}"${verdict.info ? ': ' + verdict.info : ''}`,
-        );
-      }
-    }
-  } else if (Array.isArray(corsConfig.origin)) {
-    const entries = corsConfig.origin;
-    // Normalize ["*"] to "*"
-    const unique = Array.from(new Set(entries));
-    if (unique.length === 1 && unique[0] === '*') {
-      corsConfig.origin = '*';
-    } else {
-      // Special policy: '*' inside an array is only allowed when paired solely with 'null'
-      if (entries.includes('*')) {
-        const isOnlyStarAndNull = entries.every(
-          (e) => e === '*' || e === 'null',
-        );
-
-        if (!isOnlyStarAndNull) {
-          throw new Error(
-            "Invalid CORS config: Do not include '*' inside an origin array. Use origin: '*' (string) to allow all, or list specific origins.",
-          );
-        }
-      }
-
-      let wildcardKindSeen: 'none' | 'global' | 'protocol' = 'none';
-      const wildcardTokensSeen: string[] = [];
-
-      for (const o of entries) {
-        // Use centralized validator to classify
-        const verdict = validateConfigEntry(o, 'origin', {
-          allowGlobalWildcard: true,
-          allowProtocolWildcard: true,
-        });
-        if (!verdict.valid) {
-          throw new Error(
-            `Invalid CORS origin "${o}"${verdict.info ? ': ' + verdict.info : ''}`,
-          );
-        }
-        if (
-          verdict.wildcardKind === 'global' ||
-          verdict.wildcardKind === 'protocol'
-        ) {
-          const token = verdict.wildcardKind === 'global' ? '*' : o;
-          if (wildcardTokensSeen.length > 0) {
-            if (wildcardTokensSeen.includes(token)) {
-              // Duplicate of the same wildcard token
-              throw new Error(
-                "Invalid CORS config: only one of '*', 'https://*', or 'http://*' may be specified in origin.",
-              );
-            }
-            // Multiple distinct wildcard tokens – include exact list in error
-            const foundList = wildcardTokensSeen.concat(token).join(', ');
-            throw new Error(
-              `Invalid CORS config: only one of '*', 'https://*', or 'http://*' may be specified in origin. Found: ${foundList}`,
-            );
-          }
-
-          wildcardTokensSeen.push(token);
-          wildcardKindSeen = verdict.wildcardKind;
-          continue;
-        }
-
-        if (o === 'null') {
-          continue;
-        }
-
-        // Non-wildcard, non-null entries
-        if (wildcardKindSeen !== 'none') {
-          throw new Error(
-            "Invalid CORS config: when a wildcard token is present, the only other allowed entry is the literal 'null'.",
-          );
-        }
-      }
-
-      // Additional safety: if a global '*' token is present inside the origin array,
-      // disallow credentials: true and dynamic credentials function to avoid
-      // reflecting arbitrary origins with credentials.
-      if (entries.includes('*')) {
-        if (corsConfig.credentials === true) {
-          throw new Error(
-            "Cannot use credentials: true when origin array contains '*'. Use specific origins instead or remove credentials: true.",
-          );
-        }
-        if (typeof corsConfig.credentials === 'function') {
-          throw new TypeError(
-            "Unsafe CORS: cannot combine an origin array containing '*' with dynamic credentials. Use a concrete origin list when enabling credentials.",
-          );
-        }
-      }
-
-      // Validation complete; configuration is acceptable at this point
-    }
-  }
-
-  // Auto-merge credentials origins into origin list for safety
-  // This prevents common configuration mistakes where credentials origins aren't included in the origin list
-  // Note: credentials controls Access-Control-Allow-Credentials header, which tells browsers
-  // whether to include cookies/auth headers in requests - it doesn't automatically allow cookies
-  if (
-    Array.isArray(corsConfig.credentials) &&
-    Array.isArray(corsConfig.origin)
-  ) {
-    // Merge credentials origins into origin list to ensure they're allowed for CORS
-    const credentialsOrigins = corsConfig.credentials;
-    const existingOrigins = corsConfig.origin;
-    const mergedOrigins = [
-      ...new Set([...existingOrigins, ...credentialsOrigins]),
-    ];
-    corsConfig.origin = mergedOrigins;
-  } else if (
-    Array.isArray(corsConfig.credentials) &&
-    typeof corsConfig.origin === 'string' &&
-    corsConfig.origin !== '*'
-  ) {
-    // Convert single origin to array and merge with credentials origins
-    const credentialsOrigins = corsConfig.credentials;
-    const mergedOrigins = [
-      ...new Set([corsConfig.origin, ...credentialsOrigins]),
-    ];
-    corsConfig.origin = mergedOrigins;
-  }
-
-  // Validate security header options at config-time
-  if (config.hsts) {
+  // Validate security header options at config-time.
+  //
+  // Matched against the two values that mean "no HSTS" rather than tested for
+  // truthiness, so the falsy ones that mean nothing of the kind still get
+  // checked. A JSON config carrying `hsts: 0` or `hsts: null` would otherwise
+  // skip validation here and then be read as "off" downstream, which is the
+  // header quietly not being sent rather than the startup failure a bad value
+  // deserves. Same rule the resolver path already applies to an override.
+  if (config.hsts !== undefined && config.hsts !== false) {
     validateHSTSConfig(config.hsts);
   }
+
+  // Unconditional, unlike the framing cross-check below, which only has a pair
+  // to judge when there is a CSP. A bad value is a bad value either way, and
+  // JavaScript callers get no help from the type.
+  validateFrameOptions(config.frameOptions);
 
   // Assemble the validated blocks into the shape the request-time helpers read.
   // Keeping CORS in its own block means a future per-request override can

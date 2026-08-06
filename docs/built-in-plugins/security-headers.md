@@ -28,6 +28,7 @@
   - [Where to Put the Plugin, and When `resolve` Runs](#where-to-put-the-plugin-and-when-resolve-runs)
   - [Installing a Resolver Later](#installing-a-resolver-later)
   - [Validating a Policy Before You Store It](#validating-a-policy-before-you-store-it)
+  - [Validating a CORS Block](#validating-a-cors-block)
 - [When a Callback Throws](#when-a-callback-throws)
 - [Plugin Order and Short-Circuited Responses](#plugin-order-and-short-circuited-responses)
   - [HSTS on a Rejected Host](#hsts-on-a-rejected-host)
@@ -686,6 +687,34 @@ Two things it does not do:
 - **It does not judge whether a policy is a good one.** A tenant can save `defaultSrc: ['*']` and this will accept it. It answers "will this work", not "is this wise".
 
 The same function is worth calling in a migration or a nightly job over stored policies. Rules tighten between versions, and a policy that was valid when it was saved is not automatically valid now.
+
+### Validating a CORS Block
+
+`validateSecurityHeadersPolicy` covers what a `resolve` callback can return, which is everything except CORS. `validateCORSPolicy` covers the rest, applying the same rules `securityHeaders` applies to its `cors` option at startup:
+
+```typescript
+import { validateCORSPolicy } from 'unirend/server';
+
+const result = validateCORSPolicy(loadCORSFromEnvironment());
+
+if (!result.valid) {
+  for (const issue of result.issues) {
+    console.error(`cors.${issue.path}: ${issue.message}`);
+  }
+
+  process.exit(1);
+}
+```
+
+Issues carry a `path` relative to the block itself, such as `origin` or `credentials`, and the same `message` the plugin would have thrown. Everything the plugin checks is checked here: the wildcard rules for `origin`, the stricter ones for a `credentials` allowlist, the combinations that would reflect arbitrary origins with credentials, and the field types, so a `maxAge` that arrived from JSON as `"600"` is an issue rather than a header value.
+
+Where this is useful is anywhere a CORS block is assembled rather than written: a config file, an environment variable holding a comma-separated origin list, an admin screen. The alternative is a `try`/`catch` around server startup and one error per restart.
+
+CORS is not a per-tenant policy, which is the one way it differs from the above. `securityHeaders` takes a single `cors` block at startup, and `origin` and `credentials` already accept request-aware functions, which is how CORS varies per request. So a block validated here is one to feed into `securityHeaders({ cors })`, not one to store per tenant.
+
+<!-- prettier-ignore -->
+> [!NOTE]
+> `result.policy` is the block as written, not the normalized form. Registration fills in defaults and folds a `credentials` allowlist into the `origin` list, and neither belongs in a saved configuration.
 
 ## When a Callback Throws
 

@@ -200,6 +200,41 @@ export function collectHSTSIssues(
 }
 
 /**
+ * Every problem with a frameOptions value, rather than the first.
+ *
+ * A collector for a field with three legal values looks like overkill until you
+ * notice what the alternative costs. The value goes onto the wire verbatim, and
+ * a browser silently ignores an X-Frame-Options it does not recognize, so
+ * `'ALLOWALL'` from a resolver is a page that frames anywhere while the config
+ * says framing is controlled. Nothing downstream would report it.
+ *
+ * `null` is rejected rather than read as "not set", for the same reason the
+ * policy validator rejects it elsewhere: it is what an empty form field or a
+ * JSON column produces, and the two plausible readings (inherit the baseline,
+ * or send no header) are far enough apart to be worth an answer instead of a
+ * guess.
+ */
+export function collectFrameOptionsIssues(
+  value: unknown,
+): SecurityHeadersPolicyIssue[] {
+  if (
+    value === undefined ||
+    value === false ||
+    value === 'DENY' ||
+    value === 'SAMEORIGIN'
+  ) {
+    return [];
+  }
+
+  return [
+    {
+      path: 'frameOptions',
+      message: `Invalid securityHeaders config: frameOptions must be 'DENY', 'SAMEORIGIN', or false to send no header, received ${describeValue(value)}`,
+    },
+  ];
+}
+
+/**
  * The one framing pair where the fallback is weaker than the policy.
  *
  * `frame-ancestors` supersedes `X-Frame-Options` wherever CSP is supported,
@@ -352,18 +387,10 @@ export function validateSecurityHeadersPolicy(
     }
   }
 
-  const hasUsableFrameOptions =
-    policy.frameOptions === undefined ||
-    policy.frameOptions === false ||
-    policy.frameOptions === 'DENY' ||
-    policy.frameOptions === 'SAMEORIGIN';
+  const frameOptionsIssues = collectFrameOptionsIssues(policy.frameOptions);
+  const hasUsableFrameOptions = frameOptionsIssues.length === 0;
 
-  if (!hasUsableFrameOptions) {
-    issues.push({
-      path: 'frameOptions',
-      message: `Invalid securityHeaders policy: frameOptions must be 'DENY', 'SAMEORIGIN', or false to send no header, received ${describeValue(policy.frameOptions)}`,
-    });
-  }
+  issues.push(...frameOptionsIssues);
 
   // Skipped when either half failed its own check, since the cross-check is
   // about a combination and there is no combination to judge yet. Reporting it

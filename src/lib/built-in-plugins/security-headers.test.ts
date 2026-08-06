@@ -1161,6 +1161,40 @@ describe('securityHeaders', () => {
         }),
       ).not.toThrow();
     });
+
+    it('should reject a frameOptions value no browser recognizes', () => {
+      // The value goes onto the wire verbatim and a browser ignores one it does
+      // not know, so 'ALLOWALL' is a page with no framing protection and a
+      // config that reads as though it has some. There is no type to catch it
+      // for a JavaScript caller, and nothing downstream would notice.
+      expect(() =>
+        securityHeaders({
+          cors: { origin: 'https://example.com' },
+          // @ts-expect-error the type already rules this out, the check is for
+          // callers who do not have it
+          frameOptions: 'ALLOWALL',
+        }),
+      ).toThrow(/frameOptions must be 'DENY', 'SAMEORIGIN', or false/i);
+
+      // Rejected rather than read as "not set", so an empty form field or a
+      // JSON column gets an answer instead of a guess.
+      expect(() =>
+        securityHeaders({
+          cors: { origin: 'https://example.com' },
+          // @ts-expect-error same as above
+          frameOptions: null,
+        }),
+      ).toThrow(/frameOptions must be 'DENY', 'SAMEORIGIN', or false/i);
+
+      // Checked without a CSP present, unlike the framing cross-check, which
+      // has no pair to judge until there is one.
+      expect(() =>
+        securityHeaders({
+          cors: { origin: 'https://example.com' },
+          frameOptions: 'DENY',
+        }),
+      ).not.toThrow();
+    });
   });
 
   describe('edge cases', () => {
@@ -3804,6 +3838,43 @@ describe('securityHeaders', () => {
             resolve: () => ({
               csp: { defaultSrc: ["'self'"], frameAncestors: ["'none'"] },
             }),
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.status).toBe(500);
+    });
+
+    it('rejects a resolver frameOptions no browser recognizes', async () => {
+      // The one field whose bad values reach the wire silently. A stored policy
+      // saying 'ALLOWALL' would set an X-Frame-Options browsers ignore, so the
+      // tenant it belongs to gets no framing protection and nothing says so.
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            frameOptions: 'DENY',
+            // @ts-expect-error the resolver's return type rules this out, the
+            // check is for policies that arrive from a store or a request body
+            resolve: () => ({ frameOptions: 'ALLOWALL' }),
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.status).toBe(500);
+    });
+
+    it('rejects a resolver frameOptions of null rather than inheriting', async () => {
+      // `null` is what an empty field in a JSON column serializes to, and the
+      // merge would otherwise read it as "inherit" without anyone deciding
+      // that. A resolver that means the baseline omits the key.
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            frameOptions: 'DENY',
+            // @ts-expect-error same as above
+            resolve: () => ({ frameOptions: null }),
           }),
         ],
         host: 'allowed.example.com',

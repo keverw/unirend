@@ -144,3 +144,14 @@ export type {
   SecurityHeadersPolicyInput,
   SecurityHeadersPolicyBaseline,
 } from './lib/internal/security-headers-validation';
+
+// CORS validation
+// The companion to the above, for the half of the configuration a resolver
+// cannot replace. Same rules the plugin applies at startup, reported as data,
+// so an admin form or a config loader can check a CORS block before a server
+// is built out of it.
+export { validateCORSPolicy } from './lib/internal/cors-validation';
+export type {
+  CORSPolicyIssue,
+  CORSPolicyValidation,
+} from './lib/internal/cors-validation';
