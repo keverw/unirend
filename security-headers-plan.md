@@ -116,7 +116,7 @@ Planning is complete. Everything below is specified well enough to implement wit
 4. **Done** — order-independent application. `onSend` backstop in the plugin, fill-if-absent, plus HSTS suppressed on a host `domainValidation` disclaimed. The server does not own the policy after all, see below for why.
 5. **Done** — throwing callbacks. Fail closed rather than 500, decisions cached so the error path does not re-invoke. Two more callbacks than the list started with, see below.
 6. **Done** — error pages under CSP. Anchor instead of inline `onclick`, inline styles hashed, `hashInlineContentForCSP` exported, template updated, changelog tells scaffolded repos to update their own copy.
-7. **CSP.** Directive config, presets, `reportOnly`, automatic hashes for slots and error pages, `strict-dynamic` for third-party widgets. Verify the JSON data-block behavior in a real browser before relying on it.
+7. **Done** — CSP. Directive config, `reportOnly`, automatic hashes for unirend's own content and for the app's template and slots, `frameAncestors`/`frameOptions` reconciliation. The JSON data-block behavior is verified in a real browser with a control, not assumed. `strict-dynamic` for third-party widgets is still open, see below.
 8. **Per-tenant `resolve`.** Baseline config plus a callback that can rewrite it per request, with the failure handling below. Stays on this branch rather than moving to its own: it is the case that motivated the work, and the nesting in step 1 exists to serve it. Comes after CSP because a resolver returning a `csp` block needs `csp` to exist.
 
 The order below is by dependency, not by size. Step 7 is larger than steps 2 through 6 put together, and splitting it at "emit a validated header" / "hash the app's own content" is reasonable if it wants to land in two pieces.
@@ -544,7 +544,18 @@ Consolidate the seven into one `<script type="application/json">` data block plu
 
 Done ahead of the CSP config itself, since the config needs this to exist before it has a `script-src` worth writing.
 
-- [x] **Verified.** A `<script>` with a non-JavaScript `type` is never executed by any browser, so CSP does not treat it as executable and `script-src` does not apply. This is an established technique, not a loophole. One requirement that comes with it: any `</script` inside the JSON must be escaped, or the element closes early.
+- [x] **Verified in a real browser, not just from the spec.** A page built by the real pipeline and served with the real plugin under a deliberately strict policy (`script-src 'self'` plus hashes, no `'unsafe-inline'`, no nonce) produced **zero** CSP violations, and every injected global arrived intact: `__PUBLIC_APP_CONFIG__`, `__FRONTEND_REQUEST_CONTEXT__`, `__DOMAIN_INFO__`, the template attrs and metas. The template's own theme script ran (the `dark` class was applied) and a slotted script successfully read `__PUBLIC_APP_CONFIG__`, so the ordering guarantee holds in a browser and not only in a string-index comparison.
+
+  **With a control, because "nothing was blocked" is worthless if the policy was not being enforced.** The same page plus one deliberately unhashed inline script was blocked, with the browser naming the directive and printing the hash it would have needed:
+
+  ```
+  Executing inline script violates the following Content Security Policy directive
+  'script-src 'self' 'sha256-oVgG...' 'sha256-lShY...' 'sha256-AEm6...''.
+  ```
+
+  Same page, same data block, and the data block was **not** among what it complained about. That is the claim, demonstrated rather than assumed.
+
+- [x] One requirement that comes with it: any `</script` inside the JSON must be escaped, or the element closes early.
 - [x] The existing escaping already covered it. Every one of the seven scripts ran `.replace(/</g, '\\u003c')`, so no `<` reaches the output at all, and JSON decodes the escape back on the client. Kept as-is in `serializeContextData`, with a test proving a payload containing `</script><script>alert(1)</script>` cannot break out.
 - [x] Consolidating seven script tags into two is a small perf win regardless
 - [x] Ordering checked, and the answer is that nothing had to change. `processTemplate` deliberately relocates every head script, the template's own and the slotted ones, to _after_ the context-scripts placeholder (`format.ts:612`), so anything reading a global already ran after the assignments. The data block and bootstrap take exactly the placeholder's position, so the guarantee is preserved rather than re-established.
