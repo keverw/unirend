@@ -921,6 +921,10 @@ pluginHost.addHook('preHandler', async (request, reply) => {
 
 `onSend` is still useful when you intentionally want normal-response-only behavior. For example, renewing a cookie for HTML/API responses while skipping hijacked static assets is a good `onSend` use case. See the theme cookie example in [Unirend Context](./unirend-context.md#theme-management-hydration-safe) and the `request.isStaticAsset` guidance in [staticContent](./built-in-plugins/staticContent.md#hook-ordering-and-cookie-renewal).
 
+**Where your plugin sits in the array still matters, for your own hooks.** An `onRequest` hook only covers what runs after it, so a plugin listed earlier that ends the request never reaches yours. If your plugin must see every response, either register it first or use the combination that [`securityHeaders`](./built-in-plugins/security-headers.md#plugin-order-and-short-circuited-responses) uses: an early `onRequest` for the normal path, an `onSend` backstop for responses that ended before it, and `request.applySecurityHeaders()`-style explicit application for hijacked paths that bypass `onSend` entirely.
+
+That combination is why `securityHeaders` itself is order-independent, and why you no longer have to reason about where it sits relative to `domainValidation` or an auth plugin. It is not automatic for a plugin you write.
+
 ## Limitations
 
 ### Forbidden Operations

@@ -2,6 +2,18 @@
 
 Working notes for the `feat/security-headers-csp` branch, committed so the reasoning behind each step is reviewable alongside the code. This file is branch-scoped: fold anything worth keeping into `docs/` and delete it before merging.
 
+## What is left
+
+Steps 1 through 8 are done. An audit of every unchecked box found that most were finished and simply never checked off, which is its own lesson about checklists edited in place. Five remain, and none of them block the branch:
+
+- **`strictDynamic` convenience, and slot-injected third-party scripts** (line ~537). The one genuine gap in the CSP feature. An analytics or chat snippet that injects another script at runtime needs `'strict-dynamic'` or every third-party origin listed by hand, and today the docs say neither. Most likely to bite a real user, so it belongs near the top of the slots documentation rather than in a footnote.
+- **Warn when slot HTML carries `onclick=` or `style=""`** (line ~531). No hash can cover an attribute, so those silently stop working under a strict policy. Detectable at validation time, where every other slot footgun is already caught.
+- **CSP presets** (line ~507). A sane default plus per-directive override, instead of writing every directive out. Convenience only; the config works without it.
+- **Refine the resolver's HSTS fallback** (line ~94). Currently sends nothing when a resolver fails, which is never wrong. "Send the baseline only when the host matches a statically configured domain" would be more precise, but needs a notion of which hosts are statically ours that does not exist yet. Revisit if logs show resolvers failing often on first-party hosts.
+- **Report the `light-my-request` / Bun `inject()` bug upstream** (line ~140). External, and unrelated to shipping this.
+
+Everything else below is finished. The unchecked items further down are the five listed above.
+
 ## Commit 1: rename (done)
 
 `99f700b` — pure rename, no behavior change.
@@ -21,11 +33,11 @@ Settled by the per-tenant resolver below. A resolver returning a partial overrid
 
 Do it in the **same** unreleased breaking change as the rename, so users migrate once instead of twice. Deferring it costs a second break for no gain, and this is pre-release.
 
-- [ ] `cors: { origin, credentials, methods, allowedHeaders, exposedHeaders, maxAge, preflightContinue, optionsSuccessStatus, allowPrivateNetwork, credentialsAllowWildcardSubdomains, allowCredentialsWithProtocolWildcard }`
-- [ ] `csp: {}`, `hsts: {}`, `frameOptions` stay top level as siblings of `cors`
-- [ ] `xFrameOptions` → `frameOptions`, since the `x` prefix only made sense when it sat among CORS keys
-- [ ] Fold into the single Unreleased breaking bullet, do not add a second one
-- [ ] `corsOriginAllowed` request property keeps its name. Fine while it is CORS-specific.
+- [x] `cors: { origin, credentials, methods, allowedHeaders, exposedHeaders, maxAge, preflightContinue, optionsSuccessStatus, allowPrivateNetwork, credentialsAllowWildcardSubdomains, allowCredentialsWithProtocolWildcard }`
+- [x] `csp: {}`, `hsts: {}`, `frameOptions` stay top level as siblings of `cors`
+- [x] `xFrameOptions` → `frameOptions`, since the `x` prefix only made sense when it sat among CORS keys
+- [x] Fold into the single Unreleased breaking bullet, do not add a second one
+- [x] `corsOriginAllowed` request property keeps its name. Fine while it is CORS-specific.
 
 ## Per-request / per-tenant resolution
 
@@ -58,9 +70,9 @@ securityHeaders({
 
 No cache key. An earlier draft had a `resolveCacheKey` so header strings could be serialized once per tenant. Dropped deliberately: it makes the caller declare everything the policy depends on, and a resolver that reads something outside the key serves one tenant's policy to another. That is a cross-tenant security bug bought with a performance knob, and what it saves is string concatenation. The expensive part is the caller's own tenant lookup, which they can memoize in their resolver where invalidation is knowable. Revisit only if profiling demands it, and design it properly then.
 
-- [ ] `request.domainInfo` (`types.ts:2858`, `hostname` + `rootDomain`) is what a resolver keys off, and it is already populated
-- [ ] Static defaults keep every existing config-time guard. Do not weaken them by making everything dynamic.
-- [ ] Validate the resolver's returned policy per request. Correctness first, measure before optimizing.
+- [x] `request.domainInfo` (`types.ts:2858`, `hostname` + `rootDomain`) is what a resolver keys off, and it is already populated
+- [x] Static defaults keep every existing config-time guard. Do not weaken them by making everything dynamic.
+- [x] Validate the resolver's returned policy per request. Correctness first, measure before optimizing.
 
 ### Decided: a throwing resolver propagates, like any other hook
 
@@ -83,17 +95,17 @@ That is strictly better than a framework option, because the caller is the only 
 
 Note this is **not** inconsistent with the fail-closed callbacks in commit 4. Those decide allow or deny, so "could not decide" has an obviously correct answer and returning it is better than a 500. `resolve` decides nothing about the request; it tailors headers for a request that is otherwise fine. There is no correct answer to substitute, so there is nothing to substitute.
 
-- [ ] Let the throw propagate. Log it on the way past, since a stack trace pointing into user code is more useful than a bare 500.
+- [x] Let the throw propagate. Log it on the way past, since a stack trace pointing into user code is more useful than a bare 500.
 
-- [ ] **The 500 still needs headers, and that is where the care goes.** The error path calls `applySecurityHeaders`, which would invoke `resolve` a second time and throw again inside the handler dealing with the first throw. This is exactly the double fault fixed for the CORS callbacks in commit 4, so it gets the same treatment: mark the request as resolve-failed, and have every later reader use the baseline rather than calling again.
+- [x] **The 500 still needs headers, and that is where the care goes.** The error path calls `applySecurityHeaders`, which would invoke `resolve` a second time and throw again inside the handler dealing with the first throw. This is exactly the double fault fixed for the CORS callbacks in commit 4, so it gets the same treatment: mark the request as resolve-failed, and have every later reader use the baseline rather than calling again.
 
-- [ ] **The error response sends no HSTS.** Not a preference. The baseline is whatever suits the domains the operator owns, typically a long `max-age` with `includeSubDomains`, and the whole reason a resolver exists is to send something narrower on a domain the operator does not own. Falling back to the baseline on a customer domain would bind it for a year with no way to revoke, which is worse than the 500 that prompted it. `cors`, `csp` and `frameOptions` are safe to fall back on: too strict at worst, and the effect ends with the response.
+- [x] **The error response sends no HSTS.** Not a preference. The baseline is whatever suits the domains the operator owns, typically a long `max-age` with `includeSubDomains`, and the whole reason a resolver exists is to send something narrower on a domain the operator does not own. Falling back to the baseline on a customer domain would bind it for a year with no way to revoke, which is worse than the 500 that prompted it. `cors`, `csp` and `frameOptions` are safe to fall back on: too strict at worst, and the effect ends with the response.
 
-- [ ] Same handling when a resolver returns something that fails validation, which is a bug in the same place with the same consequences.
+- [x] Same handling when a resolver returns something that fails validation, which is a bug in the same place with the same consequences.
 
 - [ ] Decide whether "send nothing" should instead be "send the baseline only when the request's host matches a statically configured domain". More precise, since a resolver throwing on the operator's own domain then keeps working normally, but it needs a notion of which hosts are statically ours that does not exist yet. Start with send-nothing, which is never wrong, and revisit if the logs say resolvers throw often enough on first-party hosts to matter.
-- [ ] Decide whether `resolve` can be async. Tenant lookups usually hit a store, so probably yes, which means it must be awaited before headers are applied in `onRequest`.
-- [ ] Document that `cors.origin` as a function and `resolve` overlap. Prefer `resolve` for per-tenant policy, keep the callbacks for pure origin decisions.
+- [x] Decide whether `resolve` can be async. Tenant lookups usually hit a store, so probably yes, which means it must be awaited before headers are applied in `onRequest`.
+- [x] Document that `cors.origin` as a function and `resolve` overlap. Prefer `resolve` for per-tenant policy, keep the callbacks for pure origin decisions.
 
 ### Late-bound resolver (pattern to support and document)
 
@@ -103,8 +115,8 @@ Resolution: keep them separate. Register the plugin early with a validated stati
 
 This is the same fallback the throw and invalid-result cases already need, so it is one mechanism rather than a special case: whenever there is no usable resolver result, the baseline stands.
 
-- [ ] Provide a way to install the resolver after registration (setter on the plugin's returned handle, or a mutable ref the caller closes over)
-- [ ] Document the pattern, since "register early, resolve late" is not obvious and the naive fix is to move the plugin later in the array, which reintroduces the ordering bug this branch exists to fix
+- [x] Provide a way to install the resolver after registration (setter on the plugin's returned handle, or a mutable ref the caller closes over)
+- [x] Document the pattern, since "register early, resolve late" is not obvious and the naive fix is to move the plugin later in the array, which reintroduces the ordering bug this branch exists to fix
 
 ## Commit order
 
@@ -157,7 +169,7 @@ What shipped instead is the one-line version: `StaticWebServer` registers static
 
 - [x] Both servers now behave identically: user plugins, then static serving
 - [x] `staticContent()` plugin untouched, `StaticContentCache` gains no new public method
-- [ ] Accepted cost: a static asset request runs the app's plugin chain. Uniform across server types, and addressed properly by the skip-list below rather than by inference.
+- [x] Accepted cost: a static asset request runs the app's plugin chain. Uniform across server types, and addressed properly by the skip-list below rather than by inference.
 
 ### Follow-up work, moved out of this file
 
@@ -185,7 +197,7 @@ Fix: apply at three points.
 - [x] Test: `domainValidation` before `securityHeaders` in the array still yields the full header set on the 403
 - [x] Test: the reverse order strips HSTS that the early hook had already set
 - [x] Test: fill-if-absent leaves a header the short-circuiting responder set itself
-- [ ] Test: hijacked static file response carries CSP, not just CORS. Moved to commit 7, since there is no CSP to assert on yet.
+- [x] Test: hijacked static file response carries CSP, not just CORS. Moved to commit 7, since there is no CSP to assert on yet.
 
 Fill-if-absent, not overwrite, so a handler that deliberately set its own CSP on one route wins.
 
@@ -274,7 +286,7 @@ The discriminator is not the status, it is that `domainValidation` determined th
 
 This is a request decoration publishing a fact, not plugin-to-plugin deferral of the kind rejected for protocol resolution above. The difference is real: protocol is a value both plugins derive from the same input, so the server should compute it once. Whether a host was rejected is knowable only inside `domainValidation`, so publishing it is the only option. Same shape as the existing `corsOriginAllowed` decoration.
 
-- [ ] More generally, HSTS should only be sent for a host the server actually serves, which is a stronger condition than "the transport was secure"
+- [x] More generally, HSTS should only be sent for a host the server actually serves, which is a stronger condition than "the transport was secure"
 
 What is still worth applying to a 403, in descending order of actual value:
 
@@ -282,7 +294,7 @@ What is still worth applying to a 403, in descending order of actual value:
 - **CORS**, not for security but so a cross-origin caller sees the real 403 instead of an opaque network error. A debuggability win.
 - **frameOptions**, marginal on a plain-text 403.
 
-- [ ] Document that `invalidDomainHandler` receives an attacker-controlled `domain` string and must escape it when returning `contentType: 'html'`. Unirend sends that content verbatim. Not a bug, but an unmarked sharp edge.
+- [x] Document that `invalidDomainHandler` receives an attacker-controlled `domain` string and must escape it when returning `contentType: 'html'`. Unirend sends that content verbatim. Not a bug, but an unmarked sharp edge.
 
 ### Bug found while checking the above: HSTS is sent over plain HTTP
 
@@ -290,7 +302,7 @@ What is still worth applying to a 403, in descending order of actual value:
 
 Harmless in the sense that browsers ignore it, but it is wrong, it shows up in security scans, and it is trivially avoidable.
 
-- [ ] Only emit HSTS when the request arrived over a secure transport
+- [x] Only emit HSTS when the request arrived over a secure transport
 
 **Do not extract a shared `getProtocol()` helper.** An earlier draft of this plan said to. The better answer is that the decision is already made once, by Fastify, and both plugins should just read it.
 
@@ -303,8 +315,8 @@ The two are not equivalent, and the plugin-level one is weaker:
 
 That gap is exploitable when the app is reachable directly rather than only through the proxy. Any client can then send `x-forwarded-host` and `x-forwarded-proto` and walk straight past domain validation, since `getHost()` prefers the forwarded value. The blunt boolean is doing real work here and it is the wrong tool.
 
-- [ ] `securityHeaders` reads `request.protocol` and needs no proxy option of its own
-- [ ] Remove `domainValidation.trustProxyHeaders` in favor of `fastifyOptions.trustProxy`, so proxy trust is configured once, in one place, with peer validation. Pre-release, so removal beats deprecation.
+- [x] `securityHeaders` reads `request.protocol` and needs no proxy option of its own
+- [x] Remove `domainValidation.trustProxyHeaders` in favor of `fastifyOptions.trustProxy`, so proxy trust is configured once, in one place, with peer validation. Pre-release, so removal beats deprecation.
 
   **Why the plugin has its own in the first place:** the history records no rationale, so this is reconstruction. The likely goal was for the plugin to work standalone without requiring server-level config, which is what the fallback comment at `domain-validation.ts:174` reads like: prefer `request.protocol`, which is correct when Fastify is configured, and otherwise read the headers directly. A legitimate goal. The cost is a convenience path that skips peer validation.
 
@@ -319,7 +331,7 @@ That gap is exploitable when the app is reachable directly rather than only thro
   - **Have `securityHeaders` detect `domainValidation` and defer to it.** Plugin-to-plugin coupling reintroduces the ordering dependency this branch exists to remove.
   - **Defer-and-warn.** Keep the boolean, ignore it when `fastifyOptions.trustProxy` is set, warn at startup otherwise. Non-breaking, but more code and the footgun survives. Fallback only if the break is unwanted.
 
-- [ ] Verified: `request.host` keeps the port, `request.hostname` strips it and is IPv6-aware (brackets handled), and `request.port` exists separately. Together they replace the `parseHostHeader()` split, so the earlier port concern is resolved. `request.host` also falls back to HTTP/2 `:authority`, which the hand-rolled version does not.
+- [x] Verified: `request.host` keeps the port, `request.hostname` strips it and is IPv6-aware (brackets handled), and `request.port` exists separately. Together they replace the `parseHostHeader()` split, so the earlier port concern is resolved. `request.host` also falls back to HTTP/2 `:authority`, which the hand-rolled version does not.
 
 ### Second bug, worse than the first: first-vs-last forwarded entry
 
@@ -331,10 +343,10 @@ Same shape for the protocol: client sends `X-Forwarded-Proto: https`, proxy appe
 
 Precondition is a proxy that appends or adds a second header rather than overwriting. Many overwrite (nginx `proxy_set_header` does), so this is not live in every deployment, but it is exactly the case the trust setting exists to handle.
 
-- [ ] Migrating to `request.host` / `request.protocol` fixes this for free, since Fastify already reads the correct end. Another reason to delete the hand-rolled pair rather than share it.
-- [ ] Test: `x-forwarded-host: evil.com, real.example.com` behind a trusted proxy resolves to `real.example.com`
-- [ ] Test: `x-forwarded-proto: https, http` behind a trusted proxy resolves to `http`, so no HSTS and HTTPS enforcement still fires
-- [ ] Changelog: this is the security fix that justifies the break on its own. Note that a deployment behind an appending proxy was affected regardless of how carefully it was configured.
+- [x] Migrating to `request.host` / `request.protocol` fixes this for free, since Fastify already reads the correct end. Another reason to delete the hand-rolled pair rather than share it.
+- [x] Test: `x-forwarded-host: evil.com, real.example.com` behind a trusted proxy resolves to `real.example.com`
+- [x] Test: `x-forwarded-proto: https, http` behind a trusted proxy resolves to `http`, so no HSTS and HTTPS enforcement still fires
+- [x] Changelog: this is the security fix that justifies the break on its own. Note that a deployment behind an appending proxy was affected regardless of how carefully it was configured.
 
 ### Migration hazard: this can take a proxied site down
 
@@ -352,8 +364,8 @@ This cannot ship as "delete it and mention it in the changelog."
 
   Document the failure mode instead, where someone hits it.
 
-- [ ] Do **not** suppress the HTTPS redirect either. Deciding to skip it would depend on the same untrusted header.
-- [ ] ~~Startup warning when a removed `trustProxyHeaders` key is still present~~. Dropped. That is migration scaffolding with a one-release lifespan, and the changelog carries it. Keep the removal clean.
+- [x] Do **not** suppress the HTTPS redirect either. Deciding to skip it would depend on the same untrusted header.
+- [x] ~~Startup warning when a removed `trustProxyHeaders` key is still present~~. Dropped. That is migration scaffolding with a one-release lifespan, and the changelog carries it. Keep the removal clean.
 
   Worth keeping the two warnings separate when deciding. The deprecation notice is temporary and exists only to bridge this release. The misconfiguration guard above is permanent: `enforceHTTPS` on, `trustProxy` unset, and `x-forwarded-proto` present is a broken deployment whenever it occurs, including for someone who first puts unirend behind a proxy long after this change ships. Following the framework's standard behavior is what makes that failure reachable, since Fastify correctly declines to trust headers nobody vouched for.
 
@@ -363,7 +375,7 @@ Checked, and `domainValidation` is the only offender. The one other raw header r
 
 So this is bringing one straggler in line with what the rest of the codebase already does, not an architectural change. Nothing else needs the same treatment.
 
-- [ ] Changelog needs a migration snippet, not a sentence. Show the before and after side by side.
+- [x] Changelog needs a migration snippet, not a sentence. Show the before and after side by side.
 
 ### Guidance for what to set `trustProxy` to
 
@@ -372,20 +384,20 @@ So this is bringing one straggler in line with what the rest of the codebase alr
 - CDN in front of the proxy (Cloudflare → OpenResty → app) is more than one hop, so a hop count or the full trusted set is needed. This is also the setup where the first-vs-last bug above is most likely to be live, since more hops means more chance of an appended header.
 - nginx and OpenResty with `proxy_set_header X-Forwarded-Proto $scheme` **overwrite** rather than append, so single-hop setups avoid the first-vs-last issue. Worth saying so in the docs, since it tells a reader whether they were exposed.
 
-- [ ] Document the above in `docs/built-in-plugins/domainValidation.md`, replacing the current Proxy Support section, which describes the `trustProxyHeaders` behavior being removed
-- [ ] `docs/https.md` should point at `fastifyOptions.trustProxy` too, since TLS termination is exactly where readers arrive at this problem
+- [x] Document the above in `docs/built-in-plugins/domainValidation.md`, replacing the current Proxy Support section, which describes the `trustProxyHeaders` behavior being removed
+- [x] `docs/https.md` should point at `fastifyOptions.trustProxy` too, since TLS termination is exactly where readers arrive at this problem
 
 Since there is no warning, the docs carry the whole burden. Name the symptom, not just the setting, so someone already looking at a broken deploy can search for it:
 
-- [ ] State plainly that `enforceHTTPS` behind a TLS-terminating proxy **requires** `fastifyOptions.trustProxy`, and that without it the result is a redirect loop rather than a subtle misbehavior
-- [ ] Say the same for `canonicalDomain`, which without a trusted `x-forwarded-host` compares against the internal upstream host and redirects on every request
-- [ ] Use the words a person would actually search: "redirect loop", "ERR_TOO_MANY_REDIRECTS", "infinite redirect"
-- [ ] Put it in a GitHub alert block rather than a paragraph, so it survives skim-reading
-- [ ] Changelog: this is a second breaking change and a security fix. Say plainly that a repo setting `trustProxyHeaders: true` must move to `fastifyOptions.trustProxy`, and that the new setting should name the proxy rather than being a bare `true` wherever the origin is directly reachable.
-- [ ] Test: `hsts` configured, request over HTTP, header absent
-- [ ] Test: `hsts` configured, HTTP request behind a trusted proxy sending `x-forwarded-proto: https`, header present
-- [ ] Test: same forwarded header with no `trustProxy` configured, header absent, since an untrusted header must not be able to turn HSTS on
-- [ ] Test: the same untrusted-header case against `domainValidation`, confirming a forged `x-forwarded-host` no longer passes domain validation
+- [x] State plainly that `enforceHTTPS` behind a TLS-terminating proxy **requires** `fastifyOptions.trustProxy`, and that without it the result is a redirect loop rather than a subtle misbehavior
+- [x] Say the same for `canonicalDomain`, which without a trusted `x-forwarded-host` compares against the internal upstream host and redirects on every request
+- [x] Use the words a person would actually search: "redirect loop", "ERR_TOO_MANY_REDIRECTS", "infinite redirect"
+- [x] Put it in a GitHub alert block rather than a paragraph, so it survives skim-reading
+- [x] Changelog: this is a second breaking change and a security fix. Say plainly that a repo setting `trustProxyHeaders: true` must move to `fastifyOptions.trustProxy`, and that the new setting should name the proxy rather than being a bare `true` wherever the origin is directly reachable.
+- [x] Test: `hsts` configured, request over HTTP, header absent
+- [x] Test: `hsts` configured, HTTP request behind a trusted proxy sending `x-forwarded-proto: https`, header present
+- [x] Test: same forwarded header with no `trustProxy` configured, header absent, since an untrusted header must not be able to turn HSTS on
+- [x] Test: the same untrusted-header case against `domainValidation`, confirming a forged `x-forwarded-host` no longer passes domain validation
 
 ## Commit 4: throwing callbacks (done)
 
@@ -414,7 +426,7 @@ Not carried over from the original list: nothing. The `resolve` resolver's own f
 
 - [x] Replace the button with `<a class="ep-btn" href="{escaped request.url}">Refresh Page</a>`. No inline JS at all. Also avoids re-POSTing on a failed POST. Uses `escapeHTMLAttr` rather than `escapeHTML`, since the value lands in a quoted attribute; `request.url` is attacker-controlled.
 - [x] SHA-256 the generated style text at module load via `node:crypto` (Node API, not `Bun.*`, per AGENTS.md Runtime Target) and export the hashes as `UNIREND_ERROR_PAGE_STYLE_HASHES`
-- [ ] Auto-include those hashes in `style-src` when unirend emits its own CSP. Deferred to commit 6, where there is a CSP to put them in.
+- [x] Auto-include those hashes in `style-src` when unirend emits its own CSP. Deferred to commit 6, where there is a CSP to put them in.
 - [x] Same treatment for the 404 and 503 pages
 - [x] The SSR starter template's 500 page (`ssr-get-500-error-page.ts`) has an inline `<style>` block but **no** inline `onclick`, it already uses an `<a>`. So it needed the style handled, not the button.
 
@@ -502,12 +514,12 @@ Both are the same shape: a mistake that produces a well-formed header which quie
 
 Rich JSON policy rather than a hand-written string. Reuse `validateConfigEntry` / `matchesOriginList` from `lifecycleion/domain-utils` for source lists, so `*.cdn.example.com` and `https://*` parse and get rejected at config time with a real message, matching how CORS origins already behave.
 
-- [ ] Directive config object (`defaultSrc`, `scriptSrc`, `styleSrc`, `imgSrc`, `connectSrc`, `frameAncestors`, `reportUri`, …)
-- [ ] Keyword sources (`'self'`, `'none'`, `'strict-dynamic'`, `'unsafe-inline'`) validated distinctly from host sources
+- [x] Directive config object (`defaultSrc`, `scriptSrc`, `styleSrc`, `imgSrc`, `connectSrc`, `frameAncestors`, `reportUri`, …)
+- [x] Keyword sources (`'self'`, `'none'`, `'strict-dynamic'`, `'unsafe-inline'`) validated distinctly from host sources
 - [ ] Presets, so a sane default plus per-directive override beats writing the string by hand
-- [ ] `reportOnly` mode (`Content-Security-Policy-Report-Only`), essential for rolling this out on a live site
-- [ ] Config-time rejection of the obvious footgun cases, in the spirit of the existing CORS guards: `'unsafe-inline'` in `script-src` without an explicit opt-in flag
-- [ ] `frame-ancestors` overlaps `frameOptions`. Warn or reconcile when both are set.
+- [x] `reportOnly` mode (`Content-Security-Policy-Report-Only`), essential for rolling this out on a live site
+- [x] Config-time rejection of the obvious footgun cases, in the spirit of the existing CORS guards: `'unsafe-inline'` in `script-src` without an explicit opt-in flag
+- [x] `frame-ancestors` overlaps `frameOptions`. Warn or reconcile when both are set.
 
 ### How hashing actually behaves (researched, not assumed)
 
@@ -516,9 +528,9 @@ Rich JSON policy rather than a hand-written string. Reuse `validateConfigEntry` 
 
 **Design consequence, and it is not a small one.** The hash must be computed from the final serialized output, never from the input source. `html-utils/format.ts` and `inject.ts` both run content through cheerio, which re-serializes and can alter whitespace. Hashing a user's `headInlineScripts` string as supplied, then letting cheerio reformat it on the way out, produces a hash that does not match what the browser receives and silently blocks the script.
 
-- [ ] Compute every hash at the **end** of template processing, reading back the serialized text of each `<script>` / `<style>` node, rather than hashing the input
-- [ ] Same for error pages: hash the exact substring the generator emits between the tags, including its leading newline and indentation
-- [ ] Add a test that asserts the emitted hash matches a hash recomputed from the final rendered HTML. This is the regression that catches a future formatting change silently breaking CSP.
+- [x] Compute every hash at the **end** of template processing, reading back the serialized text of each `<script>` / `<style>` node, rather than hashing the input
+- [x] Same for error pages: hash the exact substring the generator emits between the tags, including its leading newline and indentation
+- [x] Add a test that asserts the emitted hash matches a hash recomputed from the final rendered HTML. This is the regression that catches a future formatting change silently breaking CSP.
 
 ### The hash story, and where it runs out
 
@@ -526,8 +538,8 @@ Three sources of inline content, and they do not behave the same way.
 
 1. **Error pages** — static. Hash at module load. Solved in commit 5.
 2. **Template slots** — `headInlineScripts` (`types.ts:956`), `bodyPrepend` (`types.ts:965`), and `bodyAppend` (`types.ts:976`). Baked into the processed template and cached per app, with per-request data arriving as globals instead of varying the slot content (`types.ts:937`). So they are static per app and hashable. `html-utils/format.ts` already parses them with cheerio in `validateTemplateSlots()`, so the hashing hooks into a pass that exists.
-   - [ ] Hash each `headInlineScripts` entry, from the **serialized** output, and add to `script-src`
-   - [ ] Extract and hash `<script>` / `<style>` elements inside `bodyPrepend` and `bodyAppend` (do not forget `bodyAppend`, which is where analytics snippets most often go)
+   - [x] Hash each `headInlineScripts` entry, from the **serialized** output, and add to `script-src`
+   - [x] Extract and hash `<script>` / `<style>` elements inside `bodyPrepend` and `bodyAppend` (do not forget `bodyAppend`, which is where analytics snippets most often go)
    - [ ] Inline event handler attributes (`onclick=`) and `style=""` attributes in slot HTML cannot be hashed usefully. `unsafe-hashes` is messy and poorly supported. Warn at validation time when CSP is enabled.
 
    **The slot use case is third-party widgets** (chat, analytics), and those come in three shapes that CSP treats differently:
@@ -564,7 +576,7 @@ Done ahead of the CSP config itself, since the config needs this to exist before
 
 - [x] Bootstrap survives a missing or malformed data block rather than throwing. It runs while the head is still parsing, so a throw takes out every later script and turns a data problem into a blank page.
 - [x] `UNIREND_BOOTSTRAP_SCRIPT_HASH` exported for the CSP config to feed into `script-src`, computed from the same constant the markup interpolates
-- [ ] ~~Fallback if the claim does not hold: opt-in nonce mode~~. Not needed, the claim holds.
+- [x] ~~Fallback if the claim does not hold: opt-in nonce mode~~. Not needed, the claim holds.
 
 ### Still executable: React Router's hydration script
 
@@ -593,12 +605,12 @@ Do not ship a CSP that quietly needs `'unsafe-inline'` in `script-src` to make t
 
 ## Docs
 
-- [ ] Rewrite `docs/built-in-plugins/security-headers.md` around the two jobs (CORS negotiation, non-negotiated headers) instead of CORS with security headers as a footnote
-- [ ] New CSP section with the hash story and what unirend contributes automatically
-- [ ] Explain _why_ a `<script type="application/json">` (or `application/ld+json`) data block is not subject to `script-src`: the browser does not execute an unknown script type, so there is nothing for CSP to govern. Worth spelling out rather than presenting as a trick, since a reader who does not know the reason will not trust it, and it is the mechanism the whole no-nonce approach rests on. Mention `application/ld+json` explicitly, since structured data is the case people hit first.
-- [ ] `docs/https.md` — HSTS guidance belongs next to the TLS setup, not only in the plugin page
-- [ ] Note the ordering fix in `docs/server-plugins.md`, since the old advice implicitly depended on array order
-- [ ] Fold the commit-1 changelog Breaking note into one entry describing the final release delta, per AGENTS.md. Do not append a bullet per commit.
+- [x] Rewrite `docs/built-in-plugins/security-headers.md` around the two jobs (CORS negotiation, non-negotiated headers) instead of CORS with security headers as a footnote
+- [x] New CSP section with the hash story and what unirend contributes automatically
+- [x] Explain _why_ a `<script type="application/json">` (or `application/ld+json`) data block is not subject to `script-src`: the browser does not execute an unknown script type, so there is nothing for CSP to govern. Worth spelling out rather than presenting as a trick, since a reader who does not know the reason will not trust it, and it is the mechanism the whole no-nonce approach rests on. Mention `application/ld+json` explicitly, since structured data is the case people hit first.
+- [x] `docs/https.md` — HSTS guidance belongs next to the TLS setup, not only in the plugin page
+- [x] Note the ordering fix in `docs/server-plugins.md`, since the old advice implicitly depended on array order
+- [x] Fold the commit-1 changelog Breaking note into one entry describing the final release delta, per AGENTS.md. Do not append a bullet per commit.
 
 ## Prior art
 

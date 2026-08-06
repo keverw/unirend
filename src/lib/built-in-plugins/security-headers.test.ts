@@ -3025,6 +3025,55 @@ describe('securityHeaders', () => {
       );
     });
 
+    it('puts the CSP on a hijacked response, which bypasses onSend', async () => {
+      // How the static content cache serves a file: apply headers, hijack, then
+      // writeHead a snapshot of reply.getHeaders(). onSend never runs, so if
+      // applySecurityHeaders did not cover CSP the file would go out with CORS
+      // headers and no policy, and only on the hijacked paths.
+      const hijacker: ServerPlugin<UnirendServerMode> = (host) => {
+        host.route({
+          method: 'GET',
+          url: '/asset',
+          handler: async (request, reply) => {
+            await request.applySecurityHeaders?.(reply);
+            reply.hijack();
+            reply.raw.writeHead(
+              200,
+              reply.getHeaders() as Record<string, string>,
+            );
+            reply.raw.end('file bytes');
+          },
+        });
+
+        return Promise.resolve();
+      };
+
+      const app = fastify({ trustProxy: true });
+
+      await securityHeaders({
+        csp: { defaultSrc: ["'self'"] },
+        frameOptions: 'DENY',
+      })(app as unknown as PluginHostInstance, createMockOptions());
+      await hijacker(app as unknown as PluginHostInstance, createMockOptions());
+
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const address = app.server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/asset`);
+
+        expect(await response.text()).toBe('file bytes');
+        expect(response.headers.get('content-security-policy')).toBe(
+          "default-src 'self'",
+        );
+        expect(response.headers.get('x-frame-options')).toBe('DENY');
+      } finally {
+        await app.close();
+      }
+    });
+
     it('leaves a header the short-circuiting responder set itself', async () => {
       // Fill-if-absent: a gate that deliberately framed its own response keeps
       // its value, rather than having the configured default written over it.
