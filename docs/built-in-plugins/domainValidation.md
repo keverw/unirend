@@ -55,17 +55,20 @@ const server = serveSSRBuilt(buildDir, {
 
 ## Plugin Order
 
-**Register this plugin before anything that can answer a request.** It works in an `onRequest` hook, and an `onRequest` hook only covers what was registered after it. A plugin listed above it that ends the request never reaches this one, so that response goes out without the host ever being checked.
+**Register this plugin above every plugin that adds a per-request hook.** It works in an `onRequest` hook, and an `onRequest` hook only covers what was registered after it. Anything above it that ends the request never reaches this one, so that response goes out without the host ever being checked.
 
-That is a weaker requirement than "put it first", and the difference matters as soon as this plugin needs data. A plugin that only decorates or connects never answers a request, so nothing escapes the gate by sitting above it. A database connection that `validProductionDomains` then reads belongs exactly there:
+"Ends the request" includes **a hook that throws**. It did not mean to answer, but the error handler answers for it, and the result is a fully rendered error page on a host this plugin had not examined yet. On a host that was never checked, that page is branded with your application, and it carries HSTS, because this plugin never ran and so never set [`request.domainValidationRejected`](#requestdomainvalidationrejected) for `securityHeaders` to act on. See [A Hook That Throws Above the Gate](../built-in-plugins.md#a-hook-that-throws-above-the-gate).
+
+A plugin that does its work at registration time is still fine above this one, because it adds no hook that can run or fail ahead of it. A database connection that `validProductionDomains` then reads belongs exactly there:
 
 ```typescript
 plugins: [
-  databasePlugin, // decorates only, so it gates nothing and hides nothing
+  databasePlugin, // connects and decorates at registration, adds no hook
   domainValidation({
     validProductionDomains: async (domain, request) =>
       request.server.db.tenants.existsForHost(domain),
   }),
+  sessionPlugin, // preHandler that can throw, so it goes below the gate
 ];
 ```
 
@@ -75,7 +78,7 @@ This is the opposite of what [`securityHeaders`](security-headers.md#plugin-orde
 | --- | --- | --- |
 | What it does | **Blocks** a request | **Adds** headers to a response |
 | Hooks | `onRequest` | `onRequest` plus an `onSend` backstop |
-| Order matters? | **Yes, before anything that answers** | No, anywhere works |
+| Order matters? | **Yes, above anything with hooks** | No, anywhere works |
 
 A header can be filled in on the way out, which is what the `onSend` backstop in `securityHeaders` does for responses that ended before it ran. A block cannot be applied that late, because by then the response has already been written. A gate has to run before the thing it is gating, and nothing can retrofit that afterward.
 
@@ -231,6 +234,8 @@ Both `validProductionDomains` as a function and `invalidDomainHandler` can fail,
 
 - **`validProductionDomains` throws**: the domain is rejected. A validator that could not answer has not said the domain is yours, and reading "the tenant lookup timed out" as "welcome in" is how a `Host` header attack gets through on a bad day for the database. The visitor gets the same 403 an unknown domain gets.
 - **`invalidDomainHandler` throws**: the default rejection response is sent instead. The rejection itself already happened and is not in question, so a throw here costs the custom wording and nothing else. The same fallback covers a handler that returns an unrecognized `contentType`, which previously matched no branch and left the request hanging with nothing sent at all.
+
+Neither failure produces a 500, and neither reaches the application's error page. That is deliberate: a host that was never checked should not be shown a branded page, and a rejection that has already been decided should not be undone by the formatting step failing. The plain `403` is the worst case here. The way to get a branded error page on a host that was never checked is [a hook that throws above this plugin](../built-in-plugins.md#a-hook-that-throws-above-the-gate), which is an ordering problem rather than a callback one.
 
 <!-- prettier-ignore -->
 > [!NOTE]

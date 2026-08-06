@@ -208,6 +208,19 @@ export const ERROR_PAGE_STYLE_HASH = hashInlineContentForCSP(PAGE_STYLES);
  * Custom 500 error page generator.
  * Mirrored from the SGGs template static 500.html page style and functionality,
  * but adapted for SSR and customized to display error details in development mode.
+ *
+ * Worth knowing about which hosts can see this page. It renders for any request
+ * that fails, and that includes a request that failed before domainValidation
+ * had a chance to run. A hook registered above that plugin ends the request when
+ * it throws, and this page answers on its behalf, so your branding can be served
+ * on a host the server never validated.
+ *
+ * Most apps do not care. If yours does, the fix is ordering: keep every plugin
+ * that registers a per-request hook below domainValidation, so a failure there
+ * cannot outrun the host check. Checking domainValidationRejected here does not
+ * help for this case, because the plugin never ran and so never set it. What you
+ * can check is request.hostname against the domains you actually serve, and
+ * return something plain when it is not one of them.
  */
 export function get500ErrorPage(
   request: FastifyRequest,

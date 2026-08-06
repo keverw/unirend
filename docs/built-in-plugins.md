@@ -5,6 +5,7 @@
 - [Overview](#overview)
 - [Catalog](#catalog)
 - [Ordering](#ordering)
+  - [A Hook That Throws Above the Gate](#a-hook-that-throws-above-the-gate)
 - [When a Callback Fails](#when-a-callback-fails)
 
 <!-- tocstop -->
@@ -26,21 +27,38 @@ Some built-in plugins also cooperate with Unirend's internal hijacked/raw respon
 
 ## Ordering
 
-Only one property of a plugin decides whether its position matters: **can it end a request?**
+Only one property of a plugin decides whether its position matters: **does it add a per-request hook?**
 
 - **A plugin that can end a request is a gate**, and a gate only covers what is registered after it. [`domainValidation`](built-in-plugins/domainValidation.md#plugin-order) is one, as is any auth or rate-limit plugin of your own. Register it before whatever it is meant to gate.
-- **A plugin that only decorates, connects, or reads never ends a request**, so nothing can slip past it and its position is free. A database plugin that opens a connection and calls `decorate('db', db)` is the usual example, and it is perfectly safe above a gate, because a request that the gate rejects simply never uses the decoration. Use [`dependsOn`](server-plugins.md#plugin-dependencies) to keep it above whichever plugins read it.
-- **[`securityHeaders`](built-in-plugins/security-headers.md#plugin-order-and-short-circuited-responses) is neither**, and its position is free for a different reason. It adds headers rather than ending requests, and an `onSend` backstop lets it fill them in on the way out, even for a response that ended before it ran.
+- **A hook that throws counts as ending the request**, even though it never meant to. The error handler answers on its behalf, and that answer is a fully rendered response on a host the gate had not reached yet. This is the part that is easy to miss, so it has its own section below.
+- **A plugin that does its work at registration time never touches a request at all**, so its position is free. A database plugin that opens a connection and calls `decorate('db', db)` is the usual example, and it is safe above a gate because it adds no hook that could run, or fail, ahead of one.
+- **[`securityHeaders`](built-in-plugins/security-headers.md#plugin-order-and-short-circuited-responses) has hooks but is still free to move**, for a different reason. It adds headers rather than ending requests, and an `onSend` backstop lets it fill them in on the way out, even for a response that ended before it ran.
 
-So "`domainValidation` goes first" means first among the plugins that answer requests, not first in the array. A connection plugin above it changes nothing about what it gates:
+So "`domainValidation` goes first" means first among the plugins with per-request hooks, not first in the array. A connection plugin above it changes nothing:
 
 ```typescript
 plugins: [
-  databasePlugin, // decorates only, never answers a request
+  databasePlugin, // connects and decorates at registration, adds no hook
   domainValidation({ validProductionDomains: hostIsOurs }),
+  sessionPlugin, // has a preHandler that can throw, so it belongs below
   securityHeaders({ resolve: lookupTenantPolicy }),
 ];
 ```
+
+### A Hook That Throws Above the Gate
+
+Use [`dependsOn`](server-plugins.md#plugin-dependencies) to keep a plugin above whatever reads its decoration, but do not let that push a plugin with hooks above `domainValidation`. Declaring a dependency and registering a hook are separate things, and only the hook is a problem.
+
+The reason is worth seeing concretely. Given a hook that throws, on a host that is not in `validProductionDomains`:
+
+| Throwing hook            | What the visitor gets                             |
+| ------------------------ | ------------------------------------------------- |
+| Below `domainValidation` | `403`, plain text, no HSTS                        |
+| Above `domainValidation` | `500`, **your branded error page**, **HSTS sent** |
+
+Both halves of that second row are bad on a host you have not claimed. The branded page shows your application to a domain you do not serve, and the HSTS is the worse one: `domainValidation` never ran, so it never set [`request.domainValidationRejected`](built-in-plugins/domainValidation.md#requestdomainvalidationrejected), so the suppression that exists for exactly this case has nothing to trigger on. A domain that was never checked gets pinned to HTTPS for the full `maxAge`, subdomains included, and it cannot be revoked.
+
+Nothing downstream can repair this, because by the time anything else runs the request has already failed. Ordering is the only fix: put `domainValidation` above every plugin that adds a hook.
 
 ## When a Callback Fails
 

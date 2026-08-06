@@ -2769,6 +2769,94 @@ describe('securityHeaders', () => {
       expect(response.headers.get('x-frame-options')).toBe('DENY');
     });
 
+    it('suppresses HSTS for a rejected host even when the request then fails', async () => {
+      // The gate rejects, so domainValidationRejected is set and HSTS comes
+      // off. Establishes the baseline the next test contrasts with: nothing
+      // about a later failure is what protects the host, the gate running is.
+      const app = fastify({ trustProxy: true });
+
+      await gatekeeper()(
+        app as unknown as PluginHostInstance,
+        createMockOptions(),
+      );
+
+      await securityHeaders({ hsts: { maxAge: 31536000 } })(
+        app as unknown as PluginHostInstance,
+        createMockOptions(),
+      );
+
+      app.addHook('onRequest', () =>
+        Promise.reject(new Error('registered below the gate, never reached')),
+      );
+
+      app.get('/test', () => ({ ok: true }));
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const address = app.server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/test`, {
+          headers: {
+            'x-forwarded-host': 'evil.example.com',
+            'x-forwarded-proto': 'https',
+          },
+        });
+
+        expect(response.status).toBe(403);
+        expect(response.headers.get('strict-transport-security')).toBeNull();
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('cannot suppress HSTS when a hook above the gate throws first', async () => {
+      // Documents a footgun rather than a feature. A hook that throws above
+      // domainValidation ends the request before the gate runs, so
+      // domainValidationRejected is never set and the suppression has nothing
+      // to act on: a host that was never checked is pinned to HTTPS for the full
+      // max-age. Nothing downstream can repair it, because the request has
+      // already failed by then. Ordering is the only fix, and this test exists
+      // so that anyone changing the ordering guidance sees the cost.
+      const app = fastify({ trustProxy: true });
+
+      app.addHook('onRequest', () =>
+        Promise.reject(new Error('registered above the gate, runs first')),
+      );
+
+      await gatekeeper()(
+        app as unknown as PluginHostInstance,
+        createMockOptions(),
+      );
+
+      await securityHeaders({ hsts: { maxAge: 31536000 } })(
+        app as unknown as PluginHostInstance,
+        createMockOptions(),
+      );
+
+      app.get('/test', () => ({ ok: true }));
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const address = app.server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/test`, {
+          headers: {
+            'x-forwarded-host': 'evil.example.com',
+            'x-forwarded-proto': 'https',
+          },
+        });
+
+        expect(response.status).toBe(500);
+        expect(response.headers.get('strict-transport-security')).toBe(
+          'max-age=31536000',
+        );
+      } finally {
+        await app.close();
+      }
+    });
+
     it('covers every status and content type, not just the happy path', async () => {
       // onSend has no status or content-type condition, so this is not an
       // error-page feature: headers go on as the response leaves, whoever
