@@ -7,6 +7,8 @@ import type {
 import {
   matchesOriginList,
   matchesCORSCredentialsList,
+  matchesDomainList,
+  normalizeDomain,
   validateConfigEntry,
 } from 'lifecycleion/domain-utils';
 import { LRUCache } from 'lifecycleion/lru-cache';
@@ -15,6 +17,7 @@ import {
   cspHeaderName,
   serializeCSP,
   validateCSPConfig,
+  applyCSPPreset,
   type CSPConfig,
 } from '../internal/csp-policy';
 import { UNIREND_ERROR_PAGE_STYLE_HASHES } from '../internal/error-page-utils';
@@ -310,6 +313,30 @@ export interface SecurityHeadersConfig {
    * lifecycle, including the error path.
    */
   resolve?: SecurityHeadersResolver;
+
+  /**
+   * Hosts this deployment owns, for deciding what a failed `resolve` may still
+   * send.
+   *
+   * Without it, a resolver that throws costs the response its HSTS, always.
+   * That is never wrong, but it is blunt: a store outage then drops HSTS for
+   * first-party traffic too, on domains the operator plainly does own and had
+   * every intention of binding.
+   *
+   * With it, a failed resolve keeps the baseline HSTS when the request's host
+   * matches, and still sends nothing when it does not. The distinction is the
+   * whole point: binding a domain for a year is safe when you own it and
+   * permanent when you do not, and only you can say which is which.
+   *
+   * Accepts the same patterns as `domainValidation.validProductionDomains`:
+   * exact hosts, `*.example.com` for direct subdomains, `**.example.com` for
+   * any depth. List only what you genuinely control. A customer's mapped domain
+   * does not belong here even though you serve it.
+   *
+   * @example
+   * ownDomains: ['example.com', '**.example.com']
+   */
+  ownDomains?: string | string[];
 }
 
 /**
@@ -694,6 +721,7 @@ async function resolveEffectiveConfig(
   serializePolicy: (
     csp: CSPConfig,
   ) => { headerName: string; value: string } | false,
+  ownDomains: string[] | undefined,
 ): Promise<ResolvedSecurityHeadersConfig> {
   if (!resolve) {
     return baseConfig;
@@ -718,7 +746,19 @@ async function resolveEffectiveConfig(
   // revoke, which is worse than the 500 that prompted it. Everything else is
   // safe to fall back on: too strict at worst, and the effect ends with the
   // response.
-  cache.securityHeadersEffective = { ...baseConfig, hsts: false };
+  //
+  // Unless the operator has said which hosts are theirs, in which case the
+  // question has an answer for this request and blanket suppression is just
+  // imprecision. Binding a domain for a year is safe when you own it, so a
+  // store outage need not cost first-party traffic its HSTS as well.
+  const isOwnHost =
+    ownDomains !== undefined &&
+    ownDomains.length > 0 &&
+    matchesDomainList(normalizeDomain(request.hostname ?? ''), ownDomains);
+
+  cache.securityHeadersEffective = isOwnHost
+    ? baseConfig
+    : { ...baseConfig, hsts: false };
 
   const override = await resolve(request);
 
@@ -1210,8 +1250,13 @@ export function securityHeaders(
       }) => string)
     | undefined;
 
-  if (config.csp) {
-    validateCSPConfig(config.csp);
+  // Expanded once, here, so everything downstream (validation, serialization,
+  // the frameAncestors check below) sees the finished policy rather than each
+  // having to remember to expand it.
+  const cspConfig = config.csp ? applyCSPPreset(config.csp) : config.csp;
+
+  if (cspConfig) {
+    validateCSPConfig(cspConfig);
 
     // frame-ancestors supersedes X-Frame-Options wherever CSP is supported,
     // which is everywhere that matters, so X-Frame-Options is a fallback for
@@ -1231,9 +1276,9 @@ export function securityHeaders(
     // left alone: it is a real pattern and not this code's business to
     // second-guess.
     const isFramingDenied =
-      Array.isArray(config.csp.frameAncestors) &&
-      config.csp.frameAncestors.length === 1 &&
-      config.csp.frameAncestors[0] === "'none'";
+      Array.isArray(cspConfig.frameAncestors) &&
+      cspConfig.frameAncestors.length === 1 &&
+      cspConfig.frameAncestors[0] === "'none'";
 
     if (isFramingDenied && config.frameOptions === 'SAMEORIGIN') {
       throw new Error(
@@ -1256,13 +1301,13 @@ export function securityHeaders(
     const ownScriptSources = [quote(UNIREND_BOOTSTRAP_SCRIPT_HASH)];
     const ownStyleSources = UNIREND_ERROR_PAGE_STYLE_HASHES.map(quote);
 
-    const value = serializeCSP(config.csp, {
+    const value = serializeCSP(cspConfig, {
       scriptSrc: ownScriptSources,
       styleSrc: ownStyleSources,
     });
 
     if (value) {
-      resolvedCSP = { headerName: cspHeaderName(config.csp), value };
+      resolvedCSP = { headerName: cspHeaderName(cspConfig), value };
 
       // Rebuild for a request that contributed extra sources, memoized on the
       // sources themselves. The base policy stays the fallback: an app that
@@ -1277,7 +1322,7 @@ export function securityHeaders(
         if (policy === undefined) {
           // config.csp is captured rather than re-read: this closure outlives
           // the block, and the value it must serialize is the validated one.
-          policy = serializeCSP(config.csp as CSPConfig, {
+          policy = serializeCSP(cspConfig, {
             scriptSrc,
             styleSrc,
           });
@@ -1289,6 +1334,54 @@ export function securityHeaders(
     }
   }
 
+  // Whether the configured policy would actually block an inline attribute.
+  //
+  // The check exists because warning unconditionally would be noise: someone who
+  // has deliberately set 'unsafe-hashes' or 'unsafe-inline' has already decided,
+  // and telling them again on every startup is how a warning gets tuned out. The
+  // detection lives in the template pipeline, which cannot see the policy, and
+  // the policy lives here, which cannot see the template. Reporting from there
+  // and deciding here is what lets the warning be accurate.
+  const permitsInlineAttribute = (directives: (string[] | undefined)[]) =>
+    directives.some(
+      (sources) =>
+        sources?.includes("'unsafe-hashes'") ||
+        sources?.includes("'unsafe-inline'"),
+    );
+
+  // One message per distinct finding for the life of the process. These come
+  // from templates, which are per app and fixed, so repeating per request would
+  // say nothing new.
+  const reportedInlineAttributes = new Set<string>();
+
+  const reportInlineAttributes = (
+    request: FastifyRequest,
+    findings: readonly string[] | undefined,
+  ): void => {
+    if (!findings?.length) {
+      return;
+    }
+
+    const fresh = findings.filter(
+      (finding) => !reportedInlineAttributes.has(finding),
+    );
+
+    if (!fresh.length) {
+      return;
+    }
+
+    for (const finding of fresh) {
+      reportedInlineAttributes.add(finding);
+    }
+
+    const log = (request as Partial<FastifyRequest>).log;
+
+    log?.warn(
+      { inlineAttributes: fresh },
+      '[securityHeaders] Template content carries inline attributes that no CSP hash can cover, so they will not run under this policy. Move an on* handler to an addEventListener in a hashed script, and a style="" attribute into a hashed <style> block. Setting \'unsafe-hashes\' in the matching directive would also work, and is worse.',
+    );
+  };
+
   // Mutable so a resolver can be installed after registration. A resolver that
   // needs a database cannot run at config time, but the plugin has to register
   // early so its onRequest beats anything that might short-circuit. Keeping the
@@ -1298,25 +1391,43 @@ export function securityHeaders(
   // than an error.
   let activeResolver: SecurityHeadersResolver | undefined = config.resolve;
 
+  const ownDomains =
+    config.ownDomains === undefined
+      ? undefined
+      : (Array.isArray(config.ownDomains)
+          ? config.ownDomains
+          : [config.ownDomains]
+        ).map((domain) => normalizeDomain(domain));
+
   const resolvedConfig: ResolvedSecurityHeadersConfig = {
     cors: corsConfig,
     frameOptions: config.frameOptions ?? false,
     hsts: config.hsts ?? false,
     csp: resolvedCSP,
     resolveEffective: (request) =>
-      resolveEffectiveConfig(request, resolvedConfig, activeResolver, (csp) => {
-        // A resolver's policy is serialized per request rather than memoized.
-        // Correctness first: memoizing would need a key describing everything
-        // the policy depends on, and a key that misses something serves one
-        // tenant's policy to another. That trade was rejected for exactly this
-        // reason, and what it would save is string concatenation.
-        const value = serializeCSP(csp, {
-          scriptSrc: [`'${UNIREND_BOOTSTRAP_SCRIPT_HASH}'`],
-          styleSrc: UNIREND_ERROR_PAGE_STYLE_HASHES.map((h) => `'${h}'`),
-        });
+      resolveEffectiveConfig(
+        request,
+        resolvedConfig,
+        activeResolver,
+        (csp) => {
+          // A resolver's policy is serialized per request rather than memoized.
+          // Correctness first: memoizing would need a key describing everything
+          // the policy depends on, and a key that misses something serves one
+          // tenant's policy to another. That trade was rejected for exactly
+          // this reason, and what it would save is string concatenation.
+          //
+          // A preset is expanded here too, so a resolver can return one.
+          const expanded = applyCSPPreset(csp);
 
-        return value ? { headerName: cspHeaderName(csp), value } : false;
-      }),
+          const value = serializeCSP(expanded, {
+            scriptSrc: [`'${UNIREND_BOOTSTRAP_SCRIPT_HASH}'`],
+            styleSrc: UNIREND_ERROR_PAGE_STYLE_HASHES.map((h) => `'${h}'`),
+          });
+
+          return value ? { headerName: cspHeaderName(expanded), value } : false;
+        },
+        ownDomains,
+      ),
   };
 
   const plugin = async (fastify: PluginHostInstance<UnirendServerMode>) => {
@@ -1345,6 +1456,7 @@ export function securityHeaders(
           sources: {
             scriptSrc?: readonly string[];
             styleSrc?: readonly string[];
+            inlineAttributes?: readonly string[];
           },
         ) {
           const request = this as FastifyRequest & {
@@ -1354,6 +1466,18 @@ export function securityHeaders(
           request.cspExtraSources ??= { scriptSrc: [], styleSrc: [] };
           request.cspExtraSources.scriptSrc.push(...(sources.scriptSrc ?? []));
           request.cspExtraSources.styleSrc.push(...(sources.styleSrc ?? []));
+
+          // Skipped entirely when the policy already allows them, so someone
+          // who made that call deliberately is not told about it repeatedly.
+          if (
+            !permitsInlineAttribute([
+              cspConfig ? cspConfig.scriptSrc : undefined,
+              cspConfig ? cspConfig.styleSrc : undefined,
+              cspConfig ? cspConfig.defaultSrc : undefined,
+            ])
+          ) {
+            reportInlineAttributes(this, sources.inlineAttributes);
+          }
         },
       );
     }

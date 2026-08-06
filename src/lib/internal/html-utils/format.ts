@@ -519,6 +519,19 @@ export function prettifyHTML($: CheerioAPI, containerID = 'root'): string {
 export interface TemplateCSPHashes {
   scriptSrc: string[];
   styleSrc: string[];
+  /**
+   * Inline `on*=` handlers and `style=""` attributes found in the template.
+   *
+   * No hash covers an attribute, only a `<script>` or `<style>` **element**, so
+   * these stop working under a strict policy unless `'unsafe-hashes'` or
+   * `'unsafe-inline'` is present. Reported rather than warned about here,
+   * because whether it matters depends on the CSP config, which this code does
+   * not see. `securityHeaders` holds both halves and decides.
+   *
+   * Each entry names the element and attribute, for a message someone can act
+   * on without going hunting.
+   */
+  inlineAttributes: string[];
 }
 
 export type ProcessTemplateResult =
@@ -552,8 +565,26 @@ function collectTemplateCSPHashesWith(
 ): TemplateCSPHashes {
   const scriptSrc = new Set<string>();
   const styleSrc = new Set<string>();
+  const inlineAttributes = new Set<string>();
 
   const collectFrom = ($: CheerioAPI): void => {
+    $('*').each((_, el) => {
+      if (!isElementNode(el)) {
+        return;
+      }
+
+      for (const name of Object.keys(el.attribs ?? {})) {
+        // on* is the event-handler namespace. `style` is the other attribute a
+        // hash cannot cover. Both need 'unsafe-hashes' at best, and the better
+        // fix is usually not to write them inline at all.
+        if (/^on[a-z]+$/i.test(name)) {
+          inlineAttributes.add(`<${el.tagName}> has ${name}=`);
+        } else if (name.toLowerCase() === 'style') {
+          inlineAttributes.add(`<${el.tagName}> has style=`);
+        }
+      }
+    });
+
     $('script').each((_, el) => {
       const element = $(el);
 
@@ -603,7 +634,11 @@ function collectTemplateCSPHashesWith(
 
   collectFrom(load(html));
 
-  return { scriptSrc: [...scriptSrc], styleSrc: [...styleSrc] };
+  return {
+    scriptSrc: [...scriptSrc],
+    styleSrc: [...styleSrc],
+    inlineAttributes: [...inlineAttributes],
+  };
 }
 
 /**

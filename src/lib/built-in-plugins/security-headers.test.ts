@@ -1,7 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test';
 import fastify from 'fastify';
 import { securityHeaders } from './security-headers';
-import type { CORSConfig } from './security-headers';
+import type { CORSConfig, CSPConfig } from './security-headers';
 import { domainValidation } from './domain-validation';
 import type {
   PluginOptions,
@@ -2167,6 +2167,98 @@ describe('securityHeaders', () => {
     });
   });
 
+  describe('inline attributes reported by a template', () => {
+    /**
+     * Install the plugin on a mock host and call the decorated addCSPSources
+     * with an inline-attribute report, returning whatever it logged.
+     */
+    async function warningsFor(csp: CSPConfig): Promise<unknown[]> {
+      const pluginHost = createMockPluginHost();
+
+      await securityHeaders({ csp })(pluginHost, createMockOptions());
+
+      const decorated = (
+        pluginHost.decorateRequest as unknown as {
+          mock: { calls: Array<[string, (...args: any[]) => void]> };
+        }
+      ).mock.calls.find(([name]) => name === 'addCSPSources');
+
+      if (!decorated) {
+        throw new Error('addCSPSources was not decorated');
+      }
+
+      const warnings: unknown[] = [];
+      const request = {
+        log: {
+          warn: (...args: unknown[]) => warnings.push(args),
+        },
+      };
+
+      decorated[1].call(request, {
+        inlineAttributes: ['<button> has onclick='],
+      });
+
+      return warnings;
+    }
+
+    it('warns when the policy would block them', () => {
+      // No hash covers an attribute, only a <script> or <style> element, so
+      // these silently stop working under a strict policy.
+      return warningsFor({ scriptSrc: ["'self'"] }).then((warnings) => {
+        expect(warnings).toHaveLength(1);
+      });
+    });
+
+    it("stays quiet when 'unsafe-hashes' is set", () => {
+      // Someone who set this has already decided. Telling them again on every
+      // startup is how a warning gets tuned out.
+      return warningsFor({
+        scriptSrc: ["'self'", "'unsafe-hashes'"],
+      }).then((warnings) => {
+        expect(warnings).toHaveLength(0);
+      });
+    });
+
+    it("stays quiet when 'unsafe-inline' is set", () => {
+      return warningsFor({
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        allowUnsafeInlineScript: true,
+      }).then((warnings) => {
+        expect(warnings).toHaveLength(0);
+      });
+    });
+
+    it('warns once per distinct finding, not once per request', async () => {
+      const pluginHost = createMockPluginHost();
+
+      await securityHeaders({ csp: { scriptSrc: ["'self'"] } })(
+        pluginHost,
+        createMockOptions(),
+      );
+
+      const decorated = (
+        pluginHost.decorateRequest as unknown as {
+          mock: { calls: Array<[string, (...args: any[]) => void]> };
+        }
+      ).mock.calls.find(([name]) => name === 'addCSPSources');
+
+      const warnings: unknown[] = [];
+      const request = {
+        log: { warn: (...args: unknown[]) => warnings.push(args) },
+      };
+
+      // Templates are per app and fixed, so repeating this per request would
+      // say nothing new.
+      for (let index = 0; index < 5; index += 1) {
+        decorated?.[1].call(request, {
+          inlineAttributes: ['<button> has onclick='],
+        });
+      }
+
+      expect(warnings).toHaveLength(1);
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Callbacks that throw — fail closed rather than 500
   // -------------------------------------------------------------------------
@@ -3004,6 +3096,82 @@ describe('securityHeaders', () => {
 
       expect(response.headers.get('strict-transport-security')).toBe(
         'max-age=42',
+      );
+    });
+
+    it('keeps HSTS on a failed resolve for a host listed in ownDomains', async () => {
+      // Without ownDomains a store outage drops HSTS everywhere, which is never
+      // wrong but is blunt: it also drops it for domains the operator plainly
+      // owns and had every intention of binding.
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            hsts: { maxAge: 31536000, includeSubDomains: true },
+            ownDomains: ['allowed.example.com', '**.allowed.example.com'],
+            resolve: () => {
+              throw new Error('tenant lookup failed');
+            },
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.status).toBe(500);
+      expect(response.headers.get('strict-transport-security')).toBe(
+        'max-age=31536000; includeSubDomains',
+      );
+    });
+
+    it('still drops HSTS on a failed resolve for a host it does not own', async () => {
+      // The distinction is the whole point. Binding a domain for a year is safe
+      // when you own it and permanent when you do not.
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            hsts: { maxAge: 31536000, includeSubDomains: true },
+            ownDomains: ['allowed.example.com'],
+            resolve: () => {
+              throw new Error('tenant lookup failed');
+            },
+          }),
+        ],
+        host: 'customer-owned.example.net',
+      });
+
+      expect(response.status).toBe(500);
+      expect(response.headers.get('strict-transport-security')).toBeNull();
+    });
+
+    it('expands a CSP preset', async () => {
+      const response = await respondTo({
+        plugins: [securityHeaders({ csp: { preset: 'strict' } })],
+        host: 'allowed.example.com',
+      });
+
+      const csp = response.headers.get('content-security-policy') ?? '';
+
+      expect(csp).toContain("default-src 'self'");
+      expect(csp).toContain("object-src 'none'");
+      expect(csp).toContain("base-uri 'self'");
+      // The framework's own hashes still land in the preset's directives.
+      expect(csp).toMatch(/script-src 'self' 'sha256-[^']+'/);
+    });
+
+    it('lets a directive override the preset it came from', async () => {
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            csp: {
+              preset: 'strict',
+              imgSrc: ["'self'", 'https://cdn.example.com'],
+            },
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.headers.get('content-security-policy')).toContain(
+        "img-src 'self' https://cdn.example.com",
       );
     });
 

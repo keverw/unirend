@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  applyCSPPreset,
   cspHeaderName,
   serializeCSP,
   validateCSPConfig,
@@ -176,6 +177,54 @@ describe('serializeCSP', () => {
         { styleSrc: ["'sha256-abc='"] },
       ),
     ).toBe("style-src 'self' 'sha256-abc='");
+  });
+});
+
+describe('presets', () => {
+  it('expands a named preset', () => {
+    const expanded = applyCSPPreset({ preset: 'strict' });
+
+    expect(expanded.defaultSrc).toEqual(["'self'"]);
+    expect(expanded.objectSrc).toEqual(["'none'"]);
+    expect(expanded.baseURI).toEqual(["'self'"]);
+    expect(expanded.frameAncestors).toEqual(["'none'"]);
+  });
+
+  it('replaces a preset directive rather than adding to it', () => {
+    // Per-directive replacement, so a preset can never quietly widen something
+    // that was deliberately narrowed.
+    const expanded = applyCSPPreset({
+      preset: 'strict',
+      imgSrc: ["'none'"],
+    });
+
+    expect(expanded.imgSrc).toEqual(["'none'"]);
+    // Untouched directives still come from the preset.
+    expect(expanded.defaultSrc).toEqual(["'self'"]);
+  });
+
+  it('passes a config with no preset through unchanged', () => {
+    const config: CSPConfig = { defaultSrc: ["'self'"] };
+
+    expect(applyCSPPreset(config)).toBe(config);
+  });
+
+  it('rejects an unknown preset by name', () => {
+    expect(() =>
+      applyCSPPreset({ preset: 'ultra' as unknown as 'strict' }),
+    ).toThrow(/is not a known preset/);
+  });
+
+  it('produces a policy that passes validation', () => {
+    for (const preset of ['strict', 'strict-with-cdn'] as const) {
+      expect(() => validateCSPConfig(applyCSPPreset({ preset }))).not.toThrow();
+    }
+  });
+
+  it('serializes strict to a usable policy', () => {
+    expect(serializeCSP(applyCSPPreset({ preset: 'strict' }))).toBe(
+      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'",
+    );
   });
 });
 

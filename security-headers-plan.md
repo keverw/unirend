@@ -2,7 +2,18 @@
 
 Working notes for the `feat/security-headers-csp` branch, committed so the reasoning behind each step is reviewable alongside the code. This file is branch-scoped: fold anything worth keeping into `docs/` and delete it before merging.
 
-## What is left
+## What is left (one item)
+
+Steps 1 through 8 are done, and four of the five follow-ups below have since landed: CSP presets, the inline-attribute warning, `strict-dynamic` documentation, and `ownDomains` for the resolver's HSTS fallback.
+
+One remains, and it is external: reporting the `light-my-request` / Bun `inject()` short-circuit bug upstream. Nothing in this branch depends on it.
+
+Two decisions worth carrying forward from that work:
+
+- **No `strictDynamic: true` convenience.** It is one entry in an array the caller is already writing, and a flag would hide which directive it lands in, which is the thing they need to see. Documented thoroughly instead, including that `'strict-dynamic'` makes supporting browsers ignore host sources in that directive, so the common `["'self'", "'strict-dynamic'", 'https://cdn...']` spelling means different things in old and new browsers.
+- **The inline-attribute warning had to span two layers.** Detection belongs in the template pipeline, which cannot see the CSP config; the decision about whether it matters belongs in the plugin, which cannot see the template. Reporting from one and deciding in the other is what makes the warning accurate rather than noise, which was the objection that prompted it.
+
+## Original list, kept for the reasoning
 
 Steps 1 through 8 are done. An audit of every unchecked box found that most were finished and simply never checked off, which is its own lesson about checklists edited in place. Five remain, and none of them block the branch:
 
@@ -103,7 +114,7 @@ Note this is **not** inconsistent with the fail-closed callbacks in commit 4. Th
 
 - [x] Same handling when a resolver returns something that fails validation, which is a bug in the same place with the same consequences.
 
-- [ ] Decide whether "send nothing" should instead be "send the baseline only when the request's host matches a statically configured domain". More precise, since a resolver throwing on the operator's own domain then keeps working normally, but it needs a notion of which hosts are statically ours that does not exist yet. Start with send-nothing, which is never wrong, and revisit if the logs say resolvers throw often enough on first-party hosts to matter.
+- [x] Decide whether "send nothing" should instead be "send the baseline only when the request's host matches a statically configured domain". More precise, since a resolver throwing on the operator's own domain then keeps working normally, but it needs a notion of which hosts are statically ours that does not exist yet. Start with send-nothing, which is never wrong, and revisit if the logs say resolvers throw often enough on first-party hosts to matter.
 - [x] Decide whether `resolve` can be async. Tenant lookups usually hit a store, so probably yes, which means it must be awaited before headers are applied in `onRequest`.
 - [x] Document that `cors.origin` as a function and `resolve` overlap. Prefer `resolve` for per-tenant policy, keep the callbacks for pure origin decisions.
 
@@ -516,7 +527,7 @@ Rich JSON policy rather than a hand-written string. Reuse `validateConfigEntry` 
 
 - [x] Directive config object (`defaultSrc`, `scriptSrc`, `styleSrc`, `imgSrc`, `connectSrc`, `frameAncestors`, `reportUri`, …)
 - [x] Keyword sources (`'self'`, `'none'`, `'strict-dynamic'`, `'unsafe-inline'`) validated distinctly from host sources
-- [ ] Presets, so a sane default plus per-directive override beats writing the string by hand
+- [x] Presets, so a sane default plus per-directive override beats writing the string by hand
 - [x] `reportOnly` mode (`Content-Security-Policy-Report-Only`), essential for rolling this out on a live site
 - [x] Config-time rejection of the obvious footgun cases, in the spirit of the existing CORS guards: `'unsafe-inline'` in `script-src` without an explicit opt-in flag
 - [x] `frame-ancestors` overlaps `frameOptions`. Warn or reconcile when both are set.
@@ -540,13 +551,13 @@ Three sources of inline content, and they do not behave the same way.
 2. **Template slots** — `headInlineScripts` (`types.ts:956`), `bodyPrepend` (`types.ts:965`), and `bodyAppend` (`types.ts:976`). Baked into the processed template and cached per app, with per-request data arriving as globals instead of varying the slot content (`types.ts:937`). So they are static per app and hashable. `html-utils/format.ts` already parses them with cheerio in `validateTemplateSlots()`, so the hashing hooks into a pass that exists.
    - [x] Hash each `headInlineScripts` entry, from the **serialized** output, and add to `script-src`
    - [x] Extract and hash `<script>` / `<style>` elements inside `bodyPrepend` and `bodyAppend` (do not forget `bodyAppend`, which is where analytics snippets most often go)
-   - [ ] Inline event handler attributes (`onclick=`) and `style=""` attributes in slot HTML cannot be hashed usefully. `unsafe-hashes` is messy and poorly supported. Warn at validation time when CSP is enabled.
+   - [x] Inline event handler attributes (`onclick=`) and `style=""` attributes in slot HTML cannot be hashed usefully. `unsafe-hashes` is messy and poorly supported. Warn at validation time when CSP is enabled.
 
    **The slot use case is third-party widgets** (chat, analytics), and those come in three shapes that CSP treats differently:
    - **External only** (`<script src="https://widget.example.com/x.js">`): hashes are irrelevant. This needs a **host source** in `script-src`. Unirend can collect the origin of every external script it finds in a slot and add it automatically, which is a nicer default than making the user restate it.
    - **Inline only**: hash it, per above.
    - **Inline snippet that injects an external script** — the common analytics/chat pattern (Google Analytics, Intercom, and friends). Hashing the snippet is not enough, because the script it injects at runtime is _also_ subject to `script-src`. This is the case `'strict-dynamic'` exists for: a script trusted by hash or by nonce is then trusted to load further scripts. Alternative is listing every third-party origin by hand.
-   - [ ] Decide whether unirend offers a `strictDynamic: true` convenience, and document plainly that slot-injected third-party scripts need either that or explicit host sources. This is the thing most likely to bite a user, so it belongs near the top of the slots documentation, not in a footnote.
+   - [x] Decide whether unirend offers a `strictDynamic: true` convenience, and document plainly that slot-injected third-party scripts need either that or explicit host sources. This is the thing most likely to bite a user, so it belongs near the top of the slots documentation, not in a footnote.
 
 3. **Per-request injected globals** — `inject.ts` used to emit seven inline scripts whose content varied per request (`__lifecycleion_is_dev__`, `__FRONTEND_REQUEST_CONTEXT__`, `__PUBLIC_APP_CONFIG__`, `__CDN_BASE_URL__`, `__DOMAIN_INFO__`, `__UNIREND_TEMPLATE_ATTRS__`, template metas), plus React Router's hydration script. Hashes could not work on any of them, and this looked like the one genuine nonce case. **Solved, not by nonces:** all of it moved into the JSON data block, and the only executable script left is the fixed bootstrap, whose hash is `UNIREND_BOOTSTRAP_SCRIPT_HASH`. See below.
 

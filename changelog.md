@@ -242,6 +242,12 @@ Two related fixes come with it. The origin and credentials decisions are now com
 
 If you were relying on a throw to produce a 500, catch it in your callback and decide there. Only your code can tell a genuine "not allowed" from "the store is down".
 
+**New:** `csp.preset` gives a policy a starting point instead of twenty lines of directives. `'strict'` is everything same-origin plus `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'` and `form-action 'self'`; `'strict-with-cdn'` adds the `data:` and `blob:` sources a strict policy usually first trips over. Directives you set replace the preset's for that directive rather than adding to it, so a preset can never quietly widen something you narrowed. Neither names a third-party host: add your CDN yourself, so it appears in your config rather than inside a preset.
+
+**New:** unirend warns when template content carries `onclick=` or `style=""` attributes, which no CSP hash can cover and which therefore stop working under a strict policy with nothing in the page to say why. The warning is skipped when your policy already sets `'unsafe-hashes'` or `'unsafe-inline'` in the matching directive, since being told repeatedly about a decision you made deliberately is how a warning gets tuned out.
+
+**New:** `ownDomains` on `securityHeaders` lists the hosts you control. Without it, a failed `resolve` costs the response its HSTS whatever the host, which is never wrong but drops HSTS for first-party traffic during a store outage too. With it, a failed resolve keeps the baseline HSTS on a host you own and still sends nothing on one you do not.
+
 **New:** `securityHeaders` takes a `resolve` callback that varies `csp`, `hsts`, and `frameOptions` per request, for deployments where customers map their own domains. A single static `hsts` applies to all of them, and `includeSubDomains` on a domain you do not own forces HTTPS across every other subdomain that customer has, honored for the full `maxAge` with no way to revoke it.
 
 ```typescript

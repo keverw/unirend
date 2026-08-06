@@ -2850,6 +2850,13 @@ declare module 'fastify' {
     addCSPSources?: (sources: {
       scriptSrc?: readonly string[];
       styleSrc?: readonly string[];
+      /**
+       * Inline `on*=` handlers and `style=""` attributes found in the content
+       * being contributed. No hash covers an attribute, so these are reported
+       * rather than hashed, and `securityHeaders` warns about them only when
+       * the configured policy would actually block them.
+       */
+      inlineAttributes?: readonly string[];
     }) => void;
     /**
      * Set to `true` by the built-in `domainValidation` plugin when it rejects

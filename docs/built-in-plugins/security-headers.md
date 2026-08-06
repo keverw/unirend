@@ -15,10 +15,15 @@
   - [Roll It Out With `reportOnly`](#roll-it-out-with-reportonly)
   - [What Unirend Contributes Automatically](#what-unirend-contributes-automatically)
   - [Your Own Inline Content Is Hashed Too](#your-own-inline-content-is-hashed-too)
+  - [Third-Party Widgets and `'strict-dynamic'`](#third-party-widgets-and-strict-dynamic)
   - [`frameAncestors` and `frameOptions` Together](#frameancestors-and-frameoptions-together)
+  - [Inline Attributes Cannot Be Hashed](#inline-attributes-cannot-be-hashed)
+  - [Presets](#presets)
   - [Config-Time Validation](#config-time-validation)
 - [Per-Request Policy With `resolve`](#per-request-policy-with-resolve)
   - [When `resolve` Throws](#when-resolve-throws)
+  - [Keeping HSTS for Hosts You Own](#keeping-hsts-for-hosts-you-own)
+  - [Where to Put the Plugin, and When `resolve` Runs](#where-to-put-the-plugin-and-when-resolve-runs)
   - [Installing a Resolver Later](#installing-a-resolver-later)
 - [When a Callback Throws](#when-a-callback-throws)
 - [Plugin Order and Short-Circuited Responses](#plugin-order-and-short-circuited-responses)
@@ -332,6 +337,50 @@ Costs are where you would want them. Production hashes once per app at startup. 
 
 None of this happens unless a `csp` policy is configured.
 
+### Third-Party Widgets and `'strict-dynamic'`
+
+This is the part most likely to bite you, so it is here rather than in a footnote.
+
+Analytics, chat, and support widgets come in three shapes, and CSP treats them very differently.
+
+**An external script.** `<script src="https://widget.example.com/x.js">` in a slot needs a **host source**, not a hash:
+
+```typescript
+csp: {
+  scriptSrc: ["'self'", 'https://widget.example.com'];
+}
+```
+
+**A purely inline snippet.** Already handled. Unirend hashes your slot content, so it works with nothing extra.
+
+**An inline snippet that injects another script.** This is what Google Analytics, Intercom, and most of their peers actually ship, and it is where a policy that looked finished falls over. Hashing the snippet is not enough: the script _it_ creates at runtime is subject to `script-src` too, and it is not in your policy.
+
+Two ways out.
+
+List every origin the snippet reaches by hand, including the ones it loads transitively, which you will discover from violation reports and will have to revisit whenever the vendor changes anything:
+
+```typescript
+csp: {
+  scriptSrc: ["'self'", 'https://widget.example.com', 'https://cdn.widget.example.com'],
+}
+```
+
+Or use `'strict-dynamic'`, which says: a script already trusted by hash or nonce may load further scripts.
+
+```typescript
+csp: {
+  scriptSrc: ["'self'", "'strict-dynamic'"],
+}
+```
+
+There is no `strictDynamic: true` convenience option, deliberately. It is one entry in an array you are already writing, and a dedicated flag would hide which directive it lands in, which is exactly what you need to see.
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> `'strict-dynamic'` makes browsers that support it **ignore host sources in that directive**. Writing `scriptSrc: ["'self'", "'strict-dynamic'", 'https://cdn.example.com']` does not mean "both": modern browsers drop `'self'` and the CDN host and trust only what a script trusted by hash or nonce loads. Older browsers do the opposite and ignore `'strict-dynamic'`. That combination is a deliberate, documented fallback pattern, not a mistake, but you should know which half of it each browser is reading.
+
+The practical consequence: with `'strict-dynamic'`, a plain `<script src>` in your template stops being covered by a host source and needs to be loaded by a trusted script instead. Unirend does not rewrite your template to do that. Test with `reportOnly: true` first.
+
 ### `frameAncestors` and `frameOptions` Together
 
 `frame-ancestors` supersedes `X-Frame-Options` wherever CSP is supported, which is everywhere that matters. So `frameOptions` is a fallback for browsers that would otherwise get no framing policy at all, and setting both is a reasonable thing to do.
@@ -341,6 +390,39 @@ A fallback may be **stricter** than the policy it backs up. `frameOptions: 'DENY
 It must not be **looser**. `frameOptions: 'SAMEORIGIN'` alongside `frameAncestors: ["'none'"]` is rejected at startup: a browser without CSP support would still allow same-origin framing that the policy exists to forbid, and you would have every reason to believe you had forbidden it everywhere.
 
 Nothing else is rejected. A deliberate pairing such as `frameOptions: 'SAMEORIGIN'` with `frameAncestors: ["'self'", 'https://partner.example.com']` is a real pattern (modern browsers get the nuance, old ones get the blunt fallback) and is left alone.
+
+### Inline Attributes Cannot Be Hashed
+
+A hash covers a `<script>` or `<style>` **element**. It never covers an attribute, so `onclick="…"` and `style="…"` in your template stop working under a strict policy, with no error on the server and nothing in the page to say why.
+
+Unirend detects them and warns once per distinct finding:
+
+```
+[securityHeaders] Template content carries inline attributes that no CSP hash
+can cover, so they will not run under this policy. <button> has onclick=
+```
+
+The warning is skipped entirely when your policy already sets `'unsafe-hashes'` or `'unsafe-inline'` in the relevant directive. If you have made that call deliberately, being told about it on every startup is how a warning gets tuned out.
+
+The fixes, best first: move an `on*` handler into an `addEventListener` inside a script unirend already hashes, and a `style=""` attribute into a `<style>` block or a class. `'unsafe-hashes'` also works and is meaningfully worse, since it applies to every inline attribute on the page rather than the one you meant.
+
+### Presets
+
+`preset` gives a policy a sane starting point instead of twenty lines of directives:
+
+```typescript
+csp: {
+  preset: 'strict',
+  imgSrc: ["'self'", 'https://cdn.example.com'], // your own directives win
+}
+```
+
+- **`strict`** — everything same-origin, `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`, `form-action 'self'`. The one to start from, with `reportOnly: true` on, widening only where the reports say you must.
+- **`strict-with-cdn`** — the same, plus `data:`/`blob:` images, `data:` fonts, and `blob:` workers, which is where a `strict` policy usually first meets reality. It still names no third-party host: add your CDN yourself, so it appears in your config rather than hiding inside a preset.
+
+Directives you set **replace** the preset's for that directive rather than adding to it. Writing `imgSrc` means your `imgSrc`, not the preset's plus yours, so a preset can never quietly widen something you narrowed.
+
+Two directives in these presets are worth knowing about because their value is not obvious. `object-src 'none'` shuts off `<object>` and `<embed>`, a legacy plugin surface with no modern use. `base-uri 'self'` stops an injected `<base href>` from redirecting every relative URL on the page, which is a quiet way around an otherwise tight `script-src`.
 
 ### Config-Time Validation
 
@@ -410,6 +492,36 @@ resolve: async (request) => {
 ```
 
 Either way, the error response carries the defaults but **no HSTS**. That is not a preference: the baseline is written for domains you own, and a domain whose policy could not be resolved may well not be one of them. Binding it for a year on the strength of a failed lookup is worse than the 500 that prompted it. The resolver is not called a second time while handling its own failure.
+
+### Keeping HSTS for Hosts You Own
+
+By default a failed `resolve` costs the response its HSTS, whatever the host. That is never wrong, but it is blunt: a store outage then drops HSTS for first-party traffic too, on domains you plainly own and had every intention of binding.
+
+`ownDomains` makes the distinction explicit:
+
+```typescript
+securityHeaders({
+  hsts: { maxAge: 31536000, includeSubDomains: true },
+  ownDomains: ['example.com', '**.example.com'],
+  resolve: async (request) => lookupTenantPolicy(request),
+});
+```
+
+Now a failed resolve keeps the baseline HSTS when the request's host matches, and still sends nothing when it does not. Accepts the same patterns as `domainValidation.validProductionDomains`.
+
+List only what you genuinely control. A customer's mapped domain does not belong here even though you serve it, because that is exactly the domain this protection exists for: binding it for a year on the strength of a failed lookup is not yours to do.
+
+### Where to Put the Plugin, and When `resolve` Runs
+
+Three different orderings get confused with each other, and only two are solved for you.
+
+**Plugin array order does not affect coverage.** `securityHeaders` can sit anywhere; the `onSend` backstop catches responses that ended before its `onRequest` ran. See [Plugin Order and Short-Circuited Responses](#plugin-order-and-short-circuited-responses).
+
+**A resolver's startup dependency is solved by `setResolver`,** below. Register early with a validated baseline, install the real resolver when the database is up.
+
+**A resolver's per-request data dependency is not solved, and is worth thinking about.** `resolve` runs in this plugin's `onRequest`, so it sees only what exists at that point. If your resolver reads something another plugin sets on the request, that plugin has to run first.
+
+`request.domainInfo` is populated by the server before any plugin runs, which is why the examples key on `request.domainInfo.hostname`: it works no matter where the plugin sits. If you need something a plugin sets, register `securityHeaders` after it. That is safe precisely because array order no longer affects coverage, so you are free to place the plugin where the resolver's data needs it.
 
 ### Installing a Resolver Later
 

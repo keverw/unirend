@@ -77,6 +77,83 @@ const SOURCE_LIST_DIRECTIVES = [
 type SourceListDirective = (typeof SOURCE_LIST_DIRECTIVES)[number][0];
 
 /**
+ * Named starting points, so a policy can be a few lines instead of twenty.
+ *
+ * - `strict`: everything same-origin, no plugins, no framing, no base-tag
+ *   hijacking. The one to start from, with `reportOnly` on, and widen only
+ *   where the reports say you must.
+ * - `strict-with-cdn`: the same, plus `data:` images and blob workers, which
+ *   is where a `strict` policy usually first hits reality. Still names no
+ *   third-party host: add your CDN to `imgSrc` and `scriptSrc` yourself, so it
+ *   appears in your config rather than hiding in a preset.
+ *
+ * Directives you set are merged over the preset per directive, replacing it
+ * outright rather than adding to it. Writing `imgSrc` means your `imgSrc` and
+ * not the preset's plus yours, so a preset can never silently widen something
+ * you narrowed.
+ */
+export type CSPPreset = 'strict' | 'strict-with-cdn';
+
+const CSP_PRESETS: Record<CSPPreset, CSPConfig> = {
+  strict: {
+    defaultSrc: ["'self'"],
+    scriptSrc: ["'self'"],
+    styleSrc: ["'self'"],
+    imgSrc: ["'self'"],
+    connectSrc: ["'self'"],
+    fontSrc: ["'self'"],
+    // 'none' rather than 'self': <object> and <embed> are a legacy plugin
+    // surface with no modern use, and the recommended value everywhere.
+    objectSrc: ["'none'"],
+    // Without this, an injected <base href> can redirect every relative URL on
+    // the page, which is a quiet way around an otherwise tight script-src.
+    baseURI: ["'self'"],
+    frameAncestors: ["'none'"],
+    formAction: ["'self'"],
+  },
+  'strict-with-cdn': {
+    defaultSrc: ["'self'"],
+    scriptSrc: ["'self'"],
+    styleSrc: ["'self'"],
+    // data: covers inlined icons and the small images bundlers emit; blob:
+    // covers canvas output and object URLs.
+    imgSrc: ["'self'", 'data:', 'blob:'],
+    connectSrc: ["'self'"],
+    fontSrc: ["'self'", 'data:'],
+    objectSrc: ["'none'"],
+    baseURI: ["'self'"],
+    frameAncestors: ["'none'"],
+    formAction: ["'self'"],
+    workerSrc: ["'self'", 'blob:'],
+  },
+};
+
+/**
+ * Apply a preset, with the caller's own directives taking precedence.
+ *
+ * Returns the config unchanged when no preset is named, so the non-preset path
+ * costs nothing and behaves exactly as before.
+ */
+export function applyCSPPreset(config: CSPConfig): CSPConfig {
+  if (!config.preset) {
+    return config;
+  }
+
+  const preset = CSP_PRESETS[config.preset];
+
+  if (!preset) {
+    throw new Error(
+      `Invalid securityHeaders config: csp.preset "${String(config.preset)}" is not a known preset. Available: ${Object.keys(CSP_PRESETS).join(', ')}.`,
+    );
+  }
+
+  // Per-directive replacement rather than a deep merge, for the same reason the
+  // per-tenant override replaces blocks: a merge would let a preset contribute
+  // sources to a directive the caller thought they had written out in full.
+  return { ...preset, ...config };
+}
+
+/**
  * Content-Security-Policy configuration.
  *
  * Every source-list directive takes an array of source expressions written the
@@ -86,6 +163,12 @@ type SourceListDirective = (typeof SOURCE_LIST_DIRECTIVES)[number][0];
 export type CSPConfig = {
   [Directive in SourceListDirective]?: string[];
 } & {
+  /**
+   * A named starting point. Directives you set replace the preset's, one
+   * directive at a time. See {@link CSPPreset}.
+   */
+  preset?: CSPPreset;
+
   /**
    * `sandbox` directive tokens, for example `['allow-forms', 'allow-scripts']`.
    * An empty array emits the bare directive, which is the most restrictive form.
