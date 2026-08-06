@@ -2975,6 +2975,13 @@ describe('securityHeaders', () => {
       host: string;
       origin?: string;
       protocol?: string;
+      /**
+       * Receives whatever reached the error handler, for the cases where the
+       * status alone does not say which rule fired. A 500 is a 500 whether the
+       * resolver threw, returned the wrong shape, or named a key that does not
+       * exist, so a test about the message has to read the message.
+       */
+      onError?: (error: Error) => void;
     }
 
     async function respondTo({
@@ -2982,8 +2989,17 @@ describe('securityHeaders', () => {
       host,
       origin,
       protocol = 'https',
+      onError,
     }: OrderedPluginsCase) {
       const app = fastify({ trustProxy: true });
+
+      if (onError) {
+        app.setErrorHandler((error: unknown, _request, reply) => {
+          onError(error instanceof Error ? error : new Error(String(error)));
+
+          return reply.code(500).send({ error: 'error' });
+        });
+      }
 
       for (const plugin of plugins) {
         await plugin(app as unknown as PluginHostInstance, createMockOptions());
@@ -3148,14 +3164,20 @@ describe('securityHeaders', () => {
       }
     });
 
-    it('cannot suppress HSTS when a hook above the gate throws first', async () => {
-      // Documents a footgun rather than a feature. A hook that throws above
-      // domainValidation ends the request before the gate runs, so
-      // domainValidationRejected is never set and the suppression has nothing
-      // to act on: a host that was never checked is pinned to HTTPS for the full
-      // max-age. Nothing downstream can repair it, because the request has
-      // already failed by then. Ordering is the only fix, and this test exists
-      // so that anyone changing the ordering guidance sees the cost.
+    it('suppresses HSTS when a hook above the gate throws first', async () => {
+      // The gate never runs here, so domainValidationRejected is never set, and
+      // a check that only asked about rejection would send HSTS for a host
+      // nothing has vouched for, pinning it to HTTPS for the full max-age with
+      // no way to revoke. That is the same outcome the rejection check exists to
+      // prevent, reached through a plugin that failed rather than a domain that
+      // was refused.
+      //
+      // What closes it is reading the verdict differently once a response is
+      // being sent: by then every onRequest hook that was going to run has run,
+      // so domainValidation being registered and never reached is itself the
+      // answer.
+      // Ordering is still the real fix, and the 500 still happens, but the
+      // header no longer outlives it.
       const app = fastify({ trustProxy: true });
 
       app.addHook('onRequest', () =>
@@ -3187,11 +3209,138 @@ describe('securityHeaders', () => {
         });
 
         expect(response.status).toBe(500);
+        expect(response.headers.get('strict-transport-security')).toBeNull();
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('still sends HSTS when no gate is registered at all', async () => {
+      // The other half of the rule above, and the one that keeps it from being
+      // a blunt instrument. isHostUnverified answers false when
+      // domainValidation is not registered, so a server that simply does not
+      // validate hosts is unaffected: an unset verdict there means the question
+      // is not being asked, not that it was asked and went unanswered.
+      const app = fastify({ trustProxy: true });
+
+      await securityHeaders({ hsts: { maxAge: 31536000 } })(
+        app as unknown as PluginHostInstance,
+        createMockOptions(),
+      );
+
+      app.get('/test', () => ({ ok: true }));
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const address = app.server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/test`, {
+          headers: {
+            'x-forwarded-host': 'app.example.com',
+            'x-forwarded-proto': 'https',
+          },
+        });
+
+        expect(response.status).toBe(200);
         expect(response.headers.get('strict-transport-security')).toBe(
           'max-age=31536000',
         );
       } finally {
         await app.close();
+      }
+    });
+
+    it('keeps HSTS on a preflight it answers before a gate below it', async () => {
+      // A regression, and a sharp one, because it looked like a security fix.
+      //
+      // The rule "once a response is being sent, every onRequest hook has run"
+      // is false here: this plugin answers a CORS preflight from inside its own
+      // onRequest, so a domainValidation registered *below* it legitimately
+      // never runs. Reading that unset verdict as "unverified" stripped HSTS
+      // from every preflight, on a valid host, in a plugin order the docs
+      // explicitly allow. `staticContent` serves files from an onRequest hook
+      // too, so it lost HSTS on every asset the same way.
+      //
+      // Hence the verdict is only read as "unverified" when the gate is
+      // registered above this plugin, where anything we can answer has already
+      // been through it.
+      const app = fastify({ trustProxy: true });
+
+      await securityHeaders({
+        hsts: { maxAge: 31536000 },
+        cors: { origin: ['https://app.example.com'] },
+      })(app as unknown as PluginHostInstance, createMockOptions());
+
+      // Registered *after*, which is the whole point of the case.
+      await gatekeeper()(
+        app as unknown as PluginHostInstance,
+        createMockOptions(),
+      );
+
+      app.get('/test', () => ({ ok: true }));
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const address = app.server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/test`, {
+          method: 'OPTIONS',
+          headers: {
+            'x-forwarded-host': 'allowed.example.com',
+            'x-forwarded-proto': 'https',
+            origin: 'https://app.example.com',
+            'access-control-request-method': 'GET',
+          },
+        });
+
+        expect(response.status).toBe(204);
+        expect(response.headers.get('strict-transport-security')).toBe(
+          'max-age=31536000',
+        );
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('still drops HSTS for a rejected host whichever order the gate is in', async () => {
+      // The ordering rule above governs how an *unset* verdict is read. An
+      // explicit rejection is not ambiguous in either order, so the original
+      // protection must not have been narrowed by making the unset case
+      // conditional.
+      for (const isGateFirst of [true, false]) {
+        const app = fastify({ trustProxy: true });
+        const plugins = isGateFirst
+          ? [gatekeeper(), securityHeaders({ hsts: { maxAge: 31536000 } })]
+          : [securityHeaders({ hsts: { maxAge: 31536000 } }), gatekeeper()];
+
+        for (const plugin of plugins) {
+          await plugin(
+            app as unknown as PluginHostInstance,
+            createMockOptions(),
+          );
+        }
+
+        app.get('/test', () => ({ ok: true }));
+        await app.listen({ port: 0, host: '127.0.0.1' });
+
+        const address = app.server.address();
+        const port = typeof address === 'object' && address ? address.port : 0;
+
+        try {
+          const response = await fetch(`http://127.0.0.1:${port}/test`, {
+            headers: {
+              'x-forwarded-host': 'evil.example.com',
+              'x-forwarded-proto': 'https',
+            },
+          });
+
+          expect(response.status).toBe(403);
+          expect(response.headers.get('strict-transport-security')).toBeNull();
+        } finally {
+          await app.close();
+        }
       }
     });
 
@@ -4030,6 +4179,68 @@ describe('securityHeaders', () => {
       });
 
       expect(response.status).toBe(500);
+    });
+
+    it('rejects a resolver that returns a misspelled policy key', async () => {
+      // The one mistake that would otherwise produce a *valid* policy. Dropping
+      // the unknown key leaves the block absent, and an absent block inherits
+      // the baseline, which is exactly what a correct resolver does — so this
+      // tenant would silently be sent the baseline's 'DENY' on a resolver whose
+      // author believes they turned framing off for them.
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            frameOptions: 'DENY',
+            // @ts-expect-error the return type rules this out; the check is for
+            // policies that arrive from a store or a request body
+            resolve: () => ({ frameOption: false }),
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.status).toBe(500);
+    });
+
+    it('names every unrecognized key rather than only the first', async () => {
+      // A stored policy written against the wrong field names gets them all
+      // wrong at once, and being told about one per deploy is a poor way to
+      // find that out.
+      const errors: string[] = [];
+
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            // @ts-expect-error same as above
+            resolve: () => ({ hst: { maxAge: 1 }, frameOption: false }),
+          }),
+        ],
+        host: 'allowed.example.com',
+        onError: (error) => errors.push(error.message),
+      });
+
+      expect(response.status).toBe(500);
+      expect(errors[0]).toContain('"hst"');
+      expect(errors[0]).toContain('"frameOption"');
+    });
+
+    it('accepts a resolver returning only the keys it means to override', async () => {
+      // The other side of the rule: an override that omits a block is the
+      // documented way to inherit it, so the key check must not turn a correct
+      // partial policy into a failure.
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            frameOptions: 'DENY',
+            hsts: { maxAge: 31536000, includeSubDomains: true },
+            resolve: () => ({ hsts: { maxAge: 86400 } }),
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('x-frame-options')).toBe('DENY');
     });
 
     it('rejects a resolver frameOptions that undercuts the inherited CSP', async () => {

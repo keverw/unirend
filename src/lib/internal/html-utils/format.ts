@@ -2,7 +2,7 @@ import type { RenderType, TemplateSlots } from '../../types';
 import type { CheerioAPI, load as cheerioLoad } from 'cheerio';
 import type { AnyNode, Comment, Document, Element, Text } from 'domhandler';
 import { escapeHTMLAttr, escapeHTMLText } from './escape';
-import { hashInlineContentForCSP } from '../csp-hash';
+import { hashInlineContentForCSP, isCSPGovernedScriptType } from '../csp-hash';
 import { UNIREND_DATA_BLOCK_ID } from './context-data-block';
 
 // cheerio's load(), narrowed to the fragment-parsing call validateTemplateSlots() makes.
@@ -571,8 +571,10 @@ export type ProcessTemplateResult =
  * delivered content to disagree. Runs once per app at startup, not per request.
  *
  * Scripts with a `src` are skipped, having no inline content to cover, and so
- * are non-JavaScript types such as the JSON data block, which a browser never
- * executes and `script-src` therefore never governs.
+ * are data blocks such as `application/json`, which `script-src` does not
+ * govern. Which types those are is `isCSPGovernedScriptType`'s question, and it
+ * is not the same as "is this JavaScript": an import map and a speculation
+ * rules block are both inert JSON that a strict `script-src` still blocks.
  */
 export async function collectTemplateCSPHashes(
   html: string,
@@ -584,9 +586,51 @@ export async function collectTemplateCSPHashes(
   return collectTemplateCSPHashesWith(html, cheerio.load);
 }
 
-function collectTemplateCSPHashesWith(
-  html: string,
+/**
+ * How much of a document to scan, for the callers that want less than all of it.
+ */
+export interface InlineCSPScanOptions {
+  /**
+   * Elements to leave out, compared by reference against the parsed nodes.
+   *
+   * The SSR path uses it for React Router's hydration script, which it has
+   * already dealt with itself: one shape is lifted into the JSON data block and
+   * so is never emitted, and the other is emitted verbatim and hashed from the
+   * original source offsets rather than from a re-serialization. Either way a
+   * hash taken here would be wrong or redundant.
+   */
+  skipElement?: (el: Element) => boolean;
+  /**
+   * Whether to report inline `on*=` and `style=` attributes.
+   *
+   * Off by default, and the SSR path leaves it off deliberately. React renders
+   * a `style` prop as a `style=""` attribute, so scanning rendered markup would
+   * report an ordinary styled component on every request, which is noise the
+   * warning cannot survive. A *template* is authored by hand and fixed for the
+   * life of the process, so there the report is worth having.
+   */
+  collectInlineAttributes?: boolean;
+}
+
+/**
+ * Hash the inline `<script>` and `<style>` elements of an already-parsed
+ * document.
+ *
+ * Split out from `collectTemplateCSPHashes` so the SSR path can scan the
+ * rendered body it has already parsed rather than parsing it a second time,
+ * and so both paths answer "is this script executable" and "what about
+ * `<noscript>`" from one copy of the rules.
+ *
+ * Reads content with cheerio's `.html()`, which is exact for these two
+ * elements: their children are a single raw-text node holding the source
+ * characters, and the serializer writes raw text back unencoded. That is the
+ * same reasoning the template scan relies on, and it is why this can be handed
+ * a tree rather than a string.
+ */
+export function collectInlineCSPHashes(
+  $: CheerioAPI,
   load: typeof cheerioLoad,
+  options: InlineCSPScanOptions = {},
 ): TemplateCSPHashes {
   const scriptSrc = new Set<string>();
   const styleSrc = new Set<string>();
@@ -596,8 +640,63 @@ function collectTemplateCSPHashesWith(
   // would then read as covering the template: the second handler is blocked and
   // nothing says so.
   const inlineAttributes = new Map<string, InlineAttributeFinding>();
+  const shouldSkip = options.skipElement ?? (() => false);
 
   const collectFrom = ($: CheerioAPI): void => {
+    if (options.collectInlineAttributes) {
+      collectAttributesFrom($);
+    }
+
+    $('script').each((_, el) => {
+      const element = $(el);
+
+      if (shouldSkip(el) || element.attr('src')) {
+        return;
+      }
+
+      if (!isCSPGovernedScriptType(element.attr('type'))) {
+        return;
+      }
+
+      const content = element.html();
+
+      if (content) {
+        scriptSrc.add(`'${hashInlineContentForCSP(content)}'`);
+      }
+    });
+
+    $('style').each((_, el) => {
+      if (shouldSkip(el)) {
+        return;
+      }
+
+      const content = $(el).html();
+
+      if (content) {
+        styleSrc.add(`'${hashInlineContentForCSP(content)}'`);
+      }
+    });
+
+    // <noscript> has to be parsed separately, and missing this is silent in the
+    // worst way. A parser with scripting enabled, which is what cheerio is,
+    // treats the element's contents as raw text, so the selectors above see
+    // nothing inside it. A browser with JavaScript *disabled* parses the same
+    // bytes as real markup, so a <style> in there becomes a live style element
+    // and a strict style-src without its hash blocks it.
+    //
+    // The result would be a noscript fallback rendering unstyled for exactly
+    // the users it exists for, and invisible to anyone testing with JavaScript
+    // on. Both the starter template and the demos put a <style> in theirs.
+    $('noscript').each((_, el) => {
+      const inner = $(el).html();
+
+      if (inner && /<(?:script|style)\b/i.test(inner)) {
+        collectFrom(load(inner, null, false));
+      }
+    });
+  };
+
+  const collectAttributesFrom = ($: CheerioAPI): void => {
     $('*').each((_, el) => {
       if (!isElementNode(el)) {
         return;
@@ -633,55 +732,9 @@ function collectTemplateCSPHashesWith(
         }
       }
     });
-
-    $('script').each((_, el) => {
-      const element = $(el);
-
-      if (element.attr('src')) {
-        return;
-      }
-
-      const type = element.attr('type');
-
-      if (type && !JAVASCRIPT_SCRIPT_TYPES.has(type.trim().toLowerCase())) {
-        return;
-      }
-
-      const content = element.html();
-
-      if (content) {
-        scriptSrc.add(`'${hashInlineContentForCSP(content)}'`);
-      }
-    });
-
-    $('style').each((_, el) => {
-      const content = $(el).html();
-
-      if (content) {
-        styleSrc.add(`'${hashInlineContentForCSP(content)}'`);
-      }
-    });
-
-    // <noscript> has to be parsed separately, and missing this is silent in the
-    // worst way. A parser with scripting enabled, which is what cheerio is,
-    // treats the element's contents as raw text, so the selectors above see
-    // nothing inside it. A browser with JavaScript *disabled* parses the same
-    // bytes as real markup, so a <style> in there becomes a live style element
-    // and a strict style-src without its hash blocks it.
-    //
-    // The result would be a noscript fallback rendering unstyled for exactly
-    // the users it exists for, and invisible to anyone testing with JavaScript
-    // on. Both the starter template and the demos put a <style> in theirs.
-    $('noscript').each((_, el) => {
-      const inner = $(el).html();
-
-      if (inner && /<(?:script|style)\b/i.test(inner)) {
-        collectFrom(load(inner, null, false));
-      }
-    });
   };
 
-  collectFrom(load(html));
+  collectFrom($);
 
   return {
     scriptSrc: [...scriptSrc],
@@ -690,45 +743,14 @@ function collectTemplateCSPHashesWith(
   };
 }
 
-/**
- * `type` values a browser treats as JavaScript. Anything else, including the
- * `application/json` data block, is inert and outside `script-src`.
- *
- * **Do not "parse the MIME type and compare the essence before the `;`".** That
- * change looks like a fix, has been proposed as one more than once, and is
- * wrong. [Prepare the script element][prepare] tests the attribute for a
- * [JavaScript MIME type essence match][essence], and an essence is the bare
- * type with no parameters, so a `type` carrying one matches nothing and the
- * element is never executed. The standard uses this very case as its worked
- * example: scripts with `type="text/javascript; charset=utf-8"` "will not be
- * evaluated, even though that is a valid JavaScript MIME type when parsed".
- * Accepting parameters here would publish hashes for inert content, which is
- * noise rather than safety. `collectTemplateCSPHashes` has a regression test
- * pinning it.
- *
- * [prepare]: https://html.spec.whatwg.org/multipage/scripting.html#prepare-the-script-element
- * [essence]: https://mimesniff.spec.whatwg.org/#javascript-mime-type-essence-match
- *
- * Verified in Chrome as well, through both the parser and `createElement`,
- * since the rule is unintuitive enough to be worth checking rather than
- * reasoning about. Executed: no attribute, `""`, `text/javascript`,
- * `TEXT/JAVASCRIPT`, `  text/javascript  `, `text/ecmascript`, `module`,
- * `MODULE`. Not executed: `text/javascript; charset=utf-8`,
- * `application/javascript; charset=utf-8`, `module; charset=utf-8`, `"   "`,
- * `application/json`.
- *
- * One harmless over-inclusion is left in deliberately. Whitespace is stripped
- * for both comparisons here, but a browser strips it only for the MIME half, so
- * `  module  ` does not execute and still gets a hash. An unused source
- * expression costs nothing, where the opposite error blocks a script.
- */
-const JAVASCRIPT_SCRIPT_TYPES = new Set([
-  'text/javascript',
-  'application/javascript',
-  'module',
-  'text/ecmascript',
-  'application/ecmascript',
-]);
+function collectTemplateCSPHashesWith(
+  html: string,
+  load: typeof cheerioLoad,
+): TemplateCSPHashes {
+  return collectInlineCSPHashes(load(html), load, {
+    collectInlineAttributes: true,
+  });
+}
 
 export async function processTemplate(
   html: string,

@@ -53,3 +53,123 @@ export function hashInlineContentForCSP(
 ): string {
   return `${algorithm}-${createHash(algorithm).update(content, 'utf8').digest('base64')}`;
 }
+
+/**
+ * `type` values a browser treats as JavaScript.
+ *
+ * **Do not "parse the MIME type and compare the essence before the `;`".** That
+ * change looks like a fix, has been proposed as one more than once, and is
+ * wrong. [Prepare the script element][prepare] tests the attribute for a
+ * [JavaScript MIME type essence match][essence], and an essence is the bare
+ * type with no parameters, so a `type` carrying one matches nothing and the
+ * element is never executed. The standard uses this very case as its worked
+ * example: scripts with `type="text/javascript; charset=utf-8"` "will not be
+ * evaluated, even though that is a valid JavaScript MIME type when parsed".
+ * Accepting parameters here would publish hashes for inert content, which is
+ * noise rather than safety. `collectTemplateCSPHashes` has a regression test
+ * pinning it.
+ *
+ * [prepare]: https://html.spec.whatwg.org/multipage/scripting.html#prepare-the-script-element
+ * [essence]: https://mimesniff.spec.whatwg.org/#javascript-mime-type-essence-match
+ *
+ * Verified in Chrome as well, through both the parser and `createElement`,
+ * since the rule is unintuitive enough to be worth checking rather than
+ * reasoning about. Executed: no attribute, `""`, `text/javascript`,
+ * `TEXT/JAVASCRIPT`, `  text/javascript  `, `text/ecmascript`, `module`,
+ * `MODULE`. Not executed: `text/javascript; charset=utf-8`,
+ * `application/javascript; charset=utf-8`, `module; charset=utf-8`, `"   "`,
+ * `application/json`.
+ *
+ * One harmless over-inclusion is left in deliberately. Whitespace is stripped
+ * for both comparisons here, but a browser strips it only for the MIME half, so
+ * `  module  ` does not execute and still gets a hash. An unused source
+ * expression costs nothing, where the opposite error blocks a script.
+ */
+const JAVASCRIPT_SCRIPT_TYPES = new Set([
+  'text/javascript',
+  'application/javascript',
+  'module',
+  'text/ecmascript',
+  'application/ecmascript',
+]);
+
+/**
+ * `type` values that are not JavaScript, are never executed as code, and are
+ * still governed by `script-src`.
+ *
+ * These are the reason this module asks "is it governed" rather than "is it
+ * JavaScript", which is the more intuitive question and the wrong one. Both
+ * carry JSON, neither runs, and a browser blocks both without a hash, a nonce,
+ * or `'unsafe-inline'`.
+ *
+ * `importmap` decides how every bare module specifier on the page resolves, so
+ * losing it does not degrade anything gracefully: the map is blocked and then
+ * every `import 'dep'` fails with a module resolution error, which reads like a
+ * bundler problem rather than a CSP one.
+ *
+ * `speculationrules` drives prefetch and prerender. Losing it is invisible,
+ * which is worse in its own way, since the only symptom is a site that quietly
+ * stopped being fast. `'inline-speculation-rules'` is the other way to allow it
+ * and stays available to anyone who prefers a keyword to a hash.
+ *
+ * [Prepare the script element][prepare] is explicit about both. Type
+ * determination happens before the inline check, the check runs for any script
+ * with no `src` whatever its type, and an import map may not have a `src` at
+ * all, so it always takes that path. Speculation rules are passed the CSP type
+ * `script speculationrules` rather than `script`, which is what the dedicated
+ * keyword keys on, and hashes match there as well.
+ *
+ * Verified in Chrome rather than reasoned about, because the intuition that
+ * "it is not JavaScript so `script-src` cannot apply" is exactly wrong here. An
+ * inline import map under `script-src 'self'` is refused with "Executing inline
+ * script violates the following Content Security Policy directive", naming the
+ * hash that would allow it, and the module that depends on it then fails to
+ * resolve its specifier. Adding that hash makes both work. An inline
+ * `speculationrules` block under the same policy is refused with "Applying
+ * inline speculation rules violates ...", naming its hash, and adding it clears
+ * the violation.
+ */
+const NON_JAVASCRIPT_CSP_GOVERNED_SCRIPT_TYPES = new Set([
+  'importmap',
+  'speculationrules',
+]);
+
+/**
+ * Whether an inline `<script>` carrying this `type` is one `script-src`
+ * governs, and so one a hash is worth publishing for.
+ *
+ * **The question is "is it governed", not "is it executed".** They are not the
+ * same, and the difference is the whole reason this is a named function rather
+ * than a set membership test at each call site. An import map is inert JSON
+ * that a browser will nonetheless refuse to apply under a strict `script-src`,
+ * so a scanner that skips everything non-executable silently drops the one
+ * element the page's module graph depends on.
+ *
+ * Lives here, next to the hashing itself, because both places that scan for
+ * inline content have to answer it the same way: the template scanner in
+ * `format.ts` and the rendered-body scanner in `inject.ts`. Two copies of this
+ * rule would drift, and the direction it drifts matters, since hashing inert
+ * content is only noise while skipping governed content blocks a page.
+ *
+ * Still false for a data block such as `application/json` or
+ * `application/ld+json`, which is the reason the JSON payload unirend emits for
+ * the client bootstrap needs no hash and no nonce.
+ *
+ * @param type The element's `type` attribute, or undefined when it has none
+ */
+export function isCSPGovernedScriptType(type: string | undefined): boolean {
+  // An absent attribute means "classic script", and so does an empty one, both
+  // of which execute. Only the empty string, not a whitespace-only value: a
+  // browser executes `type=""` and does not execute `type="   "`, which is why
+  // this is matched before the trim below rather than after it.
+  if (type === undefined || type === '') {
+    return true;
+  }
+
+  const normalized = type.trim().toLowerCase();
+
+  return (
+    JAVASCRIPT_SCRIPT_TYPES.has(normalized) ||
+    NON_JAVASCRIPT_CSP_GOVERNED_SCRIPT_TYPES.has(normalized)
+  );
+}

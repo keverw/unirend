@@ -429,7 +429,7 @@ describe('injectContent', () => {
         template,
         '',
         `<div><script>${inner}</script></div>`,
-        { addCSPSource: (source) => sources.push(source) },
+        { addCSPSources: (s) => sources.push(...(s.scriptSrc ?? [])) },
       );
 
       expect(sources).toEqual([`'${hashInlineContentForCSP(inner)}'`]);
@@ -465,10 +465,134 @@ describe('injectContent', () => {
         `<div><script>window.__staticRouterHydrationData = JSON.parse(${JSON.stringify(
           payload,
         )});</script></div>`,
-        { addCSPSource: (source) => sources.push(source) },
+        { addCSPSources: (s) => sources.push(...(s.scriptSrc ?? [])) },
       );
 
       expect(sources).toEqual([]);
+    });
+
+    it("hashes the rendered page's own inline style and script", async () => {
+      // React 19 renders a hoistable <style> inline in the SSR stream, and
+      // dangerouslySetInnerHTML can put one anywhere, so a page's inline
+      // content is decided per render. The template hashes are contributed
+      // before rendering and cannot cover it, which left a strict style-src
+      // rendering the page unstyled and a strict script-src silently never
+      // running the script.
+      const css = '.card{color:red}';
+      const js = 'window.__pageFlag = 1;';
+      const collected: { scriptSrc: string[]; styleSrc: string[] } = {
+        scriptSrc: [],
+        styleSrc: [],
+      };
+
+      const result = await injectContent(
+        template,
+        '',
+        `<div><style>${css}</style><p>hi</p><script>${js}</script></div>`,
+        {
+          addCSPSources: (s) => {
+            collected.scriptSrc.push(...(s.scriptSrc ?? []));
+            collected.styleSrc.push(...(s.styleSrc ?? []));
+          },
+        },
+      );
+
+      expect(collected.styleSrc).toContain(`'${hashInlineContentForCSP(css)}'`);
+      expect(collected.scriptSrc).toContain(`'${hashInlineContentForCSP(js)}'`);
+
+      // The hash has to cover the bytes that ship, not something adjacent to
+      // them. The body is spliced in verbatim, so these are the same characters.
+      expect(result).toContain(`<style>${css}</style>`);
+      expect(result).toContain(`<script>${js}</script>`);
+    });
+
+    it('leaves a JSON data block out of the page hashes', async () => {
+      // JSON-LD structured data is the common case. A browser never applies it
+      // in any sense, so script-src does not govern it and a hash is noise.
+      const collected: string[] = [];
+
+      await injectContent(
+        template,
+        '',
+        '<div><script type="application/ld+json">{"@type":"Article"}</script></div>',
+        { addCSPSources: (s) => collected.push(...(s.scriptSrc ?? [])) },
+      );
+
+      expect(collected).toEqual([]);
+    });
+
+    it.each([
+      ['importmap', '{"imports":{"dep":"/assets/dep.js"}}'],
+      ['speculationrules', '{"prerender":[{"urls":["/next"]}]}'],
+    ])('hashes a rendered inline %s block', async (type, content) => {
+      // Neither is JavaScript and both are governed by script-src, so the
+      // rendered-body scanner has to agree with the template scanner about
+      // them. A component is free to render either, and React 19 hoists a
+      // <script> with an unknown type into the head rather than dropping it.
+      const collected: string[] = [];
+
+      await injectContent(
+        template,
+        '',
+        `<div><script type="${type}">${content}</script></div>`,
+        { addCSPSources: (s) => collected.push(...(s.scriptSrc ?? [])) },
+      );
+
+      expect(collected).toContain(`'${hashInlineContentForCSP(content)}'`);
+    });
+
+    it('hashes inline content inside a rendered <noscript>', async () => {
+      // cheerio parses with scripting enabled, so a <noscript> body is raw text
+      // and the selectors see nothing in it. A browser with JavaScript disabled
+      // parses the same bytes as markup, which is the one audience the fallback
+      // exists for.
+      const css = '.no-js{display:block}';
+      const collected: string[] = [];
+
+      await injectContent(
+        template,
+        '',
+        `<div><noscript><style>${css}</style></noscript></div>`,
+        { addCSPSources: (s) => collected.push(...(s.styleSrc ?? [])) },
+      );
+
+      expect(collected).toContain(`'${hashInlineContentForCSP(css)}'`);
+    });
+
+    it('does not report inline attributes from rendered markup', async () => {
+      // React renders a `style` prop as a style="" attribute, so scanning
+      // rendered markup for inline attributes would fire on an ordinary styled
+      // component on every single request. The template scan is where that
+      // report belongs, because a template is authored by hand and fixed.
+      let received: Record<string, unknown> = {};
+
+      await injectContent(
+        template,
+        '',
+        '<div style="color:red"><button onclick="go()">go</button></div>',
+        {
+          addCSPSources: (s) => {
+            received = s;
+          },
+        },
+      );
+
+      expect(received).not.toHaveProperty('inlineAttributes');
+    });
+
+    it('computes nothing when no callback is supplied', async () => {
+      // The absence of a callback is what keeps this work off servers that are
+      // not using CSP, so the scan must be behind it rather than merely having
+      // its result dropped. Asserted through the output being unchanged, since
+      // there is no observable call to count.
+      const body = '<div><style>.a{color:red}</style></div>';
+
+      const withoutCallback = await injectContent(template, '', body);
+      const withCallback = await injectContent(template, '', body, {
+        addCSPSources: () => {},
+      });
+
+      expect(withoutCallback).toBe(withCallback);
     });
   });
 

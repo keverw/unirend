@@ -225,7 +225,7 @@ Nothing is rewritten in the process: `request.headers` still holds the raw value
 
 Both rejection paths above set `request.domainValidationRejected` to `true` before responding. It means this server does not claim the request's host, which is narrower than "the response was a 403", since an authorization failure from your own application, on a domain the server does serve, never sets it.
 
-[`securityHeaders`](security-headers.md#hsts-on-a-rejected-host) reads it to suppress `Strict-Transport-Security`, and your own hooks can read it wherever the same reasoning applies. Any header that binds a domain in the browser for a long time should not be sent for a domain the server has just disclaimed.
+[`securityHeaders`](security-headers.md#hsts-on-a-host-the-server-has-not-claimed) reads it to suppress `Strict-Transport-Security`, and your own hooks can read it wherever the same reasoning applies. Any header that binds a domain in the browser for a long time should not be sent for a domain the server has just disclaimed.
 
 The property is unset when the plugin is not registered, or when it did not reject.
 

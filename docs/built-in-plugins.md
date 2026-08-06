@@ -51,12 +51,14 @@ Use [`dependsOn`](server-plugins.md#plugin-dependencies) to keep a plugin above 
 
 The reason is worth seeing concretely. Given a hook that throws, on a host that is not in `validProductionDomains`:
 
-| Throwing hook            | What the visitor gets                 |
-| ------------------------ | ------------------------------------- |
-| Below `domainValidation` | `403`, plain text, no HSTS            |
-| Above `domainValidation` | `500`, your error page, **HSTS sent** |
+| Throwing hook            | What the visitor gets           |
+| ------------------------ | ------------------------------- |
+| Below `domainValidation` | `403`, plain text, no HSTS      |
+| Above `domainValidation` | `500`, your error page, no HSTS |
 
-**The header is the part that costs you.** `domainValidation` never ran, so it never set [`request.domainValidationRejected`](built-in-plugins/domainValidation.md#requestdomainvalidationrejected), so the suppression that exists for exactly this case has nothing to trigger on. A domain that was never checked gets pinned to HTTPS for the full `maxAge`, subdomains included, and it cannot be revoked.
+**The header is no longer the part that costs you, provided `domainValidation` is registered before `securityHeaders`.** The gate never runs here, so it never sets [`request.domainValidationRejected`](built-in-plugins/domainValidation.md#requestdomainvalidationrejected). When the gate sits above it, `securityHeaders` can read that unset verdict for what it is — the request died before the gate — and [withholds HSTS](built-in-plugins/security-headers.md#hsts-on-a-host-the-server-has-not-claimed) rather than pinning a domain nobody checked to HTTPS for the full `maxAge`. Register the gate below it and the verdict is ambiguous instead, because a preflight or a static asset answered higher up would look identical, so the header goes out as it always did.
+
+What ordering still buys you is the request being refused at all. A gate only covers what was registered after it, so a hook above `domainValidation` turns a clean `403` into a `500` and runs your application's error handling on a host that was never confirmed.
 
 The error page matters much less. Unirend's default is a generic shell, and a custom one is [advised to stay standalone](error-handling.md) rather than wrapped in your usual layout, so there is usually little in it to give away. Where you have customized it, [`isHostUnverified`](built-in-plugins/domainValidation.md#telling-an-unchecked-host-from-a-rejected-one) lets it recognize this case and hold back.
 
@@ -86,4 +88,4 @@ See [Throwing on Purpose](built-in-plugins/security-headers.md#throwing-on-purpo
 
 Whatever the default, only you can tell a genuine "not one of ours" from "the store is down". If a single store backs more than one of these, handle its failure inside each callback rather than letting the defaults decide for you.
 
-**None of this affects whether the response gets its headers.** These defaults decide what the response _is_, and the `onSend` hook in `securityHeaders` then applies headers to whatever that turned out to be. A denied origin, and the 500s from a failed validator or a failed `resolve`, all go out fully covered, minus the HSTS that a [disclaimed host](built-in-plugins/security-headers.md#hsts-on-a-rejected-host) or a [failed resolve](built-in-plugins/security-headers.md#when-resolve-throws) deliberately drops. The two mechanisms are unrelated: one picks the response, the other dresses it.
+**None of this affects whether the response gets its headers.** These defaults decide what the response _is_, and the `onSend` hook in `securityHeaders` then applies headers to whatever that turned out to be. A denied origin, and the 500s from a failed validator or a failed `resolve`, all go out fully covered, minus the HSTS that a [disclaimed host](built-in-plugins/security-headers.md#hsts-on-a-host-the-server-has-not-claimed) or a [failed resolve](built-in-plugins/security-headers.md#when-resolve-throws) deliberately drops. The two mechanisms are unrelated: one picks the response, the other dresses it.

@@ -30,7 +30,10 @@ import {
   collectFrameOptionsIssues,
   collectFramingIssues,
   collectHSTSIssues,
+  unknownPolicyKeys,
+  SECURITY_HEADERS_POLICY_KEYS,
 } from '../internal/security-headers-validation';
+import { isHostUnverified } from '../internal/host-verification';
 import {
   collectCORSIssues,
   type CORSConfig,
@@ -498,12 +501,50 @@ function writeSecurityHeader(
 }
 
 /**
- * True when `domainValidation` determined this request's host is not one the
- * server claims, either because it failed the allow list or because the Host
- * header was missing or unparseable.
+ * How much an *unset* domain verdict is allowed to mean.
+ *
+ * - `'rejected-only'`: only an explicit rejection counts. An unset verdict says
+ *   nothing, because the gate may simply not have run yet.
+ * - `'unverified'`: an unset verdict counts too, because on this path the gate
+ *   would already have run if it were ever going to.
  */
-function isHostDisclaimed(request: FastifyRequest): boolean {
-  return request.domainValidationRejected === true;
+type HostCheck = 'rejected-only' | 'unverified';
+
+/**
+ * Whether this request's host is one the server has declined to claim.
+ *
+ * The two readings ask genuinely different questions, and collapsing them into
+ * one gets a real case wrong in each direction.
+ *
+ * `'rejected-only'` is the conservative reading and the safe default. An unset
+ * verdict usually just means this plugin's hook ran before the gate's, so
+ * treating it as unverified would withhold HSTS from ordinary responses on a
+ * perfectly healthy server.
+ *
+ * `'unverified'` says something much stronger: `domainValidation` is registered
+ * and never got to run, because a hook above it ended the request, which a hook
+ * that *throws* also does. Nothing has vouched for the host, and the response
+ * still goes out. Sending HSTS there binds whatever host the client asked for,
+ * for the full max-age, with no way to revoke it, which is the precise outcome
+ * the rejection check already exists to prevent, reached through a plugin that
+ * failed rather than a domain that was refused.
+ *
+ * Which one a response path gets is decided by plugin order, not by how late
+ * the write is. See `lateHostCheck` in the plugin body: "the response is being
+ * sent" is *not* the same as "every onRequest hook has run", because this
+ * plugin answers a preflight from inside its own `onRequest`, and
+ * `staticContent` serves a file from inside one too.
+ *
+ * `isHostUnverified` returns false when `domainValidation` is not registered at
+ * all, so a server that does not validate hosts is unaffected by either.
+ */
+function isHostDisclaimed(
+  request: FastifyRequest,
+  hostCheck: HostCheck,
+): boolean {
+  return hostCheck === 'unverified'
+    ? isHostUnverified(request)
+    : request.domainValidationRejected === true;
 }
 
 /**
@@ -731,6 +772,28 @@ async function resolveEffectiveConfig(
     );
   }
 
+  // A key that is not a policy field fails the request rather than being
+  // ignored, which is the same call the block-level checks below make and for a
+  // sharper reason. Every other way of getting a block wrong is caught: a bad
+  // value is validated, and `false` and `null` are told apart deliberately. A
+  // misspelling is the one mistake that produces a *valid* policy, because
+  // dropping the key leaves the block absent and an absent block inherits the
+  // baseline, which is exactly what a correct resolver does. So `frameOption:
+  // false` on a customer's domain silently sends the baseline's framing policy,
+  // and `hst: { maxAge: 86400 }` silently sends the baseline's year-long HSTS
+  // on a domain the resolver exists to send something narrower for.
+  //
+  // TypeScript rules this out for a typed caller, which is why it needs a
+  // runtime check: the resolvers that reach here untyped, reading a policy out
+  // of a JSON column or an admin form, are the ones that get it wrong.
+  const unknownKeys = unknownPolicyKeys(returned);
+
+  if (unknownKeys.length > 0) {
+    throw new Error(
+      `securityHeaders resolve returned ${unknownKeys.map((key) => `"${key}"`).join(', ')}, which ${unknownKeys.length === 1 ? 'is not a policy field' : 'are not policy fields'}. Expected ${SECURITY_HEADERS_POLICY_KEYS.join(', ')}. A misspelled key is dropped, and a missing block inherits the configured default, so this would send the baseline policy while reading as an override. Use validateSecurityHeadersPolicy() to check a stored policy before it gets here.`,
+    );
+  }
+
   // Validated with the same rules as the defaults, so a resolver cannot produce
   // a policy the config would have rejected. A throw here propagates like any
   // other resolver failure, which is right: returning something invalid is a
@@ -785,6 +848,7 @@ function applyUnconditionalSecurityHeaders(
   reply: FastifyReply,
   resolvedConfig: ResolvedSecurityHeadersConfig,
   mode: HeaderWriteMode = 'apply',
+  hostCheck: HostCheck = 'rejected-only',
 ): void {
   // These headers are not negotiated per-origin. They are safe to apply even
   // on requests that will ultimately receive no Access-Control-Allow-Origin
@@ -829,16 +893,21 @@ function applyUnconditionalSecurityHeaders(
   // trustProxy the app sees plain HTTP and sends no HSTS at all.
   //
   // Secure transport is necessary but not sufficient. HSTS also has to be a
-  // header this host is entitled to send, and a host `domainValidation` just
-  // disclaimed is not: setting an HTTPS policy for a domain the operator says
-  // is not theirs binds the browser for the full max-age with no way to revoke
-  // it. Keyed on the rejection rather than on the 403 status, so an ordinary
+  // header this host is entitled to send, and a host the server has not claimed
+  // is not: setting an HTTPS policy for a domain the operator has not said is
+  // theirs binds the browser for the full max-age with no way to revoke it.
+  // Keyed on the host verdict rather than on the 403 status, so an ordinary
   // application authorization failure on a domain we do serve keeps its HSTS.
-  if (
-    resolvedConfig.hsts &&
-    request.protocol === 'https' &&
-    !isHostDisclaimed(request)
-  ) {
+  //
+  // Removed rather than merely withheld, because by the late phase the early
+  // pass may already have written it. The early pass runs before
+  // `domainValidation` on a server that registers this plugin first, and it
+  // runs before anything that later throws, so on exactly the requests where
+  // the host turns out to be unclaimed the header is already on the reply and
+  // not writing it again would leave it there.
+  if (isHostDisclaimed(request, hostCheck)) {
+    reply.removeHeader('Strict-Transport-Security');
+  } else if (resolvedConfig.hsts && request.protocol === 'https') {
     const parts = [`max-age=${Math.floor(resolvedConfig.hsts.maxAge)}`];
 
     if (resolvedConfig.hsts.includeSubDomains) {
@@ -864,6 +933,7 @@ async function applyCORSActualResponseHeaders(
   resolvedConfig: ResolvedSecurityHeadersConfig,
   isOriginAllowedResult?: boolean,
   mode: HeaderWriteMode = 'apply',
+  hostCheck: HostCheck = 'rejected-only',
 ): Promise<void> {
   const cors = resolvedConfig.cors;
   const origin = request.headers.origin;
@@ -885,6 +955,7 @@ async function applyCORSActualResponseHeaders(
     reply,
     await effectiveConfigFor(request, resolvedConfig),
     mode,
+    hostCheck,
   );
 
   // For non-preflight requests, let them proceed without CORS headers if the
@@ -1238,7 +1309,52 @@ export function securityHeaders(
       ),
   };
 
+  // Whether `domainValidation` was registered *above* this plugin, captured at
+  // registration because it is a fact about plugin order and order is fixed
+  // once the server is built.
+  //
+  // This is what makes an unset domain verdict readable. The tempting rule,
+  // "once a response is being sent, every onRequest hook has run", is simply
+  // false in this codebase: this plugin answers a CORS preflight from inside
+  // its own onRequest, and `staticContent` serves a file from inside one too.
+  // On both paths the gate below us legitimately never runs, and reading that
+  // as "unverified" stripped HSTS from every preflight and every static asset
+  // on a server whose plugin order the documentation explicitly allows.
+  //
+  // With the gate above us, the inference is sound: anything we can answer has
+  // already been through it, so an unset verdict means the request died before
+  // the gate rather than merely bypassing it. That is exactly the case worth
+  // catching, since a hook that throws above the gate is how an unchecked host
+  // reaches an error page.
+  //
+  // With the gate below us, an unset verdict is ambiguous and stays ambiguous,
+  // so only an explicit rejection counts. That is the pre-existing behavior
+  // rather than a new hole, and it is the concrete reason `domainValidation`
+  // belongs first.
+  let isGateRegisteredAbove = false;
+
+  const lateHostCheck = (): HostCheck =>
+    isGateRegisteredAbove ? 'unverified' : 'rejected-only';
+
   const plugin = async (fastify: PluginHostInstance<UnirendServerMode>) => {
+    // `domainValidation` decorates the instance when it registers, so the
+    // decoration being present *here*, while this plugin is registering, is
+    // exactly the question "did the gate go first".
+    //
+    // Read two ways because this runs against two shapes. A server passes the
+    // `PluginHostInstance` wrapper, which exposes decorations through
+    // `getDecoration`. A test, and anything else calling the plugin function
+    // directly, passes a raw Fastify instance, where `decorate` has set a plain
+    // own property. Neither read mutates anything.
+    const host = fastify as unknown as {
+      getDecoration?: (property: string) => unknown;
+      domainValidationRegistered?: unknown;
+    };
+
+    isGateRegisteredAbove =
+      host.getDecoration?.('domainValidationRegistered') === true ||
+      host.domainValidationRegistered === true;
+
     fastify.decorateRequest(
       'applySecurityHeaders',
       async function applySecurityHeaders(
@@ -1248,7 +1364,19 @@ export function securityHeaders(
         // Pass nothing for the origin verdict: applyCORSActualResponseHeaders
         // reads the per-request cache itself, and computes it fail-closed if
         // this raw path is the first thing to ask.
-        await applyCORSActualResponseHeaders(this, reply, resolvedConfig);
+        //
+        // Late, because this is only ever called from a handler about to write
+        // a response, which is past every onRequest hook. It is also the only
+        // chance to get the host verdict right for a hijacked reply, since
+        // those bypass the onSend backstop entirely.
+        await applyCORSActualResponseHeaders(
+          this,
+          reply,
+          resolvedConfig,
+          undefined,
+          'apply',
+          lateHostCheck(),
+        );
       },
     );
 
@@ -1543,9 +1671,16 @@ export function securityHeaders(
       async (request: FastifyRequest, reply: FastifyReply, ...args) => {
         const payload = args[0];
 
-        // The hook above may have run before `domainValidation` rejected the
-        // host, in which case HSTS is already on the reply and has to come off.
-        if (isHostDisclaimed(request)) {
+        // The hook above may have run before the host verdict was in, in which
+        // case HSTS is already on the reply and has to come off.
+        //
+        // Two ways that happens, and the late reading covers both. The host was
+        // examined and rejected, or `domainValidation` never got to run at all
+        // because something registered above it ended the request, which
+        // includes a hook that threw. The second one is the quieter of the two:
+        // the response is an error page, nothing has vouched for the host, and
+        // the header would still bind whatever the client asked for.
+        if (isHostDisclaimed(request, lateHostCheck())) {
           reply.removeHeader('Strict-Transport-Security');
         }
 
@@ -1598,6 +1733,7 @@ export function securityHeaders(
             resolvedConfig,
             undefined,
             'fill',
+            lateHostCheck(),
           );
         }
 

@@ -2132,6 +2132,83 @@ describe('template CSP hashes', () => {
     }
   });
 
+  it.each([
+    [
+      'importmap',
+      '{"imports":{"dep":"/assets/dep.js"}}',
+      // Verified in Chrome. Under `script-src 'self'` the map is refused with
+      // "Executing inline script violates the following Content Security Policy
+      // directive", naming this very hash, and every `import 'dep'` on the page
+      // then fails to resolve its specifier, which reads like a bundler fault
+      // rather than a CSP one. Adding the hash makes both work.
+    ],
+    [
+      'speculationrules',
+      '{"prerender":[{"urls":["/next"]}]}',
+      // Also verified in Chrome, refused with "Applying inline speculation
+      // rules violates ...". Losing this one is invisible: nothing breaks, the
+      // site just quietly stops prerendering.
+    ],
+  ])(
+    'hashes an inline %s block, which is JSON that script-src governs',
+    async (type, content) => {
+      // The intuition these two defeat is "it is not JavaScript, so script-src
+      // cannot apply". Type determination happens before the inline check in
+      // "prepare the script element", and the check runs for any script with no
+      // src whatever its type, so both are governed and both are hash-allowable.
+      const result = await processTemplate(
+        `<!doctype html><html><head><title>t</title><script type="${type}">${content}</script><!--ss-head--></head><body><div id="root"><!--ss-outlet--></div></body></html>`,
+        'ssr',
+        false,
+        false,
+      );
+
+      expect(result.success).toBe(true);
+
+      if (result.success) {
+        // Read back out of the serialized output rather than hashed from the
+        // input. The prettifier indents a head script's contents, so the bytes
+        // that ship are not the bytes passed in, and a CSP hash covers an
+        // element's text content exactly. Asserting against the input would fail
+        // here for the right reason and pass nowhere useful.
+        const open = `<script type="${type}">`;
+        const from = result.html.indexOf(open) + open.length;
+        const shipped = result.html.slice(
+          from,
+          result.html.indexOf('</script>', from),
+        );
+
+        expect(shipped).toContain(content);
+        expect(result.cspHashes.scriptSrc).toEqual([
+          `'${hashInlineContentForCSP(shipped)}'`,
+        ]);
+      }
+    },
+  );
+
+  it('still skips a JSON data block, which script-src does not govern', async () => {
+    // The control for the pair above, and the reason the predicate cannot
+    // simply be "hash every inline script". A data block is never applied by
+    // the browser in any sense, so a hash for it matches nothing. This is also
+    // what lets unirend carry its own server context in one.
+    const data = '{"@context":"https://schema.org","@type":"Article"}';
+    const result = await processTemplate(
+      `<!doctype html><html><head><title>t</title><script type="application/ld+json">${data}</script><!--ss-head--></head><body><div id="root"><!--ss-outlet--></div></body></html>`,
+      'ssr',
+      false,
+      false,
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // Asserted as empty rather than as "does not contain the input's hash".
+      // The latter passes for the wrong reason, since the prettifier re-indents
+      // the block and so the input's hash was never going to appear anyway.
+      expect(result.cspHashes.scriptSrc).toEqual([]);
+    }
+  });
+
   it('hashes the same script once the parameters come off', async () => {
     // The control for the case above. Identical content and an identical
     // element apart from the parameters, so a future change that stopped

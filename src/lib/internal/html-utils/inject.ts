@@ -11,6 +11,8 @@ import {
 } from './escape';
 import { getMetaKeys } from './meta-key';
 import { hashInlineContentForCSP } from '../csp-hash';
+import { collectInlineCSPHashes } from './format';
+import type { AnyNode } from 'domhandler';
 
 /**
  * The parse5 source offsets cheerio attaches under `sourceCodeLocationInfo`.
@@ -406,23 +408,35 @@ export interface InjectContentOptions {
   htmlAttrs?: Record<string, string>;
   bodyAttrs?: Record<string, string>;
   /**
-   * Receives a CSP `script-src` source expression, quoted and ready to drop into
-   * a directive, for any inline script this function emits whose content it did
-   * not choose.
+   * Receives CSP source expressions, quoted and ready to drop into a directive,
+   * for the inline content this function emits that nothing earlier could have
+   * hashed.
    *
-   * There is exactly one of those: a React Router hydration script in a shape
-   * `extractRouterHydrationPayload` declined to take apart, which is then passed
-   * through verbatim. Its text carries the page's loader data, so it is
-   * different on every request and no hash computed ahead of time can cover it.
-   * The caller contributes the hashes for a request's CSP before rendering, from
-   * the template, and this element does not exist yet at that point, so without
-   * this callback an enforcing policy blocks the one script hydration cannot
-   * start without.
+   * Two kinds reach it, and both exist for the same reason: the caller
+   * contributes a request's hashes from the *template* before rendering, and
+   * neither of these is in the template.
+   *
+   * The rendered body is the larger of the two. React 19 renders a hoistable
+   * `<style>` or `<script>` inline in the SSR stream, and anything using
+   * `dangerouslySetInnerHTML` can put one there directly, so a page's own
+   * inline content is decided per render and lands in the `<!--ss-outlet-->`
+   * splice. Without this it is served under a policy that never heard of it,
+   * which for a `<style>` means an unstyled page and for a `<script>` means one
+   * that silently never runs.
+   *
+   * The other is a React Router hydration script in a shape
+   * `extractRouterHydrationPayload` declined to take apart, which is then
+   * passed through verbatim rather than lifted into the data block.
    *
    * Not needed by a caller that hashes the finished document itself, which is
-   * what SSG does, so it is optional.
+   * what SSG does, so it is optional. Its absence is also what keeps the extra
+   * hashing off servers that are not using CSP: nothing here is computed unless
+   * a callback is supplied.
    */
-  addCSPSource?: (source: string) => void;
+  addCSPSources?: (sources: {
+    scriptSrc?: readonly string[];
+    styleSrc?: readonly string[];
+  }) => void;
 }
 
 // Utility to inject content, preserving React attributes
@@ -438,8 +452,13 @@ export async function injectContent(
     domainInfo,
     htmlAttrs,
     bodyAttrs,
-    addCSPSource,
+    addCSPSources,
   } = options;
+
+  // Collected as this function goes and reported in one call at the end, so a
+  // caller that pushes straight onto a request's policy is not asked to
+  // deduplicate what a single render contributed.
+  const pageScriptSources = new Set<string>();
   // Prettify all head tags with consistent indentation
   const compactedHead = prettifyHeadTags(headContent);
 
@@ -467,6 +486,13 @@ export async function injectContent(
   const $body = cheerio.load(bodyContent, parseOptions);
   const routerHydrationScripts: string[] = [];
   const removalRanges: Array<{ start: number; end: number }> = [];
+
+  // Every hydration script this pass recognized, by reference, so the page-wide
+  // scan below can leave them out. One shape never ships at all (it is lifted
+  // into the JSON data block) and the other is hashed from the raw source
+  // offsets right here, so in neither case is a second hash from the parsed
+  // tree the right answer.
+  const routerHydrationElements = new Set<AnyNode>();
 
   // The hydration payload, lifted out of React Router's assignment script so it
   // can ride in the JSON data block with everything else. Left undefined when
@@ -518,11 +544,11 @@ export async function injectContent(
         const contentEnd = location.endTag?.startOffset ?? location.endOffset;
 
         if (
-          addCSPSource &&
+          addCSPSources &&
           contentStart !== undefined &&
           contentEnd >= contentStart
         ) {
-          addCSPSource(
+          pageScriptSources.add(
             `'${hashInlineContentForCSP(bodyContent.slice(contentStart, contentEnd))}'`,
           );
         }
@@ -530,12 +556,48 @@ export async function injectContent(
         routerHydration = payload;
       }
 
+      routerHydrationElements.add(el);
+
       removalRanges.push({
         start: location.startOffset,
         end: location.endOffset,
       });
     }
   });
+
+  // The rest of the rendered page's own inline content.
+  //
+  // This is not a corner case. React 19 renders a hoistable `<style>` or
+  // `<script>` inline in the SSR stream, `dangerouslySetInnerHTML` can put one
+  // anywhere, and a component is free to render either directly. All of it is
+  // decided per render, so the template hashes the caller contributed before
+  // rendering cannot possibly cover it. Left out, the page ships under a policy
+  // that never heard of it: a `<style>` renders unstyled and a `<script>`
+  // silently never runs, on a header that reads as though it allows same-origin
+  // content.
+  //
+  // Only asked for when a caller wants the answer, which keeps the scan off
+  // servers that are not using CSP. SSG needs none of this: it hashes each
+  // finished page after writing it, so this content is already covered there.
+  //
+  // The already-parsed tree is reused rather than parsing the body a second
+  // time, and inline attributes are deliberately not collected: React renders a
+  // `style` prop as a `style=""` attribute, so reporting those would fire on an
+  // ordinary styled component on every single request.
+  if (addCSPSources) {
+    const pageHashes = collectInlineCSPHashes($body, cheerio.load, {
+      skipElement: (el) => routerHydrationElements.has(el),
+    });
+
+    for (const source of pageHashes.scriptSrc) {
+      pageScriptSources.add(source);
+    }
+
+    addCSPSources({
+      scriptSrc: [...pageScriptSources],
+      styleSrc: pageHashes.styleSrc,
+    });
+  }
 
   let cleanBodyContent = bodyContent;
 

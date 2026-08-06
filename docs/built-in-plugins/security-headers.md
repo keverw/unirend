@@ -31,7 +31,7 @@
   - [Validating a CORS Block](#validating-a-cors-block)
 - [When a Callback Throws](#when-a-callback-throws)
 - [Plugin Order and Short-Circuited Responses](#plugin-order-and-short-circuited-responses)
-  - [HSTS on a Rejected Host](#hsts-on-a-rejected-host)
+  - [HSTS on a Host the Server Has Not Claimed](#hsts-on-a-host-the-server-has-not-claimed)
 - [Hijacked Responses](#hijacked-responses)
 - [Advanced Configuration](#advanced-configuration)
 - [Advanced Use Cases](#advanced-use-cases)
@@ -338,11 +338,17 @@ Two things worth knowing about how that works:
 
 On SSR, unirend hashes the inline `<script>` and `<style>` blocks your template ships with, including anything the `headInlineScripts`, `bodyPrepend`, and `bodyAppend` slots contribute, and adds them to whichever directive governs that content for that app's responses. A theme flash-prevention script in `index.html` keeps working under a strict policy with nothing to configure.
 
+The page your components render is covered too, and that half is hashed per request because it has to be. React 19 renders a hoistable `<style>` or `<script>` inline in the SSR stream, `dangerouslySetInnerHTML` can put one anywhere, and a component is free to render either directly, so those bytes are decided by the render rather than by the template. The scan runs on markup unirend has already parsed, and only when a policy is in force, so a server without a CSP pays nothing for it.
+
+One thing it deliberately does not do on rendered markup is report inline attributes. React renders a `style` prop as a `style=""` attribute, so an ordinary styled component would trip the [inline-attribute warning](#inline-attributes-take-more-than-a-hash) on every request. That report is for your template, which is authored by hand and fixed for the life of the process. The attributes are still blocked either way, and the fix is the same one: move them out of the markup.
+
 SSG works differently, because it has to. See [Prerendered Sites](#prerendered-sites-ssg) below.
 
 Hashes are taken from the **final serialized output**, not from the values you passed in. That distinction is the whole reason this happens in the framework rather than in your config: the template pipeline parses and rewrites what it touches, so a hash computed from your input can differ from a hash of what actually ships, and CSP would then block the very script the hash was meant to allow, with no error anywhere.
 
 Styles inside a `<noscript>` are covered as well. They only become live for visitors with JavaScript disabled, which is exactly when nobody is watching, so leaving them out would break the fallback for the people it exists for.
+
+`<script type="importmap">` and `<script type="speculationrules">` are covered too, which is less obvious than it sounds. Neither is JavaScript and neither is ever executed, but `script-src` governs both, so a strict policy blocks them without a hash. The failure modes are opposite and both bad: a blocked import map takes every bare module specifier on the page down with it, and the errors read like a bundler fault rather than a CSP one, while a blocked speculation rules block breaks nothing at all and just quietly stops your site pre-rendering pages. A data block such as `application/json` or `application/ld+json` is genuinely outside `script-src` and correctly gets no hash, which is what lets unirend carry its own server context in one.
 
 Costs are where you would want them. Production hashes once per app at startup. Development recomputes per request, because the template is re-read and Vite adds inline content of its own after unirend is done with it, and hashes taken earlier would miss exactly the scripts that only exist in development.
 
@@ -567,6 +573,8 @@ securityHeaders({
 The returned policy is validated with the same rules as the defaults, so a resolver cannot produce something the config would have rejected.
 
 **Return `null` for "no override", and `null` specifically.** Anything else that is not a policy object is treated as a resolver that failed to answer, and fails the request the same way a throw does. That matters because the defaults include the baseline HSTS, which is written for domains you own: a store miss handing back `undefined` or `''` has not established that this request's domain is one to bind for a year, so it is not read as consent to the baseline.
+
+**A key that is not `csp`, `hsts`, or `frameOptions` fails the request too.** TypeScript rules that out for a typed resolver, which is exactly why there is a runtime check: the resolvers that need it are the ones reading a policy out of a JSON column or an admin form. A misspelling is the one mistake that would otherwise produce a perfectly valid policy, because the unknown key is dropped, which leaves the block absent, and an absent block inherits the baseline, which is what a correct resolver does. So `frameOption: false` would silently send the baseline's framing policy, and `hst: { maxAge: 86400 }` would silently send the baseline's year-long HSTS on a customer's domain, which is the single outcome `resolve` exists to prevent. Check a stored policy with [`validateSecurityHeadersPolicy`](#validating-a-policy-before-you-store-it) when you save it, so this surfaces in the form rather than on the tenant's next request.
 
 ### When `resolve` Throws
 
@@ -805,23 +813,44 @@ Two consequences to know about:
 
 **This does not generalize to gating plugins, including `domainValidation`.** Adding a header to a response is something `onSend` can still do on the way out. Blocking a request is not, because by then the response is already written. A gate only covers what was registered after it, so [`domainValidation` belongs first](domainValidation.md#plugin-order) while this plugin can go anywhere.
 
-### HSTS on a Rejected Host
+### HSTS on a Host the Server Has Not Claimed
 
-One header is deliberately not filled in. When `domainValidation` rejects the request's host, `Strict-Transport-Security` is left off, and taken back off if it was already set.
+One header is deliberately not filled in. When nothing has established that this server serves the request's host, `Strict-Transport-Security` is left off, and taken back off if an earlier pass already set it.
 
-`domainValidation` returns 403 precisely because the domain is not one this server claims. Sending HSTS on that response would set an HTTPS policy for a domain the operator has just disclaimed, and the browser honors it for the full `maxAge` with no way to revoke it. The same applies to the 400 for a missing or unparseable `Host` header, where the host is not merely wrong but unknown.
+Two situations count, and the second is the quieter one.
 
-This is keyed on the rejection, not on the status code. A 403 from your own authorization logic, on a domain the server does serve, gets HSTS like any other response. The host is yours, the user simply is not allowed in.
+**The host was checked and refused.** `domainValidation` returns 403 precisely because the domain is not one this server claims. Sending HSTS on that response would set an HTTPS policy for a domain the operator has just disclaimed, and the browser honors it for the full `maxAge` with no way to revoke it. The same applies to the 400 for a missing or unparseable `Host` header, where the host is not merely wrong but unknown.
 
-`domainValidation` publishes the fact as `request.domainValidationRejected`, so your own hooks can read it wherever the same reasoning applies:
+**The host was never checked at all.** `domainValidation` is registered but never got to run, because a plugin above it ended the request first, which includes a hook that threw. The response is then an error page served to a host nothing has vouched for. Keying only on the rejection missed this: the verdict is unset, which reads the same as "the host passed", and the header went out binding whatever the client asked for.
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> That second case is only covered when `domainValidation` is registered **before** `securityHeaders`. It is the one protection here that depends on plugin order, and it is a concrete reason for the [ordering guidance](domainValidation.md#plugin-order) beyond tidiness.
+
+The reason is that "a response is being sent" is not the same as "every `onRequest` hook has run". This plugin answers a CORS preflight from inside its own `onRequest`, and `staticContent` serves a file from inside one too, so a `domainValidation` registered below either of them legitimately never runs on those requests. With the gate above, an unset verdict means the request died before it. With the gate below, an unset verdict is ambiguous, so only an explicit rejection counts and an unchecked host can still receive HSTS.
+
+An explicit rejection is unambiguous either way and always drops the header.
+
+Ordering is also still the real fix rather than a mitigation, and [`domainValidation` belongs first](domainValidation.md#plugin-order). The request still fails; this only keeps the failure from leaving a year-long promise behind.
+
+Neither of these is keyed on the status code. A 403 from your own authorization logic, on a domain the server does serve, gets HSTS like any other response. The host is yours, the user simply is not allowed in. And a server with no `domainValidation` registered is unaffected by all of it: an unset verdict there means the question is not being asked, not that it was asked and went unanswered.
+
+`domainValidation` publishes both facts, so your own hooks can read them wherever the same reasoning applies:
 
 ```ts
+import { isHostUnverified } from 'unirend/server';
+
 if (request.domainValidationRejected) {
-  // Not a host this server claims. Do not set policy headers that bind it.
+  // Checked, and refused. Not a host this server claims.
+}
+
+if (isHostUnverified(request)) {
+  // The above, plus "the gate never ran". Do not set policy headers that bind
+  // this host, and think twice about what you show on the page.
 }
 ```
 
-The property is unset when `domainValidation` is not registered, or when it did not reject.
+`request.domainValidationRejected` is unset when `domainValidation` is not registered, or when it did not reject. See [Telling an Unchecked Host From a Rejected One](domainValidation.md#telling-an-unchecked-host-from-a-rejected-one) for the three states `isHostUnverified` distinguishes.
 
 <!-- prettier-ignore -->
 > [!NOTE]

@@ -94,6 +94,26 @@ const POLICY_KEYS = {
 } satisfies Record<keyof SecurityHeadersPolicyInput, true>;
 
 /**
+ * Every key on a policy object that is not a policy field.
+ *
+ * Exported so the request path can hold a `resolve` callback to the same rule
+ * this validator applies, which is the whole point of the pair existing. A
+ * resolver returning `{ frameOption: 'DENY' }` has written a policy that does
+ * nothing: the misspelled key is dropped, the block it meant to set is absent,
+ * and an absent block inherits the baseline. So the tenant silently gets the
+ * default framing policy, on a resolver whose author has every reason to
+ * believe they overrode it. There is nothing downstream to catch that, because
+ * inheriting a block is also what a correct resolver does.
+ */
+export function unknownPolicyKeys(policy: Record<string, unknown>): string[] {
+  return Object.keys(policy).filter((key) => !Object.hasOwn(POLICY_KEYS, key));
+}
+
+/** The policy fields, for a message that says what was expected. */
+export const SECURITY_HEADERS_POLICY_KEYS: readonly string[] =
+  Object.keys(POLICY_KEYS);
+
+/**
  * What the policy is layered on top of, for the checks that span both.
  *
  * Needed because each block replaces rather than merges, so an override that
@@ -399,13 +419,11 @@ export function validateSecurityHeadersPolicy(
 
   const issues: SecurityHeadersPolicyIssue[] = [];
 
-  for (const key of Object.keys(policy)) {
-    if (!Object.hasOwn(POLICY_KEYS, key)) {
-      issues.push({
-        path: key,
-        message: `Invalid securityHeaders policy: ${key} is not a policy field. Expected ${Object.keys(POLICY_KEYS).join(', ')}.`,
-      });
-    }
+  for (const key of unknownPolicyKeys(policy)) {
+    issues.push({
+      path: key,
+      message: `Invalid securityHeaders policy: ${key} is not a policy field. Expected ${SECURITY_HEADERS_POLICY_KEYS.join(', ')}.`,
+    });
   }
 
   // `null` is rejected rather than read as "not set". It is what a JSON column
