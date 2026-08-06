@@ -18,7 +18,12 @@
  * and in front of the wrong audience.
  */
 
-import { collectCSPIssues, type CSPConfig } from './csp-policy';
+import {
+  collectCSPIssues,
+  describeValue,
+  isPlainObject,
+  type CSPConfig,
+} from './csp-policy';
 
 /** One problem with a policy, located well enough to point a form field at. */
 export interface SecurityHeadersPolicyIssue {
@@ -32,12 +37,28 @@ export interface SecurityHeadersPolicyIssue {
   message: string;
 }
 
-export interface SecurityHeadersPolicyValidation {
-  /** True when `issues` is empty. */
-  valid: boolean;
-  /** Every problem found, not just the first. */
-  issues: SecurityHeadersPolicyIssue[];
-}
+export type SecurityHeadersPolicyValidation =
+  | {
+      /** True when `issues` is empty. */
+      valid: true;
+      /** Empty, since the policy is valid. */
+      issues: SecurityHeadersPolicyIssue[];
+      /**
+       * The policy, now typed.
+       *
+       * The same object that was passed in, not a copy or a cleaned-up version.
+       * It is here because the input is `unknown`, so without it every caller
+       * would need a cast to store what was just validated, and a cast is the
+       * one thing checking the shape was supposed to remove.
+       */
+      policy: SecurityHeadersPolicyInput;
+    }
+  | {
+      valid: false;
+      /** Every problem found, not just the first. */
+      issues: SecurityHeadersPolicyIssue[];
+      policy?: undefined;
+    };
 
 /** Structural duplicate of the plugin's `HSTSConfig`, kept here to avoid a cycle. */
 interface HSTSShape {
@@ -57,6 +78,21 @@ export interface SecurityHeadersPolicyInput {
 }
 
 /**
+ * Every field a policy may carry.
+ *
+ * Reported when something else turns up, because a misspelled `frameOption` is
+ * ignored in silence otherwise: the form saves, the page says it worked, and
+ * the header never changes. `satisfies` ties this to the type, so a field added
+ * to the input without being added here is a type error rather than a validator
+ * that quietly rejects the new field.
+ */
+const POLICY_KEYS = {
+  csp: true,
+  hsts: true,
+  frameOptions: true,
+} satisfies Record<keyof SecurityHeadersPolicyInput, true>;
+
+/**
  * What the policy is layered on top of, for the checks that span both.
  *
  * Needed because each block replaces rather than merges, so an override that
@@ -71,13 +107,54 @@ export interface SecurityHeadersPolicyBaseline {
   frameOptions?: false | 'DENY' | 'SAMEORIGIN';
 }
 
+/** Every key an HSTS block may carry, for reporting a misspelled one. */
+const HSTS_KEYS = {
+  maxAge: true,
+  includeSubDomains: true,
+  preload: true,
+} satisfies Record<keyof HSTSShape, true>;
+
 /**
  * Every problem with an HSTS block, rather than the first.
+ *
+ * Treats its argument as unknown whatever the parameter type says, for the same
+ * reason `collectCSPIssues` does: this runs on stored policies as well as on
+ * ones written in the repository, and throwing on a malformed one would defeat
+ * the point of a collector.
  */
 export function collectHSTSIssues(
   cfg: HSTSShape,
 ): SecurityHeadersPolicyIssue[] {
+  if (!isPlainObject(cfg)) {
+    return [
+      {
+        path: 'hsts',
+        message: `Invalid securityHeaders config: hsts must be an object with a maxAge, received ${describeValue(cfg)}`,
+      },
+    ];
+  }
+
   const issues: SecurityHeadersPolicyIssue[] = [];
+
+  for (const key of Object.keys(cfg)) {
+    if (!Object.hasOwn(HSTS_KEYS, key)) {
+      issues.push({
+        path: `hsts.${key}`,
+        message: `Invalid securityHeaders config: hsts.${key} is not an HSTS option. Expected ${Object.keys(HSTS_KEYS).join(', ')}.`,
+      });
+    }
+  }
+
+  for (const key of ['includeSubDomains', 'preload'] as const) {
+    const value: unknown = cfg[key];
+
+    if (value !== undefined && typeof value !== 'boolean') {
+      issues.push({
+        path: `hsts.${key}`,
+        message: `Invalid securityHeaders config: hsts.${key} must be a boolean, received ${describeValue(value)}`,
+      });
+    }
+  }
 
   if (
     typeof cfg.maxAge !== 'number' ||
@@ -98,7 +175,10 @@ export function collectHSTSIssues(
 
   // Chrome's preload list requires at least a year and includeSubDomains, and
   // a submission missing either is rejected there rather than here.
-  if (cfg.preload) {
+  // Compared against `true` rather than read as truthy, so a preload flag that
+  // is not a boolean produces one issue about its type instead of that plus the
+  // two consequences of a value nobody should be acting on yet.
+  if (cfg.preload === true) {
     if (cfg.maxAge < 31536000) {
       issues.push({
         path: 'hsts.maxAge',
@@ -177,10 +257,17 @@ export function collectFramingIssues(
  * a policy this accepts is one `securityHeaders` will accept, whether it is
  * passed at startup or returned from a `resolve` callback.
  *
+ * Takes `unknown`, because the input worth validating is one nobody has vouched
+ * for: a request body, a database row, a JSON file. Nothing is assumed about
+ * its shape, so a string, an array, or `{ csp: null }` comes back as an issue
+ * rather than as a thrown `TypeError`. On the way out, `result.policy` is the
+ * same object with a type on it, which is what lets a caller store what was
+ * just checked without a cast asserting the very thing they came here to ask.
+ *
  * ```typescript
  * import { validateSecurityHeadersPolicy } from 'unirend/server';
  *
- * const result = validateSecurityHeadersPolicy(submitted, {
+ * const result = validateSecurityHeadersPolicy(request.body, {
  *   baseline: { frameOptions: 'DENY', csp: defaultPolicy },
  * });
  *
@@ -188,7 +275,7 @@ export function collectFramingIssues(
  *   return reply.status(422).send({ errors: result.issues });
  * }
  *
- * await saveTenantPolicy(tenantID, submitted);
+ * await saveTenantPolicy(tenantID, result.policy);
  * ```
  *
  * Two things it deliberately does not do. It does not expand `csp.preset`, so
@@ -202,27 +289,102 @@ export function collectFramingIssues(
  *   span both blocks. Omit when validating a complete standalone config.
  */
 export function validateSecurityHeadersPolicy(
-  policy: SecurityHeadersPolicyInput,
+  policy: unknown,
   options: { baseline?: SecurityHeadersPolicyBaseline } = {},
 ): SecurityHeadersPolicyValidation {
+  // Nothing about the argument is assumed, because the whole point is to run on
+  // a value that just came off the wire or out of a table. A signature saying
+  // `SecurityHeadersPolicyInput` would be a promise the caller cannot keep: a
+  // Fastify body is `unknown`, so they would have had to cast it to call this,
+  // and the cast would assert exactly what they came here to find out.
+  if (!isPlainObject(policy)) {
+    return {
+      valid: false,
+      issues: [
+        {
+          path: '',
+          message: `Invalid securityHeaders policy: expected an object with csp, hsts, or frameOptions, received ${describeValue(policy)}`,
+        },
+      ],
+    };
+  }
+
   const issues: SecurityHeadersPolicyIssue[] = [];
 
-  if (policy.csp !== undefined && policy.csp !== false) {
-    issues.push(...collectCSPIssues(policy.csp));
+  for (const key of Object.keys(policy)) {
+    if (!Object.hasOwn(POLICY_KEYS, key)) {
+      issues.push({
+        path: key,
+        message: `Invalid securityHeaders policy: ${key} is not a policy field. Expected ${Object.keys(POLICY_KEYS).join(', ')}.`,
+      });
+    }
+  }
+
+  // `null` is rejected rather than read as "not set". It is what a JSON column
+  // or a form serializer produces for an empty field, so it is worth an answer
+  // rather than a guess, and the two plausible guesses are far apart: inherit
+  // the baseline, or send no header at all. `false` says the second one out
+  // loud, and omitting the key says the first.
+  let csp: CSPConfig | false | undefined;
+
+  if (policy.csp !== undefined) {
+    if (policy.csp === false) {
+      csp = false;
+    } else if (!isPlainObject(policy.csp)) {
+      issues.push({
+        path: 'csp',
+        message: `Invalid securityHeaders policy: csp must be an object of directives, false to send no policy, or absent to inherit, received ${describeValue(policy.csp)}`,
+      });
+    } else {
+      csp = policy.csp;
+      issues.push(...collectCSPIssues(csp));
+    }
   }
 
   if (policy.hsts !== undefined && policy.hsts !== false) {
-    issues.push(...collectHSTSIssues(policy.hsts));
+    if (!isPlainObject(policy.hsts)) {
+      issues.push({
+        path: 'hsts',
+        message: `Invalid securityHeaders policy: hsts must be an object with a maxAge, false to send no header, or absent to inherit, received ${describeValue(policy.hsts)}`,
+      });
+    } else {
+      issues.push(...collectHSTSIssues(policy.hsts as unknown as HSTSShape));
+    }
   }
 
-  // Resolved the way the request path resolves it: a block the policy omits
-  // comes from the baseline.
-  issues.push(
-    ...collectFramingIssues(
-      policy.frameOptions ?? options.baseline?.frameOptions,
-      policy.csp ?? options.baseline?.csp,
-    ),
-  );
+  const hasUsableFrameOptions =
+    policy.frameOptions === undefined ||
+    policy.frameOptions === false ||
+    policy.frameOptions === 'DENY' ||
+    policy.frameOptions === 'SAMEORIGIN';
 
-  return { valid: issues.length === 0, issues };
+  if (!hasUsableFrameOptions) {
+    issues.push({
+      path: 'frameOptions',
+      message: `Invalid securityHeaders policy: frameOptions must be 'DENY', 'SAMEORIGIN', or false to send no header, received ${describeValue(policy.frameOptions)}`,
+    });
+  }
+
+  // Skipped when either half failed its own check, since the cross-check is
+  // about a combination and there is no combination to judge yet. Reporting it
+  // anyway would be a second complaint about the first mistake.
+  if (hasUsableFrameOptions) {
+    const frameOptions = policy.frameOptions as
+      false | 'DENY' | 'SAMEORIGIN' | undefined;
+
+    // Resolved the way the request path resolves it: a block the policy omits
+    // comes from the baseline.
+    issues.push(
+      ...collectFramingIssues(
+        frameOptions ?? options.baseline?.frameOptions,
+        csp ?? options.baseline?.csp,
+      ),
+    );
+  }
+
+  if (issues.length > 0) {
+    return { valid: false, issues };
+  }
+
+  return { valid: true, issues, policy };
 }

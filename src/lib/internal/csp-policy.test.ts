@@ -128,6 +128,44 @@ describe('validateCSPConfig', () => {
     expectRejected({ reportTo: '   ' }, /is not a usable group name/);
   });
 
+  it('accepts a report endpoint a browser can post to', () => {
+    expect(() => validateCSPConfig({ reportURI: '/csp-report' })).not.toThrow();
+    expect(() =>
+      validateCSPConfig({
+        reportURI: [
+          'https://reports.example.com/collect',
+          '//cdn.example.com/r',
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects a report endpoint that would silently collect nothing', () => {
+    // Every one of these serializes into a header that looks like reporting is
+    // on. A page-relative URI resolves against whatever page was being viewed,
+    // so reports scatter across endpoints that mostly do not exist, and a
+    // scheme a browser will not post over is dropped outright. Both fail the
+    // same way: violations happen, nothing arrives, and the quiet reads as a
+    // policy nobody is tripping over.
+    expectRejected({ reportURI: 'csp-report' }, /relative to the current page/);
+    expectRejected(
+      { reportURI: 'javascript:alert(1)' },
+      /only posts violation reports over http or https/,
+    );
+    expectRejected({ reportURI: 'https://' }, /is not a parsable URL/);
+  });
+
+  it('rejects an unknown preset before serialization can throw on it', () => {
+    // Expanding a preset happens at serialization time, so without this the
+    // name is the one mistake that passes validation and then fails per
+    // request, which is exactly what validating a stored policy is meant to
+    // catch first.
+    expectRejected(
+      { preset: 'strictest' } as unknown as CSPConfig,
+      /is not a known preset/,
+    );
+  });
+
   it('does not emit a group-less report-to directive', () => {
     // The consequence the check above prevents, pinned separately so a future
     // relaxation of the validator cannot bring it back unnoticed.

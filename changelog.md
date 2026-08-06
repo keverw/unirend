@@ -291,16 +291,22 @@ A resolver that throws propagates and becomes a 500, like any other middleware t
 ```typescript
 import { validateSecurityHeadersPolicy } from 'unirend/server';
 
-const result = validateSecurityHeadersPolicy(submitted, {
+const result = validateSecurityHeadersPolicy(request.body, {
   baseline: { frameOptions: 'DENY', csp: DEFAULT_POLICY },
 });
 
 if (!result.valid) {
   return reply.status(422).send({ errors: result.issues });
 }
+
+await saveTenantPolicy(tenantID, result.policy);
 ```
 
 It applies the same rules the plugin applies, so a policy it accepts is one `securityHeaders` accepts. Without it the only validation available was the throwing kind, which for a stored policy means the mistake surfaces as a 500 on the next request from the tenant it belongs to: the latest possible moment, in front of the wrong audience, reported as a server error rather than the form-validation failure it is. Every problem is returned rather than the first, each with a `path` such as `csp.scriptSrc` for attaching to a field and a `message` identical to what would have been thrown.
+
+The input is `unknown`, so a request body needs no cast and nothing about its shape is assumed. A string, an array, a misspelled `frameOption`, `{ csp: null }`, or a flag that arrived as text is reported as an issue rather than thrown as a `TypeError`. Once valid, `result.policy` is that object typed, so what gets stored is the value that was checked.
+
+Validation caught up with it in two places along the way, and both apply at startup as well: an unknown `csp.preset` is now rejected where it used to pass and then throw at serialization time, and `reportURI` has to be absolute over http or https, or a path starting with `/`. A page-relative `csp-report` resolves against whatever page was being viewed, and a scheme a browser will not post over is dropped, so either leaves a policy that looks like it reports and does not.
 
 Pass `baseline` when the policy is an override rather than a complete config. Blocks replace rather than merge, so an override setting only `csp` inherits `frameOptions` from the baseline and the two can conflict even when each is valid alone. It does not expand `csp.preset`, so preset directives are never reported as the author's mistakes, and it does not judge whether a policy is a wise one, only whether it is valid.
 

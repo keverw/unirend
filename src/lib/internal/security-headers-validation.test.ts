@@ -47,6 +47,157 @@ describe('validateSecurityHeadersPolicy', () => {
     expect(result.valid).toBe(true);
   });
 
+  describe('input that is not a policy at all', () => {
+    // The documented use passes a request body straight in, so every one of
+    // these is a shape a real caller can receive. Reporting is the contract:
+    // a validator that throws on malformed input has failed at the one job it
+    // was added for, since the caller's alternative was already a try/catch.
+
+    const notObjects: { name: string; value: unknown }[] = [
+      { name: 'null', value: null },
+      { name: 'undefined', value: undefined },
+      { name: 'a string', value: 'DENY' },
+      { name: 'a number', value: 0 },
+      { name: 'a boolean', value: false },
+      { name: 'an array', value: [] },
+    ];
+
+    for (const { name, value } of notObjects) {
+      it(`reports ${name} rather than throwing`, () => {
+        const result = validateSecurityHeadersPolicy(value);
+
+        expect(result.valid).toBe(false);
+        expect(result.issues).toHaveLength(1);
+        expect(result.issues[0].path).toBe('');
+      });
+    }
+
+    it('reports a null block instead of reading it as unset', () => {
+      // What a JSON column or a form serializer produces for an empty field.
+      // Guessing would mean choosing between "inherit the baseline" and "send
+      // no header", which are opposite answers, so it asks instead.
+      const result = validateSecurityHeadersPolicy({
+        csp: null,
+        hsts: null,
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues.map((issue) => issue.path).sort()).toEqual([
+        'csp',
+        'hsts',
+      ]);
+    });
+
+    it('reports a block that is a primitive', () => {
+      const result = validateSecurityHeadersPolicy({
+        csp: 'default-src *',
+        hsts: 31536000,
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues.map((issue) => issue.path).sort()).toEqual([
+        'csp',
+        'hsts',
+      ]);
+    });
+
+    it('reports a frameOptions value no browser understands', () => {
+      // Would otherwise validate and be stored, and the header would go out
+      // carrying a value browsers ignore, which is framing left wide open by a
+      // setting that reads as though it closed it.
+      // Hyphenated the way the CSP directive and every other header value is
+      // written, which is the shape this typo actually takes.
+      const result = validateSecurityHeadersPolicy({
+        frameOptions: 'SAME-ORIGIN',
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues[0].path).toBe('frameOptions');
+    });
+
+    it('reports a misspelled policy field', () => {
+      const result = validateSecurityHeadersPolicy({ frameOption: 'DENY' });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues[0].path).toBe('frameOption');
+    });
+
+    it('reports a misspelled HSTS field', () => {
+      const result = validateSecurityHeadersPolicy({
+        hsts: { maxAge: 31536000, includeSubdomains: true },
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues[0].path).toBe('hsts.includeSubdomains');
+    });
+
+    it('reports a non-boolean where a flag belongs', () => {
+      // A form post carries strings, and "false" is truthy. The flags are read
+      // strictly so this cannot switch anything on, and reported so the caller
+      // is not left with a setting that reads as enabled and does nothing.
+      const result = validateSecurityHeadersPolicy({
+        csp: { allowUnsafeInlineScript: 'false' },
+        hsts: { maxAge: 31536000, preload: 'true' },
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues.map((issue) => issue.path).sort()).toEqual([
+        'csp.allowUnsafeInlineScript',
+        'hsts.preload',
+      ]);
+    });
+
+    it('does not pile preload complaints on a non-boolean preload', () => {
+      const result = validateSecurityHeadersPolicy({
+        hsts: { maxAge: 100, preload: 'yes' },
+      });
+
+      expect(result.issues).toHaveLength(1);
+      expect(result.issues[0].path).toBe('hsts.preload');
+    });
+
+    it('reports a directive holding something other than sources', () => {
+      const result = validateSecurityHeadersPolicy({
+        csp: { scriptSrc: "'self'", imgSrc: [42] },
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues.map((issue) => issue.path).sort()).toEqual([
+        'csp.imgSrc',
+        'csp.scriptSrc',
+      ]);
+    });
+
+    it('reports a misspelled directive', () => {
+      // Silently dropped otherwise, leaving a policy weaker than it reads.
+      const result = validateSecurityHeadersPolicy({
+        csp: { scripSrc: ["'self'"] },
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues[0].path).toBe('csp.scripSrc');
+    });
+
+    it('reports an unknown preset', () => {
+      // The one mistake that used to validate cleanly and then throw per
+      // request, since expanding the preset happens at serialization time.
+      const result = validateSecurityHeadersPolicy({
+        csp: { preset: 'strictest' },
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues[0].path).toBe('csp.preset');
+    });
+
+    it('hands back the policy typed once it is valid', () => {
+      const result = validateSecurityHeadersPolicy({ frameOptions: 'DENY' });
+
+      // The point of the narrowing: what comes out is usable without a cast,
+      // which is what the caller came here for.
+      expect(result.valid && result.policy.frameOptions).toBe('DENY');
+    });
+  });
+
   it('reports a CSP problem with a path pointing at the directive', () => {
     const result = validateSecurityHeadersPolicy({
       csp: { scriptSrc: ['self'] },

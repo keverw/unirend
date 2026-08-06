@@ -311,6 +311,10 @@ securityHeaders({
 
 Available source-list directives: `defaultSrc`, `scriptSrc`, `scriptSrcElem`, `scriptSrcAttr`, `styleSrc`, `styleSrcElem`, `styleSrcAttr`, `imgSrc`, `fontSrc`, `connectSrc`, `mediaSrc`, `objectSrc`, `childSrc`, `frameSrc`, `workerSrc`, `manifestSrc`, `prefetchSrc`, `formAction`, `frameAncestors`, `baseURI`. Alongside them: `sandbox` (an array of tokens, or an empty array for the bare directive), `upgradeInsecureRequests`, `reportURI`, and `reportTo`.
 
+Every source expression is checked. Keywords have to be spelled and quoted the way a browser reads them, hashes and nonces have to be well formed, and a host goes through the same validator a CORS origin does, so `*.cdn.example.com` and a public-suffix wildcard behave identically in both places. A `javascript:` or `vbscript:` scheme is refused outright.
+
+`reportURI` is held to a different standard, because it is a real URL rather than a host pattern and no wildcard belongs in it. It has to be absolute over http or https, or a path starting with `/`. A bare `csp-report` is rejected even though it is a valid relative URL: it resolves against whatever page was being viewed, so reports scatter across endpoints that mostly do not exist. That failure and a scheme a browser will not post over look the same from the outside, which is a policy that appears to report and does not.
+
 ### Roll It Out With `reportOnly`
 
 ```typescript
@@ -658,13 +662,21 @@ app.put('/api/tenants/:id/security-policy', async (request, reply) => {
     return reply.status(422).send({ errors: result.issues });
   }
 
-  await saveTenantPolicy(request.params.id, request.body);
+  await saveTenantPolicy(request.params.id, result.policy);
 
   return { ok: true };
 });
 ```
 
 Each issue carries a `path` such as `csp.scriptSrc` or `hsts.maxAge`, so it can be attached to the field that caused it, and a `message` identical to what the plugin would have thrown. Every problem is reported, not just the first, because a form that reveals one error per submit makes the person fixing it play twenty questions.
+
+It takes `unknown` on purpose, so a request body goes straight in with no cast. Nothing is assumed about the shape: a string, an array, a misspelled `frameOption`, `{ csp: null }`, or a `maxAge` that arrived as text all come back as issues rather than as a thrown `TypeError`. A validator that throws on malformed input would have failed at the one job it exists for, since the caller's alternative was already a `try`/`catch`.
+
+Once it passes, `result.policy` is that same object with a type on it. Store that rather than the raw body, and the cast that would otherwise assert the very thing you came here to ask never has to be written.
+
+<!-- prettier-ignore -->
+> [!NOTE]
+> `null` is reported rather than read as "not set", which matters if a JSON column or a form serializer produces it for an empty field. The two readings are opposite answers: inherit the baseline, or send no header at all. Write `false` for the second and omit the key for the first.
 
 Pass `baseline` whenever the policy is an override rather than a complete config. Blocks replace rather than merge, so an override that sets only `csp` inherits `frameOptions` from the baseline, and the two can conflict even when each is fine on its own. Without the baseline that combination validates cleanly here and is then rejected at request time, which defeats the point of checking early.
 

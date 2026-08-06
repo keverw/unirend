@@ -262,6 +262,31 @@ export type CSPConfig = {
   allowUnsafeEval?: boolean;
 };
 
+/**
+ * The non-directive keys, listed so an unrecognized one can be reported.
+ *
+ * `satisfies` is what keeps this honest. Adding a field to `CSPConfig` without
+ * adding it here is a type error rather than a validator that starts rejecting
+ * a field it should accept, which is the failure a hand-maintained key list
+ * invites and nobody notices until someone's config is refused.
+ */
+const CSP_SCALAR_KEYS = {
+  preset: true,
+  sandbox: true,
+  upgradeInsecureRequests: true,
+  reportURI: true,
+  reportTo: true,
+  reportOnly: true,
+  allowUnsafeInlineScript: true,
+  allowUnsafeEval: true,
+} satisfies Record<Exclude<keyof CSPConfig, SourceListDirective>, true>;
+
+/** Every key a CSP config may carry, directives included. */
+const CSP_CONFIG_KEYS = new Set<string>([
+  ...SOURCE_LIST_DIRECTIVES.map(([key]) => key),
+  ...Object.keys(CSP_SCALAR_KEYS),
+]);
+
 /** Directives where `'unsafe-inline'` is the dangerous one. */
 const SCRIPT_DIRECTIVES = new Set<SourceListDirective>([
   'defaultSrc',
@@ -380,6 +405,90 @@ export interface CSPIssue {
 }
 
 /**
+ * Name a value for a message, without putting the value itself in it.
+ *
+ * Strings are quoted because seeing the exact text is usually the whole hint,
+ * and everything else is described by kind: an object or an array printed into
+ * a message is noise at best, and at worst it copies a chunk of a stored policy
+ * into a log or an HTTP response.
+ */
+export function describeValue(value: unknown): string {
+  if (value === null) {
+    return 'null';
+  }
+
+  if (Array.isArray(value)) {
+    return 'an array';
+  }
+
+  switch (typeof value) {
+    case 'string':
+      return `the string "${value}"`;
+    case 'number':
+    case 'boolean':
+      return `the ${typeof value} ${String(value)}`;
+    case 'object':
+      return 'an object';
+    default:
+      return `a ${typeof value}`;
+  }
+}
+
+/** Whether a value is usable as a config block: an object, not an array. */
+export function isPlainObject(
+  value: unknown,
+): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Anything that starts with a scheme, so a relative URI can be told apart. */
+const SCHEME_PREFIX = /^[a-z][a-z0-9+.-]*:/i;
+
+/**
+ * Whether a violation-report endpoint is one a browser will actually post to,
+ * returning the trailing half of a message or null.
+ *
+ * Weaker than the source-list check on purpose. A source expression is a host
+ * pattern, so `*.cdn.example.com` is meaningful there and goes through the same
+ * host validator a CORS origin does. `report-uri` takes a single real URL, and
+ * no wildcard belongs in it.
+ *
+ * What is checked is the part a browser silently drops. A scheme it will not
+ * post over, or something that is neither absolute nor rooted at the origin,
+ * leaves a policy that looks like it reports and does not, which is the worst
+ * way for reporting to be off: violations happen, nothing arrives, and the
+ * quiet reads as success.
+ */
+function reportEndpointProblem(uri: string): string | null {
+  // Origin-relative, the ordinary form for reporting to your own server. Also
+  // covers the protocol-relative "//host/path", which is valid here.
+  if (uri.startsWith('/')) {
+    return null;
+  }
+
+  if (!SCHEME_PREFIX.test(uri)) {
+    // A bare "csp-report" is a valid relative URL, and that is the problem: it
+    // resolves against whatever page was being viewed, so reports arrive at a
+    // different endpoint per page and mostly at ones that do not exist.
+    return 'is relative to the current page. Write it as an absolute URL, or as a path beginning with "/" to post to this origin.';
+  }
+
+  let parsed: URL;
+
+  try {
+    parsed = new URL(uri);
+  } catch {
+    return 'is not a parsable URL';
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return `uses the "${parsed.protocol.slice(0, -1)}" scheme, and a browser only posts violation reports over http or https`;
+  }
+
+  return null;
+}
+
+/**
  * Every problem with a CSP config, rather than the first one.
  *
  * Split out from the throwing validator because the two callers want opposite
@@ -387,10 +496,68 @@ export interface CSPIssue {
  * is nobody to show a list to. Anything validating a policy a person is editing
  * wants all of them at once, because fixing one error only to be shown the next
  * is a miserable way to fill in a form.
+ *
+ * Every value is treated as unknown regardless of what the parameter type says,
+ * because a config reaching here may have come from a database row or a form
+ * post rather than from the repository. A rule that trusted the declared type
+ * and reached into a value would throw on exactly the malformed input a caller
+ * asked this function to describe.
  */
 export function collectCSPIssues(config: CSPConfig): CSPIssue[] {
+  if (!isPlainObject(config)) {
+    return [
+      {
+        path: 'csp',
+        message: `Invalid securityHeaders config: csp must be an object of directives, received ${describeValue(config)}`,
+      },
+    ];
+  }
+
   const issues: CSPIssue[] = [];
 
+  for (const key of Object.keys(config)) {
+    if (!CSP_CONFIG_KEYS.has(key)) {
+      issues.push({
+        path: `csp.${key}`,
+        message: `Invalid securityHeaders config: csp.${key} is not a CSP option. A misspelled directive is dropped silently, so it is reported here rather than leaving a policy weaker than it reads.`,
+      });
+    }
+  }
+
+  // Checked here as well as in applyCSPPreset, which throws on an unknown name
+  // at serialization time. Without this, an unknown preset is the one mistake
+  // that validates cleanly and then fails per request, which defeats the point
+  // of checking a stored policy before storing it.
+  if (
+    config.preset !== undefined &&
+    !Object.keys(CSP_PRESETS).includes(config.preset)
+  ) {
+    issues.push({
+      path: 'csp.preset',
+      message: `Invalid securityHeaders config: csp.preset "${String(config.preset)}" is not a known preset. Available: ${Object.keys(CSP_PRESETS).join(', ')}.`,
+    });
+  }
+
+  for (const key of [
+    'upgradeInsecureRequests',
+    'reportOnly',
+    'allowUnsafeInlineScript',
+    'allowUnsafeEval',
+  ] as const) {
+    const value: unknown = config[key];
+
+    if (value !== undefined && typeof value !== 'boolean') {
+      issues.push({
+        path: `csp.${key}`,
+        message: `Invalid securityHeaders config: csp.${key} must be a boolean, received ${describeValue(value)}`,
+      });
+    }
+  }
+
+  // The opt-in flags are compared against `true` rather than read as truthy, so
+  // a string "false" out of a form does not switch 'unsafe-inline' on. The
+  // check above is what tells the caller that, instead of leaving them with a
+  // setting that reads as enabled and is not.
   const options = {
     allowUnsafeInlineScript: config.allowUnsafeInlineScript === true,
     allowUnsafeEval: config.allowUnsafeEval === true,
@@ -443,17 +610,30 @@ export function collectCSPIssues(config: CSPConfig): CSPIssue[] {
     });
   } else {
     for (const token of config.sandbox ?? []) {
-      if (!/^allow-[a-z-]+$/.test(token)) {
+      if (typeof token !== 'string' || !/^allow-[a-z-]+$/.test(token)) {
         issues.push({
           path: 'csp.sandbox',
-          message: `Invalid securityHeaders config: csp.sandbox token "${token}" is not a valid sandbox token`,
+          message: `Invalid securityHeaders config: csp.sandbox token ${describeValue(token)} is not a valid sandbox token`,
         });
       }
     }
   }
 
-  const reportURIs =
-    typeof config.reportURI === 'string'
+  const hasUsableReportURI =
+    config.reportURI === undefined ||
+    typeof config.reportURI === 'string' ||
+    Array.isArray(config.reportURI);
+
+  if (!hasUsableReportURI) {
+    issues.push({
+      path: 'csp.reportURI',
+      message: `Invalid securityHeaders config: csp.reportURI must be a URI or an array of URIs, received ${describeValue(config.reportURI)}`,
+    });
+  }
+
+  const reportURIs = !hasUsableReportURI
+    ? []
+    : typeof config.reportURI === 'string'
       ? [config.reportURI]
       : (config.reportURI ?? []);
 
@@ -461,7 +641,18 @@ export function collectCSPIssues(config: CSPConfig): CSPIssue[] {
     if (typeof uri !== 'string' || uri.trim() === '' || /[\s;,]/.test(uri)) {
       issues.push({
         path: 'csp.reportURI',
-        message: `Invalid securityHeaders config: csp.reportURI "${String(uri)}" is not a usable URI`,
+        message: `Invalid securityHeaders config: csp.reportURI ${describeValue(uri)} is not a usable URI`,
+      });
+
+      continue;
+    }
+
+    const problem = reportEndpointProblem(uri);
+
+    if (problem) {
+      issues.push({
+        path: 'csp.reportURI',
+        message: `Invalid securityHeaders config: csp.reportURI "${uri}" ${problem}`,
       });
     }
   }
@@ -471,7 +662,12 @@ export function collectCSPIssues(config: CSPConfig): CSPIssue[] {
   // serialize as a bare `report-to`, which is not a valid directive. A browser
   // drops it, and reporting is silently off for the one policy whose whole job
   // is telling you what it blocked.
-  if (
+  if (config.reportTo !== undefined && typeof config.reportTo !== 'string') {
+    issues.push({
+      path: 'csp.reportTo',
+      message: `Invalid securityHeaders config: csp.reportTo must be a group name, received ${describeValue(config.reportTo)}`,
+    });
+  } else if (
     config.reportTo !== undefined &&
     (config.reportTo.trim() === '' || /[\s;,]/.test(config.reportTo))
   ) {
