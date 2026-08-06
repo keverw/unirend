@@ -2235,6 +2235,20 @@ describe('securityHeaders', () => {
       });
     });
 
+    it('stays quiet when the -attr directive opted in', async () => {
+      // script-src-attr is what governs an onclick= when it is set, so someone
+      // who put 'unsafe-hashes' there has made this decision in the most
+      // specific place the spec offers. Warning anyway is the noise this check
+      // exists to prevent.
+      return warningsFor({
+        scriptSrc: ["'self'"],
+        scriptSrcAttr: ["'unsafe-hashes'", "'unsafe-inline'"],
+        allowUnsafeInlineScript: true,
+      }).then((warnings) => {
+        expect(warnings).toHaveLength(0);
+      });
+    });
+
     it('warns once per distinct finding, not once per request', async () => {
       const pluginHost = createMockPluginHost();
 
@@ -2978,6 +2992,68 @@ describe('securityHeaders', () => {
       expect(csp).toMatch(/script-src 'self' 'sha256-[^']+'/);
       expect(csp).toMatch(/style-src 'self'(?: 'sha256-[^']+')+/);
       expect(csp).not.toMatch(/ sha256-/);
+    });
+
+    it('puts the bootstrap and template hashes in script-src-elem when set', async () => {
+      // End to end, because the unit level is not where this went wrong. The
+      // hashes were being computed, quoted, and added correctly, just to a
+      // directive a browser stops consulting the moment script-src-elem exists.
+      // A page under this policy would have had its bootstrap and its template
+      // scripts blocked, with a header that reads as though it allows them.
+      const app = fastify({ trustProxy: true });
+
+      await securityHeaders({
+        csp: {
+          scriptSrc: ["'self'"],
+          scriptSrcElem: ["'self'"],
+          styleSrc: ["'self'"],
+          styleSrcElem: ["'self'"],
+        },
+      })(app as unknown as PluginHostInstance, createMockOptions());
+
+      app.get('/test', (request, reply) => {
+        (
+          request as FastifyRequest & {
+            addCSPSources?: (sources: {
+              scriptSrc: string[];
+              styleSrc: string[];
+            }) => void;
+          }
+        ).addCSPSources?.({
+          scriptSrc: ["'sha256-template-script'"],
+          styleSrc: ["'sha256-template-style'"],
+        });
+
+        return reply.send('ok');
+      });
+
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const address = app.server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/test`);
+        const csp = response.headers.get('content-security-policy') ?? '';
+
+        const scriptSrcElem = csp
+          .split('; ')
+          .find((part) => part.startsWith('script-src-elem '));
+
+        const styleSrcElem = csp
+          .split('; ')
+          .find((part) => part.startsWith('style-src-elem '));
+
+        // The request's template hash.
+        expect(scriptSrcElem).toContain("'sha256-template-script'");
+        expect(styleSrcElem).toContain("'sha256-template-style'");
+
+        // And unirend's own bootstrap hash, added at config time, which has the
+        // same problem for the same reason.
+        expect(scriptSrcElem).toMatch(/'sha256-[^']+'.*'sha256-[^']+'/);
+      } finally {
+        await app.close();
+      }
     });
 
     it("folds a request's own sources into a resolver's policy", async () => {

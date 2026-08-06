@@ -1519,6 +1519,13 @@ export function securityHeaders(
             // who made that call deliberately is not told about it repeatedly.
             if (
               !permitsInlineAttribute([
+                // The `-attr` directives first, since they are what governs an
+                // `onclick=` or a `style=""` when set. Someone who opted in
+                // there has made exactly this decision, in the most specific
+                // place available, and warning them anyway is the noise this
+                // check exists to avoid.
+                policy.scriptSrcAttr,
+                policy.styleSrcAttr,
                 policy.scriptSrc,
                 policy.styleSrc,
                 policy.defaultSrc,

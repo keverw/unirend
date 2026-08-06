@@ -319,7 +319,7 @@ Sends `Content-Security-Policy-Report-Only` instead. Violations are reported and
 
 ### What Unirend Contributes Automatically
 
-Unirend emits inline content of its own: the bootstrap script that assigns the injected SSR globals, and the styles on its built-in error pages. It knows what it emitted, so it adds the matching hashes to `scriptSrc` and `styleSrc` for you. Without that, a strict policy would render the framework's own error page unstyled, which is exactly the trap that makes CSP support look present without being useful.
+Unirend emits inline content of its own: the bootstrap script that assigns the injected SSR globals, and the styles on its built-in error pages. It knows what it emitted, so it adds the matching hashes to `scriptSrc` and `styleSrc` for you, and to `scriptSrcElem` and `styleSrcElem` when you have set those. Without that, a strict policy would render the framework's own error page unstyled, which is exactly the trap that makes CSP support look present without being useful.
 
 Two things worth knowing about how that works:
 
@@ -328,7 +328,7 @@ Two things worth knowing about how that works:
 
 ### Your Own Inline Content Is Hashed Too
 
-On SSR and SSG, unirend hashes the inline `<script>` and `<style>` blocks your template ships with, including anything the `headInlineScripts`, `bodyPrepend`, and `bodyAppend` slots contribute, and adds them to `scriptSrc` and `styleSrc` for that app's responses. A theme flash-prevention script in `index.html` keeps working under a strict policy with nothing to configure.
+On SSR and SSG, unirend hashes the inline `<script>` and `<style>` blocks your template ships with, including anything the `headInlineScripts`, `bodyPrepend`, and `bodyAppend` slots contribute, and adds them to `scriptSrc` and `styleSrc` for that app's responses, and to `scriptSrcElem` and `styleSrcElem` when you have set those. A theme flash-prevention script in `index.html` keeps working under a strict policy with nothing to configure.
 
 Hashes are taken from the **final serialized output**, not from the values you passed in. That distinction is the whole reason this happens in the framework rather than in your config: the template pipeline parses and rewrites what it touches, so a hash computed from your input can differ from a hash of what actually ships, and CSP would then block the very script the hash was meant to allow, with no error anywhere.
 

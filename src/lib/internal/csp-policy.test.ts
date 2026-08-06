@@ -129,6 +129,55 @@ describe('serializeCSP', () => {
     expect(a).toBe("default-src 'self'; script-src 'self'");
   });
 
+  it('adds inline hashes to the element directives, not just the fallbacks', () => {
+    // script-src-elem overrides script-src for inline <script> elements rather
+    // than adding to it, so when it is set it is the only directive a browser
+    // consults for them. Hashes left only in the fallback are read by nothing,
+    // and the content they cover is blocked by a policy that looks, on paper,
+    // like it allows exactly that content.
+    const policy = serializeCSP(
+      {
+        scriptSrc: ["'self'"],
+        scriptSrcElem: ["'self'"],
+        styleSrc: ["'self'"],
+        styleSrcElem: ["'self'"],
+      },
+      { scriptSrc: ["'sha256-script'"], styleSrc: ["'sha256-style'"] },
+    );
+
+    expect(policy).toContain("script-src-elem 'self' 'sha256-script'");
+    expect(policy).toContain("style-src-elem 'self' 'sha256-style'");
+
+    // Still in the fallbacks too, for browsers that do not implement the
+    // element directives and therefore read these instead.
+    expect(policy).toContain("script-src 'self' 'sha256-script'");
+    expect(policy).toContain("style-src 'self' 'sha256-style'");
+  });
+
+  it('does not create an element directive that was not configured', () => {
+    // Same rule the fallbacks follow. Emitting script-src-elem because a hash
+    // exists would create a directive that overrides script-src and blocks
+    // everything the author expected script-src to allow.
+    const policy = serializeCSP(
+      { scriptSrc: ["'self'"] },
+      { scriptSrc: ["'sha256-script'"] },
+    );
+
+    expect(policy).not.toContain('script-src-elem');
+    expect(policy).toBe("script-src 'self' 'sha256-script'");
+  });
+
+  it('leaves the attr directives alone, since no hash covers an attribute', () => {
+    // A hash covers an element's text content. An attribute has none, so
+    // adding one to script-src-attr would be noise that never matches.
+    const policy = serializeCSP(
+      { scriptSrcAttr: ["'none'"], styleSrcAttr: ["'none'"] },
+      { scriptSrc: ["'sha256-script'"], styleSrc: ["'sha256-style'"] },
+    );
+
+    expect(policy).toBe("script-src-attr 'none'; style-src-attr 'none'");
+  });
+
   it('emits valueless directives and report targets', () => {
     expect(
       serializeCSP({

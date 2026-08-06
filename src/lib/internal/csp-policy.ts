@@ -423,10 +423,26 @@ export function serializeCSP(
 
   for (const [key, directive] of SOURCE_LIST_DIRECTIVES) {
     const configured = config[key];
+
+    // The element-specific directives get the hashes too, because when one is
+    // set it is the only thing a browser consults for an inline `<script>` or
+    // `<style>`: `script-src-elem` overrides `script-src` for elements rather
+    // than adding to it. Hashes sitting in the fallback would be looked at by
+    // nothing, and the inline content they cover would be blocked by a policy
+    // that appears, on reading it, to allow exactly that content.
+    //
+    // Both are filled rather than only the more specific one. The element
+    // directives are newer than the fallbacks, so a browser that does not
+    // implement them reads `script-src`, and a hash in a directive that is not
+    // consulted costs nothing.
+    //
+    // The `-attr` directives are deliberately not here. They govern `onclick=`
+    // and `style=""`, which no hash can cover: a hash covers an element's text
+    // content, and an attribute has none.
     const extra =
-      key === 'scriptSrc'
+      key === 'scriptSrc' || key === 'scriptSrcElem'
         ? additions.scriptSrc
-        : key === 'styleSrc'
+        : key === 'styleSrc' || key === 'styleSrcElem'
           ? additions.styleSrc
           : undefined;
 
