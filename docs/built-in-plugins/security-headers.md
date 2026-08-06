@@ -532,7 +532,7 @@ securityHeaders({
 });
 ```
 
-Now a failed resolve keeps the baseline HSTS when the request's host matches, and still sends nothing when it does not. Accepts the same patterns as `domainValidation.validProductionDomains`.
+Now a failed resolve keeps the baseline HSTS when the request's host matches, and still sends nothing when it does not. Accepts the same patterns as `domainValidation.validProductionDomains`: an exact host, `*.example.com` for one level of subdomain, or `**.example.com` for any depth. An apex never matches a wildcard, so list it alongside as above. Entries are validated at startup, so one that could never match is a config-time error rather than a header quietly going missing during an outage.
 
 List only what you genuinely control. A customer's mapped domain does not belong here even though you serve it, because that is exactly the domain this protection exists for: binding it for a year on the strength of a failed lookup is not yours to do.
 

@@ -1416,13 +1416,38 @@ export function securityHeaders(
   // than an error.
   let activeResolver: SecurityHeadersResolver | undefined = config.resolve;
 
+  // Kept exactly as written, not normalized. normalizeDomain answers "what host
+  // is this", and a pattern is not a host: it turns `**.example.com` into an
+  // empty string, which then matches nothing. Normalizing here cost the
+  // documented `['example.com', '**.example.com']` its entire subdomain half,
+  // silently, so a failed resolve on api.example.com dropped HSTS for a domain
+  // the operator had just said they own. matchesDomainList takes patterns and
+  // is case-insensitive on both sides, so there is nothing to do to them first.
+  //
+  // The request's hostname is still normalized before matching, which is the
+  // side of the comparison that genuinely is a host.
   const ownDomains =
     config.ownDomains === undefined
       ? undefined
-      : (Array.isArray(config.ownDomains)
-          ? config.ownDomains
-          : [config.ownDomains]
-        ).map((domain) => normalizeDomain(domain));
+      : Array.isArray(config.ownDomains)
+        ? config.ownDomains
+        : [config.ownDomains];
+
+  // Validated at startup rather than left to fail quietly at match time. An
+  // entry that matches nothing is invisible in exactly the situation this
+  // option exists for: the resolver is already failing, and the only symptom is
+  // an HSTS header missing from a response nobody is looking at.
+  if (ownDomains) {
+    for (const entry of ownDomains) {
+      const verdict = validateConfigEntry(entry, 'domain');
+
+      if (!verdict.valid) {
+        throw new Error(
+          `Invalid securityHeaders ownDomains entry "${entry}"${verdict.info ? ': ' + verdict.info : ''}`,
+        );
+      }
+    }
+  }
 
   const resolvedConfig: ResolvedSecurityHeadersConfig = {
     cors: corsConfig,

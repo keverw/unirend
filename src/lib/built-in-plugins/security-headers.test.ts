@@ -3482,6 +3482,90 @@ describe('securityHeaders', () => {
       );
     });
 
+    it('keeps HSTS for a subdomain matched by a wildcard in ownDomains', async () => {
+      // The case the existing test above could not catch, because its host
+      // matched the exact entry and never needed the pattern. Configured
+      // patterns used to be run through normalizeDomain first, which answers
+      // "what host is this" and turns `**.allowed.example.com` into an empty
+      // string. The documented apex-plus-wildcard pairing then covered only the
+      // apex, so a store outage dropped HSTS across every subdomain the
+      // operator had just declared they own, with nothing to indicate why.
+      for (const host of [
+        'api.allowed.example.com',
+        'deep.api.allowed.example.com',
+      ]) {
+        const response = await respondTo({
+          plugins: [
+            securityHeaders({
+              hsts: { maxAge: 31536000, includeSubDomains: true },
+              ownDomains: ['allowed.example.com', '**.allowed.example.com'],
+              resolve: () => {
+                throw new Error('tenant lookup failed');
+              },
+            }),
+          ],
+          host,
+        });
+
+        expect(response.status).toBe(500);
+        expect(
+          response.headers.get('strict-transport-security'),
+          `expected ${host} to be recognized as an owned domain`,
+        ).toBe('max-age=31536000; includeSubDomains');
+      }
+    });
+
+    it('honors a single-level wildcard in ownDomains', async () => {
+      // `*` is one level, `**` is any depth. Worth pinning separately so the
+      // pattern semantics are not quietly flattened to "any wildcard matches
+      // anything" by a future normalization.
+      const owned = await respondTo({
+        plugins: [
+          securityHeaders({
+            hsts: { maxAge: 600 },
+            ownDomains: ['*.allowed.example.com'],
+            resolve: () => {
+              throw new Error('tenant lookup failed');
+            },
+          }),
+        ],
+        host: 'api.allowed.example.com',
+      });
+
+      expect(owned.headers.get('strict-transport-security')).toBe(
+        'max-age=600',
+      );
+
+      const tooDeep = await respondTo({
+        plugins: [
+          securityHeaders({
+            hsts: { maxAge: 600 },
+            ownDomains: ['*.allowed.example.com'],
+            resolve: () => {
+              throw new Error('tenant lookup failed');
+            },
+          }),
+        ],
+        host: 'deep.api.allowed.example.com',
+      });
+
+      expect(tooDeep.headers.get('strict-transport-security')).toBeNull();
+    });
+
+    it('rejects an ownDomains entry that would never match', () => {
+      // At startup rather than at match time. An entry that matches nothing is
+      // invisible in exactly the situation this option exists for: the resolver
+      // is already failing, and the only symptom is a missing header on a
+      // response nobody is watching.
+      expect(() =>
+        securityHeaders({ ownDomains: ['https://allowed.example.com'] }),
+      ).toThrow(/Invalid securityHeaders ownDomains entry/);
+
+      expect(() => securityHeaders({ ownDomains: ['not a domain'] })).toThrow(
+        /Invalid securityHeaders ownDomains entry/,
+      );
+    });
+
     it('still drops HSTS on a failed resolve for a host it does not own', async () => {
       // The distinction is the whole point. Binding a domain for a year is safe
       // when you own it and permanent when you do not.
