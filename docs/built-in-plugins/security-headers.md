@@ -513,15 +513,39 @@ List only what you genuinely control. A customer's mapped domain does not belong
 
 ### Where to Put the Plugin, and When `resolve` Runs
 
-Three different orderings get confused with each other, and only two are solved for you.
+Three different questions get called "ordering", and they have different answers:
 
-**Plugin array order does not affect coverage.** `securityHeaders` can sit anywhere; the `onSend` backstop catches responses that ended before its `onRequest` ran. See [Plugin Order and Short-Circuited Responses](#plugin-order-and-short-circuited-responses).
+| Question | Answer |
+| --- | --- |
+| Where in `plugins` must `securityHeaders` go? | Anywhere. Position does not affect which responses get headers. |
+| My resolver needs a database that is not connected at boot. | Register with a static baseline, then [`setResolver`](#installing-a-resolver-later). |
+| My resolver reads something **another plugin** puts on the request. | Register `securityHeaders` **after** that plugin. |
 
-**A resolver's startup dependency is solved by `setResolver`,** below. Register early with a validated baseline, install the real resolver when the database is up.
+**Position does not affect coverage.** The `onSend` backstop catches responses that ended before this plugin's `onRequest` ran, so a 403 from a gate listed earlier still carries the full header set. See [Plugin Order and Short-Circuited Responses](#plugin-order-and-short-circuited-responses).
 
-**A resolver's per-request data dependency is not solved, and is worth thinking about.** `resolve` runs in this plugin's `onRequest`, so it sees only what exists at that point. If your resolver reads something another plugin sets on the request, that plugin has to run first.
+That is what makes the third row safe: because position no longer decides coverage, you are free to place the plugin wherever your resolver's data needs it.
 
-`request.domainInfo` is populated by the server before any plugin runs, which is why the examples key on `request.domainInfo.hostname`: it works no matter where the plugin sits. If you need something a plugin sets, register `securityHeaders` after it. That is safe precisely because array order no longer affects coverage, so you are free to place the plugin where the resolver's data needs it.
+**A database lookup inside `resolve` is fine and expected.** `resolve` may be async and is awaited before any header is written. That is the ordinary case, not a special one:
+
+```typescript
+resolve: async (request) => {
+  const tenant = await db.tenants.findByHost(request.domainInfo.hostname);
+  return tenant?.isCustomDomain ? { hsts: { maxAge: 86400 } } : null;
+};
+```
+
+The startup case is different, and is the one `setResolver` exists for: the resolver itself cannot be _constructed_ until a connection exists.
+
+**What `resolve` can rely on.** It runs in this plugin's `onRequest`, so it sees whatever exists at that point. These are set by the server before any plugin runs, so they are available no matter where you put it:
+
+- `request.domainInfo` — `{ hostname, rootDomain }`, which is what the examples key on
+- `request.requestContext` — present but empty unless an earlier plugin filled it
+- `request.requestID`, `request.clientIP`, `request.connectionIP`, `request.serverLabel`
+- Everything on the raw request: `request.headers`, `request.url`, `request.method`, `request.hostname`, `request.protocol`, `request.cookies` if the cookies plugin is registered earlier
+
+Anything a plugin sets is only there if that plugin ran first.
+
+**Every callback receives the request**, not just `resolve`: `cors.origin(origin, request)`, `cors.credentials(origin, request)`, and on [`domainValidation`](domainValidation.md), `validProductionDomains(domain, request)` and `invalidDomainHandler(request, domain, isDevelopment, isAPIEndpoint)`. So per-request logic does not have to go through `resolve`, and for a pure origin decision it should not.
 
 ### Installing a Resolver Later
 
