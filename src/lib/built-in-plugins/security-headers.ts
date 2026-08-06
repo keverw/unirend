@@ -787,7 +787,12 @@ function permitsInlineAttribute(
   // `'unsafe-inline' 'sha256-something'` has an inert keyword, so the attribute
   // is blocked and the author is the one person who would not guess it from
   // reading their own policy.
-  if (isUnsafeInlineEffective(sources)) {
+  //
+  // The finding's kind carries through because 'strict-dynamic' disables the
+  // keyword for scripts and script attributes only. A style attribute under
+  // `style-src 'unsafe-inline' 'strict-dynamic'` still runs, so warning about
+  // it would be a false alarm.
+  if (isUnsafeInlineEffective(sources, finding.kind)) {
     return true;
   }
 

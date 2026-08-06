@@ -299,7 +299,7 @@ describe('serializeCSP', () => {
       ).toBe("script-src 'unsafe-inline' 'nonce-abc123' 'sha256-ours='");
     });
 
-    it("still receives additions alongside 'strict-dynamic'", () => {
+    it("still receives additions alongside 'strict-dynamic' in a script directive", () => {
       // 'strict-dynamic' disables 'unsafe-inline' the same way a hash or nonce
       // does, and hashes keep working under it, so this is the combination
       // where withholding would be most obviously wrong.
@@ -309,6 +309,36 @@ describe('serializeCSP', () => {
           { scriptSrc: ["'sha256-ours='"] },
         ),
       ).toBe("script-src 'unsafe-inline' 'strict-dynamic' 'sha256-ours='");
+    });
+
+    it("is unmoved by 'strict-dynamic' in a style directive", () => {
+      // 'strict-dynamic' is read only for scripts and script attributes, so in
+      // style-src it is inert and 'unsafe-inline' is still doing its job. The
+      // directive therefore has to stay untouched.
+      //
+      // Treating the keyword as disabling here would be actively destructive
+      // rather than merely imprecise: we would add hashes to a working policy,
+      // and those hashes really do disable 'unsafe-inline' for styles, so every
+      // inline style on the page would stop applying. Confirmed in Chrome, both
+      // that the style applies under this policy and that it stops the moment a
+      // hash is added.
+      expect(
+        serializeCSP(
+          { styleSrc: ["'unsafe-inline'", "'strict-dynamic'"] },
+          { styleSrc: ["'sha256-ours='"] },
+        ),
+      ).toBe("style-src 'unsafe-inline' 'strict-dynamic'");
+    });
+
+    it('still withholds from a style directive once a hash joins it', () => {
+      // A hash disables 'unsafe-inline' for every type, scripts and styles
+      // alike. Only 'strict-dynamic' is script-only.
+      expect(
+        serializeCSP(
+          { styleSrc: ["'unsafe-inline'", "'sha256-theirs='"] },
+          { styleSrc: ["'sha256-ours='"] },
+        ),
+      ).toBe("style-src 'unsafe-inline' 'sha256-theirs=' 'sha256-ours='");
     });
   });
 });

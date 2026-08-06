@@ -2311,6 +2311,29 @@ describe('securityHeaders', () => {
       });
     });
 
+    it("ignores 'strict-dynamic' when judging a style attribute", () => {
+      // The keyword is read only for scripts and script attributes, so a style
+      // attribute under this policy actually runs and warning would be a false
+      // alarm. Confirmed in Chrome, where the inline style applies.
+      return warningsFor(
+        { styleSrc: ["'self'", "'unsafe-inline'", "'strict-dynamic'"] },
+        [STYLE_ATTR],
+      ).then((warnings) => {
+        expect(warnings).toHaveLength(0);
+      });
+    });
+
+    it('still warns about a style attribute once a hash joins the directive', () => {
+      // A hash disables 'unsafe-inline' for styles as much as for scripts, so
+      // this one really is blocked. Only 'strict-dynamic' is script-only.
+      return warningsFor(
+        { styleSrc: ["'self'", "'unsafe-inline'", "'sha256-unrelated='"] },
+        [STYLE_ATTR],
+      ).then((warnings) => {
+        expect(warnings).toHaveLength(1);
+      });
+    });
+
     it('reports two handlers on the same element type separately', () => {
       // Same description, different values, so they need different hashes to
       // fix. Deduping on the description would report the first and swallow the

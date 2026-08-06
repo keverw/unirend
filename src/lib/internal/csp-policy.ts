@@ -36,22 +36,42 @@ const NONCE_SOURCE = /^'nonce-[A-Za-z0-9+/\-_]+={0,2}'$/;
 const SCHEME_SOURCE = /^[a-z][a-z0-9+.-]*:$/i;
 
 /**
+ * The kind of content a directive governs, which decides how its source list
+ * is read. Scripts and script attributes answer to `'strict-dynamic'`; styles
+ * and style attributes do not.
+ */
+export type CSPInlineKind = 'script' | 'style';
+
+/**
  * Whether `'unsafe-inline'` in this source list actually does anything.
  *
  * Writing the keyword is not the same as having it take effect. A browser
- * ignores `'unsafe-inline'` when the same source list carries a hash, a nonce,
- * or `'strict-dynamic'`, which leaves a directive that reads permissive and
- * behaves strictly. Everything that has to reason about inline content needs
- * the second question rather than the first, so it lives here and is asked in
- * one place.
+ * ignores `'unsafe-inline'` when the same source list carries a hash or a
+ * nonce, which leaves a directive that reads permissive and behaves strictly.
+ * Everything that has to reason about inline content needs the second question
+ * rather than the first, so it lives here and is asked in one place.
  *
- * Verified in Chrome across all six combinations: an inline script runs under
- * `script-src 'unsafe-inline'`, and is blocked the moment a hash, a nonce, or
- * `'strict-dynamic'` joins it, in which case only a matching hash brings it
- * back.
+ * `'strict-dynamic'` disables it as well, but **only in a script directive**.
+ * The CSP3 algorithm behind this checks the keyword solely when the type being
+ * asked about is "script" or "script attribute", so in `style-src` it is inert
+ * and `'unsafe-inline'` keeps working. Getting that wrong is not academic: a
+ * caller who wrote `style-src 'unsafe-inline' 'strict-dynamic'` has a working
+ * policy, and concluding the keyword was already dead would have us contribute
+ * hashes that then genuinely kill it, breaking every inline style on the page.
+ *
+ * Verified in Chrome. An inline script runs under `script-src 'unsafe-inline'`
+ * and is blocked the moment a hash, a nonce, or `'strict-dynamic'` joins it,
+ * with only a matching hash bringing it back. An inline style still applies
+ * under `style-src 'unsafe-inline' 'strict-dynamic'`, and stops the moment a
+ * hash is added to it.
+ *
+ * @param sources The directive's configured source list
+ * @param kind What the directive governs, since `'strict-dynamic'` is read only
+ *   for scripts
  */
 export function isUnsafeInlineEffective(
   sources: readonly string[] | undefined,
+  kind: CSPInlineKind,
 ): boolean {
   if (!sources?.includes("'unsafe-inline'")) {
     return false;
@@ -59,7 +79,7 @@ export function isUnsafeInlineEffective(
 
   return !sources.some(
     (source) =>
-      source === "'strict-dynamic'" ||
+      (kind === 'script' && source === "'strict-dynamic'") ||
       HASH_SOURCE.test(source) ||
       NONCE_SOURCE.test(source),
   );
@@ -477,6 +497,9 @@ export function serializeCSP(
     // The `-attr` directives are deliberately not here. They govern `onclick=`
     // and `style=""`, which no hash can cover: a hash covers an element's text
     // content, and an attribute has none.
+    const isScriptDirective =
+      key === 'scriptSrc' || key === 'scriptSrcElem' || key === 'scriptSrcAttr';
+
     let extra =
       key === 'scriptSrc' || key === 'scriptSrcElem'
         ? additions.scriptSrc
@@ -494,15 +517,31 @@ export function serializeCSP(
     //
     // "Doing real work" is the whole condition, not just the keyword's
     // presence. A caller who writes `'unsafe-inline' 'sha256-theirs'`, or pairs
-    // it with a nonce or 'strict-dynamic', already has an inert keyword and a
-    // directive matching on hashes alone. Withholding ours there does not
-    // preserve anything, it just leaves unirend's own bootstrap script blocked
-    // unless their hash happens to be ours.
+    // it with a nonce, already has an inert keyword and a directive matching on
+    // hashes alone. Withholding ours there does not preserve anything, it just
+    // leaves unirend's own bootstrap script blocked unless their hash happens
+    // to be ours.
+    //
+    // The directive's kind is passed because 'strict-dynamic' has that effect
+    // in a script directive and not in a style one. Assuming otherwise would
+    // invert this on `style-src 'unsafe-inline' 'strict-dynamic'`, a policy
+    // whose inline styles work: reading the keyword as already dead would have
+    // us add hashes that then really do kill it.
     //
     // Checked per directive, since a caller can put 'unsafe-inline' in
     // script-src while script-src-elem stays strict, and it is the element
     // directive that governs an inline <script> when both are set.
-    if (isUnsafeInlineEffective(configured)) {
+    //
+    // Guarded on `extra` so the kind below is only decided for the four
+    // directives that receive additions. default-src governs both scripts and
+    // styles and has no single answer, and it never gets additions anyway.
+    if (
+      extra &&
+      isUnsafeInlineEffective(
+        configured,
+        isScriptDirective ? 'script' : 'style',
+      )
+    ) {
       extra = undefined;
     }
 

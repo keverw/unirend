@@ -421,7 +421,7 @@ The hash is reported because it is the one part you cannot work out later by han
 
 The warning is skipped when the policy in force for the request already permits that attribute, so a decision you made deliberately is not repeated back to you on every startup.
 
-"That attribute" is meant precisely. An `onclick=` and a `style=` are governed by different directives and a policy often permits one and blocks the other, so each finding is judged against the chain a browser would actually consult for it: `script-src-attr`, then `script-src`, then `default-src` for an event handler, and the `style-src` equivalents for a `style=`. Fallback stops at the first directive that is set rather than combining them, so `scriptSrcAttr: ["'none'"]` blocks handlers no matter how permissive `scriptSrc` is. An `'unsafe-inline'` in some other directive is not permission and silences nothing, and neither is one a browser is ignoring because a hash, nonce, or `'strict-dynamic'` sits beside it.
+"That attribute" is meant precisely. An `onclick=` and a `style=` are governed by different directives and a policy often permits one and blocks the other, so each finding is judged against the chain a browser would actually consult for it: `script-src-attr`, then `script-src`, then `default-src` for an event handler, and the `style-src` equivalents for a `style=`. Fallback stops at the first directive that is set rather than combining them, so `scriptSrcAttr: ["'none'"]` blocks handlers no matter how permissive `scriptSrc` is. An `'unsafe-inline'` in some other directive is not permission and silences nothing, and neither is one a browser is ignoring because a hash or nonce sits beside it (or, in a script directive only, `'strict-dynamic'`).
 
 The fixes, best first: move an `on*` handler into an `addEventListener` inside a script unirend already hashes, and a `style=""` attribute into a `<style>` block or a class. The `'unsafe-hashes'` route works and is meaningfully worse, since a hash listed there matches that value on **any** element in the page rather than the one you meant.
 
@@ -433,14 +433,17 @@ That is not a preference, it is the only way to keep your opt-in working. A brow
 
 The "in effect" part matters as much as the keyword. Writing `'unsafe-inline'` is not the same as having it do anything:
 
-| Directive | `'unsafe-inline'` | Unirend's hashes |
+| Source list | `'unsafe-inline'` | Unirend's hashes |
 | --- | --- | --- |
 | `["'unsafe-inline'"]` | In effect | Withheld, to preserve it |
 | `["'unsafe-inline'", "'sha256-yours'"]` | Ignored by the browser | Added |
 | `["'unsafe-inline'", "'nonce-…'"]` | Ignored by the browser | Added |
-| `["'unsafe-inline'", "'strict-dynamic'"]` | Ignored by the browser | Added |
+| `["'unsafe-inline'", "'strict-dynamic'"]` in a **script** directive | Ignored by the browser | Added |
+| `["'unsafe-inline'", "'strict-dynamic'"]` in a **style** directive | In effect | Withheld, to preserve it |
 
-In the last three the directive is already matching on hashes and nonces alone, so withholding would preserve nothing and would leave unirend's own bootstrap script blocked unless your hash happened to be identical to it.
+Where the keyword is already ignored, the directive is matching on hashes and nonces alone, so withholding would preserve nothing and would leave unirend's own bootstrap script blocked unless your hash happened to be identical to it.
+
+The last row is the one that surprises people. `'strict-dynamic'` is read only for scripts and script attributes, so in `style-src` it does nothing at all and your `'unsafe-inline'` keeps working. Treating it as script-like there would be worse than imprecise: unirend would contribute hashes to a policy that was working, and those hashes really do disable `'unsafe-inline'` for styles, so every inline style on the page would stop applying. A hash or nonce, by contrast, disables the keyword for both scripts and styles.
 
 The decision is per directive. `scriptSrc: ["'unsafe-inline'"]` alongside a strict `scriptSrcElem` leaves the element directive getting its hashes as usual, which is right: when both are set, `script-src-elem` is the one a browser consults for an inline `<script>`.
 
