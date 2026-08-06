@@ -330,7 +330,7 @@ Unirend emits inline content of its own: the bootstrap script that assigns the i
 
 Two things worth knowing about how that works:
 
-- It adds to the directive that **governs** the content, not to every directive it could. CSP fallback stops at the first directive you set rather than combining the chain, so the hashes follow it: `scriptSrcElem` and `scriptSrc` when you set them, and `defaultSrc` when you set neither, since that is what the browser reads instead. A policy of just `csp: { defaultSrc: ["'self'"] }` works, and the hashes land in `default-src`.
+- It adds to the directive that **governs** the content, not to every directive it could. CSP fallback stops at the first directive you set rather than combining the chain, so the hashes follow it: `scriptSrcElem` and `scriptSrc` when you set them, and `defaultSrc` when you set neither, since that is what the browser reads instead. A policy of just `csp: { defaultSrc: ["'self'"] }` works, and the hashes land in `default-src`. One wrinkle, in your favor: setting only `scriptSrcElem` or `styleSrcElem` keeps `defaultSrc` covered as well, because the `-elem` directives shipped in Firefox 124 and a browser without them reads past to `defaultSrc`.
 - It never creates a directive you did not write. If you configure `defaultSrc` alone, no `scriptSrc` appears in the output. Creating one would override `defaultSrc` for scripts and block whatever you expected `defaultSrc` to cover. An empty array counts as not written, because it serializes to nothing and the browser falls through it.
 - Your own inline content is still yours to cover. Use [`hashInlineContentForCSP`](../utilities.md#content-security-policy-utilities), which is the same helper unirend uses.
 

@@ -327,17 +327,32 @@ describe('serializeCSP', () => {
     );
   });
 
-  it('lets script-src-elem alone claim the script hashes from default-src', () => {
-    // script-src-elem is what governs an inline <script> when it is set, even
-    // with no script-src in between, so default-src is not consulted for
-    // scripts and does not need them.
+  it('keeps default-src covered when only script-src-elem is set', () => {
+    // script-src-elem governs an inline <script> for a browser that implements
+    // it, so it gets the hashes. But it only shipped in Firefox 124, and with no
+    // script-src in between, a browser without it reads straight past to
+    // default-src. Withholding them there blocked unirend's bootstrap script on
+    // exactly those browsers, silently, so both directives carry them.
     const policy = serializeCSP(
       { defaultSrc: ["'self'"], scriptSrcElem: ["'self'"] },
       { scriptSrc: ["'sha256-script'"], styleSrc: ["'sha256-style'"] },
     );
 
     expect(policy).toBe(
-      "default-src 'self' 'sha256-style'; script-src-elem 'self' 'sha256-script'",
+      "default-src 'self' 'sha256-script' 'sha256-style'; script-src-elem 'self' 'sha256-script'",
+    );
+  });
+
+  it('keeps default-src covered when only style-src-elem is set', () => {
+    // The style half of the same rule. style-src-elem landed in Firefox 124
+    // alongside its script counterpart.
+    const policy = serializeCSP(
+      { defaultSrc: ["'self'"], styleSrcElem: ["'self'"] },
+      { scriptSrc: ["'sha256-script'"], styleSrc: ["'sha256-style'"] },
+    );
+
+    expect(policy).toBe(
+      "default-src 'self' 'sha256-script' 'sha256-style'; style-src-elem 'self' 'sha256-style'",
     );
   });
 

@@ -756,11 +756,25 @@ export function serializeCSP(
   const isDirectiveSet = (sources: unknown): sources is string[] =>
     Array.isArray(sources) && sources.length > 0;
 
-  const isScriptGovernedElsewhere =
-    isDirectiveSet(config.scriptSrc) || isDirectiveSet(config.scriptSrcElem);
+  // Only the plain fallback counts here, deliberately, and the `-elem` form does
+  // not. The question this answers is which directive is the *last* one in the
+  // chain for every browser, not just for a current one, and a browser that does
+  // not implement `script-src-elem` reads straight past it. With no `script-src`
+  // in between, what it reads is `default-src`, so withholding the hashes there
+  // on the strength of a directive that browser cannot see leaves unirend's
+  // bootstrap script blocked, taking every injected global and the router
+  // hydration payload with it, silently, under a policy that reads as though it
+  // allows exactly that content. `script-src-elem` shipped in Firefox 124, so
+  // the browsers this covers are ordinary rather than theoretical.
+  //
+  // The cost of the other direction is nothing. A modern browser consults
+  // `script-src-elem`, which gets the hashes too, and a hash sitting in a
+  // `default-src` that is never consulted for scripts matches no URL and widens
+  // nothing. The one thing it could disturb, an `'unsafe-inline'` still doing
+  // real work in `default-src`, is already checked separately below.
+  const isScriptGovernedElsewhere = isDirectiveSet(config.scriptSrc);
 
-  const isStyleGovernedElsewhere =
-    isDirectiveSet(config.styleSrc) || isDirectiveSet(config.styleSrcElem);
+  const isStyleGovernedElsewhere = isDirectiveSet(config.styleSrc);
 
   for (const [key, directive] of SOURCE_LIST_DIRECTIVES) {
     const configured = config[key];
@@ -799,7 +813,10 @@ export function serializeCSP(
     // Both are filled rather than only the more specific one. The element
     // directives are newer than the fallbacks, so a browser that does not
     // implement them reads `script-src`, and a hash in a directive that is not
-    // consulted costs nothing.
+    // consulted costs nothing. That older browser only lands on `script-src`
+    // when the caller wrote one, which is why `default-src` keys on the plain
+    // fallback alone and not on the `-elem` form: see `isScriptGovernedElsewhere`
+    // above.
     //
     // The `-attr` directives are deliberately not here, because of what these
     // particular hashes are rather than what hashes can do. `additions` holds
