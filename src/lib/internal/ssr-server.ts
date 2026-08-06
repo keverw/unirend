@@ -1629,6 +1629,17 @@ export class SSRServer<
                   domainInfo: request.domainInfo,
                   htmlAttrs: renderResult.head?.htmlAttrs,
                   bodyAttrs: renderResult.head?.bodyAttrs,
+                  // Covers the one inline script whose content is decided here
+                  // rather than in the template: a React Router hydration
+                  // script in a shape injectContent declined to lift into the
+                  // data block, which it then passes through verbatim. The
+                  // template hashes above were contributed before rendering, so
+                  // they cannot know about it. Guarded on the same decoration
+                  // they are, so a server without a CSP does no work for it.
+                  addCSPSource: request.addCSPSources
+                    ? (source) =>
+                        request.addCSPSources?.({ scriptSrc: [source] })
+                    : undefined,
                 },
               );
 

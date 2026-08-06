@@ -3,6 +3,7 @@ import * as cheerio from 'cheerio';
 import { prettifyHeadTags, injectContent } from './inject';
 import { processTemplate } from './format';
 import { TAB_SPACES } from '../consts';
+import { hashInlineContentForCSP } from '../csp-hash';
 import {
   renderContextDataElements,
   UNIREND_DATA_BLOCK_ID,
@@ -404,7 +405,7 @@ describe('injectContent', () => {
 
     it('emits an unrecognized hydration script verbatim instead of guessing', async () => {
       // React Router owns that output and may change it. Declining to take
-      // apart a shape we do not recognize costs only the CSP hash; guessing
+      // apart a shape we do not recognize costs only the data block; guessing
       // wrong would break hydration.
       const odd =
         '<script>window.__staticRouterHydrationData = someOtherThing();</script>';
@@ -413,6 +414,61 @@ describe('injectContent', () => {
 
       expect(dataBlockPayload(result)).not.toHaveProperty('routerHydration');
       expect(result).toContain(odd);
+    });
+
+    it('reports a CSP hash for a hydration script it emits verbatim', async () => {
+      // Without this the forgiving branch above is a trap: the page renders,
+      // an enforcing script-src blocks the one script hydration cannot start
+      // without, and nothing says why. The hashes for a request are contributed
+      // from the template before rendering, so this element does not exist yet
+      // at that point and only injectContent can cover it.
+      const inner = 'window.__staticRouterHydrationData = someOtherThing();';
+      const sources: string[] = [];
+
+      const result = await injectContent(
+        template,
+        '',
+        `<div><script>${inner}</script></div>`,
+        { addCSPSource: (source) => sources.push(source) },
+      );
+
+      expect(sources).toEqual([`'${hashInlineContentForCSP(inner)}'`]);
+
+      // The assertion that matters is not that *a* hash was reported but that
+      // it covers the bytes that ship. A digest of the element rather than its
+      // text content, or of a cheerio round trip rather than the original
+      // source, would still look like a hash and match nothing.
+      // Anchored off one index. The bootstrap script mentions the same global,
+      // so searching for the close tag independently finds that element's
+      // instead of this one's.
+      const openAt = result.indexOf(
+        '<script>window.__staticRouterHydrationData',
+      );
+      const contentAt = openAt + '<script>'.length;
+      const shipped = result.slice(
+        contentAt,
+        result.indexOf('</script>', contentAt),
+      );
+
+      expect(shipped).toBe(inner);
+    });
+
+    it('reports no hash for a hydration script it lifted into the data block', async () => {
+      // The payload is not executable in there, so there is nothing for
+      // script-src to govern and nothing to hash.
+      const payload = '{"loaderData":{}}';
+      const sources: string[] = [];
+
+      await injectContent(
+        template,
+        '',
+        `<div><script>window.__staticRouterHydrationData = JSON.parse(${JSON.stringify(
+          payload,
+        )});</script></div>`,
+        { addCSPSource: (source) => sources.push(source) },
+      );
+
+      expect(sources).toEqual([]);
     });
   });
 

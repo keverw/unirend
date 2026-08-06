@@ -10,6 +10,23 @@ import {
   isRemovedBooleanAttribute,
 } from './escape';
 import { getMetaKeys } from './meta-key';
+import { hashInlineContentForCSP } from '../csp-hash';
+
+/**
+ * The parse5 source offsets cheerio attaches under `sourceCodeLocationInfo`.
+ *
+ * The tag offsets are what make an element's *text content* addressable, as
+ * opposed to the whole element: everything between the open tag's end and the
+ * close tag's start, byte for byte in the original source. That is exactly what
+ * a CSP hash covers, so a digest taken from this range is one the browser will
+ * agree with.
+ */
+interface ScriptSourceLocation {
+  startOffset: number;
+  endOffset: number;
+  startTag?: { endOffset: number };
+  endTag?: { startOffset: number };
+}
 
 /**
  * React Router's hydration script, as it emits it:
@@ -388,6 +405,24 @@ export interface InjectContentOptions {
   domainInfo?: { hostname: string; rootDomain: string } | null;
   htmlAttrs?: Record<string, string>;
   bodyAttrs?: Record<string, string>;
+  /**
+   * Receives a CSP `script-src` source expression, quoted and ready to drop into
+   * a directive, for any inline script this function emits whose content it did
+   * not choose.
+   *
+   * There is exactly one of those: a React Router hydration script in a shape
+   * `extractRouterHydrationPayload` declined to take apart, which is then passed
+   * through verbatim. Its text carries the page's loader data, so it is
+   * different on every request and no hash computed ahead of time can cover it.
+   * The caller contributes the hashes for a request's CSP before rendering, from
+   * the template, and this element does not exist yet at that point, so without
+   * this callback an enforcing policy blocks the one script hydration cannot
+   * start without.
+   *
+   * Not needed by a caller that hashes the finished document itself, which is
+   * what SSG does, so it is optional.
+   */
+  addCSPSource?: (source: string) => void;
 }
 
 // Utility to inject content, preserving React attributes
@@ -397,7 +432,14 @@ export async function injectContent(
   bodyContent: string,
   options: InjectContentOptions = {},
 ): Promise<string> {
-  const { context, CDNBaseURL, domainInfo, htmlAttrs, bodyAttrs } = options;
+  const {
+    context,
+    CDNBaseURL,
+    domainInfo,
+    htmlAttrs,
+    bodyAttrs,
+    addCSPSource,
+  } = options;
   // Prettify all head tags with consistent indentation
   const compactedHead = prettifyHeadTags(headContent);
 
@@ -436,7 +478,7 @@ export async function injectContent(
     if (($body(el).html() ?? '').includes('__staticRouterHydrationData')) {
       const location = (
         el as {
-          sourceCodeLocation?: { startOffset: number; endOffset: number };
+          sourceCodeLocation?: ScriptSourceLocation;
         }
       ).sourceCodeLocation;
 
@@ -459,6 +501,31 @@ export async function injectContent(
         // Better a script that CSP has to be told about than a hydration
         // payload mangled by a guess at what React Router meant.
         routerHydrationScripts.push(rawScript);
+
+        // Told, rather than merely something to tell. The alternative is a
+        // strict policy blocking this script, which leaves the page rendered,
+        // hydration never starting, and nothing anywhere saying why, on the one
+        // path that exists to be forgiving about React Router changing its
+        // output.
+        //
+        // The digest covers the element's text content and not the element, so
+        // it is read from between the tags rather than from `rawScript`. Taken
+        // from the original source through parse5's offsets, so it is the bytes
+        // that ship: re-serializing through cheerio to get at the content would
+        // reintroduce the mangling this branch exists to avoid, and could hash
+        // something the browser never sees.
+        const contentStart = location.startTag?.endOffset;
+        const contentEnd = location.endTag?.startOffset ?? location.endOffset;
+
+        if (
+          addCSPSource &&
+          contentStart !== undefined &&
+          contentEnd >= contentStart
+        ) {
+          addCSPSource(
+            `'${hashInlineContentForCSP(bodyContent.slice(contentStart, contentEnd))}'`,
+          );
+        }
       } else {
         routerHydration = payload;
       }
