@@ -17,7 +17,11 @@ import {
   writeJSONFile,
   writeHTMLFile,
 } from './internal/fs-utils';
-import { processTemplate } from './internal/html-utils/format';
+import {
+  collectTemplateCSPHashes,
+  processTemplate,
+  type TemplateCSPHashes,
+} from './internal/html-utils/format';
 import {
   normalizeCDNBaseURL,
   computeDomainInfo,
@@ -51,6 +55,63 @@ function normalizeURLPath(p: string): string {
 }
 
 /**
+ * Accumulates the CSP hashes for a whole site as its pages are written.
+ *
+ * Sets rather than arrays because pages overwhelmingly share their inline
+ * content: every page of a site carries the same template blocks and the same
+ * bootstrap script, so a site of two hundred pages normally yields a handful of
+ * distinct hashes. A list with one entry per page would be a policy nobody could
+ * read and a header nobody should send.
+ *
+ * Inline attributes are keyed the same way the template scanner keys them, by
+ * description and hash together, so two `<button onclick>` with different
+ * handlers stay two findings rather than collapsing onto whichever was seen
+ * first.
+ */
+class CSPHashCollector {
+  private readonly scriptSrc = new Set<string>();
+  private readonly styleSrc = new Set<string>();
+  private readonly inlineAttributes = new Map<
+    string,
+    TemplateCSPHashes['inlineAttributes'][number]
+  >();
+
+  /**
+   * Hash one page's final bytes and fold them in.
+   *
+   * Takes the HTML exactly as written to disk, which is the whole point: a hash
+   * of anything earlier in the pipeline can differ from what ships, and a CSP
+   * would then block the very script the hash was meant to allow.
+   */
+  public async add(html: string): Promise<void> {
+    const hashes = await collectTemplateCSPHashes(html);
+
+    for (const source of hashes.scriptSrc) {
+      this.scriptSrc.add(source);
+    }
+
+    for (const source of hashes.styleSrc) {
+      this.styleSrc.add(source);
+    }
+
+    for (const finding of hashes.inlineAttributes) {
+      this.inlineAttributes.set(
+        `${finding.description}|${finding.hash}`,
+        finding,
+      );
+    }
+  }
+
+  public result(): TemplateCSPHashes {
+    return {
+      scriptSrc: [...this.scriptSrc],
+      styleSrc: [...this.styleSrc],
+      inlineAttributes: [...this.inlineAttributes.values()],
+    };
+  }
+}
+
+/**
  * Creates a complete SSGReport with proper typing and defaults
  */
 function createSSGReport({
@@ -61,6 +122,7 @@ function createSSGReport({
   successCount = 0,
   errorCount = 0,
   notFoundCount = 0,
+  cspHashes = { scriptSrc: [], styleSrc: [], inlineAttributes: [] },
 }: {
   buildDir: string;
   startTime: number;
@@ -69,8 +131,10 @@ function createSSGReport({
   successCount?: number;
   errorCount?: number;
   notFoundCount?: number;
+  cspHashes?: TemplateCSPHashes;
 }): SSGReport {
   return {
+    cspHashes,
     generationFailed: !!fatalError || errorCount > 0,
     fatalError,
     pagesReport: {
@@ -108,6 +172,11 @@ export async function generateSSG(
   let successCount = 0;
   let errorCount = 0;
   let notFoundCount = 0;
+
+  // Fed from each page's final bytes as it is written, so the report can hand
+  // back a policy's worth of hashes for a site that no longer has a template to
+  // hash once it leaves here.
+  const cspHashes = new CSPHashCollector();
 
   const isDevelopment: boolean = getDevMode();
 
@@ -405,6 +474,11 @@ export async function generateSSG(
         const timeMS = pageEndedAt - pageStartedAt;
 
         if (writeResult.success) {
+          // Only a page that actually reached disk contributes. Hashing one
+          // that failed to write would put sources in the policy for content
+          // nobody can request.
+          await cspHashes.add(htmlToWrite);
+
           // Check if the page rendered with a 404 status
           if (renderResult.statusCode === 404) {
             // Page rendered successfully but with 404 status (e.g., custom 404 page)
@@ -546,6 +620,8 @@ export async function generateSSG(
       const writeResult = await writeHTMLFile(outputPath, htmlToWrite);
 
       if (writeResult.success) {
+        await cspHashes.add(htmlToWrite);
+
         // Success - increment count and add to reports
         successCount++;
 
@@ -651,6 +727,12 @@ export async function generateSSG(
       const writeResult = await writeHTMLFile(outputPath, htmlContent);
 
       if (writeResult.success) {
+        // A raw `html` page is hashed like any other. Unirend did not build it,
+        // but it ships from the same directory under the same policy, so its
+        // inline blocks are as much a part of the site's CSP as a rendered
+        // page's are.
+        await cspHashes.add(htmlContent);
+
         // Success - increment count and add to reports
         successCount++;
 
@@ -747,6 +829,7 @@ export async function generateSSG(
         successCount,
         errorCount,
         notFoundCount,
+        cspHashes: cspHashes.result(),
         fatalError: new Error(
           `Page map has conflicting paths (multiple files map to the same URL):\n${conflictDetails}`,
         ),
@@ -766,6 +849,7 @@ export async function generateSSG(
         successCount,
         errorCount,
         notFoundCount,
+        cspHashes: cspHashes.result(),
         fatalError: new Error(
           `Failed to write page map file: ${pageMapWriteResult.error}`,
         ),
@@ -782,5 +866,6 @@ export async function generateSSG(
     successCount,
     errorCount,
     notFoundCount,
+    cspHashes: cspHashes.result(),
   });
 }

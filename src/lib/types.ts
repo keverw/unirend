@@ -2569,6 +2569,36 @@ export interface SSGReport {
   fatalError?: Error;
   /** Page generation reports (always present, even on error) */
   pagesReport: SSGPagesReport;
+  /**
+   * CSP source expressions covering the inline content of every page that was
+   * written, deduplicated across the whole site and quoted ready to paste.
+   *
+   * Generation is the only moment these can be known. A prerendered site is a
+   * directory of files, and whatever serves it afterwards has no template to
+   * hash and no render to hook into. That is true of unirend's own static
+   * server and just as true of nginx, Apache, or a PHP host, so the hashes are
+   * handed back as data rather than wired into one particular way of serving
+   * them.
+   *
+   * Taken from the bytes actually written, so they cover the template's own
+   * inline blocks and unirend's bootstrap script together, and they stay
+   * correct through anything the pipeline rewrote on the way out.
+   *
+   * Empty when no page was written.
+   *
+   * ```ts
+   * const report = await generateSSG(buildDir, pages);
+   *
+   * securityHeaders({
+   *   csp: {
+   *     defaultSrc: ["'self'"],
+   *     scriptSrc: ["'self'", ...report.cspHashes.scriptSrc],
+   *     styleSrc: ["'self'", ...report.cspHashes.styleSrc],
+   *   },
+   * });
+   * ```
+   */
+  cspHashes: TemplateCSPHashes;
 }
 
 /**
