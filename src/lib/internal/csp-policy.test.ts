@@ -124,11 +124,79 @@ describe('validateCSPConfig', () => {
     expectRejected({ imgSrc: ['*.co.uk'] }, /is not a valid host/);
   });
 
-  it('rejects a malformed sandbox token', () => {
-    expectRejected({ sandbox: ['forms'] }, /is not a valid sandbox token/);
+  it('accepts the host-source forms an origin validator does not know', () => {
+    // CSP3 2.3.1:
+    //   host-source = [ scheme-part "://" ] host-part [ ":" port-part ] [ path-part ]
+    //   port-part   = 1*DIGIT / "*"
+    //
+    // Two of those are wider than an origin: the scheme is optional, and the
+    // port may be a wildcard. Handing the whole source to the CORS origin
+    // validator refused both, which meant a policy every browser honors failed
+    // at startup.
+    //
+    // Verified in Chrome rather than read off the grammar. A script loads under
+    // `script-src http://localhost:*` and under `script-src localhost:8792`,
+    // and stays blocked under a control naming a different port, so the
+    // wildcard is really being matched rather than the source being ignored.
+    for (const source of [
+      'https://cdn.example.com:*',
+      'ws://localhost:*',
+      'localhost:3000',
+      'example.com:443',
+      'https://cdn.example.com:8443',
+      'https://cdn.example.com',
+      'https://cdn.example.com/assets/',
+    ]) {
+      expect(() => validateCSPConfig({ connectSrc: [source] })).not.toThrow();
+    }
+
+    // The reason this one matters most: it is how a dev server's HMR socket
+    // gets allowed, so refusing it lands on a correctly written policy. The
+    // natural way around a validator that refuses a port constraint is to drop
+    // the port constraint, which leaves the policy *wider* than intended.
+    expect(() =>
+      validateCSPConfig({ connectSrc: ["'self'", 'ws://localhost:*'] }),
+    ).not.toThrow();
+  });
+
+  it('still rejects a port that is not a port', () => {
+    // Widening the grammar must not turn the port into an unchecked field.
+    expectRejected({ imgSrc: ['https://cdn.example.com:0'] }, /port/);
+    expectRejected({ imgSrc: ['https://cdn.example.com:99999'] }, /port/);
+    expectRejected(
+      { imgSrc: ['https://cdn.example.com:80abc'] },
+      /is not a valid host/,
+    );
+  });
+
+  it('rejects a sandbox token that is not one of the real ones', () => {
+    expectRejected({ sandbox: ['forms'] }, /is not a sandbox token/);
+
+    // The case that matters, and the one a shape test cannot catch. `allow-form`
+    // looks exactly like a sandbox token and is not one, so a browser ignores
+    // it and the sandbox keeps forms disabled. Nothing downstream would say so:
+    // the header serializes, the page loads, and the capability the author
+    // thought they had granted is simply absent. Same silence this file already
+    // refuses to accept for a misspelled directive name.
+    expectRejected({ sandbox: ['allow-form'] }, /is not a sandbox token/);
+    expectRejected({ sandbox: ['allow-nonsense'] }, /is not a sandbox token/);
+
+    // The message has to name the alternatives, since "not a sandbox token" is
+    // useless when the whole problem is not knowing which ones exist.
+    expectRejected({ sandbox: ['allow-form'] }, /allow-forms/);
+
     expect(() =>
       validateCSPConfig({ sandbox: ['allow-forms', 'allow-scripts'] }),
     ).not.toThrow();
+
+    // Tokens are ASCII case-insensitive in HTML, so this is a real token.
+    expect(() =>
+      validateCSPConfig({ sandbox: ['ALLOW-SCRIPTS'] }),
+    ).not.toThrow();
+
+    // An empty array is still the bare directive, which is the most restrictive
+    // form rather than a mistake.
+    expect(() => validateCSPConfig({ sandbox: [] })).not.toThrow();
   });
 
   it('rejects an empty reportTo group', () => {

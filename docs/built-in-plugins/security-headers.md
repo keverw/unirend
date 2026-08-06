@@ -312,7 +312,11 @@ securityHeaders({
 
 Available source-list directives: `defaultSrc`, `scriptSrc`, `scriptSrcElem`, `scriptSrcAttr`, `styleSrc`, `styleSrcElem`, `styleSrcAttr`, `imgSrc`, `fontSrc`, `connectSrc`, `mediaSrc`, `objectSrc`, `childSrc`, `frameSrc`, `workerSrc`, `manifestSrc`, `prefetchSrc`, `formAction`, `frameAncestors`, `baseURI`. Alongside them: `sandbox` (an array of tokens, or an empty array for the bare directive), `upgradeInsecureRequests`, `reportURI`, and `reportTo`.
 
-Every source expression is checked. Keywords have to be spelled and quoted the way a browser reads them, hashes and nonces have to be well formed, and a host goes through the same validator a CORS origin does, so `*.cdn.example.com` and a public-suffix wildcard behave identically in both places. A `javascript:` or `vbscript:` scheme is refused outright.
+Every source expression is checked. Keywords have to be spelled and quoted the way a browser reads them, hashes and nonces have to be well formed, and the host part goes through the same validator a CORS origin does, so `*.cdn.example.com` and a public-suffix wildcard behave identically in both places. A `javascript:` or `vbscript:` scheme is refused outright.
+
+The port and path are checked separately, because CSP's host grammar is wider than an origin's in two ways that matter. The scheme is optional, so `localhost:3000` is a host and a port rather than something malformed, and the port may be a wildcard, so `https://cdn.example.com:*` and `ws://localhost:*` are valid. That last one is how a dev server's HMR socket gets allowed. A numeric port still has to be one, so `:0` and `:99999` are refused.
+
+`sandbox` tokens are checked against the real token set rather than an `allow-*` shape, since a browser silently ignores a token it does not recognize: `allow-form` for `allow-forms` would leave forms disabled with nothing anywhere saying why.
 
 `reportURI` is held to a different standard, because it is a URI reference rather than a host pattern and no wildcard belongs in one. Every form the CSP grammar allows is accepted, relative ones included, since a relative reference is resolved against the page the policy protected. What is rejected is a value that names no endpoint at all, such as `//` or `https://`, and a scheme a browser will not post violation reports over. Both look the same from the outside: a policy that appears to report and does not.
 

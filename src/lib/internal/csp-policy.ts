@@ -27,6 +27,33 @@ const CSP_KEYWORDS = new Set([
 const EXCLUSIVE_KEYWORDS = new Set(["'none'"]);
 
 /**
+ * The `sandbox` directive's tokens, which are a closed set defined by HTML's
+ * sandbox flags rather than an open `allow-*` namespace.
+ *
+ * Listed out because a shape test cannot do this job. A browser silently
+ * ignores a token it does not recognize, so `allow-form` for `allow-forms`
+ * produces a sandbox with forms still disabled and nothing anywhere saying why,
+ * which is the same silence this file already refuses to accept for a
+ * misspelled directive name or a keyword invented from memory.
+ */
+const SANDBOX_TOKENS = new Set([
+  'allow-downloads',
+  'allow-forms',
+  'allow-modals',
+  'allow-orientation-lock',
+  'allow-pointer-lock',
+  'allow-popups',
+  'allow-popups-to-escape-sandbox',
+  'allow-presentation',
+  'allow-same-origin',
+  'allow-scripts',
+  'allow-storage-access-by-user-activation',
+  'allow-top-navigation',
+  'allow-top-navigation-by-user-activation',
+  'allow-top-navigation-to-custom-protocols',
+]);
+
+/**
  * `'sha256-...'`, `'sha384-...'`, `'sha512-...'`, quoted.
  *
  * The alphabet is base64 **and** base64url, matching CSP3's `base64-value`
@@ -34,14 +61,42 @@ const EXCLUSIVE_KEYWORDS = new Set(["'none'"]);
  * set `NONCE_SOURCE` below accepts. A tool that emits base64url, or a digest
  * run through a base64url encoder, produces a hash a browser honors, so
  * refusing it here would fail startup on a source expression that works.
+ *
+ * The `i` flag is there for the algorithm name, which is the only part it
+ * changes: the digest's character class already spans both cases, and nothing
+ * here rewrites the digest, which would change the bytes it decodes to. CSP3
+ * writes the grammar with ABNF string literals, and RFC 5234 defines those as
+ * case-insensitive, so `'SHA256-...'` is a hash a browser reads and a tool that
+ * upper-cases the name should not fail startup.
+ *
+ * `isUnsafeInlineEffective` tests with this same pattern, so the two agree
+ * about what a hash is. That matters more than the validation does: a hash it
+ * failed to recognize would read as "no hash here", and the keyword logic would
+ * conclude an `'unsafe-inline'` was live when a browser had already killed it.
  */
-const HASH_SOURCE = /^'sha(?:256|384|512)-[A-Za-z0-9+/\-_]+={0,2}'$/;
+const HASH_SOURCE = /^'sha(?:256|384|512)-[A-Za-z0-9+/\-_]+={0,2}'$/i;
 
-/** `'nonce-...'`, quoted. */
-const NONCE_SOURCE = /^'nonce-[A-Za-z0-9+/\-_]+={0,2}'$/;
+/** `'nonce-...'`, quoted. Same case rule as the hash above. */
+const NONCE_SOURCE = /^'nonce-[A-Za-z0-9+/\-_]+={0,2}'$/i;
 
 /** A bare scheme source such as `https:`, `data:`, or `blob:`. */
 const SCHEME_SOURCE = /^[a-z][a-z0-9+.-]*:$/i;
+
+/**
+ * A CSP `host-source`, split into scheme, host, port, and path.
+ *
+ * Written out here because the grammar is wider than an origin's, and the two
+ * places it is wider are exactly the two a shared origin validator gets wrong:
+ * the scheme is optional, so `localhost:3000` is a host and a port rather than
+ * a scheme and a path, and the port may be `*`.
+ *
+ * The host half is deliberately loose (`[^:/?#]+`) because it is handed
+ * straight to `validateConfigEntry`, which is the thing that actually knows
+ * what a valid host looks like, wildcards and public-suffix rules included.
+ * This only has to cut the source into the right pieces.
+ */
+const CSP_HOST_SOURCE =
+  /^(?:([a-z][a-z0-9+.-]*):\/\/)?([^:/?#]+)(?::(\d+|\*))?(\/[^;,]*)?$/i;
 
 /**
  * The kind of content a directive governs, which decides how its source list
@@ -372,6 +427,19 @@ function validateSource(
       return null;
     }
 
+    // A keyword written in the wrong case is technically valid CSP, since the
+    // grammar's string literals are ASCII case-insensitive, and it is still
+    // refused here rather than normalized. Normalizing would mean teaching
+    // every downstream exact-string comparison the same trick, and there are
+    // several: the `'unsafe-inline'` liveness check, the `'none'` exclusivity
+    // rule, the `'unsafe-hashes'` attribute check. Missing one of those is not
+    // a startup error, it is a policy that reads one way and behaves another,
+    // which is the failure this whole file is arranged to avoid. Refusing a
+    // spelling nobody writes on purpose costs a clear message at boot.
+    if (CSP_KEYWORDS.has(source.toLowerCase())) {
+      return `${directive} source ${source} is a keyword written in the wrong case. Write it lowercase, as ${source.toLowerCase()}.`;
+    }
+
     // Quoted but unrecognized: almost always a typo or a keyword invented from
     // memory, and it would be silently ignored by the browser.
     return `${directive} source ${source} is quoted but is not a known keyword, hash, or nonce`;
@@ -393,15 +461,56 @@ function validateSource(
       : null;
   }
 
-  // Host source. Strip a path, which CSP allows and the host validator does not
-  // understand, then validate what is left.
-  const pathStart = source.indexOf('/', source.indexOf('//') + 2);
-  const hostPart = pathStart === -1 ? source : source.slice(0, pathStart);
+  // Host source. Taken apart here rather than handed over whole, because CSP's
+  // host-source grammar is wider than the origin grammar the shared validator
+  // implements, and the difference is not academic.
+  //
+  // CSP3 2.3.1:
+  //   host-source = [ scheme-part "://" ] host-part [ ":" port-part ] [ path-part ]
+  //   port-part   = 1*DIGIT / "*"
+  //
+  // Two forms the origin validator refuses and every browser honors. A wildcard
+  // port, `https://cdn.example.com:*`, and a scheme-less host with a port,
+  // `localhost:3000`. Verified in Chrome: a script loads under both
+  // `script-src http://localhost:*` and `script-src localhost:8792`, and is
+  // blocked under a control naming a different port, so the grammar is really
+  // being read rather than the source being ignored.
+  //
+  // Refusing them at startup is worse than it looks. `connectSrc:
+  // ['ws://localhost:*']` is how a dev server's HMR socket gets allowed, so the
+  // failure lands on a policy someone wrote correctly, and the natural way out
+  // is to drop the port constraint entirely. A validator whose practical effect
+  // is a *wider* policy than the author intended has done the opposite of its
+  // job.
+  const parts = CSP_HOST_SOURCE.exec(source);
 
-  const verdict = validateConfigEntry(hostPart, 'origin', {
-    allowGlobalWildcard: true,
-    allowProtocolWildcard: true,
-  });
+  if (!parts) {
+    return `${directive} source "${source}" is not a valid host`;
+  }
+
+  const [, scheme, host, port] = parts;
+
+  // A numeric port still has to be a port. `*` is the other legal value and
+  // needs no range check.
+  if (port !== undefined && port !== '*') {
+    const portNumber = Number(port);
+
+    if (portNumber < 1 || portNumber > 65535) {
+      return `${directive} source "${source}" has a port outside 1-65535`;
+    }
+  }
+
+  // The host half, with the scheme kept so a protocol wildcard is still judged
+  // as one. The port and path are gone by here, which is the whole point: they
+  // are CSP grammar the origin validator does not implement.
+  const verdict = validateConfigEntry(
+    scheme ? `${scheme}://${host}` : host,
+    'origin',
+    {
+      allowGlobalWildcard: true,
+      allowProtocolWildcard: true,
+    },
+  );
 
   if (!verdict.valid) {
     return `${directive} source "${source}" is not a valid host${verdict.info ? `: ${verdict.info}` : ''}`;
@@ -635,10 +744,13 @@ export function collectCSPIssues(config: CSPConfig): CSPIssue[] {
     });
   } else {
     for (const token of config.sandbox ?? []) {
-      if (typeof token !== 'string' || !/^allow-[a-z-]+$/.test(token)) {
+      if (
+        typeof token !== 'string' ||
+        !SANDBOX_TOKENS.has(token.trim().toLowerCase())
+      ) {
         issues.push({
           path: 'csp.sandbox',
-          message: `Invalid securityHeaders config: csp.sandbox token ${describeValue(token)} is not a valid sandbox token`,
+          message: `Invalid securityHeaders config: csp.sandbox token ${describeValue(token)} is not a sandbox token. A browser ignores one it does not know, so a typo silently leaves that capability disabled. Valid tokens: ${[...SANDBOX_TOKENS].join(', ')}.`,
         });
       }
     }
