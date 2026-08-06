@@ -61,8 +61,23 @@ export type SecurityHeadersPolicyValidation =
       policy?: undefined;
     };
 
-/** Structural duplicate of the plugin's `HSTSConfig`, kept here to avoid a cycle. */
-interface HSTSShape {
+/**
+ * Strict-Transport-Security (HSTS) header parameters.
+ *
+ * Lives here rather than in the plugin, next to the rules that judge it, so
+ * `collectHSTSIssues` can be written against it without the plugin and the
+ * validator importing each other. Same arrangement as the CORS types in
+ * `cors-validation`. The plugin re-exports it, so `HSTSConfig` is still
+ * imported from where it always was.
+ *
+ * It used to be a structural duplicate on each side. That compiled, and it
+ * quietly cost the parity guard below its meaning: `satisfies` tied the key
+ * list to *this* type while the resolver's declared return type was the other
+ * one, so a field added to the plugin's copy alone would have been a runtime
+ * rejection of a legitimate resolver with no type error anywhere.
+ */
+export interface HSTSConfig {
+  /** max-age in seconds */
   maxAge: number;
   includeSubDomains?: boolean;
   preload?: boolean;
@@ -71,10 +86,14 @@ interface HSTSShape {
 /**
  * The shape a `resolve` callback returns, which is the unit worth validating:
  * it is what a tenant's stored policy becomes.
+ *
+ * The plugin exports this as `SecurityHeadersOverride`, which is the name that
+ * reads better at a `resolve` call site. One type, two names, so the validator
+ * and the request path can never disagree about what a policy may contain.
  */
 export interface SecurityHeadersPolicyInput {
   csp?: false | CSPConfig;
-  hsts?: false | HSTSShape;
+  hsts?: false | HSTSConfig;
   frameOptions?: false | 'DENY' | 'SAMEORIGIN';
 }
 
@@ -86,6 +105,9 @@ export interface SecurityHeadersPolicyInput {
  * the header never changes. `satisfies` ties this to the type, so a field added
  * to the input without being added here is a type error rather than a validator
  * that quietly rejects the new field.
+ *
+ * That guard only means something because the plugin's resolver type is this
+ * same type rather than a look-alike. See `HSTSConfig` above.
  */
 const POLICY_KEYS = {
   csp: true,
@@ -133,7 +155,7 @@ const HSTS_KEYS = {
   maxAge: true,
   includeSubDomains: true,
   preload: true,
-} satisfies Record<keyof HSTSShape, true>;
+} satisfies Record<keyof HSTSConfig, true>;
 
 /**
  * Every problem with an HSTS block, rather than the first.
@@ -144,7 +166,7 @@ const HSTS_KEYS = {
  * the point of a collector.
  */
 export function collectHSTSIssues(
-  cfg: HSTSShape,
+  cfg: HSTSConfig,
 ): SecurityHeadersPolicyIssue[] {
   if (!isPlainObject(cfg)) {
     return [
@@ -454,7 +476,7 @@ export function validateSecurityHeadersPolicy(
         message: `Invalid securityHeaders policy: hsts must be an object with a maxAge, false to send no header, or absent to inherit, received ${describeValue(policy.hsts)}`,
       });
     } else {
-      issues.push(...collectHSTSIssues(policy.hsts as unknown as HSTSShape));
+      issues.push(...collectHSTSIssues(policy.hsts as unknown as HSTSConfig));
     }
   }
 

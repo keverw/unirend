@@ -32,6 +32,8 @@ import {
   collectHSTSIssues,
   unknownPolicyKeys,
   SECURITY_HEADERS_POLICY_KEYS,
+  type HSTSConfig,
+  type SecurityHeadersPolicyInput,
 } from '../internal/security-headers-validation';
 import { isHostUnverified } from '../internal/host-verification';
 import {
@@ -55,13 +57,12 @@ export type {
 
 /**
  * Strict-Transport-Security (HSTS) header parameters.
+ *
+ * Defined next to the rules that judge it, for the same reason the CORS types
+ * are, and re-exported here because this is where it has always been imported
+ * from.
  */
-export interface HSTSConfig {
-  /** max-age in seconds */
-  maxAge: number;
-  includeSubDomains?: boolean;
-  preload?: boolean;
-}
+export type { HSTSConfig } from '../internal/security-headers-validation';
 
 /**
  * A per-request override of the non-negotiated headers.
@@ -75,12 +76,15 @@ export interface HSTSConfig {
  * take request-aware functions, so it has been per-request since before this
  * existed, and giving it a second mechanism would mean two places to look when
  * an origin decision surprises someone.
+ *
+ * The same type `validateSecurityHeadersPolicy` checks, under the name that
+ * reads better at a `resolve` call site. Deliberately an alias rather than a
+ * matching declaration: the runtime key check is tied by `satisfies` to that
+ * type, so a look-alike here would let a field be added to the resolver's shape
+ * and then rejected per request as an unknown key, with nothing failing to
+ * compile.
  */
-export interface SecurityHeadersOverride {
-  csp?: false | CSPConfig;
-  hsts?: false | HSTSConfig;
-  frameOptions?: false | 'DENY' | 'SAMEORIGIN';
-}
+export type SecurityHeadersOverride = SecurityHeadersPolicyInput;
 
 /**
  * Decides the policy for one request, given the validated defaults.
@@ -1088,25 +1092,41 @@ export function securityHeaders(
   // Rebuilt policies, keyed by the policy they came from and the extra sources
   // folded into it.
   //
-  // Worth being precise about what makes this a cache rather than a leak. The
-  // sources half of the key is derived from a *template's* hashes, and a
-  // template is per app and fixed for the life of the process, so one app means
-  // one entry computed on its first request and reused forever. The policy half
-  // is the serialized base policy, so a per-tenant resolver adds one entry per
-  // distinct policy rather than one per request: tenants sharing a policy share
-  // an entry. Neither half is keyed on anything that varies per request, which
-  // would be the unbounded-growth mistake this plan already rejected once, for
-  // the resolver's own cache key.
+  // One cache per `securityHeaders()` call, which in practice means per server:
+  // the plugin instance is registered once and shared by every app on it, so a
+  // multi-app SSR server has one of these covering all of its apps.
   //
-  // LRU rather than a plain Map for the case where that assumption does not
-  // hold. Development recomputes hashes per request, because Vite may add
-  // inline content after unirend is done with the template, so a Vite plugin
-  // injecting something request-varying would mint a new key every time. A
-  // resolver that mints a genuinely distinct policy per tenant behaves the same
-  // way at scale. An eviction policy degrades gracefully there, where a hard
-  // cap that stopped storing would leave the steady-state apps permanently
-  // uncached behind whatever churned in first. Same LRUCache the static content
-  // cache uses.
+  // What the key space actually is, since it is wider than it first looks. The
+  // policy half is the serialized base policy, so a per-tenant resolver adds
+  // one entry per distinct policy rather than one per request, and tenants
+  // sharing a policy share an entry. The sources half is every hash contributed
+  // during the request, and that is two different things with two different
+  // shapes:
+  //
+  // - the template's hashes, fixed per app for the life of the process, so they
+  //   contribute one entry per app
+  // - the rendered page's own inline content, which is decided per render, so
+  //   it contributes roughly one entry per distinct page shape
+  //
+  // That second one is the wide one, and it is worth being honest that this is
+  // no longer "one entry per app". A site whose pages each render different
+  // inline content has a key space the size of its route table, and one that
+  // renders request-varying inline content misses every time.
+  //
+  // Which is fine, and measured rather than assumed: a miss costs about 3µs
+  // (build the key, then serialize ~20 directives), against an SSR render
+  // measured in milliseconds. Even a 100% miss rate is noise here. The cache is
+  // a small win on a warm path, not a load-bearing optimization, so thrashing
+  // it degrades nothing that matters. It is sized for the common case and left
+  // there deliberately rather than grown to chase a cost this small.
+  //
+  // LRU rather than a plain Map because that is the difference between
+  // degrading and leaking. Development recomputes hashes per request, since
+  // Vite may add inline content after unirend is done with the template, and a
+  // Vite plugin injecting something request-varying mints a new key every time.
+  // An eviction policy degrades gracefully there, where a hard cap that stopped
+  // storing would leave the steady-state apps permanently uncached behind
+  // whatever churned in first. Same LRUCache the static content cache uses.
   // Unirend contributes hashes for the inline content it emits itself: the
   // bootstrap that assigns the injected globals, and the styles on its error
   // pages. The framework is the only thing that knows what it emitted, so
