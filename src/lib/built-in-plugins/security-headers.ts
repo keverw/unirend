@@ -19,6 +19,8 @@ import {
   validateCSPConfig,
   applyCSPPreset,
   isUnsafeInlineEffective,
+  describeValue,
+  isPlainObject,
   type CSPConfig,
 } from '../internal/csp-policy';
 import { UNIREND_ERROR_PAGE_STYLE_HASHES } from '../internal/error-page-utils';
@@ -81,7 +83,11 @@ export interface SecurityHeadersOverride {
  * Decides the policy for one request, given the validated defaults.
  *
  * Return `null` to use the defaults unchanged, which is the common path and
- * should be the fast one.
+ * should be the fast one. `null` specifically, not any falsy value: anything
+ * else that is not an override object is treated as a resolver that failed to
+ * answer, and fails the request rather than quietly sending the defaults. The
+ * defaults include the baseline HSTS, and a store miss returning `undefined`
+ * has not established that this domain is one to bind for a year.
  *
  * May be async, since the lookup this exists for is usually a store hit.
  */
@@ -690,10 +696,39 @@ async function resolveEffectiveConfig(
 
   const override = await resolve(request);
 
-  if (!override) {
+  // `null` is the documented way to say "the defaults are fine", and it is the
+  // only one. Matched exactly rather than read as truthy, the same rule the
+  // config path applies to `hsts` and `csp`, and for a sharper version of the
+  // same reason.
+  //
+  // Every other falsy value is a resolver that did not answer: a store miss
+  // handing back `undefined` or `''`, a function that fell off the end, a JSON
+  // column holding `false`. Reading any of those as consent to the defaults
+  // sends the baseline HSTS, and the baseline is whatever suits the domains the
+  // operator owns, typically a long max-age with includeSubDomains. On a
+  // customer's mapped domain that binds it for a year with no way to revoke,
+  // which is the single outcome `resolve` exists to prevent, reached through a
+  // value nobody meant to return.
+  //
+  // So an unrecognized result fails instead, and failing is the safe direction
+  // here: the fallback stored just above has already dropped HSTS, so the 500
+  // goes out without binding anything.
+  if (override === null) {
     cache.securityHeadersEffective = baseConfig;
 
     return baseConfig;
+  }
+
+  // Checked through a separate `unknown` reference rather than on `override`
+  // itself. Narrowing the declared type by `Record<string, unknown>` intersects
+  // the two, which erases what each block is declared to be and leaves the
+  // reads below typed as `{}`.
+  const returned: unknown = override;
+
+  if (!isPlainObject(returned)) {
+    throw new Error(
+      `securityHeaders resolve returned ${describeValue(returned)}. Return null to use the configured defaults, or an object with csp, hsts, or frameOptions.`,
+    );
   }
 
   // Validated with the same rules as the defaults, so a resolver cannot produce

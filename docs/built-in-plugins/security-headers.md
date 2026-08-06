@@ -564,6 +564,8 @@ securityHeaders({
 
 The returned policy is validated with the same rules as the defaults, so a resolver cannot produce something the config would have rejected.
 
+**Return `null` for "no override", and `null` specifically.** Anything else that is not a policy object is treated as a resolver that failed to answer, and fails the request the same way a throw does. That matters because the defaults include the baseline HSTS, which is written for domains you own: a store miss handing back `undefined` or `''` has not established that this request's domain is one to bind for a year, so it is not read as consent to the baseline.
+
 ### When `resolve` Throws
 
 It propagates, and Fastify turns it into a 500, exactly like any other middleware that throws. There is no bespoke fallback, because unlike an allow-or-deny callback there is no obviously correct answer to substitute: the request is fine, it is the policy that could not be computed.

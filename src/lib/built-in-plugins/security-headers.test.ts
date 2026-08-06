@@ -3760,6 +3760,45 @@ describe('securityHeaders', () => {
       expect(response.headers.get('x-frame-options')).toBe('DENY');
     });
 
+    // `null` is the documented no-override value and the only one. A store miss
+    // handing back undefined or '', or a resolver that fell off the end, has not
+    // said the defaults are fine, and reading it that way sent the baseline
+    // HSTS: a long max-age with includeSubDomains, quite possibly onto a
+    // customer's mapped domain, binding it for a year with no way to revoke.
+    // That is the one outcome a resolver exists to prevent, reached through a
+    // value nobody meant to return.
+    const unanswered: Array<[label: string, value: unknown]> = [
+      ['undefined', undefined],
+      ['an empty string', ''],
+      ['false', false],
+      ['an array', []],
+    ];
+
+    for (const [label, value] of unanswered) {
+      it(`fails the request when the resolver returns ${label}`, async () => {
+        const response = await respondTo({
+          plugins: [
+            securityHeaders({
+              hsts: { maxAge: 31536000, includeSubDomains: true },
+              frameOptions: 'DENY',
+              // Cast because the signature already forbids these. The callers
+              // who reach here are the ones the type never covered: a JS
+              // resolver, or a TS one whose store is typed loosely enough to
+              // hand back a miss.
+              resolve: (() => value) as unknown as () => null,
+            }),
+          ],
+          host: 'allowed.example.com',
+        });
+
+        expect(response.status).toBe(500);
+        // Same safe degradation a throwing resolver gets: the fallback stored
+        // before the await has already dropped HSTS, so nothing is bound.
+        expect(response.headers.get('strict-transport-security')).toBeNull();
+        expect(response.headers.get('x-frame-options')).toBe('DENY');
+      });
+    }
+
     it('replaces a block outright rather than merging into it', async () => {
       // The case this exists for. A partial merge would keep the baseline's
       // includeSubDomains, which on a customer's domain forces HTTPS across
