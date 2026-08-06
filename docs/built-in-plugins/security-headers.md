@@ -611,6 +611,8 @@ Each decision is computed at most once per request and reused for the rest of th
 > [!NOTE]
 > Fail-closed is a backstop, not a strategy. A callback that reaches a store should handle its own failures, since only you can tell a genuine "not allowed" from "the store is down" and decide whether a cached answer or a stricter default is better for your deployment.
 
+These two fail closed while [`resolve`](#when-resolve-throws) propagates, because denying one origin has a safe meaning and substituting a whole policy does not. If one store backs several callbacks, a single outage can produce a denial from one and a 500 from another on the same request. [When a Callback Fails](../built-in-plugins.md#when-a-callback-fails) lists them side by side.
+
 ## Plugin Order and Short-Circuited Responses
 
 Where you put `securityHeaders` in the `plugins` array does not change which responses get its headers.

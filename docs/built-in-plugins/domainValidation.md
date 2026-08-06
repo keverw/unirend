@@ -55,7 +55,19 @@ const server = serveSSRBuilt(buildDir, {
 
 ## Plugin Order
 
-**Put this plugin first in `plugins`.** It works in an `onRequest` hook, and an `onRequest` hook only covers what was registered after it. A plugin listed above it that answers the request never reaches this one, so that response is served without the host ever being checked.
+**Register this plugin before anything that can answer a request.** It works in an `onRequest` hook, and an `onRequest` hook only covers what was registered after it. A plugin listed above it that ends the request never reaches this one, so that response goes out without the host ever being checked.
+
+That is a weaker requirement than "put it first", and the difference matters as soon as this plugin needs data. A plugin that only decorates or connects never answers a request, so nothing escapes the gate by sitting above it. A database connection that `validProductionDomains` then reads belongs exactly there:
+
+```typescript
+plugins: [
+  databasePlugin, // decorates only, so it gates nothing and hides nothing
+  domainValidation({
+    validProductionDomains: async (domain, request) =>
+      request.server.db.tenants.existsForHost(domain),
+  }),
+];
+```
 
 This is the opposite of what [`securityHeaders`](security-headers.md#plugin-order-and-short-circuited-responses) needs, which is worth knowing because the two are usually registered together and the difference looks arbitrary until you see why:
 
@@ -63,11 +75,11 @@ This is the opposite of what [`securityHeaders`](security-headers.md#plugin-orde
 | --- | --- | --- |
 | What it does | **Blocks** a request | **Adds** headers to a response |
 | Hooks | `onRequest` | `onRequest` plus an `onSend` backstop |
-| Order matters? | **Yes, register it first** | No, anywhere works |
+| Order matters? | **Yes, before anything that answers** | No, anywhere works |
 
 A header can be filled in on the way out, which is what the `onSend` backstop in `securityHeaders` does for responses that ended before it ran. A block cannot be applied that late, because by then the response has already been written. A gate has to run before the thing it is gating, and nothing can retrofit that afterward.
 
-So the two are complementary rather than inconsistent: register `domainValidation` first so it gates everything, and put `securityHeaders` wherever its [`resolve`](security-headers.md#per-request-policy-with-resolve) needs to be. Its headers reach the 403s and redirects this plugin sends either way.
+So the two are complementary rather than inconsistent: register `domainValidation` ahead of whatever answers requests, and put `securityHeaders` wherever its [`resolve`](security-headers.md#per-request-policy-with-resolve) needs to be. Its headers reach the 403s and redirects this plugin sends either way. See [Ordering](../built-in-plugins.md#ordering) for the same rule stated once across all the built-in plugins.
 
 ## Configuration
 
@@ -223,3 +235,5 @@ Both `validProductionDomains` as a function and `invalidDomainHandler` can fail,
 <!-- prettier-ignore -->
 > [!NOTE]
 > Fail-closed is a backstop, not a strategy. A validator that reaches a store should handle its own failures, since only you can tell a genuine "not one of ours" from "the store is down" and decide what your deployment should do about it.
+
+If the same store also backs a `securityHeaders` callback, note that the two plugins react to an outage differently on purpose: this one rejects, while [`resolve`](security-headers.md#when-resolve-throws) propagates and becomes a 500. [When a Callback Fails](../built-in-plugins.md#when-a-callback-fails) lists every one of them together.
