@@ -420,6 +420,19 @@ describe('presets', () => {
     expect(applyCSPPreset(config)).toBe(config);
   });
 
+  it('passes something that is not a policy through unchanged', () => {
+    // Expanding a preset is not the step that should have an opinion about a
+    // value that came out of a JSON config. Handing it back is what lets
+    // validation describe it in a sentence, instead of this failing first with
+    // a TypeError about reading a property of null.
+    for (const value of [null, 0, '', 'strict', []]) {
+      const config = value as unknown as CSPConfig;
+
+      expect(() => applyCSPPreset(config)).not.toThrow();
+      expect(applyCSPPreset(config)).toBe(config);
+    }
+  });
+
   it('rejects an unknown preset by name', () => {
     expect(() =>
       applyCSPPreset({ preset: 'ultra' as unknown as 'strict' }),
@@ -436,6 +449,33 @@ describe('presets', () => {
     expect(serializeCSP(applyCSPPreset({ preset: 'strict' }))).toBe(
       "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'",
     );
+  });
+});
+
+describe('a CSP block that is neither a policy nor turned off', () => {
+  // `false` and an absent key are the two ways to say "no CSP". Everything else
+  // is meant to be a policy, so it is held to the rules even when it is falsy.
+  // Read as "off" instead, a `csp: null` out of a JSON config starts a server
+  // with the header quietly missing, and nothing anywhere says so.
+  it('rejects a falsy value that does not mean off', () => {
+    for (const value of [null, 0, '']) {
+      expect(() =>
+        securityHeaders({ csp: value as unknown as CSPConfig }),
+      ).toThrow(/csp must be an object of directives/);
+    }
+  });
+
+  it('rejects a value that is the wrong kind of thing', () => {
+    for (const value of ['strict', ['self'], 42]) {
+      expect(() =>
+        securityHeaders({ csp: value as unknown as CSPConfig }),
+      ).toThrow(/csp must be an object of directives/);
+    }
+  });
+
+  it('still accepts the two ways to mean off', () => {
+    expect(() => securityHeaders({ csp: false })).not.toThrow();
+    expect(() => securityHeaders({})).not.toThrow();
   });
 });
 

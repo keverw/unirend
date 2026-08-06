@@ -183,9 +183,17 @@ const CSP_PRESETS: Record<CSPPreset, CSPConfig> = {
  *
  * Returns the config unchanged when no preset is named, so the non-preset path
  * costs nothing and behaves exactly as before.
+ *
+ * Something that is not a policy at all comes back unchanged too, for the same
+ * reason `collectCSPIssues` treats its argument as unknown: a config reaching
+ * here may have come from a JSON file or a database row, and expanding a
+ * preset is not the step that should have an opinion about that. Handing it
+ * back leaves validation to say what is wrong with it, in a sentence a caller
+ * can act on, rather than failing here with a TypeError about reading a
+ * property of null.
  */
 export function applyCSPPreset(config: CSPConfig): CSPConfig {
-  if (!config.preset) {
+  if (!isPlainObject(config) || !config.preset) {
     return config;
   }
 

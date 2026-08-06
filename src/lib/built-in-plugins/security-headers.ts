@@ -1065,12 +1065,20 @@ export function securityHeaders(
     return policy;
   }
 
+  // Matched against the two values that mean "no CSP" rather than tested for
+  // truthiness, so a falsy value that means nothing of the kind is still held
+  // to the rules. `csp: null` or `csp: ''` out of a JSON config would otherwise
+  // skip the expansion and both checks below and start a server with the header
+  // quietly absent, which is the failure nobody notices until it matters. The
+  // resolver path already rejects the same values per request.
+  //
   // Expanded once, here, so everything downstream (validation, serialization,
   // the frameAncestors check below) sees the finished policy rather than each
-  // having to remember to expand it.
-  const cspConfig = config.csp ? applyCSPPreset(config.csp) : config.csp;
+  // having to remember to expand it. Expansion hands back anything that is not
+  // a policy untouched, leaving validation to describe it.
+  if (config.csp !== undefined && config.csp !== false) {
+    const cspConfig = applyCSPPreset(config.csp);
 
-  if (cspConfig) {
     validateCSPConfig(cspConfig);
 
     validateFramingFallback(config.frameOptions, cspConfig);
