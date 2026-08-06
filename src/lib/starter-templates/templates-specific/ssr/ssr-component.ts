@@ -267,7 +267,7 @@ export class SSRServerComponent extends BaseComponent {
             },
             {
               ...sharedConfig,
-              // See 'unirend/plugins' for built-in plugins (cors, domainValidation, cookies, etc.).
+              // See 'unirend/plugins' for built-in plugins (securityHeaders, domainValidation, cookies, etc.).
               plugins: [cookies(), themePlugin()],
               logging: loggingConfig,
             },
@@ -283,7 +283,7 @@ export class SSRServerComponent extends BaseComponent {
             // public/ itself. Undeclared public/ files 404 on the built server.
             publicFiles: PUBLIC_FILES,
             publicFolders: PUBLIC_FOLDERS,
-            // See 'unirend/plugins' for built-in plugins (cors, domainValidation, cookies, etc.).
+            // See 'unirend/plugins' for built-in plugins (securityHeaders, domainValidation, cookies, etc.).
             plugins: [cookies(), themePlugin()],
             logging: loggingConfig,
           });

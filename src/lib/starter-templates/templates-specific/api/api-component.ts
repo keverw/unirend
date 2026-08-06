@@ -156,8 +156,9 @@ export class APIServerComponent extends BaseComponent {
           // clientInfo: { /* trustForwardedHeaders, setResponseHeaders, ... */ },
           // clientInfo: false, // disable resolution entirely
 
-          // Register server plugins. Unirend includes built-in plugins (like cors,
-          // cookies, domainValidation, etc.) and supports creating your own custom plugins.
+          // Register server plugins. Unirend includes built-in plugins (like
+          // securityHeaders, cookies, domainValidation, etc.) and supports creating
+          // your own custom plugins.
           // See: https://github.com/keverw/unirend/blob/main/docs/built-in-plugins.md (Built-in)
           // See: https://github.com/keverw/unirend/blob/main/docs/server-plugins.md (Custom)
           plugins: [cookies()],
