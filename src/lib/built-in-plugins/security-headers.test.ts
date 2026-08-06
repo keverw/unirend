@@ -2733,6 +2733,92 @@ describe('securityHeaders', () => {
       );
     });
 
+    it('folds per-request sources into the policy', async () => {
+      // SSR contributes the active app's template hashes this way. The app is
+      // chosen per request, so they cannot be baked in at config time like the
+      // rest of the policy.
+      const contributor: ServerPlugin<UnirendServerMode> = (host) => {
+        // Callback style: raw Fastify picks hook style by arity, and an async
+        // arrow with nothing to await trips require-await.
+        host.addHook('onRequest', (request, _reply, ...args: unknown[]) => {
+          const done = args[0] as () => void;
+          request.addCSPSources?.({
+            scriptSrc: ["'sha256-fromTemplate='"],
+            styleSrc: ["'sha256-templateStyle='"],
+          });
+          done();
+        });
+
+        return Promise.resolve();
+      };
+
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            csp: { scriptSrc: ["'self'"], styleSrc: ["'self'"] },
+          }),
+          contributor,
+        ],
+        host: 'allowed.example.com',
+      });
+
+      const csp = response.headers.get('content-security-policy') ?? '';
+
+      expect(csp).toContain("'sha256-fromTemplate='");
+      expect(csp).toContain("'sha256-templateStyle='");
+      // The framework's own hashes are still there alongside them.
+      expect(csp.match(/'sha256-[^']+'/g)?.length).toBeGreaterThan(2);
+    });
+
+    it('does not install addCSPSources when no policy is configured', async () => {
+      // Its absence is a signal, not just a missing convenience: it tells the
+      // SSR renderer there is no reason to hash a template's inline content,
+      // which is what keeps that work off servers not using CSP.
+      let hasDecoration: boolean | undefined;
+
+      const observer: ServerPlugin<UnirendServerMode> = (host) => {
+        host.addHook('onRequest', (request, _reply, ...args: unknown[]) => {
+          const done = args[0] as () => void;
+          hasDecoration = typeof request.addCSPSources === 'function';
+          done();
+        });
+
+        return Promise.resolve();
+      };
+
+      await respondTo({
+        plugins: [securityHeaders({ frameOptions: 'DENY' }), observer],
+        host: 'allowed.example.com',
+      });
+
+      expect(hasDecoration).toBe(false);
+    });
+
+    it('leaves a policy a route set for itself', async () => {
+      // Same fill-if-absent spirit as everywhere else: the rebuild only
+      // replaces the value this plugin put there.
+      const contributor: ServerPlugin<UnirendServerMode> = (host) => {
+        host.addHook('onRequest', async (request, reply) => {
+          request.addCSPSources?.({ scriptSrc: ["'sha256-ignored='"] });
+          reply.header('Content-Security-Policy', "default-src 'none'");
+        });
+
+        return Promise.resolve();
+      };
+
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({ csp: { scriptSrc: ["'self'"] } }),
+          contributor,
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.headers.get('content-security-policy')).toBe(
+        "default-src 'none'",
+      );
+    });
+
     it('sends no CSP header when none is configured', async () => {
       const response = await respondTo({
         plugins: [securityHeaders({ frameOptions: 'DENY' })],

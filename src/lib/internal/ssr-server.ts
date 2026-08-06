@@ -26,7 +26,11 @@ import {
   getServerEntryFromManifest,
   validateDevPaths,
 } from './fs-utils';
-import { processTemplate } from './html-utils/format';
+import {
+  collectTemplateCSPHashes,
+  processTemplate,
+  type TemplateCSPHashes,
+} from './html-utils/format';
 import { injectContent } from './html-utils/inject';
 import path from 'path';
 import type {
@@ -636,6 +640,9 @@ export class SSRServer<
             const templateResult = await this.loadHTMLTemplate(appConfig);
             // CDN rewriting is now handled inside processTemplate() during loadHTMLTemplate()
             appConfig.cachedHTMLTemplate = templateResult.content;
+            // Fixed for the life of the process alongside the template itself,
+            // so hashing happens once here rather than per response.
+            appConfig.cachedTemplateCSPHashes = templateResult.cspHashes;
           } catch (loadError) {
             throw new Error(
               `Failed to load HTML template for app "${appKey}": ${loadError instanceof Error ? loadError.message : String(loadError)}`,
@@ -1376,6 +1383,18 @@ export class SSRServer<
               template,
             );
 
+            // Hash after Vite, not before. transformIndexHtml runs after
+            // processTemplate and adds inline content of its own, the React
+            // refresh preamble among it, so hashes taken earlier would be
+            // missing exactly the scripts that only exist in development.
+            //
+            // Guarded on the decoration rather than on a mode flag: it is
+            // absent unless securityHeaders is registered with a csp policy, so
+            // a dev server that is not using CSP pays nothing for this.
+            if (request.addCSPSources) {
+              request.addCSPSources(await collectTemplateCSPHashes(template));
+            }
+
             // Load server entry using Vite's SSR loader (from src)
             const entryServer = await appConfig.viteDevServer.ssrLoadModule(
               appConfig.sourcePaths.serverEntry,
@@ -1418,6 +1437,11 @@ export class SSRServer<
 
             template = appConfig.cachedHTMLTemplate;
             render = appConfig.cachedRenderFunction;
+
+            // Hashed once at startup, so this is a lookup rather than work.
+            if (request.addCSPSources && appConfig.cachedTemplateCSPHashes) {
+              request.addCSPSources(appConfig.cachedTemplateCSPHashes);
+            }
           }
 
           // Create Fetch API Request object for React Router
@@ -2206,9 +2230,11 @@ export class SSRServer<
    * @returns Promise that resolves to the processed template content and path
    * @private
    */
-  private async loadHTMLTemplate(
-    appConfig: SSRInternalAppConfig,
-  ): Promise<{ content: string; path: string }> {
+  private async loadHTMLTemplate(appConfig: SSRInternalAppConfig): Promise<{
+    content: string;
+    path: string;
+    cspHashes: TemplateCSPHashes;
+  }> {
     // Determine template path based on mode
     let htmlTemplatePath: string;
 
@@ -2280,6 +2306,7 @@ export class SSRServer<
     return {
       content: processResult.html,
       path: htmlTemplatePath,
+      cspHashes: processResult.cspHashes,
     };
   }
 

@@ -24,6 +24,7 @@ import type {
 } from './api-envelope/api-envelope-types';
 import type { UnirendContextValue } from './internal/UnirendContext';
 import type { DomainInfo } from './internal/domain-info';
+import type { TemplateCSPHashes } from './internal/html-utils/format';
 import type {
   ClientInfo,
   ClientInfoConfig,
@@ -1502,6 +1503,15 @@ export interface SSRInternalAppConfigBuilt extends SSRInternalAppConfigBase {
   ) => Promise<RenderResult>;
   /** Cached HTML template (INTERNAL - cached by framework) */
   cachedHTMLTemplate?: string;
+  /**
+   * CSP hashes for the cached template's inline scripts and styles (INTERNAL).
+   *
+   * Computed alongside the template at startup, since both are fixed for the
+   * life of the process in production. Development recomputes per request
+   * instead, because the template is re-read and Vite may add inline content of
+   * its own after unirend is done with it.
+   */
+  cachedTemplateCSPHashes?: TemplateCSPHashes;
 }
 
 /**
@@ -2820,6 +2830,27 @@ declare module 'fastify' {
      * Fastify-managed responses receive.
      */
     applySecurityHeaders?: (reply: FastifyReply) => void | Promise<void>;
+    /**
+     * Optional request-scoped helper installed by the built-in securityHeaders
+     * plugin, but only when a `csp` policy is configured.
+     *
+     * Contributes extra source expressions to this response's
+     * `Content-Security-Policy`. The SSR renderer uses it to add hashes for the
+     * inline scripts and styles the active app's template carries, which are
+     * not knowable at config time because the app is chosen per request.
+     *
+     * Sources must be written exactly as they appear in the header, hashes
+     * included quotes: `"'sha256-...'"`.
+     *
+     * Absent when the plugin is not registered or no policy is configured, so
+     * feature-detect it. That absence is also the signal not to compute hashes
+     * in the first place, which is what keeps the work off servers that are not
+     * using CSP.
+     */
+    addCSPSources?: (sources: {
+      scriptSrc?: readonly string[];
+      styleSrc?: readonly string[];
+    }) => void;
     /**
      * Set to `true` by the built-in `domainValidation` plugin when it rejects
      * the request's host, either because the host failed

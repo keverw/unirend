@@ -970,6 +970,36 @@ export function securityHeaders(
   // request, so the header value is fixed for the life of the process.
   let resolvedCSP: false | { headerName: string; value: string } = false;
 
+  // Rebuilt policies, keyed by the extra sources that produced them.
+  //
+  // Worth being precise about what makes this a cache rather than a leak. The
+  // key is derived from a *template's* hashes, and a template is per app and
+  // fixed for the life of the process, so one app means one entry computed on
+  // its first request and reused forever. It is never keyed on anything that
+  // varies per request; doing that would be the unbounded-growth mistake this
+  // plan already rejected once, for the per-tenant resolver's cache key.
+  //
+  // The cap is for the case that assumption does not hold. Development
+  // recomputes hashes per request, because Vite may add inline content after
+  // unirend is done with the template, and a Vite plugin injecting something
+  // request-varying would produce a new key every time. Past the cap this stops
+  // storing and simply serializes each time: slower, still correct, and bounded.
+  const MAX_CACHED_POLICIES = 64;
+  const policyBySources = new Map<string, string>();
+
+  /**
+   * Serialize the policy with extra per-request sources folded in. Left
+   * undefined when no policy is configured, which is what makes
+   * `request.addCSPSources` absent and tells callers not to compute hashes at
+   * all.
+   */
+  let buildPolicyWithSources:
+    | ((sources: {
+        scriptSrc?: readonly string[];
+        styleSrc?: readonly string[];
+      }) => string)
+    | undefined;
+
   if (config.csp) {
     validateCSPConfig(config.csp);
 
@@ -985,13 +1015,42 @@ export function securityHeaders(
     // blocked with no clue as to why.
     const quote = (hash: string) => `'${hash}'`;
 
+    const ownScriptSources = [quote(UNIREND_BOOTSTRAP_SCRIPT_HASH)];
+    const ownStyleSources = UNIREND_ERROR_PAGE_STYLE_HASHES.map(quote);
+
     const value = serializeCSP(config.csp, {
-      scriptSrc: [quote(UNIREND_BOOTSTRAP_SCRIPT_HASH)],
-      styleSrc: UNIREND_ERROR_PAGE_STYLE_HASHES.map(quote),
+      scriptSrc: ownScriptSources,
+      styleSrc: ownStyleSources,
     });
 
     if (value) {
       resolvedCSP = { headerName: cspHeaderName(config.csp), value };
+
+      // Rebuild for a request that contributed extra sources, memoized on the
+      // sources themselves. The base policy stays the fallback: an app that
+      // contributes nothing gets the string computed above, untouched.
+      buildPolicyWithSources = (extra) => {
+        const scriptSrc = [...ownScriptSources, ...(extra.scriptSrc ?? [])];
+        const styleSrc = [...ownStyleSources, ...(extra.styleSrc ?? [])];
+        const key = `${scriptSrc.join(' ')}|${styleSrc.join(' ')}`;
+
+        let policy = policyBySources.get(key);
+
+        if (policy === undefined) {
+          // config.csp is captured rather than re-read: this closure outlives
+          // the block, and the value it must serialize is the validated one.
+          policy = serializeCSP(config.csp as CSPConfig, {
+            scriptSrc,
+            styleSrc,
+          });
+
+          if (policyBySources.size < MAX_CACHED_POLICIES) {
+            policyBySources.set(key, policy);
+          }
+        }
+
+        return policy;
+      };
     }
   }
 
@@ -1015,6 +1074,31 @@ export function securityHeaders(
         await applyCORSActualResponseHeaders(this, reply, resolvedConfig);
       },
     );
+
+    // Only decorated when there is a policy to add to. Its absence is a signal,
+    // not just a missing convenience: it tells the SSR renderer there is no
+    // reason to hash a template's inline content, which is the work this would
+    // otherwise cost on every server that is not using CSP.
+    if (resolvedCSP && buildPolicyWithSources) {
+      fastify.decorateRequest(
+        'addCSPSources',
+        function addCSPSources(
+          this: FastifyRequest,
+          sources: {
+            scriptSrc?: readonly string[];
+            styleSrc?: readonly string[];
+          },
+        ) {
+          const request = this as FastifyRequest & {
+            cspExtraSources?: { scriptSrc: string[]; styleSrc: string[] };
+          };
+
+          request.cspExtraSources ??= { scriptSrc: [], styleSrc: [] };
+          request.cspExtraSources.scriptSrc.push(...(sources.scriptSrc ?? []));
+          request.cspExtraSources.styleSrc.push(...(sources.styleSrc ?? []));
+        },
+      );
+    }
 
     // Handle preflight OPTIONS requests
     fastify.addHook(
@@ -1251,6 +1335,26 @@ export function securityHeaders(
         // host, in which case HSTS is already on the reply and has to come off.
         if (isHostDisclaimed(request)) {
           reply.removeHeader('Strict-Transport-Security');
+        }
+
+        // Fold in any sources contributed during the request, which for SSR is
+        // the active app's template hashes. The app is chosen per request, so
+        // this cannot be known at config time the way the rest of the policy is.
+        const extra = (
+          request as FastifyRequest & {
+            cspExtraSources?: { scriptSrc: string[]; styleSrc: string[] };
+          }
+        ).cspExtraSources;
+
+        if (extra && resolvedCSP && buildPolicyWithSources) {
+          // Overwrite rather than fill-if-absent, since the header is already
+          // there from the early pass and the whole point is to replace it. But
+          // only when it still holds the value this plugin put there: a route
+          // that deliberately set its own policy keeps it, same rule as
+          // everywhere else.
+          if (reply.getHeader(resolvedCSP.headerName) === resolvedCSP.value) {
+            reply.header(resolvedCSP.headerName, buildPolicyWithSources(extra));
+          }
         }
 
         const hasRunEarly = (
