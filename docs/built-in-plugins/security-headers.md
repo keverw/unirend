@@ -14,6 +14,8 @@
 - [Content-Security-Policy](#content-security-policy)
   - [Roll It Out With `reportOnly`](#roll-it-out-with-reportonly)
   - [What Unirend Contributes Automatically](#what-unirend-contributes-automatically)
+  - [Your Own Inline Content Is Hashed Too](#your-own-inline-content-is-hashed-too)
+  - [`frameAncestors` and `frameOptions` Together](#frameancestors-and-frameoptions-together)
   - [Config-Time Validation](#config-time-validation)
 - [When a Callback Throws](#when-a-callback-throws)
 - [Plugin Order and Short-Circuited Responses](#plugin-order-and-short-circuited-responses)
@@ -314,6 +316,28 @@ Two things worth knowing about how that works:
 
 - It only adds to a directive **you have set**. If you configure `defaultSrc` but not `scriptSrc`, no `scriptSrc` appears. Creating one would silently override `defaultSrc` for scripts and block whatever you expected `defaultSrc` to cover.
 - Your own inline content is still yours to cover. Use [`hashInlineContentForCSP`](../utilities.md#content-security-policy-utilities), which is the same helper unirend uses.
+
+### Your Own Inline Content Is Hashed Too
+
+On SSR and SSG, unirend hashes the inline `<script>` and `<style>` blocks your template ships with, including anything the `headInlineScripts`, `bodyPrepend`, and `bodyAppend` slots contribute, and adds them to `scriptSrc` and `styleSrc` for that app's responses. A theme flash-prevention script in `index.html` keeps working under a strict policy with nothing to configure.
+
+Hashes are taken from the **final serialized output**, not from the values you passed in. That distinction is the whole reason this happens in the framework rather than in your config: the template pipeline parses and rewrites what it touches, so a hash computed from your input can differ from a hash of what actually ships, and CSP would then block the very script the hash was meant to allow, with no error anywhere.
+
+Styles inside a `<noscript>` are covered as well. They only become live for visitors with JavaScript disabled, which is exactly when nobody is watching, so leaving them out would break the fallback for the people it exists for.
+
+Costs are where you would want them. Production hashes once per app at startup. Development recomputes per request, because the template is re-read and Vite adds inline content of its own after unirend is done with it, and hashes taken earlier would miss exactly the scripts that only exist in development.
+
+None of this happens unless a `csp` policy is configured.
+
+### `frameAncestors` and `frameOptions` Together
+
+`frame-ancestors` supersedes `X-Frame-Options` wherever CSP is supported, which is everywhere that matters. So `frameOptions` is a fallback for browsers that would otherwise get no framing policy at all, and setting both is a reasonable thing to do.
+
+A fallback may be **stricter** than the policy it backs up. `frameOptions: 'DENY'` alongside `frameAncestors: ["'self'"]` means an old browser refuses framing that a modern one permits, which is the safe direction to be wrong in.
+
+It must not be **looser**. `frameOptions: 'SAMEORIGIN'` alongside `frameAncestors: ["'none'"]` is rejected at startup: a browser without CSP support would still allow same-origin framing that the policy exists to forbid, and you would have every reason to believe you had forbidden it everywhere.
+
+Nothing else is rejected. A deliberate pairing such as `frameOptions: 'SAMEORIGIN'` with `frameAncestors: ["'self'", 'https://partner.example.com']` is a real pattern (modern browsers get the nuance, old ones get the blunt fallback) and is left alone.
 
 ### Config-Time Validation
 

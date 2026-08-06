@@ -1005,6 +1005,34 @@ export function securityHeaders(
   if (config.csp) {
     validateCSPConfig(config.csp);
 
+    // frame-ancestors supersedes X-Frame-Options wherever CSP is supported,
+    // which is everywhere that matters, so X-Frame-Options is a fallback for
+    // browsers that would otherwise get no framing policy at all.
+    //
+    // A fallback being stricter than the policy it backs up is fine and common:
+    // frameOptions 'DENY' alongside frame-ancestors 'self' means an old browser
+    // refuses framing a new one permits, which is the safe direction to be
+    // wrong in. The reverse is not. 'SAMEORIGIN' alongside frame-ancestors
+    // 'none' means an old browser permits same-origin framing that the policy
+    // exists to forbid, and the author almost certainly believes they have
+    // forbidden it everywhere.
+    //
+    // Only that one combination is rejected. Anything else, including a
+    // deliberate "modern browsers get the nuance, old ones get the blunt
+    // fallback" pairing such as 'SAMEORIGIN' with a partner origin listed, is
+    // left alone: it is a real pattern and not this code's business to
+    // second-guess.
+    const isFramingDenied =
+      Array.isArray(config.csp.frameAncestors) &&
+      config.csp.frameAncestors.length === 1 &&
+      config.csp.frameAncestors[0] === "'none'";
+
+    if (isFramingDenied && config.frameOptions === 'SAMEORIGIN') {
+      throw new Error(
+        "Invalid securityHeaders config: csp.frameAncestors is [\"'none'\"] but frameOptions is 'SAMEORIGIN'. frame-ancestors supersedes X-Frame-Options where CSP is supported, so the weaker X-Frame-Options would still let a browser without CSP support frame this page from the same origin. Use frameOptions: 'DENY' to match, or drop frameOptions entirely.",
+      );
+    }
+
     // Unirend contributes hashes for the inline content it emits itself: the
     // bootstrap that assigns the injected globals, and the styles on its error
     // pages. The framework is the only thing that knows what it emitted, so

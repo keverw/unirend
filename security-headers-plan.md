@@ -469,7 +469,29 @@ Hashes, not nonces: the style text is deterministic, so it is computed once at m
 - [x] Config-time rejection of the footgun set: `'unsafe-inline'` in a script directive without `allowUnsafeInlineScript`, `'unsafe-eval'` without `allowUnsafeEval`, `'none'` combined with other sources, `javascript:` and the other scripting-scheme sources, quoted near-miss keywords, and any source carrying whitespace or `;`/`,` that could rewrite the rest of the policy
 - [x] Emitted from `applyUnconditionalSecurityHeaders`, so it inherits the `onSend` backstop and `applySecurityHeaders()` for free. Verified against a real server: a `domainValidation` 403 carries the policy without either plugin knowing CSP exists.
 - [x] Unirend contributes `UNIREND_BOOTSTRAP_SCRIPT_HASH` and `UNIREND_ERROR_PAGE_STYLE_HASHES` automatically, **only to directives the caller set**. Adding a hash to an unset `script-src` would create one, which then overrides `default-src` and blocks whatever the caller expected `default-src` to cover.
-- [ ] `frame-ancestors` overlaps `frameOptions`. Still to warn or reconcile when both are set.
+- [x] `frame-ancestors` overlaps `frameOptions`, now reconciled. See below.
+
+### Part two: hashing the app's own inline content (done)
+
+`processTemplate` returns hashes for the template's inline scripts and styles, slots included, and the SSR renderer contributes them per request through `request.addCSPSources()`. Per app rather than per config, so unlike the rest of the policy they cannot be baked in at startup.
+
+- [x] Hash after serialization, from the final output. Test asserts a hash of the input differs from a hash of the delivered bytes, which is the whole reason this cannot live in the caller's config.
+- [x] `addCSPSources` decorated only when a policy is configured. Its absence tells the renderer not to hash at all, so servers not using CSP pay nothing.
+- [x] Production hashes once at startup alongside the cached template; development recomputes after Vite's `transformIndexHtml`, which runs after `processTemplate` and adds inline content of its own.
+- [x] Rebuilt policies memoized in the shared `LRUCache`, keyed on the sources. One entry per app in production. An LRU rather than a hard cap because the entries worth keeping are the ones that repeat, and a cap would strand them behind whatever churned in first.
+- [x] Verified against a real server by parsing both the response body and the response header: every executable inline block in the delivered page is allowed by a hash in the delivered policy.
+
+**A `<style>` inside `<noscript>` was missed at first.** Cheerio parses with scripting enabled, so noscript contents are raw text and the selectors saw nothing in there. A browser with JavaScript disabled parses them as markup, so the style goes live and a strict `style-src` blocks it. The starter template and both demos have one, and the failure is invisible to anyone testing with JavaScript on.
+
+**A slot reusing the data block's ID is now rejected**, the same guard and the same reasoning as the existing container-ID check: the bootstrap finds the block with `getElementById`, so an earlier element with that ID would be read instead and every injected global would be wrong. Other `application/json` blocks are fine, JSON-LD included, since the lookup is by ID rather than by type.
+
+### `frame-ancestors` vs `frameOptions`
+
+`frame-ancestors` supersedes `X-Frame-Options` wherever CSP is supported, so `frameOptions` is a fallback for browsers that would otherwise get no framing policy at all. Setting both is reasonable and common.
+
+The asymmetry is what matters, and a blanket "these disagree" check would have been wrong. A fallback **stricter** than the policy it backs up is fine: `DENY` alongside `frame-ancestors 'self'` means an old browser refuses framing a new one permits, which is the safe direction. A fallback **looser** is not: `SAMEORIGIN` alongside `frame-ancestors 'none'` lets a browser without CSP support allow same-origin framing the policy exists to forbid, and the author has every reason to believe otherwise.
+
+- [x] Reject exactly that one combination at config time. Everything else is left alone, including the deliberate `SAMEORIGIN` plus a partner origin pairing, which is a real pattern and not this code's business to second-guess.
 
 **Two bugs caught by running it rather than reading it**, both of which type-check and both of which fail silently in a browser:
 

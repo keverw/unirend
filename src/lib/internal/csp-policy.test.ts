@@ -5,6 +5,7 @@ import {
   validateCSPConfig,
   type CSPConfig,
 } from './csp-policy';
+import { securityHeaders } from '../built-in-plugins/security-headers';
 
 function expectRejected(config: CSPConfig, matching: RegExp): void {
   expect(() => validateCSPConfig(config)).toThrow(matching);
@@ -175,6 +176,51 @@ describe('serializeCSP', () => {
         { styleSrc: ["'sha256-abc='"] },
       ),
     ).toBe("style-src 'self' 'sha256-abc='");
+  });
+});
+
+describe('frameAncestors alongside frameOptions', () => {
+  // frame-ancestors supersedes X-Frame-Options wherever CSP is supported, so
+  // X-Frame-Options is a fallback for browsers that would otherwise get no
+  // framing policy at all. A fallback may be stricter than what it backs up.
+  // It must not be looser.
+  it('rejects a fallback weaker than the policy', () => {
+    expect(() =>
+      securityHeaders({
+        frameOptions: 'SAMEORIGIN',
+        csp: { frameAncestors: ["'none'"] },
+      }),
+    ).toThrow(/supersedes X-Frame-Options/);
+  });
+
+  it('accepts a fallback that agrees', () => {
+    expect(() =>
+      securityHeaders({
+        frameOptions: 'DENY',
+        csp: { frameAncestors: ["'none'"] },
+      }),
+    ).not.toThrow();
+  });
+
+  it('accepts a stricter fallback, which errs the safe way', () => {
+    // An old browser refuses framing a new one permits.
+    expect(() =>
+      securityHeaders({
+        frameOptions: 'DENY',
+        csp: { frameAncestors: ["'self'"] },
+      }),
+    ).not.toThrow();
+  });
+
+  it('leaves a deliberate blunt-fallback pairing alone', () => {
+    // Modern browsers let the partner embed, old ones fall back to same-origin
+    // only. A real pattern, and not this code's business to second-guess.
+    expect(() =>
+      securityHeaders({
+        frameOptions: 'SAMEORIGIN',
+        csp: { frameAncestors: ["'self'", 'https://partner.example.com'] },
+      }),
+    ).not.toThrow();
   });
 });
 
