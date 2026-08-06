@@ -522,16 +522,41 @@ export interface TemplateCSPHashes {
   /**
    * Inline `on*=` handlers and `style=""` attributes found in the template.
    *
-   * No hash covers an attribute, only a `<script>` or `<style>` **element**, so
-   * these stop working under a strict policy unless `'unsafe-hashes'` or
-   * `'unsafe-inline'` is present. Reported rather than warned about here,
-   * because whether it matters depends on the CSP config, which this code does
-   * not see. `securityHeaders` holds both halves and decides.
-   *
-   * Each entry names the element and attribute, for a message someone can act
-   * on without going hunting.
+   * These stop working under a strict policy, and covering one takes more than
+   * covering an inline element does. A plain hash source never matches an
+   * attribute: the directive has to carry `'unsafe-hashes'` *and* a hash of the
+   * attribute's exact value, or `'unsafe-inline'`. Reported rather than warned
+   * about here, because whether it matters depends on the CSP config, which
+   * this code does not see. `securityHeaders` holds both halves and decides.
    */
-  inlineAttributes: string[];
+  inlineAttributes: InlineAttributeFinding[];
+}
+
+/**
+ * One inline attribute, with everything needed to judge and report it.
+ *
+ * Carries the hash rather than only the attribute's name because the two
+ * questions downstream are "would the policy block this" and "what would fix
+ * it", and both need the exact value. Recomputing it there is not an option:
+ * this is the only place the value is in hand.
+ */
+export interface InlineAttributeFinding {
+  /** Names the element and attribute, e.g. `<button> has onclick=`. */
+  description: string;
+  /**
+   * Which directive chain governs it. `on*=` handlers answer to the script
+   * directives and `style=` to the style ones, so this decides which policy
+   * half is consulted.
+   */
+  kind: 'script' | 'style';
+  /**
+   * CSP source expression for the attribute's value, quoted and ready to paste,
+   * e.g. `'sha256-...'`.
+   *
+   * The digest covers the attribute value exactly as written, with no trimming
+   * and no normalization, the same way an element hash covers its text content.
+   */
+  hash: string;
 }
 
 export type ProcessTemplateResult =
@@ -565,7 +590,9 @@ function collectTemplateCSPHashesWith(
 ): TemplateCSPHashes {
   const scriptSrc = new Set<string>();
   const styleSrc = new Set<string>();
-  const inlineAttributes = new Set<string>();
+  // Keyed by description so the same attribute on the same element type is
+  // reported once, matching how the element hashes dedupe.
+  const inlineAttributes = new Map<string, InlineAttributeFinding>();
 
   const collectFrom = ($: CheerioAPI): void => {
     $('*').each((_, el) => {
@@ -573,14 +600,34 @@ function collectTemplateCSPHashesWith(
         return;
       }
 
-      for (const name of Object.keys(el.attribs ?? {})) {
+      for (const [name, value] of Object.entries(el.attribs ?? {})) {
         // on* is the event-handler namespace. `style` is the other attribute a
-        // hash cannot cover. Both need 'unsafe-hashes' at best, and the better
-        // fix is usually not to write them inline at all.
-        if (/^on[a-z]+$/i.test(name)) {
-          inlineAttributes.add(`<${el.tagName}> has ${name}=`);
-        } else if (name.toLowerCase() === 'style') {
-          inlineAttributes.add(`<${el.tagName}> has style=`);
+        // plain hash source cannot cover on its own. Both need 'unsafe-hashes'
+        // alongside a hash of the value, and the better fix is usually not to
+        // write them inline at all.
+        const kind = /^on[a-z]+$/i.test(name)
+          ? 'script'
+          : name.toLowerCase() === 'style'
+            ? 'style'
+            : undefined;
+
+        if (!kind) {
+          continue;
+        }
+
+        const attribute = kind === 'style' ? 'style' : name;
+        const description = `<${el.tagName}> has ${attribute}=`;
+
+        if (!inlineAttributes.has(description)) {
+          // Hashed from the attribute value as parsed, which is what a browser
+          // matches against: entity references are already decoded here and are
+          // decoded there too, so the digest agrees with the one the browser
+          // computes rather than with the source bytes.
+          inlineAttributes.set(description, {
+            description,
+            kind,
+            hash: `'${hashInlineContentForCSP(value)}'`,
+          });
         }
       }
     });
@@ -637,7 +684,7 @@ function collectTemplateCSPHashesWith(
   return {
     scriptSrc: [...scriptSrc],
     styleSrc: [...styleSrc],
-    inlineAttributes: [...inlineAttributes],
+    inlineAttributes: [...inlineAttributes.values()],
   };
 }
 

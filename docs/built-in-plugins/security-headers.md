@@ -17,7 +17,8 @@
   - [Your Own Inline Content Is Hashed Too](#your-own-inline-content-is-hashed-too)
   - [Third-Party Widgets and `'strict-dynamic'`](#third-party-widgets-and-strict-dynamic)
   - [`frameAncestors` and `frameOptions` Together](#frameancestors-and-frameoptions-together)
-  - [Inline Attributes Cannot Be Hashed](#inline-attributes-cannot-be-hashed)
+  - [Inline Attributes Take More Than a Hash](#inline-attributes-take-more-than-a-hash)
+  - [`'unsafe-inline'` and Automatic Hashes](#unsafe-inline-and-automatic-hashes)
   - [Presets](#presets)
   - [Config-Time Validation](#config-time-validation)
 - [Per-Request Policy With `resolve`](#per-request-policy-with-resolve)
@@ -394,22 +395,45 @@ The check runs at startup on the static config, and again on the effective polic
 
 Nothing else is rejected. A deliberate pairing such as `frameOptions: 'SAMEORIGIN'` with `frameAncestors: ["'self'", 'https://partner.example.com']` is a real pattern (modern browsers get the nuance, old ones get the blunt fallback) and is left alone.
 
-### Inline Attributes Cannot Be Hashed
+### Inline Attributes Take More Than a Hash
 
-A hash covers a `<script>` or `<style>` **element**. It never covers an attribute, so `onclick="…"` and `style="…"` in your template stop working under a strict policy, with no error on the server and nothing in the page to say why.
+A hash source on its own covers a `<script>` or `<style>` **element** and never an attribute, so `onclick="…"` and `style="…"` in your template stop working under a strict policy, with no error on the server and nothing in the page to say why.
 
-Unirend detects them and warns once per distinct finding:
+Covering one takes `'unsafe-hashes'` in the governing directive **and** a hash of that attribute's exact value. The keyword alone permits nothing: all it does is make hash sources eligible to match attributes, so a directive carrying it still blocks every attribute whose value is not also listed.
 
 ```
-[securityHeaders] Template content carries inline attributes that no CSP hash
-can cover, so they will not run under this policy. <button> has onclick=
+script-src-attr 'unsafe-hashes'                    → onclick blocked
+script-src-attr 'unsafe-hashes' 'sha256-<value>'   → onclick runs
 ```
 
-The warning is skipped when your policy already permits that attribute. If you have made that call deliberately, being told about it on every startup is how a warning gets tuned out.
+Unirend detects these attributes and warns once per distinct finding, with the hash that would cover each one:
 
-"That attribute" is meant precisely, because an `onclick=` and a `style=` are governed by different directives and a policy often permits one and blocks the other. Each finding is judged against the chain a browser would actually consult for it, `script-src-attr` then `script-src` then `default-src` for an event handler, and the `style-src` equivalents for a `style=`. CSP fallback stops at the first directive that is set rather than combining them, so `scriptSrcAttr: ["'none'"]` blocks handlers no matter how permissive `scriptSrc` is, and a warning is exactly what you want there. An `'unsafe-inline'` sitting in some other directive is not permission and does not silence anything.
+```
+[securityHeaders] Template content carries inline attributes that this policy
+blocks. A hash source alone never matches an attribute: it takes
+'unsafe-hashes' plus the hash of that attribute's exact value, listed above.
+  attribute: "<button> has onclick="
+  directive: "script-src-attr"
+  hash:      "'sha256-4RcNn9ptE…='"
+```
 
-The fixes, best first: move an `on*` handler into an `addEventListener` inside a script unirend already hashes, and a `style=""` attribute into a `<style>` block or a class. `'unsafe-hashes'` also works and is meaningfully worse, since it applies to every inline attribute on the page rather than the one you meant.
+The hash is reported because it is the one part you cannot work out later by hand: it covers the attribute value exactly as the browser parses it, entity references already decoded, and that value is only in hand while the template is being scanned.
+
+The warning is skipped when the policy in force for the request already permits that attribute, so a decision you made deliberately is not repeated back to you on every startup.
+
+"That attribute" is meant precisely. An `onclick=` and a `style=` are governed by different directives and a policy often permits one and blocks the other, so each finding is judged against the chain a browser would actually consult for it: `script-src-attr`, then `script-src`, then `default-src` for an event handler, and the `style-src` equivalents for a `style=`. Fallback stops at the first directive that is set rather than combining them, so `scriptSrcAttr: ["'none'"]` blocks handlers no matter how permissive `scriptSrc` is. An `'unsafe-inline'` in some other directive is not permission and silences nothing.
+
+The fixes, best first: move an `on*` handler into an `addEventListener` inside a script unirend already hashes, and a `style=""` attribute into a `<style>` block or a class. The `'unsafe-hashes'` route works and is meaningfully worse, since a hash listed there matches that value on **any** element in the page rather than the one you meant.
+
+### `'unsafe-inline'` and Automatic Hashes
+
+If you deliberately set `'unsafe-inline'` in a directive, unirend contributes no hashes to it.
+
+That is not a preference, it is the only way to keep your opt-in working. A browser ignores `'unsafe-inline'` as soon as any hash or nonce appears in the same source list, so adding hashes to a directive that has it would revoke the permission you just granted and block every inline script or style on the page, under a header that still reads as though it allows them. Skipping costs nothing, because `'unsafe-inline'` already covers the content those hashes were for.
+
+The decision is per directive. `scriptSrc: ["'unsafe-inline'"]` alongside a strict `scriptSrcElem` leaves the element directive getting its hashes as usual, which is right: when both are set, `script-src-elem` is the one a browser consults for an inline `<script>`.
+
+Sources you wrote in the directive yourself are always kept, including your own hashes. Only unirend's automatic additions are withheld.
 
 ### Presets
 

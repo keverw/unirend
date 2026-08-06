@@ -22,6 +22,7 @@ import {
 } from '../internal/csp-policy';
 import { UNIREND_ERROR_PAGE_STYLE_HASHES } from '../internal/error-page-utils';
 import { UNIREND_BOOTSTRAP_SCRIPT_HASH } from '../internal/html-utils/context-data-block';
+import type { InlineAttributeFinding } from '../internal/html-utils/format';
 
 export type { CSPConfig } from '../internal/csp-policy';
 
@@ -720,18 +721,6 @@ function validateHSTSConfig(cfg: HSTSConfig): void {
 }
 
 /**
- * Which CSP directive chain governs an inline-attribute finding.
- *
- * The strings come from the template scanner, which reports a `style=` and an
- * `on*=` in the same list. They are governed by entirely different directives,
- * so the kind has to survive the trip in order for the check below to consult
- * the right one.
- */
-function inlineAttributeKind(finding: string): 'script' | 'style' {
-  return finding.endsWith(' has style=') ? 'style' : 'script';
-}
-
-/**
  * The directive a browser would actually consult for an inline attribute.
  *
  * CSP fallback stops at the first directive that is set, it does not union the
@@ -771,12 +760,20 @@ function effectiveAttributeSources(
  * would excuse an `onclick=` that has nothing to do with styles, and a
  * `script-src-attr: ["'none'"]` sitting above a permissive `script-src` would
  * excuse a handler that the more specific directive is specifically blocking.
+ *
+ * The two opt-ins are not equivalent, which is the other thing this gets right.
+ * 'unsafe-inline' permits the attribute outright. 'unsafe-hashes' does not
+ * permit anything by itself: it only makes hash sources eligible to match an
+ * attribute, so a directive carrying it still blocks every attribute whose
+ * exact value is not also listed as a hash. Verified against Chrome, which
+ * runs `onclick` under `script-src-attr 'unsafe-hashes' 'sha256-<value>'` and
+ * blocks it under `script-src-attr 'unsafe-hashes'` alone.
  */
 function permitsInlineAttribute(
   policy: CSPConfig,
-  kind: 'script' | 'style',
+  finding: InlineAttributeFinding,
 ): boolean {
-  const sources = effectiveAttributeSources(policy, kind);
+  const sources = effectiveAttributeSources(policy, finding.kind);
 
   // Nothing in the chain is set, so nothing blocks the attribute and there is
   // nothing to warn about.
@@ -784,9 +781,15 @@ function permitsInlineAttribute(
     return true;
   }
 
-  return (
-    sources.includes("'unsafe-hashes'") || sources.includes("'unsafe-inline'")
-  );
+  if (sources.includes("'unsafe-inline'")) {
+    return true;
+  }
+
+  // 'unsafe-hashes' is a modifier rather than a permission, so it takes the
+  // hash of this specific attribute's value alongside it. A policy carrying the
+  // keyword and a hash for some *other* attribute still blocks this one, which
+  // is exactly the case a keyword-only check would wave through.
+  return sources.includes("'unsafe-hashes'") && sources.includes(finding.hash);
 }
 
 /**
@@ -1469,14 +1472,14 @@ export function securityHeaders(
 
   const reportInlineAttributes = (
     request: FastifyRequest,
-    findings: readonly string[] | undefined,
+    findings: readonly InlineAttributeFinding[] | undefined,
   ): void => {
     if (!findings?.length) {
       return;
     }
 
     const fresh = findings.filter(
-      (finding) => !reportedInlineAttributes.has(finding),
+      (finding) => !reportedInlineAttributes.has(finding.description),
     );
 
     if (!fresh.length) {
@@ -1484,14 +1487,26 @@ export function securityHeaders(
     }
 
     for (const finding of fresh) {
-      reportedInlineAttributes.add(finding);
+      reportedInlineAttributes.add(finding.description);
     }
 
     const log = (request as Partial<FastifyRequest>).log;
 
+    // The hash goes in the log because it is the one piece of this that cannot
+    // be worked out by hand later: it covers the attribute value exactly as
+    // parsed, and the value is only in hand while the template is being
+    // scanned. Someone who decides to take the 'unsafe-hashes' route can paste
+    // it rather than reverse-engineer it.
     log?.warn(
-      { inlineAttributes: fresh },
-      '[securityHeaders] Template content carries inline attributes that no CSP hash can cover, so they will not run under this policy. Move an on* handler to an addEventListener in a hashed script, and a style="" attribute into a hashed <style> block. Setting \'unsafe-hashes\' in the matching directive would also work, and is worse.',
+      {
+        inlineAttributes: fresh.map((finding) => ({
+          attribute: finding.description,
+          directive:
+            finding.kind === 'script' ? 'script-src-attr' : 'style-src-attr',
+          hash: finding.hash,
+        })),
+      },
+      "[securityHeaders] Template content carries inline attributes that this policy blocks. A hash source alone never matches an attribute: it takes 'unsafe-hashes' plus the hash of that attribute's exact value, listed above. Better fixes first: move an on* handler to an addEventListener in a script unirend already hashes, and a style=\"\" attribute into a <style> block or a class.",
     );
   };
 
@@ -1611,7 +1626,7 @@ export function securityHeaders(
               addCSPSources?: (sources: {
                 scriptSrc?: readonly string[];
                 styleSrc?: readonly string[];
-                inlineAttributes?: readonly string[];
+                inlineAttributes?: readonly InlineAttributeFinding[];
               }) => void;
               cspExtraSources?: { scriptSrc: string[]; styleSrc: string[] };
             }
@@ -1636,8 +1651,7 @@ export function securityHeaders(
             reportInlineAttributes(
               request,
               sources.inlineAttributes?.filter(
-                (finding) =>
-                  !permitsInlineAttribute(policy, inlineAttributeKind(finding)),
+                (finding) => !permitsInlineAttribute(policy, finding),
               ),
             );
           };

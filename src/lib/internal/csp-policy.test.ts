@@ -243,6 +243,52 @@ describe('serializeCSP', () => {
       ),
     ).toBe("style-src 'self' 'sha256-abc='");
   });
+
+  describe("a directive that opted into 'unsafe-inline'", () => {
+    // A browser ignores 'unsafe-inline' the moment a hash or nonce appears in
+    // the same source list, so contributing hashes to such a directive would
+    // revoke the opt-in and block every inline script the caller had just
+    // declared they wanted. Confirmed in Chrome, which blocks an inline script
+    // under `script-src 'unsafe-inline' 'sha256-<other>'` and says so:
+    // "'unsafe-inline' is ignored if either a hash or nonce value is present".
+    //
+    // Skipping loses nothing, since 'unsafe-inline' already covers the content
+    // the hashes were for.
+    it('receives no additions', () => {
+      expect(
+        serializeCSP(
+          { scriptSrc: ["'unsafe-inline'"] },
+          { scriptSrc: ["'sha256-abc='"] },
+        ),
+      ).toBe("script-src 'unsafe-inline'");
+    });
+
+    it('does not affect a sibling directive that did not', () => {
+      // Decided per directive, because script-src-elem is what governs an
+      // inline <script> when both are set. A permissive script-src says nothing
+      // about whether the element directive still wants its hashes.
+      expect(
+        serializeCSP(
+          { scriptSrc: ["'unsafe-inline'"], scriptSrcElem: ["'self'"] },
+          { scriptSrc: ["'sha256-abc='"] },
+        ),
+      ).toBe(
+        "script-src 'unsafe-inline'; script-src-elem 'self' 'sha256-abc='",
+      );
+    });
+
+    it('still receives the sources the caller wrote there', () => {
+      // Only the automatic additions are withheld. A hash the caller put in the
+      // directive themselves is their business, and dropping it would be us
+      // editing their policy.
+      expect(
+        serializeCSP(
+          { styleSrc: ["'unsafe-inline'", "'sha256-mine='"] },
+          { styleSrc: ["'sha256-ours='"] },
+        ),
+      ).toBe("style-src 'unsafe-inline' 'sha256-mine='");
+    });
+  });
 });
 
 describe('presets', () => {

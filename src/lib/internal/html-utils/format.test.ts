@@ -2161,6 +2161,69 @@ describe('template CSP hashes inside <noscript>', () => {
       expect(result.cspHashes.scriptSrc).toHaveLength(0);
     }
   });
+
+  describe('inline attribute findings', () => {
+    async function findingsFor(body: string) {
+      const result = await processTemplate(
+        `<!doctype html><html><head><title>t</title><!--ss-head--></head><body>${body}<div id="root"><!--ss-outlet--></div></body></html>`,
+        'ssr',
+        false,
+        false,
+      );
+
+      if (!result.success) {
+        throw new Error(`template failed: ${result.error}`);
+      }
+
+      return result.cspHashes.inlineAttributes;
+    }
+
+    it('reports an on* handler as a script finding with its hash', async () => {
+      // The hash covers the attribute value exactly, the same way an element
+      // hash covers its text content. It is carried here because this is the
+      // only place the value is in hand, and securityHeaders needs it to tell a
+      // policy that covers the attribute from one that merely mentions
+      // 'unsafe-hashes'.
+      const findings = await findingsFor(
+        `<button onclick="alert('x')">go</button>`,
+      );
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]).toEqual({
+        description: '<button> has onclick=',
+        kind: 'script',
+        hash: `'${hashInlineContentForCSP("alert('x')")}'`,
+      });
+    });
+
+    it('reports a style attribute as a style finding with its hash', async () => {
+      const findings = await findingsFor(`<div style="color: red">x</div>`);
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]).toEqual({
+        description: '<div> has style=',
+        kind: 'style',
+        hash: `'${hashInlineContentForCSP('color: red')}'`,
+      });
+    });
+
+    it('hashes the decoded value, which is what a browser matches', async () => {
+      // The parser has already resolved entity references by the time the value
+      // is read, and so has the browser before it hashes the handler. Hashing
+      // the source bytes would produce a digest that never matches.
+      const findings = await findingsFor(
+        `<button onclick="a &amp;&amp; b()">go</button>`,
+      );
+
+      expect(findings[0].hash).toBe(`'${hashInlineContentForCSP('a && b()')}'`);
+    });
+
+    it('reports nothing for a template with no inline attributes', async () => {
+      const findings = await findingsFor('<p>clean</p>');
+
+      expect(findings).toHaveLength(0);
+    });
+  });
 });
 
 describe('templateSlots and the context data block ID', () => {

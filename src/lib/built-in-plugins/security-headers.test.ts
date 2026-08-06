@@ -10,6 +10,8 @@ import type {
   ServerPlugin,
   UnirendServerMode,
 } from '../types';
+import type { InlineAttributeFinding } from '../internal/html-utils/format';
+import { hashInlineContentForCSP } from '../internal/csp-hash';
 
 /**
  * Most tests in this file exercise CORS behavior, which lives in its own
@@ -2173,9 +2175,27 @@ describe('securityHeaders', () => {
      * Install the plugin on a mock host and call the decorated addCSPSources
      * with an inline-attribute report, returning whatever it logged.
      */
+    // Hashes of the attribute values the findings below stand for, quoted the
+    // way a policy would list them. Real ones, so a test that expects a policy
+    // to cover an attribute is expecting what a browser would actually accept.
+    const ONCLICK_HASH = `'${hashInlineContentForCSP("alert('x')")}'`;
+    const STYLE_HASH = `'${hashInlineContentForCSP('color: red')}'`;
+
+    const ONCLICK: InlineAttributeFinding = {
+      description: '<button> has onclick=',
+      kind: 'script',
+      hash: ONCLICK_HASH,
+    };
+
+    const STYLE_ATTR: InlineAttributeFinding = {
+      description: '<div> has style=',
+      kind: 'style',
+      hash: STYLE_HASH,
+    };
+
     async function warningsFor(
       csp: CSPConfig,
-      inlineAttributes: readonly string[] = ['<button> has onclick='],
+      inlineAttributes: readonly InlineAttributeFinding[] = [ONCLICK],
     ): Promise<unknown[]> {
       const pluginHost = createMockPluginHost();
 
@@ -2190,7 +2210,7 @@ describe('securityHeaders', () => {
         log: { warn: (...args: unknown[]) => warnings.push(args) },
       }) as ReturnType<typeof createMockRequest> & {
         addCSPSources?: (sources: {
-          inlineAttributes?: readonly string[];
+          inlineAttributes?: readonly InlineAttributeFinding[];
         }) => void;
       };
 
@@ -2210,24 +2230,48 @@ describe('securityHeaders', () => {
     }
 
     it('warns when the policy would block them', () => {
-      // No hash covers an attribute, only a <script> or <style> element, so
-      // these silently stop working under a strict policy.
+      // An attribute needs 'unsafe-hashes' plus its own hash, or
+      // 'unsafe-inline'. A directive with neither blocks it silently.
       return warningsFor({ scriptSrc: ["'self'"] }).then((warnings) => {
         expect(warnings).toHaveLength(1);
       });
     });
 
-    it("stays quiet when 'unsafe-hashes' is set", () => {
-      // Someone who set this has already decided. Telling them again on every
-      // startup is how a warning gets tuned out.
+    it("still warns when 'unsafe-hashes' is set without the hash", () => {
+      // 'unsafe-hashes' is a modifier, not a permission: it only makes hash
+      // sources eligible to match an attribute. On its own it permits nothing,
+      // so the handler is still blocked and staying quiet would be telling
+      // someone their page works when it does not. Confirmed against Chrome,
+      // which blocks onclick under script-src-attr 'unsafe-hashes' alone.
       return warningsFor({
         scriptSrc: ["'self'", "'unsafe-hashes'"],
+      }).then((warnings) => {
+        expect(warnings).toHaveLength(1);
+      });
+    });
+
+    it("stays quiet when 'unsafe-hashes' is set with the matching hash", () => {
+      // The combination that actually works, and the one the warning tells you
+      // to reach for if you are going to take this route at all.
+      return warningsFor({
+        scriptSrc: ["'self'", "'unsafe-hashes'", ONCLICK_HASH],
       }).then((warnings) => {
         expect(warnings).toHaveLength(0);
       });
     });
 
+    it('still warns when the hash present covers a different attribute', () => {
+      // The case a keyword-only check waves through: the author hashed one
+      // attribute and left another uncovered, and the second one is blocked.
+      return warningsFor({
+        scriptSrc: ["'self'", "'unsafe-hashes'", STYLE_HASH],
+      }).then((warnings) => {
+        expect(warnings).toHaveLength(1);
+      });
+    });
+
     it("stays quiet when 'unsafe-inline' is set", () => {
+      // Unlike 'unsafe-hashes', this one does permit the attribute outright.
       return warningsFor({
         scriptSrc: ["'self'", "'unsafe-inline'"],
         allowUnsafeInlineScript: true,
@@ -2238,16 +2282,26 @@ describe('securityHeaders', () => {
 
     it('stays quiet when the -attr directive opted in', async () => {
       // script-src-attr is what governs an onclick= when it is set, so someone
-      // who put 'unsafe-hashes' there has made this decision in the most
+      // who put 'unsafe-inline' there has made this decision in the most
       // specific place the spec offers. Warning anyway is the noise this check
       // exists to prevent.
       return warningsFor({
         scriptSrc: ["'self'"],
-        scriptSrcAttr: ["'unsafe-hashes'", "'unsafe-inline'"],
+        scriptSrcAttr: ["'unsafe-inline'"],
         allowUnsafeInlineScript: true,
       }).then((warnings) => {
         expect(warnings).toHaveLength(0);
       });
+    });
+
+    it('reports the hash that would cover the attribute', async () => {
+      // The one thing in the message that cannot be worked out later by hand,
+      // since the attribute value is only in hand while the template is being
+      // scanned.
+      const warnings = await warningsFor({ scriptSrc: ["'self'"] });
+
+      expect(JSON.stringify(warnings)).toContain(ONCLICK_HASH.slice(1, -1));
+      expect(JSON.stringify(warnings)).toContain('script-src-attr');
     });
 
     it('does not let a style opt-in excuse a script attribute', async () => {
@@ -2270,7 +2324,7 @@ describe('securityHeaders', () => {
           styleSrc: ["'self'"],
           allowUnsafeInlineScript: true,
         },
-        ['<div> has style='],
+        [STYLE_ATTR],
       );
 
       expect(warnings).toHaveLength(1);
@@ -2298,7 +2352,7 @@ describe('securityHeaders', () => {
       // permit" would warn about an attribute that actually runs.
       const warnings = await warningsFor({
         scriptSrcAttr: [],
-        scriptSrc: ["'unsafe-hashes'", "'self'"],
+        scriptSrc: ["'unsafe-hashes'", ONCLICK_HASH, "'self'"],
       });
 
       expect(warnings).toHaveLength(0);
@@ -2330,7 +2384,7 @@ describe('securityHeaders', () => {
           scriptSrc: ["'self'"],
           styleSrc: ["'unsafe-inline'"],
         },
-        ['<button> has onclick=', '<div> has style='],
+        [ONCLICK, STYLE_ATTR],
       );
 
       expect(warnings).toHaveLength(1);
@@ -2351,7 +2405,7 @@ describe('securityHeaders', () => {
         log: { warn: (...args: unknown[]) => warnings.push(args) },
       }) as ReturnType<typeof createMockRequest> & {
         addCSPSources?: (sources: {
-          inlineAttributes?: readonly string[];
+          inlineAttributes?: readonly InlineAttributeFinding[];
         }) => void;
       };
 
@@ -2364,9 +2418,7 @@ describe('securityHeaders', () => {
       // Templates are per app and fixed, so repeating this per request would
       // say nothing new.
       for (let index = 0; index < 5; index += 1) {
-        request.addCSPSources?.({
-          inlineAttributes: ['<button> has onclick='],
-        });
+        request.addCSPSources?.({ inlineAttributes: [ONCLICK] });
       }
 
       expect(warnings).toHaveLength(1);
@@ -3081,6 +3133,58 @@ describe('securityHeaders', () => {
       expect(csp).toMatch(/script-src 'self' 'sha256-[^']+'/);
       expect(csp).toMatch(/style-src 'self'(?: 'sha256-[^']+')+/);
       expect(csp).not.toMatch(/ sha256-/);
+    });
+
+    it("keeps an 'unsafe-inline' opt-in working end to end", async () => {
+      // End to end because the unit test cannot see what unirend contributes on
+      // its own. Someone who sets 'unsafe-inline' and the flag that guards it
+      // has opted into arbitrary inline content deliberately, and a browser
+      // ignores the keyword as soon as any hash joins the list. Folding in our
+      // bootstrap and error-page hashes would therefore have blocked every
+      // inline script and style on their page, including the ones they added
+      // the keyword for, under a header that still reads as permissive.
+      const app = fastify({ trustProxy: true });
+
+      await securityHeaders({
+        csp: {
+          scriptSrc: ["'unsafe-inline'"],
+          styleSrc: ["'unsafe-inline'"],
+          allowUnsafeInlineScript: true,
+        },
+      })(app as unknown as PluginHostInstance, createMockOptions());
+
+      app.get('/test', (request, reply) => {
+        (
+          request as FastifyRequest & {
+            addCSPSources?: (sources: {
+              scriptSrc: string[];
+              styleSrc: string[];
+            }) => void;
+          }
+        ).addCSPSources?.({
+          scriptSrc: ["'sha256-template-script'"],
+          styleSrc: ["'sha256-template-style'"],
+        });
+
+        return reply.send('ok');
+      });
+
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const address = app.server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/test`);
+        const csp = response.headers.get('content-security-policy') ?? '';
+
+        expect(csp).toBe(
+          "script-src 'unsafe-inline'; style-src 'unsafe-inline'",
+        );
+        expect(csp).not.toContain('sha256-');
+      } finally {
+        await app.close();
+      }
     });
 
     it('puts the bootstrap and template hashes in script-src-elem when set', async () => {

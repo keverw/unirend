@@ -447,12 +447,28 @@ export function serializeCSP(
     // The `-attr` directives are deliberately not here. They govern `onclick=`
     // and `style=""`, which no hash can cover: a hash covers an element's text
     // content, and an attribute has none.
-    const extra =
+    let extra =
       key === 'scriptSrc' || key === 'scriptSrcElem'
         ? additions.scriptSrc
         : key === 'styleSrc' || key === 'styleSrcElem'
           ? additions.styleSrc
           : undefined;
+
+    // Adding a hash to a directive that opted into 'unsafe-inline' would revoke
+    // the opt-in. A browser ignores 'unsafe-inline' as soon as any hash or
+    // nonce appears in the same source list, so contributing our own hashes
+    // here would silently block every inline script or style the caller just
+    // declared they wanted, including theirs, and the directive would still
+    // read as though it allowed them.
+    //
+    // Skipping is safe as well as necessary: 'unsafe-inline' already covers the
+    // content those hashes were for, so nothing is lost by leaving them out.
+    // Checked per directive, since a caller can put 'unsafe-inline' in
+    // script-src while script-src-elem stays strict, and it is the element
+    // directive that governs an inline <script> when both are set.
+    if (configured?.includes("'unsafe-inline'")) {
+      extra = undefined;
+    }
 
     if (configured === undefined && (extra === undefined || !extra.length)) {
       continue;

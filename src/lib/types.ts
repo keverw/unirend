@@ -24,7 +24,10 @@ import type {
 } from './api-envelope/api-envelope-types';
 import type { UnirendContextValue } from './internal/UnirendContext';
 import type { DomainInfo } from './internal/domain-info';
-import type { TemplateCSPHashes } from './internal/html-utils/format';
+import type {
+  InlineAttributeFinding,
+  TemplateCSPHashes,
+} from './internal/html-utils/format';
 import type {
   ClientInfo,
   ClientInfoConfig,
@@ -2852,11 +2855,15 @@ declare module 'fastify' {
       styleSrc?: readonly string[];
       /**
        * Inline `on*=` handlers and `style=""` attributes found in the content
-       * being contributed. No hash covers an attribute, so these are reported
-       * rather than hashed, and `securityHeaders` warns about them only when
-       * the configured policy would actually block them.
+       * being contributed.
+       *
+       * Reported rather than added to the policy, because covering one needs
+       * `'unsafe-hashes'` in the directive as well as the hash, and that is the
+       * caller's decision to make rather than something to switch on for them.
+       * `securityHeaders` warns about them only when the policy in force for
+       * the request would actually block them.
        */
-      inlineAttributes?: readonly string[];
+      inlineAttributes?: readonly InlineAttributeFinding[];
     }) => void;
     /**
      * Set to `true` by the built-in `domainValidation` plugin when it rejects
