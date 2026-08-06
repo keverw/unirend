@@ -288,6 +288,55 @@ describe('validateSecurityHeadersPolicy', () => {
       expect(result.issues[0].path).toBe('frameOptions');
     });
 
+    it('sees frameAncestors that a preset supplied', () => {
+      // The hole this closes. `preset: 'strict'` is a policy whose
+      // frameAncestors is ["'none'"] even though the author never typed it, so
+      // reading the unexpanded policy found no frameAncestors and blessed the
+      // pair. The plugin expands the preset before its own check and threw, so
+      // the tenant got a 500 on every request: the exact outcome validating a
+      // stored policy early is supposed to prevent.
+      const result = validateSecurityHeadersPolicy({
+        frameOptions: 'SAMEORIGIN',
+        csp: { preset: 'strict' },
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues[0].path).toBe('frameOptions');
+    });
+
+    it('sees frameAncestors that a preset supplied to the baseline', () => {
+      const result = validateSecurityHeadersPolicy(
+        { frameOptions: 'SAMEORIGIN' },
+        { baseline: { csp: { preset: 'strict' } } },
+      );
+
+      expect(result.valid).toBe(false);
+      expect(result.issues[0].path).toBe('frameOptions');
+    });
+
+    it('respects a directive written over the preset it came from', () => {
+      // Per-directive replacement, so an explicit frameAncestors wins over the
+      // preset's and there is no conflict left to report.
+      const result = validateSecurityHeadersPolicy({
+        frameOptions: 'SAMEORIGIN',
+        csp: { preset: 'strict', frameAncestors: ["'self'"] },
+      });
+
+      expect(result.valid).toBe(true);
+    });
+
+    it('reports only the unknown preset when the name names nothing', () => {
+      // Expansion has nothing to work with, so the cross-check has no pair to
+      // judge and the caller is told the one thing that is actually wrong.
+      const result = validateSecurityHeadersPolicy({
+        frameOptions: 'SAMEORIGIN',
+        csp: { preset: 'strictest' as 'strict' },
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues.map((issue) => issue.path)).toEqual(['csp.preset']);
+    });
+
     it('lets the policy override its way out of an inherited conflict', () => {
       // The baseline has the weak fallback, and this policy replaces it. Since
       // blocks replace rather than merge, the result is consistent and there is
@@ -379,7 +428,7 @@ describe('validateSecurityHeadersPolicy', () => {
     }
   });
 
-  it('does not expand a preset', () => {
+  it('does not report a preset directive as the author’s mistake', () => {
     // The preset's directives are unirend's, not the author's, so re-reporting
     // them would blame someone for a line they never wrote. Passing the policy
     // as written is what keeps the issue paths pointing at real fields.

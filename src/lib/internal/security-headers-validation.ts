@@ -19,6 +19,7 @@
  */
 
 import {
+  applyCSPPreset,
   collectCSPIssues,
   describeValue,
   isPlainObject,
@@ -235,6 +236,38 @@ export function collectFrameOptionsIssues(
 }
 
 /**
+ * The policy as the plugin will read it, for the checks that span directives a
+ * preset supplies.
+ *
+ * The directive-level rules deliberately run on the policy as written, so a
+ * preset's own directives are never reported back as the author's mistakes.
+ * The framing cross-check is the one rule that cannot work that way: it asks
+ * about `frameAncestors`, and `preset: 'strict'` is a policy whose
+ * `frameAncestors` is `["'none'"]` even though the author never typed it.
+ * Reading the unexpanded policy there saw no `frameAncestors` at all, so
+ * `{ csp: { preset: 'strict' }, frameOptions: 'SAMEORIGIN' }` validated clean
+ * here and then threw per request once the plugin expanded it, which is the
+ * failure this whole module exists to prevent.
+ *
+ * An unknown preset name comes back unexpanded rather than throwing.
+ * `collectCSPIssues` has already reported it, and a name that names no preset
+ * has no directives to cross-check against.
+ */
+function withPresetExpanded(
+  csp: CSPConfig | false | undefined,
+): CSPConfig | false | undefined {
+  if (!csp) {
+    return csp;
+  }
+
+  try {
+    return applyCSPPreset(csp);
+  } catch {
+    return csp;
+  }
+}
+
+/**
  * The one framing pair where the fallback is weaker than the policy.
  *
  * `frame-ancestors` supersedes `X-Frame-Options` wherever CSP is supported,
@@ -313,11 +346,14 @@ export function collectFramingIssues(
  * await saveTenantPolicy(tenantID, result.policy);
  * ```
  *
- * Two things it deliberately does not do. It does not expand `csp.preset`, so
- * pass the policy as it was written and the preset's own directives are not
- * re-reported as the author's mistakes. And it says nothing about whether a
- * policy is a *good* one, only whether it is valid: a tenant is perfectly able
- * to save `defaultSrc: ['*']` and this will accept it.
+ * Two things it deliberately does not do. It does not report a `csp.preset`'s
+ * own directives as the author's mistakes, so pass the policy as it was
+ * written. The framing cross-check is the exception, and has to be: it asks
+ * about `frameAncestors`, which a preset supplies, so it reads the expanded
+ * policy the plugin will actually serve rather than blessing a pair that then
+ * fails per request. And it says nothing about whether a policy is a *good*
+ * one, only whether it is valid: a tenant is perfectly able to save
+ * `defaultSrc: ['*']` and this will accept it.
  *
  * @param policy The policy to check, in the shape a `resolve` callback returns
  * @param options.baseline What this policy layers over, for the checks that
@@ -404,7 +440,7 @@ export function validateSecurityHeadersPolicy(
     issues.push(
       ...collectFramingIssues(
         frameOptions ?? options.baseline?.frameOptions,
-        csp ?? options.baseline?.csp,
+        withPresetExpanded(csp ?? options.baseline?.csp),
       ),
     );
   }
