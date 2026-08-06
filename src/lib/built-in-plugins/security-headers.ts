@@ -18,6 +18,7 @@ import {
   serializeCSP,
   validateCSPConfig,
   applyCSPPreset,
+  isUnsafeInlineEffective,
   type CSPConfig,
 } from '../internal/csp-policy';
 import { UNIREND_ERROR_PAGE_STYLE_HASHES } from '../internal/error-page-utils';
@@ -762,12 +763,13 @@ function effectiveAttributeSources(
  * excuse a handler that the more specific directive is specifically blocking.
  *
  * The two opt-ins are not equivalent, which is the other thing this gets right.
- * 'unsafe-inline' permits the attribute outright. 'unsafe-hashes' does not
- * permit anything by itself: it only makes hash sources eligible to match an
- * attribute, so a directive carrying it still blocks every attribute whose
- * exact value is not also listed as a hash. Verified against Chrome, which
- * runs `onclick` under `script-src-attr 'unsafe-hashes' 'sha256-<value>'` and
- * blocks it under `script-src-attr 'unsafe-hashes'` alone.
+ * 'unsafe-inline' permits the attribute outright, when it is in effect at all.
+ * 'unsafe-hashes' permits nothing by itself: it only makes hash sources
+ * eligible to match an attribute, so a directive carrying it still blocks every
+ * attribute whose exact value is not also listed as a hash. Verified against
+ * Chrome, which runs `onclick` under
+ * `script-src-attr 'unsafe-hashes' 'sha256-<value>'` and blocks it under
+ * `script-src-attr 'unsafe-hashes'` alone.
  */
 function permitsInlineAttribute(
   policy: CSPConfig,
@@ -781,7 +783,11 @@ function permitsInlineAttribute(
     return true;
   }
 
-  if (sources.includes("'unsafe-inline'")) {
+  // Effective rather than merely present. A directive reading
+  // `'unsafe-inline' 'sha256-something'` has an inert keyword, so the attribute
+  // is blocked and the author is the one person who would not guess it from
+  // reading their own policy.
+  if (isUnsafeInlineEffective(sources)) {
     return true;
   }
 
@@ -1468,7 +1474,15 @@ export function securityHeaders(
   // One message per distinct finding for the life of the process. These come
   // from templates, which are per app and fixed, so repeating per request would
   // say nothing new.
+  //
+  // Keyed by description and hash together, matching how the scanner dedupes.
+  // Two <button onclick> with different handlers are two findings that need two
+  // different hashes to fix, so collapsing them on the description would report
+  // the first and silently swallow the second.
   const reportedInlineAttributes = new Set<string>();
+
+  const findingKey = (finding: InlineAttributeFinding) =>
+    `${finding.description}|${finding.hash}`;
 
   const reportInlineAttributes = (
     request: FastifyRequest,
@@ -1479,7 +1493,7 @@ export function securityHeaders(
     }
 
     const fresh = findings.filter(
-      (finding) => !reportedInlineAttributes.has(finding.description),
+      (finding) => !reportedInlineAttributes.has(findingKey(finding)),
     );
 
     if (!fresh.length) {
@@ -1487,7 +1501,7 @@ export function securityHeaders(
     }
 
     for (const finding of fresh) {
-      reportedInlineAttributes.add(finding.description);
+      reportedInlineAttributes.add(findingKey(finding));
     }
 
     const log = (request as Partial<FastifyRequest>).log;

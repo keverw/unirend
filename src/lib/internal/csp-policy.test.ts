@@ -277,16 +277,38 @@ describe('serializeCSP', () => {
       );
     });
 
-    it('still receives the sources the caller wrote there', () => {
-      // Only the automatic additions are withheld. A hash the caller put in the
-      // directive themselves is their business, and dropping it would be us
-      // editing their policy.
+    it('still receives additions once the caller adds their own hash', () => {
+      // The keyword is only worth protecting while it is doing something. A
+      // caller who writes a hash next to it has already made it inert, so the
+      // directive is matching on hashes alone and withholding ours would leave
+      // unirend's own inline content blocked while preserving nothing.
       expect(
         serializeCSP(
           { styleSrc: ["'unsafe-inline'", "'sha256-mine='"] },
           { styleSrc: ["'sha256-ours='"] },
         ),
-      ).toBe("style-src 'unsafe-inline' 'sha256-mine='");
+      ).toBe("style-src 'unsafe-inline' 'sha256-mine=' 'sha256-ours='");
+    });
+
+    it('still receives additions when a nonce makes it inert', () => {
+      expect(
+        serializeCSP(
+          { scriptSrc: ["'unsafe-inline'", "'nonce-abc123'"] },
+          { scriptSrc: ["'sha256-ours='"] },
+        ),
+      ).toBe("script-src 'unsafe-inline' 'nonce-abc123' 'sha256-ours='");
+    });
+
+    it("still receives additions alongside 'strict-dynamic'", () => {
+      // 'strict-dynamic' disables 'unsafe-inline' the same way a hash or nonce
+      // does, and hashes keep working under it, so this is the combination
+      // where withholding would be most obviously wrong.
+      expect(
+        serializeCSP(
+          { scriptSrc: ["'unsafe-inline'", "'strict-dynamic'"] },
+          { scriptSrc: ["'sha256-ours='"] },
+        ),
+      ).toBe("script-src 'unsafe-inline' 'strict-dynamic' 'sha256-ours='");
     });
   });
 });

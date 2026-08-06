@@ -2218,6 +2218,37 @@ describe('template CSP hashes inside <noscript>', () => {
       expect(findings[0].hash).toBe(`'${hashInlineContentForCSP('a && b()')}'`);
     });
 
+    it('keeps two handlers on the same element type apart', async () => {
+      // Deduping on the element and attribute name alone would collapse these
+      // onto whichever came first. They need different hashes to fix, so the
+      // survivor would make the template look covered while the other handler
+      // stayed blocked with nothing said about it.
+      const findings = await findingsFor(
+        `<button onclick="first()">a</button><button onclick="second()">b</button>`,
+      );
+
+      expect(findings).toHaveLength(2);
+      expect(findings.map((finding) => finding.hash)).toEqual([
+        `'${hashInlineContentForCSP('first()')}'`,
+        `'${hashInlineContentForCSP('second()')}'`,
+      ]);
+
+      // Same description, which is the reason keying on it alone loses one.
+      expect(new Set(findings.map((finding) => finding.description)).size).toBe(
+        1,
+      );
+    });
+
+    it('still collapses two identical handlers', async () => {
+      // Identical values need one hash and one message, so the dedupe still has
+      // a job to do.
+      const findings = await findingsFor(
+        `<button onclick="same()">a</button><button onclick="same()">b</button>`,
+      );
+
+      expect(findings).toHaveLength(1);
+    });
+
     it('reports nothing for a template with no inline attributes', async () => {
       const findings = await findingsFor('<p>clean</p>');
 

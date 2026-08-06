@@ -36,6 +36,36 @@ const NONCE_SOURCE = /^'nonce-[A-Za-z0-9+/\-_]+={0,2}'$/;
 const SCHEME_SOURCE = /^[a-z][a-z0-9+.-]*:$/i;
 
 /**
+ * Whether `'unsafe-inline'` in this source list actually does anything.
+ *
+ * Writing the keyword is not the same as having it take effect. A browser
+ * ignores `'unsafe-inline'` when the same source list carries a hash, a nonce,
+ * or `'strict-dynamic'`, which leaves a directive that reads permissive and
+ * behaves strictly. Everything that has to reason about inline content needs
+ * the second question rather than the first, so it lives here and is asked in
+ * one place.
+ *
+ * Verified in Chrome across all six combinations: an inline script runs under
+ * `script-src 'unsafe-inline'`, and is blocked the moment a hash, a nonce, or
+ * `'strict-dynamic'` joins it, in which case only a matching hash brings it
+ * back.
+ */
+export function isUnsafeInlineEffective(
+  sources: readonly string[] | undefined,
+): boolean {
+  if (!sources?.includes("'unsafe-inline'")) {
+    return false;
+  }
+
+  return !sources.some(
+    (source) =>
+      source === "'strict-dynamic'" ||
+      HASH_SOURCE.test(source) ||
+      NONCE_SOURCE.test(source),
+  );
+}
+
+/**
  * Schemes worth refusing outright in a source list.
  *
  * `javascript:` and `vbscript:` in a `script-src` allow exactly the injection a
@@ -454,19 +484,25 @@ export function serializeCSP(
           ? additions.styleSrc
           : undefined;
 
-    // Adding a hash to a directive that opted into 'unsafe-inline' would revoke
-    // the opt-in. A browser ignores 'unsafe-inline' as soon as any hash or
-    // nonce appears in the same source list, so contributing our own hashes
-    // here would silently block every inline script or style the caller just
-    // declared they wanted, including theirs, and the directive would still
-    // read as though it allowed them.
+    // Adding a hash to a directive where 'unsafe-inline' is doing real work
+    // would revoke the opt-in, since a browser ignores the keyword as soon as
+    // any hash or nonce joins the list. Contributing here would silently block
+    // every inline script or style the caller had just declared they wanted,
+    // under a directive that still reads as though it allowed them. Nothing is
+    // lost by staying out: 'unsafe-inline' already covers the content those
+    // hashes were for.
     //
-    // Skipping is safe as well as necessary: 'unsafe-inline' already covers the
-    // content those hashes were for, so nothing is lost by leaving them out.
+    // "Doing real work" is the whole condition, not just the keyword's
+    // presence. A caller who writes `'unsafe-inline' 'sha256-theirs'`, or pairs
+    // it with a nonce or 'strict-dynamic', already has an inert keyword and a
+    // directive matching on hashes alone. Withholding ours there does not
+    // preserve anything, it just leaves unirend's own bootstrap script blocked
+    // unless their hash happens to be ours.
+    //
     // Checked per directive, since a caller can put 'unsafe-inline' in
     // script-src while script-src-elem stays strict, and it is the element
     // directive that governs an inline <script> when both are set.
-    if (configured?.includes("'unsafe-inline'")) {
+    if (isUnsafeInlineEffective(configured)) {
       extra = undefined;
     }
 

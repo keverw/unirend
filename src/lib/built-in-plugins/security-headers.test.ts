@@ -2280,6 +2280,81 @@ describe('securityHeaders', () => {
       });
     });
 
+    it("warns when a hash has made 'unsafe-inline' inert", () => {
+      // Writing the keyword is not the same as it taking effect. A browser
+      // ignores 'unsafe-inline' once a hash joins the list, so the handler is
+      // blocked, and the author reading their own policy is the last person who
+      // would guess that.
+      return warningsFor({
+        scriptSrc: ["'self'", "'unsafe-inline'", "'sha256-unrelated='"],
+        allowUnsafeInlineScript: true,
+      }).then((warnings) => {
+        expect(warnings).toHaveLength(1);
+      });
+    });
+
+    it("warns when a nonce has made 'unsafe-inline' inert", () => {
+      return warningsFor({
+        scriptSrc: ["'self'", "'unsafe-inline'", "'nonce-abc123'"],
+        allowUnsafeInlineScript: true,
+      }).then((warnings) => {
+        expect(warnings).toHaveLength(1);
+      });
+    });
+
+    it("warns when 'strict-dynamic' has made 'unsafe-inline' inert", () => {
+      return warningsFor({
+        scriptSrc: ["'self'", "'unsafe-inline'", "'strict-dynamic'"],
+        allowUnsafeInlineScript: true,
+      }).then((warnings) => {
+        expect(warnings).toHaveLength(1);
+      });
+    });
+
+    it('reports two handlers on the same element type separately', () => {
+      // Same description, different values, so they need different hashes to
+      // fix. Deduping on the description would report the first and swallow the
+      // second, leaving a blocked handler with nothing said about it.
+      const second: InlineAttributeFinding = {
+        description: '<button> has onclick=',
+        kind: 'script',
+        hash: `'${hashInlineContentForCSP('other()')}'`,
+      };
+
+      return warningsFor({ scriptSrc: ["'self'"] }, [ONCLICK, second]).then(
+        (warnings) => {
+          expect(warnings).toHaveLength(1);
+
+          const logged = JSON.stringify(warnings);
+
+          expect(logged).toContain(ONCLICK.hash.slice(1, -1));
+          expect(logged).toContain(second.hash.slice(1, -1));
+        },
+      );
+    });
+
+    it('warns about a second handler the policy does not cover', () => {
+      // The case the collapse hid entirely: one handler hashed, the other not.
+      // Judging the template by the first would call it clean.
+      const uncovered: InlineAttributeFinding = {
+        description: '<button> has onclick=',
+        kind: 'script',
+        hash: `'${hashInlineContentForCSP('other()')}'`,
+      };
+
+      return warningsFor(
+        { scriptSrc: ["'self'", "'unsafe-hashes'", ONCLICK_HASH] },
+        [ONCLICK, uncovered],
+      ).then((warnings) => {
+        expect(warnings).toHaveLength(1);
+
+        const logged = JSON.stringify(warnings);
+
+        expect(logged).toContain(uncovered.hash.slice(1, -1));
+        expect(logged).not.toContain(ONCLICK.hash.slice(1, -1));
+      });
+    });
+
     it('stays quiet when the -attr directive opted in', async () => {
       // script-src-attr is what governs an onclick= when it is set, so someone
       // who put 'unsafe-inline' there has made this decision in the most
@@ -2422,6 +2497,22 @@ describe('securityHeaders', () => {
       }
 
       expect(warnings).toHaveLength(1);
+
+      // A different handler on the same element type is a different finding
+      // needing a different hash, so the once-per-process guard must not treat
+      // it as already said. This is where keying on the description alone would
+      // swallow it: the first call has already claimed that description.
+      request.addCSPSources?.({
+        inlineAttributes: [
+          {
+            description: '<button> has onclick=',
+            kind: 'script',
+            hash: `'${hashInlineContentForCSP('different()')}'`,
+          },
+        ],
+      });
+
+      expect(warnings).toHaveLength(2);
     });
   });
 
@@ -3182,6 +3273,46 @@ describe('securityHeaders', () => {
           "script-src 'unsafe-inline'; style-src 'unsafe-inline'",
         );
         expect(csp).not.toContain('sha256-');
+      } finally {
+        await app.close();
+      }
+    });
+
+    it("still contributes when the caller's own hash made 'unsafe-inline' inert", async () => {
+      // The trap in withholding hashes at all. Skipping protects a live
+      // 'unsafe-inline', but a caller who writes their own hash next to it has
+      // already made the keyword inert, so the directive matches on hashes
+      // alone. Staying out there preserves nothing and leaves unirend's
+      // bootstrap script blocked unless their hash happens to be ours.
+      //
+      // Verified in Chrome: an inline script is blocked under
+      // `script-src 'unsafe-inline' 'sha256-other'` and runs once its own hash
+      // is added.
+      const app = fastify({ trustProxy: true });
+
+      await securityHeaders({
+        csp: {
+          scriptSrc: ["'unsafe-inline'", "'sha256-callers='"],
+          allowUnsafeInlineScript: true,
+        },
+      })(app as unknown as PluginHostInstance, createMockOptions());
+
+      app.get('/test', (_request, reply) => reply.send('ok'));
+
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const address = app.server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/test`);
+        const csp = response.headers.get('content-security-policy') ?? '';
+
+        expect(csp).toContain("'sha256-callers='");
+
+        // Unirend's bootstrap hash, which is the thing that would have been
+        // blocked.
+        expect(csp).toMatch(/'sha256-[^']+'.*'sha256-[^']+'/);
       } finally {
         await app.close();
       }

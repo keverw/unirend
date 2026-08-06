@@ -590,8 +590,11 @@ function collectTemplateCSPHashesWith(
 ): TemplateCSPHashes {
   const scriptSrc = new Set<string>();
   const styleSrc = new Set<string>();
-  // Keyed by description so the same attribute on the same element type is
-  // reported once, matching how the element hashes dedupe.
+  // Keyed by description *and* hash, so two <button onclick> with different
+  // handlers stay two findings. Keying on the description alone would collapse
+  // them onto whichever value was seen first, and a policy covering that one
+  // would then read as covering the template: the second handler is blocked and
+  // nothing says so.
   const inlineAttributes = new Map<string, InlineAttributeFinding>();
 
   const collectFrom = ($: CheerioAPI): void => {
@@ -618,16 +621,15 @@ function collectTemplateCSPHashesWith(
         const attribute = kind === 'style' ? 'style' : name;
         const description = `<${el.tagName}> has ${attribute}=`;
 
-        if (!inlineAttributes.has(description)) {
-          // Hashed from the attribute value as parsed, which is what a browser
-          // matches against: entity references are already decoded here and are
-          // decoded there too, so the digest agrees with the one the browser
-          // computes rather than with the source bytes.
-          inlineAttributes.set(description, {
-            description,
-            kind,
-            hash: `'${hashInlineContentForCSP(value)}'`,
-          });
+        // Hashed from the attribute value as parsed, which is what a browser
+        // matches against: entity references are already decoded here and are
+        // decoded there too, so the digest agrees with the one the browser
+        // computes rather than with the source bytes.
+        const hash = `'${hashInlineContentForCSP(value)}'`;
+        const key = `${description}|${hash}`;
+
+        if (!inlineAttributes.has(key)) {
+          inlineAttributes.set(key, { description, kind, hash });
         }
       }
     });
