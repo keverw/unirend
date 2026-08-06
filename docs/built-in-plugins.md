@@ -66,20 +66,23 @@ Several built-in callbacks are request-aware, which means several of them can re
 
 | Plugin | Callback | On throw |
 | --- | --- | --- |
-| `domainValidation` | `validProductionDomains` | Domain rejected, visitor gets the same 403 an unknown host gets |
-| `domainValidation` | `invalidDomainHandler` | Default rejection response is sent, the rejection itself stands |
 | `securityHeaders` | `cors.origin` | Origin denied, no `Access-Control-Allow-Origin` |
 | `securityHeaders` | `cors.credentials` | Credentials withheld, the origin decision stands |
-| `securityHeaders` | `resolve` | Propagates, Fastify turns it into a 500 |
+| `domainValidation` | `invalidDomainHandler` | Default rejection response is sent, the rejection itself stands |
+| `domainValidation` | `validProductionDomains` | Request fails with a plain `500`, sent by the plugin |
+| `securityHeaders` | `resolve` | Propagates, your error handler renders the 500 |
 
-**The first four answer a narrow yes-or-no question, and "no" is a safe answer.** It costs one caller its response and leaves the rest of the site working, which is why those fail closed instead of failing the request.
+**The first three answer a narrow question that still has a safe answer without them.** Denying an origin costs one cross-origin caller its response and leaves the rest of the site working. Falling back to the default rejection wording costs nothing at all, because the rejection was already decided. So those degrade rather than fail the request.
 
-**`resolve` does not answer a question, it computes a policy, and there is no safe substitute for a policy.** Falling back to the baseline is a guess, and on the very domain whose lookup just failed it can be the wrong one, since the baseline is written for domains you own. So it propagates instead. See [Throwing on Purpose](built-in-plugins/security-headers.md#throwing-on-purpose).
+**The last two could not answer at all, so the request fails.** A `500` is the honest status for both: nothing was decided about the caller, only that the server could not do its job. Neither is refused a `403`, which would claim the caller was understood and turned away, file an outage in your logs as an authorization failure, and send whoever reads it looking for bad credentials.
 
-<!-- prettier-ignore -->
-> [!IMPORTANT]
-> One outage can therefore produce a 403 from one callback and a 500 from another on the same request. Each default is defensible on its own, but together they are a mix nobody chose.
+They differ only in how the response is produced, and that difference is deliberate:
 
-If a single store backs more than one of these, handle its failure inside each callback rather than letting the defaults decide for you. Only you can tell "not one of ours" from "the store is down", and only you know which of the two answers your deployment should give.
+- `validProductionDomains` fails **before** the host is confirmed, so the plugin sends a plain `500` itself. Reaching your error handler would render your branded page for a domain that may not be yours.
+- `resolve` fails **after** the host passed whatever gate you have, so propagating is safe and your error page is the right one to show.
 
-**None of this affects whether the response gets its headers.** These defaults decide what the response _is_, and the `onSend` hook in `securityHeaders` then applies headers to whatever that turned out to be. A 403 from a failed validator and a 500 from a failed `resolve` both go out fully covered, minus the HSTS that a [disclaimed host](built-in-plugins/security-headers.md#hsts-on-a-rejected-host) or a [failed resolve](built-in-plugins/security-headers.md#when-resolve-throws) deliberately drops. The two mechanisms are unrelated: one picks the response, the other dresses it.
+See [Throwing on Purpose](built-in-plugins/security-headers.md#throwing-on-purpose) for treating that as a deliberate choice.
+
+Whatever the default, only you can tell a genuine "not one of ours" from "the store is down". If a single store backs more than one of these, handle its failure inside each callback rather than letting the defaults decide for you.
+
+**None of this affects whether the response gets its headers.** These defaults decide what the response _is_, and the `onSend` hook in `securityHeaders` then applies headers to whatever that turned out to be. A denied origin, a plain `500` from a failed validator, and a propagated `500` from a failed `resolve` all go out fully covered, minus the HSTS that a [disclaimed host](built-in-plugins/security-headers.md#hsts-on-a-rejected-host) or a [failed resolve](built-in-plugins/security-headers.md#when-resolve-throws) deliberately drops. The two mechanisms are unrelated: one picks the response, the other dresses it.

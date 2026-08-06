@@ -227,16 +227,28 @@ serveSSRBuilt(buildDir, {
 
 One exception comes with it: `Strict-Transport-Security` is not sent when `domainValidation` rejects the request's host. Sending it there would set an HTTPS policy for a domain the server has just declared is not its own, and browsers honor that for the full `max-age` with no way to revoke it. The suppression is keyed on the rejection rather than on the 403 status, so an authorization failure from your own application, on a domain the server does serve, keeps HSTS like any other response. `domainValidation` publishes the fact as `request.domainValidationRejected`, which your own hooks can read for the same purpose.
 
-**Behavior change:** the request-time callbacks on `securityHeaders` and `domainValidation` now fail closed instead of propagating. Each of them reaches a store in a real deployment, and each of them used to turn a store being unavailable into a 500 for the whole request:
+**Behavior change:** the request-time callbacks on `securityHeaders` and `domainValidation` no longer propagate into the application's error handler. Each of them reaches a store in a real deployment, and each of them used to turn a store being unavailable into a rendered 500 for the whole request:
 
 | Callback | Previously | Now |
 | --- | --- | --- |
-| `securityHeaders` `cors.origin` | 500 | Origin denied, no `Access-Control-Allow-Origin` sent |
-| `securityHeaders` `cors.credentials` | 500 | Credentials withheld, the origin decision stands |
-| `domainValidation` `validProductionDomains` | 500 | Domain rejected with the usual 403 |
-| `domainValidation` `invalidDomainHandler` | 500 | Default rejection response sent |
+| `securityHeaders` `cors.origin` | Rendered 500 | Origin denied, no `Access-Control-Allow-Origin` sent |
+| `securityHeaders` `cors.credentials` | Rendered 500 | Credentials withheld, the origin decision stands |
+| `domainValidation` `invalidDomainHandler` | Rendered 500 | Default rejection response sent |
+| `domainValidation` `validProductionDomains` | Rendered 500 | Plain 500 sent by the plugin |
 
-Each error is logged once through the request logger at the point it is caught. A 500 was both the wrong answer and the widest possible blast radius, since it was served to same-origin and non-browser traffic that the callback was never consulted about.
+Each error is logged once through the request logger at the point it is caught. For the first three, a 500 was both the wrong answer and the widest possible blast radius, since it was served to same-origin and non-browser traffic that the callback was never consulted about.
+
+A failed `validProductionDomains` still fails the request, because a validator that could not answer has not said the domain is yours and treating that as a pass is how a `Host` header attack gets through on a bad day for the database. What changed is the shape of the failure. It is not a 403, which would claim the caller was understood and refused, file an outage in your logs as an authorization failure, and send whoever reads it looking for bad credentials. And it is sent by the plugin rather than thrown, so a host that was never confirmed does not get your branded error page. The request is still marked `domainValidationRejected`, so it does not receive HSTS either. `invalidDomainHandler` is not consulted, since it phrases "this domain is not authorized" and that is not what happened.
+
+**New:** `request.domainValidationChecked` and `server.domainValidationRegistered` make it possible to tell a host that failed validation from one that was never validated at all. The second case happens when a plugin registered above `domainValidation` ends the request by throwing: the gate never runs, so `domainValidationRejected` is never set, and an error page renders on a host nothing has vouched for. `domainValidationRejected` cannot distinguish that from an ordinary success, because both leave it unset.
+
+```typescript
+const isHostUnverified =
+  request.server.domainValidationRegistered === true &&
+  request.domainValidationChecked !== true;
+```
+
+Both halves are needed, since a server that does not register the plugin never sets `domainValidationChecked` either. The SSR starter template's `get-500-error-page.ts` now uses this to return a plain page with no branding and no development details when it matches, and the API template shows the same condition for withholding `errorDetails`. Ordering is still the real fix, and [docs/built-in-plugins.md](docs/built-in-plugins.md#ordering) now states the rule as putting `domainValidation` above every plugin that adds a per-request hook, rather than above every plugin that can answer a request. A hook that throws does not answer, but the error handler answers for it, which the old wording did not cover.
 
 Two related fixes come with it. The origin and credentials decisions are now computed at most once per request and reused everywhere else in the lifecycle, so a throwing callback is no longer invoked a second time by the error path that is handling its first throw. And an `invalidDomainHandler` that returns an unrecognized `contentType` now falls back to the default response rather than matching no branch and leaving the request hanging with nothing sent.
 

@@ -197,12 +197,25 @@ export class APIServerComponent extends BaseComponent {
           //     });
           //   }
 
+          //   // An error can happen before domainValidation has run, if a plugin
+          //   // registered above it ends the request by throwing. The host is then
+          //   // unverified, and anything echoed back here is being sent to a domain
+          //   // nothing has vouched for. Both halves of this check are needed: without
+          //   // the first, a server that does not validate hosts would treat every
+          //   // error as unverified.
+          //   const isHostUnverified =
+          //     request.server.domainValidationRegistered === true &&
+          //     request.domainValidationChecked !== true;
+
           //   return params.APIResponseHelpers.createAPIErrorResponse({
           //     request,
           //     statusCode: 500,
           //     errorCode: 'internal_server_error',
           //     errorMessage: isDevelopment ? error.message : 'Internal server error',
-          //     errorDetails: isDevelopment ? { stack: error.stack } : undefined,
+          //     errorDetails:
+          //       isDevelopment && !isHostUnverified
+          //         ? { stack: error.stack }
+          //         : undefined,
           //   });
           // },
           //

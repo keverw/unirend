@@ -211,8 +211,22 @@ export function domainValidation(
       }
     }
 
+    // Published at registration so an unset `domainValidationChecked` can be
+    // read for what it is. On its own that flag cannot distinguish "this server
+    // does not validate hosts" from "it does, and the request died before the
+    // check", which are opposite situations for anything deciding how much to
+    // reveal on an error page.
+    pluginHost.decorate('domainValidationRegistered', true);
+
     // Register onRequest hook for domain security checks
     pluginHost.addHook('onRequest', async (request, reply) => {
+      // First statement in the hook, deliberately. This records that the host
+      // was examined, not what the examination found, so it stays true for a
+      // pass, a rejection, a redirect, and a validator that failed. Anything
+      // that ends the request before this point leaves it unset, which is the
+      // signal that the host reaching a later handler was never checked.
+      request.domainValidationChecked = true;
+
       // Normalize config defaults
       const shouldSkipInDev = config.skipInDevelopment ?? true;
       const shouldEnforceHTTPS = config.enforceHTTPS ?? true;
@@ -283,17 +297,52 @@ export function domainValidation(
               request,
             );
           } catch (error) {
-            // Fail closed. A validator that cannot answer has not said this
-            // domain is ours, and treating "the tenant lookup timed out" as
-            // "welcome in" is how a host-header attack gets through on a bad
-            // day for the database. The visitor gets the same 403 an unknown
-            // domain gets, and the operator gets the error in the log.
+            // Fail closed on access, but not by reusing the rejection. A
+            // validator that cannot answer has not said this domain is ours,
+            // and treating "the tenant lookup timed out" as "welcome in" is how
+            // a host-header attack gets through on a bad day for the database.
+            // So the request still stops here.
+            //
+            // It stops as a server error rather than a 403 because those mean
+            // different things. A 403 is a statement about the caller, that
+            // they were understood and refused, and a lookup that never
+            // completed established nothing about them at all. Sending one
+            // anyway puts an outage in the logs as an authorization failure and
+            // points anyone reading it at credentials rather than at the store
+            // that is down.
+            //
+            // Sent from here rather than thrown so it stays a plain response.
+            // Throwing would reach the application's error handler and render
+            // its branded error page on a host that was never confirmed to be
+            // one this server serves.
             logCallbackError(
               request,
               error,
-              `validProductionDomains threw for "${domain}", rejecting the request`,
+              `validProductionDomains threw for "${domain}", failing the request`,
             );
-            isAllowedDomain = false;
+
+            // The host was never confirmed, so this server cannot claim it.
+            // That is what keeps HSTS off a domain that may not be ours.
+            markHostDisclaimed(request);
+
+            if (isAPIEndpoint) {
+              reply
+                .code(500)
+                .header('Cache-Control', 'no-store')
+                .type('application/json')
+                .send({
+                  error: 'domain_validation_failed',
+                  message: 'Unable to validate the request domain',
+                });
+            } else {
+              reply
+                .code(500)
+                .header('Cache-Control', 'no-store')
+                .type('text/plain')
+                .send('Internal Server Error');
+            }
+
+            return;
           }
         } else {
           // Normalize validProductionDomains to array

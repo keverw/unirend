@@ -215,12 +215,10 @@ export const ERROR_PAGE_STYLE_HASH = hashInlineContentForCSP(PAGE_STYLES);
  * it throws, and this page answers on its behalf, so your branding can be served
  * on a host the server never validated.
  *
- * Most apps do not care. If yours does, the fix is ordering: keep every plugin
- * that registers a per-request hook below domainValidation, so a failure there
- * cannot outrun the host check. Checking domainValidationRejected here does not
- * help for this case, because the plugin never ran and so never set it. What you
- * can check is request.hostname against the domains you actually serve, and
- * return something plain when it is not one of them.
+ * The isHostUnverified check below detects exactly that case and returns a plain
+ * page instead. Ordering is still the real fix, so keep every plugin that
+ * registers a per-request hook below domainValidation, but this costs one
+ * comparison and covers you when something slips.
  */
 export function get500ErrorPage(
   request: FastifyRequest,
@@ -239,6 +237,33 @@ export function get500ErrorPage(
     requestContext?.themePreference === 'auto'
       ? requestContext.themePreference
       : 'auto';
+
+  // True only when this server validates hosts and this request failed before
+  // that check ran, which means nothing has vouched for the host about to be
+  // shown this page. Both halves matter: without the first, a server that does
+  // not use domainValidation would treat every error as unverified.
+  const isHostUnverified =
+    request.server.domainValidationRegistered === true &&
+    request.domainValidationChecked !== true;
+
+  // Unbranded, and no development details either. The request never got far
+  // enough to establish whose domain this is, so this says as little as it can
+  // while still being a valid page. Delete this block if you would rather show
+  // the full page everywhere.
+  if (isHostUnverified) {
+    return \`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>500 - Server Error</title>
+  </head>
+  <body>
+    <h1>500</h1>
+    <p>The server encountered an error and could not complete the request.</p>
+  </body>
+</html>\`;
+  }
 
   const safeMessage = escapeHTML(error.message || 'Unexpected server error');
   const safeStack = error.stack

@@ -2875,6 +2875,27 @@ declare module 'fastify' {
      */
     domainValidationRejected?: boolean;
     /**
+     * Whether `domainValidation`'s hook ran for this request.
+     *
+     * Set as the first thing the hook does, so it answers "was this host
+     * examined at all", separately from what the examination concluded. The two
+     * together give three states:
+     *
+     * - `checked` unset: the gate never ran. Either the plugin is not
+     *   registered, or something above it in `plugins` ended the request first,
+     *   which includes a hook that threw. The host is unverified.
+     * - `checked` set, `rejected` unset: the host passed.
+     * - `checked` set, `rejected` set: the host was refused, or could not be
+     *   confirmed because the validator failed.
+     *
+     * The first state is the one worth handling. An error page rendered there
+     * is being served on a host nothing has vouched for, so it is a reasonable
+     * place to withhold branding and detail. Read it alongside
+     * `server.domainValidationRegistered` to tell "the plugin is not in use"
+     * from "the plugin is in use but never got to run".
+     */
+    domainValidationChecked?: boolean;
+    /**
      * Internal request-start timestamp captured by the framework.
      *
      * Used by framework features that need a stable "request received" time,
@@ -2924,5 +2945,25 @@ declare module 'fastify' {
      * not on every `.js` or `.css` file request.
      */
     isStaticAsset: boolean;
+  }
+
+  interface FastifyInstance {
+    /**
+     * Whether the `domainValidation` plugin was registered on this server.
+     *
+     * Set once at registration, so it is a fact about the server rather than
+     * about a request. It exists to disambiguate an unset
+     * `request.domainValidationChecked`, which otherwise reads the same whether
+     * the plugin is not in use at all or is in use and never got to run:
+     *
+     * ```typescript
+     * const hostUnverified =
+     *   request.server.domainValidationRegistered === true &&
+     *   request.domainValidationChecked !== true;
+     * ```
+     *
+     * Unset when the plugin is not registered.
+     */
+    domainValidationRegistered?: boolean;
   }
 }
