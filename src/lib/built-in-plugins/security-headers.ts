@@ -720,6 +720,124 @@ function validateHSTSConfig(cfg: HSTSConfig): void {
 }
 
 /**
+ * Which CSP directive chain governs an inline-attribute finding.
+ *
+ * The strings come from the template scanner, which reports a `style=` and an
+ * `on*=` in the same list. They are governed by entirely different directives,
+ * so the kind has to survive the trip in order for the check below to consult
+ * the right one.
+ */
+function inlineAttributeKind(finding: string): 'script' | 'style' {
+  return finding.endsWith(' has style=') ? 'style' : 'script';
+}
+
+/**
+ * The directive a browser would actually consult for an inline attribute.
+ *
+ * CSP fallback stops at the first directive that is set, it does not union the
+ * chain. `script-src-attr` wins over `script-src`, which wins over
+ * `default-src`, and once one of them is present the rest are not consulted at
+ * all. An empty array counts as absent because it serializes to nothing, so the
+ * browser falls through it too.
+ *
+ * Returns undefined when nothing in the chain is set, meaning no directive
+ * restricts the attribute.
+ */
+function effectiveAttributeSources(
+  policy: CSPConfig,
+  kind: 'script' | 'style',
+): readonly string[] | undefined {
+  const chain =
+    kind === 'script'
+      ? [policy.scriptSrcAttr, policy.scriptSrc, policy.defaultSrc]
+      : [policy.styleSrcAttr, policy.styleSrc, policy.defaultSrc];
+
+  return chain.find((sources) => sources !== undefined && sources.length > 0);
+}
+
+/**
+ * Whether the policy would actually let this inline attribute run.
+ *
+ * The check exists because warning unconditionally would be noise: someone who
+ * has deliberately set 'unsafe-hashes' or 'unsafe-inline' has already decided,
+ * and telling them again on every startup is how a warning gets tuned out. The
+ * detection lives in the template pipeline, which cannot see the policy, and
+ * the policy lives here, which cannot see the template. Reporting from there
+ * and deciding here is what lets the warning be accurate.
+ *
+ * Accuracy is the whole point, so the decision follows one chain rather than
+ * scanning every directive for an opt-in. Asking "did anything anywhere say
+ * 'unsafe-inline'" gets it wrong in both directions: a permissive `style-src`
+ * would excuse an `onclick=` that has nothing to do with styles, and a
+ * `script-src-attr: ["'none'"]` sitting above a permissive `script-src` would
+ * excuse a handler that the more specific directive is specifically blocking.
+ */
+function permitsInlineAttribute(
+  policy: CSPConfig,
+  kind: 'script' | 'style',
+): boolean {
+  const sources = effectiveAttributeSources(policy, kind);
+
+  // Nothing in the chain is set, so nothing blocks the attribute and there is
+  // nothing to warn about.
+  if (!sources) {
+    return true;
+  }
+
+  return (
+    sources.includes("'unsafe-hashes'") || sources.includes("'unsafe-inline'")
+  );
+}
+
+/**
+ * Reject the one framing pair where the fallback is weaker than the policy.
+ *
+ * frame-ancestors supersedes X-Frame-Options wherever CSP is supported, which
+ * is everywhere that matters, so X-Frame-Options is a fallback for browsers
+ * that would otherwise get no framing policy at all.
+ *
+ * A fallback being *stricter* than the policy it backs up is fine and common:
+ * frameOptions 'DENY' alongside frame-ancestors 'self' means an old browser
+ * refuses framing a new one permits, which is the safe direction to be wrong
+ * in. The reverse is not. 'SAMEORIGIN' alongside frame-ancestors 'none' means
+ * an old browser permits same-origin framing that the policy exists to forbid,
+ * and the author almost certainly believes they have forbidden it everywhere.
+ *
+ * Only that one combination is rejected. Anything else, including a deliberate
+ * "modern browsers get the nuance, old ones get the blunt fallback" pairing
+ * such as 'SAMEORIGIN' with a partner origin listed, is left alone: it is a
+ * real pattern and not this code's business to second-guess.
+ *
+ * Takes the two halves separately rather than a whole config because the pair
+ * it judges can be assembled from two places. A resolver overriding one half
+ * inherits the other from the baseline, so the invalid combination is
+ * reachable without either half being invalid on its own, and checking only
+ * what the resolver returned would miss it entirely.
+ *
+ * @param frameOptions The effective X-Frame-Options value, if any
+ * @param csp The effective CSP config, already expanded from its preset
+ */
+function validateFramingFallback(
+  frameOptions: SecurityHeadersConfig['frameOptions'],
+  csp: CSPConfig | false | undefined,
+): void {
+  if (!csp) {
+    return;
+  }
+
+  const isFramingDenied =
+    Array.isArray(csp.frameAncestors) &&
+    csp.frameAncestors.length === 1 &&
+    csp.frameAncestors[0] === "'none'";
+
+  if (isFramingDenied && frameOptions === 'SAMEORIGIN') {
+    throw new Error(
+      "Invalid securityHeaders config: csp.frameAncestors is [\"'none'\"] but frameOptions is 'SAMEORIGIN'. frame-ancestors supersedes X-Frame-Options where CSP is supported, so the weaker X-Frame-Options would still let a browser without CSP support frame this page from the same origin. Use frameOptions: 'DENY' to match, or drop frameOptions entirely.",
+    );
+  }
+}
+
+/**
  * Build the effective policy for a request, running `resolve` at most once.
  *
  * The cached verdict is what keeps a throwing resolver from throwing twice. It
@@ -808,6 +926,17 @@ async function resolveEffectiveConfig(
     hsts: override.hsts ?? baseConfig.hsts,
     csp,
   };
+
+  // Checked on the merged pair, not on what the resolver returned, because the
+  // two halves come from different places. Overriding just the CSP while
+  // inheriting `frameOptions: 'SAMEORIGIN'` from the baseline, or the reverse,
+  // assembles the rejected combination out of two halves that are each fine on
+  // their own. Validating only the override would let a resolver produce a
+  // policy the static config would have refused at startup.
+  validateFramingFallback(
+    effective.frameOptions,
+    effective.csp ? effective.csp.config : effective.csp,
+  );
 
   cache.securityHeadersEffective = effective;
 
@@ -1328,51 +1457,10 @@ export function securityHeaders(
   if (cspConfig) {
     validateCSPConfig(cspConfig);
 
-    // frame-ancestors supersedes X-Frame-Options wherever CSP is supported,
-    // which is everywhere that matters, so X-Frame-Options is a fallback for
-    // browsers that would otherwise get no framing policy at all.
-    //
-    // A fallback being stricter than the policy it backs up is fine and common:
-    // frameOptions 'DENY' alongside frame-ancestors 'self' means an old browser
-    // refuses framing a new one permits, which is the safe direction to be
-    // wrong in. The reverse is not. 'SAMEORIGIN' alongside frame-ancestors
-    // 'none' means an old browser permits same-origin framing that the policy
-    // exists to forbid, and the author almost certainly believes they have
-    // forbidden it everywhere.
-    //
-    // Only that one combination is rejected. Anything else, including a
-    // deliberate "modern browsers get the nuance, old ones get the blunt
-    // fallback" pairing such as 'SAMEORIGIN' with a partner origin listed, is
-    // left alone: it is a real pattern and not this code's business to
-    // second-guess.
-    const isFramingDenied =
-      Array.isArray(cspConfig.frameAncestors) &&
-      cspConfig.frameAncestors.length === 1 &&
-      cspConfig.frameAncestors[0] === "'none'";
-
-    if (isFramingDenied && config.frameOptions === 'SAMEORIGIN') {
-      throw new Error(
-        "Invalid securityHeaders config: csp.frameAncestors is [\"'none'\"] but frameOptions is 'SAMEORIGIN'. frame-ancestors supersedes X-Frame-Options where CSP is supported, so the weaker X-Frame-Options would still let a browser without CSP support frame this page from the same origin. Use frameOptions: 'DENY' to match, or drop frameOptions entirely.",
-      );
-    }
+    validateFramingFallback(config.frameOptions, cspConfig);
 
     resolvedCSP = compileCSP(cspConfig);
   }
-
-  // Whether the configured policy would actually block an inline attribute.
-  //
-  // The check exists because warning unconditionally would be noise: someone who
-  // has deliberately set 'unsafe-hashes' or 'unsafe-inline' has already decided,
-  // and telling them again on every startup is how a warning gets tuned out. The
-  // detection lives in the template pipeline, which cannot see the policy, and
-  // the policy lives here, which cannot see the template. Reporting from there
-  // and deciding here is what lets the warning be accurate.
-  const permitsInlineAttribute = (directives: (string[] | undefined)[]) =>
-    directives.some(
-      (sources) =>
-        sources?.includes("'unsafe-hashes'") ||
-        sources?.includes("'unsafe-inline'"),
-    );
 
   // One message per distinct finding for the life of the process. These come
   // from templates, which are per app and fixed, so repeating per request would
@@ -1540,24 +1628,18 @@ export function securityHeaders(
             // a resolver that relaxed or tightened inline handling for a tenant
             // is what decides whether the warning is useful for them.
             //
-            // Skipped entirely when the policy already allows them, so someone
-            // who made that call deliberately is not told about it repeatedly.
-            if (
-              !permitsInlineAttribute([
-                // The `-attr` directives first, since they are what governs an
-                // `onclick=` or a `style=""` when set. Someone who opted in
-                // there has made exactly this decision, in the most specific
-                // place available, and warning them anyway is the noise this
-                // check exists to avoid.
-                policy.scriptSrcAttr,
-                policy.styleSrcAttr,
-                policy.scriptSrc,
-                policy.styleSrc,
-                policy.defaultSrc,
-              ])
-            ) {
-              reportInlineAttributes(request, sources.inlineAttributes);
-            }
+            // Filtered per finding rather than gated as a group, because a
+            // single template can report both an `onclick=` and a `style=`, and
+            // a policy can easily permit one while blocking the other. Judging
+            // the group by any one of them would either hide a real finding or
+            // invent one.
+            reportInlineAttributes(
+              request,
+              sources.inlineAttributes?.filter(
+                (finding) =>
+                  !permitsInlineAttribute(policy, inlineAttributeKind(finding)),
+              ),
+            );
           };
         }
 

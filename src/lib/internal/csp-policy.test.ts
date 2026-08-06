@@ -117,6 +117,22 @@ describe('validateCSPConfig', () => {
       validateCSPConfig({ sandbox: ['allow-forms', 'allow-scripts'] }),
     ).not.toThrow();
   });
+
+  it('rejects an empty reportTo group', () => {
+    // An empty string contains none of the forbidden characters, so a check
+    // that only looked for those would pass it through to serialization, where
+    // it becomes the bare directive `report-to` with no group. A browser drops
+    // that, which silently turns reporting off for the policy whose entire job
+    // is telling you what got blocked.
+    expectRejected({ reportTo: '' }, /is not a usable group name/);
+    expectRejected({ reportTo: '   ' }, /is not a usable group name/);
+  });
+
+  it('does not emit a group-less report-to directive', () => {
+    // The consequence the check above prevents, pinned separately so a future
+    // relaxation of the validator cannot bring it back unnoticed.
+    expect(serializeCSP({ defaultSrc: ["'self'"] })).not.toContain('report-to');
+  });
 });
 
 describe('serializeCSP', () => {

@@ -2173,7 +2173,10 @@ describe('securityHeaders', () => {
      * Install the plugin on a mock host and call the decorated addCSPSources
      * with an inline-attribute report, returning whatever it logged.
      */
-    async function warningsFor(csp: CSPConfig): Promise<unknown[]> {
+    async function warningsFor(
+      csp: CSPConfig,
+      inlineAttributes: readonly string[] = ['<button> has onclick='],
+    ): Promise<unknown[]> {
       const pluginHost = createMockPluginHost();
 
       await securityHeaders({ csp })(pluginHost, createMockOptions());
@@ -2201,9 +2204,7 @@ describe('securityHeaders', () => {
         throw new Error('addCSPSources was not installed on the request');
       }
 
-      request.addCSPSources({
-        inlineAttributes: ['<button> has onclick='],
-      });
+      request.addCSPSources({ inlineAttributes });
 
       return warnings;
     }
@@ -2247,6 +2248,94 @@ describe('securityHeaders', () => {
       }).then((warnings) => {
         expect(warnings).toHaveLength(0);
       });
+    });
+
+    it('does not let a style opt-in excuse a script attribute', async () => {
+      // style-src has nothing to say about an onclick=. Reading an opt-in there
+      // as permission for one silences a real finding on the strength of a
+      // decision the author made about something else entirely.
+      const warnings = await warningsFor({
+        scriptSrc: ["'self'"],
+        styleSrc: ["'unsafe-inline'"],
+      });
+
+      expect(warnings).toHaveLength(1);
+    });
+
+    it('does not let a script opt-in excuse a style attribute', async () => {
+      // The same confusion in the other direction.
+      const warnings = await warningsFor(
+        {
+          scriptSrc: ["'unsafe-inline'"],
+          styleSrc: ["'self'"],
+          allowUnsafeInlineScript: true,
+        },
+        ['<div> has style='],
+      );
+
+      expect(warnings).toHaveLength(1);
+    });
+
+    it('stops at the -attr directive when it blocks the attribute', async () => {
+      // CSP fallback stops at the first directive that is set, it does not
+      // union the chain. script-src-attr 'none' is the author saying no inline
+      // handlers, specifically, and it is the only directive a browser consults
+      // for one. A permissive script-src underneath it is not reached, so
+      // reading it as permission gets the answer backwards on a policy that is
+      // actively blocking the handler.
+      const warnings = await warningsFor({
+        scriptSrcAttr: ["'none'"],
+        scriptSrc: ["'unsafe-inline'"],
+        allowUnsafeInlineScript: true,
+      });
+
+      expect(warnings).toHaveLength(1);
+    });
+
+    it('falls through an empty directive to the next in the chain', async () => {
+      // An empty array serializes to nothing, so the browser never sees the
+      // directive and falls through it. Treating it as "set, and it does not
+      // permit" would warn about an attribute that actually runs.
+      const warnings = await warningsFor({
+        scriptSrcAttr: [],
+        scriptSrc: ["'unsafe-hashes'", "'self'"],
+      });
+
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('honors default-src when nothing more specific is set', async () => {
+      const warnings = await warningsFor({
+        defaultSrc: ["'unsafe-inline'"],
+        allowUnsafeInlineScript: true,
+      });
+
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('stays quiet when no directive governs the attribute at all', async () => {
+      // Nothing in the chain is set, so nothing blocks the attribute and there
+      // is nothing to report.
+      const warnings = await warningsFor({ imgSrc: ["'self'"] });
+
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('judges each finding on its own directive', async () => {
+      // One template can report both kinds, and a policy can easily permit one
+      // while blocking the other. Judging the group by either one would hide a
+      // real finding or invent one.
+      const warnings = await warningsFor(
+        {
+          scriptSrc: ["'self'"],
+          styleSrc: ["'unsafe-inline'"],
+        },
+        ['<button> has onclick=', '<div> has style='],
+      );
+
+      expect(warnings).toHaveLength(1);
+      expect(JSON.stringify(warnings)).toContain('onclick');
+      expect(JSON.stringify(warnings)).not.toContain('has style=');
     });
 
     it('warns once per distinct finding, not once per request', async () => {
@@ -3437,6 +3526,71 @@ describe('securityHeaders', () => {
       });
 
       expect(response.status).toBe(500);
+    });
+
+    it('rejects a resolver CSP that undercuts the inherited frameOptions', async () => {
+      // Startup rejects frameOptions 'SAMEORIGIN' next to frame-ancestors
+      // 'none', because a browser without CSP support reads only the weaker
+      // one and frames the page the policy exists to keep out of frames.
+      //
+      // A resolver can assemble that same pair out of two halves that are each
+      // fine on their own: it overrides the CSP and inherits frameOptions from
+      // the baseline. Validating only what the resolver returned would miss it,
+      // and the tenant that got the override would be the one served the
+      // combination the static config refuses.
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            frameOptions: 'SAMEORIGIN',
+            csp: { defaultSrc: ["'self'"] },
+            resolve: () => ({
+              csp: { defaultSrc: ["'self'"], frameAncestors: ["'none'"] },
+            }),
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.status).toBe(500);
+    });
+
+    it('rejects a resolver frameOptions that undercuts the inherited CSP', async () => {
+      // The same pair assembled from the other side: the baseline is valid
+      // because it pairs frame-ancestors 'none' with 'DENY', and the resolver
+      // replaces only the frameOptions.
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            frameOptions: 'DENY',
+            csp: { defaultSrc: ["'self'"], frameAncestors: ["'none'"] },
+            resolve: () => ({ frameOptions: 'SAMEORIGIN' }),
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.status).toBe(500);
+    });
+
+    it('allows a resolver to keep the fallback at least as strict', async () => {
+      // The check rejects exactly one pair. A fallback stricter than the policy
+      // it backs up is the safe direction to be wrong in and stays allowed.
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            frameOptions: 'SAMEORIGIN',
+            csp: { defaultSrc: ["'self'"] },
+            resolve: () => ({
+              frameOptions: 'DENY',
+              csp: { defaultSrc: ["'self'"], frameAncestors: ["'none'"] },
+            }),
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('x-frame-options')).toBe('DENY');
     });
 
     it('awaits an async resolver', async () => {

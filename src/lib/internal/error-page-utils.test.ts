@@ -129,6 +129,63 @@ describe('generateDefault500ErrorPage', () => {
 
     expect(html).not.toContain('only shown in development mode');
   });
+
+  describe('the Refresh Page link', () => {
+    /**
+     * Resolve the refresh link the way a browser would, which is the only
+     * question that matters. Asserting on the raw attribute would pass for a
+     * sanitizer that escapes the characters without changing what the URL
+     * means.
+     */
+    function refreshTarget(url: string): URL {
+      const html = generateDefault500ErrorPage(
+        makeRequest({ url }),
+        new Error('x'),
+        false,
+      );
+
+      const href = /<a class="ep-btn" href="([^"]*)"/.exec(html)?.[1];
+
+      if (href === undefined) {
+        throw new Error('no refresh link found in the rendered page');
+      }
+
+      return new URL(href, 'https://good.example/current/page?q=1');
+    }
+
+    // Fastify hands over the request target verbatim, so every one of these is
+    // something a client can actually send. In an anchor they resolve to
+    // another origin, which would turn this button into an open redirect on a
+    // page that is reached precisely when something has already gone wrong.
+    const hostileTargets = [
+      // Protocol-relative.
+      '//attacker.example/path',
+      // Absolute-form, legal in a request line.
+      'http://attacker.example/path',
+      // A URL parser folds backslashes into slashes for http(s), so these are
+      // protocol-relative too, without containing a single "//".
+      '/\\/attacker.example',
+      '/\\attacker.example',
+      '/\\\\attacker.example',
+      // Neither escaping nor a scheme check would catch this one.
+      '//attacker.example',
+    ];
+
+    for (const url of hostileTargets) {
+      it(`stays on this origin for ${JSON.stringify(url)}`, () => {
+        expect(refreshTarget(url).origin).toBe('https://good.example');
+      });
+    }
+
+    it('points at the current document', () => {
+      // What "refresh" means, and the reason an empty href is the right answer
+      // rather than merely the safe one: the browser reloads the URL it is
+      // actually on, query string included.
+      expect(refreshTarget('/current/page?q=1').href).toBe(
+        'https://good.example/current/page?q=1',
+      );
+    });
+  });
 });
 
 describe('generateDefault503ClosingPage', () => {
@@ -207,7 +264,7 @@ describe('CSP compatibility', () => {
     }
   });
 
-  it('offers refresh as a link back to the same URL', () => {
+  it('offers refresh as a link rather than a scripted reload', () => {
     const html = generateDefault500ErrorPage(
       makeRequest({ url: '/orders?page=2' }),
       new Error('boom'),
@@ -215,11 +272,17 @@ describe('CSP compatibility', () => {
     );
 
     // An anchor rather than a scripted reload, which also avoids re-submitting
-    // a POST that failed.
-    expect(html).toContain('<a class="ep-btn" href="/orders?page=2">');
+    // a POST that failed. The href is empty on purpose, so it resolves to the
+    // current document instead of to a target the client got to choose. See
+    // the "Refresh Page link" tests above for why that matters.
+    expect(html).toContain('<a class="ep-btn" href="">Refresh Page</a>');
+    expect(html).not.toContain('/orders?page=2');
   });
 
-  it('escapes the refresh target, which is attacker-controlled', () => {
+  it('does not put the request URL in the production page at all', () => {
+    // It was previously the refresh target, escaped. Escaping stopped it from
+    // breaking out of the attribute but not from pointing at another origin,
+    // so the URL is no longer used here in any form.
     const html = generateDefault500ErrorPage(
       makeRequest({ url: '/x"><script>alert(1)</script>' }),
       new Error('boom'),
@@ -227,5 +290,6 @@ describe('CSP compatibility', () => {
     );
 
     expect(html).not.toContain('"><script>alert(1)');
+    expect(html).not.toContain('alert(1)');
   });
 });

@@ -388,7 +388,9 @@ The practical consequence: with `'strict-dynamic'`, a plain `<script src>` in yo
 
 A fallback may be **stricter** than the policy it backs up. `frameOptions: 'DENY'` alongside `frameAncestors: ["'self'"]` means an old browser refuses framing that a modern one permits, which is the safe direction to be wrong in.
 
-It must not be **looser**. `frameOptions: 'SAMEORIGIN'` alongside `frameAncestors: ["'none'"]` is rejected at startup: a browser without CSP support would still allow same-origin framing that the policy exists to forbid, and you would have every reason to believe you had forbidden it everywhere.
+It must not be **looser**. `frameOptions: 'SAMEORIGIN'` alongside `frameAncestors: ["'none'"]` is rejected: a browser without CSP support would still allow same-origin framing that the policy exists to forbid, and you would have every reason to believe you had forbidden it everywhere.
+
+The check runs at startup on the static config, and again on the effective policy whenever [`resolve`](#per-request-policy-with-resolve) produces one. Each block replaces rather than merges, so a resolver that overrides the CSP while inheriting `frameOptions`, or the reverse, assembles that pair out of two halves that are each fine on their own. It fails the same way there as it would at startup, rather than serving the tenant a combination the static config refuses.
 
 Nothing else is rejected. A deliberate pairing such as `frameOptions: 'SAMEORIGIN'` with `frameAncestors: ["'self'", 'https://partner.example.com']` is a real pattern (modern browsers get the nuance, old ones get the blunt fallback) and is left alone.
 
@@ -403,7 +405,9 @@ Unirend detects them and warns once per distinct finding:
 can cover, so they will not run under this policy. <button> has onclick=
 ```
 
-The warning is skipped entirely when your policy already sets `'unsafe-hashes'` or `'unsafe-inline'` in the relevant directive. If you have made that call deliberately, being told about it on every startup is how a warning gets tuned out.
+The warning is skipped when your policy already permits that attribute. If you have made that call deliberately, being told about it on every startup is how a warning gets tuned out.
+
+"That attribute" is meant precisely, because an `onclick=` and a `style=` are governed by different directives and a policy often permits one and blocks the other. Each finding is judged against the chain a browser would actually consult for it, `script-src-attr` then `script-src` then `default-src` for an event handler, and the `style-src` equivalents for a `style=`. CSP fallback stops at the first directive that is set rather than combining them, so `scriptSrcAttr: ["'none'"]` blocks handlers no matter how permissive `scriptSrc` is, and a warning is exactly what you want there. An `'unsafe-inline'` sitting in some other directive is not permission and does not silence anything.
 
 The fixes, best first: move an `on*` handler into an `addEventListener` inside a script unirend already hashes, and a `style=""` attribute into a `<style>` block or a class. `'unsafe-hashes'` also works and is meaningfully worse, since it applies to every inline attribute on the page rather than the one you meant.
 
@@ -437,6 +441,7 @@ The policy is checked once at startup and the process fails to start on anything
 | A `javascript:` or scripting-scheme source | Reintroduces exactly the injection a policy exists to stop |
 | A source containing whitespace, `;` or `,` | Would split into two entries or end the directive, letting a value rewrite the policy |
 | A host the CORS origin validator rejects | Same validator, so `*.co.uk` fails identically in both places |
+| An empty `reportTo` group name | Serializes to a bare `report-to` with no group, which a browser drops, silently turning reporting off |
 
 Two require an explicit opt-in rather than being refused outright:
 

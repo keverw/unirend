@@ -1,5 +1,5 @@
 import type { FastifyRequest } from 'fastify';
-import { escapeHTML, escapeHTMLAttr } from './html-utils/escape';
+import { escapeHTML } from './html-utils/escape';
 import { hashInlineContentForCSP } from './csp-hash';
 
 type ErrorPageStyleRules = Record<string, Record<string, string>>;
@@ -205,6 +205,22 @@ export function generateDefault500ErrorPage(
   error: Error,
   isDevelopment: boolean,
 ): string {
+  // The "Refresh Page" link below is deliberately `href=""`, which resolves to
+  // the current document. That is what refresh means, and it is the only form
+  // that cannot be pointed somewhere else.
+  //
+  // Echoing request.url there would be an open redirect. Fastify hands over the
+  // request target verbatim, so a client can send "//evil.example/p" or the
+  // absolute-form "http://evil.example/p", and in an anchor either one resolves
+  // to a different origin. Backslashes do it too: a URL parser folds them into
+  // forward slashes for http(s), so "/\/evil.example" is protocol-relative
+  // without containing a single "//". HTML escaping does not help, because none
+  // of those characters are escaped and the problem is what the URL means
+  // rather than how it is spelled.
+  //
+  // request.url is still echoed into the dev panel below, which is fine: that
+  // is text content, escaped, and not something a browser will navigate to.
+
   // Panels for dev mode
   const devPanels = isDevelopment
     ? `<div class="ep-section">
@@ -243,7 +259,7 @@ export function generateDefault500ErrorPage(
         ? devPanels
         : '<div class="ep-panel">An unexpected error occurred. Please try again later.</div>'
     }
-    <a class="ep-btn" href="${escapeHTMLAttr(request.url)}">Refresh Page</a>
+    <a class="ep-btn" href="">Refresh Page</a>
     ${
       isDevelopment
         ? '<div class="ep-note"><b>Note:</b> Detailed error information is only shown in development mode.</div>'

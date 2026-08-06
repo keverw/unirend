@@ -390,7 +390,15 @@ export function validateCSPConfig(config: CSPConfig): void {
     }
   }
 
-  if (config.reportTo !== undefined && /[\s;,]/.test(config.reportTo)) {
+  // The emptiness check matters as much as the character check. An empty string
+  // contains none of the forbidden characters, so it would validate and then
+  // serialize as a bare `report-to`, which is not a valid directive. A browser
+  // drops it, and reporting is silently off for the one policy whose whole job
+  // is telling you what it blocked.
+  if (
+    config.reportTo !== undefined &&
+    (config.reportTo.trim() === '' || /[\s;,]/.test(config.reportTo))
+  ) {
     throw new Error(
       `Invalid securityHeaders config: csp.reportTo "${config.reportTo}" is not a usable group name`,
     );

@@ -265,6 +265,20 @@ export function get500ErrorPage(
     ? escapeHTML(error.stack)
     : 'No stack trace available';
 
+  // request.url appears below as escaped text in the development panel, which
+  // is safe. Do not move it into an href when customizing this page.
+  //
+  // Fastify hands over the request target verbatim, so the client chooses it. A
+  // request line of "GET //evil.example/p" or the absolute-form
+  // "GET http://evil.example/p" leaves request.url pointing at another origin,
+  // and so does "/\\/evil.example", because a URL parser folds backslashes into
+  // forward slashes for http(s). In an anchor any of those navigate off site.
+  // Escaping does not help: none of those characters are escaped, and the
+  // problem is what the URL means rather than how it is spelled.
+  //
+  // A "reload" control wants href="" (the current document) or the static
+  // href="/" used below, never the request's own URL.
+
   return \`<!doctype html>
 <html lang="en"\${preference === 'dark' ? ' class="dark"' : ''}>
   <head>
