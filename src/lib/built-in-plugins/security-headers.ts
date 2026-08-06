@@ -9,6 +9,7 @@ import {
   matchesCORSCredentialsList,
   validateConfigEntry,
 } from 'lifecycleion/domain-utils';
+import { LRUCache } from 'lifecycleion/lru-cache';
 import { addToVaryHeader } from '../internal/http-header-utils';
 import {
   cspHeaderName,
@@ -979,13 +980,14 @@ export function securityHeaders(
   // varies per request; doing that would be the unbounded-growth mistake this
   // plan already rejected once, for the per-tenant resolver's cache key.
   //
-  // The cap is for the case that assumption does not hold. Development
-  // recomputes hashes per request, because Vite may add inline content after
-  // unirend is done with the template, and a Vite plugin injecting something
-  // request-varying would produce a new key every time. Past the cap this stops
-  // storing and simply serializes each time: slower, still correct, and bounded.
-  const MAX_CACHED_POLICIES = 64;
-  const policyBySources = new Map<string, string>();
+  // LRU rather than a plain Map for the case where that assumption does not
+  // hold. Development recomputes hashes per request, because Vite may add
+  // inline content after unirend is done with the template, so a Vite plugin
+  // injecting something request-varying would mint a new key every time. An
+  // eviction policy degrades gracefully there, where a hard cap that stopped
+  // storing would leave the steady-state apps permanently uncached behind
+  // whatever churned in first. Same LRUCache the static content cache uses.
+  const policyBySources = new LRUCache<string, string>(64);
 
   /**
    * Serialize the policy with extra per-request sources folded in. Left
@@ -1043,10 +1045,7 @@ export function securityHeaders(
             scriptSrc,
             styleSrc,
           });
-
-          if (policyBySources.size < MAX_CACHED_POLICIES) {
-            policyBySources.set(key, policy);
-          }
+          policyBySources.set(key, policy);
         }
 
         return policy;
