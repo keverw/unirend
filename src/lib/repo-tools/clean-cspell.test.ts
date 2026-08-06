@@ -72,6 +72,48 @@ describe('cleanCspell', () => {
     expect(output).toContain('All custom words are currently used');
   });
 
+  test('counts a word used only with a trailing number as used', async () => {
+    // CSpell splits the digits off and reports `FSTDEP023` as the unknown word
+    // `FSTDEP`, so that is the entry a dictionary needs. Reading the token
+    // whole made the entry look unused, and the advice that followed was to
+    // delete the one word keeping `bun run spellcheck` green.
+    await writeRepo({
+      cspell: { words: ['FSTDEP'] },
+      files: { 'src/index.ts': '// deprecated by FSTDEP023 in fastify 5.10\n' },
+    });
+
+    const { result } = await run();
+    expect(result.success).toBe(true);
+    expect(result.unusedWords).toEqual([]);
+    expect(result.usedWords).toEqual(['FSTDEP']);
+  });
+
+  test('still counts a word used only with a leading number as used', async () => {
+    // The other end of the same token, which already worked. Kept alongside its
+    // twin so a future edit to one has to reckon with both.
+    await writeRepo({
+      cspell: { words: ['Bstatus'] },
+      files: { 'src/index.ts': 'const url = "/x?q=%5Bstatus";\n' },
+    });
+
+    const { result } = await run();
+    expect(result.success).toBe(true);
+    expect(result.unusedWords).toEqual([]);
+  });
+
+  test('does not let a digit suffix invent a word nobody wrote', async () => {
+    // The stripped form is added alongside the token, never instead of it, so a
+    // dictionary entry matching neither is still reported.
+    await writeRepo({
+      cspell: { words: ['FSTDEP', 'obsoleteWord'] },
+      files: { 'src/index.ts': '// FSTDEP023\n' },
+    });
+
+    const { result } = await run();
+    expect(result.success).toBe(false);
+    expect(result.unusedWords).toEqual(['obsoleteWord']);
+  });
+
   test('reports unused words without fix and returns failure', async () => {
     await writeRepo({
       cspell: { words: ['unirend', 'obsoleteWord'] },

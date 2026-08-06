@@ -118,6 +118,23 @@ function getWords(text: string): Set<string> {
         if (withoutLeadingDigits !== match && withoutLeadingDigits.length > 0) {
           words.add(withoutLeadingDigits);
         }
+
+        // The other end of the same token, which CSpell also checks on its own:
+        // it reports `FSTDEP023` as the unknown word `FSTDEP`, so a dictionary
+        // needs the bare letters and this needs to see them as used.
+        //
+        // Getting this wrong is worse than missing a word, because of which way
+        // it fails. A form this does not produce makes a word that is genuinely
+        // in use look unused, and the advice that follows is to delete it, which
+        // breaks the spellcheck this exists to keep tidy. An extra form only
+        // ever keeps a word nobody needs, and the next run says so again.
+        const withoutTrailingDigits = match.replace(/\p{N}+$/u, '');
+        if (
+          withoutTrailingDigits !== match &&
+          withoutTrailingDigits.length > 0
+        ) {
+          words.add(withoutTrailingDigits);
+        }
       }
     }
   }
