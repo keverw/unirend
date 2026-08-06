@@ -326,16 +326,19 @@ Sends `Content-Security-Policy-Report-Only` instead. Violations are reported and
 
 ### What Unirend Contributes Automatically
 
-Unirend emits inline content of its own: the bootstrap script that assigns the injected SSR globals, and the styles on its built-in error pages. It knows what it emitted, so it adds the matching hashes to `scriptSrc` and `styleSrc` for you, and to `scriptSrcElem` and `styleSrcElem` when you have set those. Without that, a strict policy would render the framework's own error page unstyled, which is exactly the trap that makes CSP support look present without being useful.
+Unirend emits inline content of its own: the bootstrap script that assigns the injected SSR globals, and the styles on its built-in error pages. It knows what it emitted, so it adds the matching hashes to whichever directive a browser will actually consult for that content. Without that, a strict policy would block the framework's own bootstrap and render its error pages unstyled, which is exactly the trap that makes CSP support look present without being useful.
 
 Two things worth knowing about how that works:
 
-- It only adds to a directive **you have set**. If you configure `defaultSrc` but not `scriptSrc`, no `scriptSrc` appears. Creating one would silently override `defaultSrc` for scripts and block whatever you expected `defaultSrc` to cover.
+- It adds to the directive that **governs** the content, not to every directive it could. CSP fallback stops at the first directive you set rather than combining the chain, so the hashes follow it: `scriptSrcElem` and `scriptSrc` when you set them, and `defaultSrc` when you set neither, since that is what the browser reads instead. A policy of just `csp: { defaultSrc: ["'self'"] }` works, and the hashes land in `default-src`.
+- It never creates a directive you did not write. If you configure `defaultSrc` alone, no `scriptSrc` appears in the output. Creating one would override `defaultSrc` for scripts and block whatever you expected `defaultSrc` to cover. An empty array counts as not written, because it serializes to nothing and the browser falls through it.
 - Your own inline content is still yours to cover. Use [`hashInlineContentForCSP`](../utilities.md#content-security-policy-utilities), which is the same helper unirend uses.
 
 ### Your Own Inline Content Is Hashed Too
 
-On SSR and SSG, unirend hashes the inline `<script>` and `<style>` blocks your template ships with, including anything the `headInlineScripts`, `bodyPrepend`, and `bodyAppend` slots contribute, and adds them to `scriptSrc` and `styleSrc` for that app's responses, and to `scriptSrcElem` and `styleSrcElem` when you have set those. A theme flash-prevention script in `index.html` keeps working under a strict policy with nothing to configure.
+On SSR, unirend hashes the inline `<script>` and `<style>` blocks your template ships with, including anything the `headInlineScripts`, `bodyPrepend`, and `bodyAppend` slots contribute, and adds them to whichever directive governs that content for that app's responses. A theme flash-prevention script in `index.html` keeps working under a strict policy with nothing to configure.
+
+SSG works differently, because it has to. See [Prerendered Sites](#prerendered-sites-ssg) below.
 
 Hashes are taken from the **final serialized output**, not from the values you passed in. That distinction is the whole reason this happens in the framework rather than in your config: the template pipeline parses and rewrites what it touches, so a hash computed from your input can differ from a hash of what actually ships, and CSP would then block the very script the hash was meant to allow, with no error anywhere.
 
@@ -344,6 +347,41 @@ Styles inside a `<noscript>` are covered as well. They only become live for visi
 Costs are where you would want them. Production hashes once per app at startup. Development recomputes per request, because the template is re-read and Vite adds inline content of its own after unirend is done with it, and hashes taken earlier would miss exactly the scripts that only exist in development.
 
 None of this happens unless a `csp` policy is configured.
+
+### Prerendered Sites (SSG)
+
+A prerendered site cannot work the way SSR does, and the reason is worth stating plainly: once `generateSSG` finishes, the site is a directory of files. There is no template left to hash and no render to hook into, and whatever serves those files afterwards may not be unirend at all. Nginx, Apache, a PHP host, or an object store are all perfectly ordinary ways to serve it.
+
+So the hashes are produced at generation time, when the bytes are in hand, and handed back as data:
+
+```typescript
+const report = await generateSSG(buildDir, pages);
+
+console.log(report.cspHashes.scriptSrc); // ["'sha256-…'", …]
+console.log(report.cspHashes.styleSrc); // ["'sha256-…'", …]
+```
+
+They are taken from the bytes actually written and deduplicated across the whole site, so they cover your template's inline blocks and unirend's own bootstrap script together, and a two-hundred-page site normally yields a handful of entries rather than hundreds.
+
+What you do with them depends on who serves the site. Serving it with unirend means feeding them into the policy:
+
+```typescript
+securityHeaders({
+  csp: {
+    defaultSrc: ["'self'"],
+    scriptSrc: ["'self'", ...report.cspHashes.scriptSrc],
+    styleSrc: ["'self'", ...report.cspHashes.styleSrc],
+  },
+});
+```
+
+Serving it with something else means writing them into that server's configuration. Either way the build step is the same, which is the point of returning them rather than wiring them into one particular way of serving files.
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> Regenerate the policy whenever you regenerate the site. An inline block that changed by one character has a different hash, and the stale one fails closed: the script is blocked, the page still renders, and nothing says why.
+
+`report.cspHashes.inlineAttributes` lists any `on*=` handlers and `style=""` attributes found, with the hash each would need. A plain hash source never matches an attribute, so these need `'unsafe-hashes'` alongside the hash, or the better fix of not writing them inline. See [Inline Attributes Take More Than a Hash](#inline-attributes-take-more-than-a-hash).
 
 ### Third-Party Widgets and `'strict-dynamic'`
 

@@ -12,6 +12,26 @@ import type {
 } from '../types';
 import type { InlineAttributeFinding } from '../internal/html-utils/format';
 import { hashInlineContentForCSP } from '../internal/csp-hash';
+import { UNIREND_BOOTSTRAP_SCRIPT_HASH } from '../internal/html-utils/context-data-block';
+import { UNIREND_ERROR_PAGE_STYLE_HASHES } from '../internal/error-page-utils';
+
+/**
+ * The sources unirend contributes for its own inline content, in the order they
+ * are serialized: the bootstrap script first, then the error-page styles.
+ *
+ * Built from the same constants the plugin reads rather than pasted in as
+ * literals, so editing the bootstrap or an error page's styles does not turn
+ * every CSP assertion in this file red for no reason.
+ *
+ * These appear in whichever directive actually governs the content. A policy
+ * that sets `scriptSrc` and `styleSrc` gets them split between the two; a
+ * policy that sets only `defaultSrc` gets both there, because that is the
+ * directive a browser consults when nothing more specific is set.
+ */
+const OWN_INLINE_SOURCES = [
+  `'${UNIREND_BOOTSTRAP_SCRIPT_HASH}'`,
+  ...UNIREND_ERROR_PAGE_STYLE_HASHES.map((hash) => `'${hash}'`),
+].join(' ');
 
 /**
  * Most tests in this file exercise CORS behavior, which lives in its own
@@ -3229,7 +3249,7 @@ describe('securityHeaders', () => {
           expect(response.headers.get('content-type')).toContain(contentType);
           expect(response.headers.get('x-frame-options')).toBe('DENY');
           expect(response.headers.get('content-security-policy')).toBe(
-            "default-src 'self'",
+            `default-src 'self' ${OWN_INLINE_SOURCES}`,
           );
           expect(response.headers.get('strict-transport-security')).toBe(
             'max-age=31536000',
@@ -3258,8 +3278,68 @@ describe('securityHeaders', () => {
 
       expect(response.status).toBe(403);
       expect(response.headers.get('content-security-policy')).toBe(
-        "default-src 'self'; frame-ancestors 'none'",
+        `default-src 'self' ${OWN_INLINE_SOURCES}; frame-ancestors 'none'`,
       );
+    });
+
+    describe('a policy that sets only default-src', () => {
+      // The shape the documentation recommends starting from, and the one where
+      // withholding the hashes was worst. default-src is what a browser
+      // consults for an inline <script> when no script directive is set, so
+      // hashes kept out of it are in no directive anything reads: unirend's own
+      // bootstrap was blocked, taking every injected global and the router
+      // hydration payload with it, under a header that reads as though it
+      // allows same-origin content.
+
+      it("covers unirend's own bootstrap script and error-page styles", async () => {
+        const response = await respondTo({
+          plugins: [securityHeaders({ csp: { defaultSrc: ["'self'"] } })],
+          host: 'allowed.example.com',
+        });
+
+        const csp = response.headers.get('content-security-policy') ?? '';
+
+        expect(csp).toContain(`'${UNIREND_BOOTSTRAP_SCRIPT_HASH}'`);
+
+        for (const hash of UNIREND_ERROR_PAGE_STYLE_HASHES) {
+          expect(csp).toContain(`'${hash}'`);
+        }
+      });
+
+      it('creates no script-src or style-src of its own', async () => {
+        // The other half of the rule, unchanged. Emitting a script-src because
+        // a hash exists would create a directive that overrides default-src and
+        // blocks everything the author expected default-src to allow.
+        const response = await respondTo({
+          plugins: [securityHeaders({ csp: { defaultSrc: ["'self'"] } })],
+          host: 'allowed.example.com',
+        });
+
+        const csp = response.headers.get('content-security-policy') ?? '';
+
+        expect(csp).not.toContain('script-src');
+        expect(csp).not.toContain('style-src');
+      });
+
+      it('leaves default-src alone once script-src governs scripts', async () => {
+        // The chains fall through independently, so the script hashes move to
+        // script-src while the style hashes stay where styles are governed.
+        const response = await respondTo({
+          plugins: [
+            securityHeaders({
+              csp: { defaultSrc: ["'self'"], scriptSrc: ["'self'"] },
+            }),
+          ],
+          host: 'allowed.example.com',
+        });
+
+        const csp = response.headers.get('content-security-policy') ?? '';
+        const [defaultSrc, scriptSrc] = csp.split('; ');
+
+        expect(scriptSrc).toContain(`'${UNIREND_BOOTSTRAP_SCRIPT_HASH}'`);
+        expect(defaultSrc).not.toContain(`'${UNIREND_BOOTSTRAP_SCRIPT_HASH}'`);
+        expect(defaultSrc).toContain(`'${UNIREND_ERROR_PAGE_STYLE_HASHES[0]}'`);
+      });
     });
 
     it('quotes the hashes it contributes to script-src and style-src', async () => {
@@ -3562,7 +3642,7 @@ describe('securityHeaders', () => {
 
       expect(response.headers.get('content-security-policy')).toBeNull();
       expect(response.headers.get('content-security-policy-report-only')).toBe(
-        "default-src 'self'",
+        `default-src 'self' ${OWN_INLINE_SOURCES}`,
       );
     });
 
@@ -3716,7 +3796,7 @@ describe('securityHeaders', () => {
       });
 
       expect(response.headers.get('content-security-policy')).toBe(
-        "default-src 'self' https://tenant-cdn.example.com",
+        `default-src 'self' https://tenant-cdn.example.com ${OWN_INLINE_SOURCES}`,
       );
     });
 
@@ -4161,7 +4241,7 @@ describe('securityHeaders', () => {
 
         expect(await response.text()).toBe('file bytes');
         expect(response.headers.get('content-security-policy')).toBe(
-          "default-src 'self'",
+          `default-src 'self' ${OWN_INLINE_SOURCES}`,
         );
         expect(response.headers.get('x-frame-options')).toBe('DENY');
       } finally {

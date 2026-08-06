@@ -741,8 +741,53 @@ export function serializeCSP(
 ): string {
   const parts: string[] = [];
 
+  // Whether a directive more specific than `default-src` already governs inline
+  // `<script>` or `<style>` elements.
+  //
+  // This decides where unirend's own hashes belong. CSP fallback stops at the
+  // first directive that is set rather than unioning the chain, so when one of
+  // these is present `default-src` is never consulted for that content and the
+  // hashes go in the specific directive. When none is, `default-src` is what the
+  // browser reads, and the hashes have to go there or they are in no directive
+  // the browser will ever look at.
+  //
+  // An empty array counts as absent, because it serializes to nothing and the
+  // browser falls through it, the same reading `effectiveAttributeSources` uses.
+  const isDirectiveSet = (sources: unknown): sources is string[] =>
+    Array.isArray(sources) && sources.length > 0;
+
+  const isScriptGovernedElsewhere =
+    isDirectiveSet(config.scriptSrc) || isDirectiveSet(config.scriptSrcElem);
+
+  const isStyleGovernedElsewhere =
+    isDirectiveSet(config.styleSrc) || isDirectiveSet(config.styleSrcElem);
+
   for (const [key, directive] of SOURCE_LIST_DIRECTIVES) {
     const configured = config[key];
+
+    // Whether this directive is one additions may join, which is the same
+    // question `isDirectiveSet` asks everywhere else and has to be, or the two
+    // disagree about the same empty array.
+    //
+    // An empty list is the caller saying nothing: it serializes to nothing and
+    // a browser falls through it to the fallback. Contributing to it turned
+    // that silence into a real directive holding only unirend's hashes, which
+    // then overrode `default-src` and blocked every other script on the page,
+    // the precise failure the "never create a directive nobody configured" rule
+    // exists to prevent, reached through an empty array instead of an absent
+    // key.
+    //
+    // A directive that says `'none'` is excluded as well, and that one is about
+    // meaning rather than mechanics. `'none'` is the caller saying "allow
+    // nothing", and `collectCSPIssues` refuses to let them write it alongside
+    // anything else, so serializing it next to a hash would emit the very shape
+    // this file's own validator calls a mistake. It is not valid CSP either:
+    // the grammar admits `'none'` only as a source list's sole member, and a
+    // browser meeting it beside a hash drops the `'none'` with a parse warning,
+    // quietly turning "allow nothing" into "allow unirend's inline content".
+    const canAcceptAdditions =
+      isDirectiveSet(configured) &&
+      !configured.some((source) => EXCLUSIVE_KEYWORDS.has(source));
 
     // The element-specific directives get the hashes too, because when one is
     // set it is the only thing a browser consults for an inline `<script>` or
@@ -768,11 +813,21 @@ export function serializeCSP(
     // value. That is the caller's decision to make, so unirend reports those
     // attributes and the hash each would need rather than quietly switching the
     // keyword on. See the inline-attribute warning in security-headers.ts.
+    //
+    // `default-src` does get them, but only for the half of the chain that ends
+    // there. A policy that sets `default-src` and nothing else is the shape the
+    // documentation recommends starting from, and it is exactly the shape where
+    // withholding the hashes blocks unirend's own bootstrap script, taking every
+    // injected global and the router hydration payload with it, silently, on a
+    // policy that reads as though it allows same-origin content. The hashes are
+    // added per kind rather than as a pair, since scripts and styles fall
+    // through to `default-src` independently.
     const isScriptDirective =
       key === 'scriptSrc' || key === 'scriptSrcElem' || key === 'scriptSrcAttr';
 
-    let extra =
-      key === 'scriptSrc' || key === 'scriptSrcElem'
+    let extra = !canAcceptAdditions
+      ? undefined
+      : key === 'scriptSrc' || key === 'scriptSrcElem'
         ? additions.scriptSrc
         : key === 'styleSrc' || key === 'styleSrcElem'
           ? additions.styleSrc
@@ -804,8 +859,8 @@ export function serializeCSP(
     // directive that governs an inline <script> when both are set.
     //
     // Guarded on `extra` so the kind below is only decided for the four
-    // directives that receive additions. default-src governs both scripts and
-    // styles and has no single answer, and it never gets additions anyway.
+    // directives that receive it directly. default-src is handled separately
+    // below, since it governs both kinds and so has no single answer.
     if (
       extra &&
       isUnsafeInlineEffective(
@@ -814,6 +869,41 @@ export function serializeCSP(
       )
     ) {
       extra = undefined;
+    }
+
+    // default-src, for whichever halves of the chain end here.
+    //
+    // Which hashes to add is a per-kind question, because the chains fall
+    // through independently: a policy can set `script-src` and leave styles to
+    // land here.
+    //
+    // Whether to add any is not, and that distinction is the whole subtlety of
+    // this directive. The two kinds share one source list, and CSP3's "does a
+    // source list allow all inline behavior for type" returns Does Not Allow on
+    // encountering *any* hash or nonce, whatever type it was asked about. Only
+    // the 'strict-dynamic' check is type-sensitive. So a single list cannot
+    // carry hashes for scripts and still have a live 'unsafe-inline' for
+    // styles: the script hashes revoke it for both.
+    //
+    // `default-src 'self' 'unsafe-inline' 'strict-dynamic'` is where that
+    // bites. Its inline scripts are already blocked, by the caller's own
+    // 'strict-dynamic', and its inline styles work. Adding the script hashes
+    // would fix the scripts and silently break every style on the page, which
+    // is not a trade to make on someone's behalf. Staying out preserves what
+    // they wrote, and 'unsafe-inline' still covers the styles it was covering.
+    if (key === 'defaultSrc' && canAcceptAdditions) {
+      const willRevokeUnsafeInline =
+        isUnsafeInlineEffective(configured, 'script') ||
+        isUnsafeInlineEffective(configured, 'style');
+
+      const fallbackSources = willRevokeUnsafeInline
+        ? []
+        : [
+            ...(isScriptGovernedElsewhere ? [] : (additions.scriptSrc ?? [])),
+            ...(isStyleGovernedElsewhere ? [] : (additions.styleSrc ?? [])),
+          ];
+
+      extra = fallbackSources.length ? fallbackSources : undefined;
     }
 
     if (configured === undefined && (extra === undefined || !extra.length)) {

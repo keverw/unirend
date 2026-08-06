@@ -138,11 +138,13 @@ export interface SecurityHeadersConfig {
    * }
    * ```
    *
-   * Unirend adds its own hashes to `scriptSrc` and `styleSrc` for the inline
-   * content it emits, so its error pages and injected globals keep working
-   * without `'unsafe-inline'`. It only adds to a directive you have set, since
-   * creating one you did not ask for would override `defaultSrc` and block
-   * whatever you expected `defaultSrc` to cover.
+   * Unirend adds its own hashes for the inline content it emits, so its error
+   * pages and injected globals keep working without `'unsafe-inline'`. They go
+   * to the directive a browser will actually consult: `scriptSrc` and
+   * `styleSrc` (and the `-Elem` forms) when you set them, and `defaultSrc` when
+   * you set neither, since that is what the browser reads instead. It never
+   * creates a directive you did not write, because one you did not ask for
+   * would override `defaultSrc` and block whatever you expected it to cover.
    *
    * Start with `reportOnly: true` on a live site. Violations are reported and
    * nothing is blocked, so you find what breaks without breaking it.

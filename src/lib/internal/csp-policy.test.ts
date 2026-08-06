@@ -274,13 +274,181 @@ describe('serializeCSP', () => {
   it('does not create a directive that was not configured', () => {
     // The trap this avoids: adding a hash to an unset script-src would create a
     // script-src, which then overrides default-src and blocks everything the
-    // caller expected default-src to allow.
+    // caller expected default-src to allow. The hash goes to default-src
+    // instead, which is the directive a browser will actually consult here.
     expect(
       serializeCSP(
         { defaultSrc: ["'self'"] },
         { scriptSrc: ["'sha256-abc='"] },
       ),
-    ).toBe("default-src 'self'");
+    ).toBe("default-src 'self' 'sha256-abc='");
+  });
+
+  describe('a policy that sets only default-src', () => {
+    // The shape the documentation recommends starting from, and the one where
+    // withholding the hashes is worst: default-src is what a browser consults
+    // for an inline <script> when no script directive is set, so hashes kept
+    // out of it are in no directive anything reads. That blocked unirend's own
+    // bootstrap script, taking every injected global and the router hydration
+    // payload with it, under a policy that reads as though it allows
+    // same-origin content.
+    it('receives the script and style hashes', () => {
+      expect(
+        serializeCSP(
+          { defaultSrc: ["'self'"] },
+          { scriptSrc: ["'sha256-script'"], styleSrc: ["'sha256-style'"] },
+        ),
+      ).toBe("default-src 'self' 'sha256-script' 'sha256-style'");
+    });
+
+    it('still creates no script-src or style-src of its own', () => {
+      const policy = serializeCSP(
+        { defaultSrc: ["'self'"] },
+        { scriptSrc: ["'sha256-script'"], styleSrc: ["'sha256-style'"] },
+      );
+
+      expect(policy).not.toContain('script-src');
+      expect(policy).not.toContain('style-src');
+    });
+  });
+
+  it('sends each kind of hash to whichever directive governs it', () => {
+    // The two chains fall through independently, so a policy can govern scripts
+    // specifically and leave styles to default-src. Duplicating the script
+    // hashes into default-src would be harmless but pointless, since nothing
+    // consults it for scripts once script-src is set.
+    const policy = serializeCSP(
+      { defaultSrc: ["'self'"], scriptSrc: ["'self'"] },
+      { scriptSrc: ["'sha256-script'"], styleSrc: ["'sha256-style'"] },
+    );
+
+    expect(policy).toBe(
+      "default-src 'self' 'sha256-style'; script-src 'self' 'sha256-script'",
+    );
+  });
+
+  it('lets script-src-elem alone claim the script hashes from default-src', () => {
+    // script-src-elem is what governs an inline <script> when it is set, even
+    // with no script-src in between, so default-src is not consulted for
+    // scripts and does not need them.
+    const policy = serializeCSP(
+      { defaultSrc: ["'self'"], scriptSrcElem: ["'self'"] },
+      { scriptSrc: ["'sha256-script'"], styleSrc: ["'sha256-style'"] },
+    );
+
+    expect(policy).toBe(
+      "default-src 'self' 'sha256-style'; script-src-elem 'self' 'sha256-script'",
+    );
+  });
+
+  describe('an empty source list', () => {
+    // An empty array is the caller saying nothing: it serializes to nothing and
+    // a browser falls through it to the fallback. Treating it as a real
+    // directive is wrong in both directions, and both were reachable.
+    it('does not become a directive holding only the hashes', () => {
+      // The worse half. Contributing here emitted `script-src 'sha256-...'`,
+      // a directive nobody wrote that overrides default-src and blocks every
+      // other script on the page while allowing unirend's bootstrap.
+      expect(
+        serializeCSP({ scriptSrc: [] }, { scriptSrc: ["'sha256-script'"] }),
+      ).toBe('');
+    });
+
+    it('lets the hashes fall through to default-src', () => {
+      expect(
+        serializeCSP(
+          { defaultSrc: ["'self'"], scriptSrc: [] },
+          { scriptSrc: ["'sha256-script'"] },
+        ),
+      ).toBe("default-src 'self' 'sha256-script'");
+    });
+
+    it('takes no hashes when it is default-src itself', () => {
+      expect(
+        serializeCSP({ defaultSrc: [] }, { scriptSrc: ["'sha256-script'"] }),
+      ).toBe('');
+    });
+  });
+
+  it("withholds hashes from a default-src where 'unsafe-inline' is live", () => {
+    // Same rule the specific directives follow, for the same reason: a browser
+    // ignores 'unsafe-inline' as soon as a hash joins the list, so contributing
+    // here would revoke an opt-in the caller had just written.
+    expect(
+      serializeCSP(
+        { defaultSrc: ["'self'", "'unsafe-inline'"] },
+        { scriptSrc: ["'sha256-script'"], styleSrc: ["'sha256-style'"] },
+      ),
+    ).toBe("default-src 'self' 'unsafe-inline'");
+  });
+
+  it("stays out of default-src when 'unsafe-inline' is live for either kind", () => {
+    // The subtlety this directive has and the specific ones do not. Both kinds
+    // share one source list, and CSP3 returns Does Not Allow on encountering
+    // any hash whatever type it was asked about, so contributing for one kind
+    // revokes 'unsafe-inline' for the other too.
+    //
+    // Under `default-src 'unsafe-inline' 'strict-dynamic'` the inline scripts
+    // are already blocked by the caller's own 'strict-dynamic' and the inline
+    // styles work. Adding the script hashes would fix the scripts and break
+    // every style on the page, which is not a trade to make for someone.
+    expect(
+      serializeCSP(
+        { defaultSrc: ["'self'", "'unsafe-inline'", "'strict-dynamic'"] },
+        { scriptSrc: ["'sha256-script'"], styleSrc: ["'sha256-style'"] },
+      ),
+    ).toBe("default-src 'self' 'unsafe-inline' 'strict-dynamic'");
+  });
+
+  it('contributes to default-src once nothing is left to revoke', () => {
+    // The same policy with a hash of the caller's own already in it. The
+    // keyword is inert for both kinds now, so withholding preserves nothing and
+    // only leaves unirend's bootstrap blocked.
+    expect(
+      serializeCSP(
+        {
+          defaultSrc: ["'self'", "'unsafe-inline'", "'sha256-theirs'"],
+        },
+        { scriptSrc: ["'sha256-script'"], styleSrc: ["'sha256-style'"] },
+      ),
+    ).toBe(
+      "default-src 'self' 'unsafe-inline' 'sha256-theirs' 'sha256-script' 'sha256-style'",
+    );
+  });
+
+  describe("a directive set to 'none'", () => {
+    // `'none'` means "allow nothing", and the grammar admits it only as a
+    // source list's sole member. A browser meeting it beside a hash drops the
+    // `'none'` with a parse warning, which would quietly turn "allow nothing"
+    // into "allow unirend's inline content".
+    it('is left alone rather than widened', () => {
+      expect(
+        serializeCSP(
+          { defaultSrc: ["'none'"] },
+          { scriptSrc: ["'sha256-script'"], styleSrc: ["'sha256-style'"] },
+        ),
+      ).toBe("default-src 'none'");
+    });
+
+    it('is left alone as a specific directive too', () => {
+      expect(
+        serializeCSP(
+          { scriptSrc: ["'none'"], styleSrc: ["'none'"] },
+          { scriptSrc: ["'sha256-script'"], styleSrc: ["'sha256-style'"] },
+        ),
+      ).toBe("script-src 'none'; style-src 'none'");
+    });
+
+    it('does not stop a sibling directive from receiving hashes', () => {
+      // `script-src 'none'` is a statement about scripts, so the styles falling
+      // through to default-src are unaffected by it.
+      expect(
+        serializeCSP(
+          { defaultSrc: ["'self'"], scriptSrc: ["'none'"] },
+          { scriptSrc: ["'sha256-script'"], styleSrc: ["'sha256-style'"] },
+        ),
+      ).toBe("default-src 'self' 'sha256-style'; script-src 'none'");
+    });
   });
 
   it('deduplicates a source already present', () => {
