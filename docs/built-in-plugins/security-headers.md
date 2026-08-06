@@ -22,6 +22,7 @@
   - [Config-Time Validation](#config-time-validation)
 - [Per-Request Policy With `resolve`](#per-request-policy-with-resolve)
   - [When `resolve` Throws](#when-resolve-throws)
+  - [Throwing on Purpose](#throwing-on-purpose)
   - [Keeping HSTS for Hosts You Own](#keeping-hsts-for-hosts-you-own)
   - [Where to Put the Plugin, and When `resolve` Runs](#where-to-put-the-plugin-and-when-resolve-runs)
   - [Installing a Resolver Later](#installing-a-resolver-later)
@@ -478,7 +479,31 @@ The returned policy is validated with the same rules as the defaults, so a resol
 
 It propagates, and Fastify turns it into a 500, exactly like any other middleware that throws. There is no bespoke fallback, because unlike an allow-or-deny callback there is no obviously correct answer to substitute: the request is fine, it is the policy that could not be computed.
 
-If you would rather degrade than fail, catch it yourself. You are the only one who can tell a genuine "no override needed" from "the store is down":
+The error response still carries the defaults, but **no HSTS**. That is not a preference: the baseline is written for domains you own, and a domain whose policy could not be resolved may well not be one of them. Binding it for a year on the strength of a failed lookup is worse than the 500 that prompted it. The resolver is not called a second time while handling its own failure, so a throw throws once.
+
+### Throwing on Purpose
+
+Refusing to answer is a supported design choice, not only something that happens to you when a query fails. If the data a policy depends on is missing, throwing is often the right call:
+
+```typescript
+resolve: async (request) => {
+  if (!db.isConnected) {
+    throw new Error('Tenant store unavailable, refusing to guess a policy');
+  }
+
+  return lookupTenantPolicy(request.domainInfo.hostname);
+};
+```
+
+The plugin cannot make this decision for you, because it cannot tell a genuine "no override needed" from "the lookup failed". Both arrive as a resolver that produced no override. Only you know which one it was:
+
+| You want | Write | Result |
+| --- | --- | --- |
+| Fail loud | `throw` | 500, defaults applied, no HSTS unless [`ownDomains`](#keeping-hsts-for-hosts-you-own) matches |
+| Serve anyway, on the safe baseline | `catch`, then `return null` | 200, defaults applied, HSTS included |
+| Serve anyway, on something narrower | `catch`, then return a reduced policy | 200, your fallback policy |
+
+Fail loud when the wrong policy is worse than no page. That is the usual case for custom domains, where falling back to a first-party baseline can bind a domain you do not own. Degrade when the resolver only ever tightens the baseline and the baseline is already correct for everyone:
 
 ```typescript
 resolve: async (request) => {
@@ -491,7 +516,7 @@ resolve: async (request) => {
 };
 ```
 
-Either way, the error response carries the defaults but **no HSTS**. That is not a preference: the baseline is written for domains you own, and a domain whose policy could not be resolved may well not be one of them. Binding it for a year on the strength of a failed lookup is worse than the 500 that prompted it. The resolver is not called a second time while handling its own failure.
+**This is also an alternative to [`setResolver`](#installing-a-resolver-later) for the startup window.** `setResolver` leaves requests arriving before the resolver is installed on the defaults, quietly. Registering the resolver at boot and having it throw while its dependency is missing makes that same window visible instead, at the cost of serving errors during it. Pick the quiet one when the defaults are a fine answer for early traffic, and the loud one when serving the baseline to a custom domain is the thing you are trying to prevent.
 
 ### Keeping HSTS for Hosts You Own
 
@@ -560,6 +585,8 @@ headers.setResolver(async (request) => lookupTenantPolicy(request));
 ```
 
 Requests served before the resolver is installed get the validated defaults rather than an error. The handle is the plugin value itself, which you already hold from passing it to `plugins`.
+
+If you would rather that window fail than serve the defaults, register the resolver at boot and have it [throw while its dependency is missing](#throwing-on-purpose) instead of using `setResolver` at all.
 
 <!-- prettier-ignore -->
 > [!WARNING]
