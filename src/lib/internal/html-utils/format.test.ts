@@ -2162,3 +2162,55 @@ describe('template CSP hashes inside <noscript>', () => {
     }
   });
 });
+
+describe('templateSlots and the context data block ID', () => {
+  const baseTemplate =
+    '<!doctype html><html><head><title>t</title><!--ss-head--></head><body><div id="root"><!--ss-outlet--></div></body></html>';
+
+  it('rejects a body slot declaring the data block ID', async () => {
+    // The client bootstrap finds the block with getElementById, so a second
+    // element with that ID earlier in the document would be read instead and
+    // every injected global would come from whatever it happened to contain.
+    const result = await processTemplate(
+      baseTemplate,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        bodyPrepend:
+          '<script type="application/json" id="__unirend_data__">{}</script>',
+      },
+    );
+
+    expect(result.success).toBe(false);
+
+    if (!result.success) {
+      expect(result.error).toContain('__unirend_data__');
+    }
+  });
+
+  it('allows other application/json blocks, which is the common case', async () => {
+    // JSON-LD structured data is the one people actually have. The lookup is by
+    // ID rather than by type, so any number of these are fine.
+    const result = await processTemplate(
+      baseTemplate,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        bodyAppend:
+          '<script type="application/ld+json">{"@context":"https://schema.org"}</script>',
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain('application/ld+json');
+      // And it is inert, so it contributes no hash.
+      expect(result.cspHashes.scriptSrc).toHaveLength(0);
+    }
+  });
+});

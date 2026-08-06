@@ -3,6 +3,7 @@ import type { CheerioAPI, load as cheerioLoad } from 'cheerio';
 import type { AnyNode, Comment, Document, Element, Text } from 'domhandler';
 import { escapeHTMLAttr, escapeHTMLText } from './escape';
 import { hashInlineContentForCSP } from '../csp-hash';
+import { UNIREND_DATA_BLOCK_ID } from './context-data-block';
 
 // cheerio's load(), narrowed to the fragment-parsing call validateTemplateSlots() makes.
 // Passed in rather than imported so the dynamic import in processTemplate() stays the only
@@ -246,6 +247,25 @@ function validateTemplateSlots(
 
     if (hasContainerID) {
       return `templateSlots.${name} declares id="${containerID}", which is the container element's ID. The app would have two mount points.`;
+    }
+
+    // Same failure as above, for the element carrying the server context. The
+    // client bootstrap finds it with getElementById, so a second element with
+    // that ID earlier in the document would be read instead, and every injected
+    // global would come from whatever that element happened to contain.
+    //
+    // A page may hold any number of other `application/json` blocks, JSON-LD
+    // structured data being the usual one, and none of them are a problem: the
+    // lookup is by ID, not by type. Only this exact ID collides.
+    const hasDataBlockID = fragment('*')
+      .toArray()
+      .some(
+        (el) =>
+          isElementNode(el) && el.attribs?.['id'] === UNIREND_DATA_BLOCK_ID,
+      );
+
+    if (hasDataBlockID) {
+      return `templateSlots.${name} declares id="${UNIREND_DATA_BLOCK_ID}", which unirend uses for the element carrying server context to the client. The client would read this element instead, and every injected global would be wrong.`;
     }
   }
 
