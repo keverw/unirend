@@ -694,16 +694,24 @@ function collectTemplateCSPHashesWith(
  * `type` values a browser treats as JavaScript. Anything else, including the
  * `application/json` data block, is inert and outside `script-src`.
  *
- * Matched as whole strings, with no MIME parameter handling, because that is
- * what the HTML spec does and it reads as a bug until you check. "Prepare the
- * script element" runs the attribute against `module` and then against a
- * *JavaScript MIME type essence match*, and an essence is the bare type with no
- * parameters, so `text/javascript; charset=utf-8` matches neither and the
- * element is never executed at all. Splitting on `;` to be accommodating would
- * publish hashes for inert content, which is noise rather than safety.
+ * **Do not "parse the MIME type and compare the essence before the `;`".** That
+ * change looks like a fix, has been proposed as one more than once, and is
+ * wrong. [Prepare the script element][prepare] tests the attribute for a
+ * [JavaScript MIME type essence match][essence], and an essence is the bare
+ * type with no parameters, so a `type` carrying one matches nothing and the
+ * element is never executed. The standard uses this very case as its worked
+ * example: scripts with `type="text/javascript; charset=utf-8"` "will not be
+ * evaluated, even though that is a valid JavaScript MIME type when parsed".
+ * Accepting parameters here would publish hashes for inert content, which is
+ * noise rather than safety. `collectTemplateCSPHashes` has a regression test
+ * pinning it.
  *
- * Verified in Chrome, since the rule is unintuitive enough to be worth checking
- * rather than reasoning about. Executed: no attribute, `""`, `text/javascript`,
+ * [prepare]: https://html.spec.whatwg.org/multipage/scripting.html#prepare-the-script-element
+ * [essence]: https://mimesniff.spec.whatwg.org/#javascript-mime-type-essence-match
+ *
+ * Verified in Chrome as well, through both the parser and `createElement`,
+ * since the rule is unintuitive enough to be worth checking rather than
+ * reasoning about. Executed: no attribute, `""`, `text/javascript`,
  * `TEXT/JAVASCRIPT`, `  text/javascript  `, `text/ecmascript`, `module`,
  * `MODULE`. Not executed: `text/javascript; charset=utf-8`,
  * `application/javascript; charset=utf-8`, `module; charset=utf-8`, `"   "`,

@@ -2101,6 +2101,66 @@ describe('template CSP hashes', () => {
     }
   });
 
+  it('skips a type carrying MIME parameters, which is also not executed', async () => {
+    // Pinned because this one reads as a bug and has been reported as one. The
+    // tempting fix is to parse the MIME type and compare the essence before the
+    // ";", which would be wrong: the HTML standard compares the attribute
+    // against a JavaScript MIME type *essence match*, and an essence carries no
+    // parameters, so this element is inert and script-src never governs it.
+    // Hashing it would publish a source expression matching nothing.
+    //
+    // The standard uses this exact string as its worked example. Verified in
+    // Chrome through both the parser and createElement.
+    const inert = 'window.__never = true;';
+    const result = await processTemplate(
+      `<!doctype html><html><head><title>t</title><script type="text/javascript; charset=utf-8">${inert}</script><!--ss-head--></head><body><div id="root"><!--ss-outlet--></div></body></html>`,
+      'ssr',
+      false,
+      false,
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.cspHashes.scriptSrc).toHaveLength(0);
+
+      // Asserted against the digest itself, not just the count, so the test
+      // still means something if the template ever grows another inline script.
+      expect(result.cspHashes.scriptSrc).not.toContain(
+        `'${hashInlineContentForCSP(inert)}'`,
+      );
+    }
+  });
+
+  it('hashes the same script once the parameters come off', async () => {
+    // The control for the case above. Identical content and an identical
+    // element apart from the parameters, so a future change that stopped
+    // hashing executable scripts outright could not pass both.
+    const live = 'window.__never = true;';
+    const result = await processTemplate(
+      `<!doctype html><html><head><title>t</title><script type="text/javascript">${live}</script><!--ss-head--></head><body><div id="root"><!--ss-outlet--></div></body></html>`,
+      'ssr',
+      false,
+      false,
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // Read back out of the output rather than hashing `live`, since the
+      // prettifier re-indents script content and the digest covers what ships.
+      // Same reason as "hashes what shipped, not what was passed in" above.
+      const delivered = /<script[^>]*>([\s\S]*?)<\/script>/.exec(
+        result.html,
+      )?.[1];
+
+      expect(delivered).toContain(live);
+      expect(result.cspHashes.scriptSrc).toEqual([
+        `'${hashInlineContentForCSP(delivered ?? '')}'`,
+      ]);
+    }
+  });
+
   it('deduplicates identical blocks', async () => {
     const result = await processTemplate(
       template,
