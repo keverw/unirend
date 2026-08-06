@@ -24,6 +24,10 @@ import {
 import { UNIREND_ERROR_PAGE_STYLE_HASHES } from '../internal/error-page-utils';
 import { UNIREND_BOOTSTRAP_SCRIPT_HASH } from '../internal/html-utils/context-data-block';
 import type { InlineAttributeFinding } from '../internal/html-utils/format';
+import {
+  collectFramingIssues,
+  collectHSTSIssues,
+} from '../internal/security-headers-validation';
 
 export type { CSPConfig } from '../internal/csp-policy';
 
@@ -693,31 +697,10 @@ function isHostDisclaimed(request: FastifyRequest): boolean {
  * bug worth surfacing, not a way around validation.
  */
 function validateHSTSConfig(cfg: HSTSConfig): void {
-  if (
-    typeof cfg.maxAge !== 'number' ||
-    !Number.isFinite(cfg.maxAge) ||
-    cfg.maxAge < 0
-  ) {
-    throw new Error(
-      'Invalid securityHeaders config: hsts.maxAge must be a non-negative number (seconds)',
-    );
-  }
+  const [first] = collectHSTSIssues(cfg);
 
-  // When requesting HSTS preload, enforce Chrome preload list requirements:
-  // - max-age must be at least 31536000 (1 year)
-  // - includeSubDomains must be present
-  if (cfg.preload) {
-    if (cfg.maxAge < 31536000) {
-      throw new Error(
-        'Invalid securityHeaders config: HSTS preload requires maxAge >= 31536000 (1 year)',
-      );
-    }
-
-    if (!cfg.includeSubDomains) {
-      throw new Error(
-        'Invalid securityHeaders config: HSTS preload requires includeSubDomains: true',
-      );
-    }
+  if (first) {
+    throw new Error(first.message);
   }
 }
 
@@ -806,27 +789,9 @@ function permitsInlineAttribute(
 /**
  * Reject the one framing pair where the fallback is weaker than the policy.
  *
- * frame-ancestors supersedes X-Frame-Options wherever CSP is supported, which
- * is everywhere that matters, so X-Frame-Options is a fallback for browsers
- * that would otherwise get no framing policy at all.
- *
- * A fallback being *stricter* than the policy it backs up is fine and common:
- * frameOptions 'DENY' alongside frame-ancestors 'self' means an old browser
- * refuses framing a new one permits, which is the safe direction to be wrong
- * in. The reverse is not. 'SAMEORIGIN' alongside frame-ancestors 'none' means
- * an old browser permits same-origin framing that the policy exists to forbid,
- * and the author almost certainly believes they have forbidden it everywhere.
- *
- * Only that one combination is rejected. Anything else, including a deliberate
- * "modern browsers get the nuance, old ones get the blunt fallback" pairing
- * such as 'SAMEORIGIN' with a partner origin listed, is left alone: it is a
- * real pattern and not this code's business to second-guess.
- *
- * Takes the two halves separately rather than a whole config because the pair
- * it judges can be assembled from two places. A resolver overriding one half
- * inherits the other from the baseline, so the invalid combination is
- * reachable without either half being invalid on its own, and checking only
- * what the resolver returned would miss it entirely.
+ * The rule and its message live in `collectFramingIssues`, which the public
+ * `validateSecurityHeadersPolicy` also uses. This is the startup-shaped view of
+ * it: same judgment, thrown rather than returned.
  *
  * @param frameOptions The effective X-Frame-Options value, if any
  * @param csp The effective CSP config, already expanded from its preset
@@ -835,19 +800,10 @@ function validateFramingFallback(
   frameOptions: SecurityHeadersConfig['frameOptions'],
   csp: CSPConfig | false | undefined,
 ): void {
-  if (!csp) {
-    return;
-  }
+  const [first] = collectFramingIssues(frameOptions, csp);
 
-  const isFramingDenied =
-    Array.isArray(csp.frameAncestors) &&
-    csp.frameAncestors.length === 1 &&
-    csp.frameAncestors[0] === "'none'";
-
-  if (isFramingDenied && frameOptions === 'SAMEORIGIN') {
-    throw new Error(
-      "Invalid securityHeaders config: csp.frameAncestors is [\"'none'\"] but frameOptions is 'SAMEORIGIN'. frame-ancestors supersedes X-Frame-Options where CSP is supported, so the weaker X-Frame-Options would still let a browser without CSP support frame this page from the same origin. Use frameOptions: 'DENY' to match, or drop frameOptions entirely.",
-    );
+  if (first) {
+    throw new Error(first.message);
   }
 }
 

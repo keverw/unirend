@@ -191,7 +191,9 @@ That is why the example above keeps its own newline and indentation inside `PAGE
 
 The helper is exact for raw HTML strings sent straight to the transport, which is what an error page is. Content that passes through unirend's template pipeline is different: cheerio parses it and writes it out again, so it has to be hashed after serialization, which unirend does internally so you never touch it.
 
-Hashes cover inline `<script>` and `<style>` **elements** only. An `onclick=` handler or a `style=""` attribute is not an element, so no hash covers it. Those need `'unsafe-hashes'`, or better, rewriting so they are not inline attributes at all. Unirend's own error pages took the second route: the refresh control is an anchor back to the same URL rather than a button with an inline `onclick`.
+A hash of an element's content covers that element only. An `onclick=` handler or a `style=""` attribute is different content with a different digest, so an element hash never matches one.
+
+An attribute **can** be hashed, it just takes more: `'unsafe-hashes'` in the governing directive plus a digest of the attribute's own value. Pass that value to this helper the same way, with the same byte-for-byte rules. Better still is rewriting so there is no inline attribute to cover, since a hash listed for `'unsafe-hashes'` matches that value on any element in the page rather than the one you meant. Unirend's own error pages took that route: the refresh control is an anchor with an empty `href` rather than a button with an inline `onclick`. See [inline attributes](built-in-plugins/security-headers.md#inline-attributes-take-more-than-a-hash) for the full picture, including the warning unirend emits when a policy would block one.
 
 ## StaticContentCache
 

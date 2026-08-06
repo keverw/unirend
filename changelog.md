@@ -286,6 +286,24 @@ Each returned block replaces the default outright rather than merging into it, s
 
 A resolver that throws propagates and becomes a 500, like any other middleware that throws; catch it yourself and return `null` if you would rather degrade. Either way the error response carries the defaults but no HSTS, since a domain whose policy could not be resolved is not one to bind for a year, and the resolver is not called again while handling its own failure.
 
+**New:** `validateSecurityHeadersPolicy` from `unirend/server` checks a policy without throwing, for policies that arrive from a database, an API request, or an admin form rather than from the repository.
+
+```typescript
+import { validateSecurityHeadersPolicy } from 'unirend/server';
+
+const result = validateSecurityHeadersPolicy(submitted, {
+  baseline: { frameOptions: 'DENY', csp: DEFAULT_POLICY },
+});
+
+if (!result.valid) {
+  return reply.status(422).send({ errors: result.issues });
+}
+```
+
+It applies the same rules the plugin applies, so a policy it accepts is one `securityHeaders` accepts. Without it the only validation available was the throwing kind, which for a stored policy means the mistake surfaces as a 500 on the next request from the tenant it belongs to: the latest possible moment, in front of the wrong audience, reported as a server error rather than the form-validation failure it is. Every problem is returned rather than the first, each with a `path` such as `csp.scriptSrc` for attaching to a field and a `message` identical to what would have been thrown.
+
+Pass `baseline` when the policy is an override rather than a complete config. Blocks replace rather than merge, so an override setting only `csp` inherits `frameOptions` from the baseline and the two can conflict even when each is valid alone. It does not expand `csp.preset`, so preset directives are never reported as the author's mistakes, and it does not judge whether a policy is a wise one, only whether it is valid.
+
 `securityHeaders(...)` also returns a `setResolver` method, for a resolver that needs a dependency not ready at config time. Register the plugin early with a validated static baseline and install the real resolver once the dependency is up; requests in between get the defaults. See [docs/built-in-plugins/security-headers.md](docs/built-in-plugins/security-headers.md#per-request-policy-with-resolve).
 
 **New:** `securityHeaders` takes a `csp` block and emits `Content-Security-Policy`. Directives are configured as arrays of source expressions written the way they appear in the header, and the policy is validated once at startup rather than at request time:

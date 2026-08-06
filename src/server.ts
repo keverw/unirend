@@ -131,3 +131,16 @@ export type {
 // For error pages and error handlers, which run on the one path where the
 // request may have failed before the host was ever checked.
 export { isHostUnverified } from './lib/internal/host-verification';
+
+// Security-headers policy validation
+// For policies that arrive from a database, an API request, or an admin form
+// rather than from the repository. Reports every problem as data instead of
+// throwing on the first, so a stored policy can be checked when it is saved
+// rather than failing per request once a resolver returns it.
+export { validateSecurityHeadersPolicy } from './lib/internal/security-headers-validation';
+export type {
+  SecurityHeadersPolicyIssue,
+  SecurityHeadersPolicyValidation,
+  SecurityHeadersPolicyInput,
+  SecurityHeadersPolicyBaseline,
+} from './lib/internal/security-headers-validation';

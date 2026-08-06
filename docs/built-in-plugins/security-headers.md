@@ -27,6 +27,7 @@
   - [Keeping HSTS for Hosts You Own](#keeping-hsts-for-hosts-you-own)
   - [Where to Put the Plugin, and When `resolve` Runs](#where-to-put-the-plugin-and-when-resolve-runs)
   - [Installing a Resolver Later](#installing-a-resolver-later)
+  - [Validating a Policy Before You Store It](#validating-a-policy-before-you-store-it)
 - [When a Callback Throws](#when-a-callback-throws)
 - [Plugin Order and Short-Circuited Responses](#plugin-order-and-short-circuited-responses)
   - [HSTS on a Rejected Host](#hsts-on-a-rejected-host)
@@ -636,6 +637,43 @@ If you would rather that window fail than serve the defaults, register the resol
 <!-- prettier-ignore -->
 > [!WARNING]
 > Do not move the plugin later in the `plugins` array to solve this. That reintroduces the ordering problem described below, where responses ending before the plugin runs go out with no security headers at all.
+
+### Validating a Policy Before You Store It
+
+A policy your own code wrote is checked at startup, and a mistake there is a deployment bug that should stop the boot. A policy a **customer** edited is a different problem: it lives in a database, and the same mistake is somebody mistyping a directive.
+
+Left to the request path, that mistake surfaces as a 500 on the next request from the tenant it belongs to. The latest possible moment, in front of the wrong audience, and reported as a server error rather than as the form-validation failure it is.
+
+`validateSecurityHeadersPolicy` applies exactly the rules the plugin applies and returns them as data:
+
+```typescript
+import { validateSecurityHeadersPolicy } from 'unirend/server';
+
+app.put('/api/tenants/:id/security-policy', async (request, reply) => {
+  const result = validateSecurityHeadersPolicy(request.body, {
+    baseline: { frameOptions: 'DENY', csp: DEFAULT_POLICY },
+  });
+
+  if (!result.valid) {
+    return reply.status(422).send({ errors: result.issues });
+  }
+
+  await saveTenantPolicy(request.params.id, request.body);
+
+  return { ok: true };
+});
+```
+
+Each issue carries a `path` such as `csp.scriptSrc` or `hsts.maxAge`, so it can be attached to the field that caused it, and a `message` identical to what the plugin would have thrown. Every problem is reported, not just the first, because a form that reveals one error per submit makes the person fixing it play twenty questions.
+
+Pass `baseline` whenever the policy is an override rather than a complete config. Blocks replace rather than merge, so an override that sets only `csp` inherits `frameOptions` from the baseline, and the two can conflict even when each is fine on its own. Without the baseline that combination validates cleanly here and is then rejected at request time, which defeats the point of checking early.
+
+Two things it does not do:
+
+- **It does not expand `csp.preset`.** Pass the policy as the author wrote it, so preset directives are not reported back as their mistakes.
+- **It does not judge whether a policy is a good one.** A tenant can save `defaultSrc: ['*']` and this will accept it. It answers "will this work", not "is this wise".
+
+The same function is worth calling in a migration or a nightly job over stored policies. Rules tighten between versions, and a policy that was valid when it was saved is not automatically valid now.
 
 ## When a Callback Throws
 

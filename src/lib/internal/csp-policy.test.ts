@@ -183,9 +183,11 @@ describe('serializeCSP', () => {
     expect(policy).toBe("script-src 'self' 'sha256-script'");
   });
 
-  it('leaves the attr directives alone, since no hash covers an attribute', () => {
-    // A hash covers an element's text content. An attribute has none, so
-    // adding one to script-src-attr would be noise that never matches.
+  it('leaves the attr directives alone, since these hashes are of elements', () => {
+    // These particular hashes cover element content, and an attribute's value
+    // is different content with a different digest, so listing them in
+    // script-src-attr would match nothing on the page. An attribute can be
+    // covered by a hash, just not by one of these.
     const policy = serializeCSP(
       { scriptSrcAttr: ["'none'"], styleSrcAttr: ["'none'"] },
       { scriptSrc: ["'sha256-script'"], styleSrc: ["'sha256-style'"] },

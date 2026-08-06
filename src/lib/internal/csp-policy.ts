@@ -370,14 +370,27 @@ function validateSource(
 }
 
 /**
- * Check a CSP config and throw on anything a browser would ignore or that
- * defeats the point of having a policy.
- *
- * Config time rather than request time, matching how the CORS options already
- * behave: a policy typo is a deployment bug, and finding it at startup beats
- * finding it in a violation report.
+ * One thing wrong with a config, located well enough to point a form field at.
  */
-export function validateCSPConfig(config: CSPConfig): void {
+export interface CSPIssue {
+  /** Dotted path from the policy object, such as `csp.scriptSrc`. */
+  path: string;
+  /** The message the throwing validator would have used. */
+  message: string;
+}
+
+/**
+ * Every problem with a CSP config, rather than the first one.
+ *
+ * Split out from the throwing validator because the two callers want opposite
+ * things. A server starting up wants to stop at the first problem, since there
+ * is nobody to show a list to. Anything validating a policy a person is editing
+ * wants all of them at once, because fixing one error only to be shown the next
+ * is a miserable way to fill in a form.
+ */
+export function collectCSPIssues(config: CSPConfig): CSPIssue[] {
+  const issues: CSPIssue[] = [];
+
   const options = {
     allowUnsafeInlineScript: config.allowUnsafeInlineScript === true,
     allowUnsafeEval: config.allowUnsafeEval === true,
@@ -391,39 +404,51 @@ export function validateCSPConfig(config: CSPConfig): void {
     }
 
     if (!Array.isArray(sources)) {
-      throw new TypeError(
-        `Invalid securityHeaders config: csp.${key} must be an array of source expressions`,
-      );
+      issues.push({
+        path: `csp.${key}`,
+        message: `Invalid securityHeaders config: csp.${key} must be an array of source expressions`,
+      });
+
+      // Nothing below can read a non-array, so move on rather than reporting a
+      // pile of consequences of the same mistake.
+      continue;
     }
 
     for (const source of sources) {
       const error = validateSource(source, key, options);
 
       if (error) {
-        throw new Error(`Invalid securityHeaders config: ${error}`);
+        issues.push({
+          path: `csp.${key}`,
+          message: `Invalid securityHeaders config: ${error}`,
+        });
       }
     }
 
     for (const keyword of EXCLUSIVE_KEYWORDS) {
       if (sources.includes(keyword) && sources.length > 1) {
-        throw new Error(
-          `Invalid securityHeaders config: csp.${key} combines ${keyword} with other sources, which cannot be what you meant. ${keyword} means "allow nothing".`,
-        );
+        issues.push({
+          path: `csp.${key}`,
+          message: `Invalid securityHeaders config: csp.${key} combines ${keyword} with other sources, which cannot be what you meant. ${keyword} means "allow nothing".`,
+        });
       }
     }
   }
 
   if (config.sandbox !== undefined && !Array.isArray(config.sandbox)) {
-    throw new Error(
-      'Invalid securityHeaders config: csp.sandbox must be an array of tokens',
-    );
-  }
-
-  for (const token of config.sandbox ?? []) {
-    if (!/^allow-[a-z-]+$/.test(token)) {
-      throw new Error(
-        `Invalid securityHeaders config: csp.sandbox token "${token}" is not a valid sandbox token`,
-      );
+    issues.push({
+      path: 'csp.sandbox',
+      message:
+        'Invalid securityHeaders config: csp.sandbox must be an array of tokens',
+    });
+  } else {
+    for (const token of config.sandbox ?? []) {
+      if (!/^allow-[a-z-]+$/.test(token)) {
+        issues.push({
+          path: 'csp.sandbox',
+          message: `Invalid securityHeaders config: csp.sandbox token "${token}" is not a valid sandbox token`,
+        });
+      }
     }
   }
 
@@ -434,9 +459,10 @@ export function validateCSPConfig(config: CSPConfig): void {
 
   for (const uri of reportURIs) {
     if (typeof uri !== 'string' || uri.trim() === '' || /[\s;,]/.test(uri)) {
-      throw new Error(
-        `Invalid securityHeaders config: csp.reportURI "${String(uri)}" is not a usable URI`,
-      );
+      issues.push({
+        path: 'csp.reportURI',
+        message: `Invalid securityHeaders config: csp.reportURI "${String(uri)}" is not a usable URI`,
+      });
     }
   }
 
@@ -449,9 +475,32 @@ export function validateCSPConfig(config: CSPConfig): void {
     config.reportTo !== undefined &&
     (config.reportTo.trim() === '' || /[\s;,]/.test(config.reportTo))
   ) {
-    throw new Error(
-      `Invalid securityHeaders config: csp.reportTo "${config.reportTo}" is not a usable group name`,
-    );
+    issues.push({
+      path: 'csp.reportTo',
+      message: `Invalid securityHeaders config: csp.reportTo "${config.reportTo}" is not a usable group name`,
+    });
+  }
+
+  return issues;
+}
+
+/**
+ * Check a CSP config and throw on anything a browser would ignore or that
+ * defeats the point of having a policy.
+ *
+ * Config time rather than request time, matching how the CORS options already
+ * behave: a policy typo is a deployment bug, and finding it at startup beats
+ * finding it in a violation report.
+ *
+ * Throws on the first problem, because a server that cannot start has nowhere
+ * to put a list. Use `collectCSPIssues` where the policy came from a person
+ * rather than from the repository.
+ */
+export function validateCSPConfig(config: CSPConfig): void {
+  const [first] = collectCSPIssues(config);
+
+  if (first) {
+    throw new Error(first.message);
   }
 }
 
@@ -494,9 +543,18 @@ export function serializeCSP(
     // implement them reads `script-src`, and a hash in a directive that is not
     // consulted costs nothing.
     //
-    // The `-attr` directives are deliberately not here. They govern `onclick=`
-    // and `style=""`, which no hash can cover: a hash covers an element's text
-    // content, and an attribute has none.
+    // The `-attr` directives are deliberately not here, because of what these
+    // particular hashes are rather than what hashes can do. `additions` holds
+    // digests of element *content*, the bootstrap script and the error-page
+    // styles, and an attribute's value is different content with a different
+    // digest. Copying them into `script-src-attr` would list hashes that match
+    // no attribute on the page.
+    //
+    // An attribute can be covered by a hash, just not by one of these: it takes
+    // `'unsafe-hashes'` in the directive plus a digest of the attribute's own
+    // value. That is the caller's decision to make, so unirend reports those
+    // attributes and the hash each would need rather than quietly switching the
+    // keyword on. See the inline-attribute warning in security-headers.ts.
     const isScriptDirective =
       key === 'scriptSrc' || key === 'scriptSrcElem' || key === 'scriptSrcAttr';
 
