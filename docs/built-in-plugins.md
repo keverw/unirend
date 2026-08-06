@@ -60,6 +60,8 @@ Several built-in callbacks are request-aware, which means several of them can re
 
 <!-- prettier-ignore -->
 > [!IMPORTANT]
-> One outage can therefore produce a 403 from one callback and a 500 from another on the same request. That is the fail-closed backstop doing its job, not a policy you chose.
+> One outage can therefore produce a 403 from one callback and a 500 from another on the same request. Each default is defensible on its own, but together they are a mix nobody chose.
 
 If a single store backs more than one of these, handle its failure inside each callback rather than letting the defaults decide for you. Only you can tell "not one of ours" from "the store is down", and only you know which of the two answers your deployment should give.
+
+**None of this affects whether the response gets its headers.** These defaults decide what the response _is_, and the `onSend` hook in `securityHeaders` then applies headers to whatever that turned out to be. A 403 from a failed validator and a 500 from a failed `resolve` both go out fully covered, minus the HSTS that a [disclaimed host](built-in-plugins/security-headers.md#hsts-on-a-rejected-host) or a [failed resolve](built-in-plugins/security-headers.md#when-resolve-throws) deliberately drops. The two mechanisms are unrelated: one picks the response, the other dresses it.

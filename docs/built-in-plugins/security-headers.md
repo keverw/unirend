@@ -619,7 +619,20 @@ Where you put `securityHeaders` in the `plugins` array does not change which res
 
 That is worth stating because it is not what a hook alone would give you. The plugin does its work in an `onRequest` hook, and an `onRequest` hook only covers what runs after it, so a plugin listed earlier that ends the request never reaches it. `domainValidation` does exactly that for a 403 on an unauthorized host, a 400 on an unparseable `Host` header, and its canonical-domain, www, and HTTPS redirects, and any auth or gating plugin of your own does the same. Those responses used to go out with no CORS headers, no `X-Frame-Options`, and no HSTS.
 
-The plugin also registers an `onSend` hook, which Fastify runs for every reply it sends no matter who sent it or when the hook was registered. Anything the `onRequest` pass missed is filled in there. Two consequences to know about:
+The plugin also registers an `onSend` hook, which Fastify runs for every reply it sends no matter who sent it or when the hook was registered. Anything the `onRequest` pass missed is filled in there.
+
+**This is not an error-page feature, and there is no status code or content type it checks for.** Headers go on as the response leaves, so every one of these carries the full set:
+
+| Response | Covered |
+| --- | --- |
+| A handler that threw, rendered as a JSON 500 | Yes |
+| An HTML error page | Yes |
+| `reply.code(402).send({ error })`, or any early return | Yes |
+| Fastify's built-in 404 for an unregistered route | Yes |
+| A 403 or redirect from a gate registered above this plugin | Yes |
+| A response sent after `reply.hijack()` | No, see [Hijacked Responses](#hijacked-responses) |
+
+Two consequences to know about:
 
 - Headers are filled in only where they are absent. A route or a gate that deliberately set its own value keeps it, so this backstop never overwrites a decision you made on purpose.
 - Hijacked responses bypass `onSend` entirely and are covered separately. See [Hijacked Responses](#hijacked-responses).

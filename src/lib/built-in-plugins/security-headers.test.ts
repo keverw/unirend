@@ -2769,6 +2769,74 @@ describe('securityHeaders', () => {
       expect(response.headers.get('x-frame-options')).toBe('DENY');
     });
 
+    it('covers every status and content type, not just the happy path', async () => {
+      // onSend has no status or content-type condition, so this is not an
+      // error-page feature: headers go on as the response leaves, whoever
+      // produced it. Pinned because "does my JSON 500 get a CSP?" is a
+      // reasonable thing to doubt from reading "runs for every reply", and
+      // because a status check added here later would look harmless.
+      const app = fastify({ trustProxy: true });
+
+      await securityHeaders({
+        cors: { origin: ['https://app.example.com'] },
+        frameOptions: 'DENY',
+        hsts: { maxAge: 31536000 },
+        csp: { defaultSrc: ["'self'"] },
+      })(app as unknown as PluginHostInstance, createMockOptions());
+
+      app.get('/throws', () => {
+        throw new Error('kaboom');
+      });
+
+      app.get('/early-json', (_request, reply) =>
+        reply.code(402).send({ error: 'nope' }),
+      );
+
+      app.get('/early-html', (_request, reply) =>
+        reply.code(503).type('text/html').send('<h1>down</h1>'),
+      );
+
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const address = app.server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+
+      // The 404 comes from Fastify itself, for a route that was never declared.
+      const cases: Array<[string, number, string]> = [
+        ['/throws', 500, 'application/json'],
+        ['/early-json', 402, 'application/json'],
+        ['/early-html', 503, 'text/html'],
+        ['/never-registered', 404, 'application/json'],
+      ];
+
+      try {
+        for (const [path, status, contentType] of cases) {
+          const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+            headers: {
+              'x-forwarded-host': 'allowed.example.com',
+              'x-forwarded-proto': 'https',
+              origin: 'https://app.example.com',
+            },
+          });
+
+          expect(response.status).toBe(status);
+          expect(response.headers.get('content-type')).toContain(contentType);
+          expect(response.headers.get('x-frame-options')).toBe('DENY');
+          expect(response.headers.get('content-security-policy')).toBe(
+            "default-src 'self'",
+          );
+          expect(response.headers.get('strict-transport-security')).toBe(
+            'max-age=31536000',
+          );
+          expect(response.headers.get('access-control-allow-origin')).toBe(
+            'https://app.example.com',
+          );
+        }
+      } finally {
+        await app.close();
+      }
+    });
+
     it('applies the CSP to a short-circuited response too', async () => {
       // CSP goes out through the same helper as the other non-negotiated
       // headers, so it inherits the onSend backstop rather than needing its own.
