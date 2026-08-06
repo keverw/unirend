@@ -242,6 +242,26 @@ Two related fixes come with it. The origin and credentials decisions are now com
 
 If you were relying on a throw to produce a 500, catch it in your callback and decide there. Only your code can tell a genuine "not allowed" from "the store is down".
 
+**New:** `securityHeaders` takes a `resolve` callback that varies `csp`, `hsts`, and `frameOptions` per request, for deployments where customers map their own domains. A single static `hsts` applies to all of them, and `includeSubDomains` on a domain you do not own forces HTTPS across every other subdomain that customer has, honored for the full `maxAge` with no way to revoke it.
+
+```typescript
+securityHeaders({
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+
+  resolve: async (request) => {
+    const tenant = await lookupTenant(request.domainInfo.hostname);
+    if (!tenant?.isCustomDomain) return null; // defaults unchanged
+    return { hsts: { maxAge: 86400 }, frameOptions: false };
+  },
+});
+```
+
+Each returned block replaces the default outright rather than merging into it, so `hsts: { maxAge: 86400 }` sends exactly that with no inherited `includeSubDomains`. The result is validated with the same rules as the defaults. CORS is not overridable here, since `cors.origin` and `cors.credentials` already take request-aware functions.
+
+A resolver that throws propagates and becomes a 500, like any other middleware that throws; catch it yourself and return `null` if you would rather degrade. Either way the error response carries the defaults but no HSTS, since a domain whose policy could not be resolved is not one to bind for a year, and the resolver is not called again while handling its own failure.
+
+`securityHeaders(...)` also returns a `setResolver` method, for a resolver that needs a dependency not ready at config time. Register the plugin early with a validated static baseline and install the real resolver once the dependency is up; requests in between get the defaults. See [docs/built-in-plugins/security-headers.md](docs/built-in-plugins/security-headers.md#per-request-policy-with-resolve).
+
 **New:** `securityHeaders` takes a `csp` block and emits `Content-Security-Policy`. Directives are configured as arrays of source expressions written the way they appear in the header, and the policy is validated once at startup rather than at request time:
 
 ```typescript

@@ -17,6 +17,9 @@
   - [Your Own Inline Content Is Hashed Too](#your-own-inline-content-is-hashed-too)
   - [`frameAncestors` and `frameOptions` Together](#frameancestors-and-frameoptions-together)
   - [Config-Time Validation](#config-time-validation)
+- [Per-Request Policy With `resolve`](#per-request-policy-with-resolve)
+  - [When `resolve` Throws](#when-resolve-throws)
+  - [Installing a Resolver Later](#installing-a-resolver-later)
 - [When a Callback Throws](#when-a-callback-throws)
 - [Plugin Order and Short-Circuited Responses](#plugin-order-and-short-circuited-responses)
   - [HSTS on a Rejected Host](#hsts-on-a-rejected-host)
@@ -356,6 +359,75 @@ Two require an explicit opt-in rather than being refused outright:
 
 - `'unsafe-inline'` in a script directive needs `allowUnsafeInlineScript: true`. It is the one setting that stops a policy defending against the attack it exists for, and it is usually reached for to fix a single inline script. Unirend hashes its own inline content, so the common reasons to need it do not apply. It is **not** gated in `styleSrc`, which is a real but far narrower risk.
 - `'unsafe-eval'` needs `allowUnsafeEval: true`. Some older bundlers and template engines still require it.
+
+## Per-Request Policy With `resolve`
+
+The case this exists for is customers mapping their own domains. A single static `hsts` applies to all of them, and `includeSubDomains` on a domain you do not own forces HTTPS across every other subdomain that customer has, honored for the full `maxAge` with no way to revoke it. A domain you do not control needs a shorter `maxAge` and no `includeSubDomains` or `preload`.
+
+```typescript
+securityHeaders({
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+  frameOptions: 'DENY',
+  csp: { defaultSrc: ["'self'"] },
+
+  resolve: async (request) => {
+    const tenant = await lookupTenant(request.domainInfo.hostname);
+
+    if (!tenant?.isCustomDomain) {
+      return null; // defaults unchanged
+    }
+
+    return {
+      hsts: { maxAge: 86400 }, // a domain we do not own
+      csp: { defaultSrc: ["'self'", tenant.assetDomain] },
+      frameOptions: false,
+    };
+  },
+});
+```
+
+`resolve` may be async, and is called at most once per request. It can override `csp`, `hsts`, and `frameOptions`. CORS is deliberately not overridable here: `cors.origin` and `cors.credentials` already take request-aware functions, and a second mechanism would mean two places to look when an origin decision surprises you.
+
+**Each block replaces the default outright rather than merging into it.** `hsts: { maxAge: 86400 }` sends exactly that, with no inherited `includeSubDomains`. A partial merge would quietly keep the baseline's flags, which is the exact combination an override is written to avoid.
+
+The returned policy is validated with the same rules as the defaults, so a resolver cannot produce something the config would have rejected.
+
+### When `resolve` Throws
+
+It propagates, and Fastify turns it into a 500, exactly like any other middleware that throws. There is no bespoke fallback, because unlike an allow-or-deny callback there is no obviously correct answer to substitute: the request is fine, it is the policy that could not be computed.
+
+If you would rather degrade than fail, catch it yourself. You are the only one who can tell a genuine "no override needed" from "the store is down":
+
+```typescript
+resolve: async (request) => {
+  try {
+    return await lookupTenantPolicy(request.domainInfo.hostname);
+  } catch (error) {
+    log.error(error);
+    return null; // fall back to the validated defaults
+  }
+};
+```
+
+Either way, the error response carries the defaults but **no HSTS**. That is not a preference: the baseline is written for domains you own, and a domain whose policy could not be resolved may well not be one of them. Binding it for a year on the strength of a failed lookup is worse than the 500 that prompted it. The resolver is not called a second time while handling its own failure.
+
+### Installing a Resolver Later
+
+A resolver that needs a database cannot run at config time, but the plugin has to register early so its `onRequest` beats anything that might short-circuit. Keep the two separate:
+
+```typescript
+const headers = securityHeaders({ hsts: { maxAge: 31536000 } });
+const server = serveSSRBuilt(buildDir, { plugins: [headers] });
+
+await db.connect();
+headers.setResolver(async (request) => lookupTenantPolicy(request));
+```
+
+Requests served before the resolver is installed get the validated defaults rather than an error. The handle is the plugin value itself, which you already hold from passing it to `plugins`.
+
+<!-- prettier-ignore -->
+> [!WARNING]
+> Do not move the plugin later in the `plugins` array to solve this. That reintroduces the ordering problem described below, where responses ending before the plugin runs go out with no security headers at all.
 
 ## When a Callback Throws
 

@@ -158,6 +158,48 @@ export interface HSTSConfig {
 }
 
 /**
+ * A per-request override of the non-negotiated headers.
+ *
+ * Each key replaces that block outright rather than merging into it. A partial
+ * merge would mean `hsts: { maxAge: 86400 }` silently keeping the baseline's
+ * `includeSubDomains`, which is the exact combination a custom-domain override
+ * exists to avoid.
+ *
+ * CORS is deliberately absent. `cors.origin` and `cors.credentials` already
+ * take request-aware functions, so it has been per-request since before this
+ * existed, and giving it a second mechanism would mean two places to look when
+ * an origin decision surprises someone.
+ */
+export interface SecurityHeadersOverride {
+  csp?: false | CSPConfig;
+  hsts?: false | HSTSConfig;
+  frameOptions?: false | 'DENY' | 'SAMEORIGIN';
+}
+
+/**
+ * Decides the policy for one request, given the validated defaults.
+ *
+ * Return `null` to use the defaults unchanged, which is the common path and
+ * should be the fast one.
+ *
+ * May be async, since the lookup this exists for is usually a store hit.
+ */
+export type SecurityHeadersResolver = (
+  request: FastifyRequest,
+) => SecurityHeadersOverride | null | Promise<SecurityHeadersOverride | null>;
+
+/**
+ * The plugin, plus a way to install its resolver after registration.
+ *
+ * A plain `ServerPlugin` everywhere it is used as one; the extra method exists
+ * for the late-bound case, where the resolver needs a dependency that is not
+ * ready at config time.
+ */
+export type SecurityHeadersPlugin = ServerPlugin<UnirendServerMode> & {
+  setResolver: (resolver: SecurityHeadersResolver | undefined) => void;
+};
+
+/**
  * Browser security header configuration.
  *
  * Every field is a default. When `resolve` is supplied, its return value is
@@ -227,6 +269,47 @@ export interface SecurityHeadersConfig {
    * @default false
    */
   hsts?: false | HSTSConfig;
+
+  /**
+   * Vary the non-negotiated headers per request.
+   *
+   * The case this exists for: customers mapping their own domains. A single
+   * static `hsts` applies to all of them, and `includeSubDomains` on a domain
+   * you do not own forces HTTPS across every other subdomain that customer has,
+   * honored for the full `maxAge` with no way to revoke it. A domain you do not
+   * control needs a shorter `maxAge` and no `includeSubDomains` or `preload`.
+   *
+   * ```ts
+   * securityHeaders({
+   *   hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+   *   frameOptions: 'DENY',
+   *
+   *   resolve: async (request) => {
+   *     const tenant = await lookupTenant(request.domainInfo.hostname);
+   *     if (!tenant?.isCustomDomain) return null; // defaults unchanged
+   *     return { hsts: { maxAge: 86400 }, frameOptions: false };
+   *   },
+   * });
+   * ```
+   *
+   * Each returned block replaces the default outright rather than merging into
+   * it, so `hsts: { maxAge: 86400 }` sends exactly that and nothing else.
+   *
+   * The result is validated per request with the same rules as the defaults, so
+   * a resolver cannot produce a policy the config would have rejected.
+   *
+   * **A resolver that throws behaves like any other middleware that throws:**
+   * it propagates and becomes a 500. There is no bespoke fallback, because
+   * unlike an allow-or-deny callback there is no obviously correct answer to
+   * substitute. If you would rather degrade than fail, catch it yourself and
+   * return `null`, where you can tell "no override needed" from "the store is
+   * down". Either way the error response carries the defaults and **no HSTS**,
+   * since a domain whose policy could not be resolved is not one to bind.
+   *
+   * Called at most once per request; the result is reused for the rest of the
+   * lifecycle, including the error path.
+   */
+  resolve?: SecurityHeadersResolver;
 }
 
 /**
@@ -281,7 +364,29 @@ type ResolvedSecurityHeadersConfig = {
    * changes is work with no result.
    */
   csp: false | { headerName: string; value: string };
+  /**
+   * Present only on the base config, and only when a `resolve` is configured.
+   *
+   * Carrying it here rather than threading a resolver argument through every
+   * apply path means the config object knows how to become the effective one,
+   * and the effective one it returns does not carry it, so there is nothing to
+   * recurse into.
+   */
+  resolveEffective?: (
+    request: FastifyRequest,
+  ) => Promise<ResolvedSecurityHeadersConfig>;
 };
+
+/**
+ * The policy in force for this request: the resolver's, if there is one, and
+ * the validated defaults otherwise.
+ */
+async function effectiveConfigFor(
+  request: FastifyRequest,
+  config: ResolvedSecurityHeadersConfig,
+): Promise<ResolvedSecurityHeadersConfig> {
+  return config.resolveEffective ? config.resolveEffective(request) : config;
+}
 
 /**
  * Validate credentials origins using centralized validateConfigEntry
@@ -537,6 +642,126 @@ function isHostDisclaimed(request: FastifyRequest): boolean {
   return request.domainValidationRejected === true;
 }
 
+/**
+ * Check an HSTS block.
+ *
+ * Extracted so the defaults and a resolver's override are held to the same
+ * rules. A resolver returning something the config would have rejected is a
+ * bug worth surfacing, not a way around validation.
+ */
+function validateHSTSConfig(cfg: HSTSConfig): void {
+  if (
+    typeof cfg.maxAge !== 'number' ||
+    !Number.isFinite(cfg.maxAge) ||
+    cfg.maxAge < 0
+  ) {
+    throw new Error(
+      'Invalid securityHeaders config: hsts.maxAge must be a non-negative number (seconds)',
+    );
+  }
+
+  // When requesting HSTS preload, enforce Chrome preload list requirements:
+  // - max-age must be at least 31536000 (1 year)
+  // - includeSubDomains must be present
+  if (cfg.preload) {
+    if (cfg.maxAge < 31536000) {
+      throw new Error(
+        'Invalid securityHeaders config: HSTS preload requires maxAge >= 31536000 (1 year)',
+      );
+    }
+
+    if (!cfg.includeSubDomains) {
+      throw new Error(
+        'Invalid securityHeaders config: HSTS preload requires includeSubDomains: true',
+      );
+    }
+  }
+}
+
+/**
+ * Build the effective policy for a request, running `resolve` at most once.
+ *
+ * The cached verdict is what keeps a throwing resolver from throwing twice. It
+ * propagates the first time and Fastify turns that into a 500; the error path
+ * then applies security headers, reaches this, and finds an answer already
+ * waiting rather than calling the resolver that just failed. Same double-fault
+ * shape the CORS callbacks needed solving, same solution.
+ */
+async function resolveEffectiveConfig(
+  request: FastifyRequest,
+  baseConfig: ResolvedSecurityHeadersConfig,
+  resolve: SecurityHeadersResolver | undefined,
+  serializePolicy: (
+    csp: CSPConfig,
+  ) => { headerName: string; value: string } | false,
+): Promise<ResolvedSecurityHeadersConfig> {
+  if (!resolve) {
+    return baseConfig;
+  }
+
+  const cache = request as FastifyRequest & {
+    securityHeadersEffective?: ResolvedSecurityHeadersConfig;
+  };
+
+  if (cache.securityHeadersEffective) {
+    return cache.securityHeadersEffective;
+  }
+
+  // Stored before awaiting, so the error path has something to use even though
+  // the throw below never lets execution reach the assignment at the end.
+  //
+  // HSTS is dropped from it, and that is not a preference. The baseline is
+  // whatever suits the domains the operator owns, typically a long max-age with
+  // includeSubDomains, and the whole reason a resolver exists is to send
+  // something narrower on a domain they do not own. Falling back to the
+  // baseline on a customer domain would bind it for a year with no way to
+  // revoke, which is worse than the 500 that prompted it. Everything else is
+  // safe to fall back on: too strict at worst, and the effect ends with the
+  // response.
+  cache.securityHeadersEffective = { ...baseConfig, hsts: false };
+
+  const override = await resolve(request);
+
+  if (!override) {
+    cache.securityHeadersEffective = baseConfig;
+
+    return baseConfig;
+  }
+
+  // Validated with the same rules as the defaults, so a resolver cannot produce
+  // a policy the config would have rejected. A throw here propagates like any
+  // other resolver failure, which is right: returning something invalid is a
+  // bug in the same place with the same consequences as throwing.
+  if (override.hsts !== undefined && override.hsts !== false) {
+    validateHSTSConfig(override.hsts);
+  }
+
+  let csp = baseConfig.csp;
+
+  if (override.csp !== undefined) {
+    if (override.csp === false) {
+      csp = false;
+    } else {
+      validateCSPConfig(override.csp);
+      csp = serializePolicy(override.csp);
+    }
+  }
+
+  // Each block replaces rather than merges. A partial merge would let
+  // `hsts: { maxAge: 86400 }` silently keep the baseline's includeSubDomains,
+  // which is the exact combination the override exists to avoid.
+  const effective: ResolvedSecurityHeadersConfig = {
+    cors: baseConfig.cors,
+    frameOptions: override.frameOptions ?? baseConfig.frameOptions,
+    hsts: override.hsts ?? baseConfig.hsts,
+    csp,
+  };
+
+  cache.securityHeadersEffective = effective;
+
+  return effective;
+}
+
 function applyUnconditionalSecurityHeaders(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -632,7 +857,17 @@ async function applyCORSActualResponseHeaders(
 
   // Apply the unconditional security/Vary headers first, then layer the
   // origin-negotiated CORS headers on top if this request is allowed.
-  applyUnconditionalSecurityHeaders(request, reply, resolvedConfig, mode);
+  //
+  // The unconditional set is whatever `resolve` decided for this request, which
+  // is why it is looked up here rather than closed over: every path that
+  // applies headers goes through this function, so resolving here covers the
+  // early hook, the onSend backstop, and the hijacked-response helper at once.
+  applyUnconditionalSecurityHeaders(
+    request,
+    reply,
+    await effectiveConfigFor(request, resolvedConfig),
+    mode,
+  );
 
   // For non-preflight requests, let them proceed without CORS headers if the
   // origin is not allowed. Same-origin requests still work; browsers enforce
@@ -716,7 +951,7 @@ async function applyCORSActualResponseHeaders(
  */
 export function securityHeaders(
   config: SecurityHeadersConfig = {},
-): ServerPlugin<UnirendServerMode> {
+): SecurityHeadersPlugin {
   const corsConfig = { ...DEFAULT_CORS_CONFIG, ...(config.cors ?? {}) };
 
   // Config-time validations:
@@ -934,34 +1169,7 @@ export function securityHeaders(
 
   // Validate security header options at config-time
   if (config.hsts) {
-    const cfg = config.hsts;
-
-    if (
-      typeof cfg.maxAge !== 'number' ||
-      !Number.isFinite(cfg.maxAge) ||
-      cfg.maxAge < 0
-    ) {
-      throw new Error(
-        'Invalid securityHeaders config: hsts.maxAge must be a non-negative number (seconds)',
-      );
-    }
-
-    // When requesting HSTS preload, enforce Chrome preload list requirements:
-    // - max-age must be at least 31536000 (1 year)
-    // - includeSubDomains must be present
-    if (cfg.preload) {
-      if (cfg.maxAge < 31536000) {
-        throw new Error(
-          'Invalid securityHeaders config: HSTS preload requires maxAge >= 31536000 (1 year)',
-        );
-      }
-
-      if (!cfg.includeSubDomains) {
-        throw new Error(
-          'Invalid securityHeaders config: HSTS preload requires includeSubDomains: true',
-        );
-      }
-    }
+    validateHSTSConfig(config.hsts);
   }
 
   // Assemble the validated blocks into the shape the request-time helpers read.
@@ -1081,14 +1289,37 @@ export function securityHeaders(
     }
   }
 
+  // Mutable so a resolver can be installed after registration. A resolver that
+  // needs a database cannot run at config time, but the plugin has to register
+  // early so its onRequest beats anything that might short-circuit. Keeping the
+  // two separate is what lets both be true: register with a validated static
+  // baseline that does no I/O, and install the real resolver once whatever it
+  // depends on is ready. Requests served in between get the defaults rather
+  // than an error.
+  let activeResolver: SecurityHeadersResolver | undefined = config.resolve;
+
   const resolvedConfig: ResolvedSecurityHeadersConfig = {
     cors: corsConfig,
     frameOptions: config.frameOptions ?? false,
     hsts: config.hsts ?? false,
     csp: resolvedCSP,
+    resolveEffective: (request) =>
+      resolveEffectiveConfig(request, resolvedConfig, activeResolver, (csp) => {
+        // A resolver's policy is serialized per request rather than memoized.
+        // Correctness first: memoizing would need a key describing everything
+        // the policy depends on, and a key that misses something serves one
+        // tenant's policy to another. That trade was rejected for exactly this
+        // reason, and what it would save is string concatenation.
+        const value = serializeCSP(csp, {
+          scriptSrc: [`'${UNIREND_BOOTSTRAP_SCRIPT_HASH}'`],
+          styleSrc: UNIREND_ERROR_PAGE_STYLE_HASHES.map((h) => `'${h}'`),
+        });
+
+        return value ? { headerName: cspHeaderName(csp), value } : false;
+      }),
   };
 
-  return async (fastify: PluginHostInstance<UnirendServerMode>) => {
+  const plugin = async (fastify: PluginHostInstance<UnirendServerMode>) => {
     fastify.decorateRequest(
       'applySecurityHeaders',
       async function applySecurityHeaders(
@@ -1136,7 +1367,14 @@ export function securityHeaders(
         const origin = request.headers.origin;
         const method = request.method;
 
-        applyUnconditionalSecurityHeaders(request, reply, resolvedConfig);
+        // Resolved before anything is written, so a resolver that throws does
+        // so with no headers on the reply yet, and the 500 that follows is the
+        // ordinary error path rather than a half-headed response.
+        applyUnconditionalSecurityHeaders(
+          request,
+          reply,
+          await effectiveConfigFor(request, resolvedConfig),
+        );
 
         // Decide the origin once. resolveOriginAllowed caches it on the request
         // for the onSend backstop, the hijacked-response helper, and the error
@@ -1407,4 +1645,24 @@ export function securityHeaders(
 
     return Promise.resolve();
   };
+
+  /**
+   * Install or replace the resolver after registration.
+   *
+   * The handle is the plugin value itself, which the caller already holds from
+   * passing it to `plugins`, so there is nothing extra to keep track of:
+   *
+   * ```ts
+   * const headers = securityHeaders({ hsts: { maxAge: 31536000 } });
+   * const server = serveSSRBuilt(buildDir, { plugins: [headers] });
+   *
+   * await db.connect();
+   * headers.setResolver(async (request) => lookupTenantPolicy(request));
+   * ```
+   */
+  plugin.setResolver = (resolver: SecurityHeadersResolver | undefined) => {
+    activeResolver = resolver;
+  };
+
+  return plugin;
 }

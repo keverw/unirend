@@ -2829,6 +2829,202 @@ describe('securityHeaders', () => {
       expect(response.headers.get('x-frame-options')).toBe('DENY');
     });
 
+    it('leaves the defaults alone when the resolver returns null', async () => {
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            hsts: { maxAge: 31536000, includeSubDomains: true },
+            frameOptions: 'DENY',
+            resolve: () => null,
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.headers.get('strict-transport-security')).toBe(
+        'max-age=31536000; includeSubDomains',
+      );
+      expect(response.headers.get('x-frame-options')).toBe('DENY');
+    });
+
+    it('replaces a block outright rather than merging into it', async () => {
+      // The case this exists for. A partial merge would keep the baseline's
+      // includeSubDomains, which on a customer's domain forces HTTPS across
+      // every other subdomain they own, for the full max-age, with no way to revoke it. That
+      // is precisely what an override is written to avoid.
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+            frameOptions: 'DENY',
+            resolve: () => ({ hsts: { maxAge: 86400 }, frameOptions: false }),
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.headers.get('strict-transport-security')).toBe(
+        'max-age=86400',
+      );
+      expect(response.headers.get('x-frame-options')).toBeNull();
+    });
+
+    it('lets a resolver replace the CSP', async () => {
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            csp: { defaultSrc: ["'self'"] },
+            resolve: () => ({
+              csp: { defaultSrc: ["'self'", 'https://tenant-cdn.example.com'] },
+            }),
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.headers.get('content-security-policy')).toBe(
+        "default-src 'self' https://tenant-cdn.example.com",
+      );
+    });
+
+    it('500s when the resolver throws, like any other middleware', async () => {
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            hsts: { maxAge: 31536000 },
+            resolve: () => {
+              throw new Error('tenant lookup failed');
+            },
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.status).toBe(500);
+    });
+
+    it('sends no HSTS on the error a throwing resolver caused', async () => {
+      // Not a preference. The baseline is written for domains the operator
+      // owns, and the reason a resolver exists is to send something narrower on
+      // a domain they do not. Falling back to the baseline on a customer domain
+      // would bind it for a year with no way to revoke, which is worse than the
+      // 500 that prompted it.
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            hsts: { maxAge: 31536000, includeSubDomains: true },
+            frameOptions: 'DENY',
+            resolve: () => {
+              throw new Error('tenant lookup failed');
+            },
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.status).toBe(500);
+      expect(response.headers.get('strict-transport-security')).toBeNull();
+      // Everything else still falls back: too strict at worst, and the effect
+      // ends with the response.
+      expect(response.headers.get('x-frame-options')).toBe('DENY');
+    });
+
+    it('invokes a throwing resolver once per request', async () => {
+      // The double fault this prevents: the throw becomes a 500, the error path
+      // applies security headers, and the resolver is called again from inside
+      // the handler dealing with its first failure.
+      let calls = 0;
+
+      await respondTo({
+        plugins: [
+          securityHeaders({
+            hsts: { maxAge: 31536000 },
+            resolve: () => {
+              calls += 1;
+              throw new Error('tenant lookup failed');
+            },
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(calls).toBe(1);
+    });
+
+    it('invokes a succeeding resolver once per request', async () => {
+      let calls = 0;
+
+      await respondTo({
+        plugins: [
+          securityHeaders({
+            csp: { defaultSrc: ["'self'"] },
+            hsts: { maxAge: 31536000 },
+            resolve: () => {
+              calls += 1;
+              return { hsts: { maxAge: 60 } };
+            },
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(calls).toBe(1);
+    });
+
+    it('holds a resolver to the same validation as the defaults', async () => {
+      // Returning something the config would have rejected is a bug in the same
+      // place with the same consequences as throwing, so it fails the same way.
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            csp: { defaultSrc: ["'self'"] },
+            resolve: () => ({ csp: { scriptSrc: ['self'] } }),
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.status).toBe(500);
+    });
+
+    it('awaits an async resolver', async () => {
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            hsts: { maxAge: 31536000 },
+            resolve: async () => {
+              await new Promise((resolve) => setTimeout(resolve, 1));
+
+              return { hsts: { maxAge: 42 } };
+            },
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.headers.get('strict-transport-security')).toBe(
+        'max-age=42',
+      );
+    });
+
+    it('accepts a resolver installed after registration', async () => {
+      // A resolver needing a database cannot run at config time, but the plugin
+      // has to register early so its onRequest beats anything that
+      // short-circuits. Keeping the two separate is what lets both be true.
+      const plugin = securityHeaders({ hsts: { maxAge: 31536000 } });
+
+      plugin.setResolver(() => ({ hsts: { maxAge: 99 } }));
+
+      const response = await respondTo({
+        plugins: [plugin],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.headers.get('strict-transport-security')).toBe(
+        'max-age=99',
+      );
+    });
+
     it('leaves a header the short-circuiting responder set itself', async () => {
       // Fill-if-absent: a gate that deliberately framed its own response keeps
       // its value, rather than having the configured default written over it.
