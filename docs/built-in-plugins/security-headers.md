@@ -622,6 +622,8 @@ The plugin also registers an `onSend` hook, which Fastify runs for every reply i
 - Headers are filled in only where they are absent. A route or a gate that deliberately set its own value keeps it, so this backstop never overwrites a decision you made on purpose.
 - Hijacked responses bypass `onSend` entirely and are covered separately. See [Hijacked Responses](#hijacked-responses).
 
+**This does not generalize to gating plugins, including `domainValidation`.** Adding a header to a response is something `onSend` can still do on the way out. Blocking a request is not, because by then the response is already written. A gate only covers what was registered after it, so [`domainValidation` belongs first](domainValidation.md#plugin-order) while this plugin can go anywhere.
+
 ### HSTS on a Rejected Host
 
 One header is deliberately not filled in. When `domainValidation` rejects the request's host, `Strict-Transport-Security` is left off, and taken back off if it was already set.

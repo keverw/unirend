@@ -5,6 +5,7 @@
 - [About](#about)
 - [Features](#features)
 - [Usage](#usage)
+- [Plugin Order](#plugin-order)
 - [Configuration](#configuration)
 - [Examples](#examples)
 - [Proxy Support](#proxy-support)
@@ -51,6 +52,22 @@ const server = serveSSRBuilt(buildDir, {
   ],
 });
 ```
+
+## Plugin Order
+
+**Put this plugin first in `plugins`.** It works in an `onRequest` hook, and an `onRequest` hook only covers what was registered after it. A plugin listed above it that answers the request never reaches this one, so that response is served without the host ever being checked.
+
+This is the opposite of what [`securityHeaders`](security-headers.md#plugin-order-and-short-circuited-responses) needs, which is worth knowing because the two are usually registered together and the difference looks arbitrary until you see why:
+
+|  | `domainValidation` | `securityHeaders` |
+| --- | --- | --- |
+| What it does | **Blocks** a request | **Adds** headers to a response |
+| Hooks | `onRequest` | `onRequest` plus an `onSend` backstop |
+| Order matters? | **Yes, register it first** | No, anywhere works |
+
+A header can be filled in on the way out, which is what the `onSend` backstop in `securityHeaders` does for responses that ended before it ran. A block cannot be applied that late, because by then the response has already been written. A gate has to run before the thing it is gating, and nothing can retrofit that afterward.
+
+So the two are complementary rather than inconsistent: register `domainValidation` first so it gates everything, and put `securityHeaders` wherever its [`resolve`](security-headers.md#per-request-policy-with-resolve) needs to be. Its headers reach the 403s and redirects this plugin sends either way.
 
 ## Configuration
 
