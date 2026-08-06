@@ -32,6 +32,19 @@ describe('validateCSPConfig', () => {
     ).not.toThrow();
   });
 
+  it('accepts a hash written in the base64url alphabet', () => {
+    // CSP3's base64-value admits "-" and "_" alongside "+" and "/", so a digest
+    // that came out of a base64url encoder is one a browser honors. Rejecting
+    // it here failed startup on a source expression that works, and disagreed
+    // with the nonce rule, which has always taken both alphabets.
+    expect(() =>
+      validateCSPConfig({
+        scriptSrc: ["'sha256-K_xkFcAmnzC1nOFrLRqZTHNzZDzuqTMKC0mVeVJ8n1E='"],
+        styleSrc: ["'sha384-abc-_XYZ123'"],
+      }),
+    ).not.toThrow();
+  });
+
   it('rejects an unquoted keyword by name', () => {
     // The failure this prevents is silent: a browser reads bare `self` as a
     // host name, matches nothing, and the policy is quietly stricter than

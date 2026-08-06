@@ -26,8 +26,16 @@ const CSP_KEYWORDS = new Set([
  */
 const EXCLUSIVE_KEYWORDS = new Set(["'none'"]);
 
-/** `'sha256-...'`, `'sha384-...'`, `'sha512-...'`, quoted. */
-const HASH_SOURCE = /^'sha(?:256|384|512)-[A-Za-z0-9+/]+={0,2}'$/;
+/**
+ * `'sha256-...'`, `'sha384-...'`, `'sha512-...'`, quoted.
+ *
+ * The alphabet is base64 **and** base64url, matching CSP3's `base64-value`
+ * (`1*( ALPHA / DIGIT / "+" / "/" / "-" / "_" )*2( "=" )`), which is the same
+ * set `NONCE_SOURCE` below accepts. A tool that emits base64url, or a digest
+ * run through a base64url encoder, produces a hash a browser honors, so
+ * refusing it here would fail startup on a source expression that works.
+ */
+const HASH_SOURCE = /^'sha(?:256|384|512)-[A-Za-z0-9+/\-_]+={0,2}'$/;
 
 /** `'nonce-...'`, quoted. */
 const NONCE_SOURCE = /^'nonce-[A-Za-z0-9+/\-_]+={0,2}'$/;
