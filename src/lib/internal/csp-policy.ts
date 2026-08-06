@@ -441,8 +441,22 @@ export function isPlainObject(
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** Anything that starts with a scheme, so a relative URI can be told apart. */
-const SCHEME_PREFIX = /^[a-z][a-z0-9+.-]*:/i;
+/**
+ * A base a relative report endpoint is resolved against, so one can be checked
+ * at all.
+ *
+ * `report-uri` takes URI references, so `csp-report` and `../reports` are as
+ * valid as an absolute URL and are resolved against the protected resource. At
+ * config time there is no protected resource to resolve against, so a stand-in
+ * is used. `.invalid` is reserved by RFC 2606 and can never be a real host, and
+ * nothing resolved against it is ever emitted: the configured value is what
+ * goes in the header, and this is only ever asked whether it parses.
+ *
+ * Http rather than https, because the scheme of a relative reference comes from
+ * its base. An https base would answer a question about the endpoint with a
+ * fact about the base, and both are acceptable schemes here anyway.
+ */
+const REPORT_URI_BASE = 'http://csp-report-validation.invalid/';
 
 /**
  * Whether a violation-report endpoint is one a browser will actually post to,
@@ -450,37 +464,32 @@ const SCHEME_PREFIX = /^[a-z][a-z0-9+.-]*:/i;
  *
  * Weaker than the source-list check on purpose. A source expression is a host
  * pattern, so `*.cdn.example.com` is meaningful there and goes through the same
- * host validator a CORS origin does. `report-uri` takes a single real URL, and
- * no wildcard belongs in it.
+ * host validator a CORS origin does. `report-uri` takes a URI reference, and no
+ * wildcard belongs in one.
  *
- * What is checked is the part a browser silently drops. A scheme it will not
- * post over, or something that is neither absolute nor rooted at the origin,
- * leaves a policy that looks like it reports and does not, which is the worst
- * way for reporting to be off: violations happen, nothing arrives, and the
- * quiet reads as success.
+ * Resolving against a fixed base is what makes the check both correct and
+ * complete, rather than a shape test on the leading characters. It accepts every
+ * relative form the grammar allows, and it rejects the ones that look rooted and
+ * are not: `//`, `///`, and `//?x` are network-path references with no
+ * authority, so they name no endpoint, and a leading-slash test waves all three
+ * through while turning away a perfectly valid `csp-report`.
+ *
+ * What is left to catch is the part a browser silently drops: an unparsable
+ * reference, or a scheme it will not post over. Either leaves a policy that
+ * looks like it reports and does not, which is the worst way for reporting to be
+ * off, since violations happen, nothing arrives, and the quiet reads as success.
  */
 function reportEndpointProblem(uri: string): string | null {
-  // Origin-relative, the ordinary form for reporting to your own server. Also
-  // covers the protocol-relative "//host/path", which is valid here.
-  if (uri.startsWith('/')) {
-    return null;
-  }
-
-  if (!SCHEME_PREFIX.test(uri)) {
-    // A bare "csp-report" is a valid relative URL, and that is the problem: it
-    // resolves against whatever page was being viewed, so reports arrive at a
-    // different endpoint per page and mostly at ones that do not exist.
-    return 'is relative to the current page. Write it as an absolute URL, or as a path beginning with "/" to post to this origin.';
-  }
-
   let parsed: URL;
 
   try {
-    parsed = new URL(uri);
+    parsed = new URL(uri, REPORT_URI_BASE);
   } catch {
-    return 'is not a parsable URL';
+    return 'is not a usable URL';
   }
 
+  // Read from the resolved URL rather than from the text, so a relative
+  // reference is judged by the scheme it would actually be fetched over.
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     return `uses the "${parsed.protocol.slice(0, -1)}" scheme, and a browser only posts violation reports over http or https`;
   }

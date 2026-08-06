@@ -313,7 +313,7 @@ Available source-list directives: `defaultSrc`, `scriptSrc`, `scriptSrcElem`, `s
 
 Every source expression is checked. Keywords have to be spelled and quoted the way a browser reads them, hashes and nonces have to be well formed, and a host goes through the same validator a CORS origin does, so `*.cdn.example.com` and a public-suffix wildcard behave identically in both places. A `javascript:` or `vbscript:` scheme is refused outright.
 
-`reportURI` is held to a different standard, because it is a real URL rather than a host pattern and no wildcard belongs in it. It has to be absolute over http or https, or a path starting with `/`. A bare `csp-report` is rejected even though it is a valid relative URL: it resolves against whatever page was being viewed, so reports scatter across endpoints that mostly do not exist. That failure and a scheme a browser will not post over look the same from the outside, which is a policy that appears to report and does not.
+`reportURI` is held to a different standard, because it is a URI reference rather than a host pattern and no wildcard belongs in one. Every form the CSP grammar allows is accepted, relative ones included, since a relative reference is resolved against the page the policy protected. What is rejected is a value that names no endpoint at all, such as `//` or `https://`, and a scheme a browser will not post violation reports over. Both look the same from the outside: a policy that appears to report and does not.
 
 ### Roll It Out With `reportOnly`
 

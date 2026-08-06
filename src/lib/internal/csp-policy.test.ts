@@ -128,31 +128,39 @@ describe('validateCSPConfig', () => {
     expectRejected({ reportTo: '   ' }, /is not a usable group name/);
   });
 
-  it('accepts a report endpoint a browser can post to', () => {
-    expect(() => validateCSPConfig({ reportURI: '/csp-report' })).not.toThrow();
-    expect(() =>
-      validateCSPConfig({
-        reportURI: [
-          'https://reports.example.com/collect',
-          '//cdn.example.com/r',
-        ],
-      }),
-    ).not.toThrow();
+  it('accepts every URI reference the grammar allows', () => {
+    // report-uri takes a URI reference, not an absolute URL, so a relative one
+    // is valid and is resolved against the page the policy protected. Rejecting
+    // it would be this validator inventing a rule CSP does not have.
+    for (const reportURI of [
+      '/csp-report',
+      'csp-report',
+      './reports',
+      '../reports',
+      '?report',
+      'https://reports.example.com/collect',
+      '//cdn.example.com/r',
+    ]) {
+      expect(() => validateCSPConfig({ reportURI })).not.toThrow();
+    }
   });
 
   it('rejects a report endpoint that would silently collect nothing', () => {
-    // Every one of these serializes into a header that looks like reporting is
-    // on. A page-relative URI resolves against whatever page was being viewed,
-    // so reports scatter across endpoints that mostly do not exist, and a
-    // scheme a browser will not post over is dropped outright. Both fail the
-    // same way: violations happen, nothing arrives, and the quiet reads as a
-    // policy nobody is tripping over.
-    expectRejected({ reportURI: 'csp-report' }, /relative to the current page/);
+    // Each of these serializes into a header that looks like reporting is on. A
+    // scheme a browser will not post over is dropped outright, and the rest name
+    // no endpoint to drop: they are network-path references with no authority,
+    // which look rooted enough to pass a test on the leading slash and resolve
+    // to nothing. Both fail the same way, with violations happening, nothing
+    // arriving, and the quiet reading as a policy nobody is tripping over.
     expectRejected(
       { reportURI: 'javascript:alert(1)' },
       /only posts violation reports over http or https/,
     );
-    expectRejected({ reportURI: 'https://' }, /is not a parsable URL/);
+    expectRejected({ reportURI: 'mailto:security@example.com' }, /"mailto"/);
+
+    for (const reportURI of ['//', '///', '//?x', 'https://', 'http://[']) {
+      expectRejected({ reportURI }, /is not a usable URL/);
+    }
   });
 
   it('rejects an unknown preset before serialization can throw on it', () => {
