@@ -546,7 +546,7 @@ Done ahead of the CSP config itself, since the config needs this to exist before
 
 - [x] **Verified in a real browser, not just from the spec.** A page built by the real pipeline and served with the real plugin under a deliberately strict policy (`script-src 'self'` plus hashes, no `'unsafe-inline'`, no nonce) produced **zero** CSP violations, and every injected global arrived intact: `__PUBLIC_APP_CONFIG__`, `__FRONTEND_REQUEST_CONTEXT__`, `__DOMAIN_INFO__`, the template attrs and metas. The template's own theme script ran (the `dark` class was applied) and a slotted script successfully read `__PUBLIC_APP_CONFIG__`, so the ordering guarantee holds in a browser and not only in a string-index comparison.
 
-  **With a control, because "nothing was blocked" is worthless if the policy was not being enforced.** The same page plus one deliberately unhashed inline script was blocked, with the browser naming the directive and printing the hash it would have needed:
+  **With a control, because "nothing was blocked" is worthless if the policy was not being enforced.** The same page plus one inline script whose hash was deliberately withheld was blocked, with the browser naming the directive and printing the hash it would have needed:
 
   ```
   Executing inline script violates the following Content Security Policy directive
