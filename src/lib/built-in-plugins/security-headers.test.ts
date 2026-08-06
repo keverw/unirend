@@ -1,5 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import fastify from 'fastify';
+import type { FastifyRequest } from 'fastify';
 import { securityHeaders } from './security-headers';
 import type { CORSConfig, CSPConfig } from './security-headers';
 import { domainValidation } from './domain-validation';
@@ -2177,24 +2178,30 @@ describe('securityHeaders', () => {
 
       await securityHeaders({ csp })(pluginHost, createMockOptions());
 
-      const decorated = (
-        pluginHost.decorateRequest as unknown as {
-          mock: { calls: Array<[string, (...args: any[]) => void]> };
-        }
-      ).mock.calls.find(([name]) => name === 'addCSPSources');
-
-      if (!decorated) {
-        throw new Error('addCSPSources was not decorated');
-      }
-
+      // Through the onRequest hook rather than the decoration, because that is
+      // where addCSPSources is now installed and bound to this request's
+      // policy. Reaching for the decorated value directly would test a
+      // placeholder.
       const warnings: unknown[] = [];
-      const request = {
-        log: {
-          warn: (...args: unknown[]) => warnings.push(args),
-        },
+      const request = createMockRequest({
+        log: { warn: (...args: unknown[]) => warnings.push(args) },
+      }) as ReturnType<typeof createMockRequest> & {
+        addCSPSources?: (sources: {
+          inlineAttributes?: readonly string[];
+        }) => void;
       };
 
-      decorated[1].call(request, {
+      const onRequestHook = pluginHost
+        .getHooks()
+        .find((h) => h.event === 'onRequest');
+
+      await onRequestHook?.handler(request, createMockReply());
+
+      if (!request.addCSPSources) {
+        throw new Error('addCSPSources was not installed on the request');
+      }
+
+      request.addCSPSources({
         inlineAttributes: ['<button> has onclick='],
       });
 
@@ -2236,21 +2243,25 @@ describe('securityHeaders', () => {
         createMockOptions(),
       );
 
-      const decorated = (
-        pluginHost.decorateRequest as unknown as {
-          mock: { calls: Array<[string, (...args: any[]) => void]> };
-        }
-      ).mock.calls.find(([name]) => name === 'addCSPSources');
-
       const warnings: unknown[] = [];
-      const request = {
+      const request = createMockRequest({
         log: { warn: (...args: unknown[]) => warnings.push(args) },
+      }) as ReturnType<typeof createMockRequest> & {
+        addCSPSources?: (sources: {
+          inlineAttributes?: readonly string[];
+        }) => void;
       };
+
+      const onRequestHook = pluginHost
+        .getHooks()
+        .find((h) => h.event === 'onRequest');
+
+      await onRequestHook?.handler(request, createMockReply());
 
       // Templates are per app and fixed, so repeating this per request would
       // say nothing new.
       for (let index = 0; index < 5; index += 1) {
-        decorated?.[1].call(request, {
+        request.addCSPSources?.({
           inlineAttributes: ['<button> has onclick='],
         });
       }
@@ -2532,8 +2543,12 @@ describe('securityHeaders', () => {
 
       const capturingHost = {
         decorateRequest: mock(
-          (_name: string, fn: (...args: unknown[]) => Promise<void>) => {
-            capturedDecorator = fn;
+          (name: string, fn: (...args: unknown[]) => Promise<void>) => {
+            // By name: addCSPSources is also decorated, as an undefined
+            // placeholder that the onRequest hook fills in per request.
+            if (name === 'applySecurityHeaders') {
+              capturedDecorator = fn;
+            }
           },
         ),
         addHook: mock(
@@ -2963,6 +2978,119 @@ describe('securityHeaders', () => {
       expect(csp).toMatch(/script-src 'self' 'sha256-[^']+'/);
       expect(csp).toMatch(/style-src 'self'(?: 'sha256-[^']+')+/);
       expect(csp).not.toMatch(/ sha256-/);
+    });
+
+    it("folds a request's own sources into a resolver's policy", async () => {
+      // The bug this pins: the fold-in used to compare the outgoing header
+      // against the *configured* policy. A resolver that returned its own CSP
+      // left the header holding something that comparison did not recognize, so
+      // the request's sources were dropped silently. For SSR those sources are
+      // the active template's inline hashes, so the tenant's page went out
+      // under a policy strict enough to block the very scripts it was rendering
+      // — and only for tenants with a custom policy, which is the hardest kind
+      // of bug to notice.
+      const app = fastify({ trustProxy: true });
+
+      await securityHeaders({
+        csp: { scriptSrc: ["'self'"] },
+        resolve: () => ({
+          csp: { scriptSrc: ["'self'", 'https://tenant-cdn.example.com'] },
+        }),
+      })(app as unknown as PluginHostInstance, createMockOptions());
+
+      app.get('/test', (request, reply) => {
+        (
+          request as FastifyRequest & {
+            addCSPSources?: (sources: { scriptSrc: string[] }) => void;
+          }
+        ).addCSPSources?.({ scriptSrc: ["'sha256-template-hash'"] });
+
+        return reply.send('ok');
+      });
+
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const address = app.server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/test`);
+        const csp = response.headers.get('content-security-policy') ?? '';
+
+        // The resolver's policy, not the configured one.
+        expect(csp).toContain('https://tenant-cdn.example.com');
+        // And the request's own source, folded into that policy.
+        expect(csp).toContain("'sha256-template-hash'");
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('installs addCSPSources when only the resolver has a policy', async () => {
+      // The other half. Deciding at registration whether to decorate meant a
+      // server configured without a CSP never offered the hook, so the renderer
+      // skipped hashing entirely, and a resolver that introduced a policy got a
+      // strict one with no hashes in it at all.
+      const app = fastify({ trustProxy: true });
+
+      await securityHeaders({
+        resolve: () => ({ csp: { scriptSrc: ["'self'"] } }),
+      })(app as unknown as PluginHostInstance, createMockOptions());
+
+      app.get('/test', (request, reply) => {
+        const add = (
+          request as FastifyRequest & {
+            addCSPSources?: (sources: { scriptSrc: string[] }) => void;
+          }
+        ).addCSPSources;
+
+        return reply.send(typeof add === 'function' ? 'installed' : 'missing');
+      });
+
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const address = app.server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/test`);
+
+        expect(await response.text()).toBe('installed');
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('leaves addCSPSources undefined when nothing configures a policy', async () => {
+      // The signal has to keep working. Its absence is what tells the SSR
+      // renderer not to hash a template on a server that is not using CSP,
+      // which in development is per-request work.
+      const app = fastify({ trustProxy: true });
+
+      await securityHeaders({ frameOptions: 'DENY' })(
+        app as unknown as PluginHostInstance,
+        createMockOptions(),
+      );
+
+      app.get('/test', (request, reply) => {
+        const add = (request as FastifyRequest & { addCSPSources?: unknown })
+          .addCSPSources;
+
+        return reply.send(add === undefined ? 'absent' : 'present');
+      });
+
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const address = app.server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/test`);
+
+        expect(await response.text()).toBe('absent');
+      } finally {
+        await app.close();
+      }
     });
 
     it('sends the report-only header when asked, and not the enforcing one', async () => {

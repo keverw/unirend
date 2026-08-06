@@ -380,17 +380,31 @@ type ResolvedCORSConfig = Required<
       ) => boolean | Promise<boolean>);
 };
 
+/**
+ * A validated policy, the header it belongs in, and the serialized value.
+ *
+ * `config` is kept rather than discarded because the serialized value is not
+ * always final. An SSR request contributes the active template's hashes partway
+ * through, and folding those in means serializing this policy again, with more
+ * sources. Keeping the config next to the value is what lets that work for a
+ * policy a resolver produced, and not just for the one configured at startup.
+ */
+type CompiledCSP = {
+  headerName: string;
+  value: string;
+  config: CSPConfig;
+};
+
 type ResolvedSecurityHeadersConfig = {
   cors: ResolvedCORSConfig;
   frameOptions: false | 'DENY' | 'SAMEORIGIN';
   hsts: false | HSTSConfig;
   /**
-   * The serialized policy and the header it goes in, both computed once at
-   * config time. The policy does not vary per request, so there is nothing to
-   * rebuild: string concatenation on every response for a value that never
-   * changes is work with no result.
+   * The policy in force, compiled. On the base config this is computed once at
+   * startup. On a config a resolver produced it is computed for that request,
+   * which is the only time its inputs are known.
    */
-  csp: false | { headerName: string; value: string };
+  csp: false | CompiledCSP;
   /**
    * Present only on the base config, and only when a `resolve` is configured.
    *
@@ -718,9 +732,7 @@ async function resolveEffectiveConfig(
   request: FastifyRequest,
   baseConfig: ResolvedSecurityHeadersConfig,
   resolve: SecurityHeadersResolver | undefined,
-  serializePolicy: (
-    csp: CSPConfig,
-  ) => { headerName: string; value: string } | false,
+  serializePolicy: (csp: CSPConfig) => false | CompiledCSP,
   ownDomains: string[] | undefined,
 ): Promise<ResolvedSecurityHeadersConfig> {
   if (!resolve) {
@@ -1215,40 +1227,98 @@ export function securityHeaders(
   // Assemble the validated blocks into the shape the request-time helpers read.
   // Keeping CORS in its own block means a future per-request override can
   // replace one block without touching the others.
-  // Validate and serialize the policy once. Nothing about it depends on the
-  // request, so the header value is fixed for the life of the process.
-  let resolvedCSP: false | { headerName: string; value: string } = false;
+  // Validate and serialize the startup policy once. A resolver can replace it
+  // per request, but for everyone not using one the value is fixed for the life
+  // of the process.
+  let resolvedCSP: false | CompiledCSP = false;
 
-  // Rebuilt policies, keyed by the extra sources that produced them.
+  // Rebuilt policies, keyed by the policy they came from and the extra sources
+  // folded into it.
   //
   // Worth being precise about what makes this a cache rather than a leak. The
-  // key is derived from a *template's* hashes, and a template is per app and
-  // fixed for the life of the process, so one app means one entry computed on
-  // its first request and reused forever. It is never keyed on anything that
-  // varies per request; doing that would be the unbounded-growth mistake this
-  // plan already rejected once, for the per-tenant resolver's cache key.
+  // sources half of the key is derived from a *template's* hashes, and a
+  // template is per app and fixed for the life of the process, so one app means
+  // one entry computed on its first request and reused forever. The policy half
+  // is the serialized base policy, so a per-tenant resolver adds one entry per
+  // distinct policy rather than one per request: tenants sharing a policy share
+  // an entry. Neither half is keyed on anything that varies per request, which
+  // would be the unbounded-growth mistake this plan already rejected once, for
+  // the resolver's own cache key.
   //
   // LRU rather than a plain Map for the case where that assumption does not
   // hold. Development recomputes hashes per request, because Vite may add
   // inline content after unirend is done with the template, so a Vite plugin
-  // injecting something request-varying would mint a new key every time. An
-  // eviction policy degrades gracefully there, where a hard cap that stopped
-  // storing would leave the steady-state apps permanently uncached behind
-  // whatever churned in first. Same LRUCache the static content cache uses.
+  // injecting something request-varying would mint a new key every time. A
+  // resolver that mints a genuinely distinct policy per tenant behaves the same
+  // way at scale. An eviction policy degrades gracefully there, where a hard
+  // cap that stopped storing would leave the steady-state apps permanently
+  // uncached behind whatever churned in first. Same LRUCache the static content
+  // cache uses.
+  // Unirend contributes hashes for the inline content it emits itself: the
+  // bootstrap that assigns the injected globals, and the styles on its error
+  // pages. The framework is the only thing that knows what it emitted, so
+  // asking the caller to list these would be asking them to track bytes they
+  // never see.
+  // Quoted here. hashInlineContentForCSP returns the bare expression, since a
+  // source list has unquoted members too and quoting is the assembler's job.
+  // Getting this wrong is quiet: an unquoted sha256-... is read as a host
+  // name, matches nothing, and the inline content it was meant to allow is
+  // blocked with no clue as to why.
+  const quote = (hash: string) => `'${hash}'`;
+
+  const ownScriptSources = [quote(UNIREND_BOOTSTRAP_SCRIPT_HASH)];
+  const ownStyleSources = UNIREND_ERROR_PAGE_STYLE_HASHES.map(quote);
+
   const policyBySources = new LRUCache<string, string>(64);
 
   /**
-   * Serialize the policy with extra per-request sources folded in. Left
-   * undefined when no policy is configured, which is what makes
-   * `request.addCSPSources` absent and tells callers not to compute hashes at
-   * all.
+   * Validate a policy and serialize it with unirend's own inline hashes folded
+   * in, producing the value that goes on the wire.
+   *
+   * Used for the configured policy at startup and for whatever a resolver
+   * returns per request, so both arrive downstream in the same shape and both
+   * can have request sources folded in later. Returns `false` for a policy that
+   * serializes to nothing, which is how "no CSP" is expressed.
    */
-  let buildPolicyWithSources:
-    | ((sources: {
-        scriptSrc?: readonly string[];
-        styleSrc?: readonly string[];
-      }) => string)
-    | undefined;
+  function compileCSP(policy: CSPConfig): false | CompiledCSP {
+    const value = serializeCSP(policy, {
+      scriptSrc: ownScriptSources,
+      styleSrc: ownStyleSources,
+    });
+
+    if (!value) {
+      return false;
+    }
+
+    return { headerName: cspHeaderName(policy), value, config: policy };
+  }
+
+  /**
+   * The policy with a request's own sources folded in, which for SSR is the
+   * active template's inline hashes.
+   *
+   * Takes the compiled policy rather than closing over the configured one. That
+   * is the whole point: a resolver can hand a tenant a different policy, and
+   * the hashes for the template that tenant is about to be served have to end
+   * up in *that* policy, not in the one the server started with.
+   */
+  function buildPolicyWithSources(
+    compiled: CompiledCSP,
+    extra: { scriptSrc?: readonly string[]; styleSrc?: readonly string[] },
+  ): string {
+    const scriptSrc = [...ownScriptSources, ...(extra.scriptSrc ?? [])];
+    const styleSrc = [...ownStyleSources, ...(extra.styleSrc ?? [])];
+    const key = `${compiled.value}|${scriptSrc.join(' ')}|${styleSrc.join(' ')}`;
+
+    let policy = policyBySources.get(key);
+
+    if (policy === undefined) {
+      policy = serializeCSP(compiled.config, { scriptSrc, styleSrc });
+      policyBySources.set(key, policy);
+    }
+
+    return policy;
+  }
 
   // Expanded once, here, so everything downstream (validation, serialization,
   // the frameAncestors check below) sees the finished policy rather than each
@@ -1286,52 +1356,7 @@ export function securityHeaders(
       );
     }
 
-    // Unirend contributes hashes for the inline content it emits itself: the
-    // bootstrap that assigns the injected globals, and the styles on its error
-    // pages. The framework is the only thing that knows what it emitted, so
-    // asking the caller to list these would be asking them to track bytes they
-    // never see.
-    // Quoted here. hashInlineContentForCSP returns the bare expression, since a
-    // source list has unquoted members too and quoting is the assembler's job.
-    // Getting this wrong is quiet: an unquoted sha256-... is read as a host
-    // name, matches nothing, and the inline content it was meant to allow is
-    // blocked with no clue as to why.
-    const quote = (hash: string) => `'${hash}'`;
-
-    const ownScriptSources = [quote(UNIREND_BOOTSTRAP_SCRIPT_HASH)];
-    const ownStyleSources = UNIREND_ERROR_PAGE_STYLE_HASHES.map(quote);
-
-    const value = serializeCSP(cspConfig, {
-      scriptSrc: ownScriptSources,
-      styleSrc: ownStyleSources,
-    });
-
-    if (value) {
-      resolvedCSP = { headerName: cspHeaderName(cspConfig), value };
-
-      // Rebuild for a request that contributed extra sources, memoized on the
-      // sources themselves. The base policy stays the fallback: an app that
-      // contributes nothing gets the string computed above, untouched.
-      buildPolicyWithSources = (extra) => {
-        const scriptSrc = [...ownScriptSources, ...(extra.scriptSrc ?? [])];
-        const styleSrc = [...ownStyleSources, ...(extra.styleSrc ?? [])];
-        const key = `${scriptSrc.join(' ')}|${styleSrc.join(' ')}`;
-
-        let policy = policyBySources.get(key);
-
-        if (policy === undefined) {
-          // config.csp is captured rather than re-read: this closure outlives
-          // the block, and the value it must serialize is the validated one.
-          policy = serializeCSP(cspConfig, {
-            scriptSrc,
-            styleSrc,
-          });
-          policyBySources.set(key, policy);
-        }
-
-        return policy;
-      };
-    }
+    resolvedCSP = compileCSP(cspConfig);
   }
 
   // Whether the configured policy would actually block an inline attribute.
@@ -1409,23 +1434,12 @@ export function securityHeaders(
         request,
         resolvedConfig,
         activeResolver,
-        (csp) => {
-          // A resolver's policy is serialized per request rather than memoized.
-          // Correctness first: memoizing would need a key describing everything
-          // the policy depends on, and a key that misses something serves one
-          // tenant's policy to another. That trade was rejected for exactly
-          // this reason, and what it would save is string concatenation.
-          //
-          // A preset is expanded here too, so a resolver can return one.
-          const expanded = applyCSPPreset(csp);
-
-          const value = serializeCSP(expanded, {
-            scriptSrc: [`'${UNIREND_BOOTSTRAP_SCRIPT_HASH}'`],
-            styleSrc: UNIREND_ERROR_PAGE_STYLE_HASHES.map((h) => `'${h}'`),
-          });
-
-          return value ? { headerName: cspHeaderName(expanded), value } : false;
-        },
+        // A preset is expanded first, so a resolver can return one, and then the
+        // same compile step the configured policy went through runs on it. That
+        // shared step is what puts unirend's own inline hashes in a resolver's
+        // policy as well, and what lets a request's template hashes be folded
+        // into it later.
+        (csp) => compileCSP(applyCSPPreset(csp)),
         ownDomains,
       ),
   };
@@ -1444,43 +1458,17 @@ export function securityHeaders(
       },
     );
 
-    // Only decorated when there is a policy to add to. Its absence is a signal,
-    // not just a missing convenience: it tells the SSR renderer there is no
-    // reason to hash a template's inline content, which is the work this would
-    // otherwise cost on every server that is not using CSP.
-    if (resolvedCSP && buildPolicyWithSources) {
-      fastify.decorateRequest(
-        'addCSPSources',
-        function addCSPSources(
-          this: FastifyRequest,
-          sources: {
-            scriptSrc?: readonly string[];
-            styleSrc?: readonly string[];
-            inlineAttributes?: readonly string[];
-          },
-        ) {
-          const request = this as FastifyRequest & {
-            cspExtraSources?: { scriptSrc: string[]; styleSrc: string[] };
-          };
-
-          request.cspExtraSources ??= { scriptSrc: [], styleSrc: [] };
-          request.cspExtraSources.scriptSrc.push(...(sources.scriptSrc ?? []));
-          request.cspExtraSources.styleSrc.push(...(sources.styleSrc ?? []));
-
-          // Skipped entirely when the policy already allows them, so someone
-          // who made that call deliberately is not told about it repeatedly.
-          if (
-            !permitsInlineAttribute([
-              cspConfig ? cspConfig.scriptSrc : undefined,
-              cspConfig ? cspConfig.styleSrc : undefined,
-              cspConfig ? cspConfig.defaultSrc : undefined,
-            ])
-          ) {
-            reportInlineAttributes(this, sources.inlineAttributes);
-          }
-        },
-      );
-    }
+    // Declared unconditionally, assigned per request, and left undefined when
+    // the request's policy has nothing to add to.
+    //
+    // Its absence is a signal rather than a missing convenience: it tells the
+    // SSR renderer there is no reason to hash a template's inline content,
+    // which in development is real work on every request. That signal has to be
+    // per request, not per server. A resolver can introduce a CSP on a server
+    // configured without one, and deciding this at registration would leave
+    // exactly those tenants' templates without hashes, under a policy strict enough
+    // to block the very content the hashes were for.
+    fastify.decorateRequest('addCSPSources', undefined);
 
     // Handle preflight OPTIONS requests
     fastify.addHook(
@@ -1494,11 +1482,52 @@ export function securityHeaders(
         // Resolved before anything is written, so a resolver that throws does
         // so with no headers on the reply yet, and the 500 that follows is the
         // ordinary error path rather than a half-headed response.
-        applyUnconditionalSecurityHeaders(
-          request,
-          reply,
-          await effectiveConfigFor(request, resolvedConfig),
-        );
+        const effective = await effectiveConfigFor(request, resolvedConfig);
+
+        applyUnconditionalSecurityHeaders(request, reply, effective);
+
+        // Installed only when this request has a policy, and bound to that
+        // policy. A per-request closure rather than a shared one because the
+        // policy it has to reason about is this request's, which a resolver may
+        // have replaced.
+        if (effective.csp) {
+          const policy = effective.csp.config;
+
+          (
+            request as FastifyRequest & {
+              addCSPSources?: (sources: {
+                scriptSrc?: readonly string[];
+                styleSrc?: readonly string[];
+                inlineAttributes?: readonly string[];
+              }) => void;
+              cspExtraSources?: { scriptSrc: string[]; styleSrc: string[] };
+            }
+          ).addCSPSources = function addCSPSources(sources) {
+            const target = request as FastifyRequest & {
+              cspExtraSources?: { scriptSrc: string[]; styleSrc: string[] };
+            };
+
+            target.cspExtraSources ??= { scriptSrc: [], styleSrc: [] };
+            target.cspExtraSources.scriptSrc.push(...(sources.scriptSrc ?? []));
+            target.cspExtraSources.styleSrc.push(...(sources.styleSrc ?? []));
+
+            // Checked against this request's policy, not the configured one, so
+            // a resolver that relaxed or tightened inline handling for a tenant
+            // is what decides whether the warning is useful for them.
+            //
+            // Skipped entirely when the policy already allows them, so someone
+            // who made that call deliberately is not told about it repeatedly.
+            if (
+              !permitsInlineAttribute([
+                policy.scriptSrc,
+                policy.styleSrc,
+                policy.defaultSrc,
+              ])
+            ) {
+              reportInlineAttributes(request, sources.inlineAttributes);
+            }
+          };
+        }
 
         // Decide the origin once. resolveOriginAllowed caches it on the request
         // for the onSend backstop, the hijacked-response helper, and the error
@@ -1735,14 +1764,29 @@ export function securityHeaders(
           }
         ).cspExtraSources;
 
-        if (extra && resolvedCSP && buildPolicyWithSources) {
-          // Overwrite rather than fill-if-absent, since the header is already
-          // there from the early pass and the whole point is to replace it. But
-          // only when it still holds the value this plugin put there: a route
-          // that deliberately set its own policy keeps it, same rule as
-          // everywhere else.
-          if (reply.getHeader(resolvedCSP.headerName) === resolvedCSP.value) {
-            reply.header(resolvedCSP.headerName, buildPolicyWithSources(extra));
+        if (extra) {
+          // The policy in force for *this* request, which is not necessarily
+          // the one configured at startup. Comparing against the startup policy
+          // was the bug here: a resolver that returned its own CSP left the
+          // header holding a value this check did not recognize, so the fold-in
+          // was skipped and the tenant's page went out under a policy missing
+          // the hashes for the very template it was about to render.
+          const effective = await effectiveConfigFor(request, resolvedConfig);
+
+          if (effective.csp) {
+            // Overwrite rather than fill-if-absent, since the header is already
+            // there from the early pass and the whole point is to replace it.
+            // But only when it still holds the value this plugin put there: a
+            // route that deliberately set its own policy keeps it, same rule as
+            // everywhere else.
+            if (
+              reply.getHeader(effective.csp.headerName) === effective.csp.value
+            ) {
+              reply.header(
+                effective.csp.headerName,
+                buildPolicyWithSources(effective.csp, extra),
+              );
+            }
           }
         }
 
