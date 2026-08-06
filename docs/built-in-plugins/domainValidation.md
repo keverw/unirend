@@ -58,7 +58,7 @@ const server = serveSSRBuilt(buildDir, {
 
 **Register this plugin above every plugin that adds a per-request hook.** It works in an `onRequest` hook, and an `onRequest` hook only covers what was registered after it. Anything above it that ends the request never reaches this one, so that response goes out without the host ever being checked.
 
-"Ends the request" includes **a hook that throws**. It did not mean to answer, but the error handler answers for it, and the result is a fully rendered error page on a host this plugin had not examined yet. On a host that was never checked, that page is branded with your application, and it carries HSTS, because this plugin never ran and so never set [`request.domainValidationRejected`](#requestdomainvalidationrejected) for `securityHeaders` to act on. See [A Hook That Throws Above the Gate](../built-in-plugins.md#a-hook-that-throws-above-the-gate).
+"Ends the request" includes **a hook that throws**. It did not mean to answer, but the error handler answers for it, and the result is a rendered error page on a host this plugin had not examined yet. The page itself is a minor matter, and only to the extent you have customized it. The header is not: the response carries HSTS, because this plugin never ran and so never set [`request.domainValidationRejected`](#requestdomainvalidationrejected) for `securityHeaders` to act on. See [A Hook That Throws Above the Gate](../built-in-plugins.md#a-hook-that-throws-above-the-gate).
 
 A plugin that does its work at registration time is still fine above this one, because it adds no hook that can run or fail ahead of it. A database connection that `validProductionDomains` then reads belongs exactly there:
 
@@ -231,36 +231,46 @@ The property is unset when the plugin is not registered, or when it did not reje
 
 ### Telling an Unchecked Host From a Rejected One
 
-`domainValidationRejected` answers what the check concluded. It cannot answer whether a check happened at all, and those come apart in exactly the case worth worrying about: a plugin above this one ends the request by throwing, this plugin never runs, and the error page renders on a host nothing has vouched for. See [A Hook That Throws Above the Gate](../built-in-plugins.md#a-hook-that-throws-above-the-gate).
+`domainValidationRejected` answers what the check concluded. It cannot answer whether a check happened at all, and those come apart in one case: a plugin above this one ends the request by throwing, this plugin never runs, and the error page renders on a host nothing has vouched for. See [A Hook That Throws Above the Gate](../built-in-plugins.md#a-hook-that-throws-above-the-gate).
 
-Two more signals make that visible:
+`isHostUnverified` from `unirend/server` answers the combined question:
+
+```typescript
+import { isHostUnverified } from 'unirend/server';
+
+if (isHostUnverified(request)) {
+  return plainErrorPage();
+}
+```
+
+It reads three signals, none of which answers alone:
 
 | Signal | Set | Means |
 | --- | --- | --- |
-| `request.domainValidationChecked` | First thing the hook does | The host was examined. Stays true for a pass, a rejection, a redirect, and a validator that failed |
 | `server.domainValidationRegistered` | Once, at registration | This server validates hosts at all |
+| `request.domainValidationChecked` | First thing the hook does | The host was examined. Stays true for a pass, a rejection, a redirect, and a validator that failed |
+| `request.domainValidationRejected` | On any disclaim | The host was refused, or could not be confirmed |
 
-Read together they give three states, and the first is the one to handle:
+Which gives three outcomes:
 
-```typescript
-const isHostUnverified =
-  request.server.domainValidationRegistered === true &&
-  request.domainValidationChecked !== true;
-```
-
-- **Unverified**: the gate never ran. Withhold branding, stack traces, and anything else you would not show a stranger's domain.
+- **Unverified**: the gate never ran, or ran and could not confirm the host.
 - **Checked and not rejected**: the host passed. Render normally.
-- **Checked and rejected**: refused, or impossible to confirm because the validator failed. This plugin has already answered, so nothing downstream usually sees it.
+- **Not registered**: this server does not validate hosts, so there is nothing to be unverified against and the helper returns `false`. That last part is why the registration flag exists. Without it, a server not using this plugin would read as permanently unverified.
 
-Both halves of that condition are needed. Without the registration check, a server that does not use this plugin would read every request as unverified, since `domainValidationChecked` is never set there either.
+<!-- prettier-ignore -->
+> [!NOTE]
+> This is a suggestion for when you customize an error page, not a warning about the default one. Unirend's built-in 500 is a generic shell with nothing about your application in it, and [error-handling.md](../error-handling.md) already advises keeping a custom one standalone rather than wrapping it in your usual layout, so an error page is a reduced surface to begin with. The question only becomes interesting to the extent you add your name, your logo, or details about your deployment back into it.
 
-The SSR starter template's `get-500-error-page.ts` ships with this check and returns a plain page when it matches. The API template shows the same condition for withholding `errorDetails`.
+The SSR starter template's `get-500-error-page.ts` ships with this check and returns a plain page when it matches, since that file exists to be customized. The API template shows the same condition for withholding `errorDetails` and for labeling the error code.
 
 ### When a Callback Throws
 
 Both `validProductionDomains` as a function and `invalidDomainHandler` can fail, and neither failure escapes the plugin. The error is logged once through the request logger at the point it is caught.
 
-- **`validProductionDomains` throws**: the request fails with a plain `500`. Access fails closed, because a validator that could not answer has not said the domain is yours, and reading "the tenant lookup timed out" as "welcome in" is how a `Host` header attack gets through on a bad day for the database. But it fails as a server error rather than a `403`, because the two mean different things: a `403` says the caller was understood and refused, and a lookup that never completed established nothing about the caller at all. Sending one would file an outage in your logs as an authorization failure and send whoever reads it looking for bad credentials. `invalidDomainHandler` is not consulted, since it phrases "this domain is not authorized" and that is not what happened.
+- **`validProductionDomains` throws**: the error propagates and your error handler turns it into a `500`. Access fails closed, because a validator that could not answer has not said the domain is yours, and reading "the tenant lookup timed out" as "welcome in" is how a `Host` header attack gets through on a bad day for the database. But it fails as a server error rather than a `403`, because the two mean different things: a `403` says the caller was understood and refused, and a lookup that never completed established nothing about the caller at all. Sending one would file an outage in your logs as an authorization failure and send whoever reads it looking for bad credentials. `invalidDomainHandler` is not consulted, since it phrases "this domain is not authorized" and that is not what happened.
+
+  It propagates rather than answering from inside the plugin so that a store outage behaves like every other server-side failure and reaches the error handling you already have. The original error is kept as `cause`. Before it propagates, the host is marked disclaimed, so the response gets no HSTS and [`isHostUnverified`](#telling-an-unchecked-host-from-a-rejected-one) can recognize it as a special kind of `500`.
+
 - **`invalidDomainHandler` throws**: the default rejection response is sent instead. The rejection itself already happened and is not in question, so a throw here costs the custom wording and nothing else. The same fallback covers a handler that returns an unrecognized `contentType`, which previously matched no branch and left the request hanging with nothing sent at all.
 
 **Neither failure reaches the application's error page.** Both responses are sent from inside the plugin rather than thrown, so a host that was never confirmed never sees your branding, and a rejection that has already been decided is not undone by the formatting step failing. The way to get a branded error page on a host that was never checked is [a hook that throws above this plugin](../built-in-plugins.md#a-hook-that-throws-above-the-gate), which is an ordering problem rather than a callback one.

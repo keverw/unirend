@@ -311,38 +311,24 @@ export function domainValidation(
             // points anyone reading it at credentials rather than at the store
             // that is down.
             //
-            // Sent from here rather than thrown so it stays a plain response.
-            // Throwing would reach the application's error handler and render
-            // its branded error page on a host that was never confirmed to be
-            // one this server serves.
-            logCallbackError(
-              request,
-              error,
-              `validProductionDomains threw for "${domain}", failing the request`,
-            );
-
-            // The host was never confirmed, so this server cannot claim it.
-            // That is what keeps HSTS off a domain that may not be ours.
+            // Thrown rather than sent from here, so this failure behaves like
+            // any other server-side failure: it reaches the application's error
+            // handler, and therefore its error reporting, its logging, and its
+            // own 500. Sending a canned response from inside the plugin would
+            // route around all of that, and a store outage is exactly the thing
+            // an operator needs to see in the tooling they already watch.
+            //
+            // What makes that safe is that the host is disclaimed first, and
+            // `domainValidationChecked` is already set. An error page can
+            // therefore tell it apart from an ordinary failure and withhold
+            // whatever it would rather not show an unconfirmed domain. See
+            // `isHostUnverified` in unirend/server.
             markHostDisclaimed(request);
 
-            if (isAPIEndpoint) {
-              reply
-                .code(500)
-                .header('Cache-Control', 'no-store')
-                .type('application/json')
-                .send({
-                  error: 'domain_validation_failed',
-                  message: 'Unable to validate the request domain',
-                });
-            } else {
-              reply
-                .code(500)
-                .header('Cache-Control', 'no-store')
-                .type('text/plain')
-                .send('Internal Server Error');
-            }
-
-            return;
+            throw new Error(
+              `domainValidation could not verify the host "${domain}": validProductionDomains threw`,
+              { cause: error },
+            );
           }
         } else {
           // Normalize validProductionDomains to array

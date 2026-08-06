@@ -197,23 +197,25 @@ export class APIServerComponent extends BaseComponent {
           //     });
           //   }
 
-          //   // An error can happen before domainValidation has run, if a plugin
-          //   // registered above it ends the request by throwing. The host is then
-          //   // unverified, and anything echoed back here is being sent to a domain
-          //   // nothing has vouched for. Both halves of this check are needed: without
-          //   // the first, a server that does not validate hosts would treat every
-          //   // error as unverified.
-          //   const isHostUnverified =
-          //     request.server.domainValidationRegistered === true &&
-          //     request.domainValidationChecked !== true;
+          //   // A special case worth detecting: isHostUnverified (from
+          //   // 'unirend/server') is true when nothing has vouched for this request's
+          //   // host, either because domainValidation could not confirm it or because
+          //   // the request failed before that plugin ran at all, which happens when a
+          //   // plugin registered above it throws. Anything echoed back here is then
+          //   // going to a domain you have not established is yours, so this withholds
+          //   // the stack trace. It returns false when domainValidation is not
+          //   // registered, so a server that does not validate hosts is unaffected.
+          //   const hostUnverified = isHostUnverified(request);
 
           //   return params.APIResponseHelpers.createAPIErrorResponse({
           //     request,
           //     statusCode: 500,
-          //     errorCode: 'internal_server_error',
+          //     errorCode: hostUnverified
+          //       ? 'unverified_host_error'
+          //       : 'internal_server_error',
           //     errorMessage: isDevelopment ? error.message : 'Internal server error',
           //     errorDetails:
-          //       isDevelopment && !isHostUnverified
+          //       isDevelopment && !hostUnverified
           //         ? { stack: error.stack }
           //         : undefined,
           //   });

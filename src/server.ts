@@ -126,3 +126,8 @@ export type {
   UploadError,
   UploadResult,
 } from './lib/server/process-file-upload-types';
+
+// Host verification
+// For error pages and error handlers, which run on the one path where the
+// request may have failed before the host was ever checked.
+export { isHostUnverified } from './lib/internal/host-verification';

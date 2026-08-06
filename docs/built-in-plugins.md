@@ -51,14 +51,16 @@ Use [`dependsOn`](server-plugins.md#plugin-dependencies) to keep a plugin above 
 
 The reason is worth seeing concretely. Given a hook that throws, on a host that is not in `validProductionDomains`:
 
-| Throwing hook            | What the visitor gets                             |
-| ------------------------ | ------------------------------------------------- |
-| Below `domainValidation` | `403`, plain text, no HSTS                        |
-| Above `domainValidation` | `500`, **your branded error page**, **HSTS sent** |
+| Throwing hook            | What the visitor gets                 |
+| ------------------------ | ------------------------------------- |
+| Below `domainValidation` | `403`, plain text, no HSTS            |
+| Above `domainValidation` | `500`, your error page, **HSTS sent** |
 
-Both halves of that second row are bad on a host you have not claimed. The branded page shows your application to a domain you do not serve, and the HSTS is the worse one: `domainValidation` never ran, so it never set [`request.domainValidationRejected`](built-in-plugins/domainValidation.md#requestdomainvalidationrejected), so the suppression that exists for exactly this case has nothing to trigger on. A domain that was never checked gets pinned to HTTPS for the full `maxAge`, subdomains included, and it cannot be revoked.
+**The header is the part that costs you.** `domainValidation` never ran, so it never set [`request.domainValidationRejected`](built-in-plugins/domainValidation.md#requestdomainvalidationrejected), so the suppression that exists for exactly this case has nothing to trigger on. A domain that was never checked gets pinned to HTTPS for the full `maxAge`, subdomains included, and it cannot be revoked.
 
-Nothing downstream can repair this, because by the time anything else runs the request has already failed. Ordering is the only fix: put `domainValidation` above every plugin that adds a hook.
+The error page matters much less. Unirend's default is a generic shell, and a custom one is [advised to stay standalone](error-handling.md) rather than wrapped in your usual layout, so there is usually little in it to give away. Where you have customized it, [`isHostUnverified`](built-in-plugins/domainValidation.md#telling-an-unchecked-host-from-a-rejected-one) lets it recognize this case and hold back.
+
+Nothing downstream can repair the header, though, because by the time anything else runs the request has already failed. Ordering is the only fix there: put `domainValidation` above every plugin that adds a hook.
 
 ## When a Callback Fails
 
@@ -69,20 +71,19 @@ Several built-in callbacks are request-aware, which means several of them can re
 | `securityHeaders` | `cors.origin` | Origin denied, no `Access-Control-Allow-Origin` |
 | `securityHeaders` | `cors.credentials` | Credentials withheld, the origin decision stands |
 | `domainValidation` | `invalidDomainHandler` | Default rejection response is sent, the rejection itself stands |
-| `domainValidation` | `validProductionDomains` | Request fails with a plain `500`, sent by the plugin |
+| `domainValidation` | `validProductionDomains` | Propagates, your error handler renders the 500 |
 | `securityHeaders` | `resolve` | Propagates, your error handler renders the 500 |
 
 **The first three answer a narrow question that still has a safe answer without them.** Denying an origin costs one cross-origin caller its response and leaves the rest of the site working. Falling back to the default rejection wording costs nothing at all, because the rejection was already decided. So those degrade rather than fail the request.
 
 **The last two could not answer at all, so the request fails.** A `500` is the honest status for both: nothing was decided about the caller, only that the server could not do its job. Neither is refused a `403`, which would claim the caller was understood and turned away, file an outage in your logs as an authorization failure, and send whoever reads it looking for bad credentials.
 
-They differ only in how the response is produced, and that difference is deliberate:
+Both propagate rather than answering from inside their plugin, so a store outage behaves like any other server-side failure and reaches the error handling you already have, rather than being swallowed by a canned response nothing reports on.
 
-- `validProductionDomains` fails **before** the host is confirmed, so the plugin sends a plain `500` itself. Reaching your error handler would render your branded page for a domain that may not be yours.
-- `resolve` fails **after** the host passed whatever gate you have, so propagating is safe and your error page is the right one to show.
+The difference between them is what the request knows by that point. `resolve` fails after the host passed whatever gate you have, so your error page is simply the right page. `validProductionDomains` fails while the host is still unconfirmed, so it marks the host [disclaimed](built-in-plugins/domainValidation.md#requestdomainvalidationrejected) first: the response gets no HSTS, and [`isHostUnverified`](built-in-plugins/domainValidation.md#telling-an-unchecked-host-from-a-rejected-one) lets your error page recognize this as a special kind of 500 and say less.
 
 See [Throwing on Purpose](built-in-plugins/security-headers.md#throwing-on-purpose) for treating that as a deliberate choice.
 
 Whatever the default, only you can tell a genuine "not one of ours" from "the store is down". If a single store backs more than one of these, handle its failure inside each callback rather than letting the defaults decide for you.
 
-**None of this affects whether the response gets its headers.** These defaults decide what the response _is_, and the `onSend` hook in `securityHeaders` then applies headers to whatever that turned out to be. A denied origin, a plain `500` from a failed validator, and a propagated `500` from a failed `resolve` all go out fully covered, minus the HSTS that a [disclaimed host](built-in-plugins/security-headers.md#hsts-on-a-rejected-host) or a [failed resolve](built-in-plugins/security-headers.md#when-resolve-throws) deliberately drops. The two mechanisms are unrelated: one picks the response, the other dresses it.
+**None of this affects whether the response gets its headers.** These defaults decide what the response _is_, and the `onSend` hook in `securityHeaders` then applies headers to whatever that turned out to be. A denied origin, and the 500s from a failed validator or a failed `resolve`, all go out fully covered, minus the HSTS that a [disclaimed host](built-in-plugins/security-headers.md#hsts-on-a-rejected-host) or a [failed resolve](built-in-plugins/security-headers.md#when-resolve-throws) deliberately drops. The two mechanisms are unrelated: one picks the response, the other dresses it.

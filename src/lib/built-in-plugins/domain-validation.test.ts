@@ -429,7 +429,12 @@ describe('domainValidation', () => {
         const reply = createMockReply();
 
         await domainValidation(config)(pluginHost, createMockOptions());
-        await pluginHost.getHooks()[0].handler(request, reply);
+
+        // The failing case propagates, which is not what this test is about.
+        await pluginHost
+          .getHooks()[0]
+          .handler(request, reply)
+          .catch(() => undefined);
 
         expect(
           (request as { domainValidationChecked?: boolean })
@@ -453,12 +458,16 @@ describe('domainValidation', () => {
       expect(pluginHost.getDecorations().domainValidationRegistered).toBe(true);
     });
 
-    it('should fail with a 500, not a 403, when the validator throws', async () => {
-      // Access still fails closed, but the status has to say what happened. A
+    it('should throw, not answer with a 403, when the validator throws', async () => {
+      // Access still fails closed, but the failure has to say what happened. A
       // 403 is a statement about the caller, that they were understood and
       // refused, and a lookup that never completed established nothing about
       // them. Sending one logs an outage as an authorization failure and sends
       // whoever reads it after credentials instead of the store that is down.
+      //
+      // It throws rather than sending its own 500 so the failure reaches the
+      // application's error handler, and therefore its error reporting and its
+      // own error page, like any other server-side failure.
       const config: DomainValidationConfig = {
         validProductionDomains: () => {
           throw new Error('validator failed');
@@ -466,55 +475,73 @@ describe('domainValidation', () => {
       };
 
       const pluginHost = createMockPluginHost();
-      const options = createMockOptions();
       const request = createMockRequest({ headers: { host: 'example.com' } });
       const reply = createMockReply();
 
-      const plugin = domainValidation(config);
-      await plugin(pluginHost, options);
+      await domainValidation(config)(pluginHost, createMockOptions());
 
       const hook = pluginHost.getHooks()[0];
-      await hook.handler(request, reply);
 
-      expect(reply.code).toHaveBeenCalledWith(500);
+      expect(hook.handler(request, reply)).rejects.toThrow(
+        /could not verify the host "example.com"/,
+      );
+
       expect(reply.code).not.toHaveBeenCalledWith(403);
-      // Plain, not the application's branded error page: sent from the plugin
-      // rather than thrown, so the error handler never runs for a host that
-      // was never confirmed.
-      expect(reply.send).toHaveBeenCalledWith('Internal Server Error');
-      // Still disclaimed, which is what keeps HSTS off an unconfirmed host.
+    });
+
+    it('should keep the original validator error as the cause', async () => {
+      // Wrapped rather than rethrown bare, so the log says which host could not
+      // be verified, but the underlying failure is still there to inspect.
+      const underlying = new Error('tenant store timed out');
+
+      const config: DomainValidationConfig = {
+        validProductionDomains: () => {
+          throw underlying;
+        },
+      };
+
+      const pluginHost = createMockPluginHost();
+      const request = createMockRequest({ headers: { host: 'example.com' } });
+      const reply = createMockReply();
+
+      await domainValidation(config)(pluginHost, createMockOptions());
+
+      let caught: unknown;
+
+      try {
+        await pluginHost.getHooks()[0].handler(request, reply);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect((caught as Error).cause).toBe(underlying);
+    });
+
+    it('should disclaim the host before the validator failure propagates', async () => {
+      // Order matters. The throw unwinds into the error path, which applies
+      // security headers, so the disclaim has to already be recorded or the
+      // response picks up HSTS for a host nothing confirmed.
+      const config: DomainValidationConfig = {
+        validProductionDomains: () => {
+          throw new Error('validator failed');
+        },
+      };
+
+      const pluginHost = createMockPluginHost();
+      const request = createMockRequest({ headers: { host: 'example.com' } });
+      const reply = createMockReply();
+
+      await domainValidation(config)(pluginHost, createMockOptions());
+
+      await pluginHost
+        .getHooks()[0]
+        .handler(request, reply)
+        .catch(() => undefined);
+
       expect(
         (request as { domainValidationRejected?: boolean })
           .domainValidationRejected,
       ).toBe(true);
-    });
-
-    it('should fail a throwing validator as JSON on an API endpoint', async () => {
-      const config: DomainValidationConfig = {
-        validProductionDomains: () => {
-          throw new Error('validator failed');
-        },
-      };
-
-      const pluginHost = createMockPluginHost();
-      const options = createMockOptions();
-      const request = createMockRequest({
-        headers: { host: 'example.com' },
-        url: '/api/v1/things',
-      });
-      const reply = createMockReply();
-
-      const plugin = domainValidation(config);
-      await plugin(pluginHost, options);
-
-      const hook = pluginHost.getHooks()[0];
-      await hook.handler(request, reply);
-
-      expect(reply.code).toHaveBeenCalledWith(500);
-      expect(reply.send).toHaveBeenCalledWith({
-        error: 'domain_validation_failed',
-        message: 'Unable to validate the request domain',
-      });
     });
 
     it('should not call invalidDomainHandler when the validator throws', async () => {
@@ -534,18 +561,17 @@ describe('domainValidation', () => {
       };
 
       const pluginHost = createMockPluginHost();
-      const options = createMockOptions();
       const request = createMockRequest({ headers: { host: 'example.com' } });
       const reply = createMockReply();
 
-      const plugin = domainValidation(config);
-      await plugin(pluginHost, options);
+      await domainValidation(config)(pluginHost, createMockOptions());
 
-      const hook = pluginHost.getHooks()[0];
-      await hook.handler(request, reply);
+      await pluginHost
+        .getHooks()[0]
+        .handler(request, reply)
+        .catch(() => undefined);
 
       expect(handlerCalls).toBe(0);
-      expect(reply.code).toHaveBeenCalledWith(500);
     });
 
     it('should send the default rejection when invalidDomainHandler throws', async () => {

@@ -234,25 +234,29 @@ One exception comes with it: `Strict-Transport-Security` is not sent when `domai
 | `securityHeaders` `cors.origin` | Rendered 500 | Origin denied, no `Access-Control-Allow-Origin` sent |
 | `securityHeaders` `cors.credentials` | Rendered 500 | Credentials withheld, the origin decision stands |
 | `domainValidation` `invalidDomainHandler` | Rendered 500 | Default rejection response sent |
-| `domainValidation` `validProductionDomains` | Rendered 500 | Plain 500 sent by the plugin |
+| `domainValidation` `validProductionDomains` | Rendered 500 | Still a rendered 500, but no longer a 403, and the host is disclaimed first |
 
 Each error is logged once through the request logger at the point it is caught. For the first three, a 500 was both the wrong answer and the widest possible blast radius, since it was served to same-origin and non-browser traffic that the callback was never consulted about.
 
-A failed `validProductionDomains` still fails the request, because a validator that could not answer has not said the domain is yours and treating that as a pass is how a `Host` header attack gets through on a bad day for the database. What changed is the shape of the failure. It is not a 403, which would claim the caller was understood and refused, file an outage in your logs as an authorization failure, and send whoever reads it looking for bad credentials. And it is sent by the plugin rather than thrown, so a host that was never confirmed does not get your branded error page. The request is still marked `domainValidationRejected`, so it does not receive HSTS either. `invalidDomainHandler` is not consulted, since it phrases "this domain is not authorized" and that is not what happened.
+A failed `validProductionDomains` is the exception in that table, and it changed in a different direction. It briefly answered with a 403, which was wrong: a 403 says the caller was understood and refused, and a lookup that never completed established nothing about the caller. It filed outages in logs as authorization failures. It now fails the request as a server error, which is what it always was. Access still fails closed, since a validator that could not answer has not said the domain is yours, and treating that as a pass is how a `Host` header attack gets through on a bad day for the database. `invalidDomainHandler` is not consulted, since it phrases "this domain is not authorized" and that is not what happened. The original error is preserved as `cause`, and the host is marked `domainValidationRejected` before the error propagates, so the response gets no HSTS.
 
 **New:** `request.domainValidationChecked` and `server.domainValidationRegistered` make it possible to tell a host that failed validation from one that was never validated at all. The second case happens when a plugin registered above `domainValidation` ends the request by throwing: the gate never runs, so `domainValidationRejected` is never set, and an error page renders on a host nothing has vouched for. `domainValidationRejected` cannot distinguish that from an ordinary success, because both leave it unset.
 
+`isHostUnverified` from `unirend/server` wraps the three signals, since composing them by hand is easy to get subtly wrong:
+
 ```typescript
-const isHostUnverified =
-  request.server.domainValidationRegistered === true &&
-  request.domainValidationChecked !== true;
+import { isHostUnverified } from 'unirend/server';
+
+if (isHostUnverified(request)) {
+  return plainErrorPage();
+}
 ```
 
-Both halves are needed, since a server that does not register the plugin never sets `domainValidationChecked` either. The SSR starter template's `get-500-error-page.ts` now uses this to return a plain page with no branding and no development details when it matches, and the API template shows the same condition for withholding `errorDetails`. Ordering is still the real fix, and [docs/built-in-plugins.md](docs/built-in-plugins.md#ordering) now states the rule as putting `domainValidation` above every plugin that adds a per-request hook, rather than above every plugin that can answer a request. A hook that throws does not answer, but the error handler answers for it, which the old wording did not cover.
+It returns `false` when the plugin is not registered, so a server that does not validate hosts is unaffected. The SSR starter template's `get-500-error-page.ts` now uses it to return a plain page with no branding and no development details, and the API template shows the same condition for withholding `errorDetails` and for labeling the error code. This matters only to the extent an error page has been customized: unirend's default 500 is a generic shell, and a custom one is already advised to stay standalone. Ordering is still the real fix, and [docs/built-in-plugins.md](docs/built-in-plugins.md#ordering) now states the rule as putting `domainValidation` above every plugin that adds a per-request hook, rather than above every plugin that can answer a request. A hook that throws does not answer, but the error handler answers for it, which the old wording did not cover.
 
 Two related fixes come with it. The origin and credentials decisions are now computed at most once per request and reused everywhere else in the lifecycle, so a throwing callback is no longer invoked a second time by the error path that is handling its first throw. And an `invalidDomainHandler` that returns an unrecognized `contentType` now falls back to the default response rather than matching no branch and leaving the request hanging with nothing sent.
 
-If you were relying on a throw to produce a 500, catch it in your callback and decide there. Only your code can tell a genuine "not allowed" from "the store is down".
+If you were relying on a throw from `cors.origin` or `cors.credentials` to produce a 500, catch it in your callback and decide there. Only your code can tell a genuine "not allowed" from "the store is down".
 
 **New:** `csp.preset` gives a policy a starting point instead of twenty lines of directives. `'strict'` is everything same-origin plus `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'` and `form-action 'self'`; `'strict-with-cdn'` adds the `data:` and `blob:` sources a strict policy usually first trips over. Directives you set replace the preset's for that directive rather than adding to it, so a preset can never quietly widen something you narrowed. Neither names a third-party host: add your CDN yourself, so it appears in your config rather than inside a preset.
 

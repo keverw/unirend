@@ -30,6 +30,7 @@ import type { LoggerFunction } from '../../types';
  * in the framework before a template can demonstrate it.
  */
 const GET_500_ERROR_PAGE_SRC = `import type { FastifyRequest } from 'unirend/server';
+import { isHostUnverified } from 'unirend/server';
 import { escapeHTML, hashInlineContentForCSP } from 'unirend/utils';
 
 /**
@@ -238,19 +239,13 @@ export function get500ErrorPage(
       ? requestContext.themePreference
       : 'auto';
 
-  // True only when this server validates hosts and this request failed before
-  // that check ran, which means nothing has vouched for the host about to be
-  // shown this page. Both halves matter: without the first, a server that does
-  // not use domainValidation would treat every error as unverified.
-  const isHostUnverified =
-    request.server.domainValidationRegistered === true &&
-    request.domainValidationChecked !== true;
-
-  // Unbranded, and no development details either. The request never got far
-  // enough to establish whose domain this is, so this says as little as it can
+  // Unbranded, and no development details either. Nothing has vouched for this
+  // host: either the request failed before domainValidation ran, or the check
+  // ran and could not confirm the domain. So this says as little as it can
   // while still being a valid page. Delete this block if you would rather show
-  // the full page everywhere.
-  if (isHostUnverified) {
+  // the full page everywhere. Returns false when domainValidation is not
+  // registered, so a server that does not validate hosts is unaffected.
+  if (isHostUnverified(request)) {
     return \`<!doctype html>
 <html lang="en">
   <head>
