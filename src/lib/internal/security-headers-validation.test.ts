@@ -265,6 +265,46 @@ describe('validateSecurityHeadersPolicy', () => {
       expect(result.issues[0].path).toBe('frameOptions');
     });
 
+    it('leaves a report-only policy alone', () => {
+      // The rollout this rule was breaking. A report-only policy blocks nothing
+      // and displaces nothing, so frame-ancestors 'none' there is a question
+      // being asked rather than a stricter rule the fallback undercuts, and
+      // X-Frame-Options stays the only framing policy in force for everyone.
+      // Rejecting it meant an operator who already had the header could not
+      // report-only-test a tighter policy before enforcing it.
+      const result = validateSecurityHeadersPolicy({
+        frameOptions: 'SAMEORIGIN',
+        csp: { frameAncestors: ["'none'"], reportOnly: true },
+      });
+
+      expect(result.valid).toBe(true);
+    });
+
+    it('catches the pair again once the policy starts enforcing', () => {
+      // The other side of the same rollout: flipping reportOnly off is exactly
+      // when the fallback does start undercutting the policy.
+      const result = validateSecurityHeadersPolicy({
+        frameOptions: 'SAMEORIGIN',
+        csp: { frameAncestors: ["'none'"], reportOnly: false },
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues[0].path).toBe('frameOptions');
+    });
+
+    it('reads reportOnly from an inherited baseline CSP', () => {
+      const result = validateSecurityHeadersPolicy(
+        { frameOptions: 'SAMEORIGIN' },
+        {
+          baseline: {
+            csp: { frameAncestors: ["'none'"], reportOnly: true },
+          },
+        },
+      );
+
+      expect(result.valid).toBe(true);
+    });
+
     it('catches a CSP that undercuts the inherited frameOptions', () => {
       // The case the baseline option exists for. Each half is fine alone, and
       // the request path would reject the combination, so a validator blind to

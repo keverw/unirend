@@ -433,7 +433,9 @@ The practical consequence: with `'strict-dynamic'`, a plain `<script src>` in yo
 
 A fallback may be **stricter** than the policy it backs up. `frameOptions: 'DENY'` alongside `frameAncestors: ["'self'"]` means an old browser refuses framing that a modern one permits, which is the safe direction to be wrong in.
 
-It must not be **looser**. `frameOptions: 'SAMEORIGIN'` alongside `frameAncestors: ["'none'"]` is rejected: a browser without CSP support would still allow same-origin framing that the policy exists to forbid, and you would have every reason to believe you had forbidden it everywhere.
+It must not be **looser**. `frameOptions: 'SAMEORIGIN'` alongside an enforcing `frameAncestors: ["'none'"]` is rejected: a browser without CSP support would still allow same-origin framing that the policy exists to forbid, and you would have every reason to believe you had forbidden it everywhere.
+
+`reportOnly: true` is exempt, because "supersedes" is doing real work in that first sentence. A report-only policy blocks nothing and displaces nothing, so `X-Frame-Options` stays in force for every browser alike and there is no weaker fallback to warn about. That keeps the rollout on offer: run `frameAncestors` in report-only against your live traffic, keep the header you already send, and the pair is only checked once you switch to enforcing.
 
 The check runs at startup on the static config, and again on the effective policy whenever [`resolve`](#per-request-policy-with-resolve) produces one. Each block replaces rather than merges, so a resolver that overrides the CSP while inheriting `frameOptions`, or the reverse, assembles that pair out of two halves that are each fine on their own. It fails the same way there as it would at startup, rather than serving the tenant a combination the static config refuses.
 

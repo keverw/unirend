@@ -693,6 +693,26 @@ function collectTemplateCSPHashesWith(
 /**
  * `type` values a browser treats as JavaScript. Anything else, including the
  * `application/json` data block, is inert and outside `script-src`.
+ *
+ * Matched as whole strings, with no MIME parameter handling, because that is
+ * what the HTML spec does and it reads as a bug until you check. "Prepare the
+ * script element" runs the attribute against `module` and then against a
+ * *JavaScript MIME type essence match*, and an essence is the bare type with no
+ * parameters, so `text/javascript; charset=utf-8` matches neither and the
+ * element is never executed at all. Splitting on `;` to be accommodating would
+ * publish hashes for inert content, which is noise rather than safety.
+ *
+ * Verified in Chrome, since the rule is unintuitive enough to be worth checking
+ * rather than reasoning about. Executed: no attribute, `""`, `text/javascript`,
+ * `TEXT/JAVASCRIPT`, `  text/javascript  `, `text/ecmascript`, `module`,
+ * `MODULE`. Not executed: `text/javascript; charset=utf-8`,
+ * `application/javascript; charset=utf-8`, `module; charset=utf-8`, `"   "`,
+ * `application/json`.
+ *
+ * One harmless over-inclusion is left in deliberately. Whitespace is stripped
+ * for both comparisons here, but a browser strips it only for the MIME half, so
+ * `  module  ` does not execute and still gets a hash. An unused source
+ * expression costs nothing, where the opposite error blocks a script.
  */
 const JAVASCRIPT_SCRIPT_TYPES = new Set([
   'text/javascript',

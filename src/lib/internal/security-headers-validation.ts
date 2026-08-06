@@ -286,6 +286,17 @@ function withPresetExpanded(
  * such as `'SAMEORIGIN'` with a partner origin listed, is left alone: it is a
  * real pattern and not this code's business to second-guess.
  *
+ * A report-only policy is left alone as well, and that one is about the word
+ * "supersedes". `X-Frame-Options` is ignored only in the presence of a
+ * `frame-ancestors` directive whose disposition is *enforce*. A report-only
+ * policy blocks nothing and displaces nothing, so `frame-ancestors 'none'`
+ * there is not a stricter rule the fallback is undercutting, it is a question
+ * being asked, and `'SAMEORIGIN'` remains the only framing policy actually in
+ * force for every browser alike. Reporting it turned the documented rollout,
+ * running a candidate policy in report-only until the violations go quiet, into
+ * a startup failure for anyone who already had an `X-Frame-Options` header,
+ * which is exactly the population most likely to be tightening framing.
+ *
  * Takes the two halves separately because the pair it judges can be assembled
  * from two places, so neither half is enough on its own to ask the question.
  *
@@ -296,7 +307,13 @@ export function collectFramingIssues(
   frameOptions: false | 'DENY' | 'SAMEORIGIN' | undefined,
   csp: CSPConfig | false | undefined,
 ): SecurityHeadersPolicyIssue[] {
-  if (!csp || frameOptions !== 'SAMEORIGIN') {
+  // `reportOnly` is read as truthy rather than compared against `true`, unlike
+  // the opt-in flags elsewhere. The direction of the mistake is what differs: a
+  // non-boolean there would switch a protection off, while here it only
+  // withholds a warning about a pairing that is already reported as a type
+  // error by `collectCSPIssues`. Piling a second complaint on top of the first
+  // would just be describing one mistake twice.
+  if (!csp || frameOptions !== 'SAMEORIGIN' || csp.reportOnly) {
     return [];
   }
 

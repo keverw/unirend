@@ -3263,6 +3263,36 @@ describe('securityHeaders', () => {
       }
     });
 
+    it('starts with a report-only policy alongside an existing SAMEORIGIN', async () => {
+      // The documented rollout. A report-only policy enforces nothing, so it
+      // cannot supersede X-Frame-Options and the pair is not the one the
+      // framing cross-check rejects. Refusing to start here would have made the
+      // recommended way to adopt frame-ancestors impossible for anyone who
+      // already sends the header.
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            frameOptions: 'SAMEORIGIN',
+            csp: {
+              defaultSrc: ["'self'"],
+              frameAncestors: ["'none'"],
+              reportOnly: true,
+            },
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('x-frame-options')).toBe('SAMEORIGIN');
+      expect(
+        response.headers.get('content-security-policy-report-only'),
+      ).toContain("frame-ancestors 'none'");
+      // And the enforcing header is genuinely absent, which is what makes the
+      // pairing safe rather than merely tolerated.
+      expect(response.headers.get('content-security-policy')).toBeNull();
+    });
+
     it('applies the CSP to a short-circuited response too', async () => {
       // CSP goes out through the same helper as the other non-negotiated
       // headers, so it inherits the onSend backstop rather than needing its own.
