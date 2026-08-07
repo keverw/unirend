@@ -343,6 +343,22 @@ export function collectReportingEndpointsIssues(
         message: `Invalid securityHeaders config: reportingEndpoints.${group} "${endpoint}" is not https. A browser does not deliver reports over an insecure transport, so this endpoint would receive nothing.`,
       });
     }
+
+    // The endpoint ends up inside a structured-headers string, whose contents
+    // RFC 8941 limits to printable ASCII. `"` and `\` are handled on the way
+    // out by `escapeStructuredString`, but nothing can rescue a character the
+    // grammar has no room for: the browser fails to parse the item, drops it,
+    // and the group quietly stops being defined.
+    //
+    // Reported rather than percent-encoded here, because rewriting an endpoint
+    // means sending reports somewhere other than the address the operator wrote
+    // down, and being told to encode it is the better outcome.
+    if (/[^\u0020-\u007E]/.test(endpoint)) {
+      issues.push({
+        path: `reportingEndpoints.${group}`,
+        message: `Invalid securityHeaders config: reportingEndpoints.${group} "${endpoint}" contains a character outside printable ASCII, which cannot travel in a Reporting-Endpoints header. Percent-encode it, for example with encodeURI().`,
+      });
+    }
   }
 
   return issues;
@@ -471,8 +487,35 @@ export function serializeReportingEndpoints(
   config: ReportingEndpointsConfig,
 ): string {
   return Object.entries(config)
-    .map(([group, endpoint]) => `${group}="${endpoint}"`)
+    .map(
+      ([group, endpoint]) => `${group}="${escapeStructuredString(endpoint)}"`,
+    )
     .join(', ');
+}
+
+/**
+ * Escape the two characters a structured-headers string cannot carry raw.
+ *
+ * RFC 8941's `sf-string` is `DQUOTE *chr DQUOTE`, where a `"` or a `\` inside
+ * has to be written `\"` or `\\`. Nothing else is escaped, and nothing else
+ * needs to be.
+ *
+ * A URL reaching here has already been through `new URL()`, which is exactly why
+ * this is not redundant: parsing says the endpoint is a URL, not that it is a
+ * URL free of quotes. `https://reports.example.com/p?tag="prod"` parses, and
+ * written raw it closes the string early, so the browser drops the item and the
+ * group it defined stops existing. That failure is the one this module is built
+ * around: violations happen, no report arrives, and the silence reads as an
+ * absence of violations.
+ *
+ * The group name needs none of this. `REPORTING_GROUP` is a token charset with
+ * neither character in it, which is also why `serializeCrossOriginPolicy` can
+ * interpolate a group into its `report-to` parameter unescaped.
+ */
+function escapeStructuredString(value: string): string {
+  // Backslash first: doing it second would escape the backslashes the quote
+  // rule had just introduced.
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
 /**

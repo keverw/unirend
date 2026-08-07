@@ -748,6 +748,51 @@ describe('reportingEndpoints', () => {
     }
   });
 
+  it('escapes a quote in an endpoint rather than closing the string early', async () => {
+    // The endpoint travels as an RFC 8941 structured-headers string, where a
+    // raw `"` ends it. `new URL()` accepts one happily, so validation passing
+    // says nothing about this. Written unescaped the browser fails to parse the
+    // item and drops it, which un-defines the group and leaves the policy
+    // reporting to nowhere: the exact silence this pair of options exists to
+    // prevent, and indistinguishable from having no violations.
+    const app = fastify({ trustProxy: true });
+    const endpoint = 'https://reports.example.com/csp?tag="prod"&p=a\\b';
+
+    await securityHeaders({
+      reportingEndpoints: { csp: endpoint },
+    })(app as unknown as PluginHostInstance, createMockOptions());
+
+    app.get('/t', () => ({ ok: true }));
+    await app.listen({ port: 0, host: '127.0.0.1' });
+
+    const address = app.server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/t`);
+
+      expect(response.headers.get('reporting-endpoints')).toBe(
+        'csp="https://reports.example.com/csp?tag=\\"prod\\"&p=a\\\\b"',
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('rejects an endpoint carrying a character no escape can rescue', () => {
+    // Escaping covers `"` and `\` and nothing else, so a character outside
+    // printable ASCII has no representation in the header at all. Refused with
+    // an instruction rather than percent-encoded here, since rewriting the
+    // endpoint would send reports to an address the operator did not write.
+    const result = validateSecurityHeadersPolicy({
+      reportingEndpoints: { csp: 'https://reports.example.com/café' },
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues[0].path).toBe('reportingEndpoints.csp');
+    expect(result.issues[0].message).toMatch(/outside printable ASCII/);
+  });
+
   it('rejects a csp.reportTo group that reportingEndpoints does not define', () => {
     // The whole point of the pair. `report-to` names a group, a group means
     // nothing until a response defines it, and the only symptom of getting it
