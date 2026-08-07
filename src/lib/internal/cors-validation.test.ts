@@ -554,8 +554,27 @@ describe('validateCORSPolicy', () => {
         }).normalized.origin,
       ).toEqual(['https://*']);
 
+      // Asked of the value however it is spelled. A protocol wildcard written as
+      // a bare string used to merge while the same token alone in an array did
+      // not, so one policy normalized two ways depending on how it was typed.
+      for (const origin of ['https://*', 'http://*'] as const) {
+        expect(
+          collectCORSIssues({ origin, credentials: ['https://example.com'] })
+            .normalized.origin,
+          origin,
+        ).toBe(origin);
+      }
+
       // A subdomain pattern is not a blanket wildcard, so a credentialed origin
       // beside one still gets merged in, which is the mistake this exists for.
+      // Also checked as a bare string, since that is the path that changed.
+      expect(
+        collectCORSIssues({
+          origin: '*.example.com',
+          credentials: ['https://app.example.com'],
+        }).normalized.origin,
+      ).toEqual(['*.example.com', 'https://app.example.com']);
+
       expect(
         collectCORSIssues({
           origin: ['*.example.com'],

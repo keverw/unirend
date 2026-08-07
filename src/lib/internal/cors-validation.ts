@@ -1149,36 +1149,37 @@ export function collectCORSIssues(input: unknown): {
   // Note: credentials controls Access-Control-Allow-Credentials header, which tells browsers
   // whether to include cookies/auth headers in requests - it doesn't automatically allow cookies
   //
-  // Skipped when the origin list already carries a wildcard token, since every
+  // Skipped when the origin already carries a wildcard token, since every
   // credentialed origin is allowed by it already. Appending anyway produced a
   // normalized `['*', 'null', 'https://app.example']`, which allows exactly what
   // `['*', 'null']` allowed while reading as though the third entry were doing
   // something, and which the origin rules just above would have refused outright
   // had anyone written it by hand: a wildcard token may only be paired with
-  // 'null'. The string `'*'` never merged, so this is the same disagreement
-  // between spellings the collapse further up exists to end.
+  // 'null'.
+  //
+  // Asked of the value however it is spelled, because a wildcard means the same
+  // thing as a bare string as it does alone in an array. Checking only the array
+  // left `origin: 'https://*'` merging into `['https://*', 'https://app.example']`
+  // while `origin: ['https://*']` stayed put, two spellings of one policy
+  // normalizing differently, which is the disagreement the `'*'` collapse further
+  // up exists to end.
   //
   // Only the tokens that cover everything. A subdomain pattern such as
   // `*.example.com` matches some hosts and not others, so a credentialed origin
   // beside one still needs merging in, which is the mistake this exists to fix.
   const hasWildcardToken =
-    Array.isArray(cors.origin) &&
-    (cors.origin.includes('*') || hasProtocolWildcard(cors.origin));
+    cors.origin === '*' ||
+    (Array.isArray(cors.origin) && cors.origin.includes('*')) ||
+    hasProtocolWildcard(cors.origin);
 
-  if (
-    Array.isArray(cors.credentials) &&
-    Array.isArray(cors.origin) &&
-    !hasWildcardToken
-  ) {
-    // Merge credentials origins into origin list to ensure they're allowed for CORS
-    cors.origin = [...new Set([...cors.origin, ...cors.credentials])];
-  } else if (
-    Array.isArray(cors.credentials) &&
-    typeof cors.origin === 'string' &&
-    cors.origin !== '*'
-  ) {
-    // Convert single origin to array and merge with credentials origins
-    cors.origin = [...new Set([cors.origin, ...cors.credentials])];
+  if (Array.isArray(cors.credentials) && !hasWildcardToken) {
+    if (Array.isArray(cors.origin)) {
+      // Merge credentials origins into origin list to ensure they're allowed for CORS
+      cors.origin = [...new Set([...cors.origin, ...cors.credentials])];
+    } else if (typeof cors.origin === 'string') {
+      // Convert single origin to array and merge with credentials origins
+      cors.origin = [...new Set([cors.origin, ...cors.credentials])];
+    }
   }
 
   return { issues, normalized: cors };
