@@ -220,6 +220,17 @@ export function domainValidation(
 
     // Register onRequest hook for domain security checks
     pluginHost.addHook('onRequest', async (request, reply) => {
+      // Every path that answers the request returns `reply`, and in an async
+      // hook that is not a stylistic choice. Fastify advances the lifecycle
+      // when an async hook resolves, and it only stops early if the resolved
+      // value is the reply, so returning `undefined` after `reply.send()` sent
+      // the response *and then carried on running the remaining onRequest
+      // hooks*. A gate that does not gate is the one thing this plugin must
+      // not be: every hook registered below it still ran on a request that had
+      // already been refused, doing whatever work they do, and the first of
+      // them to touch the reply produced an ERR_HTTP_HEADERS_SENT deep in
+      // Fastify's error handling rather than anywhere that named this plugin.
+      //
       // First statement in the hook, deliberately. This records that the host
       // was examined, not what the examination found, so it stays true for a
       // pass, a rejection, a redirect, and a validator that failed. Anything
@@ -272,7 +283,7 @@ export function domainValidation(
             .send('Bad Request: Missing or invalid Host header');
         }
 
-        return;
+        return reply;
       }
 
       // Skip all validation and redirects for localhost (including IPv4/IPv6)
@@ -424,7 +435,8 @@ export function domainValidation(
               .type(isAPIEndpoint ? 'application/json' : 'text/plain')
               .send(defaultResponse.content);
           }
-          return;
+
+          return reply;
         }
       }
 
@@ -500,7 +512,8 @@ export function domainValidation(
         const statusCode = config.redirectStatusCode || 301;
 
         reply.code(statusCode).redirect(redirectURL);
-        return;
+
+        return reply;
       }
 
       // Continue to next handler - no redirects needed

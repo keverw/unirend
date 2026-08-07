@@ -6,7 +6,11 @@ import type {
   DomainValidationConfig,
   InvalidDomainResponse,
 } from './domain-validation';
-import type { PluginOptions, PluginHostInstance } from '../types';
+import type {
+  PluginOptions,
+  PluginHostInstance,
+  UnirendServerMode,
+} from '../types';
 
 // Mock Fastify request/reply objects
 interface MockRequestOverrides {
@@ -1767,5 +1771,107 @@ describe('domainValidation', () => {
 
       expect(resolved.protocol).toBe('https');
     });
+  });
+});
+
+describe('the gate actually stops the lifecycle', () => {
+  function createMockOptions(): PluginOptions {
+    return {
+      mode: 'ssr' as UnirendServerMode,
+      isDevelopment: false,
+      serverType: 'ssr',
+    } as unknown as PluginOptions;
+  }
+
+  it('runs no later onRequest hook once it has refused the host', async () => {
+    // Fastify advances the lifecycle when an async hook resolves, and stops
+    // early only when the resolved value is the reply. Returning `undefined`
+    // after reply.send() sent the response *and then kept running the rest of
+    // the onRequest chain*, so every plugin registered below this one still ran
+    // on a request that had already been refused, doing whatever work they do.
+    //
+    // A gate that does not gate is the one thing this plugin must not be, and
+    // the symptom was almost impossible to trace: the first hook below it to touch the
+    // reply produced an ERR_HTTP_HEADERS_SENT deep inside Fastify's error
+    // handling, naming nothing in this file.
+    const app = fastify({ trustProxy: true });
+    const ranAfter: string[] = [];
+
+    await domainValidation({
+      enforceHTTPS: false,
+      validProductionDomains: ['allowed.example.com'],
+    })(app as unknown as PluginHostInstance, createMockOptions());
+
+    app.addHook('onRequest', () => {
+      ranAfter.push('below-the-gate');
+
+      return Promise.resolve();
+    });
+
+    app.get('/t', () => ({ ok: true }));
+    await app.listen({ port: 0, host: '127.0.0.1' });
+
+    const address = app.server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    try {
+      const refused = await fetch(`http://127.0.0.1:${port}/t`, {
+        headers: { 'x-forwarded-host': 'evil.example.com' },
+      });
+
+      expect(refused.status).toBe(403);
+      expect(ranAfter).toEqual([]);
+
+      // The control: a host that passes must still reach everything below.
+      const allowed = await fetch(`http://127.0.0.1:${port}/t`, {
+        headers: { 'x-forwarded-host': 'allowed.example.com' },
+      });
+
+      expect(allowed.status).toBe(200);
+      expect(ranAfter).toEqual(['below-the-gate']);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('runs no later onRequest hook after a 400 or a redirect either', async () => {
+    // The same rule on the other two terminal paths, since each returned
+    // undefined in its own right.
+    const app = fastify({ trustProxy: true });
+    const ranAfter: string[] = [];
+
+    await domainValidation({
+      enforceHTTPS: false,
+      validProductionDomains: [
+        'allowed.example.com',
+        'www.allowed.example.com',
+      ],
+      canonicalDomain: 'allowed.example.com',
+    })(app as unknown as PluginHostInstance, createMockOptions());
+
+    app.addHook('onRequest', () => {
+      ranAfter.push('below-the-gate');
+
+      return Promise.resolve();
+    });
+
+    app.get('/t', () => ({ ok: true }));
+    await app.listen({ port: 0, host: '127.0.0.1' });
+
+    const address = app.server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    try {
+      const redirected = await fetch(`http://127.0.0.1:${port}/t`, {
+        headers: { 'x-forwarded-host': 'www.allowed.example.com' },
+        redirect: 'manual',
+      });
+
+      expect(redirected.status).toBeGreaterThanOrEqual(300);
+      expect(redirected.status).toBeLessThan(400);
+      expect(ranAfter).toEqual([]);
+    } finally {
+      await app.close();
+    }
   });
 });

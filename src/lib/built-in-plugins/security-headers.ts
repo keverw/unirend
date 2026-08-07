@@ -482,6 +482,26 @@ type CompiledCSP = {
  * then written in a loop. A new one is a line in `resolveSimpleHeaders` and
  * nothing else.
  */
+/**
+ * The policy fields that become a single-value header.
+ *
+ * Listed once because three places have to agree about them: the merge, the
+ * `null` check that guards the merge, and the serializer. `satisfies` ties it
+ * to the policy type, so a field added there without being added here is a
+ * type error rather than a header that silently stops being overridable.
+ */
+const SIMPLE_HEADER_FIELDS = [
+  'contentTypeOptions',
+  'referrerPolicy',
+  'permissionsPolicy',
+  'crossOriginOpenerPolicy',
+  'crossOriginOpenerPolicyReportOnly',
+  'crossOriginResourcePolicy',
+  'crossOriginEmbedderPolicy',
+  'crossOriginEmbedderPolicyReportOnly',
+  'reportingEndpoints',
+] as const satisfies ReadonlyArray<keyof SecurityHeadersPolicyInput>;
+
 type ResolvedSimpleHeaders = ReadonlyArray<
   readonly [name: string, value: string]
 >;
@@ -632,8 +652,35 @@ type ResolvedSecurityHeadersConfig = {
 async function effectiveConfigFor(
   request: FastifyRequest,
   config: ResolvedSecurityHeadersConfig,
+  onResolverError: WritePhase['onResolverError'] = 'throw',
 ): Promise<ResolvedSecurityHeadersConfig> {
-  return config.resolveEffective ? config.resolveEffective(request) : config;
+  if (!config.resolveEffective) {
+    return config;
+  }
+
+  if (onResolverError === 'throw') {
+    return config.resolveEffective(request);
+  }
+
+  try {
+    return await config.resolveEffective(request);
+  } catch (error) {
+    logCallbackError(
+      request,
+      error,
+      'resolve failed while headers were being applied to a response that was already composed, so the configured defaults are being used without HSTS rather than replacing the response with the error',
+    );
+
+    // Whatever the failed resolve left behind, which is the baseline with HSTS
+    // dropped, or narrowed to the host when `ownDomains` says it is ours.
+    // `resolveEffectiveConfig` stores that before it awaits precisely so this
+    // path has something correct to reach for.
+    const cache = request as FastifyRequest & {
+      securityHeadersEffective?: ResolvedSecurityHeadersConfig;
+    };
+
+    return cache.securityHeadersEffective ?? { ...config, hsts: false };
+  }
 }
 
 /**
@@ -842,6 +889,40 @@ function writeSecurityHeader(
  *   would already have run if it were ever going to.
  */
 type HostCheck = 'rejected-only' | 'unverified';
+
+/**
+ * What a header write is allowed to assume, which differs between the
+ * `onRequest` pass and anything sending a response.
+ *
+ * Both fields answer the same underlying question and are carried together so a
+ * call site cannot get one right and the other wrong.
+ */
+interface WritePhase {
+  /** How much an unset domain verdict is allowed to mean. */
+  hostCheck: HostCheck;
+  /**
+   * What to do when `resolve` fails.
+   *
+   * `'throw'` on the `onRequest` pass, which is the documented behavior: the
+   * resolver failure becomes a 500 through the ordinary error path, with
+   * nothing written to the reply yet.
+   *
+   * `'degrade'` once a response exists. A throw there does not produce a clean
+   * 500, it escapes `onSend` and hands Fastify's error handler a reply that is
+   * already composed, which rewrites the body. The observed result was a 403
+   * from `domainValidation` whose body had been replaced by the resolver's
+   * error message, so a database connection string reached the client under
+   * somebody else's status code. Degrading writes the headers the fallback
+   * already established, which has HSTS dropped, and logs.
+   */
+  onResolverError: 'throw' | 'degrade';
+}
+
+/** The `onRequest` pass, where nothing has been written and a throw is clean. */
+const EARLY_PHASE: WritePhase = {
+  hostCheck: 'rejected-only',
+  onResolverError: 'throw',
+};
 
 /**
  * Whether this request's host is one the server has declined to claim.
@@ -1170,6 +1251,24 @@ async function resolveEffectiveConfig(
   // A problem here throws like any other resolver failure. The alternative is
   // sending a header the caller wrote and a browser will ignore, which is the
   // silence these checks exist to break.
+  //
+  // `null` is rejected before the merge, because the merge is what would hide
+  // it: `??` reads null as "inherit", so a stored policy meaning "send no
+  // header" would have been served the baseline's instead. That is the same
+  // call `frameOptions` and `hsts` already make, and the same one
+  // `validateSecurityHeadersPolicy` makes, which had drifted: the public
+  // validator rejected `{ contentTypeOptions: null }` while the request path
+  // quietly accepted it, so a policy checked at save time behaved differently
+  // at serve time. `false` is how you say "send no header" and omitting the key
+  // is how you say "inherit".
+  for (const field of SIMPLE_HEADER_FIELDS) {
+    if (override[field] === null) {
+      throw new Error(
+        `securityHeaders resolve returned ${field}: null. Use false to send no header, or omit the key to inherit the configured default.`,
+      );
+    }
+  }
+
   const simplePolicy: SecurityHeadersPolicyInput = {
     contentTypeOptions:
       override.contentTypeOptions ?? baseSimplePolicy.contentTypeOptions,
@@ -1216,6 +1315,24 @@ async function resolveEffectiveConfig(
     effective.csp ? effective.csp.config : effective.csp,
   );
 
+  // The reporting pair, checked on the merge for the same reason the framing
+  // pair is: either half can come from the override and the other from the
+  // baseline, so a resolver replacing only `reportingEndpoints`, or only the
+  // CSP, assembles a policy that names a group nothing defines. Startup and
+  // `validateSecurityHeadersPolicy` both refuse that, and the request path did
+  // not, which made the module's promise, that a policy the validator accepts
+  // is one the plugin accepts, false in the direction that matters: the tenant
+  // gets a policy reporting to nowhere and nothing says so.
+  const [firstMergedReportingIssue] = collectReportingIssues(
+    effective.csp ? effective.csp.config : effective.csp,
+    simplePolicy.reportingEndpoints,
+    crossOriginReportGroups(simplePolicy),
+  );
+
+  if (firstMergedReportingIssue) {
+    throw new Error(firstMergedReportingIssue.message);
+  }
+
   cache.securityHeadersEffective = effective;
 
   return effective;
@@ -1226,7 +1343,7 @@ function applyUnconditionalSecurityHeaders(
   reply: FastifyReply,
   resolvedConfig: ResolvedSecurityHeadersConfig,
   mode: HeaderWriteMode = 'apply',
-  hostCheck: HostCheck = 'rejected-only',
+  phase: WritePhase = EARLY_PHASE,
 ): void {
   // These headers are not negotiated per-origin. They are safe to apply even
   // on requests that will ultimately receive no Access-Control-Allow-Origin
@@ -1292,7 +1409,7 @@ function applyUnconditionalSecurityHeaders(
   // runs before anything that later throws, so on exactly the requests where
   // the host turns out to be unclaimed the header is already on the reply and
   // not writing it again would leave it there.
-  if (isHostDisclaimed(request, hostCheck)) {
+  if (isHostDisclaimed(request, phase.hostCheck)) {
     reply.removeHeader('Strict-Transport-Security');
   } else if (resolvedConfig.hsts && request.protocol === 'https') {
     const parts = [`max-age=${Math.floor(resolvedConfig.hsts.maxAge)}`];
@@ -1320,7 +1437,7 @@ async function applyCORSActualResponseHeaders(
   resolvedConfig: ResolvedSecurityHeadersConfig,
   isOriginAllowedResult?: boolean,
   mode: HeaderWriteMode = 'apply',
-  hostCheck: HostCheck = 'rejected-only',
+  phase: WritePhase = EARLY_PHASE,
 ): Promise<void> {
   const cors = resolvedConfig.cors;
   const origin = request.headers.origin;
@@ -1340,9 +1457,9 @@ async function applyCORSActualResponseHeaders(
   applyUnconditionalSecurityHeaders(
     request,
     reply,
-    await effectiveConfigFor(request, resolvedConfig),
+    await effectiveConfigFor(request, resolvedConfig, phase.onResolverError),
     mode,
-    hostCheck,
+    phase,
   );
 
   // For non-preflight requests, let them proceed without CORS headers if the
@@ -1777,12 +1894,32 @@ export function securityHeaders(
   // so only an explicit rejection counts. That is the pre-existing behavior
   // rather than a new hole, and it is the concrete reason `domainValidation`
   // belongs first.
-  let isGateRegisteredAbove = false;
-
-  const lateHostCheck = (): HostCheck =>
-    isGateRegisteredAbove ? 'unverified' : 'rejected-only';
-
+  //
+  // Held per *registration* rather than on the factory, which is the whole
+  // reason it is declared inside `plugin` below. A `securityHeaders()` value is
+  // a long-lived object the caller keeps hold of, because `setResolver` hands
+  // it to them for exactly that, so registering one on two servers is an
+  // ordinary thing to do. On the factory this variable was global to all of
+  // them and the last registration won: register a gate-less second server and
+  // the first server, correctly ordered, silently started sending HSTS for
+  // unverified hosts again. Declared here, each registration closes over its
+  // own, and every hook registered in the same call sees that one.
   const plugin = async (fastify: PluginHostInstance<UnirendServerMode>) => {
+    let isGateRegisteredAbove = false;
+
+    /**
+     * The phase for anything writing headers onto a response that exists.
+     *
+     * Both halves are late-specific: an unset domain verdict may be read as
+     * "unverified" only when the gate is above us, and a resolver failure must
+     * degrade rather than throw, because there is already a composed reply that
+     * a throw would replace.
+     */
+    const latePhase = (): WritePhase => ({
+      hostCheck: isGateRegisteredAbove ? 'unverified' : 'rejected-only',
+      onResolverError: 'degrade',
+    });
+
     // `domainValidation` decorates the instance when it registers, so the
     // decoration being present *here*, while this plugin is registering, is
     // exactly the question "did the gate go first".
@@ -1865,7 +2002,7 @@ export function securityHeaders(
           resolvedConfig,
           undefined,
           'apply',
-          lateHostCheck(),
+          latePhase(),
         );
       },
     );
@@ -2170,7 +2307,7 @@ export function securityHeaders(
         // includes a hook that threw. The second one is the quieter of the two:
         // the response is an error page, nothing has vouched for the host, and
         // the header would still bind whatever the client asked for.
-        if (isHostDisclaimed(request, lateHostCheck())) {
+        if (isHostDisclaimed(request, latePhase().hostCheck)) {
           reply.removeHeader('Strict-Transport-Security');
         }
 
@@ -2190,7 +2327,15 @@ export function securityHeaders(
           // header holding a value this check did not recognize, so the fold-in
           // was skipped and the tenant's page went out under a policy missing
           // the hashes for the very template it was about to render.
-          const effective = await effectiveConfigFor(request, resolvedConfig);
+          //
+          // Degrading rather than throwing, because this runs in onSend with a
+          // reply already composed: a throw here would hand Fastify's error
+          // handler a finished response to rewrite.
+          const effective = await effectiveConfigFor(
+            request,
+            resolvedConfig,
+            'degrade',
+          );
 
           if (effective.csp) {
             // Overwrite rather than fill-if-absent, since the header is already
@@ -2223,7 +2368,7 @@ export function securityHeaders(
             resolvedConfig,
             undefined,
             'fill',
-            lateHostCheck(),
+            latePhase(),
           );
         }
 

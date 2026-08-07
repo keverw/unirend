@@ -588,6 +588,30 @@ function validateSource(
 
   const [, scheme, host, port] = parts;
 
+  // The scheme checks again, on the parsed group this time.
+  //
+  // The bare-scheme branch above only fires for `javascript:`, the form with
+  // nothing after the colon. Written with an authority, `javascript://evil.com`
+  // parsed as a host source and sailed through, and so did `data://evil.com` in
+  // a script directive. Neither is exploitable, since CSP matches no
+  // `javascript:` or `data:` URL through a host-source, but "a source that
+  // reads as a rule and does nothing" is the exact outcome this file is built
+  // to refuse, and the guard above claims to have refused it.
+  if (scheme !== undefined) {
+    const parsedScheme = `${scheme.toLowerCase()}:`;
+
+    if (FORBIDDEN_SCHEMES.has(parsedScheme)) {
+      return `${directive} source "${source}" uses the "${scheme}" scheme, which allows script injection through URLs`;
+    }
+
+    if (
+      SCRIPT_DIRECTIVES.has(key) &&
+      FORBIDDEN_SCRIPT_SCHEMES.has(parsedScheme)
+    ) {
+      return `${directive} source "${source}" uses the "${scheme}" scheme, which lets a script carry its own source and so undoes the directive it is written in`;
+    }
+  }
+
   // A numeric port still has to be a port. `*` is the other legal value and
   // needs no range check.
   if (port !== undefined && port !== '*') {

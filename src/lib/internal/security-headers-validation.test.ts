@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import fastify from 'fastify';
 import { validateSecurityHeadersPolicy } from './security-headers-validation';
 import { securityHeaders } from '../built-in-plugins/security-headers';
+import { domainValidation } from '../built-in-plugins/domain-validation';
 import type { SecurityHeadersConfig } from '../built-in-plugins/security-headers';
 import type {
   PluginHostInstance,
@@ -867,5 +868,171 @@ describe('COOP and COEP report-only', () => {
       'same-origin-allow-popups',
     );
     expect(headers.get('cross-origin-opener-policy-report-only')).toBeNull();
+  });
+});
+
+describe('resolver failures on a composed response', () => {
+  it('does not replace an already-sent response with the resolver error', async () => {
+    // On a short-circuited response the resolver runs for the first time from
+    // onSend, where the reply is already composed. A throw there does not
+    // produce a clean 500: it escapes the hook and hands Fastify's error
+    // handler a finished response to rewrite, which is how a database error
+    // message ends up in somebody else's 403.
+    const app = fastify({ trustProxy: true, logger: false });
+
+    await domainValidation({
+      enforceHTTPS: false,
+      validProductionDomains: ['allowed.example.com'],
+    })(app as unknown as PluginHostInstance, createMockOptions());
+
+    await securityHeaders({
+      hsts: { maxAge: 31536000 },
+      resolve: () => {
+        throw new Error('pg: password authentication failed for user "x"');
+      },
+    })(app as unknown as PluginHostInstance, createMockOptions());
+
+    app.get('/t', () => ({ ok: true }));
+    await app.listen({ port: 0, host: '127.0.0.1' });
+
+    const address = app.server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/t`, {
+        headers: {
+          'x-forwarded-host': 'evil.example.com',
+          'x-forwarded-proto': 'https',
+        },
+      });
+
+      const body = await response.text();
+
+      expect(response.status).toBe(403);
+      expect(body).not.toContain('password authentication');
+      expect(body).toContain('not authorized');
+
+      // And the header the failure is supposed to cost it is still withheld.
+      expect(response.headers.get('strict-transport-security')).toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('rejects a resolver that breaks the reportTo pairing', () => {
+    // Startup and validateSecurityHeadersPolicy both refuse a group nothing
+    // defines. The request path did not, so a resolver replacing only one half
+    // of the pair produced a tenant policy reporting to nowhere.
+    return expect(
+      (async () => {
+        const app = fastify({ trustProxy: true });
+
+        await securityHeaders({
+          reportingEndpoints: { csp: 'https://reports.example.com/csp' },
+          csp: { defaultSrc: ["'self'"], reportTo: 'csp' },
+          resolve: () => ({
+            reportingEndpoints: { other: 'https://reports.example.com/x' },
+          }),
+        })(app as unknown as PluginHostInstance, createMockOptions());
+
+        app.get('/t', () => ({ ok: true }));
+        await app.listen({ port: 0, host: '127.0.0.1' });
+
+        const address = app.server.address();
+        const port = typeof address === 'object' && address ? address.port : 0;
+
+        try {
+          return (await fetch(`http://127.0.0.1:${port}/t`)).status;
+        } finally {
+          await app.close();
+        }
+      })(),
+    ).resolves.toBe(500);
+  });
+
+  it('rejects null in a single-value field rather than inheriting', async () => {
+    // `??` reads null as "inherit", so a stored policy meaning "send no header"
+    // was served the baseline's instead. The public validator already rejected
+    // it, so the two had drifted: a policy checked at save time behaved
+    // differently at serve time.
+    const app = fastify({ trustProxy: true });
+
+    await securityHeaders({
+      contentTypeOptions: true,
+      // @ts-expect-error the type rules this out; the check is for stored policies
+      resolve: () => ({ contentTypeOptions: null }),
+    })(app as unknown as PluginHostInstance, createMockOptions());
+
+    app.get('/t', () => ({ ok: true }));
+    await app.listen({ port: 0, host: '127.0.0.1' });
+
+    const address = app.server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    try {
+      expect((await fetch(`http://127.0.0.1:${port}/t`)).status).toBe(500);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('keeps one registration of a plugin value from affecting another', async () => {
+    // A securityHeaders() value is long-lived and handed back to the caller by
+    // setResolver, so registering one on two servers is ordinary. Holding the
+    // "was the gate registered above me" answer on the factory made the last
+    // registration win for all of them: a gate-less second server flipped it
+    // and the first, correctly ordered, silently resumed sending HSTS for
+    // unverified hosts.
+    const headers = securityHeaders({ hsts: { maxAge: 31536000 } });
+
+    const withGate = fastify({ trustProxy: true });
+
+    await domainValidation({
+      enforceHTTPS: false,
+      validProductionDomains: ['allowed.example.com'],
+    })(withGate as unknown as PluginHostInstance, createMockOptions());
+
+    await headers(
+      withGate as unknown as PluginHostInstance,
+      createMockOptions(),
+    );
+
+    withGate.addHook('onRequest', () =>
+      Promise.reject(new Error('above the gate')),
+    );
+
+    withGate.get('/t', () => ({ ok: true }));
+    await withGate.listen({ port: 0, host: '127.0.0.1' });
+
+    const address = withGate.server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    const probe = () =>
+      fetch(`http://127.0.0.1:${port}/t`, {
+        headers: {
+          'x-forwarded-host': 'unchecked.example.com',
+          'x-forwarded-proto': 'https',
+        },
+      });
+
+    const gateLess = fastify({ trustProxy: true });
+
+    try {
+      expect(
+        (await probe()).headers.get('strict-transport-security'),
+      ).toBeNull();
+
+      // Same plugin value, second server, no gate.
+      await headers(
+        gateLess as unknown as PluginHostInstance,
+        createMockOptions(),
+      );
+
+      expect(
+        (await probe()).headers.get('strict-transport-security'),
+      ).toBeNull();
+    } finally {
+      await withGate.close();
+      await gateLess.close();
+    }
   });
 });
