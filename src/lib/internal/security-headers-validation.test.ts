@@ -1036,3 +1036,71 @@ describe('resolver failures on a composed response', () => {
     }
   });
 });
+
+describe('a disclaimed host never reaches the resolver', () => {
+  async function probe(host: string) {
+    let calls = 0;
+    const app = fastify({ trustProxy: true });
+
+    await domainValidation({
+      enforceHTTPS: false,
+      validProductionDomains: ['allowed.example.com'],
+    })(app as unknown as PluginHostInstance, createMockOptions());
+
+    await securityHeaders({
+      hsts: { maxAge: 31536000 },
+      contentTypeOptions: true,
+      resolve: () => {
+        calls++;
+
+        return null;
+      },
+    })(app as unknown as PluginHostInstance, createMockOptions());
+
+    app.get('/t', () => ({ ok: true }));
+    await app.listen({ port: 0, host: '127.0.0.1' });
+
+    const address = app.server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/t`, {
+        headers: {
+          'x-forwarded-host': host,
+          'x-forwarded-proto': 'https',
+        },
+      });
+
+      return { response, calls };
+    } finally {
+      await app.close();
+    }
+  }
+
+  it('skips the lookup for a host the server has refused', async () => {
+    // There is nothing for the resolver to decide: `resolve` picks a policy for
+    // a tenant, and a refused host has none. Running it anyway let anyone make
+    // the server do a store lookup per request just by sending a Host header
+    // naming a domain that does not exist, on requests refused before any of
+    // the application's own rate limiting saw them.
+    const { response, calls } = await probe('evil.example.com');
+
+    expect(response.status).toBe(403);
+    expect(calls).toBe(0);
+
+    // The response is still dressed from the defaults, and still loses the one
+    // header a disclaimed host must not receive.
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(response.headers.get('strict-transport-security')).toBeNull();
+  });
+
+  it('still consults it for a host that passes', async () => {
+    const { response, calls } = await probe('allowed.example.com');
+
+    expect(response.status).toBe(200);
+    expect(calls).toBe(1);
+    expect(response.headers.get('strict-transport-security')).toBe(
+      'max-age=31536000',
+    );
+  });
+});

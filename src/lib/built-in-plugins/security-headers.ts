@@ -424,6 +424,12 @@ export interface SecurityHeadersConfig {
    *
    * Called at most once per request; the result is reused for the rest of the
    * lifecycle, including the error path.
+   *
+   * Not called at all when `domainValidation` has refused the host. There is
+   * nothing to decide, since this picks a policy for a tenant and a refused
+   * host has none, and the 403 is unirend's own response rather than tenant
+   * content. It also stops a `Host` header naming a domain that does not exist
+   * from costing a store lookup per request.
    */
   resolve?: SecurityHeadersResolver;
 
@@ -1130,6 +1136,35 @@ async function resolveEffectiveConfig(
 
   if (cache.securityHeadersEffective) {
     return cache.securityHeadersEffective;
+  }
+
+  // A host `domainValidation` has refused never reaches the resolver at all.
+  //
+  // There is nothing for it to decide. `resolve` exists to pick a policy for a
+  // tenant, and this request has no tenant: the operator has said the host is
+  // not one they serve. The response is unirend's own 403 or 400, plain text or
+  // a small JSON envelope rather than tenant content, so the configured
+  // defaults dress it perfectly well.
+  //
+  // Skipping is also the cheaper and safer of the two. `resolve` is typically a
+  // database or cache lookup, and running it here meant anyone could make the
+  // server do one per request just by sending a `Host` header naming a domain
+  // that does not exist, on requests that were refused before any of the
+  // application's own rate limiting or auth had a chance to see them.
+  //
+  // HSTS is dropped for the same reason it is dropped everywhere else on this
+  // path: a domain the operator has disclaimed is not one to bind. The write
+  // side removes the header independently, so this is belt and braces rather
+  // than the only guard.
+  if (isHostDisclaimed(request, 'rejected-only')) {
+    const disclaimed: ResolvedSecurityHeadersConfig = {
+      ...baseConfig,
+      hsts: false,
+    };
+
+    cache.securityHeadersEffective = disclaimed;
+
+    return disclaimed;
   }
 
   // Stored before awaiting, so the error path has something to use even though
