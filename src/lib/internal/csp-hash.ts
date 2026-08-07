@@ -82,6 +82,17 @@ export function hashInlineContentForCSP(
  * through untouched, but ordinary text is never hashed, so there is no context
  * where this normalization is the wrong answer.
  *
+ * Verified in Chrome rather than reasoned about, because this file previously
+ * documented the opposite and had a test pinning it: the intuition that a hash
+ * covers the bytes you sent is wrong, and wrong quietly. Serving one `<style>`
+ * whose content carries CRLFs under two policies differing only in the digest,
+ * the normalized one applies and the literal-bytes one is refused with
+ * "Applying inline style violates the following Content Security Policy
+ * directive", naming the normalized digest as the hash that would work. The
+ * element's `textContent` in the resulting DOM contains no CR. The NUL half
+ * behaves the same way: the U+FFFD digest applies, the literal-NUL digest is
+ * refused, and `textContent` holds U+FFFD.
+ *
  * Exported so a caller assembling a policy by hand can compare like with like,
  * and because the rule is worth being able to point at.
  */
