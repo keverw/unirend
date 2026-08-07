@@ -16,12 +16,21 @@ export type CSPHashAlgorithm = 'sha256' | 'sha384' | 'sha512';
  * `sha256-K/x...=`. Quoting is the job of whoever assembles the directive,
  * since a source list has other unquoted members.
  *
- * **Hash exactly what the browser will receive.** The digest covers the text
- * content of the element byte for byte, with no trimming and no normalization,
- * and the `<script>` / `<style>` tags themselves are not part of it. Leading and
- * trailing whitespace, indentation, newlines, and capitalization all change the
- * answer, so a hash taken from a prettier-formatted source file will not match
- * the same content after anything rewrites it on the way out.
+ * **Hash what the browser will read, which is not quite what you send.** The
+ * digest covers the element's text content, and the `<script>` / `<style>` tags
+ * themselves are not part of it. Leading and trailing whitespace, indentation,
+ * newlines, and capitalization all change the answer, so a hash taken from a
+ * prettier-formatted source file will not match the same content after anything
+ * rewrites it on the way out.
+ *
+ * The one thing that does not change the answer is a line ending, and that is
+ * deliberate rather than incidental. A CSP hash covers a DOM value, so the
+ * argument is normalized here the same way a browser normalizes it while
+ * parsing: CRLF and lone CR become LF, and NUL becomes U+FFFD. See
+ * {@link normalizeForCSPHash}. Without that, a `<style>` constant living in a
+ * file checked out on Windows, which git will happily give you with CRLFs,
+ * hashes to a digest the browser never computes, and the page renders unstyled
+ * under a strict `style-src` with nothing anywhere mentioning line endings.
  *
  * That makes this exact for raw HTML strings sent straight to the transport, an
  * error page being the usual case, since what the function returned is what the
@@ -51,7 +60,33 @@ export function hashInlineContentForCSP(
   content: string,
   algorithm: CSPHashAlgorithm = 'sha256',
 ): string {
-  return `${algorithm}-${createHash(algorithm).update(content, 'utf8').digest('base64')}`;
+  return `${algorithm}-${createHash(algorithm).update(normalizeForCSPHash(content), 'utf8').digest('base64')}`;
+}
+
+/**
+ * Put text through the normalizations a browser has already applied by the time
+ * it computes a CSP hash.
+ *
+ * A hash source is matched against a DOM value, never against the bytes on the
+ * wire, and two characters cannot survive parsing to reach one:
+ *
+ * - **CR.** Newlines are normalized in "Preprocessing the input stream", before
+ *   tokenization and therefore everywhere. CRLF and a lone CR both become LF.
+ * - **NUL.** Replaced with U+FFFD by the tokenizer states that read raw text,
+ *   which is where `<script>` and `<style>` content is read, and by the
+ *   attribute-value states as well.
+ *
+ * Between them those two cover every context a CSP hash is ever computed in:
+ * inline element content, and the `on*=` or `style=` attribute value that an
+ * `'unsafe-hashes'` policy matches. The ordinary data state does pass a NUL
+ * through untouched, but ordinary text is never hashed, so there is no context
+ * where this normalization is the wrong answer.
+ *
+ * Exported so a caller assembling a policy by hand can compare like with like,
+ * and because the rule is worth being able to point at.
+ */
+export function normalizeForCSPHash(content: string): string {
+  return content.replace(/\r\n?/g, '\n').replace(/\0/g, '�');
 }
 
 /**

@@ -1,4 +1,5 @@
 import { describe, expect, it, spyOn } from 'bun:test';
+import { createHash } from 'node:crypto';
 import * as cheerio from 'cheerio';
 import { prettifyHeadTags, injectContent } from './inject';
 import { processTemplate } from './format';
@@ -1419,7 +1420,16 @@ describe('literal splicing and byte-exact rendered hashes', () => {
     expect(reported).toContain(
       `'${hashInlineContentForCSP('body{\n  margin:0\n}')}'`,
     );
-    expect(reported).not.toContain(`'${hashInlineContentForCSP(css)}'`);
+
+    // And the literal digest of the shipped bytes is *not* reported. Computed
+    // here rather than through hashInlineContentForCSP, which normalizes, so
+    // this stays a real assertion rather than a comparison of a value with
+    // itself.
+    const literal = createHash('sha256')
+      .update(Buffer.from(css, 'utf8'))
+      .digest('base64');
+
+    expect(reported).not.toContain(`'sha256-${literal}'`);
   });
 
   it('hashes a rendered NUL the way the tokenizer replaces it', async () => {

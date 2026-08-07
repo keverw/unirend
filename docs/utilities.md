@@ -185,7 +185,9 @@ export function renderPage(): string {
 
 <!-- prettier-ignore -->
 > [!IMPORTANT]
-> Hash exactly what the browser will receive. The digest covers the element's text content byte for byte, with no trimming and no normalization, and the tags themselves are not part of it. Leading and trailing whitespace, indentation, newlines, and capitalization all change the answer.
+> Hash exactly what the browser will read. The digest covers the element's text content, and the tags themselves are not part of it. Leading and trailing whitespace, indentation, blank lines, and capitalization all change the answer, so there is no trimming and no tidying up.
+
+Line endings are the one thing that does not change the answer, and that is deliberate. A CSP hash is matched against a DOM value rather than against the bytes on the wire, and a browser normalizes newlines while parsing, so the helper does the same: CRLF and lone CR become LF, and NUL becomes U+FFFD. Without that, a `PAGE_STYLES` constant in a file checked out on Windows would ship with CRLFs, be hashed by the browser without them, and render unstyled with nothing to point at. You do not have to configure git or add a `.gitattributes` to make this work.
 
 That is why the example above keeps its own newline and indentation inside `PAGE_STYLES` rather than pretty-printing the markup around it. Formatting the output is fine, as long as the formatting lives in the value being hashed. Put a newline between `<style>` and `${PAGE_STYLES}` and the hash silently stops matching, with no error anywhere and a page that just renders unstyled.
 
@@ -193,7 +195,7 @@ The helper is exact for raw HTML strings sent straight to the transport, which i
 
 A hash of an element's content covers that element only. An `onclick=` handler or a `style=""` attribute is different content with a different digest, so an element hash never matches one.
 
-An attribute **can** be hashed, it just takes more: `'unsafe-hashes'` in the governing directive plus a digest of the attribute's own value. Pass that value to this helper the same way, with the same byte-for-byte rules. Better still is rewriting so there is no inline attribute to cover, since a hash listed for `'unsafe-hashes'` matches that value on any element in the page rather than the one you meant. Unirend's own error pages took that route: the refresh control is an anchor with an empty `href` rather than a button with an inline `onclick`. See [inline attributes](built-in-plugins/security-headers.md#inline-attributes-take-more-than-a-hash) for the full picture, including the warning unirend emits when a policy would block one.
+An attribute **can** be hashed, it just takes more: `'unsafe-hashes'` in the governing directive plus a digest of the attribute's own value. Pass that value to this helper the same way, under the same rules. Better still is rewriting so there is no inline attribute to cover, since a hash listed for `'unsafe-hashes'` matches that value on any element in the page rather than the one you meant. Unirend's own error pages took that route: the refresh control is an anchor with an empty `href` rather than a button with an inline `onclick`. See [inline attributes](built-in-plugins/security-headers.md#inline-attributes-take-more-than-a-hash) for the full picture, including the warning unirend emits when a policy would block one.
 
 ## StaticContentCache
 

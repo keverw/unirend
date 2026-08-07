@@ -37,6 +37,40 @@ describe('hashInlineContentForCSP', () => {
     );
   });
 
+  it('normalizes line endings the way a browser does before hashing', () => {
+    // The reason this is not "no normalization at all": a CSP hash is matched
+    // against a DOM value, and newline normalization happens while the input
+    // stream is preprocessed, before any of the markup is tokenized. So a
+    // constant living in a file checked out on Windows carries CRLFs, ships
+    // with them, and is hashed by the browser without them. Hashing the source
+    // literally published a digest nothing could match, and the page rendered
+    // unstyled under a strict style-src.
+    const lf = 'body{\n  margin:0\n}';
+
+    expect(hashInlineContentForCSP('body{\r\n  margin:0\r\n}')).toBe(
+      hashInlineContentForCSP(lf),
+    );
+
+    // A lone CR is normalized too, not only the CRLF pair.
+    expect(hashInlineContentForCSP('body{\r  margin:0\r}')).toBe(
+      hashInlineContentForCSP(lf),
+    );
+
+    // Whitespace that is not a line ending is still significant, so this has
+    // not quietly become a trimming hash.
+    expect(hashInlineContentForCSP(lf)).not.toBe(
+      hashInlineContentForCSP(`${lf}\n`),
+    );
+  });
+
+  it('replaces NUL the way the tokenizer does before hashing', () => {
+    // The other character that cannot reach a DOM value. Written as an escape
+    // rather than a raw byte, which the repo's null-byte gate also requires.
+    expect(hashInlineContentForCSP('a{content:"\0"}')).toBe(
+      hashInlineContentForCSP('a{content:"�"}'),
+    );
+  });
+
   it('hashes UTF-8 bytes, not UTF-16 code units', () => {
     // A stylesheet with a non-ASCII content: string is enough to hit this, and
     // getting the encoding wrong produces a hash that never matches in a

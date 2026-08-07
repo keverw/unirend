@@ -37,9 +37,11 @@ import { escapeHTML, hashInlineContentForCSP } from 'unirend/utils';
  * The page's inline CSS, kept as its own constant so it can be hashed for a
  * Content-Security-Policy.
  *
- * A CSP hash covers the element's text content byte for byte, with no trimming
- * and no normalization, so the only way to publish one that matches is to hash
- * the exact value the page interpolates. That is why the markup below writes
+ * A CSP hash covers the element's text content exactly, so the only way to
+ * publish one that matches is to hash the exact value the page interpolates.
+ * (Line endings are the one exception, and they are handled for you: the hash
+ * helper normalizes them the way a browser does, so a checkout of this file
+ * with CRLFs still produces a digest that matches.) That is why the markup below writes
  * \`<style>\${PAGE_STYLES}</style>\` with nothing between the tags and the
  * value, and why this constant keeps its own leading newline and trailing
  * indent: that whitespace is what makes the rendered page readable, and it is
