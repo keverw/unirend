@@ -754,6 +754,24 @@ export async function injectContent(
 
   // Replace CDN injection placeholder with actual CDN URL or empty string
   // This allows runtime CDN URL override per request
+  //
+  // Document-wide, unlike the markers above, which are replaced at one known
+  // location each. That is safe because format.ts writes this placeholder only
+  // onto a script[src] or a link[href], and a script carrying a src has no
+  // inline content to hash, so no CSP digest can cover a copy of it.
+  //
+  // Worth knowing before widening where it gets stamped: the digests are taken
+  // at format time and this substitution happens per request, so a placeholder
+  // inside an inline <script> or <style> would be hashed in its unreplaced form
+  // and rewritten afterwards, and the browser would refuse it for a hash
+  // mismatch. Attribute positions have no such problem, which is why a template
+  // may write the placeholder into a URL of its own and have it resolve here,
+  // falling back to a root-relative path when no CDN is configured. There is a
+  // real reason to: format.ts stamps only script[src] and link[href], so an
+  // <img src>, an og:image, or a poster attribute has no other way to follow the
+  // CDN. Treat that as undocumented but usable rather than as an accident. If it
+  // is ever made a real feature, the line to hold is that it belongs in a URL
+  // and never in hashed content.
   if (normalizedCDN) {
     result = result.replaceAll(
       '__CDN__INJECTION__POINT__',
