@@ -158,6 +158,45 @@ export function isUnsafeInlineEffective(
 const FORBIDDEN_SCHEMES = new Set(['javascript:', 'vbscript:']);
 
 /**
+ * Schemes refused in a script directive specifically.
+ *
+ * `data:` there is an `'unsafe-inline'` in everything but name: it makes
+ * `<script src="data:text/javascript,...">` load, so an injected attribute
+ * carries its own payload and no hash or nonce is involved. Google's CSP
+ * Evaluator rates it high severity for that reason, and a policy carrying it
+ * has stopped defending against the attack it exists for while still reading
+ * as a strict one.
+ *
+ * `*` is deliberately *not* here, and the difference is worth stating because
+ * it looks inconsistent. `*` does not match `data:`, `blob:`, or `filesystem:`
+ * and does not permit inline, so `script-src *` is a coarse policy rather than
+ * a bypass: it allows any host to serve your scripts, which is bad and visible
+ * in the config someone wrote. `data:` is a bypass, which is neither.
+ */
+const FORBIDDEN_SCRIPT_SCHEMES = new Set(['data:']);
+
+/**
+ * Directives that were part of CSP and are not any more.
+ *
+ * Reported by name rather than as "not a CSP option", because the two are
+ * different mistakes. A misspelling means the author meant something else; a
+ * removed directive means they meant exactly this and the platform moved. The
+ * message should say which.
+ */
+const REMOVED_DIRECTIVES: Record<string, string> = {
+  prefetchSrc:
+    'prefetch-src was removed from CSP and no browser shipped it un-flagged. Chrome logs an "Unrecognized Content-Security-Policy directive" warning for it on every page load, which trains people to ignore CSP console output. Prefetches fall under the directive for what is being fetched, so use defaultSrc or the specific one.',
+  pluginTypes:
+    'plugin-types was removed from CSP along with browser plugin support. Use objectSrc: ["\'none\'"] instead.',
+  navigateTo:
+    'navigate-to was removed from CSP before any browser shipped it. Use formAction for form submissions, and frameAncestors for who may frame you.',
+  blockAllMixedContent:
+    'block-all-mixed-content was removed from CSP. Use upgradeInsecureRequests instead.',
+  referrer:
+    'The CSP referrer directive was removed. Use the securityHeaders referrerPolicy option, which sends the Referrer-Policy header.',
+};
+
+/**
  * Directives whose value is a source list, in the order they are serialized.
  *
  * Fixed order rather than object-key order so the same config always produces
@@ -181,7 +220,6 @@ const SOURCE_LIST_DIRECTIVES = [
   ['frameSrc', 'frame-src'],
   ['workerSrc', 'worker-src'],
   ['manifestSrc', 'manifest-src'],
-  ['prefetchSrc', 'prefetch-src'],
   ['formAction', 'form-action'],
   ['frameAncestors', 'frame-ancestors'],
   ['baseURI', 'base-uri'],
@@ -331,6 +369,36 @@ export type CSPConfig = {
    * template engines still need it; most code does not.
    */
   allowUnsafeEval?: boolean;
+
+  /**
+   * `require-trusted-types-for`, which turns the DOM's injection sinks into
+   * type errors rather than XSS.
+   *
+   * `["'script'"]` is the whole vocabulary today. With it set, assigning a
+   * plain string to `innerHTML`, `eval`, and the rest throws unless the value
+   * came from a Trusted Types policy, which moves DOM XSS from something you
+   * audit for to something the browser refuses.
+   *
+   * A hash or nonce policy governs the scripts a *page* ships. This governs
+   * what the code in those scripts is allowed to do afterwards, which is the
+   * half a source list cannot reach.
+   */
+  requireTrustedTypesFor?: string[];
+
+  /**
+   * `trusted-types`, the allowlist of policy names `trustedTypes.createPolicy`
+   * may create.
+   *
+   * Takes policy names plus three specials: `'none'` to forbid creating any,
+   * `'allow-duplicates'` to permit a name being created more than once (which
+   * bundlers and some libraries need), and `*` for any name.
+   *
+   * ```ts
+   * requireTrustedTypesFor: ["'script'"],
+   * trustedTypes: ['default', 'dompurify', "'allow-duplicates'"],
+   * ```
+   */
+  trustedTypes?: string[];
 };
 
 /**
@@ -350,6 +418,8 @@ const CSP_SCALAR_KEYS = {
   reportOnly: true,
   allowUnsafeInlineScript: true,
   allowUnsafeEval: true,
+  requireTrustedTypesFor: true,
+  trustedTypes: true,
 } satisfies Record<Exclude<keyof CSPConfig, SourceListDirective>, true>;
 
 /** Every key a CSP config may carry, directives included. */
@@ -423,8 +493,24 @@ function validateSource(
       return null;
     }
 
-    if (HASH_SOURCE.test(source) || NONCE_SOURCE.test(source)) {
+    if (HASH_SOURCE.test(source)) {
       return null;
+    }
+
+    // A nonce in static config is refused, and this is the one rejection here
+    // that is about unirend rather than about CSP. A nonce has to be
+    // unpredictable and different on every response to mean anything; one
+    // written in a config file is the same value forever, so it authorizes an
+    // attacker's injected script exactly as readily as your own. Unirend
+    // generates no nonces, so there is no path by which this one could be
+    // anything else.
+    //
+    // It also does active harm on the way past: a nonce in a source list makes
+    // a browser ignore any 'unsafe-inline' beside it, so a policy that was
+    // working stops working, and the hashes unirend contributes are withheld
+    // from a directive it judges to have a live nonce.
+    if (NONCE_SOURCE.test(source)) {
+      return `${directive} contains a nonce. A nonce has to change on every response to mean anything, and one written in config never does, so it would authorize injected script as readily as your own. Unirend hashes its own inline content and the active template's, so use hashes here instead.`;
     }
 
     // A keyword written in the wrong case is technically valid CSP, since the
@@ -456,9 +542,21 @@ function validateSource(
   }
 
   if (SCHEME_SOURCE.test(source)) {
-    return FORBIDDEN_SCHEMES.has(source.toLowerCase())
-      ? `${directive} includes the scheme "${source}", which allows script injection through URLs`
-      : null;
+    const scheme = source.toLowerCase();
+
+    if (FORBIDDEN_SCHEMES.has(scheme)) {
+      return `${directive} includes the scheme "${source}", which allows script injection through URLs`;
+    }
+
+    // Refused only where it is a bypass. `data:` is ordinary and useful in
+    // imgSrc and fontSrc, and is arbitrary code execution in a script
+    // directive: `<script src="data:text/javascript,...">` carries its own
+    // payload, so an injected tag needs no hash and no nonce.
+    if (SCRIPT_DIRECTIVES.has(key) && FORBIDDEN_SCRIPT_SCHEMES.has(scheme)) {
+      return `${directive} includes the scheme "${source}", which lets a script carry its own source: <script src="data:text/javascript,..."> needs no hash and no nonce, so this undoes the directive it is written in. Move it to a non-script directive if you meant it there.`;
+    }
+
+    return null;
   }
 
   // Host source. Taken apart here rather than handed over whole, because CSP's
@@ -623,6 +721,121 @@ function reportEndpointProblem(uri: string): string | null {
 }
 
 /**
+ * The sink groups `require-trusted-types-for` accepts.
+ *
+ * One entry, and that is the specification's whole vocabulary rather than an
+ * abbreviation. Quoted, because it is a keyword.
+ */
+const TRUSTED_TYPES_SINK_GROUPS = new Set(["'script'"]);
+
+/**
+ * The specials a `trusted-types` list may carry alongside policy names.
+ *
+ * `'none'` forbids creating any policy, `'allow-duplicates'` permits a name
+ * being created more than once, which bundlers and some libraries need, and `*`
+ * allows any name.
+ */
+const TRUSTED_TYPES_KEYWORDS = new Set(["'none'", "'allow-duplicates'", '*']);
+
+/**
+ * A Trusted Types policy name, per the spec's `tt-policy-name`.
+ */
+const TRUSTED_TYPES_POLICY_NAME = /^[A-Za-z0-9\-#=_/@.%]+$/;
+
+/**
+ * Every problem with the two Trusted Types directives.
+ *
+ * Checked like the sandbox tokens and for the same reason: both are closed
+ * vocabularies, and a browser drops what it cannot parse. A misspelled sink
+ * group leaves the DOM sinks unguarded while the policy reads as though it
+ * guards them, which is the failure this file exists to make loud.
+ */
+function collectTrustedTypesIssues(config: CSPConfig): CSPIssue[] {
+  const issues: CSPIssue[] = [];
+  const sinkGroups: unknown = config.requireTrustedTypesFor;
+
+  if (sinkGroups !== undefined) {
+    if (!Array.isArray(sinkGroups)) {
+      issues.push({
+        path: 'csp.requireTrustedTypesFor',
+        message: `Invalid securityHeaders config: csp.requireTrustedTypesFor must be an array, received ${describeValue(sinkGroups)}`,
+      });
+    } else if (sinkGroups.length === 0) {
+      // The bare directive is not valid CSP: the grammar requires at least one
+      // sink group, so a browser drops the whole thing.
+      issues.push({
+        path: 'csp.requireTrustedTypesFor',
+        message:
+          'Invalid securityHeaders config: csp.requireTrustedTypesFor is empty, which a browser drops. Use ["\'script\'"], or omit the key.',
+      });
+    } else {
+      for (const group of sinkGroups) {
+        if (
+          typeof group !== 'string' ||
+          !TRUSTED_TYPES_SINK_GROUPS.has(group)
+        ) {
+          issues.push({
+            path: 'csp.requireTrustedTypesFor',
+            message: `Invalid securityHeaders config: csp.requireTrustedTypesFor entry ${describeValue(group)} is not a sink group. The only one is "'script'", quoted.`,
+          });
+        }
+      }
+    }
+  }
+
+  const policies: unknown = config.trustedTypes;
+
+  if (policies === undefined) {
+    return issues;
+  }
+
+  if (!Array.isArray(policies)) {
+    issues.push({
+      path: 'csp.trustedTypes',
+      message: `Invalid securityHeaders config: csp.trustedTypes must be an array of policy names, received ${describeValue(policies)}`,
+    });
+
+    return issues;
+  }
+
+  for (const policy of policies) {
+    if (typeof policy !== 'string' || policy.trim() === '') {
+      issues.push({
+        path: 'csp.trustedTypes',
+        message: `Invalid securityHeaders config: csp.trustedTypes entry ${describeValue(policy)} is not a policy name`,
+      });
+
+      continue;
+    }
+
+    if (TRUSTED_TYPES_KEYWORDS.has(policy)) {
+      continue;
+    }
+
+    // A quoted value that is not one of the keywords is a keyword invented
+    // from memory, and a browser reads it as a policy name containing quotes,
+    // which matches nothing.
+    if (isQuoted(policy)) {
+      issues.push({
+        path: 'csp.trustedTypes',
+        message: `Invalid securityHeaders config: csp.trustedTypes entry ${policy} is quoted but is not one of ${[...TRUSTED_TYPES_KEYWORDS].join(', ')}. A policy name is written unquoted.`,
+      });
+
+      continue;
+    }
+
+    if (!TRUSTED_TYPES_POLICY_NAME.test(policy)) {
+      issues.push({
+        path: 'csp.trustedTypes',
+        message: `Invalid securityHeaders config: csp.trustedTypes entry "${policy}" is not a valid policy name`,
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
  * Every problem with a CSP config, rather than the first one.
  *
  * Split out from the throwing validator because the two callers want opposite
@@ -650,12 +863,18 @@ export function collectCSPIssues(config: CSPConfig): CSPIssue[] {
   const issues: CSPIssue[] = [];
 
   for (const key of Object.keys(config)) {
-    if (!CSP_CONFIG_KEYS.has(key)) {
-      issues.push({
-        path: `csp.${key}`,
-        message: `Invalid securityHeaders config: csp.${key} is not a CSP option. A misspelled directive is dropped silently, so it is reported here rather than leaving a policy weaker than it reads.`,
-      });
+    if (CSP_CONFIG_KEYS.has(key)) {
+      continue;
     }
+
+    const removed = REMOVED_DIRECTIVES[key];
+
+    issues.push({
+      path: `csp.${key}`,
+      message: removed
+        ? `Invalid securityHeaders config: csp.${key} is no longer part of CSP. ${removed}`
+        : `Invalid securityHeaders config: csp.${key} is not a CSP option. A misspelled directive is dropped silently, so it is reported here rather than leaving a policy weaker than it reads.`,
+    });
   }
 
   // Checked here as well as in applyCSPPreset, which throws on an unknown name
@@ -755,6 +974,8 @@ export function collectCSPIssues(config: CSPConfig): CSPIssue[] {
       }
     }
   }
+
+  issues.push(...collectTrustedTypesIssues(config));
 
   const hasUsableReportURI =
     config.reportURI === undefined ||
@@ -1072,6 +1293,22 @@ export function serializeCSP(
 
   if (config.upgradeInsecureRequests) {
     parts.push('upgrade-insecure-requests');
+  }
+
+  // Trusted Types. Both are plain token lists rather than source lists, so
+  // nothing here contributes to them and they serialize exactly as written.
+  if (config.requireTrustedTypesFor?.length) {
+    parts.push(
+      `require-trusted-types-for ${config.requireTrustedTypesFor.join(' ')}`,
+    );
+  }
+
+  if (config.trustedTypes !== undefined) {
+    parts.push(
+      config.trustedTypes.length
+        ? `trusted-types ${config.trustedTypes.join(' ')}`
+        : 'trusted-types',
+    );
   }
 
   if (config.reportURI !== undefined) {

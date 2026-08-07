@@ -2347,15 +2347,6 @@ describe('securityHeaders', () => {
       });
     });
 
-    it("warns when a nonce has made 'unsafe-inline' inert", () => {
-      return warningsFor({
-        scriptSrc: ["'self'", "'unsafe-inline'", "'nonce-abc123'"],
-        allowUnsafeInlineScript: true,
-      }).then((warnings) => {
-        expect(warnings).toHaveLength(1);
-      });
-    });
-
     it("warns when 'strict-dynamic' has made 'unsafe-inline' inert", () => {
       return warningsFor({
         scriptSrc: ["'self'", "'unsafe-inline'", "'strict-dynamic'"],

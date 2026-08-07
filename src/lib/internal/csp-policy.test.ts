@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   applyCSPPreset,
   cspHeaderName,
+  isUnsafeInlineEffective,
   serializeCSP,
   validateCSPConfig,
   type CSPConfig,
@@ -12,8 +13,22 @@ function expectRejected(config: CSPConfig, matching: RegExp): void {
   expect(() => validateCSPConfig(config)).toThrow(matching);
 }
 
+/**
+ * The same, for a config the type rules out.
+ *
+ * Removed directives and misspellings are not in `CSPConfig` by definition, and
+ * the point of validating them at runtime is that a config can arrive from a
+ * JSON file or a database row where the type never applied.
+ */
+function expectRejectedUntyped(
+  config: Record<string, unknown>,
+  matching: RegExp,
+): void {
+  expect(() => validateCSPConfig(config as CSPConfig)).toThrow(matching);
+}
+
 describe('validateCSPConfig', () => {
-  it('accepts keywords, schemes, hosts, wildcards, hashes and nonces', () => {
+  it('accepts keywords, schemes, hosts, wildcards and hashes', () => {
     expect(() =>
       validateCSPConfig({
         defaultSrc: ["'self'"],
@@ -21,7 +36,6 @@ describe('validateCSPConfig', () => {
           "'self'",
           "'strict-dynamic'",
           "'sha256-K/xkFcAmnzC1nOFrLRqZTHNzZDzuqTMKC0mVeVJ8n1E='",
-          "'nonce-abc123'",
           'https://cdn.example.com',
         ],
         imgSrc: ["'self'", 'data:', 'blob:', '*.images.example.com', '*'],
@@ -794,5 +808,102 @@ describe('cspHeaderName', () => {
     expect(cspHeaderName({ reportOnly: true })).toBe(
       'Content-Security-Policy-Report-Only',
     );
+  });
+});
+
+describe('nonces, Trusted Types, and removed directives', () => {
+  it('rejects a nonce written in config', () => {
+    // A nonce has to be unpredictable and different on every response to mean
+    // anything. One written in a config file is the same value forever, so it
+    // authorizes an injected script exactly as readily as your own, and
+    // unirend generates none, so there is no path by which it could be
+    // anything else. It also silently kills any 'unsafe-inline' beside it.
+    expectRejected({ scriptSrc: ["'nonce-abc123'"] }, /contains a nonce/);
+    expectRejected(
+      { scriptSrc: ["'nonce-abc123'"] },
+      /use hashes here instead/,
+    );
+  });
+
+  it("still treats a nonce as killing 'unsafe-inline' at the source-list layer", () => {
+    // Config can no longer carry one, so this is unreachable from the outside
+    // and stays as defense: the rule is a CSP fact rather than a unirend one,
+    // and a future that generates nonces per response would need it to be
+    // right. Asserted directly rather than through the plugin for that reason.
+    expect(
+      isUnsafeInlineEffective(["'unsafe-inline'", "'nonce-abc123'"], 'script'),
+    ).toBe(false);
+    expect(isUnsafeInlineEffective(["'unsafe-inline'"], 'script')).toBe(true);
+  });
+
+  it('rejects data: in a script directive but allows it elsewhere', () => {
+    // data: in a script directive is 'unsafe-inline' in everything but name:
+    // <script src="data:text/javascript,..."> carries its own payload, so an
+    // injected tag needs no hash and no nonce.
+    expectRejected({ scriptSrc: ["'self'", 'data:'] }, /carry its own source/);
+    expectRejected({ defaultSrc: ["'self'", 'data:'] }, /carry its own source/);
+    expectRejected({ scriptSrcElem: ['data:'] }, /carry its own source/);
+
+    // Ordinary and useful everywhere else, which is why this is not a blanket
+    // ban on the scheme.
+    expect(() =>
+      validateCSPConfig({ imgSrc: ["'self'", 'data:'], fontSrc: ['data:'] }),
+    ).not.toThrow();
+  });
+
+  it("leaves '*' alone in a script directive", () => {
+    // Deliberately different from data:. `*` does not match data:, blob: or
+    // filesystem: and does not permit inline, so it is a coarse policy rather
+    // than a bypass, and it is visible in the config someone wrote.
+    expect(() => validateCSPConfig({ scriptSrc: ['*'] })).not.toThrow();
+  });
+
+  it('accepts and serializes the Trusted Types directives', () => {
+    const value = serializeCSP({
+      defaultSrc: ["'self'"],
+      requireTrustedTypesFor: ["'script'"],
+      trustedTypes: ['default', 'dompurify', "'allow-duplicates'"],
+    });
+
+    expect(value).toContain("require-trusted-types-for 'script'");
+    expect(value).toContain(
+      "trusted-types default dompurify 'allow-duplicates'",
+    );
+  });
+
+  it('rejects Trusted Types values a browser would drop', () => {
+    expectRejected(
+      { requireTrustedTypesFor: ['script'] },
+      /is not a sink group/,
+    );
+    expectRejected({ requireTrustedTypesFor: [] }, /is empty/);
+    expectRejected({ trustedTypes: ["'nope'"] }, /is quoted but is not one of/);
+    expectRejected({ trustedTypes: ['bad name'] }, /not a valid policy name/);
+  });
+
+  it('serializes a bare trusted-types for an empty list', () => {
+    // The bare directive is valid and means "no policy may be created", unlike
+    // require-trusted-types-for, whose grammar needs at least one sink group.
+    expect(serializeCSP({ trustedTypes: [] })).toBe('trusted-types');
+  });
+
+  it('names a removed directive rather than calling it a typo', () => {
+    // A misspelling means the author meant something else. A removed directive
+    // means they meant exactly this and the platform moved, so the message
+    // should say which and what replaced it.
+    expectRejectedUntyped({ prefetchSrc: ["'self'"] }, /no longer part of CSP/);
+    expectRejectedUntyped(
+      { prefetchSrc: ["'self'"] },
+      /defaultSrc or the specific one/,
+    );
+    expectRejectedUntyped({ pluginTypes: ['application/pdf'] }, /objectSrc/);
+    expectRejectedUntyped(
+      { blockAllMixedContent: true },
+      /upgradeInsecureRequests/,
+    );
+    expectRejectedUntyped({ referrer: 'no-referrer' }, /referrerPolicy option/);
+
+    // An actual typo still reads as one.
+    expectRejectedUntyped({ script_src: ["'self'"] }, /is not a CSP option/);
   });
 });

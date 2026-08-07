@@ -1736,6 +1736,31 @@ export function securityHeaders(
       );
     }
 
+    // `sandbox` is the one directive a report-only policy cannot rehearse. It
+    // is not merely unenforced there, it is ignored outright, so the rollout
+    // this documentation recommends for everything else, run it in report-only
+    // until the violations go quiet, produces silence for this directive
+    // whether or not it would have broken the page.
+    //
+    // Verified rather than assumed: under an enforcing `sandbox allow-scripts`
+    // the document reports `window.origin` as "null", an opaque origin, and
+    // under the identical report-only policy it reports the real origin. The
+    // sandbox simply did not apply, and Chrome logs nothing about it.
+    //
+    // A warning rather than a rejection because the pairing is not wrong, it is
+    // just incomplete: the rest of the policy is being rehearsed correctly and
+    // this one directive is along for the ride.
+    if (
+      config.csp !== undefined &&
+      config.csp !== false &&
+      config.csp.reportOnly &&
+      config.csp.sandbox !== undefined
+    ) {
+      fastify.log?.warn(
+        '[securityHeaders] csp.sandbox is set on a report-only policy, where browsers ignore it entirely rather than reporting what it would have done. The rest of the policy still reports normally. Move sandbox to an enforcing policy when you are ready to test it, since report-only will never tell you whether it breaks the page.',
+      );
+    }
+
     fastify.decorateRequest(
       'applySecurityHeaders',
       async function applySecurityHeaders(

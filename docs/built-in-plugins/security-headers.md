@@ -348,7 +348,11 @@ securityHeaders({
 });
 ```
 
-Available source-list directives: `defaultSrc`, `scriptSrc`, `scriptSrcElem`, `scriptSrcAttr`, `styleSrc`, `styleSrcElem`, `styleSrcAttr`, `imgSrc`, `fontSrc`, `connectSrc`, `mediaSrc`, `objectSrc`, `childSrc`, `frameSrc`, `workerSrc`, `manifestSrc`, `prefetchSrc`, `formAction`, `frameAncestors`, `baseURI`. Alongside them: `sandbox` (an array of tokens, or an empty array for the bare directive), `upgradeInsecureRequests`, `reportURI`, and `reportTo`.
+Available source-list directives: `defaultSrc`, `scriptSrc`, `scriptSrcElem`, `scriptSrcAttr`, `styleSrc`, `styleSrcElem`, `styleSrcAttr`, `imgSrc`, `fontSrc`, `connectSrc`, `mediaSrc`, `objectSrc`, `childSrc`, `frameSrc`, `workerSrc`, `manifestSrc`, `formAction`, `frameAncestors`, `baseURI`. Alongside them: `sandbox` (an array of tokens, or an empty array for the bare directive), `upgradeInsecureRequests`, `requireTrustedTypesFor`, `trustedTypes`, `reportURI`, and `reportTo`.
+
+Directives that were removed from CSP are rejected by name rather than as typos, since the two are different mistakes: `prefetchSrc`, `pluginTypes`, `navigateTo`, `blockAllMixedContent`, and the CSP `referrer` directive each produce a message saying what replaced them. `prefetchSrc` is the one you may have been using, and it was dropped because no browser shipped it un-flagged while Chrome logs an "Unrecognized Content-Security-Policy directive" warning for it on every page load.
+
+Nonces are rejected. A nonce has to be unpredictable and different on every response to mean anything, so one written in config is the same value forever and authorizes an injected script as readily as your own. Unirend generates none, and hashes cover the same ground for content it can see.
 
 Every source expression is checked. Keywords have to be spelled and quoted the way a browser reads them, hashes and nonces have to be well formed, and the host part goes through the same validator a CORS origin does, so `*.cdn.example.com` and a public-suffix wildcard behave identically in both places. A `javascript:` or `vbscript:` scheme is refused outright.
 
@@ -386,6 +390,12 @@ csp: { defaultSrc: ["'self'"], reportOnly: true }
 ```
 
 Sends `Content-Security-Policy-Report-Only` instead. Violations are reported and nothing is blocked, so you find what a policy would break without breaking it. Worth staying here until the reports go quiet, especially on a site that is already serving traffic.
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> `sandbox` is the one directive this cannot rehearse. A browser ignores it entirely in a report-only policy rather than reporting what it would have done, so it produces silence whether or not it would have broken the page. Unirend warns at startup when you set both. Verified: under an enforcing `sandbox allow-scripts` the document's `window.origin` is `"null"`, an opaque origin, and under the identical report-only policy it is the real origin.
+
+`upgradeInsecureRequests` is a milder version of the same thing: in report-only it reports what it would have upgraded rather than upgrading, which is useful but is not a rehearsal of the upgrade itself.
 
 ### What Unirend Contributes Automatically
 
@@ -451,6 +461,32 @@ Serving it with something else means writing them into that server's configurati
 > Regenerate the policy whenever you regenerate the site. An inline block that changed by one character has a different hash, and the stale one fails closed: the script is blocked, the page still renders, and nothing says why.
 
 `report.cspHashes.inlineAttributes` lists any `on*=` handlers and `style=""` attributes found, with the hash each would need. A plain hash source never matches an attribute, so these need `'unsafe-hashes'` alongside the hash, or the better fix of not writing them inline. See [Inline Attributes Take More Than a Hash](#inline-attributes-take-more-than-a-hash).
+
+### Trusted Types
+
+A source list governs which scripts a page may load. It says nothing about what those scripts then do, and `element.innerHTML = userInput` is the same DOM XSS whether the script that ran it was hashed or not. Trusted Types closes that half:
+
+```typescript
+csp: {
+  defaultSrc: ["'self'"],
+  requireTrustedTypesFor: ["'script'"],
+  trustedTypes: ['default', 'dompurify', "'allow-duplicates'"],
+}
+```
+
+With `requireTrustedTypesFor` set, assigning a plain string to `innerHTML`, `eval`, and the rest of the DOM's injection sinks throws unless the value came from a Trusted Types policy. That turns DOM XSS from something you audit for into something the browser refuses.
+
+`trustedTypes` is the allowlist of policy names `trustedTypes.createPolicy` may create. `'allow-duplicates'` is worth knowing about: several bundlers and libraries create a policy of the same name more than once, and without it the second call throws.
+
+`requireTrustedTypesFor: ["'script'"]` is the entire vocabulary today, and it is quoted, since it is a keyword. `["script"]` unquoted is refused rather than passed through, because a browser drops a sink group it does not recognize and leaves the sinks unguarded under a policy that reads as though it guards them.
+
+Roll this one out with `reportOnly` too. It is the directive most likely to surface work in an existing codebase.
+
+### `data:` in a Script Directive Is Refused
+
+`script-src data:` is `'unsafe-inline'` under another name: it makes `<script src="data:text/javascript,...">` load, so an injected tag carries its own payload and needs no hash and no nonce. It is refused wherever it would govern script, `defaultSrc` included, and left alone everywhere it is ordinary and useful, such as `imgSrc` and `fontSrc`.
+
+`*` in a script directive is _not_ refused, which looks inconsistent and is not. `*` does not match `data:`, `blob:`, or `filesystem:` and does not permit inline, so `script-src *` is a coarse policy rather than a bypass: it allows any host to serve your scripts, which is bad, and visible in the config you wrote. `data:` is a bypass, which is neither.
 
 ### Third-Party Widgets and `'strict-dynamic'`
 
