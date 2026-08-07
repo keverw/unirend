@@ -793,6 +793,73 @@ describe('reportingEndpoints', () => {
     expect(result.issues[0].message).toMatch(/outside printable ASCII/);
   });
 
+  it('rejects a group name a dictionary key cannot carry', () => {
+    // `Reporting-Endpoints` is a structured-headers dictionary, so a group name
+    // is a member key rather than a token: RFC 8941 3.2 allows a leading
+    // lowercase letter or "*" and then only lowercase letters, digits, "_",
+    // "-", "." and "*". Uppercase and the token punctuation are both out.
+    //
+    // This is checked rather than left to the browser because of how it fails.
+    // An invalid key is not an item a browser skips, it is a dictionary it
+    // cannot parse, so it drops the header whole and *every* group defined in
+    // it stops existing. A config naming its group `CSP` therefore validated
+    // clean, emitted `Reporting-Endpoints: CSP="..."`, and reported nothing
+    // anywhere, which is the silence these options exist to break.
+    for (const group of ['CSP', 'Csp', 'csp!x', "csp'x", 'csp+x']) {
+      const result = validateSecurityHeadersPolicy({
+        reportingEndpoints: { [group]: 'https://reports.example.com/csp' },
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues[0].path).toBe(`reportingEndpoints.${group}`);
+      expect(result.issues[0].message).toMatch(/is not a usable group name/);
+    }
+
+    // And at startup, where the pair is assembled, so a config carrying both
+    // halves of the mistake fails rather than serving a header nothing parses.
+    expect(() =>
+      securityHeaders({
+        reportingEndpoints: { CSP: 'https://reports.example.com/csp' },
+        csp: { defaultSrc: ["'self'"], reportTo: 'CSP' },
+      }),
+    ).toThrow(/is not a usable group name/);
+  });
+
+  it('accepts every group name a dictionary key may carry', async () => {
+    const app = fastify({ trustProxy: true });
+
+    await securityHeaders({
+      reportingEndpoints: {
+        csp: 'https://reports.example.com/csp',
+        'network-errors': 'https://reports.example.com/ne',
+        coop_1: 'https://reports.example.com/coop',
+        'a.b': 'https://reports.example.com/ab',
+      },
+      csp: { defaultSrc: ["'self'"], reportTo: 'csp' },
+    })(app as unknown as PluginHostInstance, createMockOptions());
+
+    app.get('/t', () => ({ ok: true }));
+    await app.listen({ port: 0, host: '127.0.0.1' });
+
+    const address = app.server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/t`);
+
+      expect(response.headers.get('reporting-endpoints')).toBe(
+        [
+          'csp="https://reports.example.com/csp"',
+          'network-errors="https://reports.example.com/ne"',
+          'coop_1="https://reports.example.com/coop"',
+          'a.b="https://reports.example.com/ab"',
+        ].join(', '),
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
   it('rejects a csp.reportTo group that reportingEndpoints does not define', () => {
     // The whole point of the pair. `report-to` names a group, a group means
     // nothing until a response defines it, and the only symptom of getting it
@@ -992,6 +1059,23 @@ describe('COOP and COEP report-only', () => {
         },
       }),
     ).toThrow(/crossOriginOpenerPolicyReportOnly\.reportTo names the group/);
+  });
+
+  it('rejects a report-to group a dictionary key cannot carry', () => {
+    // The parameter itself is a quoted string, so the header this sits in would
+    // carry `CSP` perfectly well. It is refused because of the other half: the
+    // group has to be defined by a `Reporting-Endpoints` key, and that name is
+    // not one a key may take, so the pair could never be completed. Held to the
+    // same rule csp.reportTo is, from the same pattern, so the two cannot drift.
+    expect(() =>
+      securityHeaders({
+        reportingEndpoints: { coop: 'https://reports.example.com/coop' },
+        crossOriginOpenerPolicyReportOnly: {
+          policy: 'same-origin',
+          reportTo: 'COOP',
+        },
+      }),
+    ).toThrow(/must be a reporting group name/);
   });
 
   it('rejects a bad policy or an unknown sub-key', () => {

@@ -408,6 +408,8 @@ So the pair is checked. A `csp.reportTo` naming a group `reportingEndpoints` doe
 
 When `reportingEndpoints` is absent entirely you get a startup warning rather than a failure, because that case is genuinely unknowable from here: the header may be coming from your reverse proxy or a hook of your own, and refusing to start would break a working deployment over a file this plugin cannot see.
 
+Group names are lowercase. `Reporting-Endpoints` is a structured-headers dictionary, and RFC 8941 limits a member key to a leading lowercase letter or `*` followed by lowercase letters, digits, `_`, `-`, `.` and `*`, so `csp` and `network-errors` are fine and `CSP` is not. Both halves are held to that rule, `csp.reportTo` and a cross-origin policy's `reportTo` included, because a name outside it could never be defined. It is checked rather than left to the browser because of how it fails: an invalid key is not an entry a browser skips, it is a dictionary a browser cannot parse, so it drops the header whole and every group defined in it stops existing along with the bad one.
+
 Endpoints must be absolute and `https`, or on localhost, which is a potentially trustworthy origin so a local collector works in development. A browser does not deliver reports over an insecure transport, and a relative URL has no base to resolve against by the time a report is queued. Both would otherwise produce a header that looks correct and delivers nothing.
 
 `reportURI` is the older mechanism and needs none of this: it carries the URL directly. Several browsers still only implement that one, so sending both is reasonable.
@@ -662,6 +664,7 @@ The policy is checked once at startup and the process fails to start on anything
 | A source containing whitespace, `;` or `,` | Would split into two entries or end the directive, letting a value rewrite the policy |
 | A host the CORS origin validator rejects | Same validator, so `*.co.uk` fails identically in both places |
 | An empty `reportTo` group name | Serializes to a bare `report-to` with no group, which a browser drops, silently turning reporting off |
+| A `reportTo` group name outside the dictionary key charset | No `Reporting-Endpoints` key could define it, and a key like `CSP` makes that whole header unparsable, so every group in it stops existing |
 
 Two require an explicit opt-in rather than being refused outright:
 

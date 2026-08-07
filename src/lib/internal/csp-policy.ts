@@ -745,6 +745,32 @@ function reportEndpointProblem(uri: string): string | null {
 }
 
 /**
+ * A reporting group name.
+ *
+ * **Not the `report-to` directive's own grammar, which is wider.** A group is
+ * only ever half of a pair: the name in the policy, and the key that defines it
+ * in the `Reporting-Endpoints` header. That header is a structured-headers
+ * *dictionary*, and RFC 8941 section 3.2 limits a member key to
+ * `( lcalpha / "*" ) *( lcalpha / DIGIT / "_" / "-" / "." / "*" )`. So a name
+ * this rejects is one that could never be defined, whatever the directive
+ * grammar would have allowed on its own.
+ *
+ * Deliberately narrower than a token, and the two places it is narrower are the
+ * ones a token check waves through: uppercase, and the token punctuation that a
+ * key has no room for, `!#$%&'+^|~` and the backtick.
+ *
+ * A key spelled either way is not an entry a browser skips. It is a dictionary a
+ * browser cannot parse, so it drops the header whole and **every** group defined
+ * in it stops existing along with the bad one. Reporting then goes quiet in
+ * exactly the way that reads as an absence of violations, which is the failure
+ * the reporting checks exist for.
+ *
+ * Lives here rather than next to the `Reporting-Endpoints` rules because both
+ * halves have to agree about it and this is the module the other one imports.
+ */
+export const CSP_REPORTING_GROUP = /^[a-z*][a-z0-9_\-.*]*$/;
+
+/**
  * The sink groups `require-trusted-types-for` accepts.
  *
  * One entry, and that is the specification's whole vocabulary rather than an
@@ -1039,11 +1065,18 @@ export function collectCSPIssues(config: CSPConfig): CSPIssue[] {
     }
   }
 
-  // The emptiness check matters as much as the character check. An empty string
-  // contains none of the forbidden characters, so it would validate and then
-  // serialize as a bare `report-to`, which is not a valid directive. A browser
-  // drops it, and reporting is silently off for the one policy whose whole job
-  // is telling you what it blocked.
+  // Checked against the name a `Reporting-Endpoints` key may carry rather than
+  // against the `report-to` directive's own grammar, which is wider. A group
+  // this directive can name and that header cannot define is a policy reporting
+  // to nowhere, so the narrower of the two rules is the only useful one. See
+  // {@link CSP_REPORTING_GROUP}.
+  //
+  // The emptiness check is folded into that pattern, which requires at least one
+  // character: an empty string contains none of the forbidden characters, so a
+  // character-only check would let it through to serialize as a bare
+  // `report-to`, which is not a valid directive. A browser drops it, and
+  // reporting is silently off for the one policy whose whole job is telling you
+  // what it blocked.
   if (config.reportTo !== undefined && typeof config.reportTo !== 'string') {
     issues.push({
       path: 'csp.reportTo',
@@ -1051,11 +1084,11 @@ export function collectCSPIssues(config: CSPConfig): CSPIssue[] {
     });
   } else if (
     config.reportTo !== undefined &&
-    (config.reportTo.trim() === '' || /[\s;,]/.test(config.reportTo))
+    !CSP_REPORTING_GROUP.test(config.reportTo)
   ) {
     issues.push({
       path: 'csp.reportTo',
-      message: `Invalid securityHeaders config: csp.reportTo "${config.reportTo}" is not a usable group name`,
+      message: `Invalid securityHeaders config: csp.reportTo "${config.reportTo}" is not a usable group name. A group is defined by a key in the Reporting-Endpoints header, which is a structured-headers dictionary, so the name has to start with a lowercase letter or "*" and carry only lowercase letters, digits, "_", "-", "." and "*". A key outside that makes the whole header unparsable, which leaves every group in it undefined rather than just this one.`,
     });
   }
 

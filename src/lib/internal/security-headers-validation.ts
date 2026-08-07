@@ -23,6 +23,7 @@ import {
   collectCSPIssues,
   describeValue,
   isPlainObject,
+  CSP_REPORTING_GROUP,
   type CSPConfig,
 } from './csp-policy';
 
@@ -250,10 +251,15 @@ const POLICY_KEYS = {
 } satisfies Record<keyof SecurityHeadersPolicyInput, true>;
 
 /**
- * A reporting group name, which the structured-headers grammar limits to a
- * token. The same characters `csp.reportTo` already accepts.
+ * A reporting group name, which is a key in a structured-headers dictionary
+ * rather than a token. The same rule `csp.reportTo` is held to, and imported
+ * rather than restated so the two cannot disagree about what a group is.
+ *
+ * See {@link CSP_REPORTING_GROUP} for why a token is the wrong shape here and
+ * what an invalid key costs: the whole `Reporting-Endpoints` header, not just
+ * the entry that carried it.
  */
-const REPORTING_GROUP = /^[a-z*][a-z0-9!#$%&'*+\-.^_`|~]*$/i;
+const REPORTING_GROUP = CSP_REPORTING_GROUP;
 
 /**
  * Every problem with a `Reporting-Endpoints` block.
@@ -299,7 +305,7 @@ export function collectReportingEndpointsIssues(
     if (!REPORTING_GROUP.test(group)) {
       issues.push({
         path: `reportingEndpoints.${group}`,
-        message: `Invalid securityHeaders config: reportingEndpoints group "${group}" is not a usable group name`,
+        message: `Invalid securityHeaders config: reportingEndpoints group "${group}" is not a usable group name. The header is a structured-headers dictionary, so a key has to start with a lowercase letter or "*" and carry only lowercase letters, digits, "_", "-", "." and "*". A key outside that is not an entry a browser skips, it is a header a browser cannot parse, so every group defined here would stop existing along with this one.`,
       });
 
       continue;
@@ -508,9 +514,9 @@ export function serializeReportingEndpoints(
  * around: violations happen, no report arrives, and the silence reads as an
  * absence of violations.
  *
- * The group name needs none of this. `REPORTING_GROUP` is a token charset with
- * neither character in it, which is also why `serializeCrossOriginPolicy` can
- * interpolate a group into its `report-to` parameter unescaped.
+ * The group name needs none of this. `REPORTING_GROUP` admits neither character,
+ * which is also why `serializeCrossOriginPolicy` can interpolate a group into
+ * its `report-to` parameter unescaped.
  */
 function escapeStructuredString(value: string): string {
   // Backslash first: doing it second would escape the backslashes the quote
@@ -804,15 +810,15 @@ function collectCrossOriginPolicyIssues(
 
   const reportTo: unknown = value.reportTo;
 
+  // The empty string needs no arm of its own: `REPORTING_GROUP` requires a
+  // leading character, so it rejects `''` and anything whitespace-only already.
   if (
     reportTo !== undefined &&
-    (typeof reportTo !== 'string' ||
-      reportTo.trim() === '' ||
-      !REPORTING_GROUP.test(reportTo))
+    (typeof reportTo !== 'string' || !REPORTING_GROUP.test(reportTo))
   ) {
     issues.push({
       path: `${path}.reportTo`,
-      message: `Invalid securityHeaders config: ${path}.reportTo must be a reporting group name, received ${describeValue(reportTo)}`,
+      message: `Invalid securityHeaders config: ${path}.reportTo must be a reporting group name, received ${describeValue(reportTo)}. A group is defined by a key in the Reporting-Endpoints header, which is a structured-headers dictionary, so the name has to start with a lowercase letter or "*" and carry only lowercase letters, digits, "_", "-", "." and "*".`,
     });
   }
 

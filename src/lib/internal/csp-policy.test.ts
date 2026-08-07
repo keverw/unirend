@@ -223,6 +223,37 @@ describe('validateCSPConfig', () => {
     expectRejected({ reportTo: '   ' }, /is not a usable group name/);
   });
 
+  it('holds reportTo to the name a Reporting-Endpoints key may carry', () => {
+    // The directive's own grammar is a token, and checking against that is the
+    // wrong half of the pair. A group is only ever a name plus the key that
+    // defines it, and that key lives in a structured-headers *dictionary*,
+    // whose member-key grammar (RFC 8941 3.2) has no uppercase in it and none
+    // of the token punctuation. So a name this rejects is one that could never
+    // be defined, whatever report-to would have accepted on its own.
+    //
+    // The cost of the looser check is the reason it is worth a test rather than
+    // a comment. An invalid key is not an entry a browser skips, it is a header
+    // a browser cannot parse, so every group defined alongside it stops existing
+    // too. Reporting then goes quiet in the one way that reads as an absence of
+    // violations.
+    for (const reportTo of ['CSP', 'Csp', 'csp!x', "csp'x", 'csp+x', 'csp~x']) {
+      expectRejected({ reportTo }, /is not a usable group name/);
+    }
+
+    // Everything the dictionary key grammar does allow, including the leading
+    // "*" the spec permits.
+    for (const reportTo of [
+      'csp',
+      'csp-endpoint',
+      'csp_1',
+      'csp.a',
+      '*',
+      'a',
+    ]) {
+      expect(() => validateCSPConfig({ reportTo })).not.toThrow();
+    }
+  });
+
   it('accepts every URI reference the grammar allows', () => {
     // report-uri takes a URI reference, not an absolute URL, so a relative one
     // is valid and is resolved against the page the policy protected. Rejecting
