@@ -4477,6 +4477,193 @@ describe('securityHeaders', () => {
       );
     });
 
+    it('sends no CORS headers when no origin is configured', async () => {
+      // The default that matters most, because it is the one nobody chooses.
+      // Registering this plugin for `csp` or `hsts` used to echo
+      // Access-Control-Allow-Origin back to whatever origin asked, so every
+      // response it touched became cross-origin readable, including responses
+      // behind a bearer token: a manually attached Authorization header needs no
+      // credentials mode, and Authorization is in the default allowedHeaders.
+      const off: Array<false | CORSConfig | undefined> = [
+        undefined,
+        {},
+        false,
+        { origin: undefined },
+      ];
+
+      for (const cors of off) {
+        const response = await respondTo({
+          plugins: [securityHeaders({ frameOptions: 'DENY', cors })],
+          host: 'allowed.example.com',
+          origin: 'https://evil.example',
+        });
+
+        const label = `cors: ${JSON.stringify(cors)}`;
+
+        expect(
+          response.headers.get('access-control-allow-origin'),
+          label,
+        ).toBeNull();
+        // Nothing varies by Origin when nothing reads it, so the header would
+        // only split CDN cache entries for a feature that is switched off.
+        expect(response.headers.get('vary') ?? '', label).not.toContain(
+          'Origin',
+        );
+        // The rest of the plugin is unaffected.
+        expect(response.headers.get('x-frame-options'), label).toBe('DENY');
+      }
+    });
+
+    it('omits Vary on a hijacked response when CORS is off', async () => {
+      // The hijacked path goes through applySecurityHeaders rather than onSend,
+      // so it takes its own route to the same header-writing function. Worth
+      // pinning separately: a static file server answers this way for most of
+      // its traffic, which is exactly where a needless Vary costs the most.
+      const hijacker: ServerPlugin<UnirendServerMode> = (host) => {
+        host.route({
+          method: 'GET',
+          url: '/asset',
+          handler: async (request, reply) => {
+            await request.applySecurityHeaders?.(reply);
+            reply.hijack();
+            reply.raw.writeHead(
+              200,
+              reply.getHeaders() as Record<string, string>,
+            );
+            reply.raw.end('file bytes');
+          },
+        });
+
+        return Promise.resolve();
+      };
+
+      const app = fastify({ trustProxy: true });
+
+      await securityHeaders({ frameOptions: 'DENY' })(
+        app as unknown as PluginHostInstance,
+        createMockOptions(),
+      );
+      await hijacker(app as unknown as PluginHostInstance, createMockOptions());
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const address = app.server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/asset`, {
+          headers: { origin: 'https://evil.example' },
+        });
+
+        expect(await response.text()).toBe('file bytes');
+        expect(response.headers.get('vary') ?? '').not.toContain('Origin');
+        expect(response.headers.get('access-control-allow-origin')).toBeNull();
+        expect(response.headers.get('x-frame-options')).toBe('DENY');
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('leaves OPTIONS to the application when CORS is off', async () => {
+      // "Off" means the plugin does not handle preflight requests either, so an
+      // application's own OPTIONS route runs exactly as it would without this
+      // plugin registered. Answering with a 403, or with a bare 204 carrying no
+      // Access-Control-Allow-Origin, would both shadow that route and imply a
+      // negotiation that is not happening.
+      const app = fastify({ trustProxy: true });
+
+      await securityHeaders({ frameOptions: 'DENY' })(
+        app as unknown as PluginHostInstance,
+        createMockOptions(),
+      );
+
+      app.options('/test', (_request, reply) => reply.send('app-options'));
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const address = app.server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/test`, {
+          method: 'OPTIONS',
+          headers: {
+            origin: 'https://evil.example',
+            'access-control-request-method': 'GET',
+          },
+        });
+
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe('app-options');
+        expect(response.headers.get('access-control-allow-origin')).toBeNull();
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('still negotiates CORS once an origin is configured', async () => {
+      // The other half: turning the default off must not have turned the
+      // feature off. A wildcard is written rather than inherited.
+      const allowed = await respondTo({
+        plugins: [
+          securityHeaders({ cors: { origin: ['https://app.example.com'] } }),
+        ],
+        host: 'allowed.example.com',
+        origin: 'https://app.example.com',
+      });
+
+      expect(allowed.headers.get('access-control-allow-origin')).toBe(
+        'https://app.example.com',
+      );
+      expect(allowed.headers.get('vary')).toContain('Origin');
+
+      const denied = await respondTo({
+        plugins: [
+          securityHeaders({ cors: { origin: ['https://app.example.com'] } }),
+        ],
+        host: 'allowed.example.com',
+        origin: 'https://evil.example',
+      });
+
+      expect(denied.headers.get('access-control-allow-origin')).toBeNull();
+
+      for (const wildcard of ['*', ['*']]) {
+        const wide = await respondTo({
+          plugins: [securityHeaders({ cors: { origin: wildcard } })],
+          host: 'allowed.example.com',
+          origin: 'https://evil.example',
+        });
+
+        expect(
+          wide.headers.get('access-control-allow-origin'),
+          `origin: ${JSON.stringify(wildcard)}`,
+        ).toBe('https://evil.example');
+      }
+    });
+
+    it('rejects credentials configured without an origin', () => {
+      // A block that reads as "these origins may send cookies" and allows
+      // nothing, since with CORS off no browser ever attaches credentials.
+      expect(() =>
+        securityHeaders({ cors: { credentials: ['https://app.example.com'] } }),
+      ).toThrow(/credentials is set but origin is not/);
+
+      expect(() => securityHeaders({ cors: { credentials: true } })).toThrow(
+        /credentials is set but origin is not/,
+      );
+
+      // Saying it explicitly is fine, and so is the ordinary configured case.
+      expect(() =>
+        securityHeaders({ cors: { credentials: false } }),
+      ).not.toThrow();
+      expect(() =>
+        securityHeaders({
+          cors: {
+            origin: ['https://app.example.com'],
+            credentials: ['https://app.example.com'],
+          },
+        }),
+      ).not.toThrow();
+    });
+
     it('serves requests when a CORS field is written as undefined', async () => {
       // Validation passed and startup succeeded, then every cross-origin
       // request 500d, because the undefined key was spread over the defaults

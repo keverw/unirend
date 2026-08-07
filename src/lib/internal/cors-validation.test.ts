@@ -249,12 +249,32 @@ describe('validateCORSPolicy', () => {
       expect(normalized.credentials).toEqual(['https://example.com']);
     });
 
-    it('fills in the defaults', () => {
+    it('fills in the defaults, with CORS off', () => {
+      // `origin: false` is the default, so registering the plugin for `csp` or
+      // `hsts` sends no CORS headers at all rather than echoing back whatever
+      // origin asked. A wildcard has to be written.
       const { normalized } = collectCORSIssues(undefined);
 
-      expect(normalized.origin).toBe('*');
+      expect(normalized.origin).toBe(false);
       expect(normalized.credentials).toBe(false);
       expect(normalized.maxAge).toBe(86400);
+    });
+
+    it('treats cors: false as the defaults', () => {
+      const { issues, normalized } = collectCORSIssues(false);
+
+      expect(issues).toEqual([]);
+      expect(normalized.origin).toBe(false);
+    });
+
+    it('hands cors: false back as itself, not as an empty block', () => {
+      // An admin form rebuilding its fields from `policy` has to be able to
+      // tell "the operator turned CORS off" from "nothing configured yet".
+      // Flattening false to {} loses the only thing they said.
+      const result = validateCORSPolicy(false);
+
+      expect(result.valid).toBe(true);
+      expect(result.valid && result.policy).toBe(false);
     });
 
     it('fills in a default for a field written as undefined', () => {

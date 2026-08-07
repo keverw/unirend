@@ -67,8 +67,10 @@ const server = serveSSRBuilt(buildDir, {
   plugins: [
     securityHeaders({
       cors: {
-        origin: '*', // Allow any origin for public API access
-        credentials: ['https://myapp.com', 'https://admin.myapp.com'], // Only these can send cookies
+        // CORS is off until you set this. Name the origins you mean;
+        // '*' is available but has to be written out.
+        origin: ['https://myapp.com', 'https://admin.myapp.com'],
+        credentials: ['https://myapp.com'], // Only this one may send cookies
         methods: ['GET', 'POST', 'PUT', 'DELETE'],
         allowedHeaders: ['Content-Type', 'Authorization'],
       },
@@ -93,7 +95,21 @@ securityHeaders({
 
 ### `cors`
 
-- `origin` (default: `"*"`): Allowed origins for CORS requests
+CORS is off unless you configure `origin`, and `cors: false` says the same thing explicitly. With it off no `Access-Control-Allow-Origin` and no `Vary: Origin` are sent, preflight `OPTIONS` requests are left to your own routes, and cross-origin reads are blocked by the browser exactly as they are on a server with no CORS support. Same-origin requests are unaffected, since they never needed the header.
+
+Two consequences worth knowing before you leave it off:
+
+- **A catch-all route now sees preflight traffic.** The plugin no longer absorbs `OPTIONS` at the `onRequest` hook, so an `app.all('/api/*')` handler runs for cross-origin preflight requests that used to be answered before reaching it. That is the correct "not handling CORS" behavior, but it is your handler's job now.
+- **If you set `Access-Control-Allow-Origin` yourself, set `Vary: Origin` yourself too.** The plugin only adds `Vary` when it is doing the negotiating, so a hand-rolled per-origin header on an otherwise CORS-off server would otherwise be cacheable across origins.
+
+Only `credentials` is refused when CORS is off, because that is the field whose plain reading is a security decision. The rest of the block (`methods`, `maxAge`, `allowedHeaders`, and so on) is simply inert until `origin` is set.
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> A wildcard has to be written out, as `origin: '*'` or `origin: ['*']`. It is never inherited from a default, because `securityHeaders({ frameOptions: 'DENY' })` should not quietly make every response on the server cross-origin readable, including responses behind a bearer token: a manually attached `Authorization` header needs no credentials mode, and `Authorization` is in the default `allowedHeaders`.
+
+- `origin` (default: `false`): Allowed origins for CORS requests
+  - `false`: send no CORS headers at all, and leave preflight requests alone
   - `string`: Single origin (e.g., `"https://example.com"`)
   - `string[]`: Multiple origins with wildcard support
   - `function`: Dynamic origin validation `(origin, request) => boolean | Promise<boolean)`
@@ -122,13 +138,14 @@ securityHeaders({
   - `function`: per-request decision `(origin, request) => boolean | Promise<boolean)`
     - Not allowed with `origin: "*"`: combining a global origin wildcard with a dynamic credentials function is rejected for safety.
   - Auto-merge behavior: When `credentials` is an array, its origins are automatically merged into `origin` (even if `origin` is a single string) so credentialed origins are always allowed for CORS.
+  - Setting `credentials` without an `origin` is refused at startup. With CORS off no browser ever attaches credentials, so the block would read as "these origins may send cookies" and allow nothing.
 
 - `methods` (default: `["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]`): Allowed HTTP methods
   - Preflight handling: On OPTIONS requests, the plugin responds with `Access-Control-Allow-Methods` built from the configured methods (normalized, deduped).
 - `allowedHeaders` (default: `["Content-Type", "Authorization", "X-Requested-With"]`): Allowed request headers
 - `exposedHeaders` (default: `[]`): Headers exposed to the client
 - `maxAge` (default: `86400` - 24 hours): Max age for preflight cache (in seconds)
-- `preflightContinue` (default: `false`): Controls whether the plugin short-circuits preflight OPTIONS requests. When `false` (default), the plugin fully handles the preflight and responds with `optionsSuccessStatus`. When `true`, CORS headers are still set but control passes to the next handler instead of ending the request.
+- `preflightContinue` (default: `false`): Controls whether the plugin short-circuits preflight OPTIONS requests. Only relevant when CORS is on; with it off the plugin does not handle `OPTIONS` at all. When `false` (default), the plugin fully handles the preflight and responds with `optionsSuccessStatus`. When `true`, CORS headers are still set but control passes to the next handler instead of ending the request.
 - `optionsSuccessStatus` (default: `204`): Status code for successful preflight responses
 - `allowPrivateNetwork` (default: `false`): Whether to allow private network requests (Chrome feature)
 - `credentialsAllowWildcardSubdomains` (default: `false`): Allow wildcard subdomain patterns (e.g., `"*.example.com"`, `"**.example.com"`) in `credentials` arrays. Apex domains never match wildcards, include the apex explicitly (e.g., `"https://example.com"`).

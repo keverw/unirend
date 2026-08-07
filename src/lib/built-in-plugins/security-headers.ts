@@ -62,6 +62,7 @@ import {
 import { isHostUnverified } from '../internal/host-verification';
 import {
   collectCORSIssues,
+  isCORSEnabled,
   type CORSConfig,
   type CORSOrigin,
   type ResolvedCORSConfig,
@@ -192,7 +193,7 @@ export interface SecurityHeadersConfig {
   /**
    * Cross-Origin Resource Sharing policy, negotiated per-origin.
    */
-  cors?: CORSConfig;
+  cors?: false | CORSConfig;
 
   /**
    * Controls the X-Frame-Options response header.
@@ -744,9 +745,15 @@ async function effectiveConfigFor(
  */
 async function isOriginAllowed(
   origin: string | undefined,
-  originConfig: CORSOrigin,
+  originConfig: CORSOrigin | false,
   request: FastifyRequest,
 ): Promise<boolean> {
+  // CORS is off. Nothing is allowed, and nothing above this will send a header
+  // either, so this is belt and braces rather than the only guard.
+  if (originConfig === false) {
+    return false;
+  }
+
   if (typeof originConfig === 'string') {
     // Delegate to list matcher for uniform handling (exact, wildcard, protocol wildcard, and "*")
     return matchesOriginList(origin, [originConfig]);
@@ -1434,10 +1441,19 @@ function applyUnconditionalSecurityHeaders(
   // on requests that will ultimately receive no Access-Control-Allow-Origin
   // header, so we keep them separate from the origin-dependent CORS logic.
 
-  // Set Vary: Origin unconditionally so CDN caches don't serve a cached
-  // non-CORS response (which lacks Access-Control-Allow-Origin) to a
-  // later CORS request for the same URL.
-  addToVaryHeader(reply, 'Origin');
+  // Set Vary: Origin so CDN caches don't serve a cached non-CORS response
+  // (which lacks Access-Control-Allow-Origin) to a later CORS request for the
+  // same URL.
+  //
+  // Only when CORS is on. With it off no response ever carries an
+  // origin-dependent header, so the response does not vary by Origin and saying
+  // it does just splits every CDN cache entry by a header the origin server
+  // never reads. That matters here because this plugin is registered by people
+  // who only want `csp` or `hsts`, and they should not pay a cache penalty for
+  // a feature they did not turn on.
+  if (isCORSEnabled(resolvedConfig.cors)) {
+    addToVaryHeader(reply, 'Origin');
+  }
 
   // Sits here rather than anywhere else so it inherits everything this function
   // already gets: the early onRequest pass, the onSend backstop that covers
@@ -1526,11 +1542,14 @@ async function applyCORSActualResponseHeaders(
 ): Promise<void> {
   const cors = resolvedConfig.cors;
   const origin = request.headers.origin;
-  const isAllowed = await resolveOriginAllowed(
-    request,
-    cors,
-    isOriginAllowedResult,
-  );
+  const isCORSOn = isCORSEnabled(cors);
+
+  // Skipped entirely when CORS is off, rather than computed and then unused.
+  // `cors.origin` may be a caller's function, and asking it to decide something
+  // no header will carry is work nobody asked for on every request.
+  const isAllowed = isCORSOn
+    ? await resolveOriginAllowed(request, cors, isOriginAllowedResult)
+    : false;
 
   // Apply the unconditional security/Vary headers first, then layer the
   // origin-negotiated CORS headers on top if this request is allowed.
@@ -1546,6 +1565,11 @@ async function applyCORSActualResponseHeaders(
     mode,
     phase,
   );
+
+  // CORS off: the unconditional headers above are the whole job.
+  if (!isCORSOn) {
+    return;
+  }
 
   // For non-preflight requests, let them proceed without CORS headers if the
   // origin is not allowed. Same-origin requests still work; browsers enforce
@@ -1597,34 +1621,47 @@ async function applyCORSActualResponseHeaders(
  * - Function-based origin validation
  * - Separate credential and origin policies
  *
+ * CORS options live under `cors`, and CORS is off until `cors.origin` is set.
+ * The examples below all set it, because there is no default that turns it on:
+ * a plugin registered for `csp` or `hsts` alone sends no CORS headers at all.
+ *
  * @example
  * ```typescript
  * // Allow public API access but only credentials for trusted origins
  * securityHeaders({
- *   origin: "*", // Allow any origin for public API
- *   credentials: ["https://myapp.com", "https://admin.myapp.com"], // Only these can send cookies
- *   methods: ["GET", "POST"],
+ *   cors: {
+ *     origin: "*", // Written out, never inherited: this is every origin
+ *     credentials: ["https://myapp.com", "https://admin.myapp.com"], // Only these can send cookies
+ *     methods: ["GET", "POST"],
+ *   },
  * })
  *
  * // Handle "null" origins from sandboxed documents or file:// URLs
  * securityHeaders({
- *   origin: ["https://app.com", "null"], // Explicitly allow null origins
- *   credentials: ["https://app.com"], // Credentials not allowed for null origins
+ *   cors: {
+ *     origin: ["https://app.com", "null"], // Explicitly allow null origins
+ *     credentials: ["https://app.com"], // Credentials not allowed for null origins
+ *   },
  * })
  *
  * // Dynamic validation based on request
  * securityHeaders({
- *   origin: (origin, request) => {
- *     // Allow any origin for public endpoints
- *     if (request.url?.startsWith('/api/public/')) return true;
- *     // Restrict private endpoints
- *     return origin === 'https://myapp.com';
+ *   cors: {
+ *     origin: (origin, request) => {
+ *       // Allow any origin for public endpoints
+ *       if (request.url?.startsWith('/api/public/')) return true;
+ *       // Restrict private endpoints
+ *       return origin === 'https://myapp.com';
+ *     },
+ *     credentials: (origin, request) => {
+ *       // Only allow credentials for authenticated endpoints from trusted origins
+ *       return request.url?.startsWith('/api/auth/') && origin === 'https://myapp.com';
+ *     },
  *   },
- *   credentials: (origin, request) => {
- *     // Only allow credentials for authenticated endpoints from trusted origins
- *     return request.url?.startsWith('/api/auth/') && origin === 'https://myapp.com';
- *   }
  * })
+ *
+ * // No CORS, which is the default and can also be said out loud
+ * securityHeaders({ cors: false, csp: { preset: 'strict' } })
  * ```
  */
 export function securityHeaders(
@@ -2208,13 +2245,17 @@ export function securityHeaders(
           };
         }
 
+        const isCORSOn = isCORSEnabled(resolvedConfig.cors);
+
         // Decide the origin once. resolveOriginAllowed caches it on the request
         // for the onSend backstop, the hijacked-response helper, and the error
         // path, and denies rather than throwing if the callback throws.
-        const isOriginAllowedResult = await resolveOriginAllowed(
-          request,
-          resolvedConfig.cors,
-        );
+        //
+        // Not asked at all when CORS is off, since the answer is fixed and a
+        // caller's origin function should not be run to produce it.
+        const isOriginAllowedResult = isCORSOn
+          ? await resolveOriginAllowed(request, resolvedConfig.cors)
+          : false;
 
         // Record that this hook reached the negotiation, so the onSend backstop
         // below knows it has nothing left to do. Anything that short-circuited
@@ -2223,8 +2264,15 @@ export function securityHeaders(
           request as FastifyRequest & { securityHeadersApplied?: boolean }
         ).securityHeadersApplied = true;
 
-        // Handle preflight OPTIONS requests
-        if (method === 'OPTIONS') {
+        // Handle preflight OPTIONS requests.
+        //
+        // Guarded on CORS being on, so "off" means the plugin does not touch
+        // OPTIONS at all and the request reaches the route table exactly as it
+        // would on a server without this plugin. Answering a preflight is a CORS
+        // behavior, and a server that does no CORS answering them, whether with
+        // a 403 or a bare 204, both shadows an application's own OPTIONS route
+        // and implies a negotiation that is not happening.
+        if (method === 'OPTIONS' && isCORSOn) {
           // Add Vary headers for preflight caching
           addToVaryHeader(
             reply,

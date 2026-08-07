@@ -47,10 +47,25 @@ export type CORSOrigin =
 export interface CORSConfig {
   /**
    * Allowed origins for CORS requests
+   * - false: send no CORS headers at all (default)
    * - string: Single origin (e.g., "https://example.com")
    * - string[]: Multiple origins with wildcard support
    * - function: Dynamic origin validation
    * - "*": Allow all origins (not recommended with credentials)
+   *
+   * **A wildcard has to be written.** This defaults to `false`, meaning no
+   * `Access-Control-Allow-Origin` is sent and cross-origin reads are blocked by
+   * the browser, exactly as they are on a server with no CORS support at all.
+   * Same-origin requests are unaffected, since they never needed the header.
+   *
+   * That matches every other field here, where `false` means "send no header",
+   * and it is the only default that can be right for a plugin people register
+   * for `csp` or `hsts` without thinking about CORS. A `'*'` default meant
+   * `securityHeaders({ frameOptions: 'DENY' })` echoed
+   * `Access-Control-Allow-Origin` back to any site that asked, so every response
+   * that plugin touched became cross-origin readable, including the ones behind
+   * a bearer token, since a manually attached `Authorization` header needs no
+   * credentials mode. Opening that up should take saying so.
    *
    * Wildcard patterns supported:
    * - "*.example.com": Direct subdomains only (api.example.com ✅, app.api.example.com ❌)
@@ -63,9 +78,9 @@ export interface CORSConfig {
    * Note: "null" origins (from sandboxed documents, file:// URLs) are treated as regular string values.
    * Include "null" in your origin array or handle it in your validation function if needed.
    *
-   * @default "*"
+   * @default false
    */
-  origin?: CORSOrigin;
+  origin?: CORSOrigin | false;
 
   /**
    * Origins that are allowed to send credentials (cookies, auth headers)
@@ -155,7 +170,7 @@ export interface CORSConfig {
 export type ResolvedCORSConfig = Required<
   Omit<CORSConfig, 'credentials' | 'origin'>
 > & {
-  origin: CORSOrigin;
+  origin: CORSOrigin | false;
   credentials:
     | boolean
     | string[]
@@ -166,15 +181,28 @@ export type ResolvedCORSConfig = Required<
 };
 
 /**
+ * Whether this block does any CORS at all.
+ *
+ * One question asked in one place, because "off" has to mean off everywhere or
+ * it means nothing: no `Access-Control-Allow-Origin`, no `Vary: Origin`, and no
+ * preflight handling, so the plugin leaves `OPTIONS` to the route table exactly
+ * as it would if it were not registered.
+ */
+export function isCORSEnabled(cors: ResolvedCORSConfig): boolean {
+  return cors.origin !== false;
+}
+
+/**
  * Default CORS configuration
  */
 export const DEFAULT_CORS_CONFIG: Required<
   Omit<CORSConfig, 'credentials' | 'origin'>
 > & {
-  origin: CORSOrigin;
+  origin: CORSOrigin | false;
   credentials: boolean;
 } = {
-  origin: '*',
+  // Off, like every other header this plugin owns. See `CORSConfig.origin`.
+  origin: false,
   credentials: false,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
@@ -216,8 +244,13 @@ export type CORSPolicyValidation =
        * plugin's business at registration: it fills in defaults and folds a
        * credentials allowlist into the origin list, neither of which anyone
        * wants written back into their saved configuration.
+       *
+       * `false` carries through as `false` for that same reason. It is a valid
+       * block meaning "no CORS", and flattening it to `{}` would hand back
+       * something that reads as "nothing configured yet" to an admin form
+       * rebuilding its fields, losing the one thing the operator said.
        */
-      policy: CORSConfig;
+      policy: false | CORSConfig;
     }
   | {
       valid: false;
@@ -274,7 +307,7 @@ function isStringArray(value: unknown): value is string[] {
  * Functions are evaluated per request, so they are not a blanket wildcard here
  * whatever they may decide later.
  */
-function hasProtocolWildcard(value: CORSOrigin): boolean {
+function hasProtocolWildcard(value: CORSOrigin | false): boolean {
   if (typeof value === 'string') {
     return value === 'https://*' || value === 'http://*';
   }
@@ -381,27 +414,56 @@ function collectShapeIssues(cors: CORSConfig): CORSPolicyIssue[] {
 
   if (
     origin !== undefined &&
+    origin !== false &&
     typeof origin !== 'string' &&
     typeof origin !== 'function' &&
     !isStringArray(origin)
   ) {
     issues.push({
       path: 'origin',
-      message: `Invalid CORS config: origin must be a string, an array of strings, or a function, received ${describeValue(origin)}`,
+      message: `Invalid CORS config: origin must be a string, an array of strings, a function, or false to send no CORS headers, received ${describeValue(origin)}`,
     });
   }
 
   const credentials: unknown = cors.credentials;
 
-  if (
-    credentials !== undefined &&
-    typeof credentials !== 'boolean' &&
-    typeof credentials !== 'function' &&
-    !isStringArray(credentials)
-  ) {
+  const isCredentialsShapeValid =
+    credentials === undefined ||
+    typeof credentials === 'boolean' ||
+    typeof credentials === 'function' ||
+    isStringArray(credentials);
+
+  if (!isCredentialsShapeValid) {
     issues.push({
       path: 'credentials',
       message: `Invalid CORS config: credentials must be a boolean, an array of origins, or a function, received ${describeValue(credentials)}`,
+    });
+  } else if (
+    (origin === false || origin === undefined) &&
+    credentials !== undefined &&
+    credentials !== false
+  ) {
+    // Credentials without an origin is a block that reads as though it allows
+    // something and allows nothing. With CORS off no
+    // `Access-Control-Allow-Origin` is sent, so no browser will ever attach
+    // credentials whatever this says, and the folding below that would normally
+    // pull a credentials allowlist into the origin list has nothing to fold
+    // into.
+    //
+    // Reported rather than quietly ignored, because this is the one inert
+    // combination whose plain reading is a security decision: someone wrote
+    // down a list of origins they trust with cookies, and nothing is trusting
+    // them with anything.
+    //
+    // Only once the value is a credentials value at all, hence the `else`. A
+    // `credentials: 'yes'` is one mistake, and saying both "that is not a
+    // credentials value" and "it does nothing without an origin" describes it
+    // twice, which reads as two problems and is the noise every other rule in
+    // this file is arranged to avoid.
+    issues.push({
+      path: 'credentials',
+      message:
+        'Invalid CORS config: credentials is set but origin is not, so no CORS headers are sent and no browser will ever attach credentials. Set cors.origin to the origins you mean to allow.',
     });
   }
 
@@ -479,12 +541,15 @@ export function collectCORSIssues(input: unknown): {
   issues: CORSPolicyIssue[];
   normalized: ResolvedCORSConfig;
 } {
-  if (input !== undefined && !isPlainObject(input)) {
+  // `false` is the explicit spelling of the default, so it needs no rules of its
+  // own: the defaults it falls through to already say "no CORS". It reads the
+  // way `hsts: false` and `csp: false` read, which is the point of accepting it.
+  if (input !== undefined && input !== false && !isPlainObject(input)) {
     return {
       issues: [
         {
           path: '',
-          message: `Invalid CORS config: expected an object of CORS options, received ${describeValue(input)}`,
+          message: `Invalid CORS config: expected an object of CORS options, or false to send no CORS headers, received ${describeValue(input)}`,
         },
       ],
       normalized: { ...DEFAULT_CORS_CONFIG },
@@ -804,6 +869,9 @@ export function validateCORSPolicy(cors: unknown): CORSPolicyValidation {
     issues,
     // `?? {}` rather than a cast: an absent block is a valid one, and every
     // field is optional, so an empty object is the honest typed form of it.
-    policy: cors ?? {},
+    // `??` is nullish-only, so an explicit `false` passes through as itself
+    // rather than being flattened into that empty object, which is what the
+    // return type now says and what a caller storing the result needs.
+    policy: (cors ?? {}) as false | CORSConfig,
   };
 }
