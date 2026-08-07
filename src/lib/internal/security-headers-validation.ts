@@ -1104,15 +1104,26 @@ export function collectHSTSIssues(
     }
   }
 
+  // Whole seconds, the same rule `cors.maxAge` is held to and for the same
+  // reason: `Strict-Transport-Security` carries `max-age=<delta-seconds>`,
+  // which is a run of digits, so a fraction is a directive a browser cannot
+  // parse and therefore ignores. On this header ignoring it means the host is
+  // not pinned to HTTPS at all, on a configuration whose entire purpose is
+  // pinning it.
+  //
+  // Refused rather than floored. Flooring is what this used to do, silently, at
+  // the point the header was built, which meant the config and the header
+  // disagreed about a value the operator could not see being changed. Refusing
+  // says so once at boot and leaves the rounding to whoever knows what the
+  // arithmetic meant.
   if (
     typeof cfg.maxAge !== 'number' ||
-    !Number.isFinite(cfg.maxAge) ||
+    !Number.isInteger(cfg.maxAge) ||
     cfg.maxAge < 0
   ) {
     issues.push({
       path: 'hsts.maxAge',
-      message:
-        'Invalid securityHeaders config: hsts.maxAge must be a non-negative number (seconds)',
+      message: `Invalid securityHeaders config: hsts.maxAge must be a whole, non-negative number of seconds, received ${describeValue(cfg.maxAge)}. Strict-Transport-Security takes max-age=<delta-seconds>, a run of digits, so a fraction is a directive a browser cannot parse and ignores, which leaves the host unpinned.`,
     });
 
     // The preload rules below compare against maxAge, so running them on a

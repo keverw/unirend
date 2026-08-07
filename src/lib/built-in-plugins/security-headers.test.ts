@@ -1153,13 +1153,50 @@ describe('securityHeaders', () => {
       );
     });
 
-    it('should validate hsts.maxAge as non-negative number', () => {
+    it('should validate hsts.maxAge as a whole non-negative number', () => {
       expect(() =>
         securityHeaders({
           cors: { origin: 'https://example.com' },
           hsts: { maxAge: -1 },
         }),
-      ).toThrow(/hsts.maxAge must be a non-negative number/i);
+      ).toThrow(/hsts\.maxAge must be a whole, non-negative number/i);
+
+      // A fraction is refused rather than floored. max-age takes
+      // delta-seconds, a run of digits, so a browser cannot parse `1.5` and
+      // ignores the directive, which leaves the host unpinned by the one
+      // header whose job is pinning it.
+      expect(() =>
+        securityHeaders({
+          cors: { origin: 'https://example.com' },
+          hsts: { maxAge: 31536000.5 },
+        }),
+      ).toThrow(/hsts\.maxAge must be a whole, non-negative number/i);
+    });
+
+    it('writes hsts max-age exactly as configured', async () => {
+      const pluginHost = createMockPluginHost();
+      await securityHeaders({
+        cors: { origin: 'https://example.com' },
+        hsts: { maxAge: 31536000 },
+      })(pluginHost, createMockOptions());
+
+      const onRequestHook = pluginHost
+        .getHooks()
+        .find((h) => h.event === 'onRequest');
+      const reply = createMockReply();
+
+      await onRequestHook?.handler(
+        createMockRequest({
+          headers: { origin: 'https://example.com' },
+          protocol: 'https',
+        }),
+        reply,
+      );
+
+      expect(reply.header).toHaveBeenCalledWith(
+        'Strict-Transport-Security',
+        'max-age=31536000',
+      );
     });
 
     it('should enforce preload requirements: maxAge >= 31536000 and includeSubDomains', () => {

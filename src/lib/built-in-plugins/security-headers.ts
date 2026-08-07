@@ -1562,7 +1562,12 @@ function applyUnconditionalSecurityHeaders(
   if (isHostDisclaimed(request, phase.hostCheck)) {
     reply.removeHeader('Strict-Transport-Security');
   } else if (resolvedConfig.hsts && request.protocol === 'https') {
-    const parts = [`max-age=${Math.floor(resolvedConfig.hsts.maxAge)}`];
+    // Written as given rather than floored. `collectHSTSIssues` refuses a
+    // non-integer max-age, on the config and on anything a resolver returns, so
+    // there is nothing left here to round: a floor at this point would be a
+    // rule that never fires, and while it did fire it silently disagreed with
+    // the configuration about a value nobody could see being changed.
+    const parts = [`max-age=${resolvedConfig.hsts.maxAge}`];
 
     if (resolvedConfig.hsts.includeSubDomains) {
       parts.push('includeSubDomains');

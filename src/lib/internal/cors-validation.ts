@@ -688,33 +688,51 @@ function collectShapeIssues(cors: CORSConfig): CORSPolicyIssue[] {
 
   const maxAge: unknown = cors.maxAge;
 
+  // Whole seconds, not merely a non-negative number. `Access-Control-Max-Age`
+  // carries `delta-seconds`, which RFC 9111 defines as `1*DIGIT`, so `1.5` is
+  // not a small value, it is a value a browser cannot parse: it drops the
+  // header and falls back to its own preflight cache default, a few seconds in
+  // every current browser. Preflight requests then fire orders of magnitude more often
+  // than the configuration says, with nothing anywhere reporting it, which is
+  // the silence every rule in this file exists to break.
+  //
+  // Refused rather than rounded, for the reason a padded header name is
+  // refused rather than trimmed: rounding decides on the operator's behalf what
+  // `3600.5` meant, and the configuration stops predicting the header. The fix
+  // is theirs to write, and it is usually a `Math.round` around whatever
+  // arithmetic produced it.
   if (
     maxAge !== undefined &&
-    (typeof maxAge !== 'number' || !Number.isFinite(maxAge) || maxAge < 0)
+    (typeof maxAge !== 'number' || !Number.isInteger(maxAge) || maxAge < 0)
   ) {
     issues.push({
       path: 'maxAge',
-      message:
-        'Invalid CORS config: maxAge must be a non-negative number (seconds)',
+      message: `Invalid CORS config: maxAge must be a whole, non-negative number of seconds, received ${describeValue(maxAge)}. Access-Control-Max-Age takes delta-seconds, a run of digits, so a fraction is a header value a browser cannot parse: it drops the header and falls back to its own preflight cache default of a few seconds, and preflight requests start firing far more often than this configuration says.`,
     });
   }
 
   const status: unknown = cors.optionsSuccessStatus;
 
-  // Bounded rather than merely numeric because the value is written straight to
-  // the preflight response, and a status outside the range is either a thrown
-  // error deep in the HTTP layer or a response no browser will accept as a
-  // successful preflight.
+  // A 2xx, not merely a legal status. The value is written straight onto the
+  // preflight response, and this field names the status of a *successful*
+  // preflight, so anything else is a contradiction rather than a customization.
+  //
+  // The range used to run to 599, which let a 4xx or 5xx through. That does not
+  // give a preflight an interesting status: a browser treats any non-2xx
+  // preflight as a failed one, so it stops every cross-origin request that
+  // needs a preflight, on a configuration that reads as though CORS is set up
+  // and merely tuned. A 3xx is no better, since a preflight is not followed
+  // through a redirect.
   if (
     status !== undefined &&
     (typeof status !== 'number' ||
       !Number.isInteger(status) ||
       status < 200 ||
-      status > 599)
+      status > 299)
   ) {
     issues.push({
       path: 'optionsSuccessStatus',
-      message: `Invalid CORS config: optionsSuccessStatus must be an integer HTTP status between 200 and 599, received ${describeValue(status)}`,
+      message: `Invalid CORS config: optionsSuccessStatus must be a 2xx status, received ${describeValue(status)}. It is the status of a successful preflight, and a browser reads any non-2xx preflight as a failed one, so a value outside this range does not customize the response, it stops every cross-origin request that needs a preflight. 204 is the default and the usual choice.`,
     });
   }
 

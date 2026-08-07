@@ -90,21 +90,57 @@ describe('validateCORSPolicy', () => {
       expect(paths({ exposedHeaders: [1] })).toEqual(['exposedHeaders']);
     });
 
-    it('rejects a maxAge that is not a non-negative number', () => {
+    it('rejects a maxAge that is not a whole non-negative number', () => {
       expect(paths({ maxAge: -1 })).toEqual(['maxAge']);
       expect(paths({ maxAge: '600' })).toEqual(['maxAge']);
+      expect(paths({ maxAge: Infinity })).toEqual(['maxAge']);
+
+      // A fraction is the one that used to pass. Access-Control-Max-Age takes
+      // delta-seconds, a run of digits, so `1.5` is a value a browser cannot
+      // parse: it drops the header and falls back to its own preflight cache
+      // default of a few seconds, and preflight requests start firing far more often
+      // than the configuration says with nothing reporting it. `hours * 3600`
+      // with a half-hour is the realistic way in.
+      expect(paths({ maxAge: 1.5 })).toEqual(['maxAge']);
+      expect(paths({ maxAge: 1800.5 })).toEqual(['maxAge']);
+
+      // Zero is valid and means "do not cache the preflight".
+      expect(
+        validateCORSPolicy({ origin: ['https://example.com'], maxAge: 0 })
+          .valid,
+      ).toBe(true);
     });
 
-    it('rejects a preflight status outside the HTTP range', () => {
-      // The value goes straight onto the preflight response, where an
-      // out-of-range status is either an error deep in the HTTP layer or a
-      // reply no browser reads as a successful preflight.
+    it('rejects a preflight status that cannot mean success', () => {
+      // The value goes straight onto the preflight response, and this field
+      // names the status of a *successful* preflight, so anything outside 2xx
+      // is a contradiction rather than a customization.
       expect(paths({ optionsSuccessStatus: 42 })).toEqual([
         'optionsSuccessStatus',
       ]);
       expect(paths({ optionsSuccessStatus: 204.5 })).toEqual([
         'optionsSuccessStatus',
       ]);
+
+      // These used to pass, and each one stops every cross-origin request that
+      // needs a preflight: a browser reads any non-2xx preflight as failed, and
+      // does not follow a redirect from one.
+      for (const status of [301, 302, 400, 403, 404, 500]) {
+        expect(paths({ optionsSuccessStatus: status })).toEqual([
+          'optionsSuccessStatus',
+        ]);
+      }
+
+      // The whole 2xx range stays open, since which one to send is a real
+      // choice: 204 is the default, and 200 is what some older clients want.
+      for (const status of [200, 202, 204, 299]) {
+        expect(
+          validateCORSPolicy({
+            origin: ['https://example.com'],
+            optionsSuccessStatus: status,
+          }).valid,
+        ).toBe(true);
+      }
       // With an origin, since a preflight status on a block that does no CORS
       // is inert and reported as such.
       expect(
