@@ -1401,6 +1401,127 @@ describe('domainValidation', () => {
         /protocols are not allowed in domain context/i,
       );
     });
+
+    /**
+     * Register with this config, as a promise either way.
+     *
+     * `Promise.resolve` because a plugin may return either a value or a
+     * promise, and both `.rejects` and `await` below want one shape.
+     */
+    const register = (config: DomainValidationConfig): Promise<unknown> =>
+      Promise.resolve(
+        domainValidation(config)(createMockPluginHost(), createMockOptions()),
+      );
+
+    // Every one of these used to register cleanly and then do nothing at
+    // request time, which is the failure mode this whole plugin exists to
+    // avoid: a rule that reads as configured and is not in force.
+    describe('canonicalDomain', () => {
+      // The redirect reads normalizeDomain(canonicalDomain) and skips its whole
+      // branch when the result is empty, and normalizeDomain answers with an
+      // empty string for anything that is not a bare host. So a URL here did
+      // not redirect somewhere slightly wrong, it switched canonical redirects
+      // off entirely.
+      it('rejects a URL where a host belongs', () => {
+        expect(
+          register({ canonicalDomain: 'https://example.com' }),
+        ).rejects.toThrow(/canonicalDomain "https:\/\/example\.com"/i);
+      });
+
+      it('rejects something that is not a host at all', () => {
+        expect(register({ canonicalDomain: 'not a host' })).rejects.toThrow(
+          /canonicalDomain "not a host"/i,
+        );
+      });
+
+      // Accepted by the shared domain validator, since it is a legitimate
+      // pattern, and still not a host. It normalizes to nothing and fails as
+      // quietly as the others, so it gets a message naming the distinction:
+      // patterns say which hosts are allowed, this says which one they go to.
+      it('rejects a wildcard pattern, which the allow list accepts', () => {
+        expect(register({ canonicalDomain: '*.example.com' })).rejects.toThrow(
+          /cannot be a wildcard pattern/i,
+        );
+
+        expect(register({ canonicalDomain: '**.example.com' })).rejects.toThrow(
+          /cannot be a wildcard pattern/i,
+        );
+      });
+
+      it('accepts a concrete host', async () => {
+        await register({ canonicalDomain: 'example.com' });
+        await register({ canonicalDomain: 'www.example.com' });
+      });
+    });
+
+    describe('wwwHandling', () => {
+      // A near miss clears the `!== 'preserve'` gate and then matches neither
+      // branch, so www handling silently does nothing.
+      it('rejects a mode that is not one of the three', () => {
+        expect(register({ wwwHandling: 'Remove' as 'remove' })).rejects.toThrow(
+          /wwwHandling "Remove"/i,
+        );
+
+        expect(register({ wwwHandling: 'strip' as 'remove' })).rejects.toThrow(
+          /Expected "remove", "add", "preserve"/i,
+        );
+      });
+
+      it('accepts each of the three', async () => {
+        for (const mode of ['remove', 'add', 'preserve'] as const) {
+          await register({ wwwHandling: mode });
+        }
+      });
+    });
+
+    describe('redirectStatusCode', () => {
+      // Fastify's redirect() honors a status already set on the reply, so a
+      // non-redirect status sends a Location header no browser follows. That
+      // cancels HTTPS enforcement and the canonical redirect at once.
+      it('rejects a status outside the redirect range', () => {
+        expect(register({ redirectStatusCode: 200 as 301 })).rejects.toThrow(
+          /redirectStatusCode 200/i,
+        );
+
+        expect(register({ redirectStatusCode: 404 as 301 })).rejects.toThrow(
+          /Expected 301, 302, 307, 308/i,
+        );
+      });
+
+      it('accepts each redirect status', async () => {
+        for (const code of [301, 302, 307, 308] as const) {
+          await register({ redirectStatusCode: code });
+        }
+      });
+    });
+
+    describe('flags', () => {
+      // Read as conditions at their use sites, so the string "false" out of a
+      // JSON config would be treated as true. For skipInDevelopment that means
+      // skipping host validation altogether.
+      it('rejects a non-boolean flag', () => {
+        expect(
+          register({ skipInDevelopment: 'false' as unknown as boolean }),
+        ).rejects.toThrow(/skipInDevelopment: expected a boolean/i);
+
+        expect(
+          register({ enforceHTTPS: 1 as unknown as boolean }),
+        ).rejects.toThrow(/enforceHTTPS: expected a boolean/i);
+
+        expect(
+          register({ preservePort: 'yes' as unknown as boolean }),
+        ).rejects.toThrow(/preservePort: expected a boolean/i);
+      });
+
+      it('accepts booleans and an absent flag', async () => {
+        await register({});
+        await register({
+          enforceHTTPS: false,
+          preservePort: true,
+          skipInDevelopment: false,
+        });
+      });
+    });
   });
 
   describe('IDN / punycode normalization', () => {

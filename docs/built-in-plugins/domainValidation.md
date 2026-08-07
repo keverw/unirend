@@ -99,13 +99,16 @@ So the two are complementary rather than inconsistent: register `domainValidatio
   - Provide a hostname or IP (IPv4 or IPv6), with no protocol
   - Use `wwwHandling` to add/remove the `www` prefix for apex domains
   - IPv6 hosts are bracketed automatically in redirects (you can pass either `2001:db8::1` or `[2001:db8::1]`)
+  - Validated at startup, and it has to be a concrete host: a URL such as `https://example.com` and a pattern such as `*.example.com` are both refused. A value that is not a bare host normalizes to nothing, and the redirect skips its whole branch when that happens, so an unchecked one did not send requests somewhere slightly wrong, it switched canonical redirects off entirely. Patterns belong in `validProductionDomains`, which decides which hosts are allowed; this decides which one they are sent to.
 - `enforceHTTPS` (default: `true`): Whether to redirect HTTP requests to HTTPS
 - `wwwHandling` (default: `"preserve"`): How to handle www prefix:
   - `"add"`: Add www prefix to apex domains
   - `"remove"`: Remove www prefix from apex domains
   - `"preserve"`: Keep www prefix as-is
-- `redirectStatusCode` (default: `301`): HTTP status code for redirects (301, 302, 307, or 308)
+  - Checked at startup, because a near miss is a no-op rather than an error: an unrecognized value is not `"preserve"`, so it clears the gate, and then matches neither the add nor the remove branch.
+- `redirectStatusCode` (default: `301`): HTTP status code for redirects. Must be `301`, `302`, `307`, or `308`, checked at startup. The value is written straight onto the response, and Fastify's `redirect()` honors a status already set there, so anything outside the redirect range sends a `Location` header no browser follows and quietly cancels both the canonical redirect and HTTPS enforcement.
 - `skipInDevelopment` (default: `true`): Skip validation in development mode
+  - This, `enforceHTTPS`, and `preservePort` must be real booleans, checked at startup. Each is read as a condition, so the string `"false"` out of a JSON config would be treated as `true`, and for this option that means skipping host validation altogether.
 - `preservePort` (default: `false`): Whether to keep the port number when building a redirect URL
   - The port comes from the same resolved host everything else uses, so behind a trusted proxy it is the public port the browser connected to, not the internal one the app is listening on. Without `fastifyOptions.trustProxy` it is whatever port reached the app.
   - The port is always dropped when the protocol changes, since an HTTP port is meaningless on the HTTPS URL being redirected to. `preservePort` only applies to redirects that stay on the same protocol, such as a canonical domain or www change.

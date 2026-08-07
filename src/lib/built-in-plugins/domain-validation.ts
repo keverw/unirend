@@ -144,6 +144,36 @@ function checkIfAPIEndpoint(
 }
 
 /**
+ * The `wwwHandling` modes, listed so an unrecognized one can be named.
+ *
+ * `satisfies` ties this to the type, so a mode added to `DomainValidationConfig`
+ * without being added here is a type error rather than a validator that starts
+ * refusing a mode it should accept.
+ */
+const WWW_HANDLING_MODES: ReadonlySet<string> = new Set([
+  'remove',
+  'add',
+  'preserve',
+] satisfies NonNullable<DomainValidationConfig['wwwHandling']>[]);
+
+/**
+ * The statuses a redirect may carry.
+ *
+ * 301 and 308 are permanent, 302 and 307 temporary; the 307/308 pair is the one
+ * that preserves the request method, which matters for anything but a GET.
+ */
+const REDIRECT_STATUS_CODES: ReadonlySet<number> = new Set([
+  301, 302, 307, 308,
+] satisfies NonNullable<DomainValidationConfig['redirectStatusCode']>[]);
+
+/** The config fields that are plain flags, checked as a group. */
+const BOOLEAN_KEYS = [
+  'enforceHTTPS',
+  'preservePort',
+  'skipInDevelopment',
+] as const satisfies ReadonlyArray<keyof DomainValidationConfig>;
+
+/**
  * Report a user callback that threw.
  *
  * Read defensively because a failure to log must never become the thing that
@@ -208,6 +238,87 @@ export function domainValidation(
             `Invalid domainValidation validProductionDomains entry "${entry}"${verdict.info ? ': ' + verdict.info : ''}`,
           );
         }
+      }
+    }
+
+    // The canonical domain, held to the same validator and then to one more
+    // rule that the allow list does not need.
+    //
+    // Every failure here is total and silent, which is why it is worth a check
+    // rather than a note in the documentation. The redirect below reads
+    // `normalizeDomain(config.canonicalDomain)` and skips the whole branch when
+    // the result is empty, and `normalizeDomain` answers "what host is this"
+    // with an empty string for anything that is not one. So
+    // `canonicalDomain: 'https://example.com'`, which is writing a URL where a
+    // host belongs and the likeliest mistake here, does not redirect to a
+    // slightly wrong place: it turns canonical redirects off entirely, on a
+    // configuration whose only purpose is to have them on.
+    //
+    // A wildcard is refused separately because the shared validator accepts
+    // one. `*.example.com` is a legitimate *pattern*, which is what
+    // `validProductionDomains` is a list of, and it is not a host, which is
+    // what this is. It normalizes to an empty string like everything else here
+    // and fails exactly as quietly, so it earns its own sentence rather than
+    // the generic one.
+    if (config.canonicalDomain !== undefined) {
+      const verdict = validateConfigEntry(config.canonicalDomain, 'domain');
+
+      if (!verdict.valid) {
+        throw new Error(
+          `Invalid domainValidation canonicalDomain "${config.canonicalDomain}"${verdict.info ? ': ' + verdict.info : ''}. It is a host such as "example.com", not a URL and not a pattern. A value that is not a host normalizes to nothing, which silently switches canonical redirects off rather than sending them somewhere else.`,
+        );
+      }
+
+      if (
+        verdict.wildcardKind !== undefined &&
+        verdict.wildcardKind !== 'none'
+      ) {
+        throw new Error(
+          `Invalid domainValidation canonicalDomain "${config.canonicalDomain}": a canonical domain is the single host to redirect to, so it cannot be a wildcard pattern. Patterns belong in validProductionDomains, which decides which hosts are allowed; this decides which one they are sent to.`,
+        );
+      }
+    }
+
+    // The two enums, checked because a near miss is a silent no-op rather than
+    // an error. `wwwHandling: 'Remove'` clears the `!== 'preserve'` gate below
+    // and then matches neither branch, so nothing happens and nothing says so.
+    // A `redirectStatusCode` outside the redirect range is worse: Fastify's
+    // `redirect()` honors a status already set on the reply, so `200` sends a
+    // Location header with a status no browser follows, which quietly cancels
+    // both HTTPS enforcement and the canonical redirect.
+    //
+    // TypeScript rules both out for a typed caller, which is exactly why they
+    // need a runtime check: the configurations that reach here untyped, out of
+    // a JSON file or an environment loader, are the ones that get it wrong.
+    if (
+      config.wwwHandling !== undefined &&
+      !WWW_HANDLING_MODES.has(config.wwwHandling)
+    ) {
+      throw new Error(
+        `Invalid domainValidation wwwHandling "${String(config.wwwHandling)}". Expected ${[...WWW_HANDLING_MODES].map((mode) => `"${mode}"`).join(', ')}. An unrecognized value matches no branch, so www handling silently does nothing.`,
+      );
+    }
+
+    if (
+      config.redirectStatusCode !== undefined &&
+      !REDIRECT_STATUS_CODES.has(config.redirectStatusCode)
+    ) {
+      throw new Error(
+        `Invalid domainValidation redirectStatusCode ${String(config.redirectStatusCode)}. Expected ${[...REDIRECT_STATUS_CODES].join(', ')}. The value is written straight onto the response, and a status outside the redirect range sends a Location header no browser follows, so the redirect silently does not happen.`,
+      );
+    }
+
+    // The flags. Read as truthy at their use sites, so a JSON config carrying
+    // the string "false" would switch one *on*, which for skipInDevelopment
+    // means skipping host validation entirely. Refused here instead, the same
+    // rule the securityHeaders options follow.
+    for (const key of BOOLEAN_KEYS) {
+      const value: unknown = config[key];
+
+      if (value !== undefined && typeof value !== 'boolean') {
+        throw new Error(
+          `Invalid domainValidation ${key}: expected a boolean, received ${typeof value === 'string' ? `the string "${value}"` : `a ${typeof value}`}. It is read as a condition, so a non-boolean such as the string "false" would be treated as true.`,
+        );
       }
     }
 
