@@ -1790,15 +1790,33 @@ export function securityHeaders(
     throw new Error(firstReportingIssue.message);
   }
 
-  // One message per distinct finding for the life of the process. These come
-  // from templates, which are per app and fixed, so repeating per request would
-  // say nothing new.
+  // One message per distinct finding, rather than per request. In production
+  // these come from a template hashed once at startup, so the set of them is
+  // fixed for the life of the app and repeating per request would say nothing
+  // new. Deduping across requests is the whole point: without it a single
+  // inline attribute warns on every response, which is how a warning stops
+  // being read.
   //
   // Keyed by description and hash together, matching how the scanner dedupes.
   // Two <button onclick> with different handlers are two findings that need two
   // different hashes to fix, so collapsing them on the description would report
   // the first and silently swallow the second.
-  const reportedInlineAttributes = new Set<string>();
+  //
+  // LRU rather than a Set for the same reason `policyBySources` above is one,
+  // and the case is the same case. Development re-scans the template per
+  // request, after Vite has transformed it, so a Vite plugin emitting a
+  // request-varying `style=` or `on*=` value mints a new key every time and a
+  // Set would grow without limit for as long as the dev server runs. An
+  // eviction policy degrades instead: the worst that happens is a warning
+  // repeating after its entry falls out, which is the right way round, since
+  // the alternative to a repeated warning here is unbounded memory.
+  //
+  // Larger than the policy cache because the two hold different things. That
+  // one caches a serialized header per distinct page shape, where a miss costs
+  // microseconds. This one is the only thing standing between a real finding
+  // and a log nobody reads, so it is sized to hold every attribute a realistic
+  // template carries several times over.
+  const reportedInlineAttributes = new LRUCache<string, true>(512);
 
   const findingKey = (finding: InlineAttributeFinding) =>
     `${finding.description}|${finding.hash}`;
@@ -1820,7 +1838,7 @@ export function securityHeaders(
     }
 
     for (const finding of fresh) {
-      reportedInlineAttributes.add(findingKey(finding));
+      reportedInlineAttributes.set(findingKey(finding), true);
     }
 
     const log = (request as Partial<FastifyRequest>).log;
