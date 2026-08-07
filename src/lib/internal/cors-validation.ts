@@ -678,6 +678,28 @@ export function collectCORSIssues(input: unknown): {
     return { issues, normalized: cors };
   }
 
+  // One spelling before any rule reads it.
+  //
+  // `['*']` and `'*'` are the same policy, and every rule below tests the
+  // string, so collapsing afterwards meant the array spelling walked past all
+  // of them. That was not cosmetic: `origin: ['*']` with `credentials: true`
+  // reached the response builder and sent `Access-Control-Allow-Origin:
+  // <the caller's origin>` together with `Access-Control-Allow-Credentials:
+  // true`, which is the combination the CORS specification forbids and the one
+  // the `'*'` spelling has always refused at startup. Any site could read an
+  // authenticated response with the user's cookies attached.
+  //
+  // The array branch further down used to do this collapse, and its guard for a
+  // `'*'` sitting *inside* a longer list lives in the branch a one-element array
+  // never reached, so nothing anywhere covered exactly `['*']`.
+  if (
+    Array.isArray(cors.origin) &&
+    cors.origin.length === 1 &&
+    cors.origin[0] === '*'
+  ) {
+    cors.origin = '*';
+  }
+
   if (cors.origin === '*' && cors.credentials === true) {
     issues.push({
       path: 'credentials',
@@ -729,27 +751,30 @@ export function collectCORSIssues(input: unknown): {
           "Unsafe CORS: cannot combine origin '*' with dynamic credentials. Use a concrete origin list when enabling credentials.",
       });
     }
-
-    // If credentials is an allowlist, validate and upgrade origin to that list
-    if (Array.isArray(cors.credentials)) {
-      checkCredentialsList(cors.credentials);
-
-      const allowlist = Array.from(new Set(cors.credentials));
-
-      if (allowlist.length === 0) {
-        issues.push({
-          path: 'credentials',
-          message:
-            "Invalid CORS config: credentials list is empty; cannot combine origin '*' with credentials.",
-        });
-      } else {
-        // Upgrade: stop using '*' and switch to a concrete allowlist for origin
-        cors.origin = allowlist;
-        // Keep origin and credentials aligned to reduce misconfiguration
-        cors.credentials = allowlist;
-      }
-    }
   }
+
+  // A credentials allowlist alongside `origin: '*'` is left alone, which is the
+  // whole point of the two being separate lists rather than one.
+  //
+  // It used to replace the origin with the credentials list, on the reasoning
+  // that `'*'` and credentials do not belong together. They do not, and nothing
+  // here sends them together: `Access-Control-Allow-Credentials` is only ever
+  // written for an origin on this list, and the literal `*` only goes out on a
+  // request that carried no `Origin` at all, which never carries the
+  // credentials header. The guarantee comes from the response builder, not from
+  // rewriting the config.
+  //
+  // What the rewrite did cost was the shape the two lists exist for: an API
+  // readable by anyone, with cookies for your own domains only. Replacing the
+  // origin with the credentials list turned that into an API readable by
+  // nobody else, silently, on a config whose plain reading says otherwise. The
+  // `['*']` spelling skipped the rewrite and behaved as documented, so the two
+  // spellings disagreed about what the same policy meant.
+  //
+  // The dangerous pairings are still refused above, and they are the ones where
+  // the set of credentialed origins is unbounded: `credentials: true`, and a
+  // credentials function, both of which would hand `'*'` to something that
+  // answers for every origin.
 
   // Validate credentials wildcard patterns
   if (Array.isArray(cors.credentials)) {
@@ -773,12 +798,11 @@ export function collectCORSIssues(input: unknown): {
     }
   } else if (Array.isArray(cors.origin)) {
     const entries = cors.origin;
-    // Normalize ["*"] to "*"
-    const unique = Array.from(new Set(entries));
-
-    if (unique.length === 1 && unique[0] === '*') {
-      cors.origin = '*';
-    } else {
+    // `['*']` was collapsed to `'*'` before any rule ran, so anything still an
+    // array here has more than a bare wildcard in it. The collapse used to live
+    // at this point, which is what let a one-element array skip every rule above
+    // including the credentials guards. See the note beside it.
+    {
       // Special policy: '*' inside an array is only allowed when paired solely with 'null'
       if (entries.includes('*')) {
         const isOnlyStarAndNull = entries.every(
@@ -898,7 +922,28 @@ export function collectCORSIssues(input: unknown): {
   // This prevents common configuration mistakes where credentials origins aren't included in the origin list
   // Note: credentials controls Access-Control-Allow-Credentials header, which tells browsers
   // whether to include cookies/auth headers in requests - it doesn't automatically allow cookies
-  if (Array.isArray(cors.credentials) && Array.isArray(cors.origin)) {
+  //
+  // Skipped when the origin list already carries a wildcard token, since every
+  // credentialed origin is allowed by it already. Appending anyway produced a
+  // normalized `['*', 'null', 'https://app.example']`, which allows exactly what
+  // `['*', 'null']` allowed while reading as though the third entry were doing
+  // something, and which the origin rules just above would have refused outright
+  // had anyone written it by hand: a wildcard token may only be paired with
+  // 'null'. The string `'*'` never merged, so this is the same disagreement
+  // between spellings the collapse further up exists to end.
+  //
+  // Only the tokens that cover everything. A subdomain pattern such as
+  // `*.example.com` matches some hosts and not others, so a credentialed origin
+  // beside one still needs merging in, which is the mistake this exists to fix.
+  const hasWildcardToken =
+    Array.isArray(cors.origin) &&
+    (cors.origin.includes('*') || hasProtocolWildcard(cors.origin));
+
+  if (
+    Array.isArray(cors.credentials) &&
+    Array.isArray(cors.origin) &&
+    !hasWildcardToken
+  ) {
     // Merge credentials origins into origin list to ensure they're allowed for CORS
     cors.origin = [...new Set([...cors.origin, ...cors.credentials])];
   } else if (

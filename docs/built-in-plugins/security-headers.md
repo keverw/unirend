@@ -137,7 +137,7 @@ Setting any other CORS field without an `origin` is refused at startup. With not
   - `string[]`: explicit allowlist (exact origins only by default). Subdomain wildcards (e.g., `"*.example.com"`) are permitted only when `credentialsAllowWildcardSubdomains: true`. Use a separate credentials list when your API should be broadly accessible (e.g., third‑party apps using bearer tokens) but only your first‑party apps (your domains) should receive cookies/auth headers.
   - `function`: per-request decision `(origin, request) => boolean | Promise<boolean)`
     - Not allowed with `origin: "*"`: combining a global origin wildcard with a dynamic credentials function is rejected for safety.
-  - Auto-merge behavior: When `credentials` is an array, its origins are automatically merged into `origin` (even if `origin` is a single string) so credentialed origins are always allowed for CORS.
+  - Auto-merge behavior: When `credentials` is an array, its origins are automatically merged into `origin` (even if `origin` is a single string) so credentialed origins are always allowed for CORS. Skipped when `origin` already carries a wildcard token (`"*"`, `"https://*"`, `"http://*"`), since those allow them already and a wildcard may only be paired with `"null"`.
   - Setting `credentials` without an `origin` is refused at startup, along with every other CORS field. With CORS off no browser ever attaches credentials, so the block would read as "these origins may send cookies" and allow nothing.
 
 - `methods` (default: `["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]`): Allowed HTTP methods
@@ -374,7 +374,8 @@ securityHeaders({
 
 - We only echo the `Access-Control-Allow-Origin` header with the request's Origin after it passes policy (list/wildcard/function). Otherwise we omit the `Access-Control-Allow-Origin` header.
 - We never combine `Access-Control-Allow-Origin: *` with `Access-Control-Allow-Credentials: true`. Configurations that attempt this are rejected.
-- If you configure `origin: "*"` and also provide a `credentials` allowlist (array), we automatically upgrade the configuration so that responses echo the specific allowed origin (not `*`) and can include `Access-Control-Allow-Credentials: true` for those origins. Wildcard `*` is never sent together with credentials.
+- `origin: "*"` alongside a `credentials` allowlist keeps both: any origin may read the response, and only the listed origins receive `Access-Control-Allow-Credentials: true`. The two lists stay separate, which is the point of having two. The literal `*` is only ever sent for a request that carried no `Origin` header, and that response never carries credentials, so the two never appear together.
+- `credentials: true` and a `credentials` function are both refused alongside `origin: "*"` (written either as `"*"` or `["*"]`), because each names an unbounded set of credentialed origins. Use a concrete allowlist instead.
 - We set `Vary: Origin` on CORS responses.
 - The literal `"null"` origin can be allowed for non-credential requests (if included explicitly) but never receives credentials, even when using a credentials function.
 - All origin/pattern entries are validated up-front (rejects PSL/IP tails, partial-label wildcards, URL-ish characters, and protocol/global wildcards where disallowed).

@@ -1627,7 +1627,9 @@ async function applyCORSActualResponseHeaders(
  *
  * @example
  * ```typescript
- * // Allow public API access but only credentials for trusted origins
+ * // Allow public API access but only credentials for trusted origins.
+ * // The two lists are independent: '*' decides who may read a response,
+ * // the credentials list decides who may do it with cookies attached.
  * securityHeaders({
  *   cors: {
  *     origin: "*", // Written out, never inherited: this is every origin

@@ -1397,7 +1397,11 @@ describe('securityHeaders', () => {
       );
     });
 
-    it("should upgrade origin '*' to credentials allowlist when credentials is an array", async () => {
+    it("keeps origin '*' and gives credentials only to the allowlist", async () => {
+      // The shape the two separate lists exist for: an API anyone may read,
+      // with cookies for first-party domains only. This used to replace the
+      // origin with the credentials list, which quietly turned it into an API
+      // nobody else may read, on a config whose plain reading says otherwise.
       const config: CORSConfig = {
         origin: '*',
         credentials: ['https://allow.com', 'https://also-allow.com'],
@@ -1412,7 +1416,9 @@ describe('securityHeaders', () => {
         .getHooks()
         .find((h) => h.event === 'onRequest');
 
-      // 1) Preflight with no Origin should NOT set '*' because origin was upgraded to array
+      // 1) No Origin at all still gets the literal wildcard. That response
+      //    never carries credentials, which is what keeps '*' and
+      //    Access-Control-Allow-Credentials from ever going out together.
       const noOriginPreflight = createMockRequest({
         method: 'OPTIONS',
         headers: {
@@ -1421,12 +1427,16 @@ describe('securityHeaders', () => {
       });
       const noOriginReply = createMockReply();
       await onRequestHook?.handler(noOriginPreflight, noOriginReply);
-      expect(noOriginReply.header).not.toHaveBeenCalledWith(
+      expect(noOriginReply.header).toHaveBeenCalledWith(
         'Access-Control-Allow-Origin',
         '*',
       );
+      expect(noOriginReply.header).not.toHaveBeenCalledWith(
+        'Access-Control-Allow-Credentials',
+        'true',
+      );
 
-      // 2) Actual request from allowlisted origin should set ACAO and credentials
+      // 2) An allowlisted origin gets the echoed origin and credentials.
       const allowedRequest = createMockRequest({
         headers: { origin: 'https://allow.com' },
       });
@@ -1440,6 +1450,49 @@ describe('securityHeaders', () => {
         'Access-Control-Allow-Credentials',
         'true',
       );
+
+      // 3) Anyone else may still read it, without credentials. This is the half
+      //    the rewrite used to remove.
+      const otherRequest = createMockRequest({
+        headers: { origin: 'https://third-party.example' },
+      });
+      const otherReply = createMockReply();
+      await onRequestHook?.handler(otherRequest, otherReply);
+      expect(otherReply.header).toHaveBeenCalledWith(
+        'Access-Control-Allow-Origin',
+        'https://third-party.example',
+      );
+      expect(otherReply.header).not.toHaveBeenCalledWith(
+        'Access-Control-Allow-Credentials',
+        'true',
+      );
+    });
+
+    it("refuses unbounded credentials with origin '*', in either spelling", () => {
+      // The pairing the CORS specification forbids, and the one this whole
+      // area is arranged to prevent: an unbounded set of credentialed origins
+      // beside a wildcard. `credentials: true` answers yes for everyone, and a
+      // credentials function answers for everyone it is asked about.
+      //
+      // Both spellings, because they did not always agree. Every rule here
+      // tests the string `'*'`, and the array form used to be collapsed to it
+      // only *after* they had all run, so `origin: ['*']` walked past the lot
+      // and shipped Access-Control-Allow-Origin echoing the caller together
+      // with Access-Control-Allow-Credentials: true. Any site could read an
+      // authenticated response with the user's cookies attached.
+      for (const origin of ['*', ['*']] as CORSConfig['origin'][]) {
+        const label = JSON.stringify(origin);
+
+        expect(
+          () => corsHeaders({ origin, credentials: true }),
+          `credentials: true with origin ${label}`,
+        ).toThrow(/Cannot use credentials: true with origin/);
+
+        expect(
+          () => corsHeaders({ origin, credentials: () => true }),
+          `credentials function with origin ${label}`,
+        ).toThrow(/cannot combine origin '\*' with dynamic credentials/);
+      }
     });
   });
 
@@ -2780,15 +2833,18 @@ describe('securityHeaders', () => {
   // -------------------------------------------------------------------------
 
   describe("origin: '*' + empty credentials array", () => {
-    it('throws when credentials is an empty array combined with origin: *', () => {
-      const config: CORSConfig = {
-        origin: '*',
-        credentials: [],
-      };
-
-      expect(() => corsHeaders(config)).toThrow(
-        "credentials list is empty; cannot combine origin '*' with credentials",
-      );
+    it('accepts an empty credentials array alongside origin: *', () => {
+      // An empty allowlist says "nobody gets credentials", which is what
+      // `credentials: false` says and is exactly what a wildcard origin should
+      // be paired with. It used to throw, because the origin was about to be
+      // replaced by this list and an empty one left nothing to replace it with.
+      // With the two lists kept separate there is nothing to object to, and a
+      // concrete origin list beside an empty credentials list has always been
+      // accepted, so this is the spelling agreeing with that one.
+      expect(() => corsHeaders({ origin: '*', credentials: [] })).not.toThrow();
+      expect(() =>
+        corsHeaders({ origin: ['*'], credentials: [] }),
+      ).not.toThrow();
     });
   });
 

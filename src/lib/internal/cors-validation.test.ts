@@ -244,14 +244,62 @@ describe('validateCORSPolicy', () => {
       ]);
     });
 
-    it("upgrades origin '*' to the credentials allowlist", () => {
-      const { normalized } = collectCORSIssues({
-        origin: '*',
-        credentials: ['https://example.com'],
-      });
+    it("leaves origin '*' alone beside a credentials allowlist", () => {
+      // The two lists are separate on purpose: a broadly readable API, with
+      // credentials for first-party origins only. Replacing the origin with the
+      // credentials list collapsed those into one and removed the first half.
+      for (const origin of ['*', ['*']]) {
+        const { normalized } = collectCORSIssues({
+          origin,
+          credentials: ['https://example.com'],
+        });
 
-      expect(normalized.origin).toEqual(['https://example.com']);
-      expect(normalized.credentials).toEqual(['https://example.com']);
+        expect(normalized.origin, JSON.stringify(origin)).toBe('*');
+        expect(normalized.credentials).toEqual(['https://example.com']);
+      }
+    });
+
+    it('collapses the array wildcard before any rule reads it', () => {
+      // `['*']` and `'*'` are one policy, and every relational rule tests the
+      // string. Collapsing afterwards let the array spelling past all of them,
+      // including the guard against pairing a wildcard with unbounded
+      // credentials.
+      expect(collectCORSIssues({ origin: ['*'] }).normalized.origin).toBe('*');
+
+      for (const origin of ['*', ['*']]) {
+        expect(
+          collectCORSIssues({ origin, credentials: true }).issues,
+          JSON.stringify(origin),
+        ).not.toEqual([]);
+      }
+    });
+
+    it('does not append a credentials list to a wildcard origin', () => {
+      // A wildcard token already allows them, and the origin rules refuse a
+      // wildcard paired with anything but 'null', so appending produced a
+      // normalized value nobody would have been allowed to write.
+      expect(
+        collectCORSIssues({
+          origin: ['*', 'null'],
+          credentials: ['https://example.com'],
+        }).normalized.origin,
+      ).toEqual(['*', 'null']);
+
+      expect(
+        collectCORSIssues({
+          origin: ['https://*'],
+          credentials: ['https://example.com'],
+        }).normalized.origin,
+      ).toEqual(['https://*']);
+
+      // A subdomain pattern is not a blanket wildcard, so a credentialed origin
+      // beside one still gets merged in, which is the mistake this exists for.
+      expect(
+        collectCORSIssues({
+          origin: ['*.example.com'],
+          credentials: ['https://app.example.com'],
+        }).normalized.origin,
+      ).toEqual(['*.example.com', 'https://app.example.com']);
     });
 
     it('fills in the defaults, with CORS off', () => {
