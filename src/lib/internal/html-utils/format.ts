@@ -992,8 +992,16 @@ export async function processTemplate(
 
     // Serialize first, then hash what came out. Anything that reformats the
     // document has already run by this point, so these hashes describe the
-    // bytes that ship. injectContent only replaces markers and rewrites the
-    // <html>/<body> attributes afterwards, so it cannot disturb them.
+    // bytes that ship.
+    //
+    // What injectContent does afterwards cannot disturb them. It merges the
+    // template's <meta> tags, replaces the markers, substitutes
+    // __CDN__INJECTION__POINT__, and rewrites the <html>/<body> attributes,
+    // none of which reaches an inline <script> or <style>. The placeholder is
+    // the one worth spelling out, since it is replaced across the whole
+    // document rather than at a known location: it is only ever written into a
+    // script[src] or a link[href], just above, and a script carrying a src has
+    // no inline content to hash.
     const processedHTML = prettifyHTML($, containerID);
 
     return {

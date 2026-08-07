@@ -137,11 +137,11 @@ Setting any other CORS field without an `origin` is refused at startup. With not
   - `string[]`: explicit allowlist (exact origins only by default). Subdomain wildcards (e.g., `"*.example.com"`) are permitted only when `credentialsAllowWildcardSubdomains: true`. Use a separate credentials list when your API should be broadly accessible (e.g., third‑party apps using bearer tokens) but only your first‑party apps (your domains) should receive cookies/auth headers.
   - `function`: per-request decision `(origin, request) => boolean | Promise<boolean)`
     - Not allowed with `origin: "*"`: combining a global origin wildcard with a dynamic credentials function is rejected for safety.
-  - Auto-merge behavior: When `credentials` is an array, its origins are automatically merged into `origin` (even if `origin` is a single string) so credentialed origins are always allowed for CORS. Skipped when `origin` already carries a wildcard token (`"*"`, `"https://*"`, `"http://*"`), since those allow them already and a wildcard may only be paired with `"null"`.
+  - Auto-merge behavior: When `credentials` is an array, its origins are automatically merged into `origin` (even if `origin` is a single string) so credentialed origins are always allowed for CORS. Skipped when `origin` is the string `"*"`, and when `origin` is an array carrying a wildcard token (`"*"`, `"https://*"`, `"http://*"`), since those allow them already and a wildcard may only be paired with `"null"`. A string protocol wildcard is the one spelling that still merges, so `origin: "https://*"` normalizes to a list holding both, which matches exactly what the bare wildcard already matched.
   - Setting `credentials` without an `origin` is refused at startup, along with every other CORS field. With CORS off no browser ever attaches credentials, so the block would read as "these origins may send cookies" and allow nothing.
 
 - `methods` (default: `["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]`): Allowed HTTP methods
-  - Preflight handling: On OPTIONS requests, the plugin responds with `Access-Control-Allow-Methods` built from the configured methods (normalized, deduped).
+  - Preflight handling: On OPTIONS requests, the plugin responds with `Access-Control-Allow-Methods` built from the configured methods, upper-cased. A repeat is not collapsed here, it is refused at startup, so what the configuration lists is what ships.
   - Every entry has to be a valid method name, checked at startup. See the note under `allowedHeaders` below: the list is written into the response header verbatim, so one malformed entry costs the whole header.
 - `allowedHeaders` (default: `["Content-Type", "Authorization", "X-Requested-With"]`): Allowed request headers
   - A concrete list is advertised in full on every preflight, whatever that preflight asked for. It describes the server rather than the request, so the answer does not vary and a shared preflight cache entry stays as wide as the policy it stands for. A header the list does not name is never echoed back.
@@ -368,7 +368,7 @@ securityHeaders({
   - `**.example.com` matches all subdomains including nested (`api.example.com` ✅, `app.api.example.com` ✅)
   - Protocol-specific: `https://*`, `https://*.example.com` for protocol-aware matching
 - **International Domains**: All domains normalized with punycode for safe Unicode/IDN handling
-- **Auto-Merging**: Credentials origins are automatically merged into the origin list to prevent configuration mistakes
+- **Auto-Merging**: Credentials origins are merged into the origin list to prevent configuration mistakes, except where `origin` is the string `"*"` or an array carrying a wildcard token, which allow them all along. See the note under `credentials` for the exact rule.
 - **Credentials Behavior**: The `credentials` option controls the `Access-Control-Allow-Credentials` header, which tells browsers whether to include cookies/auth headers in requests. When credentials are enabled, the browser automatically handles the `Cookie` header - you don't need to add "Cookie" to `allowedHeaders`. The client must still opt-in with `credentials: 'include'` in their fetch request.
 - **Response Headers**: CORS-safelisted response headers (`Cache-Control`, `Content-Language`, `Content-Length`, `Content-Type`, `Expires`, `Last-Modified`, `Pragma`) are always accessible to clients. Use `exposedHeaders` to expose additional response headers like `X-Total-Count` or `Authorization`.
 - **Protocol Wildcards + Credentials**: Using `credentials: true` with protocol wildcard origins (e.g., `"https://*"`) is blocked by default, set `allowCredentialsWithProtocolWildcard: true` to opt-in deliberately.
@@ -1147,12 +1147,14 @@ fetch('https://api.myapp.com/data', {
   },
 });
 
-// Header reflection with fallback
+// Header reflection
 securityHeaders({
   cors: {
     origin: '*',
     allowedHeaders: ['*'], // Reflects Access-Control-Request-Headers
-    // If no headers requested, falls back to configured list (minus '*')
+    // A preflight that requested no headers gets no Access-Control-Allow-Headers
+    // at all. There is nothing to reflect, and "*" may not be combined with named
+    // headers, so there is no configured list left to fall back to either.
     // Reflection caps: at most 100 header names are reflected; names longer than 256 chars are ignored
   },
 });
