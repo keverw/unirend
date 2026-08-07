@@ -23,7 +23,7 @@
 
 import type { FastifyRequest } from 'fastify';
 import { validateConfigEntry } from 'lifecycleion/domain-utils';
-import { describeValue, isPlainObject } from './csp-policy';
+import { describeValue, isPlainObject, mergeOverDefaults } from './csp-policy';
 import type { SecurityHeadersPolicyIssue } from './security-headers-validation';
 
 /**
@@ -503,7 +503,15 @@ export function collectCORSIssues(input: unknown): {
   //   - Never allow credentials for the literal 'null' origin
   //   - Disallow global/protocol wildcards in credentials allowlists
   //   - Allow subdomain wildcards in credentials only when credentialsAllowWildcardSubdomains: true
-  const cors: ResolvedCORSConfig = { ...DEFAULT_CORS_CONFIG, ...(input ?? {}) };
+  // Merged rather than spread, so a field written as `undefined` inherits its
+  // default instead of deleting it. A key that is not a default still comes
+  // through undefined and all, which is what keeps `collectShapeIssues` able to
+  // name a misspelling whose value happened to be undefined.
+  const cors: ResolvedCORSConfig = mergeOverDefaults(
+    DEFAULT_CORS_CONFIG,
+    input,
+  );
+
   const issues = collectShapeIssues(cors);
 
   // The rules below all read origin or credentials, so a bad one of either

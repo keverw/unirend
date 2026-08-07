@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'bun:test';
 import fastify from 'fastify';
-import { collectCORSIssues, validateCORSPolicy } from './cors-validation';
+import {
+  collectCORSIssues,
+  validateCORSPolicy,
+  DEFAULT_CORS_CONFIG,
+} from './cors-validation';
 import type { CORSConfig } from './cors-validation';
 import { securityHeaders } from '../built-in-plugins/security-headers';
 import type {
@@ -251,6 +255,50 @@ describe('validateCORSPolicy', () => {
       expect(normalized.origin).toBe('*');
       expect(normalized.credentials).toBe(false);
       expect(normalized.maxAge).toBe(86400);
+    });
+
+    it('fills in a default for a field written as undefined', () => {
+      // A key set to undefined reads as "not set" everywhere the config is
+      // examined, so it has to mean that here too. Spread straight over the
+      // defaults it meant the opposite: the key was copied and the default was
+      // deleted, leaving fields the request path dereferences holding nothing.
+      // `exposedHeaders: cfg.exposed` type-checks against an optional field and
+      // is exactly how a config gets assembled from optional values.
+      const optional: string[] | undefined = undefined;
+
+      const { issues, normalized } = collectCORSIssues({
+        origin: ['https://app.example.com'],
+        methods: optional,
+        allowedHeaders: optional,
+        exposedHeaders: optional,
+        maxAge: undefined,
+      });
+
+      expect(issues).toEqual([]);
+      expect(normalized.methods).toEqual(DEFAULT_CORS_CONFIG.methods);
+      expect(normalized.origin).toEqual(['https://app.example.com']);
+      expect(normalized.allowedHeaders).toEqual(
+        DEFAULT_CORS_CONFIG.allowedHeaders,
+      );
+      expect(normalized.exposedHeaders).toEqual([]);
+      expect(normalized.maxAge).toBe(86400);
+    });
+
+    it('still names a misspelled key whose value is undefined', () => {
+      // The other half of the rule above, and the reason inheriting is keyed on
+      // "is there a default here" rather than on the value alone. `undefined`
+      // means "inherit", and an unknown key has nothing to inherit, so dropping
+      // it would not preserve anything. It would only delete the evidence, and
+      // this is the exact shape a typo takes when a config is assembled from
+      // optional values: `originList: process.env.CORS_ORIGINS?.split(',')` with the
+      // variable unset would start clean on the default origin, with nothing
+      // saying the key was never read.
+      expect(paths({ origin: '*', originList: undefined })).toEqual([
+        'originList',
+      ]);
+      expect(paths({ origin: '*', originList: ['https://a.example'] })).toEqual(
+        ['originList'],
+      );
     });
   });
 

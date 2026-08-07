@@ -43,11 +43,13 @@ import {
   collectReportingEndpointsIssues,
   collectReportingIssues,
   isReportingGroupUndefined,
+  freezeBaseline,
   serializePermissionsPolicy,
   serializeReportingEndpoints,
   unknownPolicyKeys,
   SECURITY_HEADERS_POLICY_KEYS,
   type HSTSConfig,
+  type SecurityHeadersBaseline,
   type SecurityHeadersPolicyInput,
   type SecurityHeadersPolicyIssue,
   type ReferrerPolicyToken,
@@ -86,6 +88,7 @@ export type {
  */
 export type {
   HSTSConfig,
+  SecurityHeadersBaseline,
   ReferrerPolicyToken,
   PermissionsPolicyConfig,
   CrossOriginOpenerPolicy,
@@ -129,10 +132,42 @@ export type SecurityHeadersOverride = SecurityHeadersPolicyInput;
  * defaults include the baseline HSTS, and a store miss returning `undefined`
  * has not established that this domain is one to bind for a year.
  *
+ * `baseline` is the configured policy, which is what an omitted block inherits.
+ * It is there so "the defaults, with one field different" can be written as
+ * what it is:
+ *
+ * ```ts
+ * resolve: async (request, baseline) => {
+ *   const tenant = await lookupTenant(request.domainInfo.hostname);
+ *   if (!tenant?.isCustomDomain) return null;
+ *
+ *   return { hsts: { ...baseline.hsts, maxAge: 86400 } };
+ * }
+ * ```
+ *
+ * Merging stays the caller's to write, which is the whole point of handing this
+ * over rather than merging blocks automatically. A block you return replaces
+ * the baseline's outright, so what you kept is visible at the call site instead
+ * of being inferred from what you left out. An automatic merge would make
+ * `hsts: { maxAge: 86400 }` quietly keep the baseline's `includeSubDomains`,
+ * which on a customer's domain is the exact combination `resolve` exists to
+ * avoid.
+ *
+ * It is the policy **as configured**, not as expanded: a `csp.preset` is still
+ * a `preset` here rather than the directives it stands for. That is what lets
+ * `{ csp: { ...baseline.csp, scriptSrc: [...] } }` work, since the preset rides
+ * along and is expanded again on the way back with your directives winning. It
+ * also keeps a preset's directives from being baked into a tenant's stored
+ * policy, where they would stop tracking the preset.
+ *
+ * Deeply frozen, so it is safe to hold on to and cannot be edited in place.
+ * Build a new object and return that.
+ *
  * May be async, since the lookup this exists for is usually a store hit.
  */
 export type SecurityHeadersResolver = (
   request: FastifyRequest,
+  baseline: SecurityHeadersBaseline,
 ) => SecurityHeadersOverride | null | Promise<SecurityHeadersOverride | null>;
 
 /**
@@ -410,6 +445,21 @@ export interface SecurityHeadersConfig {
    *
    * Each returned block replaces the default outright rather than merging into
    * it, so `hsts: { maxAge: 86400 }` sends exactly that and nothing else.
+   *
+   * The second argument is the configured policy, deeply frozen, for the common
+   * case of wanting the baseline with one field changed. Keeping a merge
+   * explicit is the point: what you kept is visible where you wrote it rather
+   * than inferred from what you left out.
+   *
+   * ```ts
+   * resolve: async (request, baseline) => {
+   *   const tenant = await lookupTenant(request.domainInfo.hostname);
+   *   if (!tenant?.isCustomDomain) return null;
+   *
+   *   // Same policy, shorter max-age, and no preload on a domain we do not own.
+   *   return { hsts: { ...baseline.hsts, maxAge: 86400, preload: false } };
+   * },
+   * ```
    *
    * The result is validated per request with the same rules as the defaults, so
    * a resolver cannot produce a policy the config would have rejected.
@@ -1118,13 +1168,17 @@ async function resolveEffectiveConfig(
   serializePolicy: (csp: CSPConfig) => false | CompiledCSP,
   ownDomains: string[] | undefined,
   /**
-   * The single-value headers as *configured*, not as serialized.
+   * The configured policy, deeply frozen. Handed to the resolver, and read here
+   * for the fields an override inherits.
    *
-   * An override inherits per field, so the merge needs the values the caller
-   * wrote rather than the strings they turned into. Reading them back off
-   * `baseConfig.simple` would mean parsing a header to decide what to inherit.
+   * One value for both jobs rather than a separate copy for each. The merge
+   * needs the single-value headers as the caller *wrote* them rather than as
+   * the strings they turned into, since reading them back off
+   * `baseConfig.simple` would mean parsing a header to decide what to inherit,
+   * and that is exactly what the baseline already holds. Two parameters would
+   * be two things that must agree and eventually would not.
    */
-  baseSimplePolicy: SecurityHeadersPolicyInput,
+  baseline: SecurityHeadersBaseline,
 ): Promise<ResolvedSecurityHeadersConfig> {
   if (!resolve) {
     return baseConfig;
@@ -1192,7 +1246,7 @@ async function resolveEffectiveConfig(
     ? baseConfig
     : { ...baseConfig, hsts: false };
 
-  const override = await resolve(request);
+  const override = await resolve(request, baseline);
 
   // `null` is the documented way to say "the defaults are fine", and it is the
   // only one. Matched exactly rather than read as truthy, the same rule the
@@ -1306,27 +1360,23 @@ async function resolveEffectiveConfig(
 
   const simplePolicy: SecurityHeadersPolicyInput = {
     contentTypeOptions:
-      override.contentTypeOptions ?? baseSimplePolicy.contentTypeOptions,
-    referrerPolicy: override.referrerPolicy ?? baseSimplePolicy.referrerPolicy,
-    permissionsPolicy:
-      override.permissionsPolicy ?? baseSimplePolicy.permissionsPolicy,
+      override.contentTypeOptions ?? baseline.contentTypeOptions,
+    referrerPolicy: override.referrerPolicy ?? baseline.referrerPolicy,
+    permissionsPolicy: override.permissionsPolicy ?? baseline.permissionsPolicy,
     crossOriginOpenerPolicy:
-      override.crossOriginOpenerPolicy ??
-      baseSimplePolicy.crossOriginOpenerPolicy,
+      override.crossOriginOpenerPolicy ?? baseline.crossOriginOpenerPolicy,
     crossOriginResourcePolicy:
-      override.crossOriginResourcePolicy ??
-      baseSimplePolicy.crossOriginResourcePolicy,
+      override.crossOriginResourcePolicy ?? baseline.crossOriginResourcePolicy,
     crossOriginOpenerPolicyReportOnly:
       override.crossOriginOpenerPolicyReportOnly ??
-      baseSimplePolicy.crossOriginOpenerPolicyReportOnly,
+      baseline.crossOriginOpenerPolicyReportOnly,
     crossOriginEmbedderPolicy:
-      override.crossOriginEmbedderPolicy ??
-      baseSimplePolicy.crossOriginEmbedderPolicy,
+      override.crossOriginEmbedderPolicy ?? baseline.crossOriginEmbedderPolicy,
     crossOriginEmbedderPolicyReportOnly:
       override.crossOriginEmbedderPolicyReportOnly ??
-      baseSimplePolicy.crossOriginEmbedderPolicyReportOnly,
+      baseline.crossOriginEmbedderPolicyReportOnly,
     reportingEndpoints:
-      override.reportingEndpoints ?? baseSimplePolicy.reportingEndpoints,
+      override.reportingEndpoints ?? baseline.reportingEndpoints,
   };
 
   const effective: ResolvedSecurityHeadersConfig = {
@@ -1790,6 +1840,27 @@ export function securityHeaders(
     throw new Error(firstReportingIssue.message);
   }
 
+  // What a resolver is handed, and what an omitted block inherits.
+  //
+  // Built here, after every block above has been validated, so a resolver can
+  // never be given a policy the config itself would have refused. Built once,
+  // because it cannot change between requests, and a resolver runs on every one.
+  //
+  // The CSP goes in as configured rather than as expanded, which is the one
+  // choice worth stating. `{ csp: { ...baseline.csp, scriptSrc: [...] } }` is
+  // the reason: the preset rides along and is expanded again on the way back,
+  // with the caller's directives winning, exactly as the configured policy is
+  // treated. Handing over the expanded form instead would bake a preset's
+  // directives into whatever the resolver returns and, for a resolver that
+  // stores what it built, into a tenant's saved policy, where they would quietly
+  // stop tracking the preset they came from.
+  const baselinePolicy = freezeBaseline({
+    csp: config.csp,
+    hsts: config.hsts,
+    frameOptions: config.frameOptions,
+    ...baseSimplePolicy,
+  });
+
   // One message per distinct finding, rather than per request. In production
   // these come from a template hashed once at startup, so the set of them is
   // fixed for the life of the app and repeating per request would say nothing
@@ -1921,7 +1992,7 @@ export function securityHeaders(
         // into it later.
         (csp) => compileCSP(applyCSPPreset(csp)),
         ownDomains,
-        baseSimplePolicy,
+        baselinePolicy,
       ),
   };
 

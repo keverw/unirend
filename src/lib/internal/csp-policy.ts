@@ -309,7 +309,20 @@ export function applyCSPPreset(config: CSPConfig): CSPConfig {
   // Per-directive replacement rather than a deep merge, for the same reason the
   // per-tenant override replaces blocks: a merge would let a preset contribute
   // sources to a directive the caller thought they had written out in full.
-  return { ...preset, ...config };
+  //
+  // Replacement covers directives the caller *set*, which is why this merges
+  // rather than spreading. A directive written as `undefined` is one they did
+  // not set, and spread raw it deleted the preset's instead: `preset: 'strict'`
+  // alongside `objectSrc: someOptionalList` served a policy with no `object-src`
+  // and no `frame-ancestors` when that list happened to be undefined, weakening
+  // the preset with nothing anywhere reporting it. An empty array is still how
+  // you drop a preset's directive on purpose.
+  //
+  // A key the preset does not define still comes through even when it is
+  // undefined, which is what keeps a misspelled directive reportable: this runs
+  // before validation, so anything dropped here is dropped before the check
+  // that would have named it.
+  return mergeOverDefaults(preset, config);
 }
 
 /**
@@ -686,6 +699,67 @@ export function isPlainObject(
   value: unknown,
 ): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Layer a caller's block over a set of defaults, without letting an
+ * explicitly-`undefined` value delete one.
+ *
+ * The distinction this erases is one JavaScript makes and nobody means. An
+ * absent key and a key set to `undefined` read identically at every use site,
+ * because `config.objectSrc` is `undefined` either way, and every check in this
+ * module treats that as "not set". A spread is the one place they behave
+ * differently: `{ ...defaults, ...config }` copies the key, so the default is
+ * replaced by nothing at all.
+ *
+ * That is not a hypothetical shape. `objectSrc: flags.strictObjects ? [...] :
+ * undefined` type-checks against an optional field, and reads as "set it or
+ * leave it alone". Spread straight over a preset it meant "delete the preset's
+ * `object-src 'none'`", silently, on a policy whose whole point was that
+ * directive. The CORS block had the same hole with worse consequences, since
+ * the defaults it deleted are ones the request path dereferences.
+ *
+ * **Only where there is a default to keep**, which is the whole reason this
+ * takes the defaults rather than just filtering the overrides. `undefined`
+ * means "inherit", and a key nobody has a default for has nothing to inherit,
+ * so dropping it there would not preserve anything: it would just delete the
+ * evidence. Every caller finds a misspelled key by looking at what keys came
+ * out of here, so `originList: process.env.CORS_ORIGINS?.split(',')` with the
+ * variable unset would stop being reported as a typo and quietly leave the
+ * default origin in force. A key that is not a default therefore passes
+ * straight through, `undefined` value and all, and the unknown-key check
+ * downstream still sees it.
+ *
+ * Inheriting is deliberately not an error in its own right. Refusing a value
+ * that says exactly what an absent key says would make two spellings of the
+ * same intent diverge over which one happened to pass through a spread. Where
+ * a caller genuinely wants a preset's directive *gone* rather than inherited,
+ * an empty array is the way to say so: it serializes to nothing, and a browser
+ * falls through it to the fallback.
+ */
+export function mergeOverDefaults<Defaults extends object>(
+  defaults: Defaults,
+  overrides: unknown,
+): Defaults {
+  // Anything that is not a block leaves the defaults as they are rather than
+  // throwing. The callers here hand the original to a validator that describes
+  // what is wrong with it, so failing at this step would replace a sentence a
+  // caller can act on with a TypeError about Object.entries.
+  if (!isPlainObject(overrides)) {
+    return { ...defaults };
+  }
+
+  const merged = { ...defaults } as Record<string, unknown>;
+
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined && Object.hasOwn(merged, key)) {
+      continue;
+    }
+
+    merged[key] = value;
+  }
+
+  return merged as Defaults;
 }
 
 /**

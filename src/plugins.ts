@@ -13,6 +13,13 @@ export {
   type CORSConfig,
   type CORSOrigin,
   type HSTSConfig,
+  // The resolver's own types, so a resolver written as a named function rather
+  // than inline in the config can be annotated without reaching into internals.
+  // `SecurityHeadersBaseline` is what it receives, `SecurityHeadersOverride`
+  // what it returns.
+  type SecurityHeadersResolver,
+  type SecurityHeadersOverride,
+  type SecurityHeadersBaseline,
   securityHeaders,
 } from './lib/built-in-plugins/security-headers';
 

@@ -723,6 +723,60 @@ describe('presets', () => {
     expect(expanded.defaultSrc).toEqual(["'self'"]);
   });
 
+  it('inherits a preset directive written as undefined', () => {
+    // An absent key and a key set to undefined say the same thing everywhere
+    // else, because both read back as undefined. Spread is the one place they
+    // differed: the key was copied, so the preset's directive was replaced by
+    // nothing at all. `objectSrc: flags.strict ? [...] : undefined` type-checks
+    // against an optional field and reads as "set it or leave it alone", and it
+    // silently deleted `object-src 'none'` and `frame-ancestors 'none'` from a
+    // policy whose entire point was those directives.
+    const optional: string[] | undefined = undefined;
+
+    const expanded = applyCSPPreset({
+      preset: 'strict',
+      objectSrc: optional,
+      frameAncestors: optional,
+    });
+
+    expect(expanded.objectSrc).toEqual(["'none'"]);
+    expect(expanded.frameAncestors).toEqual(["'none'"]);
+
+    const serialized = serializeCSP(expanded);
+
+    expect(serialized).toContain("object-src 'none'");
+    expect(serialized).toContain("frame-ancestors 'none'");
+  });
+
+  it('still reports a misspelled directive written as undefined', () => {
+    // Inheriting is keyed on "does the preset define this", not on the value
+    // alone. A misspelled directive is not something the preset defines, so it
+    // has nothing to inherit and survives expansion, which is what leaves
+    // validation able to name it. Dropping it here would delete the evidence,
+    // and expansion runs before validation, so nothing downstream would ever
+    // see it. Worth pinning because the same typo is caught without a preset,
+    // and an inconsistency between the two is exactly what nobody would guess.
+    const expanded = applyCSPPreset({
+      preset: 'strict',
+      scriptSource: undefined,
+    } as unknown as CSPConfig);
+
+    expect(Object.keys(expanded)).toContain('scriptSource');
+    expect(() => validateCSPConfig(expanded)).toThrow(
+      /csp\.scriptSource is not a CSP option/,
+    );
+  });
+
+  it('drops a preset directive when asked with an empty array', () => {
+    // The deliberate way to say "not this one", as distinct from the undefined
+    // above which means "leave it alone". An empty list serializes to nothing,
+    // so the browser falls through to the fallback.
+    const expanded = applyCSPPreset({ preset: 'strict', frameAncestors: [] });
+
+    expect(expanded.frameAncestors).toEqual([]);
+    expect(serializeCSP(expanded)).not.toContain('frame-ancestors');
+  });
+
   it('passes a config with no preset through unchanged', () => {
     const config: CSPConfig = { defaultSrc: ["'self'"] };
 

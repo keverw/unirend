@@ -963,31 +963,96 @@ export const SECURITY_HEADERS_POLICY_KEYS: readonly string[] =
   Object.keys(POLICY_KEYS);
 
 /**
- * What the policy is layered on top of, for the checks that span both.
+ * What a policy is layered on top of.
  *
- * Needed because each block replaces rather than merges, so an override that
- * omits a block inherits the baseline's. Judging the override alone would miss
- * a combination assembled from two halves that are each fine on their own. That
- * is reachable in the running server, so a validator blind to it would bless a
- * policy the request path then rejects, which is the one outcome this function
- * exists to prevent.
+ * The same type a policy *is*, which is the point rather than a shortcut. An
+ * override and the thing it overrides are the same kind of object, so a
+ * resolver receives the shape it returns and a validator is told the baseline
+ * in the shape it validates. One notion of "policy" everywhere it is needed.
+ *
+ * It used to be a narrower interface listing only the fields the cross-checks
+ * read. That was true of the validator and false of the plugin, which hands a
+ * resolver the whole baseline to build an override from, so the two would have
+ * had a `baseline` each and different ideas of what one contains. Widening it
+ * costs nothing: every field is optional, so anything that satisfied the old
+ * interface satisfies this.
+ *
+ * Why a baseline is needed at all: each block replaces rather than merges, so
+ * an override that omits a block inherits this one's. Judging the override
+ * alone would miss a combination assembled from two halves that are each fine
+ * on their own, which is reachable in the running server, so a validator blind
+ * to it would bless a policy the request path then rejects.
  */
-export interface SecurityHeadersPolicyBaseline {
-  csp?: false | CSPConfig;
-  frameOptions?: false | 'DENY' | 'SAMEORIGIN';
-  reportingEndpoints?: false | ReportingEndpointsConfig;
-  /**
-   * The cross-origin policies, which take part in the reporting cross-check
-   * through their `report-to` parameter exactly as `csp.reportTo` does. Present
-   * here for the same reason the other blocks are: an override that omits one
-   * inherits the baseline's, so judging the override alone would miss a pair
-   * assembled from both.
-   */
-  crossOriginOpenerPolicy?: false | CrossOriginOpenerPolicySetting;
-  crossOriginOpenerPolicyReportOnly?: false | CrossOriginOpenerPolicySetting;
-  crossOriginEmbedderPolicy?: false | CrossOriginEmbedderPolicySetting;
-  crossOriginEmbedderPolicyReportOnly?:
-    false | CrossOriginEmbedderPolicySetting;
+export type SecurityHeadersPolicyBaseline = SecurityHeadersPolicyInput;
+
+/**
+ * The baseline as a `resolve` callback sees it: the configured policy, readable
+ * and not writable.
+ *
+ * `readonly` here is the compile-time half of a guarantee the runtime also
+ * enforces, since the plugin deep-freezes what it hands over. Both halves are
+ * worth having and neither is sufficient alone. The type stops the ordinary
+ * mistake, `baseline.hsts = ...` in a resolver that meant to build an override,
+ * and it does so where the author is looking. The freeze covers what a shallow
+ * `readonly` cannot reach, `baseline.csp.scriptSrc.push(...)`, and it covers
+ * JavaScript callers and anything arriving through a cast.
+ *
+ * Shallow rather than a hand-rolled deep-readonly mapped type, deliberately. A
+ * deep one would have to reach into `CSPConfig`'s `string[]` directives and
+ * `PermissionsPolicyConfig`, and those same types are what a resolver *returns*,
+ * where mutability is correct and expected. Paying for that in every error
+ * message to restate a rule the freeze already enforces is a poor trade.
+ */
+export type SecurityHeadersBaseline = Readonly<SecurityHeadersPolicyInput>;
+
+/**
+ * A detached, deeply frozen copy of a policy, for handing to a `resolve`
+ * callback.
+ *
+ * Copied rather than frozen in place, which matters more than it looks. The
+ * object reaching here is the caller's own config, and freezing that would
+ * reach back out of this module and change an object they still hold: a server
+ * built from a config the application also mutates elsewhere would start
+ * failing in a place with no visible connection to `securityHeaders`. A copy
+ * makes the freeze this module's business and nobody else's.
+ *
+ * Run once at registration rather than per request. A resolver fires on every
+ * request, and cloning a policy each time to hand back something read-only
+ * would be real work on the hot path for a value that cannot change between
+ * requests.
+ *
+ * A hand-written walk rather than `structuredClone` because the failure modes
+ * differ. This copies plain data and passes everything else through untouched,
+ * where `structuredClone` throws a `DataCloneError` naming nothing useful. In
+ * practice every block is validated as plain data before it gets here, so the
+ * distinction should never come up, and "should never" is the wrong thing to
+ * put a throw behind at server startup.
+ */
+export function freezeBaseline(
+  policy: SecurityHeadersPolicyInput,
+): SecurityHeadersBaseline {
+  return cloneAndFreeze(policy);
+}
+
+function cloneAndFreeze<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return Object.freeze(value.map(cloneAndFreeze)) as unknown as T;
+  }
+
+  // `isPlainObject` already excludes null and arrays, so what reaches the body
+  // is an object worth walking.
+  if (isPlainObject(value)) {
+    return Object.freeze(
+      Object.fromEntries(
+        Object.entries(value).map(([key, entry]) => [
+          key,
+          cloneAndFreeze(entry),
+        ]),
+      ),
+    ) as T;
+  }
+
+  return value;
 }
 
 /** Every key an HSTS block may carry, for reporting a misspelled one. */

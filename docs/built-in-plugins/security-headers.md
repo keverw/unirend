@@ -8,13 +8,19 @@
 - [Configuration](#configuration)
   - [`cors`](#cors)
   - [Non-Negotiated Headers](#non-negotiated-headers)
+  - [Everything Is Opt-In, Including the Obvious Ones](#everything-is-opt-in-including-the-obvious-ones)
+  - [Rehearsing COOP and COEP](#rehearsing-coop-and-coep)
 - [Advanced Features](#advanced-features)
 - [Security Notes](#security-notes)
   - [Security Model (at a Glance)](#security-model-at-a-glance)
 - [Content-Security-Policy](#content-security-policy)
+  - [Violation Reporting Needs Both Halves](#violation-reporting-needs-both-halves)
   - [Roll It Out With `reportOnly`](#roll-it-out-with-reportonly)
   - [What Unirend Contributes Automatically](#what-unirend-contributes-automatically)
   - [Your Own Inline Content Is Hashed Too](#your-own-inline-content-is-hashed-too)
+  - [Prerendered Sites (SSG)](#prerendered-sites-ssg)
+  - [Trusted Types](#trusted-types)
+  - [`data:` in a Script Directive Is Refused](#data-in-a-script-directive-is-refused)
   - [Third-Party Widgets and `'strict-dynamic'`](#third-party-widgets-and-strict-dynamic)
   - [`frameAncestors` and `frameOptions` Together](#frameancestors-and-frameoptions-together)
   - [Inline Attributes Take More Than a Hash](#inline-attributes-take-more-than-a-hash)
@@ -22,6 +28,7 @@
   - [Presets](#presets)
   - [Config-Time Validation](#config-time-validation)
 - [Per-Request Policy With `resolve`](#per-request-policy-with-resolve)
+  - [Building an Override From the Baseline](#building-an-override-from-the-baseline)
   - [When `resolve` Throws](#when-resolve-throws)
   - [Throwing on Purpose](#throwing-on-purpose)
   - [Keeping HSTS for Hosts You Own](#keeping-hsts-for-hosts-you-own)
@@ -649,6 +656,17 @@ csp: {
 
 Directives you set **replace** the preset's for that directive rather than adding to it. Writing `imgSrc` means your `imgSrc`, not the preset's plus yours, so a preset can never quietly widen something you narrowed.
 
+A directive you set to `undefined` counts as one you did not set, so it inherits the preset's. That matters when a policy is assembled from optional values, which is the normal shape once a CDN host or a feature flag is involved:
+
+```typescript
+csp: {
+  preset: 'strict',
+  imgSrc: cdnHost ? ["'self'", cdnHost] : undefined, // no CDN: keep the preset's
+}
+```
+
+To drop a preset's directive on purpose, write an empty array. `frameAncestors: []` emits no `frame-ancestors` at all, and the browser falls through to whatever backs it up.
+
 Two directives in these presets are worth knowing about because their value is not obvious. `object-src 'none'` shuts off `<object>` and `<embed>`, a legacy plugin surface with no modern use. `base-uri 'self'` stops an injected `<base href>` from redirecting every relative URL on the page, which is a quiet way around an otherwise tight `script-src`.
 
 ### Config-Time Validation
@@ -697,17 +715,56 @@ securityHeaders({
 });
 ```
 
-`resolve` may be async, and is called at most once per request. It can override `csp`, `hsts`, and `frameOptions`. CORS is deliberately not overridable here: `cors.origin` and `cors.credentials` already take request-aware functions, and a second mechanism would mean two places to look when an origin decision surprises you.
+`resolve` may be async, and is called at most once per request. It can override every policy field: `csp`, `hsts`, `frameOptions`, `contentTypeOptions`, `referrerPolicy`, `permissionsPolicy`, the four cross-origin policies, and `reportingEndpoints`. CORS is deliberately not overridable here: `cors.origin` and `cors.credentials` already take request-aware functions, and a second mechanism would mean two places to look when an origin decision surprises you.
 
 **Each block replaces the default outright rather than merging into it.** `hsts: { maxAge: 86400 }` sends exactly that, with no inherited `includeSubDomains`. A partial merge would quietly keep the baseline's flags, which is the exact combination an override is written to avoid.
 
 The returned policy is validated with the same rules as the defaults, so a resolver cannot produce something the config would have rejected.
 
+### Building an Override From the Baseline
+
+Replacement is the right default, and it makes "the baseline with one field changed" tedious to write. The second argument is the configured policy, so you can spread what you want to keep:
+
+```typescript
+securityHeaders({
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+
+  resolve: async (request, baseline) => {
+    const tenant = await lookupTenant(request.domainInfo.hostname);
+
+    if (!tenant?.isCustomDomain) {
+      return null;
+    }
+
+    // Keep includeSubDomains, shorten the max-age, drop preload.
+    return { hsts: { ...baseline.hsts, maxAge: 86400, preload: false } };
+  },
+});
+```
+
+The merge stays yours to write, which is the point. What you kept is visible where you wrote it instead of being inferred from what you left out, so the automatic-merge failure mode never comes back: nothing is inherited into a block unless you put it there.
+
+`baseline` is the same shape a resolver returns, so a helper that takes one and produces the other needs no separate type. It is also what an omitted block inherits, which makes it the honest answer to "what am I overriding".
+
+**It is the policy as configured, not as expanded.** A `csp.preset` is still a `preset` here rather than the directives it stands for, which is what lets this work:
+
+```typescript
+resolve: async (request, baseline) => {
+  const tenant = await lookupTenant(request.domainInfo.hostname);
+
+  return { csp: { ...baseline.csp, scriptSrc: ["'self'", tenant.cdn] } };
+},
+```
+
+The preset rides along and is expanded again on the way back, with your `scriptSrc` winning and the rest of the preset intact. If the baseline arrived pre-expanded, a resolver that stores what it built would bake a snapshot of the preset's directives into a tenant's saved policy, where they would quietly stop tracking the preset they came from.
+
+**It is deeply frozen.** Editing it in place throws rather than leaking into every later request, since it is one object shared by all of them. Build a new object and return that. The freeze is on a copy, so your own config object stays writable.
+
 It is called at most once per request, and not at all when [`domainValidation`](domainValidation.md) has refused the host. There is nothing to decide there: `resolve` picks a policy for a tenant, a refused host has none, and the 403 is unirend's own response rather than tenant content, so the configured defaults dress it. That also stops a `Host` header naming a domain that does not exist from costing you a store lookup per request, on requests refused before any of your own rate limiting saw them.
 
 **Return `null` for "no override", and `null` specifically.** Anything else that is not a policy object is treated as a resolver that failed to answer, and fails the request the same way a throw does. That matters because the defaults include the baseline HSTS, which is written for domains you own: a store miss handing back `undefined` or `''` has not established that this request's domain is one to bind for a year, so it is not read as consent to the baseline.
 
-**A key that is not `csp`, `hsts`, or `frameOptions` fails the request too.** TypeScript rules that out for a typed resolver, which is exactly why there is a runtime check: the resolvers that need it are the ones reading a policy out of a JSON column or an admin form. A misspelling is the one mistake that would otherwise produce a perfectly valid policy, because the unknown key is dropped, which leaves the block absent, and an absent block inherits the baseline, which is what a correct resolver does. So `frameOption: false` would silently send the baseline's framing policy, and `hst: { maxAge: 86400 }` would silently send the baseline's year-long HSTS on a customer's domain, which is the single outcome `resolve` exists to prevent. Check a stored policy with [`validateSecurityHeadersPolicy`](#validating-a-policy-before-you-store-it) when you save it, so this surfaces in the form rather than on the tenant's next request.
+**A key that is not a policy field fails the request too.** TypeScript rules that out for a typed resolver, which is exactly why there is a runtime check: the resolvers that need it are the ones reading a policy out of a JSON column or an admin form. A misspelling is the one mistake that would otherwise produce a perfectly valid policy, because the unknown key is dropped, which leaves the block absent, and an absent block inherits the baseline, which is what a correct resolver does. So `frameOption: false` would silently send the baseline's framing policy, and `hst: { maxAge: 86400 }` would silently send the baseline's year-long HSTS on a customer's domain, which is the single outcome `resolve` exists to prevent. Check a stored policy with [`validateSecurityHeadersPolicy`](#validating-a-policy-before-you-store-it) when you save it, so this surfaces in the form rather than on the tenant's next request.
 
 ### When `resolve` Throws
 
@@ -863,6 +920,8 @@ Once it passes, `result.policy` is that same object with a type on it. Store tha
 > `null` is reported rather than read as "not set", which matters if a JSON column or a form serializer produces it for an empty field. The two readings are opposite answers: inherit the baseline, or send no header at all. Write `false` for the second and omit the key for the first.
 
 Pass `baseline` whenever the policy is an override rather than a complete config. Blocks replace rather than merge, so an override that sets only `csp` inherits `frameOptions` from the baseline, and the two can conflict even when each is fine on its own. Without the baseline that combination validates cleanly here and is then rejected at request time, which defeats the point of checking early.
+
+The baseline is the same shape as the policy itself, and the same one [`resolve`](#building-an-override-from-the-baseline) receives, so the value a resolver was handed can be passed straight here. One notion of "the policy this layers over", wherever it is needed.
 
 Give it every field the cross-checks read, not just the two in the example above. There are two pairs, and each can be assembled from one half of the override and one half of the baseline:
 

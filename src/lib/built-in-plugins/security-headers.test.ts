@@ -2,7 +2,13 @@ import { describe, it, expect, mock } from 'bun:test';
 import fastify from 'fastify';
 import type { FastifyRequest } from 'fastify';
 import { securityHeaders } from './security-headers';
-import type { CORSConfig, CSPConfig } from './security-headers';
+import type {
+  CORSConfig,
+  CSPConfig,
+  HSTSConfig,
+  SecurityHeadersBaseline,
+} from './security-headers';
+import type { SecurityHeadersPolicyInput } from '../internal/security-headers-validation';
 import { domainValidation } from './domain-validation';
 import type {
   PluginOptions,
@@ -4469,6 +4475,228 @@ describe('securityHeaders', () => {
       expect(response.headers.get('strict-transport-security')).toBe(
         'max-age=99',
       );
+    });
+
+    it('serves requests when a CORS field is written as undefined', async () => {
+      // Validation passed and startup succeeded, then every cross-origin
+      // request 500d, because the undefined key was spread over the defaults
+      // and deleted the array the request path then dereferenced. Asserted at
+      // request time rather than on the normalized config, since that is where
+      // it failed and the config-level test alone would not have caught it.
+      const optional: string[] | undefined = undefined;
+
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            cors: {
+              origin: ['https://app.example.com'],
+              exposedHeaders: optional,
+              methods: optional,
+              allowedHeaders: optional,
+            },
+          }),
+        ],
+        host: 'allowed.example.com',
+        origin: 'https://app.example.com',
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('access-control-allow-origin')).toBe(
+        'https://app.example.com',
+      );
+    });
+
+    it('hands the resolver the configured policy as a baseline', async () => {
+      // The second argument is what an omitted block inherits, so a resolver
+      // wanting "the defaults with one field different" can say so rather than
+      // retyping the block or closing over the config itself.
+      let seen: SecurityHeadersBaseline | undefined;
+
+      await respondTo({
+        plugins: [
+          securityHeaders({
+            hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+            frameOptions: 'DENY',
+            contentTypeOptions: true,
+            referrerPolicy: 'no-referrer',
+            csp: { defaultSrc: ["'self'"] },
+            resolve: (_request, baseline) => {
+              seen = baseline;
+
+              return null;
+            },
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      // toStrictEqual rather than toEqual, which treats a key holding undefined
+      // as absent and would make the unset half of this assert nothing.
+      expect(seen).toStrictEqual({
+        csp: { defaultSrc: ["'self'"] },
+        hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+        frameOptions: 'DENY',
+        contentTypeOptions: true,
+        referrerPolicy: 'no-referrer',
+        permissionsPolicy: undefined,
+        crossOriginOpenerPolicy: undefined,
+        crossOriginOpenerPolicyReportOnly: undefined,
+        crossOriginResourcePolicy: undefined,
+        crossOriginEmbedderPolicy: undefined,
+        crossOriginEmbedderPolicyReportOnly: undefined,
+        reportingEndpoints: undefined,
+      });
+    });
+
+    it('lets a resolver build an override out of the baseline', async () => {
+      // The case the baseline exists for. Spreading is the caller's to write,
+      // so what was kept is visible here rather than inferred from what was
+      // left out, which is the whole reason blocks replace rather than merge.
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+            resolve: (_request, baseline) => ({
+              hsts: { ...baseline.hsts, maxAge: 86400, preload: false },
+            }),
+          }),
+        ],
+        host: 'customer-owned.example.net',
+      });
+
+      // includeSubDomains carried over because it was spread in, max-age and
+      // preload replaced because they were written after it.
+      expect(response.headers.get('strict-transport-security')).toBe(
+        'max-age=86400; includeSubDomains',
+      );
+    });
+
+    it('gives the baseline a CSP preset unexpanded, so it still composes', async () => {
+      // Unexpanded is what makes `{ ...baseline.csp, scriptSrc }` work: the
+      // preset rides along and is applied again on the way back with the
+      // resolver's directives winning. Handing over the expanded form would
+      // bake the preset's directives into whatever the resolver returns, where
+      // they would stop tracking the preset they came from.
+      let seenCSP: unknown;
+
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            csp: { preset: 'strict' },
+            resolve: (_request, baseline) => {
+              seenCSP = baseline.csp;
+
+              return {
+                csp: {
+                  ...(baseline.csp as CSPConfig),
+                  scriptSrc: ["'self'", 'https://cdn.example.com'],
+                },
+              };
+            },
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(seenCSP).toEqual({ preset: 'strict' });
+
+      const csp = response.headers.get('content-security-policy') ?? '';
+
+      // The resolver's directive won, and the preset still supplied the rest.
+      expect(csp).toContain("script-src 'self' https://cdn.example.com");
+      expect(csp).toContain("object-src 'none'");
+      expect(csp).toContain("frame-ancestors 'none'");
+    });
+
+    it('freezes the baseline all the way down', async () => {
+      // A resolver is handed this on every request, so an in-place edit would
+      // leak into every later one. The type stops the top-level case where the
+      // author is looking; the freeze covers the nested arrays a shallow
+      // readonly cannot reach, and covers JavaScript callers besides.
+      const thrown: string[] = [];
+
+      const attempt = (label: string, mutate: () => void) => {
+        try {
+          mutate();
+          thrown.push(`${label}: no throw`);
+        } catch {
+          thrown.push(`${label}: threw`);
+        }
+      };
+
+      const response = await respondTo({
+        plugins: [
+          securityHeaders({
+            hsts: { maxAge: 31536000, includeSubDomains: true },
+            csp: { defaultSrc: ["'self'"], scriptSrc: ["'self'"] },
+            resolve: (_request, baseline) => {
+              const writable = baseline as SecurityHeadersPolicyInput;
+
+              attempt('block', () => {
+                writable.frameOptions = 'SAMEORIGIN';
+              });
+
+              attempt('nested field', () => {
+                (writable.hsts as HSTSConfig).maxAge = 1;
+              });
+
+              attempt('nested array', () => {
+                (writable.csp as CSPConfig).scriptSrc?.push("'unsafe-inline'");
+              });
+
+              return null;
+            },
+          }),
+        ],
+        host: 'allowed.example.com',
+      });
+
+      expect(thrown).toEqual([
+        'block: threw',
+        'nested field: threw',
+        'nested array: threw',
+      ]);
+
+      // And the policy actually served is the configured one, unharmed.
+      expect(response.headers.get('strict-transport-security')).toBe(
+        'max-age=31536000; includeSubDomains',
+      );
+      expect(response.headers.get('content-security-policy')).toContain(
+        "script-src 'self' '",
+      );
+      expect(response.headers.get('content-security-policy')).not.toContain(
+        "'unsafe-inline'",
+      );
+    });
+
+    it('detaches the baseline from the config object it came from', async () => {
+      // Frozen as a copy rather than in place. Freezing the caller's own object
+      // would reach back out of the plugin and change something they still
+      // hold, so a config the application mutates elsewhere would start
+      // throwing somewhere with no visible connection to securityHeaders.
+      const config = {
+        hsts: { maxAge: 31536000, includeSubDomains: true },
+        resolve: (
+          _request: FastifyRequest,
+          baseline: SecurityHeadersBaseline,
+        ) => {
+          seen = baseline.hsts;
+
+          return null;
+        },
+      };
+
+      let seen: unknown;
+
+      const plugin = securityHeaders(config);
+
+      // Still writable, because the plugin took a copy.
+      expect(Object.isFrozen(config.hsts)).toBe(false);
+      config.hsts.maxAge = 1;
+
+      await respondTo({ plugins: [plugin], host: 'allowed.example.com' });
+
+      expect(seen).toEqual({ maxAge: 31536000, includeSubDomains: true });
     });
 
     it('puts the CSP on a hijacked response, which bypasses onSend', async () => {

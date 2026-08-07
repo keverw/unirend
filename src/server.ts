@@ -143,6 +143,7 @@ export type {
   SecurityHeadersPolicyValidation,
   SecurityHeadersPolicyInput,
   SecurityHeadersPolicyBaseline,
+  SecurityHeadersBaseline,
 } from './lib/internal/security-headers-validation';
 
 // CORS validation
