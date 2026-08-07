@@ -2390,11 +2390,22 @@ export function securityHeaders(
             allowedHeaders = allowedHeaders.slice(0, MAX_ALLOWED_HEADERS);
           }
 
-          // Set preflight response headers
-          reply.header(
-            'Access-Control-Allow-Methods',
-            allowedMethods.join(', '),
-          );
+          // Set preflight response headers.
+          //
+          // Guarded on having something to say, the same as the two header
+          // lists below and beside it. `methods: []` used to fall through and
+          // emit a bare `Access-Control-Allow-Methods:` with an empty value,
+          // which is not the way to say "no methods": it is a header carrying
+          // nothing, on a response whose other two lists had known for a while
+          // to stay off the wire when they were empty. An empty list now means
+          // the same thing in all three places, which is that the header is not
+          // sent, and a browser then permits only what it permits without one.
+          if (allowedMethods.length > 0) {
+            reply.header(
+              'Access-Control-Allow-Methods',
+              allowedMethods.join(', '),
+            );
+          }
 
           // Only set Access-Control-Allow-Headers if we have headers to send
           if (allowedHeaders.length > 0) {

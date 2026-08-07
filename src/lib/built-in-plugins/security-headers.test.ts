@@ -3036,6 +3036,72 @@ describe('securityHeaders', () => {
   // Non-wildcard allowedHeaders: the configured list, and only it
   // -------------------------------------------------------------------------
 
+  // -------------------------------------------------------------------------
+  // An empty list means the same thing in all three preflight lists
+  // -------------------------------------------------------------------------
+
+  describe('empty preflight lists', () => {
+    /** Header names set on the preflight response. */
+    const preflightHeaders = async (cors: CORSConfig): Promise<string[]> => {
+      const pluginHost = createMockPluginHost();
+      await corsHeaders(cors)(pluginHost, createMockOptions());
+
+      const onRequestHook = pluginHost
+        .getHooks()
+        .find((h) => h.event === 'onRequest');
+
+      const mockReply = createMockReply();
+
+      await onRequestHook?.handler(
+        createMockRequest({
+          method: 'OPTIONS',
+          headers: {
+            origin: 'https://example.com',
+            'access-control-request-method': 'POST',
+          },
+        }),
+        mockReply,
+      );
+
+      return (mockReply.header.mock.calls as Array<[string, string]>).map(
+        ([name]) => name,
+      );
+    };
+
+    // `methods: []` used to emit a bare `Access-Control-Allow-Methods:` with an
+    // empty value, while the other two lists had always stayed off the wire
+    // when empty. An empty value is not how a header says "nothing"; leaving
+    // the header out is.
+    it('sends no Access-Control-Allow-Methods for an empty methods list', async () => {
+      const names = await preflightHeaders({
+        origin: 'https://example.com',
+        methods: [],
+      });
+
+      expect(names).not.toContain('Access-Control-Allow-Methods');
+      // The rest of the preflight is unaffected.
+      expect(names).toContain('Access-Control-Max-Age');
+    });
+
+    it('still sends the method list when there is one', async () => {
+      const names = await preflightHeaders({
+        origin: 'https://example.com',
+        methods: ['GET', 'POST'],
+      });
+
+      expect(names).toContain('Access-Control-Allow-Methods');
+    });
+
+    it('sends no Access-Control-Allow-Headers for an empty allowedHeaders list', async () => {
+      const names = await preflightHeaders({
+        origin: 'https://example.com',
+        allowedHeaders: [],
+      });
+
+      expect(names).not.toContain('Access-Control-Allow-Headers');
+    });
+  });
+
   describe('non-wildcard allowedHeaders preflight', () => {
     /**
      * Run one preflight and hand back the Access-Control-Allow-Headers value,

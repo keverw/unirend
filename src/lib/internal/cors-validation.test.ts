@@ -224,6 +224,54 @@ describe('validateCORSPolicy', () => {
       expect(issue.message).not.toContain('leading or trailing whitespace');
     });
 
+    // A repeat says nothing the first copy did not, so it is a list assembled
+    // from two places rather than a policy. Compared without regard to case,
+    // because that is how both kinds of name compare by the time a browser sees
+    // them: field names are case-insensitive, and methods are upper-cased on
+    // the way out.
+    it('rejects a repeated entry, case-insensitively', () => {
+      expect(
+        paths({
+          origin: ['https://example.com'],
+          allowedHeaders: ['Content-Type', 'content-type'],
+        }),
+      ).toEqual(['allowedHeaders']);
+
+      expect(
+        paths({ origin: ['https://example.com'], methods: ['GET', 'get'] }),
+      ).toEqual(['methods']);
+    });
+
+    it('shows both spellings when a repeat is spelled differently', () => {
+      const [issue] = validateCORSPolicy({
+        origin: ['https://example.com'],
+        allowedHeaders: ['Content-Type', 'content-type'],
+      }).issues;
+
+      expect(issue.message).toContain('"Content-Type"');
+      expect(issue.message).toContain('"content-type"');
+    });
+
+    it('reports a repeated name once however often it repeats', () => {
+      expect(
+        paths({
+          origin: ['https://example.com'],
+          methods: ['GET', 'GET', 'GET', 'GET'],
+        }),
+      ).toEqual(['methods']);
+    });
+
+    // One complaint per mistake. A name that is not a name is reported as that,
+    // rather than as that plus a complaint that it appears twice.
+    it('does not also report a repeat of an already-invalid name', () => {
+      expect(
+        paths({
+          origin: ['https://example.com'],
+          methods: ['bad method', 'bad method'],
+        }),
+      ).toEqual(['methods', 'methods']);
+    });
+
     // A list that is not a list of strings is that one mistake, not that
     // mistake plus a complaint about entries nothing could have read.
     it('does not report entry problems for a list that is not one', () => {
@@ -265,11 +313,17 @@ describe('validateCORSPolicy', () => {
       expect(validateCORSPolicy(withOrigin(['*'])).valid).toBe(true);
     });
 
-    // The same policy written twice, which is redundant rather than
-    // contradictory. Refusing it produced a startup error that named no
-    // offending header and advised writing exactly what was already there.
-    it('accepts a repeated wildcard, which is the same policy', () => {
-      expect(validateCORSPolicy(withOrigin(['*', '*'])).valid).toBe(true);
+    // Refused as a duplicate rather than as a wildcard mixed with names. The
+    // distinction is what the message says: the mixed-wildcard rule would have
+    // named an empty list of offending headers and advised writing exactly what
+    // was already there.
+    it('rejects a repeated wildcard as a duplicate, not as a mix', () => {
+      const result = validateCORSPolicy(withOrigin(['*', '*']));
+
+      expect(result.valid).toBe(false);
+      expect(result.issues).toHaveLength(1);
+      expect(result.issues[0].message).toContain('more than once');
+      expect(result.issues[0].message).not.toContain('combines');
     });
 
     it('rejects the wildcard alongside named headers', () => {

@@ -334,14 +334,17 @@ const TOKEN_LIST_FIELDS = {
   methods: {
     noun: 'method name',
     header: 'Access-Control-Allow-Methods',
+    caseNote: 'The method list is upper-cased before it is sent',
   },
   allowedHeaders: {
     noun: 'header name',
     header: 'Access-Control-Allow-Headers',
+    caseNote: 'Field names are case-insensitive',
   },
   exposedHeaders: {
     noun: 'header name',
     header: 'Access-Control-Expose-Headers',
+    caseNote: 'Field names are case-insensitive',
   },
 } as const;
 
@@ -368,8 +371,15 @@ function collectTokenListIssues(
   key: keyof typeof TOKEN_LIST_FIELDS,
   values: readonly string[],
 ): CORSPolicyIssue[] {
-  const { noun, header } = TOKEN_LIST_FIELDS[key];
+  const { noun, header, caseNote } = TOKEN_LIST_FIELDS[key];
   const issues: CORSPolicyIssue[] = [];
+
+  // First spelling of each name, keyed case-insensitively. Both kinds of name
+  // here compare that way by the time they reach a browser: field names are
+  // case-insensitive outright, and the method list is upper-cased before it is
+  // sent, so `get` and `GET` are one entry either way.
+  const seen = new Map<string, string>();
+  const reportedDuplicates = new Set<string>();
 
   for (const value of values) {
     const trimmed = value.trim();
@@ -404,7 +414,38 @@ function collectTokenListIssues(
         path: key,
         message: `Invalid CORS config: ${key} entry "${value}" is not a valid ${noun}. The configured list goes into ${header} verbatim, and a browser drops a value it cannot parse, so a single bad entry takes the whole header with it and every request relying on it fails, under a policy that reads as though it permits exactly what was asked for. A ${noun} is an RFC 9110 token: letters, digits, and any of !#$%&'*+.^_\`|~- with no spaces.`,
       });
+
+      continue;
     }
+
+    // A repeat, checked only on entries the grammar already accepted, so a
+    // name that is wrong twice is reported as wrong rather than as wrong and
+    // then repeated.
+    //
+    // Reported rather than collapsed, which is the same call the rest of this
+    // module makes about anything that reads as a rule and is not one. A second
+    // copy of a name adds nothing to the header, so it is not a policy someone
+    // meant: it is a list assembled from two places, or a wildcard written
+    // twice, and being told beats having it quietly absorbed. It costs one
+    // message at boot and the fix is to delete a word.
+    const fold = value.toLowerCase();
+    const first = seen.get(fold);
+
+    if (first !== undefined) {
+      // Once per repeated name, however many times it repeats.
+      if (!reportedDuplicates.has(fold)) {
+        reportedDuplicates.add(fold);
+
+        issues.push({
+          path: key,
+          message: `Invalid CORS config: ${key} lists "${value}" more than once${first === value ? '' : ` (as "${first}" and "${value}")`}. ${caseNote}, so these are one entry however they are spelled, and the repeat adds nothing to ${header}. Remove it.`,
+        });
+      }
+
+      continue;
+    }
+
+    seen.set(fold, value);
   }
 
   return issues;
