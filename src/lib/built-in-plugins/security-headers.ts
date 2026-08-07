@@ -63,6 +63,7 @@ import { isHostUnverified } from '../internal/host-verification';
 import {
   collectCORSIssues,
   isCORSEnabled,
+  HEADER_NAME_TOKEN,
   type CORSConfig,
   type CORSOrigin,
   type ResolvedCORSConfig,
@@ -514,6 +515,54 @@ const MAX_ALLOWED_HEADERS = 100;
 
 // Limit the length of each reflected header name to avoid pathological values
 const MAX_HEADER_LEN = 256;
+
+/**
+ * The header names a preflight asked for, filtered down to the ones worth
+ * echoing back.
+ *
+ * Only reached when `allowedHeaders` is `['*']`, which is the caller saying
+ * "reflect whatever this request wants". That makes the response value client
+ * controlled, so every entry is checked rather than trusted: a name longer than
+ * {@link MAX_HEADER_LEN} or carrying anything outside the token grammar is
+ * dropped, names are deduplicated case-insensitively since field names are
+ * case-insensitive, and the list is capped at {@link MAX_ALLOWED_HEADERS} so one
+ * request cannot make the server emit an unbounded header.
+ *
+ * Original casing is preserved on the entries that survive. The header is
+ * case-insensitive either way, and echoing back what was asked for is easier to
+ * match up in a browser's network panel than a normalized form would be.
+ */
+function reflectRequestedHeaders(requested: string): string[] {
+  const seen = new Set<string>();
+  const reflected: string[] = [];
+
+  for (const name of requested.split(',')) {
+    const header = name.trim();
+
+    if (
+      !header ||
+      header.length > MAX_HEADER_LEN ||
+      !HEADER_NAME_TOKEN.test(header)
+    ) {
+      continue;
+    }
+
+    const key = header.toLowerCase();
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    reflected.push(header);
+
+    if (reflected.length >= MAX_ALLOWED_HEADERS) {
+      break;
+    }
+  }
+
+  return reflected;
+}
 
 /**
  * A validated policy, the header it belongs in, and the serialized value.
@@ -2301,95 +2350,40 @@ export function securityHeaders(
 
           const allowedMethods = Array.from(methodSet);
 
-          // Build allowed headers (merge requested headers with configured ones)
-          let allowedHeaders: string[];
-
-          if (resolvedConfig.cors.allowedHeaders.includes('*')) {
-            if (requestedHeaders) {
-              // Reflect exactly what was requested (case-insensitive dedupe + cap)
-              const requested = requestedHeaders
-                .split(',')
-                .map((h) => h.trim())
-                .filter(Boolean);
-
-              const seen = new Set<string>();
-              const reflected: string[] = [];
-              // RFC 7230 token validation for header names
-              const token = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
-
-              for (const h of requested) {
-                // Enforce a maximum header token length to prevent abuse
-                if (h.length > MAX_HEADER_LEN) {
-                  continue;
-                }
-
-                // Only reflect syntactically valid header names
-                if (!token.test(h)) {
-                  continue;
-                }
-
-                const key = h.toLowerCase();
-
-                if (!seen.has(key)) {
-                  seen.add(key);
-                  reflected.push(h);
-                  if (reflected.length >= MAX_ALLOWED_HEADERS) {
-                    break;
-                  }
-                }
-              }
-
-              allowedHeaders = reflected;
-            } else {
-              // Fallback to configured list without the '*'
-              allowedHeaders = resolvedConfig.cors.allowedHeaders.filter(
-                (h) => h !== '*',
-              );
-            }
-          } else {
-            // Start with configured headers
-            allowedHeaders = [...resolvedConfig.cors.allowedHeaders];
-
-            if (requestedHeaders) {
-              // Merge requested headers that are in our allowed list
-              const requested = requestedHeaders
-                .split(',')
-                .map((h) => h.trim())
-                .filter(Boolean);
-
-              const configuredLower = resolvedConfig.cors.allowedHeaders.map(
-                (h) => h.toLowerCase(),
-              );
-
-              const token = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
-
-              for (const requestedHeader of requested) {
-                // Skip invalid header names up front
-                if (
-                  requestedHeader.length > MAX_HEADER_LEN ||
-                  !token.test(requestedHeader)
-                ) {
-                  continue;
-                }
-
-                const requestedLower = requestedHeader.toLowerCase();
-                if (
-                  configuredLower.includes(requestedLower) &&
-                  !allowedHeaders.some(
-                    (h) => h.toLowerCase() === requestedLower,
-                  )
-                ) {
-                  // Find the original configured header to preserve casing
-                  const configuredHeader =
-                    resolvedConfig.cors.allowedHeaders.find(
-                      (h) => h.toLowerCase() === requestedLower,
-                    );
-
-                  allowedHeaders.push(configuredHeader || requestedHeader);
-                }
-              }
-            }
-          }
+          // Build the allowed-headers list. Two modes, and which one applies is
+          // decided by what the caller configured rather than by the request.
+          //
+          // `['*']` is the caller saying "reflect whatever this request asked
+          // for", so the value is client controlled and every entry is filtered
+          // before it goes back out. See `reflectRequestedHeaders`.
+          //
+          // A concrete list is a fact about the server, not about the request:
+          // these are the headers it accepts, so it advertises all of them and
+          // the request's own list has no say. That is deliberately *not* an
+          // intersection. Sending only the overlap would let the value change
+          // per request for no gain, since a browser is asking whether the
+          // headers it named are permitted and gets its answer either way, and
+          // a shared preflight cache entry would then be narrower than the
+          // policy it stands for.
+          //
+          // The requested names need no validation on this path precisely
+          // because none of them reach the response. Filtering them here read
+          // as a security control and was not one: the code that did it could
+          // never add a header, since the list it was appending to already held
+          // every configured name. What keeps an unwanted name off the response
+          // is that it was never configured.
+          let allowedHeaders: string[] =
+            resolvedConfig.cors.allowedHeaders.includes('*')
+              ? requestedHeaders
+                ? reflectRequestedHeaders(requestedHeaders)
+                : // Nothing was asked for, so there is nothing to reflect, and
+                  // nothing else to fall back to: validation refuses `*`
+                  // alongside named headers, so a list containing it contains
+                  // only it. An empty list means the header is not sent, which
+                  // is the right answer to a preflight that asked about no
+                  // headers.
+                  []
+              : [...resolvedConfig.cors.allowedHeaders];
 
           // Cap to avoid sending excessive header lists
           if (allowedHeaders.length > MAX_ALLOWED_HEADERS) {

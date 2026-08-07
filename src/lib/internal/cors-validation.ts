@@ -302,6 +302,160 @@ function isStringArray(value: unknown): value is string[] {
 }
 
 /**
+ * A field name, which RFC 9110 defines as a `token`.
+ *
+ * Lives here rather than in the plugin because both ends of the preflight need
+ * it and they must agree: this file judges the names an operator configured,
+ * and `reflectRequestedHeaders` judges the names a client asked for. Two copies
+ * would drift, and the direction matters, since the whole point is that a name
+ * reaching `Access-Control-Allow-Headers` is one a browser can parse.
+ *
+ * Worth knowing that `*` satisfies this pattern: the token grammar includes it,
+ * so it is a syntactically valid header name and cannot be told apart from one
+ * by a shape test. Everywhere it means "the wildcard" it is matched literally,
+ * before this is consulted.
+ */
+export const HEADER_NAME_TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+/**
+ * What each list field holds and where its entries end up.
+ *
+ * All three are written into their response header verbatim, joined with
+ * commas, with no filtering anywhere downstream. That is correct, since these
+ * are the operator's own configuration rather than anything off the wire, and
+ * it is exactly why the grammar has to be checked here: nothing later will
+ * notice a name a browser cannot read.
+ *
+ * Method names and field names are the same production, so one check covers
+ * all three. The noun differs only so the message names the thing the author
+ * thought they were writing.
+ */
+const TOKEN_LIST_FIELDS = {
+  methods: {
+    noun: 'method name',
+    header: 'Access-Control-Allow-Methods',
+  },
+  allowedHeaders: {
+    noun: 'header name',
+    header: 'Access-Control-Allow-Headers',
+  },
+  exposedHeaders: {
+    noun: 'header name',
+    header: 'Access-Control-Expose-Headers',
+  },
+} as const;
+
+/**
+ * Every entry in a list field that is not a token.
+ *
+ * The failure this catches is entirely silent without it. RFC 9110 gives one
+ * grammar for both method names and field names, and a browser that cannot
+ * parse a header value drops the whole value rather than the offending entry,
+ * so a single `"Content Type"` or `"GET POST"` takes every other name in the
+ * list down with it. The request then fails cross-origin under a configuration
+ * that reads as though it permits exactly what was asked for.
+ *
+ * `*` is deliberately not special-cased away here, because it does not need to
+ * be: it is a legal token character, so it satisfies the grammar on its own
+ * terms. Whether a wildcard *means* anything in a given field is a separate
+ * question this does not answer, and the answer differs per field. In
+ * `Access-Control-Allow-Methods` and `Access-Control-Expose-Headers` a browser
+ * reads it as a wildcard for a non-credentialed request and as a literal name
+ * for a credentialed one, which is the Fetch specification's rule rather than
+ * anything unirend decides.
+ */
+function collectTokenListIssues(
+  key: keyof typeof TOKEN_LIST_FIELDS,
+  values: readonly string[],
+): CORSPolicyIssue[] {
+  const { noun, header } = TOKEN_LIST_FIELDS[key];
+  const issues: CORSPolicyIssue[] = [];
+
+  for (const value of values) {
+    const trimmed = value.trim();
+
+    // Padding around an otherwise fine name gets its own message, because the
+    // general one below would be a lie about it. A list element may carry
+    // optional whitespace in HTTP, so `Content-Type , X-Ok` is a header every
+    // browser reads exactly as intended: nothing is dropped and nothing fails.
+    //
+    // It is refused anyway, and deliberately not trimmed, which is the same
+    // call `validateSource` makes for a CSP source expression. Trimming would
+    // silently rewrite what the operator wrote, so the config and the header no
+    // longer say the same thing and the next reader has to know this happened
+    // to predict what ships. Refusing costs one clear message at boot, and the
+    // realistic way to arrive here, splitting an environment variable on commas
+    // without trimming, is worth being told about rather than absorbed.
+    //
+    // Only when the trimmed value is otherwise valid. `" bad name "` has a real
+    // problem that survives trimming, and reporting the padding would point at
+    // the wrong half of it.
+    if (value !== trimmed && HEADER_NAME_TOKEN.test(trimmed)) {
+      issues.push({
+        path: key,
+        message: `Invalid CORS config: ${key} entry "${value}" has leading or trailing whitespace. Write it as "${trimmed}". The list is written into ${header} as given rather than tidied up, so a padded entry is refused here instead of being quietly rewritten into something the configuration does not say.`,
+      });
+
+      continue;
+    }
+
+    if (!HEADER_NAME_TOKEN.test(value)) {
+      issues.push({
+        path: key,
+        message: `Invalid CORS config: ${key} entry "${value}" is not a valid ${noun}. The configured list goes into ${header} verbatim, and a browser drops a value it cannot parse, so a single bad entry takes the whole header with it and every request relying on it fails, under a policy that reads as though it permits exactly what was asked for. A ${noun} is an RFC 9110 token: letters, digits, and any of !#$%&'*+.^_\`|~- with no spaces.`,
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Every problem with an `allowedHeaders` list, on top of the grammar.
+ *
+ * The one rule here that is `allowedHeaders`-specific, because the wildcard
+ * behaves differently in this field than in the other two: unirend reads it
+ * itself, before the header is built, as "reflect whatever this request asked
+ * for". That makes mixing it with named headers a contradiction rather than
+ * merely redundant.
+ *
+ * An empty list is deliberately allowed and is not checked here. It sends no
+ * header at all, which leaves a browser permitting the CORS-safelisted request
+ * headers and nothing else, and that is a real policy someone may want. It is
+ * not the same shape as `origin: []`, which is rejected: that one switches CORS
+ * on and then refuses every origin, so it can only ever be a mistake, and
+ * `cors: false` is there to say it on purpose. There is no second spelling of
+ * "safelisted headers only", so refusing this one would remove the only way to
+ * ask for it.
+ */
+function collectAllowedHeadersIssues(
+  allowedHeaders: readonly string[],
+): CORSPolicyIssue[] {
+  const named = allowedHeaders.filter((header) => header !== '*');
+
+  // `*` short circuits the whole decision, so the named entries are consulted
+  // only for a preflight that asked for no headers at all, which is the one
+  // request whose answer cannot matter. Everywhere it counts they do nothing,
+  // while reading as the allowlist someone believed they were writing.
+  //
+  // Keyed on whether any *named* header is present rather than on the list's
+  // length, which is not the same question when the wildcard is written twice.
+  // `['*', '*']` is one policy spelled redundantly, and it used to reach the
+  // message below with an empty list of offenders: a startup failure naming no
+  // header and advising exactly what the author already wrote.
+  if (!allowedHeaders.includes('*') || named.length === 0) {
+    return [];
+  }
+
+  return [
+    {
+      path: 'allowedHeaders',
+      message: `Invalid CORS config: allowedHeaders combines "*" with named headers (${named.join(', ')}). "*" already reflects whatever a request asks for, so the named entries are consulted only for a preflight that requested no headers at all, and do nothing on every request where the answer matters. Use allowedHeaders: ["*"] to reflect what is requested, or list the headers you mean to permit without the "*".`,
+    },
+  ];
+}
+
+/**
  * Whether the origin config carries a bare protocol wildcard.
  *
  * Functions are evaluated per request, so they are not a blanket wildcard here
@@ -464,7 +618,20 @@ function collectShapeIssues(cors: CORSConfig): CORSPolicyIssue[] {
         path: key,
         message: `Invalid CORS config: ${key} must be an array of strings, received ${describeValue(value)}`,
       });
+
+      // Nothing below can read the entries of something that is not a list of
+      // strings, so move on rather than describing one mistake twice. Same rule
+      // the relational checks further down follow.
+      continue;
     }
+
+    if (value !== undefined) {
+      issues.push(...collectTokenListIssues(key, value));
+    }
+  }
+
+  if (isStringArray(cors.allowedHeaders)) {
+    issues.push(...collectAllowedHeadersIssues(cors.allowedHeaders));
   }
 
   for (const key of BOOLEAN_KEYS) {

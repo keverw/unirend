@@ -142,8 +142,14 @@ Setting any other CORS field without an `origin` is refused at startup. With not
 
 - `methods` (default: `["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]`): Allowed HTTP methods
   - Preflight handling: On OPTIONS requests, the plugin responds with `Access-Control-Allow-Methods` built from the configured methods (normalized, deduped).
+  - Every entry has to be a valid method name, checked at startup. See the note under `allowedHeaders` below: the list is written into the response header verbatim, so one malformed entry costs the whole header.
 - `allowedHeaders` (default: `["Content-Type", "Authorization", "X-Requested-With"]`): Allowed request headers
-- `exposedHeaders` (default: `[]`): Headers exposed to the client
+  - A concrete list is advertised in full on every preflight, whatever that preflight asked for. It describes the server rather than the request, so the answer does not vary and a shared preflight cache entry stays as wide as the policy it stands for. A header the list does not name is never echoed back.
+  - `["*"]` means something different: reflect whatever `Access-Control-Request-Headers` asked for. That value is client-controlled, so it is filtered on the way back out. Names outside the RFC 9110 token grammar are dropped, names are deduplicated case-insensitively, and the list is capped at 100 entries and 256 characters per name. A preflight that named no headers gets no `Access-Control-Allow-Headers` at all, since it asked about none.
+  - `"*"` may not be combined with named headers, and this is refused at startup. The wildcard already reflects everything a request asks for, so the named entries would be consulted only for a preflight that requested nothing, and would read as an allowlist while doing nothing on every request that matters. Write `["*"]`, or write the names without it.
+  - Every name has to be a valid header name, checked at startup, as do `methods` and `exposedHeaders` entries. All three lists go into their response header verbatim, and a browser drops a header value it cannot parse rather than the offending entry, so one name spelled `"Content Type"` takes every other name in the list down with it and the request fails cross-origin under a policy that reads as though it permits exactly what was asked for. Method and field names share one grammar, the RFC 9110 `token`. A bare `"*"` satisfies it in all three fields, since `*` is a legal token character. Whitespace around an entry is refused rather than trimmed, so what the configuration says is what ships.
+  - `[]` is valid and means what it says: no `Access-Control-Allow-Headers` is sent, so a browser permits the CORS-safelisted request headers and nothing else. This is unlike `origin: []`, which is refused, because that one switches CORS on and then allows nobody.
+- `exposedHeaders` (default: `[]`): Headers exposed to the client. Every entry has to be a valid header name, checked at startup, for the same reason `methods` and `allowedHeaders` are.
 - `maxAge` (default: `86400` - 24 hours): Max age for preflight cache (in seconds)
 - `preflightContinue` (default: `false`): Controls whether the plugin short-circuits preflight OPTIONS requests. Only relevant when CORS is on; with it off the plugin does not handle `OPTIONS` at all. When `false` (default), the plugin fully handles the preflight and responds with `optionsSuccessStatus`. When `true`, CORS headers are still set but control passes to the next handler instead of ending the request.
 - `optionsSuccessStatus` (default: `204`): Status code for successful preflight responses
@@ -368,7 +374,8 @@ securityHeaders({
 - Partial-label wildcards are invalid: Patterns like `"*foo.com"`, `"ex*.example.com"`, or `"foo*bar.com"` are rejected. Use full-label wildcards only: `"*.example.com"` (direct subdomains) or `"**.example.com"` (any depth).
 - Origin array wildcard policy: In `origin: string[]`, allow at most one wildcard token overall (`"*"`, `"https://*"`, or `"http://*"`). If present, the only other allowed entry is the literal `"null"`.
 - Credentials arrays restrictions: Raw wildcard tokens (`"*"`, `"https://*"`, `"http://*"`) are not allowed in `credentials` arrays and will throw. Use exact origins, or enable `credentialsAllowWildcardSubdomains: true` for domain wildcards like `"*.example.com"`.
-- Header reflection hardening: When `allowedHeaders: ["*"]`, only syntactically valid HTTP header names (RFC 7230 token) are reflected from `Access-Control-Request-Headers`, and reflection is capped by count (100) and token length (256 chars).
+- Header reflection hardening: When `allowedHeaders: ["*"]`, only syntactically valid HTTP header names (RFC 9110 token) are reflected from `Access-Control-Request-Headers`, deduplicated case-insensitively, and capped by count (100) and name length (256 chars). A concrete `allowedHeaders` list reflects nothing at all: it is sent as configured, so a name the operator did not write can never reach the response.
+- `methods`, `allowedHeaders`, and `exposedHeaders` entries are validated at startup: each must be an RFC 9110 token, since the list is written into its response header verbatim and a browser drops a value it cannot parse. `allowedHeaders` additionally refuses `"*"` combined with named headers. All are cases where the configured policy would otherwise differ from the policy actually served, silently.
 
 ### Security Model (at a Glance)
 
@@ -380,7 +387,8 @@ securityHeaders({
 - The literal `"null"` origin can be allowed for non-credential requests (if included explicitly) but never receives credentials, even when using a credentials function.
 - All origin/pattern entries are validated up-front (rejects PSL/IP tails, partial-label wildcards, URL-ish characters, and protocol/global wildcards where disallowed).
 - Protocol wildcards (`https://*`, `http://*`) are permitted only in origin lists, not in credentials.
-- Header reflection (`allowedHeaders: ["*"]`) reflects only what the browser requested, with caps: at most 100 header names, names longer than 256 characters are ignored.
+- Header reflection (`allowedHeaders: ["*"]`) reflects only what the browser requested, with caps: at most 100 header names, names longer than 256 characters are ignored, and repeats of one name in different casing collapsed to one.
+- A concrete `allowedHeaders` list is never mixed with the request's own. What the operator configured is what is advertised, so nothing a client sends can widen it.
 
 ## Content-Security-Policy
 

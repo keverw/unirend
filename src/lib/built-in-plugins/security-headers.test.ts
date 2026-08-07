@@ -2017,6 +2017,78 @@ describe('securityHeaders', () => {
         expect.anything(),
       );
     });
+
+    // Field names are case-insensitive, so two spellings of one name are one
+    // header. Without the dedupe a client could pad the reflected list with
+    // re-cased repeats of a single name, which is both a longer response header
+    // than the request warrants and a confusing one to read back.
+    it('deduplicates reflected header names case-insensitively', async () => {
+      const mockHost = createMockPluginHost();
+      await corsHeaders({
+        origin: 'https://example.com',
+        allowedHeaders: ['*'],
+      })(mockHost, createMockOptions());
+
+      const onRequestHook = mockHost
+        .getHooks()
+        .find((h) => h.event === 'onRequest');
+
+      const mockReply = createMockReply();
+
+      await onRequestHook?.handler(
+        createMockRequest({
+          method: 'OPTIONS',
+          headers: {
+            origin: 'https://example.com',
+            'access-control-request-method': 'POST',
+            'access-control-request-headers':
+              'X-Custom, x-custom, X-CUSTOM, authorization',
+          },
+        }),
+        mockReply,
+      );
+
+      // First spelling wins, so the casing the client used is what comes back.
+      expect(mockReply.header).toHaveBeenCalledWith(
+        'Access-Control-Allow-Headers',
+        'X-Custom, authorization',
+      );
+    });
+
+    // A preflight that named no headers is asking about none, so there is
+    // nothing to reflect and the header is left off rather than sent empty.
+    // There is no other list to fall back to: validation refuses `*` alongside
+    // named headers, so a list carrying it carries only it.
+    it('sends no header when the wildcard has nothing to reflect', async () => {
+      const mockHost = createMockPluginHost();
+      await corsHeaders({
+        origin: 'https://example.com',
+        allowedHeaders: ['*'],
+      })(mockHost, createMockOptions());
+
+      const onRequestHook = mockHost
+        .getHooks()
+        .find((h) => h.event === 'onRequest');
+
+      const mockReply = createMockReply();
+
+      await onRequestHook?.handler(
+        createMockRequest({
+          method: 'OPTIONS',
+          headers: {
+            origin: 'https://example.com',
+            'access-control-request-method': 'POST',
+          },
+        }),
+        mockReply,
+      );
+
+      const calls = mockReply.header.mock.calls as Array<[string, string]>;
+
+      expect(
+        calls.find(([k]) => k === 'Access-Control-Allow-Headers'),
+      ).toBeUndefined();
+    });
   });
 
   describe('credentials wildcard configuration', () => {
@@ -2961,47 +3033,90 @@ describe('securityHeaders', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Non-wildcard allowedHeaders: invalid header names filtered
+  // Non-wildcard allowedHeaders: the configured list, and only it
   // -------------------------------------------------------------------------
 
-  describe('non-wildcard allowedHeaders preflight — invalid header filtering', () => {
-    it('skips header names containing spaces', async () => {
-      const config: CORSConfig = {
-        origin: 'https://example.com',
-        allowedHeaders: ['Content-Type', 'Authorization'],
-      };
-
+  describe('non-wildcard allowedHeaders preflight', () => {
+    /**
+     * Run one preflight and hand back the Access-Control-Allow-Headers value,
+     * or undefined when the header was never set.
+     */
+    const preflightAllowHeaders = async (
+      config: CORSConfig,
+      requestHeaders?: string,
+    ): Promise<string | undefined> => {
       const pluginHost = createMockPluginHost();
-      const options = createMockOptions();
-      await corsHeaders(config)(pluginHost, options);
+      await corsHeaders(config)(pluginHost, createMockOptions());
 
-      const hooks = pluginHost.getHooks();
-      const onRequestHook = hooks.find((h) => h.event === 'onRequest');
-
-      const mockRequest = createMockRequest({
-        method: 'OPTIONS',
-        headers: {
-          origin: 'https://example.com',
-          'access-control-request-method': 'POST',
-          // "bad header!!!" has a space — invalid per RFC 7230 token
-          'access-control-request-headers': 'Content-Type, bad header!!!',
-        },
-      });
+      const onRequestHook = pluginHost
+        .getHooks()
+        .find((h) => h.event === 'onRequest');
 
       const mockReply = createMockReply();
-      await onRequestHook?.handler(mockRequest, mockReply);
 
-      // Only Content-Type should appear; the invalid header was filtered
-      const headerCalls = mockReply.header.mock.calls as Array<
-        [string, string]
-      >;
-      const allowHeadersCall = headerCalls.find(
-        ([k]) => k === 'Access-Control-Allow-Headers',
+      await onRequestHook?.handler(
+        createMockRequest({
+          method: 'OPTIONS',
+          headers: {
+            origin: 'https://example.com',
+            'access-control-request-method': 'POST',
+            ...(requestHeaders === undefined
+              ? {}
+              : { 'access-control-request-headers': requestHeaders }),
+          },
+        }),
+        mockReply,
       );
-      expect(allowHeadersCall).toBeDefined();
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const headerValue = allowHeadersCall![1];
-      expect(headerValue).not.toContain('bad header');
+
+      const calls = mockReply.header.mock.calls as Array<[string, string]>;
+
+      return calls.find(([k]) => k === 'Access-Control-Allow-Headers')?.[1];
+    };
+
+    const config: CORSConfig = {
+      origin: 'https://example.com',
+      allowedHeaders: ['Content-Type', 'Authorization'],
+    };
+
+    // The property that actually matters, and the one a filtering test cannot
+    // state: what a concrete allowedHeaders advertises is a fact about the
+    // server, so the request's own list has no bearing on it at all.
+    it('advertises the configured list verbatim, whatever was requested', async () => {
+      expect(await preflightAllowHeaders(config, 'content-type')).toBe(
+        'Content-Type, Authorization',
+      );
+
+      expect(await preflightAllowHeaders(config, undefined)).toBe(
+        'Content-Type, Authorization',
+      );
+    });
+
+    // The security-relevant half. A name the client asks for and the operator
+    // never configured must not come back, and it does not, because nothing on
+    // this path copies a requested name into the response. Written as its own
+    // test so that stays pinned rather than being an accident of the list
+    // above happening to be short.
+    it('never echoes a requested header that is not configured', async () => {
+      const value = await preflightAllowHeaders(
+        config,
+        'Content-Type, X-Not-Configured',
+      );
+
+      expect(value).toBe('Content-Type, Authorization');
+      expect(value).not.toContain('X-Not-Configured');
+    });
+
+    // An earlier cut validated the requested names here and read as though the
+    // validation were what kept a malformed name off the response. It was not:
+    // the requested names are never consulted, so a name that could not be a
+    // header name is no different from any other name the operator did not
+    // configure. Pinned because the vacuous version of this test passed for the
+    // wrong reason and would have kept passing had the guard been the only
+    // thing standing between a client and the response.
+    it('is unaffected by a malformed requested header name', async () => {
+      expect(
+        await preflightAllowHeaders(config, 'Content-Type, bad header!!!'),
+      ).toBe('Content-Type, Authorization');
     });
   });
 

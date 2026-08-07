@@ -131,6 +131,178 @@ describe('validateCORSPolicy', () => {
     });
   });
 
+  describe('list entries are RFC 9110 tokens', () => {
+    // All three fields are written into their response header verbatim, and a
+    // browser drops a header value it cannot parse rather than the offending
+    // entry, so one bad name takes every other name in the list with it.
+    it('rejects a method name that is not a token', () => {
+      expect(
+        paths({ origin: ['https://example.com'], methods: ['GET POST'] }),
+      ).toEqual(['methods']);
+    });
+
+    it('rejects an exposed header name that is not a token', () => {
+      expect(
+        paths({
+          origin: ['https://example.com'],
+          exposedHeaders: ['X Total Count'],
+        }),
+      ).toEqual(['exposedHeaders']);
+    });
+
+    it('names the field and the entry, so the message points somewhere', () => {
+      const [issue] = validateCORSPolicy({
+        origin: ['https://example.com'],
+        methods: ['GET POST'],
+      }).issues;
+
+      expect(issue.path).toBe('methods');
+      expect(issue.message).toContain('"GET POST"');
+      expect(issue.message).toContain('Access-Control-Allow-Methods');
+      expect(issue.message).toContain('method name');
+    });
+
+    // `*` is a legal token character, so it satisfies the grammar in every one
+    // of these fields on its own terms. Whether a browser reads it as a
+    // wildcard or as a literal name is the Fetch specification's business (it
+    // depends on whether the request is credentialed), not something this
+    // validator takes a position on.
+    it('accepts a wildcard entry in methods and exposedHeaders', () => {
+      expect(
+        validateCORSPolicy({ origin: ['https://example.com'], methods: ['*'] })
+          .valid,
+      ).toBe(true);
+
+      expect(
+        validateCORSPolicy({
+          origin: ['https://example.com'],
+          exposedHeaders: ['*'],
+        }).valid,
+      ).toBe(true);
+    });
+
+    it('reports every bad entry, not just the first in a field', () => {
+      // Two offenders in one field and one in another, so this pins both that
+      // each entry is judged on its own and that the field it belongs to is the
+      // path reported.
+      expect(
+        paths({
+          origin: ['https://example.com'],
+          methods: ['GET', 'bad method', 'also bad'],
+          exposedHeaders: ['X Bad', 'X-Good'],
+        }),
+      ).toEqual(['methods', 'methods', 'exposedHeaders']);
+    });
+
+    // Padding is refused rather than trimmed, matching how a CSP source
+    // expression is treated, and it gets a message of its own: the general one
+    // says a browser cannot parse the value, and for whitespace that is simply
+    // untrue. HTTP allows optional whitespace around a list element, so
+    // `Content-Type , X-Ok` parses exactly as intended.
+    it('reports whitespace padding as itself, not as an unparseable name', () => {
+      const [issue] = validateCORSPolicy({
+        origin: ['https://example.com'],
+        allowedHeaders: ['Content-Type ', 'X-Ok'],
+      }).issues;
+
+      expect(issue.path).toBe('allowedHeaders');
+      expect(issue.message).toContain('leading or trailing whitespace');
+      expect(issue.message).toContain('Write it as "Content-Type"');
+      expect(issue.message).not.toContain('cannot parse');
+    });
+
+    // Padding around a name that is broken anyway points at the padding only if
+    // that is the whole problem. Here it is not, so the grammar message is the
+    // useful one.
+    it('reports the grammar when trimming would not rescue the entry', () => {
+      const [issue] = validateCORSPolicy({
+        origin: ['https://example.com'],
+        allowedHeaders: [' bad name '],
+      }).issues;
+
+      expect(issue.message).toContain('is not a valid header name');
+      expect(issue.message).not.toContain('leading or trailing whitespace');
+    });
+
+    // A list that is not a list of strings is that one mistake, not that
+    // mistake plus a complaint about entries nothing could have read.
+    it('does not report entry problems for a list that is not one', () => {
+      expect(
+        paths({ origin: ['https://example.com'], methods: 'GET' }),
+      ).toEqual(['methods']);
+    });
+  });
+
+  describe('allowedHeaders rules', () => {
+    const withOrigin = (allowedHeaders: string[]) => ({
+      origin: ['https://example.com'],
+      allowedHeaders,
+    });
+
+    // The configured list is written into Access-Control-Allow-Headers with no
+    // filtering, so a name a browser cannot parse takes the whole header with
+    // it and every custom-header request starts failing. Nothing downstream
+    // would report it, which is why it is refused here.
+    it('rejects a name that is not a header name', () => {
+      // A space is the realistic one: "Content Type" for "Content-Type".
+      expect(paths(withOrigin(['Content Type']))).toEqual(['allowedHeaders']);
+      expect(paths(withOrigin(['X-Ok', 'bad(header)']))).toEqual([
+        'allowedHeaders',
+      ]);
+      expect(paths(withOrigin(['']))).toEqual(['allowedHeaders']);
+    });
+
+    it('names the offending entry in the message', () => {
+      const [issue] = validateCORSPolicy(withOrigin(['Content Type'])).issues;
+
+      expect(issue.message).toContain('"Content Type"');
+    });
+
+    // `*` is itself a legal token character, so the wildcard passes the name
+    // check on grammar alone. It is matched literally before that, which is
+    // what keeps it from being read as a header genuinely named "*".
+    it('accepts the bare wildcard', () => {
+      expect(validateCORSPolicy(withOrigin(['*'])).valid).toBe(true);
+    });
+
+    // The same policy written twice, which is redundant rather than
+    // contradictory. Refusing it produced a startup error that named no
+    // offending header and advised writing exactly what was already there.
+    it('accepts a repeated wildcard, which is the same policy', () => {
+      expect(validateCORSPolicy(withOrigin(['*', '*'])).valid).toBe(true);
+    });
+
+    it('rejects the wildcard alongside named headers', () => {
+      expect(paths(withOrigin(['*', 'X-Thing']))).toEqual(['allowedHeaders']);
+
+      const [issue] = validateCORSPolicy(
+        withOrigin(['*', 'X-Thing', 'X-Other']),
+      ).issues;
+
+      // The named entries are listed, since the fix is to drop either them or
+      // the wildcard and the author needs to see which ones are inert.
+      expect(issue.message).toContain('X-Thing, X-Other');
+    });
+
+    // Deliberately valid, and not the same shape as `origin: []`. An empty list
+    // sends no header, which leaves a browser permitting the CORS-safelisted
+    // request headers and nothing else. That is a real policy, and there is no
+    // other way to spell it, where `origin: []` can only ever be a mistake
+    // because `cors: false` already says "no CORS" out loud.
+    it('accepts an empty list, which permits only the safelisted headers', () => {
+      expect(validateCORSPolicy(withOrigin([])).valid).toBe(true);
+    });
+
+    // One complaint per mistake: a list that is not a list of strings is
+    // reported as that, without also reporting what is wrong with entries
+    // nothing could have read.
+    it('does not report entry problems for a list that is not one', () => {
+      expect(
+        paths({ origin: ['https://example.com'], allowedHeaders: {} }),
+      ).toEqual(['allowedHeaders']);
+    });
+  });
+
   describe('origin and credentials rules', () => {
     it("rejects credentials: true with origin '*'", () => {
       expect(validateCORSPolicy({ origin: '*', credentials: true }).valid).toBe(
@@ -446,6 +618,47 @@ describe('validateCORSPolicy', () => {
       {
         name: 'a dynamic credentials function under a wildcard',
         cors: { origin: '*', credentials: () => true },
+      },
+      {
+        name: 'a malformed allowedHeaders name',
+        cors: {
+          origin: ['https://example.com'],
+          allowedHeaders: ['Content Type'],
+        },
+      },
+      {
+        name: 'the allowedHeaders wildcard beside a named header',
+        cors: {
+          origin: ['https://example.com'],
+          allowedHeaders: ['*', 'X-Thing'],
+        },
+      },
+      {
+        name: 'a bare allowedHeaders wildcard',
+        cors: { origin: ['https://example.com'], allowedHeaders: ['*'] },
+      },
+      {
+        name: 'an empty allowedHeaders list',
+        cors: { origin: ['https://example.com'], allowedHeaders: [] },
+      },
+      {
+        name: 'a malformed method name',
+        cors: { origin: ['https://example.com'], methods: ['GET POST'] },
+      },
+      {
+        name: 'a malformed exposedHeaders name',
+        cors: {
+          origin: ['https://example.com'],
+          exposedHeaders: ['X Total Count'],
+        },
+      },
+      {
+        name: 'a wildcard in methods and exposedHeaders',
+        cors: {
+          origin: ['https://example.com'],
+          methods: ['*'],
+          exposedHeaders: ['*'],
+        },
       },
     ];
 
