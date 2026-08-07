@@ -1465,4 +1465,33 @@ describe('literal splicing and byte-exact rendered hashes', () => {
 
     expect(reported).toContain(`'${hashInlineContentForCSP(css)}'`);
   });
+
+  it('hashes an empty rendered <style>, and still skips an empty <script>', async () => {
+    // React 19 renders a hoistable style element inline in the SSR stream, and
+    // a CSS-in-JS runtime emits one with nothing in it whenever the render
+    // produced no rules. A browser applies it either way, so a strict style-src
+    // blocks it and names the empty-string digest as the hash that would allow
+    // it. An empty script draws no violation, which is why the two arms of the
+    // scanner are guarded differently and why this pins both directions rather
+    // than only the one that changed.
+    const reported: { scriptSrc: string[]; styleSrc: string[] } = {
+      scriptSrc: [],
+      styleSrc: [],
+    };
+
+    await injectContent(
+      template,
+      '',
+      '<div><style data-emotion="css"></style><script></script></div>',
+      {
+        addCSPSources: (s) => {
+          reported.scriptSrc.push(...(s.scriptSrc ?? []));
+          reported.styleSrc.push(...(s.styleSrc ?? []));
+        },
+      },
+    );
+
+    expect(reported.styleSrc).toEqual([`'${hashInlineContentForCSP('')}'`]);
+    expect(reported.scriptSrc).toHaveLength(0);
+  });
 });

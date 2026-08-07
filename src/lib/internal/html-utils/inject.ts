@@ -856,7 +856,20 @@ function collectRenderedInlineHashes(
 
     const content = rawContentOf(el);
 
-    if (content) {
+    // Compared against undefined rather than read as truthy, because the two
+    // falsy answers here mean opposite things. `undefined` is "no usable source
+    // range", where there is nothing to hash. An empty string is a real
+    // `<style></style>`, which a CSS-in-JS runtime or a React 19 hoistable
+    // emits whenever it has no rules to write yet, and a browser still applies
+    // it: Chrome blocks one under a strict style-src and names the empty-string
+    // digest as the hash that would allow it. Skipping it left that hash out of
+    // the policy for content the page really does ship.
+    //
+    // The `<script>` arm above is deliberately left on a truthiness test, so
+    // the difference between the two is intentional rather than an oversight to
+    // tidy up: an empty inline script draws no violation, and publishing a hash
+    // for one would be a source expression matching nothing.
+    if (content !== undefined) {
       styleSrc.add(`'${hashInlineContentForCSP(content)}'`);
     }
   });

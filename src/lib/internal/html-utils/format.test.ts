@@ -2283,6 +2283,31 @@ describe('template CSP hashes inside <noscript>', () => {
     }
   });
 
+  it('hashes an empty <style>, and still skips an empty <script>', async () => {
+    // An empty style element is not nothing. A CSS-in-JS runtime emits one
+    // whenever it has no rules to write yet, and a browser applies it, so a
+    // strict style-src blocks it and names the empty-string digest as the hash
+    // that would allow it. An empty script draws no violation, which is why the
+    // two arms of the scanner are guarded differently and why this pins both
+    // directions rather than only the one that changed.
+    const result = await processTemplate(
+      '<!doctype html><html><head><title>t</title><!--ss-head--><style></style><script></script></head><body><div id="root"><!--ss-outlet--></div></body></html>',
+      'ssr',
+      false,
+      false,
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.cspHashes.styleSrc).toEqual([
+        `'${hashInlineContentForCSP('')}'`,
+      ]);
+
+      expect(result.cspHashes.scriptSrc).toHaveLength(0);
+    }
+  });
+
   it('leaves a <noscript> without inline content alone', async () => {
     const result = await processTemplate(
       '<!doctype html><html><head><title>t</title><!--ss-head--></head><body><noscript><p>JavaScript is required.</p></noscript><div id="root"><!--ss-outlet--></div></body></html>',

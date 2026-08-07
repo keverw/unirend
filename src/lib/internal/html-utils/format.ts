@@ -638,7 +638,21 @@ function collectInlineCSPHashes(
     $('style').each((_, el) => {
       const content = $(el).html();
 
-      if (content) {
+      // Compared against null rather than read as truthy, because the empty
+      // string is a real `<style></style>` and has to be hashed. A placeholder
+      // or a CSS-in-JS tag that produced no rules is one, and a browser applies
+      // it: Chrome blocks it under a strict style-src and names the
+      // empty-string digest as the hash that would allow it. Reading the value
+      // as truthy dropped exactly that case.
+      //
+      // The null branch cannot be reached from here, since `.html()` only
+      // returns null for an empty selection and this is inside `.each`. It is
+      // written out anyway so the guard says what it is testing for rather than
+      // relying on the reader knowing that.
+      //
+      // The `<script>` arm above is deliberately left on a truthiness test,
+      // since an empty inline script draws no violation.
+      if (content !== null) {
         styleSrc.add(`'${hashInlineContentForCSP(content)}'`);
       }
     });
