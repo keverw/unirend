@@ -242,9 +242,9 @@ export async function generateSSG(
   // Check for .unirend-ssg.json file in client folder
   // This stores the process html template
   const clientBuildDir = path.join(buildDir, clientFolderName);
-  const unirendSsgPath = path.join(clientBuildDir, '.unirend-ssg.json');
+  const unirendSSGPath = path.join(clientBuildDir, '.unirend-ssg.json');
 
-  const ssgConfigResult = await readJSONFile(unirendSsgPath);
+  const ssgConfigResult = await readJSONFile(unirendSSGPath);
 
   // If there's an error reading/parsing the config file, treat it as fatal
   // Note: file not existing is not an error, only read/parse errors are fatal
@@ -333,7 +333,7 @@ export async function generateSSG(
       generatedAt: new Date().toISOString(),
     };
 
-    const writeResult = await writeJSONFile(unirendSsgPath, ssgConfig);
+    const writeResult = await writeJSONFile(unirendSSGPath, ssgConfig);
     if (!writeResult.success) {
       return createSSGReport({
         buildDir,

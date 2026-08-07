@@ -455,10 +455,10 @@ export function isReportingGroupUndefined(
     return false;
   }
 
-  const namesCSPGroup =
+  const hasCSPGroup =
     csp && typeof csp.reportTo === 'string' && csp.reportTo.trim() !== '';
 
-  return Boolean(namesCSPGroup) || extraGroups.length > 0;
+  return Boolean(hasCSPGroup) || extraGroups.length > 0;
 }
 
 /**

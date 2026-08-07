@@ -198,7 +198,7 @@ import type { NodeAdapter } from 'lifecycleion/http-client-node';
 import {
   createBaseHeaders,
   createErrorResponse,
-  decorateWithSsrOnlyData,
+  decorateWithSSROnlyData,
   fetchWithTimeout,
 } from './page-data-loader-utils';
 import type {
@@ -454,7 +454,7 @@ async function pageDataLoader({
                 );
               }
 
-              return decorateWithSsrOnlyData(result, {});
+              return decorateWithSSROnlyData(result, {});
             }
           } else if (DEBUG_PAGE_LOADER) {
             // No internal handler; fall back to HTTP fetch
@@ -491,7 +491,7 @@ async function pageDataLoader({
             : config.errorDefaults.internalError.message;
 
           // Return a 500 error envelope immediately to avoid reattempt via HTTP
-          return decorateWithSsrOnlyData(
+          return decorateWithSSROnlyData(
             createErrorResponse(
               config,
               500,
@@ -607,7 +607,7 @@ async function pageDataLoader({
             `[pageDataLoader] resolvePageDataRequestOptions threw for ${pageType}; returning 500`,
           );
 
-          return decorateWithSsrOnlyData(
+          return decorateWithSSROnlyData(
             createErrorResponse(
               config,
               500,
@@ -758,7 +758,7 @@ async function pageDataLoader({
 
     // Network or other errors that prevent the fetch from completing
     // No cookies would be available here since the fetch failed
-    return decorateWithSsrOnlyData(
+    return decorateWithSSROnlyData(
       createErrorResponse(
         config,
         500,
@@ -888,7 +888,7 @@ async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
     // - SSR-only cookies are NOT available in the local path because there is no HTTP
     //   response to extract Set-Cookie headers from. If you need to set cookies, use
     //   the HTTP-backed loader path (API fetch) so cookies can be forwarded via __ssOnly.
-    return decorateWithSsrOnlyData(result as PageResponseEnvelope, {});
+    return decorateWithSSROnlyData(result as PageResponseEnvelope, {});
   } catch (internalError) {
     const isDevelopment = getDevMode();
 
@@ -906,7 +906,7 @@ async function localPageDataLoader<T = unknown, M extends BaseMeta = BaseMeta>(
       : config.errorDefaults.internalError.message;
 
     // Build a standardized page error envelope
-    return decorateWithSsrOnlyData(
+    return decorateWithSSROnlyData(
       createErrorResponse(
         config,
         500,
