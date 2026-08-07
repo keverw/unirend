@@ -1390,13 +1390,15 @@ describe('literal splicing and byte-exact rendered hashes', () => {
     expect(result).toContain('__unirend_data__');
   });
 
-  it('hashes rendered inline content from the bytes that ship, not the parse', async () => {
-    // The HTML tokenizer normalizes CRLF to LF inside raw-text elements, so a
-    // digest taken from the parsed tree disagrees with the raw body that is
-    // spliced in verbatim. The style was then blocked under a strict style-src
-    // with nothing anywhere mentioning line endings. Reachable through
-    // dangerouslySetInnerHTML with content from a file read on Windows or a CMS
-    // field.
+  it('hashes rendered inline content as the browser reads it, not as it ships', async () => {
+    // A CSP hash covers the element's child text content, which is a DOM value.
+    // The HTML input stream is preprocessed before tokenization, so CRLF becomes
+    // LF and a CR never reaches the DOM: the browser hashes the normalized text
+    // even though the response body still carries the CRLFs. Hashing the bytes
+    // literally published a digest nothing could match, and the style was then
+    // blocked under a strict style-src with nothing anywhere mentioning line
+    // endings. Reachable through dangerouslySetInnerHTML with content from a
+    // file read on Windows or a CMS field.
     const css = 'body{\r\n  margin:0\r\n}';
     const reported: string[] = [];
 
@@ -1411,8 +1413,30 @@ describe('literal splicing and byte-exact rendered hashes', () => {
     const from = result.indexOf(open) + open.length;
     const shipped = result.slice(from, result.indexOf('</style>', from));
 
+    // The body is still spliced in verbatim: normalizing is what the digest is
+    // computed over, not something done to the page.
     expect(shipped).toBe(css);
-    expect(reported).toContain(`'${hashInlineContentForCSP(shipped)}'`);
+    expect(reported).toContain(
+      `'${hashInlineContentForCSP('body{\n  margin:0\n}')}'`,
+    );
+    expect(reported).not.toContain(`'${hashInlineContentForCSP(css)}'`);
+  });
+
+  it('hashes a rendered NUL the way the tokenizer replaces it', async () => {
+    // The other half of the input-stream preprocessing: a NUL never reaches the
+    // DOM either, it is replaced with U+FFFD, so that is what the browser
+    // hashes. Written as an escape rather than a raw byte, which the repo's
+    // check:null-bytes gate also requires.
+    const css = 'body{content:"\0"}';
+    const reported: string[] = [];
+
+    await injectContent(template, '', `<div><style>${css}</style></div>`, {
+      addCSPSources: (s) => reported.push(...(s.styleSrc ?? [])),
+    });
+
+    expect(reported).toContain(
+      `'${hashInlineContentForCSP('body{content:"�"}')}'`,
+    );
   });
 
   it('still reaches inline content inside a rendered <noscript>', async () => {

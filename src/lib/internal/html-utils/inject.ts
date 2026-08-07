@@ -31,6 +31,40 @@ interface ScriptSourceLocation {
 }
 
 /**
+ * Apply the two normalizations the HTML tokenizer performs on raw text, so a
+ * digest taken from the source bytes agrees with the one a browser computes.
+ *
+ * A CSP hash covers an element's **child text content**, which is a DOM value
+ * rather than a byte range, and neither a CR nor a NUL survives into one. The
+ * two get there by different routes, which is worth keeping straight because
+ * only one of them is universal. Newlines are normalized in "Preprocessing the
+ * input stream", before tokenization and so for every element: CRLF and a lone
+ * CR both become LF. NUL is replaced with U+FFFD by the tokenizer states that
+ * read raw text, which is where `<script>` and `<style>` content is read, while
+ * the ordinary data state passes a NUL through untouched.
+ *
+ * That difference is why this function is only ever called on the contents of a
+ * raw-text element. Applied to anything else, the NUL half would be wrong.
+ *
+ * Reading raw source offsets is still right for everything else, which is why
+ * this is a normalization rather than a switch back to the parsed tree. Rendered
+ * markup ships verbatim and never round-trips through a serializer, so the
+ * offsets are the only way to get at content cheerio would otherwise rewrite.
+ * These two characters are the entire gap between the bytes and the tree in a
+ * raw-text element: nothing else in `<script>` or `<style>` is decoded or
+ * rewritten, entity references included.
+ *
+ * Getting the direction wrong is silent and one-sided. Publishing the
+ * un-normalized digest blocks the very content the hash was for, on a policy
+ * that reads as though it allows it, and the only trigger is a line ending
+ * nobody looks at: a CMS field or a file read on Windows reaching the page
+ * through `dangerouslySetInnerHTML`.
+ */
+function normalizeRawTextForHash(content: string): string {
+  return content.replace(/\r\n?/g, '\n').replace(/\0/g, '�');
+}
+
+/**
  * React Router's hydration script, as it emits it:
  *
  * ```html
@@ -560,10 +594,11 @@ export async function injectContent(
         //
         // The digest covers the element's text content and not the element, so
         // it is read from between the tags rather than from `rawScript`. Taken
-        // from the original source through parse5's offsets, so it is the bytes
-        // that ship: re-serializing through cheerio to get at the content would
-        // reintroduce the mangling this branch exists to avoid, and could hash
-        // something the browser never sees.
+        // from the original source through parse5's offsets: re-serializing
+        // through cheerio to get at the content would reintroduce the mangling
+        // this branch exists to avoid, and could hash something the browser
+        // never sees. Normalized on the way out, since text content is what a
+        // browser hashes and the tokenizer has already been over it.
         const contentStart = location.startTag?.endOffset;
         const contentEnd = location.endTag?.startOffset ?? location.endOffset;
 
@@ -573,7 +608,11 @@ export async function injectContent(
           contentEnd >= contentStart
         ) {
           pageScriptSources.add(
-            `'${hashInlineContentForCSP(bodyContent.slice(contentStart, contentEnd))}'`,
+            `'${hashInlineContentForCSP(
+              normalizeRawTextForHash(
+                bodyContent.slice(contentStart, contentEnd),
+              ),
+            )}'`,
           );
         }
       } else {
@@ -776,17 +815,22 @@ export async function injectContent(
  * Hash the inline `<script>` and `<style>` of rendered markup, reading every
  * digest from the **original source bytes** rather than from the parsed tree.
  *
- * That distinction is the whole function. The template scanner can hash a
- * parsed tree safely, because the template was serialized *out of* a parse, so
- * the bytes and the tree already agree. Rendered body content is spliced into
- * the page verbatim and never round-trips through a serializer, so the two
- * disagree wherever the HTML tokenizer normalizes something. CRLF is the one
- * that bites: the tokenizer turns every CRLF into a bare LF inside raw-text
- * elements, so a `<style>` written with Windows line endings, which is what a
- * file read on Windows or a CMS field will hand you, hashed to a digest the
- * shipped bytes never match. The style was then blocked under a strict
- * `style-src` with nothing anywhere mentioning line endings. (NUL is the other
- * one, normalized to U+FFFD.)
+ * That distinction is the whole function. The template scanner can read the
+ * parsed tree, because the template was serialized *out of* a parse, so the
+ * bytes and the tree already agree. Rendered body content is spliced into the
+ * page verbatim and never round-trips through a serializer, so cheerio's
+ * serializer is free to rewrite it on the way back out, and a digest taken from
+ * what it hands back can cover something the browser never receives.
+ *
+ * The bytes are not hashed quite as they are found, though, and that is the
+ * other half of getting this right. A CSP hash covers the element's *child text
+ * content*, a DOM value, and the HTML input stream is preprocessed before
+ * tokenization: CRLF and lone CR become LF, and NUL becomes U+FFFD. So a
+ * `<style>` written with Windows line endings, which is what a file read on
+ * Windows or a CMS field will hand you, ships with its CRLFs intact and is
+ * hashed by the browser without them. `normalizeRawTextForHash` closes exactly
+ * that gap, and nothing else in a raw-text element differs between the bytes
+ * and the tree.
  *
  * `<noscript>` needs the same treatment one level down. cheerio parses with
  * scripting enabled, so a `<noscript>` body is a single raw-text node and the
@@ -812,7 +856,11 @@ function collectRenderedInlineHashes(
   const scriptSrc = new Set<string>();
   const styleSrc = new Set<string>();
 
-  /** The element's text content, taken from the bytes rather than the tree. */
+  /**
+   * The element's text content, taken from the bytes rather than the tree and
+   * then put through the tokenizer's own normalization, so it is the value a
+   * browser will hash rather than the value it was parsed from.
+   */
   const rawContentOf = (el: AnyNode): string | undefined => {
     const location = (el as { sourceCodeLocation?: ScriptSourceLocation })
       .sourceCodeLocation;
@@ -823,7 +871,9 @@ function collectRenderedInlineHashes(
       return undefined;
     }
 
-    return source.slice(baseOffset + start, baseOffset + end);
+    return normalizeRawTextForHash(
+      source.slice(baseOffset + start, baseOffset + end),
+    );
   };
 
   $body('script').each((_, el) => {
