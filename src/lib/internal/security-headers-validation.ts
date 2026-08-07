@@ -774,12 +774,24 @@ function collectCrossOriginPolicyIssues(
     ];
   }
 
-  const issues = collectTokenHeaderIssues(
-    path,
-    headerName,
-    value.policy,
-    allowed,
-  );
+  // Not `collectTokenHeaderIssues`, and the difference is the whole point.
+  // That function reads `undefined` and `false` as "send no header", which is
+  // right for the field itself and wrong for this key: the object form has
+  // already said a header is wanted, so an absent policy is an incomplete
+  // object rather than an opt-out. Waved through, it reached
+  // `serializeCrossOriginPolicy` and came out as the literal string
+  // "undefined", or "false", which a browser drops. That leaves the protection
+  // off on a config that reads as though it is on, which is the exact silence
+  // this module exists to break.
+  const issues: SecurityHeadersPolicyIssue[] =
+    typeof value.policy === 'string' && allowed.has(value.policy)
+      ? []
+      : [
+          {
+            path,
+            message: `Invalid securityHeaders config: ${path}.policy must be one of ${[...allowed].map((token) => `'${token}'`).join(', ')}. Use ${path}: false to send no ${headerName} header. ${value.policy === undefined ? 'No policy was given.' : `Received ${describeValue(value.policy)}.`}`,
+          },
+        ];
 
   for (const key of Object.keys(value)) {
     if (key !== 'policy' && key !== 'reportTo') {
