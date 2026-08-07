@@ -438,32 +438,21 @@ function collectShapeIssues(cors: CORSConfig): CORSPolicyIssue[] {
       path: 'credentials',
       message: `Invalid CORS config: credentials must be a boolean, an array of origins, or a function, received ${describeValue(credentials)}`,
     });
-  } else if (
-    (origin === false || origin === undefined) &&
-    credentials !== undefined &&
-    credentials !== false
-  ) {
-    // Credentials without an origin is a block that reads as though it allows
-    // something and allows nothing. With CORS off no
-    // `Access-Control-Allow-Origin` is sent, so no browser will ever attach
-    // credentials whatever this says, and the folding below that would normally
-    // pull a credentials allowlist into the origin list has nothing to fold
-    // into.
-    //
-    // Reported rather than quietly ignored, because this is the one inert
-    // combination whose plain reading is a security decision: someone wrote
-    // down a list of origins they trust with cookies, and nothing is trusting
-    // them with anything.
-    //
-    // Only once the value is a credentials value at all, hence the `else`. A
-    // `credentials: 'yes'` is one mistake, and saying both "that is not a
-    // credentials value" and "it does nothing without an origin" describes it
-    // twice, which reads as two problems and is the noise every other rule in
-    // this file is arranged to avoid.
+  }
+
+  // An origin list that lists nothing.
+  //
+  // Every entry a browser could send is checked against this and none of them
+  // match, so it is CORS switched on and refusing everyone, which is what `off`
+  // already does without the `Vary: Origin` and the preflight handling. Nobody
+  // writes that on purpose: it is what `origin: allowedOrigins` looks like when
+  // the environment variable behind it came back empty, and the symptom is
+  // every cross-origin request failing with a policy that reads as an allowlist.
+  if (Array.isArray(cors.origin) && cors.origin.length === 0) {
     issues.push({
-      path: 'credentials',
+      path: 'origin',
       message:
-        'Invalid CORS config: credentials is set but origin is not, so no CORS headers are sent and no browser will ever attach credentials. Set cors.origin to the origins you mean to allow.',
+        'Invalid CORS config: origin is an empty list, which allows no origin at all. Use cors: false, or cors.origin: false, to send no CORS headers, or list the origins you mean to allow.',
     });
   }
 
@@ -525,6 +514,97 @@ function collectShapeIssues(cors: CORSConfig): CORSPolicyIssue[] {
 }
 
 /**
+ * The fields that do nothing because CORS is off.
+ *
+ * A block carrying `methods` or `credentials` with no `origin` reads as a
+ * configured CORS policy and is not one: nothing is allowed, so no
+ * `Access-Control-Allow-Origin` is sent, no preflight is answered, and every
+ * other field is describing a negotiation that never happens.
+ *
+ * Reported rather than ignored, which is the same call this module makes for a
+ * `csp.reportTo` naming a group nothing defines, and made for the same reason.
+ * The distinction drawn everywhere here is whether the contradiction is
+ * provable from the config alone: a missing `Reporting-Endpoints` header might
+ * be arriving from a proxy, so that warns, while a group the configured
+ * endpoints demonstrably do not define throws. Nothing outside this block can
+ * supply an `origin`, so this is the provable kind.
+ *
+ * Every field rather than only `credentials`, which is where this started.
+ * Singling out the security-relevant one left `methods` and `maxAge` silently
+ * inert beside it under a rule that could not be stated in a sentence. One rule
+ * is easier to trust than a list of exceptions, and the fix is identical in
+ * every case: name an origin, or say `cors: false` and mean it.
+ *
+ * Read from the block as written rather than from the merged config, which by
+ * this point holds every key with a default filled in and so could not tell a
+ * field the caller set from one it inherited.
+ */
+/**
+ * Whether this value is the one the field would have had anyway.
+ *
+ * Compared structurally rather than by reference, since a caller writing out
+ * `methods: ['GET', 'POST', ...]` by hand has set nothing, however many array
+ * literals are involved. A function never matches, which is correct: a
+ * `credentials` callback is a decision procedure, and one that can never be
+ * consulted is exactly what this is looking for.
+ */
+function isDefaultCORSValue(key: string, value: unknown): boolean {
+  if (!Object.hasOwn(DEFAULT_CORS_CONFIG, key)) {
+    return false;
+  }
+
+  const fallback = (DEFAULT_CORS_CONFIG as Record<string, unknown>)[key];
+
+  return (
+    value === fallback || JSON.stringify(value) === JSON.stringify(fallback)
+  );
+}
+
+function collectInertFieldIssues(input: unknown): CORSPolicyIssue[] {
+  if (!isPlainObject(input)) {
+    return [];
+  }
+
+  const origin: unknown = input.origin;
+
+  if (origin !== undefined && origin !== false) {
+    return [];
+  }
+
+  // A field is only "set" if it says something the default did not.
+  //
+  // Undefined is skipped for the same reason it inherits rather than deletes: a
+  // key written as undefined is a key that was not set. A field written at its
+  // own default is skipped for a different reason, and it is the one that keeps
+  // this rule honest rather than merely strict. `credentials: false` next to no
+  // origin is not a contradiction, it is someone saying "definitely no
+  // credentials" about a block that is already sending none, which agrees with
+  // CORS being off instead of claiming something it cannot deliver. Refusing
+  // that would be refusing a config for being explicit.
+  const configured = Object.keys(input).filter(
+    (key) =>
+      key !== 'origin' &&
+      input[key] !== undefined &&
+      !isDefaultCORSValue(key, input[key]),
+  );
+
+  if (configured.length === 0) {
+    return [];
+  }
+
+  const isPlural = configured.length > 1;
+
+  return [
+    {
+      // Pointed at `credentials` when it is one of them, since that is the
+      // field a reader most needs taken to.
+      path: configured.includes('credentials') ? 'credentials' : configured[0],
+      message: `Invalid CORS config: ${configured.map((key) => `cors.${key}`).join(', ')} ${isPlural ? 'are' : 'is'} set but cors.origin is not, so no CORS headers are sent and ${isPlural ? 'they do' : 'it does'} nothing.${configured.includes('credentials') ? ' No browser attaches credentials to a request it was never told it could make.' : ''} Set cors.origin to the origins you mean to allow, or cors: false if you meant to send none.`,
+    },
+  ];
+}
+
+/**
  * Every problem with a CORS block, plus the block the plugin should actually
  * use.
  *
@@ -578,6 +658,18 @@ export function collectCORSIssues(input: unknown): {
   );
 
   const issues = collectShapeIssues(cors);
+
+  // Only once the shapes are right, for the same reason the relational rules
+  // below stop on a bad origin. A field that is the wrong type, or misspelled,
+  // is one mistake, and adding "and it does nothing without an origin" on top
+  // describes that same mistake a second way. Fix the shape and this speaks up
+  // on the next run.
+  //
+  // Reads the block as written, which the merged config above can no longer do:
+  // every key is present there whether the caller set it or not.
+  if (issues.length === 0) {
+    issues.push(...collectInertFieldIssues(input));
+  }
 
   // The rules below all read origin or credentials, so a bad one of either
   // leaves nothing worth asking. Returning here is what keeps a single mistake

@@ -4639,15 +4639,69 @@ describe('securityHeaders', () => {
       }
     });
 
+    it('rejects any CORS field configured without an origin', () => {
+      // One rule rather than a list of exceptions. With no origin the block
+      // negotiates nothing, so every field in it describes a negotiation that
+      // never happens, and singling out the security-relevant one left the rest
+      // silently inert beside it.
+      const inert: CORSConfig[] = [
+        { methods: ['GET'] },
+        { maxAge: 600 },
+        { allowedHeaders: ['X-Thing'] },
+        { exposedHeaders: ['X-Thing'] },
+        { allowPrivateNetwork: true },
+        { preflightContinue: true },
+      ];
+
+      for (const cors of inert) {
+        expect(() => securityHeaders({ cors }), JSON.stringify(cors)).toThrow(
+          /is set but cors\.origin is not/,
+        );
+      }
+
+      // Named together rather than one per run, so a block with two inert
+      // fields is one problem rather than two.
+      expect(() =>
+        securityHeaders({ cors: { methods: ['GET'], maxAge: 600 } }),
+      ).toThrow(/cors\.methods, cors\.maxAge are set but cors\.origin is not/);
+
+      // A field written at its own default says nothing the default did not,
+      // so it is not a claim this can contradict. Refusing it would be refusing
+      // a config for being explicit.
+      expect(() =>
+        securityHeaders({ cors: { credentials: false } }),
+      ).not.toThrow();
+      expect(() =>
+        securityHeaders({ cors: { preflightContinue: false } }),
+      ).not.toThrow();
+
+      // And nothing at all is just "off".
+      expect(() => securityHeaders({ cors: {} })).not.toThrow();
+      expect(() => securityHeaders({ cors: false })).not.toThrow();
+      expect(() =>
+        securityHeaders({ cors: { origin: undefined } }),
+      ).not.toThrow();
+    });
+
+    it('rejects an origin list that allows nothing', () => {
+      // What `origin: allowedOrigins` looks like when the environment variable
+      // behind it came back empty: CORS switched on and refusing everyone,
+      // which is what off already does without the Vary and the preflight
+      // handling.
+      expect(() => securityHeaders({ cors: { origin: [] } })).toThrow(
+        /origin is an empty list/,
+      );
+    });
+
     it('rejects credentials configured without an origin', () => {
       // A block that reads as "these origins may send cookies" and allows
       // nothing, since with CORS off no browser ever attaches credentials.
       expect(() =>
         securityHeaders({ cors: { credentials: ['https://app.example.com'] } }),
-      ).toThrow(/credentials is set but origin is not/);
+      ).toThrow(/cors\.credentials is set but cors\.origin is not/);
 
       expect(() => securityHeaders({ cors: { credentials: true } })).toThrow(
-        /credentials is set but origin is not/,
+        /cors\.credentials is set but cors\.origin is not/,
       );
 
       // Saying it explicitly is fine, and so is the ordinary configured case.

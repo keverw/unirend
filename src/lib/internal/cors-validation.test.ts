@@ -105,9 +105,14 @@ describe('validateCORSPolicy', () => {
       expect(paths({ optionsSuccessStatus: 204.5 })).toEqual([
         'optionsSuccessStatus',
       ]);
-      expect(validateCORSPolicy({ optionsSuccessStatus: 200 }).valid).toBe(
-        true,
-      );
+      // With an origin, since a preflight status on a block that does no CORS
+      // is inert and reported as such.
+      expect(
+        validateCORSPolicy({
+          origin: ['https://example.com'],
+          optionsSuccessStatus: 200,
+        }).valid,
+      ).toBe(true);
     });
 
     it('rejects a non-boolean where a flag belongs', () => {

@@ -102,7 +102,7 @@ Two consequences worth knowing before you leave it off:
 - **A catch-all route now sees preflight traffic.** The plugin no longer absorbs `OPTIONS` at the `onRequest` hook, so an `app.all('/api/*')` handler runs for cross-origin preflight requests that used to be answered before reaching it. That is the correct "not handling CORS" behavior, but it is your handler's job now.
 - **If you set `Access-Control-Allow-Origin` yourself, set `Vary: Origin` yourself too.** The plugin only adds `Vary` when it is doing the negotiating, so a hand-rolled per-origin header on an otherwise CORS-off server would otherwise be cacheable across origins.
 
-Only `credentials` is refused when CORS is off, because that is the field whose plain reading is a security decision. The rest of the block (`methods`, `maxAge`, `allowedHeaders`, and so on) is simply inert until `origin` is set.
+Setting any other CORS field without an `origin` is refused at startup. With nothing allowed the block negotiates nothing, so `credentials`, `methods`, `maxAge` and the rest are all describing something that never happens, and a block that reads as a configured policy should not quietly be none. Writing a field at its own default (`credentials: false`) is fine, since that says nothing the default did not. An empty `origin: []` is refused too: it is CORS switched on and refusing everyone, which is what `false` already does more clearly, and it is what `origin: allowedOrigins` looks like when the value behind it came back empty.
 
 <!-- prettier-ignore -->
 > [!IMPORTANT]
@@ -138,7 +138,7 @@ Only `credentials` is refused when CORS is off, because that is the field whose 
   - `function`: per-request decision `(origin, request) => boolean | Promise<boolean)`
     - Not allowed with `origin: "*"`: combining a global origin wildcard with a dynamic credentials function is rejected for safety.
   - Auto-merge behavior: When `credentials` is an array, its origins are automatically merged into `origin` (even if `origin` is a single string) so credentialed origins are always allowed for CORS.
-  - Setting `credentials` without an `origin` is refused at startup. With CORS off no browser ever attaches credentials, so the block would read as "these origins may send cookies" and allow nothing.
+  - Setting `credentials` without an `origin` is refused at startup, along with every other CORS field. With CORS off no browser ever attaches credentials, so the block would read as "these origins may send cookies" and allow nothing.
 
 - `methods` (default: `["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]`): Allowed HTTP methods
   - Preflight handling: On OPTIONS requests, the plugin responds with `Access-Control-Allow-Methods` built from the configured methods (normalized, deduped).
