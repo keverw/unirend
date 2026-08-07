@@ -587,50 +587,24 @@ export async function collectTemplateCSPHashes(
 }
 
 /**
- * How much of a document to scan, for the callers that want less than all of it.
- */
-export interface InlineCSPScanOptions {
-  /**
-   * Elements to leave out, compared by reference against the parsed nodes.
-   *
-   * The SSR path uses it for React Router's hydration script, which it has
-   * already dealt with itself: one shape is lifted into the JSON data block and
-   * so is never emitted, and the other is emitted verbatim and hashed from the
-   * original source offsets rather than from a re-serialization. Either way a
-   * hash taken here would be wrong or redundant.
-   */
-  skipElement?: (el: Element) => boolean;
-  /**
-   * Whether to report inline `on*=` and `style=` attributes.
-   *
-   * Off by default, and the SSR path leaves it off deliberately. React renders
-   * a `style` prop as a `style=""` attribute, so scanning rendered markup would
-   * report an ordinary styled component on every request, which is noise the
-   * warning cannot survive. A *template* is authored by hand and fixed for the
-   * life of the process, so there the report is worth having.
-   */
-  collectInlineAttributes?: boolean;
-}
-
-/**
  * Hash the inline `<script>` and `<style>` elements of an already-parsed
- * document.
+ * template, and report its inline attributes.
  *
- * Split out from `collectTemplateCSPHashes` so the SSR path can scan the
- * rendered body it has already parsed rather than parsing it a second time,
- * and so both paths answer "is this script executable" and "what about
- * `<noscript>`" from one copy of the rules.
+ * Reads content with cheerio's `.html()` rather than from source offsets, and
+ * that is safe **here specifically** because the template was serialized out of
+ * a parse: `processTemplate` prettifies the document and then hashes what it
+ * just wrote, so the tree and the bytes already agree.
  *
- * Reads content with cheerio's `.html()`, which is exact for these two
- * elements: their children are a single raw-text node holding the source
- * characters, and the serializer writes raw text back unencoded. That is the
- * same reasoning the template scan relies on, and it is why this can be handed
- * a tree rather than a string.
+ * Rendered SSR markup is the opposite case and deliberately does not come
+ * through here. It is spliced into the page verbatim without round-tripping
+ * through a serializer, so the tokenizer's normalizations, CRLF to LF inside
+ * raw-text elements being the one that bites, leave the tree and the bytes
+ * disagreeing. That path reads digests from the original source offsets
+ * instead. See `collectRenderedInlineHashes` in `inject.ts`.
  */
-export function collectInlineCSPHashes(
+function collectInlineCSPHashes(
   $: CheerioAPI,
   load: typeof cheerioLoad,
-  options: InlineCSPScanOptions = {},
 ): TemplateCSPHashes {
   const scriptSrc = new Set<string>();
   const styleSrc = new Set<string>();
@@ -640,17 +614,13 @@ export function collectInlineCSPHashes(
   // would then read as covering the template: the second handler is blocked and
   // nothing says so.
   const inlineAttributes = new Map<string, InlineAttributeFinding>();
-  const shouldSkip = options.skipElement ?? (() => false);
-
   const collectFrom = ($: CheerioAPI): void => {
-    if (options.collectInlineAttributes) {
-      collectAttributesFrom($);
-    }
+    collectAttributesFrom($);
 
     $('script').each((_, el) => {
       const element = $(el);
 
-      if (shouldSkip(el) || element.attr('src')) {
+      if (element.attr('src')) {
         return;
       }
 
@@ -666,10 +636,6 @@ export function collectInlineCSPHashes(
     });
 
     $('style').each((_, el) => {
-      if (shouldSkip(el)) {
-        return;
-      }
-
       const content = $(el).html();
 
       if (content) {
@@ -747,9 +713,7 @@ function collectTemplateCSPHashesWith(
   html: string,
   load: typeof cheerioLoad,
 ): TemplateCSPHashes {
-  return collectInlineCSPHashes(load(html), load, {
-    collectInlineAttributes: true,
-  });
+  return collectInlineCSPHashes(load(html), load);
 }
 
 export async function processTemplate(

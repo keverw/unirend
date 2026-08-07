@@ -10,9 +10,9 @@ import {
   isRemovedBooleanAttribute,
 } from './escape';
 import { getMetaKeys } from './meta-key';
-import { hashInlineContentForCSP } from '../csp-hash';
-import { collectInlineCSPHashes } from './format';
+import { hashInlineContentForCSP, isCSPGovernedScriptType } from '../csp-hash';
 import type { AnyNode } from 'domhandler';
+import type { CheerioAPI, load as cheerioLoad } from 'cheerio';
 
 /**
  * The parse5 source offsets cheerio attaches under `sourceCodeLocationInfo`.
@@ -439,6 +439,30 @@ export interface InjectContentOptions {
   }) => void;
 }
 
+/**
+ * Replace the first occurrence of `marker` with `value`, treating `value` as
+ * literal text.
+ *
+ * `String.prototype.replace` expands `$&`, `` $` ``, `$'`, and `$1` **in the
+ * replacement**, which is a disaster when the replacement is a rendered page.
+ * `$&` alone is enough: `<p>Cost: $&nbsp;5</p>` is an ordinary price followed
+ * by a non-breaking space, and it substituted the marker back into the output.
+ * `` $` `` is worse, splicing the entire preceding document into the body.
+ *
+ * Passing a function bypasses the substitution rules entirely, which is the
+ * documented way to say "this is literal". Every replacement here is untrusted
+ * in the relevant sense: the rendered body is whatever the app rendered, the
+ * head is whatever the page declared, and the context scripts carry the JSON
+ * data block, which holds the request context and the app config.
+ *
+ * It also protected the CSP hashes. A corrupted body no longer matches the
+ * digest taken from it, so a `<style>` downstream of a stray `$&` was blocked
+ * with nothing to explain it.
+ */
+function replaceLiteral(source: string, marker: string, value: string): string {
+  return source.replace(marker, () => value);
+}
+
 // Utility to inject content, preserving React attributes
 export async function injectContent(
   template: string,
@@ -579,15 +603,14 @@ export async function injectContent(
   // Only asked for when a caller wants the answer, which keeps the scan off
   // servers that are not using CSP. SSG needs none of this: it hashes each
   // finished page after writing it, so this content is already covered there.
-  //
-  // The already-parsed tree is reused rather than parsing the body a second
-  // time, and inline attributes are deliberately not collected: React renders a
-  // `style` prop as a `style=""` attribute, so reporting those would fire on an
-  // ordinary styled component on every single request.
   if (addCSPSources) {
-    const pageHashes = collectInlineCSPHashes($body, cheerio.load, {
-      skipElement: (el) => routerHydrationElements.has(el),
-    });
+    const pageHashes = collectRenderedInlineHashes(
+      $body,
+      bodyContent,
+      cheerio.load,
+      parseOptions,
+      routerHydrationElements,
+    );
 
     for (const source of pageHashes.scriptSrc) {
       pageScriptSources.add(source);
@@ -595,7 +618,7 @@ export async function injectContent(
 
     addCSPSources({
       scriptSrc: [...pageScriptSources],
-      styleSrc: pageHashes.styleSrc,
+      styleSrc: [...pageHashes.styleSrc],
     });
   }
 
@@ -611,9 +634,8 @@ export async function injectContent(
   // Start with head and body replacement
   // The <!--ss-outlet--> marker should be directly replaced with the content
   // without any additional or changed comments/whitespace that could cause hydration issues
-  let result = mergedTemplate
-    .replace('<!--ss-head-->', compactedHead)
-    .replace('<!--ss-outlet-->', cleanBodyContent);
+  let result = replaceLiteral(mergedTemplate, '<!--ss-head-->', compactedHead);
+  result = replaceLiteral(result, '<!--ss-outlet-->', cleanBodyContent);
 
   // Normalize CDN base URL (strip trailing slash) so it's consistent everywhere
   const normalizedCDN = CDNBaseURL
@@ -699,7 +721,8 @@ export async function injectContent(
         /^([ \t]*)<!--context-scripts-injection-point-->/m,
       );
       const indent = indentMatch ? indentMatch[1] : '';
-      result = result.replace(
+      result = replaceLiteral(
+        result,
         '<!--context-scripts-injection-point-->',
         contextScripts.join('\n' + indent),
       );
@@ -731,10 +754,13 @@ export async function injectContent(
   // Replace CDN injection placeholder with actual CDN URL or empty string
   // This allows runtime CDN URL override per request
   if (normalizedCDN) {
-    result = result.replace(/__CDN__INJECTION__POINT__/g, normalizedCDN);
+    result = result.replaceAll(
+      '__CDN__INJECTION__POINT__',
+      () => normalizedCDN,
+    );
   } else {
     // No CDN URL provided - remove placeholder to preserve original /assets/... paths
-    result = result.replace(/__CDN__INJECTION__POINT__/g, '');
+    result = result.replaceAll('__CDN__INJECTION__POINT__', '');
   }
 
   // Unlike tags inside the <head> (which are collected as raw HTML strings and injected into placeholders),
@@ -744,6 +770,127 @@ export async function injectContent(
   result = updateTagAttributes(result, 'body', bodyAttrs);
 
   return result;
+}
+
+/**
+ * Hash the inline `<script>` and `<style>` of rendered markup, reading every
+ * digest from the **original source bytes** rather than from the parsed tree.
+ *
+ * That distinction is the whole function. The template scanner can hash a
+ * parsed tree safely, because the template was serialized *out of* a parse, so
+ * the bytes and the tree already agree. Rendered body content is spliced into
+ * the page verbatim and never round-trips through a serializer, so the two
+ * disagree wherever the HTML tokenizer normalizes something. CRLF is the one
+ * that bites: the tokenizer turns every CRLF into a bare LF inside raw-text
+ * elements, so a `<style>` written with Windows line endings, which is what a
+ * file read on Windows or a CMS field will hand you, hashed to a digest the
+ * shipped bytes never match. The style was then blocked under a strict
+ * `style-src` with nothing anywhere mentioning line endings. (NUL is the other
+ * one, normalized to U+FFFD.)
+ *
+ * `<noscript>` needs the same treatment one level down. cheerio parses with
+ * scripting enabled, so a `<noscript>` body is a single raw-text node and the
+ * selectors see nothing inside it, while a browser with JavaScript disabled
+ * parses the same bytes as markup. Its contents are re-parsed here with source
+ * offsets of their own, which are then rebased onto the outer document so the
+ * slice still comes from the original bytes.
+ *
+ * @param $body The already-parsed body, loaded with `sourceCodeLocationInfo`
+ * @param source The exact bytes `$body` was parsed from, which are also the
+ *   bytes that ship
+ * @param baseOffset Added to every location, for a re-parsed `<noscript>` whose
+ *   offsets are relative to its own inner text
+ */
+function collectRenderedInlineHashes(
+  $body: CheerioAPI,
+  source: string,
+  load: typeof cheerioLoad,
+  parseOptions: Parameters<typeof cheerioLoad>[1],
+  skip: ReadonlySet<AnyNode>,
+  baseOffset = 0,
+): { scriptSrc: Set<string>; styleSrc: Set<string> } {
+  const scriptSrc = new Set<string>();
+  const styleSrc = new Set<string>();
+
+  /** The element's text content, taken from the bytes rather than the tree. */
+  const rawContentOf = (el: AnyNode): string | undefined => {
+    const location = (el as { sourceCodeLocation?: ScriptSourceLocation })
+      .sourceCodeLocation;
+    const start = location?.startTag?.endOffset;
+    const end = location?.endTag?.startOffset;
+
+    if (start === undefined || end === undefined || end < start) {
+      return undefined;
+    }
+
+    return source.slice(baseOffset + start, baseOffset + end);
+  };
+
+  $body('script').each((_, el) => {
+    const element = $body(el);
+
+    if (skip.has(el) || element.attr('src')) {
+      return;
+    }
+
+    if (!isCSPGovernedScriptType(element.attr('type'))) {
+      return;
+    }
+
+    const content = rawContentOf(el);
+
+    if (content) {
+      scriptSrc.add(`'${hashInlineContentForCSP(content)}'`);
+    }
+  });
+
+  $body('style').each((_, el) => {
+    if (skip.has(el)) {
+      return;
+    }
+
+    const content = rawContentOf(el);
+
+    if (content) {
+      styleSrc.add(`'${hashInlineContentForCSP(content)}'`);
+    }
+  });
+
+  $body('noscript').each((_, el) => {
+    const location = (el as { sourceCodeLocation?: ScriptSourceLocation })
+      .sourceCodeLocation;
+    const start = location?.startTag?.endOffset;
+    const end = location?.endTag?.startOffset;
+
+    if (start === undefined || end === undefined || end < start) {
+      return;
+    }
+
+    const inner = source.slice(baseOffset + start, baseOffset + end);
+
+    if (!/<(?:script|style)\b/i.test(inner)) {
+      return;
+    }
+
+    const nested = collectRenderedInlineHashes(
+      load(inner, parseOptions, false),
+      source,
+      load,
+      parseOptions,
+      skip,
+      baseOffset + start,
+    );
+
+    for (const hash of nested.scriptSrc) {
+      scriptSrc.add(hash);
+    }
+
+    for (const hash of nested.styleSrc) {
+      styleSrc.add(hash);
+    }
+  });
+
+  return { scriptSrc, styleSrc };
 }
 
 interface TagMatch {

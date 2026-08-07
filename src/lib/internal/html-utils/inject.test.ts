@@ -1360,3 +1360,75 @@ describe('template head baseline merge', () => {
     expect($('meta[name="app-version"]').length).toBe(1);
   });
 });
+
+describe('literal splicing and byte-exact rendered hashes', () => {
+  const template =
+    '<!DOCTYPE html><html><head><meta charset="utf-8"><title>t</title><!--ss-head--><!--context-scripts-injection-point--></head><body><div id="root"><!--ss-outlet--></div></body></html>';
+
+  it('does not expand $ patterns in rendered content', async () => {
+    // String.prototype.replace expands $&, $`, $' and $1 *in the replacement*,
+    // and every replacement here is a rendered page. `$&nbsp;` is an ordinary
+    // price followed by a non-breaking space and it substituted the marker back
+    // into the output; `$\`` spliced the entire preceding document into the
+    // body. Not attacker-controlled text, but silent document corruption, and
+    // it left the rendered-body CSP hashes describing bytes other than the ones that shipped.
+    const body = "<p>Cost: $&nbsp;5 and $` and $' and $1</p>";
+    const result = await injectContent(template, '', body);
+
+    expect(result).toContain(body);
+    expect(result).not.toContain('<!--ss-outlet-->nbsp;');
+  });
+
+  it('does not expand $ patterns coming from the context data block', async () => {
+    // The worst of the three, because this replacement carries the JSON data
+    // block, which holds the request context and the app config.
+    const result = await injectContent(template, '', '<p>hi</p>', {
+      context: { request: { note: "$` and $& and $'" } },
+    });
+
+    expect(result).toContain('<div id="root"><p>hi</p></div>');
+    expect(result).toContain('__unirend_data__');
+  });
+
+  it('hashes rendered inline content from the bytes that ship, not the parse', async () => {
+    // The HTML tokenizer normalizes CRLF to LF inside raw-text elements, so a
+    // digest taken from the parsed tree disagrees with the raw body that is
+    // spliced in verbatim. The style was then blocked under a strict style-src
+    // with nothing anywhere mentioning line endings. Reachable through
+    // dangerouslySetInnerHTML with content from a file read on Windows or a CMS
+    // field.
+    const css = 'body{\r\n  margin:0\r\n}';
+    const reported: string[] = [];
+
+    const result = await injectContent(
+      template,
+      '',
+      `<div><style>${css}</style></div>`,
+      { addCSPSources: (s) => reported.push(...(s.styleSrc ?? [])) },
+    );
+
+    const open = '<style>';
+    const from = result.indexOf(open) + open.length;
+    const shipped = result.slice(from, result.indexOf('</style>', from));
+
+    expect(shipped).toBe(css);
+    expect(reported).toContain(`'${hashInlineContentForCSP(shipped)}'`);
+  });
+
+  it('still reaches inline content inside a rendered <noscript>', async () => {
+    // The offset rebasing has to survive the rewrite: a noscript body is raw
+    // text to a scripting-enabled parser, so it is re-parsed with offsets of
+    // its own which are then rebased onto the outer document.
+    const css = '.no-js{display:block}';
+    const reported: string[] = [];
+
+    await injectContent(
+      template,
+      '',
+      `<div><p>x</p><noscript><style>${css}</style></noscript></div>`,
+      { addCSPSources: (s) => reported.push(...(s.styleSrc ?? [])) },
+    );
+
+    expect(reported).toContain(`'${hashInlineContentForCSP(css)}'`);
+  });
+});
