@@ -485,12 +485,38 @@ export function domainValidation(
 
           if (config.invalidDomainHandler) {
             try {
-              response = config.invalidDomainHandler(
+              const handled = config.invalidDomainHandler(
                 request,
                 originalDomain,
                 options.isDevelopment,
                 isAPIEndpoint,
               );
+
+              // Checked for the same reason the unsupported-contentType arm
+              // below exists, and the reason is worth stating once for both:
+              // TypeScript rules a malformed return out for a typed caller, so
+              // the handlers that arrive here wrong are the untyped ones.
+              //
+              // A handler that returned nothing used to be assigned straight
+              // through, and the `response.contentType` read below then threw on
+              // undefined. That turned a 403 rejection into a 500, on the one
+              // path whose whole job is to reject cleanly. A handler is only
+              // ever asked to phrase the rejection, so getting it wrong should
+              // cost the phrasing and nothing else, which is what the catch
+              // below already does for a throw.
+              if (handled && typeof handled === 'object') {
+                response = handled;
+              } else {
+                logCallbackError(
+                  request,
+                  new Error(
+                    `invalidDomainHandler returned ${String(
+                      handled,
+                    )} instead of a response object`,
+                  ),
+                  'invalidDomainHandler did not return a response object, sending the default rejection response',
+                );
+              }
             } catch (error) {
               // The rejection itself already happened and is not in question.
               // All the handler was asked to do is phrase it, so a throw there

@@ -606,6 +606,37 @@ describe('domainValidation', () => {
       );
     });
 
+    it('should send the default rejection when invalidDomainHandler returns nothing', async () => {
+      // Same class of mistake as the throw above, and the same answer. This one
+      // used to be assigned straight through, so the contentType read below it
+      // threw on undefined and the 403 became a 500, on the one path whose job
+      // is to reject cleanly.
+      for (const bad of [undefined, null]) {
+        const config: DomainValidationConfig = {
+          validProductionDomains: ['allowed.example.com'],
+          invalidDomainHandler: (() => bad) as unknown as NonNullable<
+            DomainValidationConfig['invalidDomainHandler']
+          >,
+        };
+
+        const pluginHost = createMockPluginHost();
+        const options = createMockOptions();
+        const request = createMockRequest({ headers: { host: 'blocked.com' } });
+        const reply = createMockReply();
+
+        const plugin = domainValidation(config);
+        await plugin(pluginHost, options);
+
+        const hook = pluginHost.getHooks()[0];
+        await hook.handler(request, reply);
+
+        expect(reply.code, String(bad)).toHaveBeenCalledWith(403);
+        expect(reply.send, String(bad)).toHaveBeenCalledWith(
+          'Access denied: Domain "blocked.com" is not authorized',
+        );
+      }
+    });
+
     it('should send the default rejection for an unsupported contentType', async () => {
       // TypeScript rules this out for a typed caller, so the handlers that
       // reach here are the untyped ones. Before, no branch matched and nothing
