@@ -191,5 +191,5 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 - `generateSSG()` now returns deduplicated CSP hashes for the inline content in generated pages, allowing a separately hosted static site to use a strict policy.
 - Fixed SSR injection preserving literal `$` substitution sequences in rendered head, body, and context content.
 - `StaticWebServer` now runs user plugins before static-file serving, so validation and other request gates protect static assets.
-- `withUnirendViteConfig()` isolates each app's Vite dependency cache in shared repositories.
-- Newly scaffolded projects strengthen agent GitHub safeguards and ESLint acronym handling, and `cleanCspell()` correctly retains words used only with trailing numbers.
+- `withUnirendViteConfig()` gives each app a separate Vite dependency cache, preventing shared-repository apps from invalidating one another's optimized dependencies and causing `504 (Outdated Optimize Dep)` errors. It derives an app identity from `root` when possible, supports `appKey`, and leaves a project-set `cacheDir` unchanged. SSR and SSG starter templates pass their generated app key. The first run after upgrading performs one dependency optimization in the new cache directory.
+- Newly scaffolded `AGENTS.md` files require agents to open draft pull requests and obtain explicit approval before making a pull request ready or merging it. Newly scaffolded projects also strengthen ESLint acronym handling, and `cleanCspell()` correctly retains words used only with trailing numbers.
