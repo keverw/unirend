@@ -26,6 +26,23 @@ export interface InvalidDomainResponse {
 }
 
 /**
+ * Report a user callback that threw.
+ *
+ * Read defensively because a failure to log must never become the thing that
+ * breaks the response we are in the middle of rescuing. Mirrors the helper in
+ * the domainValidation plugin, which this server's invalid-domain handling is
+ * documented as following.
+ */
+function logCallbackError(
+  request: FastifyRequest,
+  error: unknown,
+  message: string,
+): void {
+  const log = (request as Partial<FastifyRequest>).log;
+  log?.error({ err: error }, `[serveRedirect] ${message}`);
+}
+
+/**
  * Configuration options for the RedirectServer
  */
 export interface RedirectServerOptions {
@@ -349,12 +366,50 @@ export class RedirectServer {
 
       if (!isAllowed) {
         // Domain not allowed - return 403
-        const response = this.config.invalidDomainHandler
-          ? this.config.invalidDomainHandler(request, domain)
-          : {
-              contentType: 'text' as const,
-              content: `Access denied: Domain "${domain}" is not authorized`,
-            };
+        //
+        // Built first so it is available as the fallback below, rather than
+        // only as the other arm of a conditional.
+        const defaultResponse: InvalidDomainResponse = {
+          contentType: 'text',
+          content: `Access denied: Domain "${domain}" is not authorized`,
+        };
+
+        let response = defaultResponse;
+
+        if (this.config.invalidDomainHandler) {
+          try {
+            const handled = this.config.invalidDomainHandler(request, domain);
+
+            // TypeScript rules a malformed return out for a typed caller, so
+            // the handlers that arrive here wrong are the untyped ones. Without
+            // this the contentType read below threw on undefined, turning the
+            // rejection into a 500 on the one path whose whole job is to reject
+            // cleanly.
+            if (handled && typeof handled === 'object') {
+              response = handled;
+            } else {
+              logCallbackError(
+                request,
+                new Error(
+                  `invalidDomainHandler returned ${String(
+                    handled,
+                  )} instead of a response object`,
+                ),
+                'invalidDomainHandler did not return a response object, sending the default rejection response',
+              );
+            }
+          } catch (error) {
+            // The rejection itself already happened and is not in question.
+            // All the handler was asked to do is phrase it, so a throw there
+            // costs the custom wording and nothing else.
+            logCallbackError(
+              request,
+              error,
+              'invalidDomainHandler threw, sending the default rejection response',
+            );
+            response = defaultResponse;
+          }
+        }
 
         // Set appropriate content type and send response (do not cache)
         if (response.contentType === 'json') {

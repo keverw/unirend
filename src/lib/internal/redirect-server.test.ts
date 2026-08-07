@@ -466,6 +466,60 @@ describe('RedirectServer', () => {
 
       expect(capturedPath).toBe('/test/path?foo=bar');
     });
+
+    it('sends the default rejection when the handler throws', async () => {
+      // The rejection already happened and is not in question. The handler was
+      // only asked to phrase it, so a throw costs the custom wording and
+      // nothing else, which is what domainValidation has always done and what
+      // this server is documented as matching.
+      server = new RedirectServer({
+        allowedDomains: ['example.com'],
+        invalidDomainHandler: (): InvalidDomainResponse => {
+          throw new Error('handler failed');
+        },
+      });
+
+      await server.listen(testPort, 'localhost');
+
+      const response = await fetch(`http://localhost:${testPort}/`, {
+        redirect: 'manual',
+        headers: { Host: 'evil.com' },
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.headers.get('content-type')).toContain('text/plain');
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(await response.text()).toBe(
+        'Access denied: Domain "evil.com" is not authorized',
+      );
+    });
+
+    it('sends the default rejection when the handler returns nothing', async () => {
+      // Same class of mistake as the throw above, and the same answer. This one
+      // used to be assigned straight through, so the contentType read below it
+      // threw on undefined and the 403 became a 500.
+      for (const bad of [undefined, null]) {
+        server = new RedirectServer({
+          allowedDomains: ['example.com'],
+          invalidDomainHandler: (() =>
+            bad) as unknown as () => InvalidDomainResponse,
+        });
+
+        await server.listen(testPort, 'localhost');
+
+        const response = await fetch(`http://localhost:${testPort}/`, {
+          redirect: 'manual',
+          headers: { Host: 'evil.com' },
+        });
+
+        expect(response.status, String(bad)).toBe(403);
+        expect(await response.text(), String(bad)).toBe(
+          'Access denied: Domain "evil.com" is not authorized',
+        );
+
+        await server.stop();
+      }
+    });
   });
 
   describe('IPv6 Support', () => {
