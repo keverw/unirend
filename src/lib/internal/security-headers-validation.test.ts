@@ -666,3 +666,89 @@ describe('single-value security headers', () => {
     ).toBe(false);
   });
 });
+
+describe('reportingEndpoints', () => {
+  it('sends the header and pairs with csp.reportTo', async () => {
+    const app = fastify({ trustProxy: true });
+
+    await securityHeaders({
+      reportingEndpoints: { csp: 'https://reports.example.com/csp' },
+      csp: { defaultSrc: ["'self'"], reportTo: 'csp', reportOnly: true },
+    })(app as unknown as PluginHostInstance, createMockOptions());
+
+    app.get('/t', () => ({ ok: true }));
+    await app.listen({ port: 0, host: '127.0.0.1' });
+
+    const address = app.server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/t`);
+
+      expect(response.headers.get('reporting-endpoints')).toBe(
+        'csp="https://reports.example.com/csp"',
+      );
+      expect(
+        response.headers.get('content-security-policy-report-only'),
+      ).toContain('report-to csp');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('rejects a csp.reportTo group that reportingEndpoints does not define', () => {
+    // The whole point of the pair. `report-to` names a group, a group means
+    // nothing until a response defines it, and the only symptom of getting it
+    // wrong is an absence: violations happen, no report arrives, and the quiet
+    // is indistinguishable from having no violations.
+    expect(() =>
+      securityHeaders({
+        reportingEndpoints: { other: 'https://reports.example.com/x' },
+        csp: { defaultSrc: ["'self'"], reportTo: 'csp' },
+      }),
+    ).toThrow(/reportingEndpoints does not define/);
+  });
+
+  it('accepts a reportingEndpoints group nothing references', () => {
+    // The header is shared with the other reporting APIs, so a group the CSP
+    // does not name is not a mistake. Only the reverse is.
+    expect(() =>
+      securityHeaders({
+        reportingEndpoints: {
+          'network-errors': 'https://reports.example.com/ne',
+        },
+        csp: { defaultSrc: ["'self'"] },
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects an endpoint a browser would never deliver to', () => {
+    // Both of these parse, serialize, and produce a header that looks correct.
+    expect(() =>
+      securityHeaders({
+        reportingEndpoints: { csp: 'http://reports.example.com/csp' },
+      }),
+    ).toThrow(/is not https/);
+
+    expect(() =>
+      securityHeaders({ reportingEndpoints: { csp: '/csp-reports' } }),
+    ).toThrow(/is not an absolute URL/);
+  });
+
+  it('allows a localhost collector, which is a trustworthy origin', () => {
+    expect(() =>
+      securityHeaders({
+        reportingEndpoints: { csp: 'http://localhost:9000/csp' },
+      }),
+    ).not.toThrow();
+  });
+
+  it('does not fail startup when reportingEndpoints is absent entirely', () => {
+    // The one shape this code cannot settle: the header may be coming from a
+    // proxy or another hook. It warns rather than refusing to start, because
+    // refusing would break a working deployment over a file it cannot see.
+    expect(() =>
+      securityHeaders({ csp: { defaultSrc: ["'self'"], reportTo: 'csp' } }),
+    ).not.toThrow();
+  });
+});

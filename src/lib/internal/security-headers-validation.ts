@@ -101,7 +101,25 @@ export interface SecurityHeadersPolicyInput {
   crossOriginOpenerPolicy?: false | CrossOriginOpenerPolicy;
   crossOriginResourcePolicy?: false | CrossOriginResourcePolicy;
   crossOriginEmbedderPolicy?: false | CrossOriginEmbedderPolicy;
+  reportingEndpoints?: false | ReportingEndpointsConfig;
 }
+
+/**
+ * `Reporting-Endpoints`, written as a group name to the URL reports go to.
+ *
+ * This is the half of `csp.reportTo` that is not the CSP header. A `report-to`
+ * directive names a group, and a group means nothing until a response defines
+ * it, so a policy carrying `report-to csp` and nothing else reports to nowhere:
+ * violations happen, no report arrives, and the silence reads as success. That
+ * is the exact failure `reportURI` is validated against, and it was wide open
+ * on the newer of the two mechanisms.
+ *
+ * ```ts
+ * reportingEndpoints: { csp: 'https://reports.example.com/csp' },
+ * csp: { defaultSrc: ["'self'"], reportTo: 'csp', reportOnly: true },
+ * ```
+ */
+export type ReportingEndpointsConfig = Record<string, string>;
 
 /**
  * `Referrer-Policy` tokens.
@@ -196,7 +214,182 @@ const POLICY_KEYS = {
   crossOriginOpenerPolicy: true,
   crossOriginResourcePolicy: true,
   crossOriginEmbedderPolicy: true,
+  reportingEndpoints: true,
 } satisfies Record<keyof SecurityHeadersPolicyInput, true>;
+
+/**
+ * A reporting group name, which the structured-headers grammar limits to a
+ * token. The same characters `csp.reportTo` already accepts.
+ */
+const REPORTING_GROUP = /^[a-z*][a-z0-9!#$%&'*+\-.^_`|~]*$/i;
+
+/**
+ * Every problem with a `Reporting-Endpoints` block.
+ *
+ * The URL rules are the Reporting API's rather than a URL parser's. An endpoint
+ * has to be absolute, because there is no base to resolve it against by the
+ * time a browser queues a report, and it has to be a secure transport, because
+ * a browser will not deliver reports over plain HTTP from a secure page. Both
+ * failures are invisible: the header parses, the group exists, and nothing
+ * arrives.
+ */
+export function collectReportingEndpointsIssues(
+  value: unknown,
+): SecurityHeadersPolicyIssue[] {
+  if (value === undefined || value === false) {
+    return [];
+  }
+
+  if (!isPlainObject(value)) {
+    return [
+      {
+        path: 'reportingEndpoints',
+        message: `Invalid securityHeaders config: reportingEndpoints must be an object of group names to URLs, or false to send no header, received ${describeValue(value)}`,
+      },
+    ];
+  }
+
+  const groups = Object.keys(value);
+
+  if (groups.length === 0) {
+    return [
+      {
+        path: 'reportingEndpoints',
+        message:
+          'Invalid securityHeaders config: reportingEndpoints is empty, which serializes to an empty header. Use false to send no header.',
+      },
+    ];
+  }
+
+  const issues: SecurityHeadersPolicyIssue[] = [];
+
+  for (const group of groups) {
+    if (!REPORTING_GROUP.test(group)) {
+      issues.push({
+        path: `reportingEndpoints.${group}`,
+        message: `Invalid securityHeaders config: reportingEndpoints group "${group}" is not a usable group name`,
+      });
+
+      continue;
+    }
+
+    const endpoint: unknown = value[group];
+
+    if (typeof endpoint !== 'string' || endpoint.trim() === '') {
+      issues.push({
+        path: `reportingEndpoints.${group}`,
+        message: `Invalid securityHeaders config: reportingEndpoints.${group} must be an absolute URL, received ${describeValue(endpoint)}`,
+      });
+
+      continue;
+    }
+
+    let parsed: URL;
+
+    try {
+      parsed = new URL(endpoint);
+    } catch {
+      issues.push({
+        path: `reportingEndpoints.${group}`,
+        message: `Invalid securityHeaders config: reportingEndpoints.${group} "${endpoint}" is not an absolute URL. A browser has no base to resolve a relative endpoint against when it queues a report.`,
+      });
+
+      continue;
+    }
+
+    // `http://localhost` is a potentially trustworthy origin, which is what the
+    // rule is actually about, so a local collector during development is fine.
+    const isLocal =
+      parsed.hostname === 'localhost' ||
+      parsed.hostname === '127.0.0.1' ||
+      parsed.hostname === '[::1]' ||
+      parsed.hostname === '::1';
+
+    if (parsed.protocol !== 'https:' && !isLocal) {
+      issues.push({
+        path: `reportingEndpoints.${group}`,
+        message: `Invalid securityHeaders config: reportingEndpoints.${group} "${endpoint}" is not https. A browser does not deliver reports over an insecure transport, so this endpoint would receive nothing.`,
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * The one cross-check between a CSP and the reporting configuration.
+ *
+ * `report-to` names a group, and a group that nothing defines is a policy that
+ * reports to nowhere. Nothing downstream notices: the header is well formed,
+ * the browser parses it, and the absence of reports looks exactly like the
+ * absence of violations.
+ *
+ * Only reported when `reportingEndpoints` is configured and does not define the
+ * group. When it is absent entirely the answer is genuinely unknown, since the
+ * header may be coming from a reverse proxy or a hook of the caller's own, so
+ * that case is a startup warning rather than a failure. Turning it into one
+ * would break a working deployment to complain about a file this code cannot
+ * see.
+ *
+ * @param csp The effective CSP config, already expanded from its preset
+ * @param reportingEndpoints The effective reporting endpoints, if any
+ */
+export function collectReportingIssues(
+  csp: CSPConfig | false | undefined,
+  reportingEndpoints: false | ReportingEndpointsConfig | undefined,
+): SecurityHeadersPolicyIssue[] {
+  if (!csp || typeof csp.reportTo !== 'string' || csp.reportTo.trim() === '') {
+    return [];
+  }
+
+  if (!reportingEndpoints || !isPlainObject(reportingEndpoints)) {
+    return [];
+  }
+
+  if (Object.hasOwn(reportingEndpoints, csp.reportTo)) {
+    return [];
+  }
+
+  return [
+    {
+      path: 'csp.reportTo',
+      message: `Invalid securityHeaders config: csp.reportTo names the group "${csp.reportTo}", which reportingEndpoints does not define. A browser resolves a report-to group through the Reporting-Endpoints header, so this policy would report to nowhere: violations happen, nothing arrives, and the quiet reads as success. Defined groups: ${Object.keys(reportingEndpoints).join(', ')}.`,
+    },
+  ];
+}
+
+/**
+ * Whether a policy names a reporting group with nothing anywhere to define it.
+ *
+ * Separate from the collector above because the answer is a warning rather than
+ * an issue: `Reporting-Endpoints` may legitimately be set by a proxy or another
+ * hook, which this code cannot see.
+ */
+export function isReportingGroupUndefined(
+  csp: CSPConfig | false | undefined,
+  reportingEndpoints: false | ReportingEndpointsConfig | undefined,
+): boolean {
+  return Boolean(
+    csp &&
+    typeof csp.reportTo === 'string' &&
+    csp.reportTo.trim() !== '' &&
+    !reportingEndpoints,
+  );
+}
+
+/**
+ * Serialize a `Reporting-Endpoints` block to its header value.
+ *
+ * The URL is a structured-headers string, so it is quoted. An unquoted one is
+ * not a parse error a browser reports, it is an item it drops.
+ */
+export function serializeReportingEndpoints(
+  config: ReportingEndpointsConfig,
+): string {
+  return Object.entries(config)
+    .map(([group, endpoint]) => `${group}="${endpoint}"`)
+    .join(', ');
+}
 
 /**
  * Check a header whose value is one of a fixed set of tokens.
@@ -520,6 +713,7 @@ export const SECURITY_HEADERS_POLICY_KEYS: readonly string[] =
 export interface SecurityHeadersPolicyBaseline {
   csp?: false | CSPConfig;
   frameOptions?: false | 'DENY' | 'SAMEORIGIN';
+  reportingEndpoints?: false | ReportingEndpointsConfig;
 }
 
 /** Every key an HSTS block may carry, for reporting a misspelled one. */
@@ -867,6 +1061,17 @@ export function validateSecurityHeadersPolicy(
     ...collectCOOPIssues(policy.crossOriginOpenerPolicy),
     ...collectCORPIssues(policy.crossOriginResourcePolicy),
     ...collectCOEPIssues(policy.crossOriginEmbedderPolicy),
+    ...collectReportingEndpointsIssues(policy.reportingEndpoints),
+  );
+
+  // Resolved the way the request path resolves it, so a policy that overrides
+  // only one of the pair is judged on the combination it will actually serve.
+  issues.push(
+    ...collectReportingIssues(
+      withPresetExpanded(csp ?? options.baseline?.csp),
+      (policy.reportingEndpoints ?? options.baseline?.reportingEndpoints) as
+        false | ReportingEndpointsConfig | undefined,
+    ),
   );
 
   // Skipped when either half failed its own check, since the cross-check is

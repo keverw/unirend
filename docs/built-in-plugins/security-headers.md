@@ -161,6 +161,8 @@ These are sent on every response, whether or not the request carries an `Origin`
 
 - `crossOriginEmbedderPolicy` (default: `false`): sets `Cross-Origin-Embedder-Policy`. One of `unsafe-none`, `require-corp`, `credentialless`.
 
+- `reportingEndpoints` (default: `false`): sets `Reporting-Endpoints`, which is the other half of [`csp.reportTo`](#violation-reporting-needs-both-halves).
+
 Every value is checked against the set a browser actually accepts, because all of these fail the same quiet way: an unrecognized value means the header is dropped and the browser default applies, so the config reads as though the protection is on and it is not.
 
 ### Everything Is Opt-In, Including the Obvious Ones
@@ -355,6 +357,27 @@ The port and path are checked separately, because CSP's host grammar is wider th
 `sandbox` tokens are checked against the real token set rather than an `allow-*` shape, since a browser silently ignores a token it does not recognize: `allow-form` for `allow-forms` would leave forms disabled with nothing anywhere saying why.
 
 `reportURI` is held to a different standard, because it is a URI reference rather than a host pattern and no wildcard belongs in one. Every form the CSP grammar allows is accepted, relative ones included, since a relative reference is resolved against the page the policy protected. What is rejected is a value that names no endpoint at all, such as `//` or `https://`, and a scheme a browser will not post violation reports over. Both look the same from the outside: a policy that appears to report and does not.
+
+### Violation Reporting Needs Both Halves
+
+`reportTo` names a reporting group. A group means nothing until a response defines it, and that definition lives in a separate header:
+
+```typescript
+securityHeaders({
+  reportingEndpoints: { csp: 'https://reports.example.com/csp' },
+  csp: { defaultSrc: ["'self'"], reportTo: 'csp', reportOnly: true },
+});
+```
+
+Without `reportingEndpoints`, a policy carrying `report-to csp` reports to nowhere. That is the worst way for reporting to be off, because the only symptom is an absence: violations happen, nothing arrives, and the quiet is indistinguishable from having no violations. It is especially bad here, since `reportOnly` is the documented way to roll a policy out and the reports are the entire point of that mode.
+
+So the pair is checked. A `csp.reportTo` naming a group `reportingEndpoints` does not define fails at startup. Naming a group the CSP never uses is fine, since the header is shared with the other reporting APIs.
+
+When `reportingEndpoints` is absent entirely you get a startup warning rather than a failure, because that case is genuinely unknowable from here: the header may be coming from your reverse proxy or a hook of your own, and refusing to start would break a working deployment over a file this plugin cannot see.
+
+Endpoints must be absolute and `https`, or on localhost, which is a potentially trustworthy origin so a local collector works in development. A browser does not deliver reports over an insecure transport, and a relative URL has no base to resolve against by the time a report is queued. Both would otherwise produce a header that looks correct and delivers nothing.
+
+`reportURI` is the older mechanism and needs none of this: it carries the URL directly. Several browsers still only implement that one, so sending both is reasonable.
 
 ### Roll It Out With `reportOnly`
 

@@ -36,7 +36,11 @@ import {
   collectCOOPIssues,
   collectCORPIssues,
   collectCOEPIssues,
+  collectReportingEndpointsIssues,
+  collectReportingIssues,
+  isReportingGroupUndefined,
   serializePermissionsPolicy,
+  serializeReportingEndpoints,
   unknownPolicyKeys,
   SECURITY_HEADERS_POLICY_KEYS,
   type HSTSConfig,
@@ -47,6 +51,7 @@ import {
   type CrossOriginOpenerPolicy,
   type CrossOriginResourcePolicy,
   type CrossOriginEmbedderPolicy,
+  type ReportingEndpointsConfig,
 } from '../internal/security-headers-validation';
 import { isHostUnverified } from '../internal/host-verification';
 import {
@@ -82,6 +87,7 @@ export type {
   CrossOriginOpenerPolicy,
   CrossOriginResourcePolicy,
   CrossOriginEmbedderPolicy,
+  ReportingEndpointsConfig,
 } from '../internal/security-headers-validation';
 
 /**
@@ -300,6 +306,36 @@ export interface SecurityHeadersConfig {
   crossOriginEmbedderPolicy?: false | CrossOriginEmbedderPolicy;
 
   /**
+   * Controls the `Reporting-Endpoints` header, which is the other half of
+   * `csp.reportTo`.
+   *
+   * A `report-to` directive names a group, and a group means nothing until a
+   * response defines it. Without this, a policy carrying `report-to csp`
+   * reports to nowhere: violations happen, no report arrives, and the silence
+   * is indistinguishable from having no violations.
+   *
+   * ```ts
+   * securityHeaders({
+   *   reportingEndpoints: { csp: 'https://reports.example.com/csp' },
+   *   csp: { defaultSrc: ["'self'"], reportTo: 'csp', reportOnly: true },
+   * });
+   * ```
+   *
+   * Endpoints must be absolute and `https` (or localhost, which is a
+   * potentially trustworthy origin, so a local collector works in
+   * development). A browser will not deliver reports over an insecure
+   * transport, and a relative URL has no base to resolve against by the time a
+   * report is queued.
+   *
+   * Naming a group here that `csp.reportTo` does not use is fine, since the
+   * header is shared with other reporting APIs. The reverse is checked: a
+   * `csp.reportTo` naming a group this does not define fails at startup.
+   *
+   * @default false
+   */
+  reportingEndpoints?: false | ReportingEndpointsConfig;
+
+  /**
    * Vary the non-negotiated headers per request.
    *
    * The case this exists for: customers mapping their own domains. A single
@@ -422,6 +458,7 @@ function resolveSimpleHeaders(
     ...collectCOOPIssues(policy.crossOriginOpenerPolicy),
     ...collectCORPIssues(policy.crossOriginResourcePolicy),
     ...collectCOEPIssues(policy.crossOriginEmbedderPolicy),
+    ...collectReportingEndpointsIssues(policy.reportingEndpoints),
   ]) {
     onIssue(issue);
   }
@@ -475,6 +512,14 @@ function resolveSimpleHeaders(
       'Cross-Origin-Embedder-Policy',
       policy.crossOriginEmbedderPolicy,
     ]);
+  }
+
+  if (policy.reportingEndpoints) {
+    const value = serializeReportingEndpoints(policy.reportingEndpoints);
+
+    if (value) {
+      headers.push(['Reporting-Endpoints', value]);
+    }
   }
 
   return headers;
@@ -1073,6 +1118,8 @@ async function resolveEffectiveConfig(
     crossOriginEmbedderPolicy:
       override.crossOriginEmbedderPolicy ??
       baseSimplePolicy.crossOriginEmbedderPolicy,
+    reportingEndpoints:
+      override.reportingEndpoints ?? baseSimplePolicy.reportingEndpoints,
   };
 
   const effective: ResolvedSecurityHeadersConfig = {
@@ -1355,6 +1402,7 @@ export function securityHeaders(
     crossOriginOpenerPolicy: config.crossOriginOpenerPolicy,
     crossOriginResourcePolicy: config.crossOriginResourcePolicy,
     crossOriginEmbedderPolicy: config.crossOriginEmbedderPolicy,
+    reportingEndpoints: config.reportingEndpoints,
   };
 
   const baseSimpleHeaders = resolveSimpleHeaders(baseSimplePolicy, (issue) => {
@@ -1490,6 +1538,18 @@ export function securityHeaders(
     validateCSPConfig(cspConfig);
 
     validateFramingFallback(config.frameOptions, cspConfig);
+
+    // A `report-to` group nothing defines is a policy that reports to nowhere,
+    // which is the one CSP mistake whose only symptom is an absence. Checked
+    // here, where both halves are in hand.
+    const [firstReportingIssue] = collectReportingIssues(
+      cspConfig,
+      config.reportingEndpoints,
+    );
+
+    if (firstReportingIssue) {
+      throw new Error(firstReportingIssue.message);
+    }
 
     resolvedCSP = compileCSP(cspConfig);
   }
@@ -1656,6 +1716,25 @@ export function securityHeaders(
     isGateRegisteredAbove =
       host.getDecoration?.('domainValidationRegistered') === true ||
       host.domainValidationRegistered === true;
+
+    // A warning rather than a startup failure, because this is the one shape of
+    // the problem this code cannot settle. `Reporting-Endpoints` may be coming
+    // from a reverse proxy or a hook of the caller's own, and refusing to start
+    // would break a working deployment over a file that is not visible from
+    // here. When the option *is* configured and simply omits the group, that is
+    // a contradiction rather than an unknown, and it throws at config time.
+    if (
+      isReportingGroupUndefined(
+        config.csp === undefined || config.csp === false
+          ? config.csp
+          : applyCSPPreset(config.csp),
+        config.reportingEndpoints,
+      )
+    ) {
+      fastify.log?.warn(
+        `[securityHeaders] csp.reportTo names a reporting group but securityHeaders.reportingEndpoints is not configured. A browser resolves the group through the Reporting-Endpoints header, so unless something else on this server sends one, this policy reports to nowhere and the absence of reports will look like an absence of violations.`,
+      );
+    }
 
     fastify.decorateRequest(
       'applySecurityHeaders',
