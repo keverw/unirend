@@ -181,7 +181,7 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 
 ## Unreleased
 
-**Breaking:** The built-in `cors` plugin is now `securityHeaders`. Move CORS options under `cors`, rename `xFrameOptions` to `frameOptions`, and replace `request.applyCORSHeaders()` with `request.applySecurityHeaders()`. `CORSConfig` now describes the nested CORS block, while `SecurityHeadersConfig` describes the full configuration. See [securityHeaders](docs/built-in-plugins/security-headers.md) for migration details.
+**Breaking:** The built-in `cors` plugin is now `securityHeaders`. Move CORS options under `cors`, rename `xFrameOptions` to `frameOptions`, and replace `request.applyCORSHeaders()` with `request.applySecurityHeaders()`. `CORSConfig` now describes the nested CORS block, while `SecurityHeadersConfig` describes the full configuration. See [securityHeaders](docs/built-in-plugins/security-headers.md) for the current configuration reference.
 
 **Breaking, and security fixes:** CORS is now off unless `cors.origin` is configured, so explicitly set `origin: '*'` or your allowlist if cross-origin access is intended. Wildcard origins now receive the same credential safeguards in string and array form, and CORS lists, max ages, and preflight status codes are validated at startup. Existing configurations using invalid values, a wildcard with unbounded credentials, or CORS options without `origin` must be corrected.
 

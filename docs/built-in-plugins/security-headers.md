@@ -343,18 +343,14 @@ securityHeaders({
   },
 });
 
-// Development setup with flexible origins
+// Development setup with explicit origins
 securityHeaders({
   cors: {
-    origin: (origin, request) => {
-      // Allow localhost and development domains
-      if (!origin) return true; // Mobile apps, curl, etc.
-      return (
-        origin.includes('localhost') ||
-        origin.includes('127.0.0.1') ||
-        origin === 'https://dev.myapp.com'
-      );
-    },
+    origin: [
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'https://dev.myapp.com',
+    ],
     credentials: true,
   },
 });
@@ -549,6 +545,8 @@ const report = await generateSSG(buildDir, pages);
 console.log(report.cspHashes.scriptSrc); // ["'sha256-…'", …]
 console.log(report.cspHashes.styleSrc); // ["'sha256-…'", …]
 ```
+
+If generation and serving run in separate processes, persist `report.cspHashes` as a build artifact and load that artifact in the server or deployment configuration. The `report` variable exists only in the generation process.
 
 They are taken from the bytes actually written and deduplicated across the whole site, so they cover your template's inline blocks and unirend's own bootstrap script together, and a two-hundred-page site normally yields a handful of entries rather than hundreds.
 
@@ -1007,7 +1005,10 @@ const result = validateSecurityHeadersPolicy(request.body, {
   baseline: {
     frameOptions: 'DENY',
     csp: DEFAULT_POLICY,
-    reportingEndpoints: { csp: 'https://reports.example.com/csp' },
+    reportingEndpoints: {
+      csp: 'https://reports.example.com/csp',
+      coop: 'https://reports.example.com/coop',
+    },
     crossOriginOpenerPolicyReportOnly: {
       policy: 'same-origin',
       reportTo: 'coop',
@@ -1020,7 +1021,7 @@ Leave one out and the check it feeds simply does not run, which is the shape of 
 
 Two things it does not do:
 
-- **It does not expand `csp.preset`.** Pass the policy as the author wrote it, so preset directives are not reported back as their mistakes.
+- **It preserves `csp.preset` as written.** Preset directives are not reported as if the author supplied them, but cross-field checks still evaluate the expanded preset.
 - **It does not judge whether a policy is a good one.** A tenant can save `defaultSrc: ['*']` and this will accept it. It answers "will this work", not "is this wise".
 
 The same function is worth calling in a migration or a nightly job over stored policies. Rules tighten between versions, and a policy that was valid when it was saved is not automatically valid now.
@@ -1076,7 +1077,7 @@ These two fail closed while [`resolve`](#when-resolve-throws) propagates, becaus
 
 ## Plugin Order and Short-Circuited Responses
 
-Where you put `securityHeaders` in the `plugins` array does not change which responses get its headers.
+Where you put `securityHeaders` in the `plugins` array does not change which responses get its ordinary header set. The exception is the unchecked-host HSTS safeguard described below.
 
 That is worth stating because it is not what a hook alone would give you. The plugin does its work in an `onRequest` hook, and an `onRequest` hook only covers what runs after it, so a plugin listed earlier that ends the request never reaches it. `domainValidation` does exactly that for a 403 on an unauthorized host, a 400 on an unparseable `Host` header, and its canonical-domain, www, and HTTPS redirects, and any auth or gating plugin of your own does the same. Those responses used to go out with no CORS headers, no `X-Frame-Options`, and no HSTS.
 
@@ -1098,7 +1099,7 @@ Two consequences to know about:
 - Headers are filled in only where they are absent. A route or a gate that deliberately set its own value keeps it, so this backstop never overwrites a decision you made on purpose.
 - Hijacked responses bypass `onSend` entirely and are covered separately. See [Hijacked Responses](#hijacked-responses).
 
-**This does not generalize to gating plugins, including `domainValidation`.** Adding a header to a response is something `onSend` can still do on the way out. Blocking a request is not, because by then the response is already written. A gate only covers what was registered after it, so [`domainValidation` belongs first](domainValidation.md#plugin-order) while this plugin can go anywhere.
+**This does not generalize to gating plugins, including `domainValidation`.** Adding a header to a response is something `onSend` can still do on the way out. Blocking a request is not, because by then the response is already written. A gate only covers what was registered after it, so [`domainValidation` belongs first](domainValidation.md#plugin-order). Ordinary header coverage remains order-independent.
 
 ### HSTS on a Host the Server Has Not Claimed
 

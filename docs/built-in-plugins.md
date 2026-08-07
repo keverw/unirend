@@ -32,7 +32,7 @@ Only one property of a plugin decides whether its position matters: **does it ad
 - **A plugin that can end a request is a gate**, and a gate only covers what is registered after it. [`domainValidation`](built-in-plugins/domainValidation.md#plugin-order) is one, as is any auth or rate-limit plugin of your own. Register it before whatever it is meant to gate.
 - **A hook that throws counts as ending the request**, even though it never meant to. The error handler answers on its behalf, and that answer is a fully rendered response on a host the gate had not reached yet. This is the part that is easy to miss, so it has its own section below.
 - **A plugin that does its work at registration time never touches a request at all**, so its position is free. A database plugin that opens a connection and calls `decorate('db', db)` is the usual example, and it is safe above a gate because it adds no hook that could run, or fail, ahead of one.
-- **[`securityHeaders`](built-in-plugins/security-headers.md#plugin-order-and-short-circuited-responses) has hooks but is still free to move**, for a different reason. It adds headers rather than ending requests, and an `onSend` backstop lets it fill them in on the way out, even for a response that ended before it ran.
+- **[`securityHeaders`](built-in-plugins/security-headers.md#plugin-order-and-short-circuited-responses) has order-independent response coverage**, because it adds headers rather than ending requests, and an `onSend` backstop lets it fill them in on the way out, even for a response that ended before it ran. The exception is its HSTS safeguard for a host that `domainValidation` never checked, which requires `domainValidation` above `securityHeaders`.
 
 So "`domainValidation` goes first" means first among the plugins with per-request hooks, not first in the array. A connection plugin above it changes nothing:
 
@@ -56,13 +56,13 @@ The reason is worth seeing concretely. Given a hook that throws, on a host that 
 | Below `domainValidation` | `403`, plain text, no HSTS      |
 | Above `domainValidation` | `500`, your error page, no HSTS |
 
-**The header is no longer the part that costs you, provided `domainValidation` is registered before `securityHeaders`.** The gate never runs here, so it never sets [`request.domainValidationRejected`](built-in-plugins/domainValidation.md#requestdomainvalidationrejected). When the gate sits above it, `securityHeaders` can read that unset verdict for what it is — the request died before the gate — and [withholds HSTS](built-in-plugins/security-headers.md#hsts-on-a-host-the-server-has-not-claimed) rather than pinning a domain nobody checked to HTTPS for the full `maxAge`. Register the gate below it and the verdict is ambiguous instead, because a preflight or a static asset answered higher up would look identical, so the header goes out as it always did.
+**The header is no longer the part that costs you, provided `domainValidation` is registered before `securityHeaders`.** The gate never runs here, so it never sets [`request.domainValidationRejected`](built-in-plugins/domainValidation.md#requestdomainvalidationrejected). When the gate sits above it, `securityHeaders` can read that unset verdict for what it is: the request died before the gate. It [withholds HSTS](built-in-plugins/security-headers.md#hsts-on-a-host-the-server-has-not-claimed) rather than pinning a domain nobody checked to HTTPS for the full `maxAge`. Register the gate below it and the verdict is ambiguous instead, because a preflight or a static asset answered higher up would look identical, so the header goes out as it always did.
 
 What ordering still buys you is the request being refused at all. A gate only covers what was registered after it, so a hook above `domainValidation` turns a clean `403` into a `500` and runs your application's error handling on a host that was never confirmed.
 
 The error page matters much less. Unirend's default is a generic shell, and a custom one is [advised to stay standalone](error-handling.md) rather than wrapped in your usual layout, so there is usually little in it to give away. Where you have customized it, [`isHostUnverified`](built-in-plugins/domainValidation.md#telling-an-unchecked-host-from-a-rejected-one) lets it recognize this case and hold back.
 
-Nothing downstream can repair the header, though, because by the time anything else runs the request has already failed. Ordering is the only fix there: put `domainValidation` above every plugin that adds a hook.
+Nothing downstream can retroactively apply the domain gate, because by the time anything else runs the request has already failed. Ordering is the only fix there: put `domainValidation` above every plugin that adds a hook.
 
 ## When a Callback Fails
 

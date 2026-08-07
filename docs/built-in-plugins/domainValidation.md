@@ -58,7 +58,7 @@ const server = serveSSRBuilt(buildDir, {
 
 **Register this plugin above every plugin that adds a per-request hook.** It works in an `onRequest` hook, and an `onRequest` hook only covers what was registered after it. Anything above it that ends the request never reaches this one, so that response goes out without the host ever being checked.
 
-"Ends the request" includes **a hook that throws**. It did not mean to answer, but the error handler answers for it, and the result is a rendered error page on a host this plugin had not examined yet. The page itself is a minor matter, and only to the extent you have customized it. The header is not: the response carries HSTS, because this plugin never ran and so never set [`request.domainValidationRejected`](#requestdomainvalidationrejected) for `securityHeaders` to act on. See [A Hook That Throws Above the Gate](../built-in-plugins.md#a-hook-that-throws-above-the-gate).
+"Ends the request" includes **a hook that throws**. It did not mean to answer, but the error handler answers for it, and the result is a rendered error page on a host this plugin had not examined yet. The page itself is a minor matter, and only to the extent you have customized it. If `securityHeaders` is above this plugin, the response can also carry HSTS because the domain verdict is unset rather than rejected. Registering `domainValidation` before `securityHeaders` lets the header plugin recognize that the request never reached the gate and withhold HSTS from the unchecked host. See [A Hook That Throws Above the Gate](../built-in-plugins.md#a-hook-that-throws-above-the-gate).
 
 A plugin that does its work at registration time is still fine above this one, because it adds no hook that can run or fail ahead of it. A database connection that `validProductionDomains` then reads belongs exactly there:
 
@@ -79,11 +79,11 @@ This is the opposite of what [`securityHeaders`](security-headers.md#plugin-orde
 | --- | --- | --- |
 | What it does | **Blocks** a request | **Adds** headers to a response |
 | Hooks | `onRequest` | `onRequest` plus an `onSend` backstop |
-| Order matters? | **Yes, above anything with hooks** | No, anywhere works |
+| Order matters? | **Yes, above anything with hooks** | Only for the unchecked-host HSTS safeguard |
 
 A header can be filled in on the way out, which is what the `onSend` backstop in `securityHeaders` does for responses that ended before it ran. A block cannot be applied that late, because by then the response has already been written. A gate has to run before the thing it is gating, and nothing can retrofit that afterward.
 
-So the two are complementary rather than inconsistent: register `domainValidation` ahead of whatever answers requests, and put `securityHeaders` wherever its [`resolve`](security-headers.md#per-request-policy-with-resolve) needs to be. Its headers reach the 403s and redirects this plugin sends either way. See [Ordering](../built-in-plugins.md#ordering) for the same rule stated once across all the built-in plugins.
+So the two are complementary rather than inconsistent: register `domainValidation` ahead of whatever answers requests, and put it before `securityHeaders` when using HSTS. The ordinary headers still reach the 403s and redirects this plugin sends either way. See [Ordering](../built-in-plugins.md#ordering) for the same rule stated once across all the built-in plugins.
 
 ## Configuration
 
