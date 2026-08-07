@@ -13,21 +13,26 @@ import type { LoggerFunction } from '../../types';
  *
  * No per-project substitutions — fully static. Template-literal escaping
  * required for:
- *  • The `PAGE_STYLES` backtick pair, the outer `return \`...\`` backtick pair,
- *    and the nested isDevelopment ternary backtick pair (6 backtick escapes
- *    total).
- *  • Nine runtime `\${...}` interpolations: `PAGE_STYLES` (style element),
- *    `preference` (class attr), `JSON.stringify(preference)` (script block),
+ *  • The `PAGE_STYLES` and `PAGE_SCRIPT` backtick pairs, the outer
+ *    `return \`...\`` backtick pair, and the nested isDevelopment ternary
+ *    backtick pair (8 backtick escapes total).
+ *  • Runtime `\${...}` interpolations: `PAGE_STYLES` (style element),
+ *    `PAGE_DATA_BLOCK_ID` and `serializePageData(...)` (JSON block),
+ *    `PAGE_SCRIPT` (script element), `preference` (class attr),
  *    `isDevelopment` (card class), the ternary `\${...}` block itself,
  *    `safeMessage`, `safeStack`, `escapeHTML(request.url)`, `request.method`.
- *  • Two `\\s` regex patterns inside the return template literal — each needs
- *    `\\\\s` in the generator so the emitted file contains `\\s` (which the
- *    browser evaluates to `\s` when running the inline script).
+ *  • Two `\\s` regex patterns inside `PAGE_SCRIPT` — each needs `\\\\s` in the
+ *    generator so the emitted file contains `\\s` (which the browser evaluates
+ *    to `\s` when running the inline script). The `\\u003c` escape in
+ *    `serializePageData` needs the same doubling.
  *
- * The emitted page still carries two inline `<script>` blocks, one of which
- * varies per request, so it is not yet fully CSP-clean. Those are handled with
- * the JSON data-block work rather than here, since that convention has to exist
- * in the framework before a template can demonstrate it.
+ * The emitted page is CSP-clean without `'unsafe-inline'`. Its one per-request
+ * value rides in a `<script type="application/json">` block, which no browser
+ * executes and `script-src` therefore does not govern, leaving a fixed style
+ * block and a fixed script block that each hash once. `ERROR_PAGE_STYLE_HASH`
+ * and `ERROR_PAGE_SCRIPT_HASH` are exported for the app to place in its policy,
+ * since a page returned as raw HTML never passes through unirend's scans. This
+ * mirrors the framework's own bootstrap in `html-utils/context-data-block.ts`.
  */
 const GET_500_ERROR_PAGE_SRC = `import type { FastifyRequest } from 'unirend/server';
 import { isHostUnverified } from 'unirend/server';
@@ -195,17 +200,162 @@ const PAGE_STYLES = \`
     \`;
 
 /**
- * CSP source expression for this page's inline \`<style>\` block.
+ * \`id\` of the JSON block carrying this request's values to the theme script.
+ */
+const PAGE_DATA_BLOCK_ID = 'error-page-data';
+
+/**
+ * The page's inline theme script, kept as its own constant for the same reason
+ * \`PAGE_STYLES\` is: a hash has to be taken from the exact text the element will
+ * contain.
  *
- * A strict \`style-src\` blocks inline styles, and an error page is the worst
- * place to find that out: it only renders on requests where something has
- * already gone wrong, so it looks fine right up until it matters. Add this to
- * your \`style-src\` so the page keeps its styling.
+ * Nothing in here varies per request, and that is the point rather than a
+ * coincidence. The theme preference the page needs is the one value that does
+ * vary, so it travels in the JSON block above instead of being written into
+ * executable JavaScript. A script whose text changes every request cannot be
+ * hashed at all, which would leave a strict \`script-src\` with nonces as the
+ * only option. This mirrors what unirend does with its own bootstrap.
  *
- * Recompute rather than hardcode. This file is yours to edit, and a hash
- * pasted in as a literal goes stale the moment you change a color.
+ * Written to survive a missing or malformed block rather than throwing. A throw
+ * here happens while the head is still parsing and takes out every later script
+ * on the page, so a data problem would become a blank page on the one page that
+ * exists for when things have already gone wrong.
+ */
+const PAGE_SCRIPT = \`
+      (function () {
+        // Mirrors the flash-prevention script in index.html: cookie-first, then
+        // this page's JSON data block, then OS.
+        // Unlike the main app (index.html + React bundle) there is no React or full theme system here, so we
+        // mirror ThemeProvider's sync strategy: matchMedia for OS changes (auto mode),
+        // BroadcastChannel for real-time cross-tab updates, and visibilitychange to
+        // re-read the cookie when the tab comes back into focus.
+        const valid = ['light', 'dark', 'auto'];
+
+        // The server's preference, read from the data block rather than from a
+        // global an inline assignment would have had to set.
+        let serverPref = null;
+
+        try {
+          const el = document.getElementById(\${JSON.stringify(PAGE_DATA_BLOCK_ID)});
+          const data = el && el.textContent ? JSON.parse(el.textContent) : {};
+
+          if (valid.includes(data.themePreference)) {
+            serverPref = data.themePreference;
+          }
+        } catch (e) {
+          // Leave serverPref null and fall through to the cookie or the OS.
+        }
+
+        const cookieMatch = document.cookie.match(
+          /(?:^|;\\\\s*)themePreference=([^;]+)/,
+        );
+
+        const cookiePref = valid.includes(cookieMatch?.[1])
+          ? cookieMatch[1]
+          : null;
+
+        let currentPref = cookiePref || serverPref || 'auto';
+
+        const mq =
+          typeof window.matchMedia === 'function'
+            ? window.matchMedia('(prefers-color-scheme: dark)')
+            : null;
+
+        // Shared helper — applies a preference value, resolving auto via OS.
+        function applyPref(preference) {
+          currentPref = preference;
+
+          const shouldUseDarkTheme =
+            preference === 'dark' ||
+            (preference === 'auto' && (mq ? mq.matches : false));
+          document.documentElement.classList.toggle('dark', shouldUseDarkTheme);
+        }
+
+        // Apply the initial cookie/data-block/OS-derived preference before the page renders.
+        applyPref(currentPref);
+
+        // Keep auto mode in sync with OS preference changes for the duration of this page load.
+        if (mq) {
+          mq.addEventListener('change', function () {
+            if (currentPref === 'auto') applyPref('auto');
+          });
+        }
+
+        // BroadcastChannel for real-time cross-tab sync — mirrors ThemeProvider.
+        if (typeof BroadcastChannel === 'function') {
+          new BroadcastChannel('theme').onmessage = function (e) {
+            if (
+              e.data &&
+              e.data.themePreference &&
+              valid.includes(e.data.themePreference)
+            ) {
+              applyPref(e.data.themePreference);
+            }
+          };
+        }
+
+        // Re-read cookie when tab becomes visible — catches changes made while in the background.
+        // Intentionally does not broadcast back, matching ThemeProvider behavior.
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState !== 'visible') return;
+          var m = document.cookie.match(/(?:^|;\\\\s*)themePreference=([^;]+)/);
+          applyPref((valid.includes(m?.[1]) ? m[1] : null) || 'auto');
+        });
+      })();
+    \`;
+
+/**
+ * Serialize this page's per-request values for the JSON block.
+ *
+ * Every \`<\` is written as its \`\\u003c\` escape, which is what stops a value
+ * containing a closing script tag from ending the element early. JSON reads the
+ * escape as the character it names, so \`JSON.parse\` gets the original text
+ * back. The values here are the server's own, but the escape costs nothing and
+ * survives someone widening this block later.
+ */
+function serializePageData(data: { themePreference: string }): string {
+  return JSON.stringify(data).replace(/</g, '\\\\u003c');
+}
+
+/**
+ * CSP source expressions for this page's inline \`<style>\` and \`<script>\`.
+ *
+ * A strict policy blocks inline content, and an error page is the worst place
+ * to find that out: it only renders on requests where something has already
+ * gone wrong, so it looks fine right up until it matters. Unstyled is the
+ * obvious failure. The quieter one is the theme script never running, which
+ * shows a light-themed page to someone whose whole session has been dark.
+ *
+ * Nothing can hash these for you. This page is returned as raw HTML when SSR
+ * fails before React runs, so it never passes through the render that unirend
+ * scans, which is why the hashes are exported here for you to place:
+ *
+ * \`\`\`ts
+ * import {
+ *   ERROR_PAGE_STYLE_HASH,
+ *   ERROR_PAGE_SCRIPT_HASH,
+ * } from './get-500-error-page';
+ *
+ * securityHeaders({
+ *   csp: {
+ *     defaultSrc: ["'self'"],
+ *     scriptSrc: ["'self'", \`'\${ERROR_PAGE_SCRIPT_HASH}'\`],
+ *     styleSrc: ["'self'", \`'\${ERROR_PAGE_STYLE_HASH}'\`],
+ *   },
+ * });
+ * \`\`\`
+ *
+ * The quotes are yours to add, since a source list has unquoted members too.
+ * The JSON data block needs nothing: \`script-src\` governs only what a browser
+ * executes, and a \`<script>\` with a non-JavaScript type is never executed.
+ * Unirend's own error pages are covered without any of this, so these are only
+ * for the page in this file.
+ *
+ * Recompute rather than hardcode. This file is yours to edit, and a hash pasted
+ * in as a literal goes stale the moment you change a color or a line of script.
  */
 export const ERROR_PAGE_STYLE_HASH = hashInlineContentForCSP(PAGE_STYLES);
+export const ERROR_PAGE_SCRIPT_HASH = hashInlineContentForCSP(PAGE_SCRIPT);
 
 /**
  * Custom 500 error page generator.
@@ -289,80 +439,8 @@ export function get500ErrorPage(
     <title>500 - Server Error</title>
     <meta name="description" content="An unexpected server error occurred." />
     <style>\${PAGE_STYLES}</style>
-    <script>
-      window.__FRONTEND_REQUEST_CONTEXT__ = {
-        themePreference: \${JSON.stringify(preference)}
-      };
-    </script>
-    <script>
-      (function () {
-        // Mirrors the flash-prevention script in index.html: cookie-first, then
-        // __FRONTEND_REQUEST_CONTEXT__ (injected by the get500ErrorPage handler), then OS.
-        // Unlike the main app (index.html + React bundle) there is no React or full theme system here, so we
-        // mirror ThemeProvider's sync strategy: matchMedia for OS changes (auto mode),
-        // BroadcastChannel for real-time cross-tab updates, and visibilitychange to
-        // re-read the cookie when the tab comes back into focus.
-        const valid = ['light', 'dark', 'auto'];
-        const cookieMatch = document.cookie.match(
-          /(?:^|;\\\\s*)themePreference=([^;]+)/,
-        );
-
-        const cookiePref = valid.includes(cookieMatch?.[1])
-          ? cookieMatch[1]
-          : null;
-
-        let currentPref =
-          cookiePref ||
-          window.__FRONTEND_REQUEST_CONTEXT__?.themePreference ||
-          'auto';
-
-        const mq =
-          typeof window.matchMedia === 'function'
-            ? window.matchMedia('(prefers-color-scheme: dark)')
-            : null;
-
-        // Shared helper — applies a preference value, resolving auto via OS.
-        function applyPref(preference) {
-          currentPref = preference;
-
-          const shouldUseDarkTheme =
-            preference === 'dark' ||
-            (preference === 'auto' && (mq ? mq.matches : false));
-          document.documentElement.classList.toggle('dark', shouldUseDarkTheme);
-        }
-
-        // Apply the initial cookie/context/OS-derived preference before the page renders.
-        applyPref(currentPref);
-
-        // Keep auto mode in sync with OS preference changes for the duration of this page load.
-        if (mq) {
-          mq.addEventListener('change', function () {
-            if (currentPref === 'auto') applyPref('auto');
-          });
-        }
-
-        // BroadcastChannel for real-time cross-tab sync — mirrors ThemeProvider.
-        if (typeof BroadcastChannel === 'function') {
-          new BroadcastChannel('theme').onmessage = function (e) {
-            if (
-              e.data &&
-              e.data.themePreference &&
-              valid.includes(e.data.themePreference)
-            ) {
-              applyPref(e.data.themePreference);
-            }
-          };
-        }
-
-        // Re-read cookie when tab becomes visible — catches changes made while in the background.
-        // Intentionally does not broadcast back, matching ThemeProvider behavior.
-        document.addEventListener('visibilitychange', function () {
-          if (document.visibilityState !== 'visible') return;
-          var m = document.cookie.match(/(?:^|;\\\\s*)themePreference=([^;]+)/);
-          applyPref((valid.includes(m?.[1]) ? m[1] : null) || 'auto');
-        });
-      })();
-    </script>
+    <script type="application/json" id="\${PAGE_DATA_BLOCK_ID}">\${serializePageData({ themePreference: preference })}</script>
+    <script>\${PAGE_SCRIPT}</script>
   </head>
   <body>
     <div class="card\${isDevelopment ? ' dev-card' : ''}">

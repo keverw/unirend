@@ -412,6 +412,53 @@ describe('ensureSSRGet500ErrorPage', () => {
     expect(src).toMatch(/const PAGE_STYLES = `\n/);
     expect(src).toMatch(/\n {4}`;/);
   });
+
+  test('emits a page whose script block can be hashed for CSP', async () => {
+    const mem: InMemoryDir = {};
+    await ensureSSRGet500ErrorPage(mem, 'src/apps/my-app');
+    const src = mem['src/apps/my-app/server/get-500-error-page.ts'] as string;
+
+    // Same rule as the style block: nothing between the tags and the value.
+    expect(src).toContain('<script>${PAGE_SCRIPT}</script>');
+    expect(src).toContain(
+      'export const ERROR_PAGE_SCRIPT_HASH = hashInlineContentForCSP(PAGE_SCRIPT);',
+    );
+
+    // The per-request value rides in a JSON block instead of an assignment.
+    // script-src governs only what a browser executes, and a <script> with a
+    // non-JavaScript type is never executed, so this element needs no hash and
+    // the executable one stays fixed.
+    expect(src).toContain(
+      '<script type="application/json" id="${PAGE_DATA_BLOCK_ID}">${serializePageData({ themePreference: preference })}</script>',
+    );
+
+    // The page must no longer write a global from an inline assignment, which
+    // is what made the old script text change on every request.
+    expect(src).not.toContain('window.__FRONTEND_REQUEST_CONTEXT__ = {');
+  });
+
+  test('emits a script block whose text cannot vary per request', async () => {
+    const mem: InMemoryDir = {};
+    await ensureSSRGet500ErrorPage(mem, 'src/apps/my-app');
+    const src = mem['src/apps/my-app/server/get-500-error-page.ts'] as string;
+
+    // This is the property the hash depends on, and it is worth asserting
+    // directly rather than trusting a reading of the constant. A hash covers
+    // exact bytes, so a single request-varying interpolation anywhere in
+    // PAGE_SCRIPT makes ERROR_PAGE_SCRIPT_HASH match nothing that ships, and
+    // the failure is invisible until a strict policy blocks the script.
+    const script = src.match(/const PAGE_SCRIPT = `([\s\S]*?)\n {4}`;/);
+
+    expect(script).not.toBeNull();
+
+    const interpolations = script?.[1].match(/\$\{[^}]*\}/g) ?? [];
+
+    // The one interpolation allowed is the data block's id, which is a module
+    // constant. It resolves once at load and is identical for every request,
+    // and naming it here rather than allowing any constant keeps a later
+    // request-scoped value from slipping in unnoticed.
+    expect(interpolations).toEqual(['${JSON.stringify(PAGE_DATA_BLOCK_ID)}']);
+  });
 });
 
 // ---------------------------------------------------------------------------

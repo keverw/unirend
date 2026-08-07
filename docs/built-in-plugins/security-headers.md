@@ -476,7 +476,50 @@ Two things worth knowing about how that works:
 
 On SSR, unirend hashes the inline `<script>` and `<style>` blocks your template ships with, including anything the `headInlineScripts`, `bodyPrepend`, and `bodyAppend` slots contribute, and adds them to whichever directive governs that content for that app's responses. A theme flash-prevention script in `index.html` keeps working under a strict policy with nothing to configure.
 
-The page your components render is covered too, and that half is hashed per request because it has to be. React 19 renders a hoistable `<style>` or `<script>` inline in the SSR stream, `dangerouslySetInnerHTML` can put one anywhere, and a component is free to render either directly, so those bytes are decided by the render rather than by the template. The scan runs on markup unirend has already parsed, and only when a policy is in force, so a server without a CSP pays nothing for it.
+The **inline `<style>`** your components render is covered too, and that half is hashed per request because it has to be. React 19 renders a hoistable `<style>` inline in the SSR stream and a CSS-in-JS runtime emits one directly, so those bytes are decided by the render rather than by the template. The scan runs on markup unirend has already parsed, and only when a policy is in force, so a server without a CSP pays nothing for it.
+
+An inline `<script>` your components render is **not** hashed, and that asymmetry is deliberate. Nothing in the finished markup distinguishes a script a component meant to render from one that arrived in untrusted HTML and went out through `dangerouslySetInnerHTML`. Hashing what the render produced would hand an injected script a valid source expression at the one sink a policy is there to backstop, which is the opposite of what you configured CSP for.
+
+Rendered style is hashed anyway, and that is a deliberate compatibility trade rather than a claim that injected CSS is harmless. It is not: CSS can conceal or restyle trusted UI and can request permitted resources, so untrusted HTML still needs sanitizing before it reaches a render. Two things decide it. React hoistable styles and CSS-in-JS output are the normal way a page ships style, so refusing them would leave ordinary applications unstyled under a strict `style-src` with no error anywhere, where a rendered inline script is rare. And an attacker who can already inject HTML can overlay and deceive with plain markup and your own class names, so what the hash costs there is a subset of a capability they keep either way. A script hash is the difference between injected markup and injected code execution, which is a boundary of a different kind.
+
+Little is given up by that. React Router's hydration payload is lifted into unirend's own JSON data block, where it is not executable and `script-src` does not govern it. A `<script src>` needs a host source rather than a hash. A data block such as `application/ld+json` is outside `script-src` to begin with. What remains is a component rendering an inline script of its own, an analytics snippet being the usual one.
+
+There is one edge worth knowing. If React Router ever emits its hydration script in a shape unirend does not recognize, the script ships as it was rendered and unhashed, so a strict `script-src` blocks it and hydration does not start. It is left unhashed on purpose: the check that finds those scripts is a substring match, which any rendered markup can satisfy, so hashing them would let injected content claim the same exemption. Roll a policy out with `reportOnly` first and this arrives as a violation report naming the script rather than as a silent failure.
+
+Its content is fixed and known before any request, so it belongs in a constant that the component and the server config both import. The component renders the constant, the config hashes it with [`hashInlineContentForCSP`](../utilities.md#content-security-policy-utilities), and neither can drift from the other:
+
+```ts
+// shared/analytics.ts
+export const ANALYTICS = 'window.dataLayer=window.dataLayer||[];';
+```
+
+```tsx
+// a component
+import { ANALYTICS } from '../shared/analytics';
+
+<script dangerouslySetInnerHTML={{ __html: ANALYTICS }} />;
+```
+
+```ts
+// server config
+import { hashInlineContentForCSP } from 'unirend/utils';
+import { ANALYTICS } from './shared/analytics';
+
+securityHeaders({
+  csp: {
+    defaultSrc: ["'self'"],
+    scriptSrc: ["'self'", `'${hashInlineContentForCSP(ANALYTICS)}'`],
+  },
+});
+```
+
+The helper returns the source expression only, so adding it to the header is your `csp` config doing what it already does with every other source. That is the trade being made on purpose: one line naming the script you meant, instead of a scan vouching for every script it happens to find in a page.
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> Hash the exact bytes the element will contain. Interpolate the constant with nothing else between the tags, no added indentation or newline, since whitespace changes the digest. If the snippet has to vary per request, it cannot be hashed at all, and that is the same property that makes rendered scripts unhashable in general.
+
+Your template's inline scripts are unaffected and still hashed, slots included.
 
 One thing it deliberately does not do on rendered markup is report inline attributes. React renders a `style` prop as a `style=""` attribute, so an ordinary styled component would trip the [inline-attribute warning](#inline-attributes-take-more-than-a-hash) on every request. That report is for your template, which is authored by hand and fixed for the life of the process. The attributes are still blocked either way, and the fix is the same one: move them out of the markup.
 
@@ -486,7 +529,9 @@ Hashes are taken from the **final serialized output**, not from the values you p
 
 Styles inside a `<noscript>` are covered as well. They only become live for visitors with JavaScript disabled, which is exactly when nobody is watching, so leaving them out would break the fallback for the people it exists for.
 
-`<script type="importmap">` and `<script type="speculationrules">` are covered too, which is less obvious than it sounds. Neither is JavaScript and neither is ever executed, but `script-src` governs both, so a strict policy blocks them without a hash. The failure modes are opposite and both bad: a blocked import map takes every bare module specifier on the page down with it, and the errors read like a bundler fault rather than a CSP one, while a blocked speculation rules block breaks nothing at all and just quietly stops your site pre-rendering pages. A data block such as `application/json` or `application/ld+json` is genuinely outside `script-src` and correctly gets no hash, which is what lets unirend carry its own server context in one.
+`<script type="importmap">` and `<script type="speculationrules">` **in your template** are covered too, which is less obvious than it sounds. Neither is JavaScript and neither is ever executed, but `script-src` governs both, so a strict policy blocks them without a hash. The failure modes are opposite and both bad: a blocked import map takes every bare module specifier on the page down with it, and the errors read like a bundler fault rather than a CSP one, while a blocked speculation rules block breaks nothing at all and just quietly stops your site pre-rendering pages. A data block such as `application/json` or `application/ld+json` is genuinely outside `script-src` and correctly gets no hash, which is what lets unirend carry its own server context in one.
+
+Rendered markup is the exception, and being non-executable is the reason rather than an oversight. An injected import map remaps every bare specifier on the page to a URL of the attacker's choosing, and injected speculation rules make the browser fetch URLs it picks. Neither needs to run to do damage, so both follow the rendered-`<script>` rule above.
 
 Costs are where you would want them. Production hashes once per app at startup. Development recomputes per request, because the template is re-read and Vite adds inline content of its own after unirend is done with it, and hashes taken earlier would miss exactly the scripts that only exist in development.
 
@@ -506,6 +551,8 @@ console.log(report.cspHashes.styleSrc); // ["'sha256-…'", …]
 ```
 
 They are taken from the bytes actually written and deduplicated across the whole site, so they cover your template's inline blocks and unirend's own bootstrap script together, and a two-hundred-page site normally yields a handful of entries rather than hundreds.
+
+Inline `<script>` in a generated page **is** hashed here, unlike the SSR case above, and the difference is not an inconsistency. A prerender has no request to inject anything into, its input is content you already control at build time, and its output is a directory of files with no server left to contribute a hash per response. If a build pulls page content from a CMS or another source you do not fully trust, sanitize it there, because a hash of the generated file is a hash of whatever that source produced.
 
 What you do with them depends on who serves the site. Serving it with unirend means feeding them into the policy:
 

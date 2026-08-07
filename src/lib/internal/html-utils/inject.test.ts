@@ -417,12 +417,17 @@ describe('injectContent', () => {
       expect(result).toContain(odd);
     });
 
-    it('reports a CSP hash for a hydration script it emits verbatim', async () => {
-      // Without this the forgiving branch above is a trap: the page renders,
-      // an enforcing script-src blocks the one script hydration cannot start
-      // without, and nothing says why. The hashes for a request are contributed
-      // from the template before rendering, so this element does not exist yet
-      // at that point and only injectContent can cover it.
+    it('reports no CSP hash for a hydration script it emits verbatim', async () => {
+      // This branch used to publish a hash, so that an enforcing script-src
+      // would not block the one script hydration cannot start without. The
+      // trouble is how an element gets here: a substring test, which any
+      // rendered markup can satisfy, so the hash was available to an injected
+      // script for the price of naming the global in a comment. See the
+      // dedicated test for that case below.
+      //
+      // Unhashed is therefore the answer, and the cost is real but bounded: on
+      // a page with no strict policy nothing changes, and on one with a strict
+      // policy the script is blocked and reported rather than silently trusted.
       const inner = 'window.__staticRouterHydrationData = someOtherThing();';
       const sources: string[] = [];
 
@@ -433,12 +438,11 @@ describe('injectContent', () => {
         { addCSPSources: (s) => sources.push(...(s.scriptSrc ?? [])) },
       );
 
-      expect(sources).toEqual([`'${hashInlineContentForCSP(inner)}'`]);
+      expect(sources).toEqual([]);
 
-      // The assertion that matters is not that *a* hash was reported but that
-      // it covers the bytes that ship. A digest of the element rather than its
-      // text content, or of a cheerio round trip rather than the original
-      // source, would still look like a hash and match nothing.
+      // Still emitted byte for byte. Declining to vouch for it is not the same
+      // as dropping it, and a cheerio round trip here would mangle a payload
+      // this code does not own.
       // Anchored off one index. The bootstrap script mentions the same global,
       // so searching for the close tag independently finds that element's
       // instead of this one's.
@@ -472,13 +476,22 @@ describe('injectContent', () => {
       expect(sources).toEqual([]);
     });
 
-    it("hashes the rendered page's own inline style and script", async () => {
-      // React 19 renders a hoistable <style> inline in the SSR stream, and
-      // dangerouslySetInnerHTML can put one anywhere, so a page's inline
-      // content is decided per render. The template hashes are contributed
-      // before rendering and cannot cover it, which left a strict style-src
-      // rendering the page unstyled and a strict script-src silently never
-      // running the script.
+    it("hashes the rendered page's own inline style and never its script", async () => {
+      // Two decisions in one test, because the asymmetry between them is the
+      // whole design and a change to either belongs here.
+      //
+      // React 19 renders a hoistable <style> inline in the SSR stream and a
+      // CSS-in-JS runtime emits one directly, so a page's inline style is
+      // decided per render. The template hashes are contributed before
+      // rendering and cannot cover it, which left a strict style-src rendering
+      // the page unstyled.
+      //
+      // The script gets no hash, because nothing in the finished markup
+      // distinguishes one a component rendered from one that arrived as
+      // untrusted HTML through dangerouslySetInnerHTML. Hashing it would hand
+      // an injected script a valid source expression at the sink CSP is there
+      // to backstop. An application that really does render an inline script
+      // hashes it with hashInlineContentForCSP and says so in its policy.
       const css = '.card{color:red}';
       const js = 'window.__pageFlag = 1;';
       const collected: { scriptSrc: string[]; styleSrc: string[] } = {
@@ -499,10 +512,14 @@ describe('injectContent', () => {
       );
 
       expect(collected.styleSrc).toContain(`'${hashInlineContentForCSP(css)}'`);
-      expect(collected.scriptSrc).toContain(`'${hashInlineContentForCSP(js)}'`);
+      expect(collected.scriptSrc).not.toContain(
+        `'${hashInlineContentForCSP(js)}'`,
+      );
 
       // The hash has to cover the bytes that ship, not something adjacent to
-      // them. The body is spliced in verbatim, so these are the same characters.
+      // them. The body is spliced in verbatim, so these are the same
+      // characters. The script is still emitted untouched either way: what
+      // changes is whether the policy vouches for it, not whether it ships.
       expect(result).toContain(`<style>${css}</style>`);
       expect(result).toContain(`<script>${js}</script>`);
     });
@@ -525,21 +542,76 @@ describe('injectContent', () => {
     it.each([
       ['importmap', '{"imports":{"dep":"/assets/dep.js"}}'],
       ['speculationrules', '{"prerender":[{"urls":["/next"]}]}'],
-    ])('hashes a rendered inline %s block', async (type, content) => {
-      // Neither is JavaScript and both are governed by script-src, so the
-      // rendered-body scanner has to agree with the template scanner about
-      // them. A component is free to render either, and React 19 hoists a
-      // <script> with an unknown type into the head rather than dropping it.
+    ])(
+      'leaves a rendered inline %s block out of the page hashes',
+      async (type, content) => {
+        // Neither is JavaScript, which makes them tempting to carve out of the
+        // rule that rendered scripts go unhashed. They are not carved out, and
+        // being non-executable is exactly why: an injected import map remaps
+        // every bare specifier on the page to a URL of the attacker's choosing,
+        // and injected speculation rules make the browser fetch URLs it chooses.
+        // Both are governed by script-src, and neither needs to execute to do
+        // damage. The template scanner still hashes them, since a template is
+        // authored by hand.
+        const collected: string[] = [];
+        let wasCalled = false;
+
+        // A style block rides along as the positive anchor. Without it, a
+        // `not.toContain` on an array nothing ever wrote to would pass just as
+        // happily if the scan had been deleted outright, which is no test at
+        // all.
+        const css = '.anchor{color:red}';
+        const styles: string[] = [];
+
+        await injectContent(
+          template,
+          '',
+          `<div><style>${css}</style><script type="${type}">${content}</script></div>`,
+          {
+            addCSPSources: (s) => {
+              wasCalled = true;
+              collected.push(...(s.scriptSrc ?? []));
+              styles.push(...(s.styleSrc ?? []));
+            },
+          },
+        );
+
+        expect(wasCalled).toBe(true);
+        expect(styles).toContain(`'${hashInlineContentForCSP(css)}'`);
+        expect(collected).not.toContain(
+          `'${hashInlineContentForCSP(content)}'`,
+        );
+      },
+    );
+
+    it('does not hash an unrecognized hydration script, however it is labeled', async () => {
+      // The pass that lifts React Router's hydration payload finds its
+      // candidates with a substring test, which is a guess about where markup
+      // came from rather than proof of it. Anything rendered into the body can
+      // contain that substring, a comment included, so an unrecognized shape
+      // reaching this branch is not evidence that React Router wrote it.
+      //
+      // It used to be hashed here, on the reasoning that a blocked hydration
+      // script fails silently. That handed any injected script a valid source
+      // expression for the cost of thirty characters, undoing the rule that
+      // rendered scripts go unhashed. It now ships unhashed like any other
+      // rendered script: forgiving on a page with no strict policy, and failing
+      // closed with a violation report on one that has it.
+      const injected = '/*__staticRouterHydrationData*/alert(document.cookie)';
       const collected: string[] = [];
 
-      await injectContent(
+      const result = await injectContent(
         template,
         '',
-        `<div><script type="${type}">${content}</script></div>`,
+        `<div>hi<script>${injected}</script></div>`,
         { addCSPSources: (s) => collected.push(...(s.scriptSrc ?? [])) },
       );
 
-      expect(collected).toContain(`'${hashInlineContentForCSP(content)}'`);
+      expect(collected).toEqual([]);
+
+      // Still emitted, so this is about what the policy vouches for rather
+      // than about dropping content the page asked for.
+      expect(result).toContain(injected);
     });
 
     it('hashes inline content inside a rendered <noscript>', async () => {

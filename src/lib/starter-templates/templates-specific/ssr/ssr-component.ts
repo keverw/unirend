@@ -47,6 +47,9 @@ import path from 'path';
 import type { ServerMode } from './start';
 import { ENABLE_TEST_ROUTES, PUBLIC_FILES, PUBLIC_FOLDERS } from '../consts';
 import { themePlugin } from './plugins/theme';
+// The 500 page also exports ERROR_PAGE_STYLE_HASH and ERROR_PAGE_SCRIPT_HASH.
+// Nothing adds them for you: see the securityHeaders block below before turning
+// on a Content-Security-Policy, or that page loses its styling and its theme.
 import { get500ErrorPage } from './get-500-error-page.ts';
 
 // Read port from ${portEnvVarName} env var, default 3000.
@@ -255,6 +258,42 @@ export class SSRServerComponent extends BaseComponent {
           level: 'debug' as const,
         };
 
+        // Adding a Content-Security-Policy? Two hashes from this app's own 500
+        // page have to go in it, because that page is returned as raw HTML when
+        // SSR fails before React runs and so never passes through anything that
+        // could hash it for you. Miss them and the page still renders, which is
+        // what makes this easy to ship: it loses its styling, and its theme
+        // script never runs, so a dark-mode user gets a white screen on the one
+        // page that only appears when something has already gone wrong.
+        //
+        // Unirend's own error pages, your index.html (slots included), and the
+        // inline <style> your components render are all covered automatically.
+        // These two are the exception.
+        //
+        //   import { securityHeaders } from 'unirend/plugins';
+        //   import {
+        //     ERROR_PAGE_STYLE_HASH,
+        //     ERROR_PAGE_SCRIPT_HASH,
+        //   } from './get-500-error-page.ts';
+        //
+        //   plugins: [
+        //     securityHeaders({
+        //       csp: {
+        //         defaultSrc: ["'self'"],
+        //         scriptSrc: ["'self'", \`'\${ERROR_PAGE_SCRIPT_HASH}'\`],
+        //         styleSrc: ["'self'", \`'\${ERROR_PAGE_STYLE_HASH}'\`],
+        //       },
+        //     }),
+        //     cookies(),
+        //     themePlugin(),
+        //   ],
+        //
+        // Start with csp: { reportOnly: true } on a live site: violations are
+        // reported and nothing is blocked, so you find what breaks without
+        // breaking it. An inline <script> your own components render needs the
+        // same treatment, via hashInlineContentForCSP from 'unirend/utils'.
+        // See: https://github.com/keverw/unirend/blob/main/docs/built-in-plugins/security-headers.md
+        //
         // Create the server in the appropriate mode.
         // To host multiple React apps on the same server, call server.registerHMRApp()
         // or server.registerBuiltApp() after construction — matching the same mode branch.
@@ -268,6 +307,7 @@ export class SSRServerComponent extends BaseComponent {
             {
               ...sharedConfig,
               // See 'unirend/plugins' for built-in plugins (securityHeaders, domainValidation, cookies, etc.).
+              // Adding securityHeaders with a csp? See the note above this branch.
               plugins: [cookies(), themePlugin()],
               logging: loggingConfig,
             },
@@ -284,6 +324,7 @@ export class SSRServerComponent extends BaseComponent {
             publicFiles: PUBLIC_FILES,
             publicFolders: PUBLIC_FOLDERS,
             // See 'unirend/plugins' for built-in plugins (securityHeaders, domainValidation, cookies, etc.).
+            // Adding securityHeaders with a csp? See the note above this branch.
             plugins: [cookies(), themePlugin()],
             logging: loggingConfig,
           });

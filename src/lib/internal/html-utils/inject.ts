@@ -10,7 +10,7 @@ import {
   isRemovedBooleanAttribute,
 } from './escape';
 import { getMetaKeys } from './meta-key';
-import { hashInlineContentForCSP, isCSPGovernedScriptType } from '../csp-hash';
+import { hashInlineContentForCSP } from '../csp-hash';
 import type { AnyNode } from 'domhandler';
 import type { CheerioAPI, load as cheerioLoad } from 'cheerio';
 
@@ -479,10 +479,6 @@ export async function injectContent(
     addCSPSources,
   } = options;
 
-  // Collected as this function goes and reported in one call at the end, so a
-  // caller that pushes straight onto a request's policy is not asked to
-  // deduplicate what a single render contributed.
-  const pageScriptSources = new Set<string>();
   // Prettify all head tags with consistent indentation
   const compactedHead = prettifyHeadTags(headContent);
 
@@ -510,13 +506,6 @@ export async function injectContent(
   const $body = cheerio.load(bodyContent, parseOptions);
   const routerHydrationScripts: string[] = [];
   const removalRanges: Array<{ start: number; end: number }> = [];
-
-  // Every hydration script this pass recognized, by reference, so the page-wide
-  // scan below can leave them out. One shape never ships at all (it is lifted
-  // into the JSON data block) and the other is hashed from the raw source
-  // offsets right here, so in neither case is a second hash from the parsed
-  // tree the right answer.
-  const routerHydrationElements = new Set<AnyNode>();
 
   // The hydration payload, lifted out of React Router's assignment script so it
   // can ride in the JSON data block with everything else. Left undefined when
@@ -552,36 +541,27 @@ export async function injectContent(
         // payload mangled by a guess at what React Router meant.
         routerHydrationScripts.push(rawScript);
 
-        // Told, rather than merely something to tell. The alternative is a
-        // strict policy blocking this script, which leaves the page rendered,
-        // hydration never starting, and nothing anywhere saying why, on the one
-        // path that exists to be forgiving about React Router changing its
-        // output.
+        // Deliberately not hashed, and this is the one branch where that needs
+        // saying out loud, because it used to be.
         //
-        // The digest covers the element's text content and not the element, so
-        // it is read from between the tags rather than from `rawScript`. Taken
-        // from the original source through parse5's offsets: re-serializing
-        // through cheerio to get at the content would reintroduce the mangling
-        // this branch exists to avoid, and could hash something the browser
-        // never sees. The CR and NUL the tokenizer would have removed are
-        // handled by hashInlineContentForCSP itself.
-        const contentStart = location.startTag?.endOffset;
-        const contentEnd = location.endTag?.startOffset ?? location.endOffset;
-
-        if (
-          addCSPSources &&
-          contentStart !== undefined &&
-          contentEnd >= contentStart
-        ) {
-          pageScriptSources.add(
-            `'${hashInlineContentForCSP(bodyContent.slice(contentStart, contentEnd))}'`,
-          );
-        }
+        // What lands here is decided by the substring test above, which is a
+        // guess about provenance rather than proof of it. Anything rendered
+        // into the body containing `__staticRouterHydrationData`, a comment
+        // included, reaches this branch when its shape is not recognized. That
+        // is reachable by whatever HTML a page renders, so a hash here is a
+        // hash an injected script can ask for by including thirty characters,
+        // which would give back exactly what refusing to hash rendered scripts
+        // took away.
+        //
+        // Emitting it unhashed keeps the forgiving behavior this branch exists
+        // for on a page with no strict policy, and fails closed on one that has
+        // it: the script is blocked, the page still renders, and hydration does
+        // not start. That failure is at least visible, since a strict policy is
+        // rolled out with `reportOnly` first and this shows up as a violation
+        // report naming the script.
       } else {
         routerHydration = payload;
       }
-
-      routerHydrationElements.add(el);
 
       removalRanges.push({
         start: location.startOffset,
@@ -590,35 +570,63 @@ export async function injectContent(
     }
   });
 
-  // The rest of the rendered page's own inline content.
+  // The rendered page's own inline `<style>`.
   //
-  // This is not a corner case. React 19 renders a hoistable `<style>` or
-  // `<script>` inline in the SSR stream, `dangerouslySetInnerHTML` can put one
-  // anywhere, and a component is free to render either directly. All of it is
-  // decided per render, so the template hashes the caller contributed before
-  // rendering cannot possibly cover it. Left out, the page ships under a policy
-  // that never heard of it: a `<style>` renders unstyled and a `<script>`
-  // silently never runs, on a header that reads as though it allows same-origin
-  // content.
+  // This is not a corner case. React 19 renders a hoistable `<style>` inline in
+  // the SSR stream and a CSS-in-JS runtime emits one directly, both decided per
+  // render, so the template hashes the caller contributed before rendering
+  // cannot possibly cover them. Left out, the page ships under a policy that
+  // never heard of them and renders unstyled, on a header that reads as though
+  // it allows same-origin content.
   //
   // Only asked for when a caller wants the answer, which keeps the scan off
-  // servers that are not using CSP. SSG needs none of this: it hashes each
-  // finished page after writing it, so this content is already covered there.
+  // servers that are not using CSP.
+  //
+  // Rendered inline `<script>` deliberately gets no hash here, and that
+  // asymmetry is the point rather than an omission. A hash read from finished
+  // markup cannot distinguish a script a component rendered from one that
+  // arrived as untrusted HTML and went out through `dangerouslySetInnerHTML`,
+  // so hashing what the render produced would hand an injected script a valid
+  // source expression at the one sink a policy is there to backstop.
+  //
+  // Style is hashed anyway, and that is a compatibility trade rather than a
+  // claim that injected CSS is harmless. It can conceal or restyle trusted UI
+  // and can pull permitted resources. Two things decide it against script.
+  // React hoistables and CSS-in-JS output are how an ordinary page ships style
+  // at all, so refusing them leaves real applications unstyled under a strict
+  // style-src with no error anywhere, where a rendered inline script is rare.
+  // And an attacker already able to inject HTML can overlay and deceive with
+  // plain markup and the page's own class names, so the hash gives up a subset
+  // of what they keep regardless. A script hash is the difference between
+  // injected markup and injected code execution, which is not the same shape.
+  //
+  // Little is given up by that. React Router's hydration payload is hashed
+  // above on its own path, a `<script src>` needs a host source rather than a
+  // hash, and a data block such as `application/ld+json` is outside `script-src`
+  // to begin with. What remains is a component rendering an inline script of
+  // its own, such as an analytics snippet, whose content is fixed and known
+  // before any request: hash it with `hashInlineContentForCSP` and put it in
+  // the policy, which says once and deliberately what this scan would otherwise
+  // have said for every script it happened to find. A template's inline scripts
+  // are unaffected and still hashed, slots included, since those are authored
+  // by hand and fixed for the life of the process.
+  //
+  // SSG keeps hashing both, and the difference is not an inconsistency: a
+  // prerender has no request data to inject, its input is the same content an
+  // author already controls, and its output is a directory of files with no
+  // server left to contribute hashes per response.
   if (addCSPSources) {
     const pageHashes = collectRenderedInlineHashes(
       $body,
       bodyContent,
       cheerio.load,
       parseOptions,
-      routerHydrationElements,
     );
 
-    for (const source of pageHashes.scriptSrc) {
-      pageScriptSources.add(source);
-    }
-
+    // No `scriptSrc` member at all, rather than an empty array, because a
+    // render now contributes nothing to it and saying so is clearer than
+    // handing back an empty list every time.
     addCSPSources({
-      scriptSrc: [...pageScriptSources],
       styleSrc: [...pageHashes.styleSrc],
     });
   }
@@ -792,8 +800,17 @@ export async function injectContent(
 }
 
 /**
- * Hash the inline `<script>` and `<style>` of rendered markup, reading every
- * digest from the **original source bytes** rather than from the parsed tree.
+ * Hash the inline `<style>` of rendered markup, reading every digest from the
+ * **original source bytes** rather than from the parsed tree.
+ *
+ * Style and not script, which is the one thing to understand before changing
+ * this. See the call site for the reasoning: a hash taken from finished markup
+ * cannot tell a `<script>` a component rendered from one that arrived as
+ * untrusted HTML, so rendered scripts are left to be covered deliberately
+ * rather than authorized by having been rendered. `<style>` is hashed because
+ * React 19 hoists it into the stream as a matter of course and CSS-in-JS emits
+ * it directly, which is a compatibility trade made with open eyes rather than a
+ * belief that injected CSS is harmless.
  *
  * That distinction is the whole function. The template scanner can read the
  * parsed tree, because the template was serialized *out of* a parse, so the
@@ -829,10 +846,8 @@ function collectRenderedInlineHashes(
   source: string,
   load: typeof cheerioLoad,
   parseOptions: Parameters<typeof cheerioLoad>[1],
-  skip: ReadonlySet<AnyNode>,
   baseOffset = 0,
-): { scriptSrc: Set<string>; styleSrc: Set<string> } {
-  const scriptSrc = new Set<string>();
+): { styleSrc: Set<string> } {
   const styleSrc = new Set<string>();
 
   /** The element's text content, taken from the bytes rather than the tree. */
@@ -849,29 +864,7 @@ function collectRenderedInlineHashes(
     return source.slice(baseOffset + start, baseOffset + end);
   };
 
-  $body('script').each((_, el) => {
-    const element = $body(el);
-
-    if (skip.has(el) || element.attr('src')) {
-      return;
-    }
-
-    if (!isCSPGovernedScriptType(element.attr('type'))) {
-      return;
-    }
-
-    const content = rawContentOf(el);
-
-    if (content) {
-      scriptSrc.add(`'${hashInlineContentForCSP(content)}'`);
-    }
-  });
-
   $body('style').each((_, el) => {
-    if (skip.has(el)) {
-      return;
-    }
-
     const content = rawContentOf(el);
 
     // Compared against undefined rather than read as truthy, because the two
@@ -882,11 +875,6 @@ function collectRenderedInlineHashes(
     // it: Chrome blocks one under a strict style-src and names the empty-string
     // digest as the hash that would allow it. Skipping it left that hash out of
     // the policy for content the page really does ship.
-    //
-    // The `<script>` arm above is deliberately left on a truthiness test, so
-    // the difference between the two is intentional rather than an oversight to
-    // tidy up: an empty inline script draws no violation, and publishing a hash
-    // for one would be a source expression matching nothing.
     if (content !== undefined) {
       styleSrc.add(`'${hashInlineContentForCSP(content)}'`);
     }
@@ -904,7 +892,7 @@ function collectRenderedInlineHashes(
 
     const inner = source.slice(baseOffset + start, baseOffset + end);
 
-    if (!/<(?:script|style)\b/i.test(inner)) {
+    if (!/<style\b/i.test(inner)) {
       return;
     }
 
@@ -913,20 +901,15 @@ function collectRenderedInlineHashes(
       source,
       load,
       parseOptions,
-      skip,
       baseOffset + start,
     );
-
-    for (const hash of nested.scriptSrc) {
-      scriptSrc.add(hash);
-    }
 
     for (const hash of nested.styleSrc) {
       styleSrc.add(hash);
     }
   });
 
-  return { scriptSrc, styleSrc };
+  return { styleSrc };
 }
 
 interface TagMatch {
