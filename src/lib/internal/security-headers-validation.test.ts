@@ -458,6 +458,20 @@ describe('validateSecurityHeadersPolicy', () => {
           csp: { frameAncestors: ["'none'"] },
         },
       },
+      {
+        // The reporting cross-check reaches a group named by a header
+        // parameter, not just one named by csp.reportTo. The validator used to
+        // skip that half entirely, so this config validated clean here and
+        // then threw the moment a resolver handed it to the request path.
+        name: 'a cross-origin reportTo group nothing defines',
+        config: {
+          reportingEndpoints: { csp: 'https://reports.example.com/csp' },
+          crossOriginOpenerPolicyReportOnly: {
+            policy: 'same-origin',
+            reportTo: 'coop',
+          },
+        },
+      },
     ];
 
     for (const { name, config } of cases) {
@@ -467,6 +481,43 @@ describe('validateSecurityHeadersPolicy', () => {
         expect(validateSecurityHeadersPolicy(config).valid).toBe(wasAccepted);
       });
     }
+  });
+
+  it('reads a cross-origin reportTo the baseline supplied', () => {
+    // The pair is assembled from both halves, so neither one alone answers the
+    // question. Here the override defines endpoints and the baseline is what
+    // names the group, which is the arrangement a tenant editing only their
+    // endpoints produces.
+    const result = validateSecurityHeadersPolicy(
+      { reportingEndpoints: { csp: 'https://reports.example.com/csp' } },
+      {
+        baseline: {
+          crossOriginOpenerPolicyReportOnly: {
+            policy: 'same-origin',
+            reportTo: 'coop',
+          },
+        },
+      },
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.issues[0].path).toBe(
+      'crossOriginOpenerPolicyReportOnly.reportTo',
+    );
+  });
+
+  it('accepts a cross-origin reportTo the endpoints do define', () => {
+    // The other direction, so the check above is passing for the right reason
+    // rather than rejecting every cross-origin policy that carries a group.
+    expect(
+      validateSecurityHeadersPolicy({
+        reportingEndpoints: { coop: 'https://reports.example.com/coop' },
+        crossOriginOpenerPolicyReportOnly: {
+          policy: 'same-origin',
+          reportTo: 'coop',
+        },
+      }).valid,
+    ).toBe(true);
   });
 
   it('does not report a preset directive as the author’s mistake', () => {
@@ -751,6 +802,64 @@ describe('reportingEndpoints', () => {
     expect(() =>
       securityHeaders({ csp: { defaultSrc: ["'self'"], reportTo: 'csp' } }),
     ).not.toThrow();
+  });
+
+  describe('the undefined-group warning', () => {
+    /**
+     * Register against a real Fastify instance with its logger replaced, since
+     * the warning goes through `fastify.log` and there is nothing else to
+     * observe it by: the config is accepted either way.
+     */
+    async function warningsFor(config: SecurityHeadersConfig) {
+      const app = fastify();
+      const warnings: string[] = [];
+
+      Object.defineProperty(app, 'log', {
+        value: { warn: (message: string) => warnings.push(message) },
+        configurable: true,
+      });
+
+      await securityHeaders(config)(
+        app as unknown as PluginHostInstance,
+        createMockOptions(),
+      );
+
+      await app.close();
+
+      return warnings;
+    }
+
+    it('warns about a group named only by a cross-origin policy', async () => {
+      // The shape someone reaches for first, since report-only COOP is what
+      // you run before committing to a policy. Nothing here defines "coop", so
+      // the header goes out naming a group that resolves to nothing and the
+      // reports it exists to collect never arrive.
+      const warnings = await warningsFor({
+        crossOriginOpenerPolicyReportOnly: {
+          policy: 'same-origin',
+          reportTo: 'coop',
+        },
+      });
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('reports to nowhere');
+    });
+
+    it('warns about a group named only by csp.reportTo', async () => {
+      const warnings = await warningsFor({
+        csp: { defaultSrc: ["'self'"], reportTo: 'csp' },
+      });
+
+      expect(warnings).toHaveLength(1);
+    });
+
+    it('stays quiet when no group is named at all', async () => {
+      // The check keys on a group being named, not on reportingEndpoints being
+      // absent, or every config without reporting would warn.
+      expect(
+        await warningsFor({ crossOriginOpenerPolicyReportOnly: 'same-origin' }),
+      ).toHaveLength(0);
+    });
   });
 });
 

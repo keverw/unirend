@@ -861,6 +861,27 @@ Once it passes, `result.policy` is that same object with a type on it. Store tha
 
 Pass `baseline` whenever the policy is an override rather than a complete config. Blocks replace rather than merge, so an override that sets only `csp` inherits `frameOptions` from the baseline, and the two can conflict even when each is fine on its own. Without the baseline that combination validates cleanly here and is then rejected at request time, which defeats the point of checking early.
 
+Give it every field the cross-checks read, not just the two in the example above. There are two pairs, and each can be assembled from one half of the override and one half of the baseline:
+
+- **Framing:** `frameOptions` against `csp.frameAncestors`.
+- **Reporting:** `reportingEndpoints` against `csp.reportTo` and against the `reportTo` on `crossOriginOpenerPolicy`, `crossOriginOpenerPolicyReportOnly`, `crossOriginEmbedderPolicy`, and `crossOriginEmbedderPolicyReportOnly`.
+
+```typescript
+const result = validateSecurityHeadersPolicy(request.body, {
+  baseline: {
+    frameOptions: 'DENY',
+    csp: DEFAULT_POLICY,
+    reportingEndpoints: { csp: 'https://reports.example.com/csp' },
+    crossOriginOpenerPolicyReportOnly: {
+      policy: 'same-origin',
+      reportTo: 'coop',
+    },
+  },
+});
+```
+
+Leave one out and the check it feeds simply does not run, which is the shape of the problem this is meant to catch rather than a smaller version of it: the group a tenant's `reportTo` names looks undefined, or looks defined, depending on a field the validator was never shown, and the request path then reaches the opposite verdict.
+
 Two things it does not do:
 
 - **It does not expand `csp.preset`.** Pass the policy as the author wrote it, so preset directives are not reported back as their mistakes.

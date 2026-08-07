@@ -437,17 +437,28 @@ export function crossOriginReportGroups(
  * Separate from the collector above because the answer is a warning rather than
  * an issue: `Reporting-Endpoints` may legitimately be set by a proxy or another
  * hook, which this code cannot see.
+ *
+ * Reads the cross-origin policies' `report-to` parameters as well as
+ * `csp.reportTo`, since a group is a group wherever it was named. A config that
+ * sets only `crossOriginOpenerPolicyReportOnly` with a `reportTo` and no CSP is
+ * the shape someone reaches for first, and it fails exactly the same way: the
+ * header goes out naming a group nothing defines, no report ever arrives, and
+ * the quiet reads as "the policy would not break anything", which is the one
+ * conclusion a report-only header exists to rule out.
  */
 export function isReportingGroupUndefined(
   csp: CSPConfig | false | undefined,
   reportingEndpoints: false | ReportingEndpointsConfig | undefined,
+  extraGroups: ReadonlyArray<readonly [path: string, group: string]> = [],
 ): boolean {
-  return Boolean(
-    csp &&
-    typeof csp.reportTo === 'string' &&
-    csp.reportTo.trim() !== '' &&
-    !reportingEndpoints,
-  );
+  if (reportingEndpoints) {
+    return false;
+  }
+
+  const namesCSPGroup =
+    csp && typeof csp.reportTo === 'string' && csp.reportTo.trim() !== '';
+
+  return Boolean(namesCSPGroup) || extraGroups.length > 0;
 }
 
 /**
@@ -904,6 +915,18 @@ export interface SecurityHeadersPolicyBaseline {
   csp?: false | CSPConfig;
   frameOptions?: false | 'DENY' | 'SAMEORIGIN';
   reportingEndpoints?: false | ReportingEndpointsConfig;
+  /**
+   * The cross-origin policies, which take part in the reporting cross-check
+   * through their `report-to` parameter exactly as `csp.reportTo` does. Present
+   * here for the same reason the other blocks are: an override that omits one
+   * inherits the baseline's, so judging the override alone would miss a pair
+   * assembled from both.
+   */
+  crossOriginOpenerPolicy?: false | CrossOriginOpenerPolicySetting;
+  crossOriginOpenerPolicyReportOnly?: false | CrossOriginOpenerPolicySetting;
+  crossOriginEmbedderPolicy?: false | CrossOriginEmbedderPolicySetting;
+  crossOriginEmbedderPolicyReportOnly?:
+    false | CrossOriginEmbedderPolicySetting;
 }
 
 /** Every key an HSTS block may carry, for reporting a misspelled one. */
@@ -1258,11 +1281,36 @@ export function validateSecurityHeadersPolicy(
 
   // Resolved the way the request path resolves it, so a policy that overrides
   // only one of the pair is judged on the combination it will actually serve.
+  //
+  // The cross-origin policies are part of that pair too, and leaving them out
+  // is not a smaller check, it is a different verdict from the one the plugin
+  // reaches. `resolveEffectiveConfig` passes `crossOriginReportGroups` to this
+  // same collector, so a policy naming a group only through a `report-to`
+  // parameter validated clean here and then threw per request, which is the one
+  // outcome this module exists to prevent.
+  const effectiveCrossOrigin: SecurityHeadersPolicyInput = {
+    crossOriginOpenerPolicy: (policy.crossOriginOpenerPolicy ??
+      options.baseline
+        ?.crossOriginOpenerPolicy) as SecurityHeadersPolicyInput['crossOriginOpenerPolicy'],
+    crossOriginOpenerPolicyReportOnly:
+      (policy.crossOriginOpenerPolicyReportOnly ??
+        options.baseline
+          ?.crossOriginOpenerPolicyReportOnly) as SecurityHeadersPolicyInput['crossOriginOpenerPolicyReportOnly'],
+    crossOriginEmbedderPolicy: (policy.crossOriginEmbedderPolicy ??
+      options.baseline
+        ?.crossOriginEmbedderPolicy) as SecurityHeadersPolicyInput['crossOriginEmbedderPolicy'],
+    crossOriginEmbedderPolicyReportOnly:
+      (policy.crossOriginEmbedderPolicyReportOnly ??
+        options.baseline
+          ?.crossOriginEmbedderPolicyReportOnly) as SecurityHeadersPolicyInput['crossOriginEmbedderPolicyReportOnly'],
+  };
+
   issues.push(
     ...collectReportingIssues(
       withPresetExpanded(csp ?? options.baseline?.csp),
       (policy.reportingEndpoints ?? options.baseline?.reportingEndpoints) as
         false | ReportingEndpointsConfig | undefined,
+      crossOriginReportGroups(effectiveCrossOrigin),
     ),
   );
 

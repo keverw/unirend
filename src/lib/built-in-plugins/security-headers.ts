@@ -1985,10 +1985,16 @@ export function securityHeaders(
           ? config.csp
           : applyCSPPreset(config.csp),
         config.reportingEndpoints,
+        // The cross-origin policies name groups through a `report-to`
+        // parameter, and a config that sets only a report-only COOP with no CSP
+        // at all is the shape someone reaches for first. Leaving them out meant
+        // exactly that config got no warning, on the header whose entire job is
+        // telling you what the enforcing one would have done.
+        crossOriginReportGroups(baseSimplePolicy),
       )
     ) {
       fastify.log?.warn(
-        `[securityHeaders] csp.reportTo names a reporting group but securityHeaders.reportingEndpoints is not configured. A browser resolves the group through the Reporting-Endpoints header, so unless something else on this server sends one, this policy reports to nowhere and the absence of reports will look like an absence of violations.`,
+        `[securityHeaders] A policy names a reporting group (csp.reportTo, or a cross-origin policy's reportTo) but securityHeaders.reportingEndpoints is not configured. A browser resolves the group through the Reporting-Endpoints header, so unless something else on this server sends one, this policy reports to nowhere and the absence of reports will look like an absence of violations.`,
       );
     }
 
