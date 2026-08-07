@@ -30,10 +30,23 @@ import {
   collectFrameOptionsIssues,
   collectFramingIssues,
   collectHSTSIssues,
+  collectContentTypeOptionsIssues,
+  collectReferrerPolicyIssues,
+  collectPermissionsPolicyIssues,
+  collectCOOPIssues,
+  collectCORPIssues,
+  collectCOEPIssues,
+  serializePermissionsPolicy,
   unknownPolicyKeys,
   SECURITY_HEADERS_POLICY_KEYS,
   type HSTSConfig,
   type SecurityHeadersPolicyInput,
+  type SecurityHeadersPolicyIssue,
+  type ReferrerPolicyToken,
+  type PermissionsPolicyConfig,
+  type CrossOriginOpenerPolicy,
+  type CrossOriginResourcePolicy,
+  type CrossOriginEmbedderPolicy,
 } from '../internal/security-headers-validation';
 import { isHostUnverified } from '../internal/host-verification';
 import {
@@ -62,7 +75,14 @@ export type {
  * are, and re-exported here because this is where it has always been imported
  * from.
  */
-export type { HSTSConfig } from '../internal/security-headers-validation';
+export type {
+  HSTSConfig,
+  ReferrerPolicyToken,
+  PermissionsPolicyConfig,
+  CrossOriginOpenerPolicy,
+  CrossOriginResourcePolicy,
+  CrossOriginEmbedderPolicy,
+} from '../internal/security-headers-validation';
 
 /**
  * A per-request override of the non-negotiated headers.
@@ -187,6 +207,99 @@ export interface SecurityHeadersConfig {
   hsts?: false | HSTSConfig;
 
   /**
+   * Send `X-Content-Type-Options: nosniff`.
+   *
+   * Stops a browser second-guessing your `Content-Type`. Without it, a response
+   * you serve as `text/plain` can be sniffed as HTML and executed, which turns
+   * a file upload endpoint into stored XSS.
+   *
+   * Off by default like every other header here, which is a deliberate house
+   * rule rather than an assessment of the risk: this plugin does not turn
+   * protections on behind your back, because a header that appears without
+   * anyone asking is a header nobody knows to look at when something breaks.
+   * There is no real reason not to set this one.
+   *
+   * @default false
+   */
+  contentTypeOptions?: boolean;
+
+  /**
+   * Controls the `Referrer-Policy` header.
+   *
+   * Decides how much of the current URL travels in the `Referer` header on
+   * outbound requests and navigations. Without it you are on the browser's
+   * default, which is `strict-origin-when-cross-origin` in current browsers but
+   * was `no-referrer-when-downgrade` not long ago, so a full URL, including
+   * anything you put in a path or query string, could reach a third party.
+   *
+   * Takes a list as well as a single token, because the header does: a browser
+   * uses the last token it understands, which is how a newer policy ships with
+   * an older one behind it.
+   *
+   * @default false
+   */
+  referrerPolicy?: false | ReferrerPolicyToken | ReferrerPolicyToken[];
+
+  /**
+   * Controls the `Permissions-Policy` header.
+   *
+   * Written as a feature to its allowlist. An empty array disables the feature
+   * outright, which is the common case and the reason to reach for this.
+   *
+   * ```ts
+   * permissionsPolicy: {
+   *   camera: [],
+   *   microphone: [],
+   *   geolocation: ['self'],
+   * }
+   * ```
+   *
+   * @default false
+   */
+  permissionsPolicy?: false | PermissionsPolicyConfig;
+
+  /**
+   * Controls the `Cross-Origin-Opener-Policy` header.
+   *
+   * `'same-origin'` severs `window.opener` between your pages and cross-origin
+   * ones, which is the main defense against cross-window attacks and a
+   * precondition for `crossOriginIsolated`.
+   *
+   * Check your OAuth and payment flows before enabling. Anything that opens a
+   * third-party popup and then talks to it through `window.opener` or
+   * `postMessage` on the opener breaks under `'same-origin'`;
+   * `'same-origin-allow-popups'` is the setting that keeps those working.
+   *
+   * @default false
+   */
+  crossOriginOpenerPolicy?: false | CrossOriginOpenerPolicy;
+
+  /**
+   * Controls the `Cross-Origin-Resource-Policy` header.
+   *
+   * Says who may embed this response. `'same-origin'` is the strong setting and
+   * the one that will bite: it applies to every response the header goes on,
+   * so a site serving its own images or fonts to another origin, or to a CDN,
+   * needs `'cross-origin'` for those.
+   *
+   * @default false
+   */
+  crossOriginResourcePolicy?: false | CrossOriginResourcePolicy;
+
+  /**
+   * Controls the `Cross-Origin-Embedder-Policy` header.
+   *
+   * Only needed for `crossOriginIsolated`, which is what `SharedArrayBuffer`
+   * and high-resolution timers require. `'require-corp'` demands that every
+   * cross-origin subresource opt in with its own CORP header or CORS, so
+   * enabling it without auditing your third-party assets breaks them. Left off
+   * unless you know you need it.
+   *
+   * @default false
+   */
+  crossOriginEmbedderPolicy?: false | CrossOriginEmbedderPolicy;
+
+  /**
    * Vary the non-negotiated headers per request.
    *
    * The case this exists for: customers mapping their own domains. A single
@@ -273,10 +386,114 @@ type CompiledCSP = {
   config: CSPConfig;
 };
 
+/**
+ * The headers whose whole configuration is one value, resolved to the string
+ * that goes on the wire.
+ *
+ * Kept as a list of pairs rather than named fields because nothing downstream
+ * has an opinion about any individual one: they are validated, serialized, and
+ * then written in a loop. A new one is a line in `resolveSimpleHeaders` and
+ * nothing else.
+ */
+type ResolvedSimpleHeaders = ReadonlyArray<
+  readonly [name: string, value: string]
+>;
+
+/**
+ * Validate and serialize the single-value headers in one pass.
+ *
+ * The collectors are the same ones `validateSecurityHeadersPolicy` uses, so a
+ * block that function accepts is one the plugin accepts, whether it arrived at
+ * startup or from a `resolve` callback.
+ *
+ * @param policy The block to read, which is the config at startup and the
+ *   merged effective policy per request
+ * @param onIssue Called with every problem found, so the caller decides whether
+ *   to throw the first one or collect them
+ */
+function resolveSimpleHeaders(
+  policy: SecurityHeadersPolicyInput,
+  onIssue: (issue: SecurityHeadersPolicyIssue) => void,
+): ResolvedSimpleHeaders {
+  for (const issue of [
+    ...collectContentTypeOptionsIssues(policy.contentTypeOptions),
+    ...collectReferrerPolicyIssues(policy.referrerPolicy),
+    ...collectPermissionsPolicyIssues(policy.permissionsPolicy),
+    ...collectCOOPIssues(policy.crossOriginOpenerPolicy),
+    ...collectCORPIssues(policy.crossOriginResourcePolicy),
+    ...collectCOEPIssues(policy.crossOriginEmbedderPolicy),
+  ]) {
+    onIssue(issue);
+  }
+
+  const headers: Array<readonly [string, string]> = [];
+
+  // Compared against `true` rather than read as truthy, the same rule every
+  // other opt-in here follows, so a string "false" out of a JSON config does
+  // not switch a header on.
+  if (policy.contentTypeOptions === true) {
+    headers.push(['X-Content-Type-Options', 'nosniff']);
+  }
+
+  if (policy.referrerPolicy) {
+    const tokens = Array.isArray(policy.referrerPolicy)
+      ? policy.referrerPolicy
+      : [policy.referrerPolicy];
+
+    if (tokens.length > 0) {
+      headers.push(['Referrer-Policy', tokens.join(', ')]);
+    }
+  }
+
+  if (policy.permissionsPolicy) {
+    const value = serializePermissionsPolicy(policy.permissionsPolicy);
+
+    // An empty object is already reported above; this keeps a bare header off
+    // the wire regardless, since one with no value says nothing and a browser
+    // ignores it.
+    if (value) {
+      headers.push(['Permissions-Policy', value]);
+    }
+  }
+
+  if (policy.crossOriginOpenerPolicy) {
+    headers.push([
+      'Cross-Origin-Opener-Policy',
+      policy.crossOriginOpenerPolicy,
+    ]);
+  }
+
+  if (policy.crossOriginResourcePolicy) {
+    headers.push([
+      'Cross-Origin-Resource-Policy',
+      policy.crossOriginResourcePolicy,
+    ]);
+  }
+
+  if (policy.crossOriginEmbedderPolicy) {
+    headers.push([
+      'Cross-Origin-Embedder-Policy',
+      policy.crossOriginEmbedderPolicy,
+    ]);
+  }
+
+  return headers;
+}
+
 type ResolvedSecurityHeadersConfig = {
   cors: ResolvedCORSConfig;
   frameOptions: false | 'DENY' | 'SAMEORIGIN';
   hsts: false | HSTSConfig;
+  /**
+   * The single-value headers, resolved to the exact string that goes on the
+   * wire or `false` for "send nothing".
+   *
+   * Serialized once here rather than per response, which matters most for
+   * `Permissions-Policy`: it is built from an object, so leaving it as config
+   * would mean rebuilding the same string on every request for a value that
+   * cannot change between them.
+   */
+  simple: ResolvedSimpleHeaders;
   /**
    * The policy in force, compiled. On the base config this is computed once at
    * startup. On a config a resolver produced it is computed for that request,
@@ -701,6 +918,14 @@ async function resolveEffectiveConfig(
   resolve: SecurityHeadersResolver | undefined,
   serializePolicy: (csp: CSPConfig) => false | CompiledCSP,
   ownDomains: string[] | undefined,
+  /**
+   * The single-value headers as *configured*, not as serialized.
+   *
+   * An override inherits per field, so the merge needs the values the caller
+   * wrote rather than the strings they turned into. Reading them back off
+   * `baseConfig.simple` would mean parsing a header to decide what to inherit.
+   */
+  baseSimplePolicy: SecurityHeadersPolicyInput,
 ): Promise<ResolvedSecurityHeadersConfig> {
   if (!resolve) {
     return baseConfig;
@@ -772,7 +997,7 @@ async function resolveEffectiveConfig(
 
   if (!isPlainObject(returned)) {
     throw new Error(
-      `securityHeaders resolve returned ${describeValue(returned)}. Return null to use the configured defaults, or an object with csp, hsts, or frameOptions.`,
+      `securityHeaders resolve returned ${describeValue(returned)}. Return null to use the configured defaults, or an object with one or more of: ${SECURITY_HEADERS_POLICY_KEYS.join(', ')}.`,
     );
   }
 
@@ -824,10 +1049,39 @@ async function resolveEffectiveConfig(
   // Each block replaces rather than merges. A partial merge would let
   // `hsts: { maxAge: 86400 }` silently keep the baseline's includeSubDomains,
   // which is the exact combination the override exists to avoid.
+  // The single-value headers follow the same replace-rather-than-merge rule,
+  // one field at a time, so a resolver that sets only `referrerPolicy` keeps
+  // the baseline's `contentTypeOptions`. Resolved from the merged block rather
+  // than from the override alone, which is what makes an inherited field come
+  // out serialized rather than missing.
+  //
+  // A problem here throws like any other resolver failure. The alternative is
+  // sending a header the caller wrote and a browser will ignore, which is the
+  // silence these checks exist to break.
+  const simplePolicy: SecurityHeadersPolicyInput = {
+    contentTypeOptions:
+      override.contentTypeOptions ?? baseSimplePolicy.contentTypeOptions,
+    referrerPolicy: override.referrerPolicy ?? baseSimplePolicy.referrerPolicy,
+    permissionsPolicy:
+      override.permissionsPolicy ?? baseSimplePolicy.permissionsPolicy,
+    crossOriginOpenerPolicy:
+      override.crossOriginOpenerPolicy ??
+      baseSimplePolicy.crossOriginOpenerPolicy,
+    crossOriginResourcePolicy:
+      override.crossOriginResourcePolicy ??
+      baseSimplePolicy.crossOriginResourcePolicy,
+    crossOriginEmbedderPolicy:
+      override.crossOriginEmbedderPolicy ??
+      baseSimplePolicy.crossOriginEmbedderPolicy,
+  };
+
   const effective: ResolvedSecurityHeadersConfig = {
     cors: baseConfig.cors,
     frameOptions: override.frameOptions ?? baseConfig.frameOptions,
     hsts: override.hsts ?? baseConfig.hsts,
+    simple: resolveSimpleHeaders(simplePolicy, (issue) => {
+      throw new Error(issue.message);
+    }),
     csp,
   };
 
@@ -885,6 +1139,15 @@ function applyUnconditionalSecurityHeaders(
       'X-Frame-Options',
       resolvedConfig.frameOptions,
     );
+  }
+
+  // The single-value headers, already validated and serialized. Written here
+  // rather than anywhere else for the same reason the CSP is: this function is
+  // what the early hook, the onSend backstop, and the hijacked-response helper
+  // all go through, so a static file and a 403 from domainValidation get them
+  // without either path knowing they exist.
+  for (const [name, value] of resolvedConfig.simple) {
+    writeSecurityHeader(reply, mode, name, value);
   }
 
   // RFC 6797 section 7.2: a host MUST NOT send Strict-Transport-Security over
@@ -1080,6 +1343,23 @@ export function securityHeaders(
   // to judge when there is a CSP. A bad value is a bad value either way, and
   // JavaScript callers get no help from the type.
   validateFrameOptions(config.frameOptions);
+
+  // The single-value headers, validated and serialized once. Startup throws the
+  // first problem rather than collecting them, the same as everything else
+  // here: there is nobody to show a list to and the config came from the
+  // repository.
+  const baseSimplePolicy: SecurityHeadersPolicyInput = {
+    contentTypeOptions: config.contentTypeOptions,
+    referrerPolicy: config.referrerPolicy,
+    permissionsPolicy: config.permissionsPolicy,
+    crossOriginOpenerPolicy: config.crossOriginOpenerPolicy,
+    crossOriginResourcePolicy: config.crossOriginResourcePolicy,
+    crossOriginEmbedderPolicy: config.crossOriginEmbedderPolicy,
+  };
+
+  const baseSimpleHeaders = resolveSimpleHeaders(baseSimplePolicy, (issue) => {
+    throw new Error(issue.message);
+  });
 
   // Assemble the validated blocks into the shape the request-time helpers read.
   // Keeping CORS in its own block means a future per-request override can
@@ -1313,6 +1593,7 @@ export function securityHeaders(
     cors: corsConfig,
     frameOptions: config.frameOptions ?? false,
     hsts: config.hsts ?? false,
+    simple: baseSimpleHeaders,
     csp: resolvedCSP,
     resolveEffective: (request) =>
       resolveEffectiveConfig(
@@ -1326,6 +1607,7 @@ export function securityHeaders(
         // into it later.
         (csp) => compileCSP(applyCSPPreset(csp)),
         ownDomains,
+        baseSimplePolicy,
       ),
   };
 

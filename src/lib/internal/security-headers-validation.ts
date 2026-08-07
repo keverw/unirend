@@ -95,7 +95,84 @@ export interface SecurityHeadersPolicyInput {
   csp?: false | CSPConfig;
   hsts?: false | HSTSConfig;
   frameOptions?: false | 'DENY' | 'SAMEORIGIN';
+  contentTypeOptions?: boolean;
+  referrerPolicy?: false | ReferrerPolicyToken | ReferrerPolicyToken[];
+  permissionsPolicy?: false | PermissionsPolicyConfig;
+  crossOriginOpenerPolicy?: false | CrossOriginOpenerPolicy;
+  crossOriginResourcePolicy?: false | CrossOriginResourcePolicy;
+  crossOriginEmbedderPolicy?: false | CrossOriginEmbedderPolicy;
 }
+
+/**
+ * `Referrer-Policy` tokens.
+ *
+ * The whole list, because anything else is ignored by a browser, which then
+ * falls back to its own default. That default is
+ * `strict-origin-when-cross-origin` in every current browser, so a typo here
+ * does not fail loudly, it silently gives you the default while your config
+ * says otherwise.
+ */
+const REFERRER_POLICY_TOKENS = new Set([
+  'no-referrer',
+  'no-referrer-when-downgrade',
+  'origin',
+  'origin-when-cross-origin',
+  'same-origin',
+  'strict-origin',
+  'strict-origin-when-cross-origin',
+  'unsafe-url',
+]);
+
+export type ReferrerPolicyToken =
+  | 'no-referrer'
+  | 'no-referrer-when-downgrade'
+  | 'origin'
+  | 'origin-when-cross-origin'
+  | 'same-origin'
+  | 'strict-origin'
+  | 'strict-origin-when-cross-origin'
+  | 'unsafe-url';
+
+/**
+ * `Cross-Origin-Opener-Policy` values.
+ *
+ * `noopener-allow-popups` is the newest and is not everywhere yet, which costs
+ * nothing: a browser that does not know it ignores the header and behaves as
+ * `unsafe-none`, the same as sending nothing.
+ */
+export type CrossOriginOpenerPolicy =
+  | 'unsafe-none'
+  | 'same-origin'
+  | 'same-origin-allow-popups'
+  | 'noopener-allow-popups';
+
+/** `Cross-Origin-Resource-Policy` values. */
+export type CrossOriginResourcePolicy =
+  'same-site' | 'same-origin' | 'cross-origin';
+
+/** `Cross-Origin-Embedder-Policy` values. */
+export type CrossOriginEmbedderPolicy =
+  'unsafe-none' | 'require-corp' | 'credentialless';
+
+/**
+ * `Permissions-Policy`, written as a feature to its allowlist.
+ *
+ * An empty array is the common and most useful case: it serializes to
+ * `feature=()`, which disables the feature for everyone including this
+ * document. `['self']` allows it same-origin, `['*']` allows it everywhere, and
+ * an origin is written as it appears in the header without quotes here, since
+ * quoting is this module's job.
+ *
+ * ```ts
+ * permissionsPolicy: {
+ *   camera: [],
+ *   microphone: [],
+ *   geolocation: ['self'],
+ *   'picture-in-picture': ['self', 'https://player.example.com'],
+ * }
+ * ```
+ */
+export type PermissionsPolicyConfig = Record<string, string[]>;
 
 /**
  * Every field a policy may carry.
@@ -113,7 +190,302 @@ const POLICY_KEYS = {
   csp: true,
   hsts: true,
   frameOptions: true,
+  contentTypeOptions: true,
+  referrerPolicy: true,
+  permissionsPolicy: true,
+  crossOriginOpenerPolicy: true,
+  crossOriginResourcePolicy: true,
+  crossOriginEmbedderPolicy: true,
 } satisfies Record<keyof SecurityHeadersPolicyInput, true>;
+
+/**
+ * Check a header whose value is one of a fixed set of tokens.
+ *
+ * Every one of these headers fails the same way when it is wrong: a browser
+ * that does not recognize the value ignores the header entirely and falls back
+ * to its own default, so a typo leaves the protection off while the config says
+ * it is on. That is the same reasoning behind checking `frameOptions` and the
+ * `sandbox` tokens, applied once rather than five times.
+ *
+ * `false` means "send no header" and is always allowed. `undefined` means the
+ * field was not set, which is the same thing at this layer.
+ */
+function collectTokenHeaderIssues(
+  path: string,
+  headerName: string,
+  value: unknown,
+  allowed: ReadonlySet<string>,
+): SecurityHeadersPolicyIssue[] {
+  if (value === undefined || value === false) {
+    return [];
+  }
+
+  if (typeof value === 'string' && allowed.has(value)) {
+    return [];
+  }
+
+  return [
+    {
+      path,
+      message: `Invalid securityHeaders config: ${path} must be one of ${[...allowed].map((token) => `'${token}'`).join(', ')}, or false to send no ${headerName} header, received ${describeValue(value)}`,
+    },
+  ];
+}
+
+const COOP_VALUES = new Set<string>([
+  'unsafe-none',
+  'same-origin',
+  'same-origin-allow-popups',
+  'noopener-allow-popups',
+]);
+
+const CORP_VALUES = new Set<string>([
+  'same-site',
+  'same-origin',
+  'cross-origin',
+]);
+
+const COEP_VALUES = new Set<string>([
+  'unsafe-none',
+  'require-corp',
+  'credentialless',
+]);
+
+/**
+ * Every problem with a `Referrer-Policy` value.
+ *
+ * A list is allowed because the header takes one: a browser uses the last token
+ * it understands, which is how a newer policy is deployed with an older one
+ * behind it as a fallback. Every token still has to be a real one, since an
+ * unknown token is skipped and a list of nothing but unknown tokens leaves the
+ * browser default in force.
+ */
+export function collectReferrerPolicyIssues(
+  value: unknown,
+): SecurityHeadersPolicyIssue[] {
+  if (value === undefined || value === false) {
+    return [];
+  }
+
+  const tokens = Array.isArray(value) ? value : [value];
+
+  if (tokens.length === 0) {
+    return [
+      {
+        path: 'referrerPolicy',
+        message:
+          'Invalid securityHeaders config: referrerPolicy is an empty list, which serializes to an empty header a browser ignores. Use false to send no header.',
+      },
+    ];
+  }
+
+  const issues: SecurityHeadersPolicyIssue[] = [];
+
+  for (const token of tokens) {
+    if (typeof token !== 'string' || !REFERRER_POLICY_TOKENS.has(token)) {
+      issues.push({
+        path: 'referrerPolicy',
+        message: `Invalid securityHeaders config: referrerPolicy token ${describeValue(token)} is not a Referrer-Policy value. A browser ignores one it does not know and falls back to its own default, so this would leave a policy other than the one configured. Valid: ${[...REFERRER_POLICY_TOKENS].join(', ')}.`,
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * A `Permissions-Policy` allowlist item that is a keyword rather than an origin.
+ *
+ * `src` is only meaningful in an iframe's `allow` attribute, not in the header,
+ * so it is deliberately absent.
+ */
+const PERMISSIONS_POLICY_KEYWORDS = new Set(['self', '*']);
+
+/**
+ * A feature name, which the structured-headers grammar limits to a token.
+ *
+ * Checked because the failure is silent in the direction that matters: a
+ * browser drops a policy item it cannot parse, so a feature with a stray
+ * character disables nothing while reading as though it disables everything.
+ */
+const PERMISSIONS_POLICY_FEATURE = /^[a-z][a-z0-9-]*$/;
+
+/**
+ * Every problem with a `Permissions-Policy` block.
+ */
+export function collectPermissionsPolicyIssues(
+  value: unknown,
+): SecurityHeadersPolicyIssue[] {
+  if (value === undefined || value === false) {
+    return [];
+  }
+
+  if (!isPlainObject(value)) {
+    return [
+      {
+        path: 'permissionsPolicy',
+        message: `Invalid securityHeaders config: permissionsPolicy must be an object of features to allowlists, or false to send no header, received ${describeValue(value)}`,
+      },
+    ];
+  }
+
+  const features = Object.keys(value);
+
+  if (features.length === 0) {
+    return [
+      {
+        path: 'permissionsPolicy',
+        message:
+          'Invalid securityHeaders config: permissionsPolicy is empty, which serializes to an empty header. Use false to send no header.',
+      },
+    ];
+  }
+
+  const issues: SecurityHeadersPolicyIssue[] = [];
+
+  for (const feature of features) {
+    if (!PERMISSIONS_POLICY_FEATURE.test(feature)) {
+      issues.push({
+        path: `permissionsPolicy.${feature}`,
+        message: `Invalid securityHeaders config: permissionsPolicy feature "${feature}" is not a valid feature name. Expected lowercase letters, digits and hyphens, such as "camera" or "picture-in-picture".`,
+      });
+
+      continue;
+    }
+
+    const allowlist: unknown = value[feature];
+
+    if (!Array.isArray(allowlist)) {
+      issues.push({
+        path: `permissionsPolicy.${feature}`,
+        message: `Invalid securityHeaders config: permissionsPolicy.${feature} must be an array of origins or keywords. Use an empty array to disable the feature entirely.`,
+      });
+
+      continue;
+    }
+
+    for (const item of allowlist) {
+      if (typeof item !== 'string' || item.trim() === '') {
+        issues.push({
+          path: `permissionsPolicy.${feature}`,
+          message: `Invalid securityHeaders config: permissionsPolicy.${feature} contains ${describeValue(item)}, which is not an origin or a keyword`,
+        });
+
+        continue;
+      }
+
+      if (PERMISSIONS_POLICY_KEYWORDS.has(item)) {
+        continue;
+      }
+
+      // Anything else has to be an origin, and a serialized one at that: the
+      // header's grammar takes a quoted origin, not a host pattern, so no
+      // wildcard belongs in one. Parsed rather than pattern-matched so a value
+      // that cannot name an origin is caught rather than quoted and shipped.
+      let parsed: URL;
+
+      try {
+        parsed = new URL(item);
+      } catch {
+        issues.push({
+          path: `permissionsPolicy.${feature}`,
+          message: `Invalid securityHeaders config: permissionsPolicy.${feature} entry "${item}" is not an origin. Use a full origin such as "https://example.com", or the keyword "self" or "*".`,
+        });
+
+        continue;
+      }
+
+      if (parsed.origin !== item.replace(/\/$/, '')) {
+        issues.push({
+          path: `permissionsPolicy.${feature}`,
+          message: `Invalid securityHeaders config: permissionsPolicy.${feature} entry "${item}" carries more than an origin. Write it as "${parsed.origin}".`,
+        });
+      }
+    }
+  }
+
+  return issues;
+}
+
+/** Every problem with a `X-Content-Type-Options` setting. */
+export function collectContentTypeOptionsIssues(
+  value: unknown,
+): SecurityHeadersPolicyIssue[] {
+  if (value === undefined || typeof value === 'boolean') {
+    return [];
+  }
+
+  return [
+    {
+      path: 'contentTypeOptions',
+      message: `Invalid securityHeaders config: contentTypeOptions must be true to send "X-Content-Type-Options: nosniff" or false to send no header, received ${describeValue(value)}`,
+    },
+  ];
+}
+
+/** Every problem with a `Cross-Origin-Opener-Policy` value. */
+export function collectCOOPIssues(
+  value: unknown,
+): SecurityHeadersPolicyIssue[] {
+  return collectTokenHeaderIssues(
+    'crossOriginOpenerPolicy',
+    'Cross-Origin-Opener-Policy',
+    value,
+    COOP_VALUES,
+  );
+}
+
+/** Every problem with a `Cross-Origin-Resource-Policy` value. */
+export function collectCORPIssues(
+  value: unknown,
+): SecurityHeadersPolicyIssue[] {
+  return collectTokenHeaderIssues(
+    'crossOriginResourcePolicy',
+    'Cross-Origin-Resource-Policy',
+    value,
+    CORP_VALUES,
+  );
+}
+
+/** Every problem with a `Cross-Origin-Embedder-Policy` value. */
+export function collectCOEPIssues(
+  value: unknown,
+): SecurityHeadersPolicyIssue[] {
+  return collectTokenHeaderIssues(
+    'crossOriginEmbedderPolicy',
+    'Cross-Origin-Embedder-Policy',
+    value,
+    COEP_VALUES,
+  );
+}
+
+/**
+ * Serialize a `Permissions-Policy` block to its header value.
+ *
+ * Origins are quoted and keywords are not, which is the structured-headers
+ * grammar rather than a style choice: `self` unquoted is the keyword, and
+ * `"https://a.example"` quoted is an origin. Getting it backwards produces an
+ * item a browser drops, and a dropped item is a feature left enabled.
+ */
+export function serializePermissionsPolicy(
+  config: PermissionsPolicyConfig,
+): string {
+  return Object.entries(config)
+    .map(([feature, allowlist]) => {
+      const items = allowlist.map((item) =>
+        PERMISSIONS_POLICY_KEYWORDS.has(item) ? item : `"${item}"`,
+      );
+
+      // `*` is written bare rather than inside the parentheses, and it is the
+      // one item that cannot be combined with others.
+      if (items.includes('*')) {
+        return `${feature}=*`;
+      }
+
+      return `${feature}=(${items.join(' ')})`;
+    })
+    .join(', ');
+}
 
 /**
  * Every key on a policy object that is not a policy field.
@@ -484,6 +856,18 @@ export function validateSecurityHeadersPolicy(
   const hasUsableFrameOptions = frameOptionsIssues.length === 0;
 
   issues.push(...frameOptionsIssues);
+
+  // The single-value headers, each judged by the same rule the plugin applies
+  // at startup. None of them takes part in a cross-check, so they are a flat
+  // list rather than the staged handling `csp` and `frameOptions` need.
+  issues.push(
+    ...collectContentTypeOptionsIssues(policy.contentTypeOptions),
+    ...collectReferrerPolicyIssues(policy.referrerPolicy),
+    ...collectPermissionsPolicyIssues(policy.permissionsPolicy),
+    ...collectCOOPIssues(policy.crossOriginOpenerPolicy),
+    ...collectCORPIssues(policy.crossOriginResourcePolicy),
+    ...collectCOEPIssues(policy.crossOriginEmbedderPolicy),
+  );
 
   // Skipped when either half failed its own check, since the cross-check is
   // about a combination and there is no combination to judge yet. Reporting it

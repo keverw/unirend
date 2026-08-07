@@ -488,3 +488,181 @@ describe('validateSecurityHeadersPolicy', () => {
     ).toBe(true);
   });
 });
+
+describe('single-value security headers', () => {
+  async function headersFor(config: SecurityHeadersConfig) {
+    const app = fastify({ trustProxy: true });
+
+    await securityHeaders(config)(
+      app as unknown as PluginHostInstance,
+      createMockOptions(),
+    );
+
+    app.get('/t', () => ({ ok: true }));
+    await app.listen({ port: 0, host: '127.0.0.1' });
+
+    const address = app.server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/t`, {
+        headers: {
+          'x-forwarded-host': 'app.example.com',
+          'x-forwarded-proto': 'https',
+        },
+      });
+
+      return response.headers;
+    } finally {
+      await app.close();
+    }
+  }
+
+  it('sends nothing when nothing is configured', async () => {
+    // Every header here is opt-in, matching frameOptions, hsts and csp. A
+    // plugin that turned protections on behind your back would be a plugin
+    // whose output nobody knows to look at when something breaks.
+    const headers = await headersFor({});
+
+    for (const name of [
+      'x-content-type-options',
+      'referrer-policy',
+      'permissions-policy',
+      'cross-origin-opener-policy',
+      'cross-origin-resource-policy',
+      'cross-origin-embedder-policy',
+    ]) {
+      expect(headers.get(name)).toBeNull();
+    }
+  });
+
+  it('sends each header exactly as configured', async () => {
+    const headers = await headersFor({
+      contentTypeOptions: true,
+      referrerPolicy: 'strict-origin-when-cross-origin',
+      crossOriginOpenerPolicy: 'same-origin-allow-popups',
+      crossOriginResourcePolicy: 'same-origin',
+      crossOriginEmbedderPolicy: 'credentialless',
+    });
+
+    expect(headers.get('x-content-type-options')).toBe('nosniff');
+    expect(headers.get('referrer-policy')).toBe(
+      'strict-origin-when-cross-origin',
+    );
+    expect(headers.get('cross-origin-opener-policy')).toBe(
+      'same-origin-allow-popups',
+    );
+    expect(headers.get('cross-origin-resource-policy')).toBe('same-origin');
+    expect(headers.get('cross-origin-embedder-policy')).toBe('credentialless');
+  });
+
+  it('serializes Permissions-Policy in the structured-headers grammar', async () => {
+    // Origins are quoted and keywords are not, and that is grammar rather than
+    // style: a browser drops an item it cannot parse, and a dropped item is a
+    // feature left enabled. Verified in Chrome through document.featurePolicy,
+    // which reports camera disabled, geolocation allowed for self, fullscreen
+    // allowed everywhere, and picture-in-picture allowed for both self and the
+    // named partner origin.
+    const headers = await headersFor({
+      permissionsPolicy: {
+        camera: [],
+        geolocation: ['self'],
+        'picture-in-picture': ['self', 'https://player.example.com'],
+        fullscreen: ['*'],
+      },
+    });
+
+    expect(headers.get('permissions-policy')).toBe(
+      'camera=(), geolocation=(self), picture-in-picture=(self "https://player.example.com"), fullscreen=*',
+    );
+  });
+
+  it('sends a Referrer-Policy fallback list in order', async () => {
+    // The header takes a list and a browser uses the last token it
+    // understands, which is how a newer policy ships with an older one behind
+    // it.
+    const headers = await headersFor({
+      referrerPolicy: ['no-referrer', 'strict-origin-when-cross-origin'],
+    });
+
+    expect(headers.get('referrer-policy')).toBe(
+      'no-referrer, strict-origin-when-cross-origin',
+    );
+  });
+
+  it('lets a resolver replace one header and inherit the rest', async () => {
+    const headers = await headersFor({
+      contentTypeOptions: true,
+      referrerPolicy: 'no-referrer',
+      resolve: () => ({ referrerPolicy: 'unsafe-url' }),
+    });
+
+    expect(headers.get('referrer-policy')).toBe('unsafe-url');
+    expect(headers.get('x-content-type-options')).toBe('nosniff');
+  });
+
+  it('rejects a value a browser would ignore', () => {
+    // The shared failure mode: an unrecognized value means the header is
+    // dropped and the browser default applies, so the config says the
+    // protection is on and it is not.
+    const cases: Array<[SecurityHeadersConfig, RegExp]> = [
+      [
+        { referrerPolicy: 'strict-origin-when-cross' as never },
+        /Referrer-Policy value/,
+      ],
+      [
+        { crossOriginOpenerPolicy: 'same-origin-allow-popup' as never },
+        /crossOriginOpenerPolicy/,
+      ],
+      [
+        { crossOriginResourcePolicy: 'same' as never },
+        /crossOriginResourcePolicy/,
+      ],
+      [
+        { crossOriginEmbedderPolicy: 'require-cors' as never },
+        /crossOriginEmbedderPolicy/,
+      ],
+      [{ contentTypeOptions: 'nosniff' as never }, /contentTypeOptions/],
+      [{ permissionsPolicy: { camera: 'self' as never } }, /must be an array/],
+      [{ permissionsPolicy: { 'Camera!': [] } }, /valid feature name/],
+      [
+        { permissionsPolicy: { camera: ['*.example.com'] } },
+        /is not an origin/,
+      ],
+      [
+        { permissionsPolicy: { camera: ['https://a.example.com/path'] } },
+        /more than an origin/,
+      ],
+      [{ permissionsPolicy: {} }, /is empty/],
+      [{ referrerPolicy: [] }, /empty list/],
+    ];
+
+    for (const [config, pattern] of cases) {
+      expect(() => securityHeaders(config)).toThrow(pattern);
+    }
+  });
+
+  it('reports the new fields through validateSecurityHeadersPolicy too', () => {
+    // The public validator and the plugin run the same collectors, so a stored
+    // policy can be checked when it is saved rather than failing per request.
+    const result = validateSecurityHeadersPolicy({
+      referrerPolicy: 'nope',
+      crossOriginResourcePolicy: 'nope',
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.path).sort()).toEqual([
+      'crossOriginResourcePolicy',
+      'referrerPolicy',
+    ]);
+  });
+
+  it('rejects a resolver returning a misspelled new field', () => {
+    // The parity guard means POLICY_KEYS covers these automatically, so a
+    // typo in one of the new fields fails the same way a typo in frameOptions
+    // does rather than silently inheriting the baseline.
+    expect(
+      validateSecurityHeadersPolicy({ referrer_policy: 'no-referrer' }).valid,
+    ).toBe(false);
+  });
+});

@@ -149,6 +149,42 @@ These are sent on every response, whether or not the request carries an `Origin`
 > [!IMPORTANT]
 > Be careful with `includeSubDomains` on a domain you do not control, such as a customer's custom domain in a multi-tenant deployment. It forces HTTPS on every other subdomain of that domain, including services unrelated to your app, and browsers honor it for the full `maxAge`, so deploying a fix later does not revoke it. Send a shorter `maxAge` without `includeSubDomains` for domains you do not own.
 
+- `contentTypeOptions` (default: `false`): sends `X-Content-Type-Options: nosniff` when `true`. Stops a browser second-guessing your `Content-Type`, which is what turns a file served as `text/plain` into executable HTML.
+
+- `referrerPolicy` (default: `false`): sets `Referrer-Policy`. Takes one token or a list, since the header does: a browser uses the last token it understands, which is how a newer policy ships with an older one behind it. Valid tokens are `no-referrer`, `no-referrer-when-downgrade`, `origin`, `origin-when-cross-origin`, `same-origin`, `strict-origin`, `strict-origin-when-cross-origin`, `unsafe-url`.
+
+- `permissionsPolicy` (default: `false`): sets `Permissions-Policy`, written as a feature to its allowlist. An empty array disables the feature outright, `['self']` allows it same-origin, `['*']` allows it everywhere, and an origin is written in full.
+
+- `crossOriginOpenerPolicy` (default: `false`): sets `Cross-Origin-Opener-Policy`. One of `unsafe-none`, `same-origin`, `same-origin-allow-popups`, `noopener-allow-popups`.
+
+- `crossOriginResourcePolicy` (default: `false`): sets `Cross-Origin-Resource-Policy`. One of `same-site`, `same-origin`, `cross-origin`.
+
+- `crossOriginEmbedderPolicy` (default: `false`): sets `Cross-Origin-Embedder-Policy`. One of `unsafe-none`, `require-corp`, `credentialless`.
+
+Every value is checked against the set a browser actually accepts, because all of these fail the same quiet way: an unrecognized value means the header is dropped and the browser default applies, so the config reads as though the protection is on and it is not.
+
+### Everything Is Opt-In, Including the Obvious Ones
+
+`contentTypeOptions` is off by default even though there is no real reason not to set it. That is a house rule rather than an assessment of the risk: this plugin does not turn protections on behind your back, for the same reason it never invents a CSP directive you did not write. A header that appears without anyone asking is a header nobody knows to look at when something breaks two releases later.
+
+A reasonable starting block for most apps, which is what you would get if these were defaulted:
+
+```typescript
+securityHeaders({
+  contentTypeOptions: true,
+  referrerPolicy: 'strict-origin-when-cross-origin',
+  frameOptions: 'DENY',
+});
+```
+
+The three below it need a decision rather than a default, and each has a specific way of breaking a working app:
+
+- `crossOriginOpenerPolicy: 'same-origin'` severs `window.opener`. Check your OAuth and payment popups first, and reach for `'same-origin-allow-popups'` if they talk back to the opener.
+- `crossOriginResourcePolicy: 'same-origin'` goes on every response, so a site serving its own images or fonts to another origin or through a CDN needs `'cross-origin'` for those.
+- `crossOriginEmbedderPolicy: 'require-corp'` demands that every cross-origin subresource opt in. Only worth it if you need `crossOriginIsolated` for `SharedArrayBuffer` or high-resolution timers.
+
+All of them can be varied per request with [`resolve`](#per-request-policy-with-resolve), one field at a time, so a resolver that sets only `referrerPolicy` keeps the baseline's `contentTypeOptions`.
+
 ## Advanced Features
 
 - **Advanced Wildcard Support**:
