@@ -36,6 +36,10 @@ import {
   collectCOOPIssues,
   collectCORPIssues,
   collectCOEPIssues,
+  collectCOOPReportOnlyIssues,
+  collectCOEPReportOnlyIssues,
+  serializeCrossOriginPolicy,
+  crossOriginReportGroups,
   collectReportingEndpointsIssues,
   collectReportingIssues,
   isReportingGroupUndefined,
@@ -48,9 +52,9 @@ import {
   type SecurityHeadersPolicyIssue,
   type ReferrerPolicyToken,
   type PermissionsPolicyConfig,
-  type CrossOriginOpenerPolicy,
   type CrossOriginResourcePolicy,
-  type CrossOriginEmbedderPolicy,
+  type CrossOriginOpenerPolicySetting,
+  type CrossOriginEmbedderPolicySetting,
   type ReportingEndpointsConfig,
 } from '../internal/security-headers-validation';
 import { isHostUnverified } from '../internal/host-verification';
@@ -87,6 +91,9 @@ export type {
   CrossOriginOpenerPolicy,
   CrossOriginResourcePolicy,
   CrossOriginEmbedderPolicy,
+  CrossOriginPolicySetting,
+  CrossOriginOpenerPolicySetting,
+  CrossOriginEmbedderPolicySetting,
   ReportingEndpointsConfig,
 } from '../internal/security-headers-validation';
 
@@ -278,7 +285,38 @@ export interface SecurityHeadersConfig {
    *
    * @default false
    */
-  crossOriginOpenerPolicy?: false | CrossOriginOpenerPolicy;
+  crossOriginOpenerPolicy?: false | CrossOriginOpenerPolicySetting;
+
+  /**
+   * Controls `Cross-Origin-Opener-Policy-Report-Only`, which is how you find
+   * out whether the real one would break your site.
+   *
+   * COOP is the header here most likely to break something that works: it
+   * severs `window.opener`, and the flows that rely on it, OAuth and payment
+   * popups, live in someone else's code. The report-only variant applies
+   * nothing and reports what the enforcing header would have done, so you can
+   * run it against real traffic first.
+   *
+   * Name a reporting group to get those reports somewhere other than a
+   * developer's DevTools, which is where the interesting failures are least
+   * likely to be seen:
+   *
+   * ```ts
+   * securityHeaders({
+   *   reportingEndpoints: { coop: 'https://reports.example.com/coop' },
+   *   crossOriginOpenerPolicyReportOnly: {
+   *     policy: 'same-origin',
+   *     reportTo: 'coop',
+   *   },
+   * });
+   * ```
+   *
+   * Both headers may be sent at once, which is the usual shape mid-migration:
+   * enforce the policy you have and report on the stricter one you want.
+   *
+   * @default false
+   */
+  crossOriginOpenerPolicyReportOnly?: false | CrossOriginOpenerPolicySetting;
 
   /**
    * Controls the `Cross-Origin-Resource-Policy` header.
@@ -303,7 +341,20 @@ export interface SecurityHeadersConfig {
    *
    * @default false
    */
-  crossOriginEmbedderPolicy?: false | CrossOriginEmbedderPolicy;
+  crossOriginEmbedderPolicy?: false | CrossOriginEmbedderPolicySetting;
+
+  /**
+   * Controls `Cross-Origin-Embedder-Policy-Report-Only`.
+   *
+   * Worth more here than on most headers. `require-corp` demands that every
+   * cross-origin subresource opt in, so the things it breaks are third-party
+   * images, fonts and frames you may not have an inventory of. This tells you
+   * which ones before they stop loading.
+   *
+   * @default false
+   */
+  crossOriginEmbedderPolicyReportOnly?:
+    false | CrossOriginEmbedderPolicySetting;
 
   /**
    * Controls the `Reporting-Endpoints` header, which is the other half of
@@ -458,6 +509,8 @@ function resolveSimpleHeaders(
     ...collectCOOPIssues(policy.crossOriginOpenerPolicy),
     ...collectCORPIssues(policy.crossOriginResourcePolicy),
     ...collectCOEPIssues(policy.crossOriginEmbedderPolicy),
+    ...collectCOOPReportOnlyIssues(policy.crossOriginOpenerPolicyReportOnly),
+    ...collectCOEPReportOnlyIssues(policy.crossOriginEmbedderPolicyReportOnly),
     ...collectReportingEndpointsIssues(policy.reportingEndpoints),
   ]) {
     onIssue(issue);
@@ -496,7 +549,14 @@ function resolveSimpleHeaders(
   if (policy.crossOriginOpenerPolicy) {
     headers.push([
       'Cross-Origin-Opener-Policy',
-      policy.crossOriginOpenerPolicy,
+      serializeCrossOriginPolicy(policy.crossOriginOpenerPolicy),
+    ]);
+  }
+
+  if (policy.crossOriginOpenerPolicyReportOnly) {
+    headers.push([
+      'Cross-Origin-Opener-Policy-Report-Only',
+      serializeCrossOriginPolicy(policy.crossOriginOpenerPolicyReportOnly),
     ]);
   }
 
@@ -510,7 +570,14 @@ function resolveSimpleHeaders(
   if (policy.crossOriginEmbedderPolicy) {
     headers.push([
       'Cross-Origin-Embedder-Policy',
-      policy.crossOriginEmbedderPolicy,
+      serializeCrossOriginPolicy(policy.crossOriginEmbedderPolicy),
+    ]);
+  }
+
+  if (policy.crossOriginEmbedderPolicyReportOnly) {
+    headers.push([
+      'Cross-Origin-Embedder-Policy-Report-Only',
+      serializeCrossOriginPolicy(policy.crossOriginEmbedderPolicyReportOnly),
     ]);
   }
 
@@ -1115,9 +1182,15 @@ async function resolveEffectiveConfig(
     crossOriginResourcePolicy:
       override.crossOriginResourcePolicy ??
       baseSimplePolicy.crossOriginResourcePolicy,
+    crossOriginOpenerPolicyReportOnly:
+      override.crossOriginOpenerPolicyReportOnly ??
+      baseSimplePolicy.crossOriginOpenerPolicyReportOnly,
     crossOriginEmbedderPolicy:
       override.crossOriginEmbedderPolicy ??
       baseSimplePolicy.crossOriginEmbedderPolicy,
+    crossOriginEmbedderPolicyReportOnly:
+      override.crossOriginEmbedderPolicyReportOnly ??
+      baseSimplePolicy.crossOriginEmbedderPolicyReportOnly,
     reportingEndpoints:
       override.reportingEndpoints ?? baseSimplePolicy.reportingEndpoints,
   };
@@ -1400,8 +1473,11 @@ export function securityHeaders(
     referrerPolicy: config.referrerPolicy,
     permissionsPolicy: config.permissionsPolicy,
     crossOriginOpenerPolicy: config.crossOriginOpenerPolicy,
+    crossOriginOpenerPolicyReportOnly: config.crossOriginOpenerPolicyReportOnly,
     crossOriginResourcePolicy: config.crossOriginResourcePolicy,
     crossOriginEmbedderPolicy: config.crossOriginEmbedderPolicy,
+    crossOriginEmbedderPolicyReportOnly:
+      config.crossOriginEmbedderPolicyReportOnly,
     reportingEndpoints: config.reportingEndpoints,
   };
 
@@ -1539,19 +1615,27 @@ export function securityHeaders(
 
     validateFramingFallback(config.frameOptions, cspConfig);
 
-    // A `report-to` group nothing defines is a policy that reports to nowhere,
-    // which is the one CSP mistake whose only symptom is an absence. Checked
-    // here, where both halves are in hand.
-    const [firstReportingIssue] = collectReportingIssues(
-      cspConfig,
-      config.reportingEndpoints,
-    );
-
-    if (firstReportingIssue) {
-      throw new Error(firstReportingIssue.message);
-    }
-
     resolvedCSP = compileCSP(cspConfig);
+  }
+
+  // A reporting group nothing defines is a policy that reports to nowhere,
+  // which is the one mistake here whose only symptom is an absence.
+  //
+  // Outside the CSP block deliberately. A group can be named by a cross-origin
+  // policy's `report-to` parameter as well as by `csp.reportTo`, and a config
+  // that sets `crossOriginOpenerPolicyReportOnly` with no CSP at all is exactly
+  // the shape someone reaches for first, since report-only COOP is the thing
+  // you run *before* committing to a policy.
+  const [firstReportingIssue] = collectReportingIssues(
+    config.csp === undefined || config.csp === false
+      ? config.csp
+      : applyCSPPreset(config.csp),
+    config.reportingEndpoints,
+    crossOriginReportGroups(baseSimplePolicy),
+  );
+
+  if (firstReportingIssue) {
+    throw new Error(firstReportingIssue.message);
   }
 
   // One message per distinct finding for the life of the process. These come

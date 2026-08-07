@@ -98,11 +98,41 @@ export interface SecurityHeadersPolicyInput {
   contentTypeOptions?: boolean;
   referrerPolicy?: false | ReferrerPolicyToken | ReferrerPolicyToken[];
   permissionsPolicy?: false | PermissionsPolicyConfig;
-  crossOriginOpenerPolicy?: false | CrossOriginOpenerPolicy;
+  crossOriginOpenerPolicy?: false | CrossOriginOpenerPolicySetting;
+  crossOriginOpenerPolicyReportOnly?: false | CrossOriginOpenerPolicySetting;
   crossOriginResourcePolicy?: false | CrossOriginResourcePolicy;
-  crossOriginEmbedderPolicy?: false | CrossOriginEmbedderPolicy;
+  crossOriginEmbedderPolicy?: false | CrossOriginEmbedderPolicySetting;
+  crossOriginEmbedderPolicyReportOnly?:
+    false | CrossOriginEmbedderPolicySetting;
   reportingEndpoints?: false | ReportingEndpointsConfig;
 }
+
+/**
+ * A cross-origin policy value, optionally with the reporting group violations
+ * go to.
+ *
+ * The object form exists because these headers are structured headers whose
+ * value takes a `report-to` parameter, and without it a report-only policy is
+ * only visible in DevTools. That is fine while you are sitting in front of the
+ * browser and useless for finding out whether a policy breaks somebody else's
+ * OAuth popup, which is the entire reason the report-only variants exist.
+ *
+ * ```ts
+ * crossOriginOpenerPolicyReportOnly: { policy: 'same-origin', reportTo: 'coop' },
+ * reportingEndpoints: { coop: 'https://reports.example.com/coop' },
+ * ```
+ */
+export interface CrossOriginPolicySetting<Policy extends string> {
+  policy: Policy;
+  reportTo?: string;
+}
+
+export type CrossOriginOpenerPolicySetting =
+  CrossOriginOpenerPolicy | CrossOriginPolicySetting<CrossOriginOpenerPolicy>;
+
+export type CrossOriginEmbedderPolicySetting =
+  | CrossOriginEmbedderPolicy
+  | CrossOriginPolicySetting<CrossOriginEmbedderPolicy>;
 
 /**
  * `Reporting-Endpoints`, written as a group name to the URL reports go to.
@@ -212,8 +242,10 @@ const POLICY_KEYS = {
   referrerPolicy: true,
   permissionsPolicy: true,
   crossOriginOpenerPolicy: true,
+  crossOriginOpenerPolicyReportOnly: true,
   crossOriginResourcePolicy: true,
   crossOriginEmbedderPolicy: true,
+  crossOriginEmbedderPolicyReportOnly: true,
   reportingEndpoints: true,
 } satisfies Record<keyof SecurityHeadersPolicyInput, true>;
 
@@ -337,25 +369,66 @@ export function collectReportingEndpointsIssues(
 export function collectReportingIssues(
   csp: CSPConfig | false | undefined,
   reportingEndpoints: false | ReportingEndpointsConfig | undefined,
+  /**
+   * The other places a reporting group can be named, as `path -> group`.
+   *
+   * The cross-origin policies carry theirs as a header parameter rather than a
+   * directive, so they reach this the same way and fail the same way: a group
+   * nothing defines is a policy that reports to nowhere.
+   */
+  extraGroups: ReadonlyArray<readonly [path: string, group: string]> = [],
 ): SecurityHeadersPolicyIssue[] {
-  if (!csp || typeof csp.reportTo !== 'string' || csp.reportTo.trim() === '') {
-    return [];
-  }
-
   if (!reportingEndpoints || !isPlainObject(reportingEndpoints)) {
     return [];
   }
 
-  if (Object.hasOwn(reportingEndpoints, csp.reportTo)) {
-    return [];
+  const named: Array<readonly [string, string]> = [...extraGroups];
+
+  if (csp && typeof csp.reportTo === 'string' && csp.reportTo.trim() !== '') {
+    named.unshift(['csp.reportTo', csp.reportTo]);
   }
 
-  return [
-    {
-      path: 'csp.reportTo',
-      message: `Invalid securityHeaders config: csp.reportTo names the group "${csp.reportTo}", which reportingEndpoints does not define. A browser resolves a report-to group through the Reporting-Endpoints header, so this policy would report to nowhere: violations happen, nothing arrives, and the quiet reads as success. Defined groups: ${Object.keys(reportingEndpoints).join(', ')}.`,
-    },
-  ];
+  const issues: SecurityHeadersPolicyIssue[] = [];
+
+  for (const [path, group] of named) {
+    if (Object.hasOwn(reportingEndpoints, group)) {
+      continue;
+    }
+
+    issues.push({
+      path,
+      message: `Invalid securityHeaders config: ${path} names the group "${group}", which reportingEndpoints does not define. A browser resolves a reporting group through the Reporting-Endpoints header, so this policy would report to nowhere: violations happen, nothing arrives, and the quiet reads as success. Defined groups: ${Object.keys(reportingEndpoints).join(', ')}.`,
+    });
+  }
+
+  return issues;
+}
+
+/**
+ * Every reporting group a policy's cross-origin headers name, for the
+ * cross-check above.
+ */
+export function crossOriginReportGroups(
+  policy: SecurityHeadersPolicyInput,
+): Array<readonly [path: string, group: string]> {
+  const fields = [
+    'crossOriginOpenerPolicy',
+    'crossOriginOpenerPolicyReportOnly',
+    'crossOriginEmbedderPolicy',
+    'crossOriginEmbedderPolicyReportOnly',
+  ] as const;
+
+  const groups: Array<readonly [string, string]> = [];
+
+  for (const field of fields) {
+    const group = crossOriginPolicyReportGroup(policy[field]);
+
+    if (group !== undefined) {
+      groups.push([`${field}.reportTo`, group]);
+    }
+  }
+
+  return groups;
 }
 
 /**
@@ -616,15 +689,103 @@ export function collectContentTypeOptionsIssues(
   ];
 }
 
+/**
+ * Every problem with a cross-origin policy that may carry a reporting group.
+ *
+ * Handles both spellings: the bare token, and the object form that names where
+ * violations go. The group itself is cross-checked against `reportingEndpoints`
+ * by `collectReportingIssues`, for the same reason `csp.reportTo` is: a group
+ * nothing defines is a policy that reports to nowhere.
+ */
+function collectCrossOriginPolicyIssues(
+  path: string,
+  headerName: string,
+  value: unknown,
+  allowed: ReadonlySet<string>,
+): SecurityHeadersPolicyIssue[] {
+  if (value === undefined || value === false) {
+    return [];
+  }
+
+  if (typeof value === 'string') {
+    return collectTokenHeaderIssues(path, headerName, value, allowed);
+  }
+
+  if (!isPlainObject(value)) {
+    return [
+      {
+        path,
+        message: `Invalid securityHeaders config: ${path} must be a policy token, or an object with a policy and an optional reportTo, received ${describeValue(value)}`,
+      },
+    ];
+  }
+
+  const issues = collectTokenHeaderIssues(
+    path,
+    headerName,
+    value.policy,
+    allowed,
+  );
+
+  for (const key of Object.keys(value)) {
+    if (key !== 'policy' && key !== 'reportTo') {
+      issues.push({
+        path: `${path}.${key}`,
+        message: `Invalid securityHeaders config: ${path}.${key} is not an option. Expected policy, reportTo.`,
+      });
+    }
+  }
+
+  const reportTo: unknown = value.reportTo;
+
+  if (
+    reportTo !== undefined &&
+    (typeof reportTo !== 'string' ||
+      reportTo.trim() === '' ||
+      !REPORTING_GROUP.test(reportTo))
+  ) {
+    issues.push({
+      path: `${path}.reportTo`,
+      message: `Invalid securityHeaders config: ${path}.reportTo must be a reporting group name, received ${describeValue(reportTo)}`,
+    });
+  }
+
+  return issues;
+}
+
 /** Every problem with a `Cross-Origin-Opener-Policy` value. */
 export function collectCOOPIssues(
   value: unknown,
 ): SecurityHeadersPolicyIssue[] {
-  return collectTokenHeaderIssues(
+  return collectCrossOriginPolicyIssues(
     'crossOriginOpenerPolicy',
     'Cross-Origin-Opener-Policy',
     value,
     COOP_VALUES,
+  );
+}
+
+/** Every problem with a `Cross-Origin-Opener-Policy-Report-Only` value. */
+export function collectCOOPReportOnlyIssues(
+  value: unknown,
+): SecurityHeadersPolicyIssue[] {
+  return collectCrossOriginPolicyIssues(
+    'crossOriginOpenerPolicyReportOnly',
+    'Cross-Origin-Opener-Policy-Report-Only',
+    value,
+    COOP_VALUES,
+  );
+}
+
+/** Every problem with a `Cross-Origin-Embedder-Policy-Report-Only` value. */
+export function collectCOEPReportOnlyIssues(
+  value: unknown,
+): SecurityHeadersPolicyIssue[] {
+  return collectCrossOriginPolicyIssues(
+    'crossOriginEmbedderPolicyReportOnly',
+    'Cross-Origin-Embedder-Policy-Report-Only',
+    value,
+    COEP_VALUES,
   );
 }
 
@@ -644,12 +805,41 @@ export function collectCORPIssues(
 export function collectCOEPIssues(
   value: unknown,
 ): SecurityHeadersPolicyIssue[] {
-  return collectTokenHeaderIssues(
+  return collectCrossOriginPolicyIssues(
     'crossOriginEmbedderPolicy',
     'Cross-Origin-Embedder-Policy',
     value,
     COEP_VALUES,
   );
+}
+
+/**
+ * Serialize a cross-origin policy value, with its reporting group when it has
+ * one.
+ *
+ * `report-to` is a structured-header parameter, so its value is quoted. An
+ * unquoted one is not a parse error a browser reports, it is a parameter it
+ * drops, which leaves the policy enforcing and reporting nowhere.
+ */
+export function serializeCrossOriginPolicy(
+  value: CrossOriginOpenerPolicySetting | CrossOriginEmbedderPolicySetting,
+): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  return value.reportTo
+    ? `${value.policy}; report-to="${value.reportTo}"`
+    : value.policy;
+}
+
+/** The reporting groups a cross-origin policy names, for the cross-check. */
+export function crossOriginPolicyReportGroup(
+  value: unknown,
+): string | undefined {
+  return isPlainObject(value) && typeof value.reportTo === 'string'
+    ? value.reportTo
+    : undefined;
 }
 
 /**
@@ -1059,8 +1249,10 @@ export function validateSecurityHeadersPolicy(
     ...collectReferrerPolicyIssues(policy.referrerPolicy),
     ...collectPermissionsPolicyIssues(policy.permissionsPolicy),
     ...collectCOOPIssues(policy.crossOriginOpenerPolicy),
+    ...collectCOOPReportOnlyIssues(policy.crossOriginOpenerPolicyReportOnly),
     ...collectCORPIssues(policy.crossOriginResourcePolicy),
     ...collectCOEPIssues(policy.crossOriginEmbedderPolicy),
+    ...collectCOEPReportOnlyIssues(policy.crossOriginEmbedderPolicyReportOnly),
     ...collectReportingEndpointsIssues(policy.reportingEndpoints),
   );
 

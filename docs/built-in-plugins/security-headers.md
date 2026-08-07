@@ -155,11 +155,15 @@ These are sent on every response, whether or not the request carries an `Origin`
 
 - `permissionsPolicy` (default: `false`): sets `Permissions-Policy`, written as a feature to its allowlist. An empty array disables the feature outright, `['self']` allows it same-origin, `['*']` allows it everywhere, and an origin is written in full.
 
-- `crossOriginOpenerPolicy` (default: `false`): sets `Cross-Origin-Opener-Policy`. One of `unsafe-none`, `same-origin`, `same-origin-allow-popups`, `noopener-allow-popups`.
+- `crossOriginOpenerPolicy` (default: `false`): sets `Cross-Origin-Opener-Policy`. One of `unsafe-none`, `same-origin`, `same-origin-allow-popups`, `noopener-allow-popups`. Takes `{ policy, reportTo }` when you want violations reported.
+
+- `crossOriginOpenerPolicyReportOnly` (default: `false`): the same, as `Cross-Origin-Opener-Policy-Report-Only`. See [Rehearsing COOP and COEP](#rehearsing-coop-and-coep).
 
 - `crossOriginResourcePolicy` (default: `false`): sets `Cross-Origin-Resource-Policy`. One of `same-site`, `same-origin`, `cross-origin`.
 
-- `crossOriginEmbedderPolicy` (default: `false`): sets `Cross-Origin-Embedder-Policy`. One of `unsafe-none`, `require-corp`, `credentialless`.
+- `crossOriginEmbedderPolicy` (default: `false`): sets `Cross-Origin-Embedder-Policy`. One of `unsafe-none`, `require-corp`, `credentialless`. Takes `{ policy, reportTo }` when you want violations reported.
+
+- `crossOriginEmbedderPolicyReportOnly` (default: `false`): the same, as `Cross-Origin-Embedder-Policy-Report-Only`.
 
 - `reportingEndpoints` (default: `false`): sets `Reporting-Endpoints`, which is the other half of [`csp.reportTo`](#violation-reporting-needs-both-halves).
 
@@ -186,6 +190,31 @@ The three below it need a decision rather than a default, and each has a specifi
 - `crossOriginEmbedderPolicy: 'require-corp'` demands that every cross-origin subresource opt in. Only worth it if you need `crossOriginIsolated` for `SharedArrayBuffer` or high-resolution timers.
 
 All of them can be varied per request with [`resolve`](#per-request-policy-with-resolve), one field at a time, so a resolver that sets only `referrerPolicy` keeps the baseline's `contentTypeOptions`.
+
+### Rehearsing COOP and COEP
+
+The two headers most likely to break a working app are also the two whose breakage happens in code you do not own: an OAuth popup that talks back through `window.opener`, a third-party font that never opted in to being embedded. Both have report-only variants for exactly that, and they work like `csp.reportOnly` does: nothing is applied, and you find out what would have been.
+
+```typescript
+securityHeaders({
+  reportingEndpoints: { coop: 'https://reports.example.com/coop' },
+
+  // What you enforce today.
+  crossOriginOpenerPolicy: 'same-origin-allow-popups',
+
+  // What you want, being measured against real traffic.
+  crossOriginOpenerPolicyReportOnly: {
+    policy: 'same-origin',
+    reportTo: 'coop',
+  },
+});
+```
+
+Sending both at once is the normal shape mid-migration, not a conflict.
+
+`reportTo` is optional and worth setting. Without it the violations only reach DevTools, which is fine while you are sitting in front of the browser and useless for the failures that matter, since those happen on someone else's machine during a checkout. The group has to be defined in `reportingEndpoints` or startup fails, the same rule `csp.reportTo` gets and for the same reason.
+
+The enforcing headers take `{ policy, reportTo }` too, so you can keep collecting reports after you commit.
 
 ## Advanced Features
 

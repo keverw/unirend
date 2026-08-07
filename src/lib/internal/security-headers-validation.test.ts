@@ -752,3 +752,120 @@ describe('reportingEndpoints', () => {
     ).not.toThrow();
   });
 });
+
+describe('COOP and COEP report-only', () => {
+  async function headersFor(config: SecurityHeadersConfig) {
+    const app = fastify({ trustProxy: true });
+
+    await securityHeaders(config)(
+      app as unknown as PluginHostInstance,
+      createMockOptions(),
+    );
+
+    app.get('/t', () => ({ ok: true }));
+    await app.listen({ port: 0, host: '127.0.0.1' });
+
+    const address = app.server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    try {
+      return (await fetch(`http://127.0.0.1:${port}/t`)).headers;
+    } finally {
+      await app.close();
+    }
+  }
+
+  it('sends the enforcing and report-only headers together', async () => {
+    // The usual shape mid-migration: enforce what you have, report on the
+    // stricter thing you want. COOP is the header here most likely to break
+    // something that works, and the flows that rely on window.opener live in
+    // someone else's code, so running it against real traffic first is the
+    // only way to find out.
+    const headers = await headersFor({
+      reportingEndpoints: { coop: 'https://reports.example.com/coop' },
+      crossOriginOpenerPolicy: 'same-origin-allow-popups',
+      crossOriginOpenerPolicyReportOnly: {
+        policy: 'same-origin',
+        reportTo: 'coop',
+      },
+    });
+
+    expect(headers.get('cross-origin-opener-policy')).toBe(
+      'same-origin-allow-popups',
+    );
+    expect(headers.get('cross-origin-opener-policy-report-only')).toBe(
+      'same-origin; report-to="coop"',
+    );
+  });
+
+  it('quotes the report-to parameter', async () => {
+    // A structured-header parameter value is a quoted string. An unquoted one
+    // is not a parse error a browser reports, it is a parameter it drops,
+    // which leaves the policy enforcing and reporting nowhere. Chrome accepts
+    // the quoted form with no console warning.
+    const headers = await headersFor({
+      reportingEndpoints: { coep: 'https://reports.example.com/coep' },
+      crossOriginEmbedderPolicyReportOnly: {
+        policy: 'require-corp',
+        reportTo: 'coep',
+      },
+    });
+
+    expect(headers.get('cross-origin-embedder-policy-report-only')).toBe(
+      'require-corp; report-to="coep"',
+    );
+  });
+
+  it('accepts the bare token form without a reporting group', () => {
+    // Reports still reach DevTools, which is enough while you are sitting in
+    // front of the browser.
+    expect(() =>
+      securityHeaders({ crossOriginOpenerPolicyReportOnly: 'same-origin' }),
+    ).not.toThrow();
+  });
+
+  it('rejects a report-to group reportingEndpoints does not define', () => {
+    // The same rule csp.reportTo gets, and it has to reach here too: a group
+    // nothing defines is a policy that reports to nowhere, whether the group
+    // was named by a CSP directive or a header parameter.
+    expect(() =>
+      securityHeaders({
+        reportingEndpoints: { other: 'https://reports.example.com/x' },
+        crossOriginOpenerPolicyReportOnly: {
+          policy: 'same-origin',
+          reportTo: 'coop',
+        },
+      }),
+    ).toThrow(/crossOriginOpenerPolicyReportOnly\.reportTo names the group/);
+  });
+
+  it('rejects a bad policy or an unknown sub-key', () => {
+    expect(() =>
+      securityHeaders({
+        crossOriginOpenerPolicyReportOnly: { policy: 'same-orig' as never },
+      }),
+    ).toThrow(/must be one of/);
+
+    expect(() =>
+      securityHeaders({
+        crossOriginOpenerPolicyReportOnly: {
+          policy: 'same-origin',
+          reportsTo: 'coop',
+        } as never,
+      }),
+    ).toThrow(/is not an option/);
+  });
+
+  it('lets a resolver replace the report-only header alone', async () => {
+    const headers = await headersFor({
+      crossOriginOpenerPolicy: 'same-origin-allow-popups',
+      crossOriginOpenerPolicyReportOnly: 'same-origin',
+      resolve: () => ({ crossOriginOpenerPolicyReportOnly: false }),
+    });
+
+    expect(headers.get('cross-origin-opener-policy')).toBe(
+      'same-origin-allow-popups',
+    );
+    expect(headers.get('cross-origin-opener-policy-report-only')).toBeNull();
+  });
+});
