@@ -728,6 +728,28 @@ server.fastifyInstance.addHook('onRequest', async (request, reply) => {
 
 The effective CDN URL for each SSR request is also available as `request.CDNBaseURL` after `onRequest` hooks have run. Use `useCDNBaseURL()` in components (works on both server and client, see [Unirend Context](../docs/unirend-context.md)), or `window.__CDN_BASE_URL__` in non-component code. Guard with `typeof window !== 'undefined'` since `window` is not available during SSR.
 
+Unirend rewrites the build's own `<script src>` and `<link href>` for you. For markup you write by hand in `index.html`, there is no component to call the hook from, so write the literal `__CDN__INJECTION__POINT__` at the start of the URL and unirend resolves it per request, or to nothing when no CDN is configured, which leaves the original root-relative path:
+
+```html
+<link rel="icon" href="__CDN__INJECTION__POINT__/favicon.ico" />
+<link rel="apple-touch-icon" href="__CDN__INJECTION__POINT__/touch-icon.png" />
+<style>
+  body {
+    background-image: url('__CDN__INJECTION__POINT__/hero.avif');
+  }
+</style>
+```
+
+The inline `<style>` works as shown, and so does an inline `<script>`, including one inside a `<noscript>`, and both stay correct under a strict CSP. Unirend cannot hash those blocks when it processes the template, because the URL they resolve to is chosen per request, so it hashes them per response instead, and only for the blocks that actually use the placeholder.
+
+<!-- prettier-ignore -->
+> [!NOTE]
+> Social preview tags are the exception, and not because of the placeholder. `UnirendHead` manages `description`, `og:*`, and `twitter:*` per page, so unirend strips those from the template regardless of what their URL says. Set an `og:image` through `UnirendHead` or your loader's `pageMetadata` and build the URL with `useCDNBaseURL()`. Only `og:site_name` stays as a template baseline.
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> The placeholder is resolved in the template only. It has no effect in markup your components render, where you should use `useCDNBaseURL()`. It is also not resolved inside the injected client data block, so a request-context value that happens to contain the literal string reaches the client unchanged. This applies to prerendered output as well, since [SSG](ssg.md) runs the same injection.
+
 HTML Template:
 
 - **Production mode**:

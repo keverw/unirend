@@ -591,6 +591,8 @@ Rendered markup is the exception, and being non-executable is the reason rather 
 
 Costs are where you would want them. Production hashes once per app at startup. Development recomputes per request, because the template is re-read and Vite adds inline content of its own after unirend is done with it, and hashes taken earlier would miss exactly the scripts that only exist in development.
 
+The one template block that cannot be hashed at startup is an inline `<script>` or `<style>` carrying the `__CDN__INJECTION__POINT__` placeholder, because the URL it resolves to is chosen per request. Those are hashed per response instead, and only those, so a template that does not use the placeholder pays nothing. See [CDN support](../ssr.md).
+
 None of this happens unless a `csp` policy is configured.
 
 ### Prerendered Sites (SSG)

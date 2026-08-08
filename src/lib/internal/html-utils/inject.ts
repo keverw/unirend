@@ -1,4 +1,5 @@
 import { TAB_SPACES, TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
+import { CDN_INJECTION_PLACEHOLDER, normalizeCDNBaseURL } from '../cdn';
 import { getDevMode } from 'lifecycleion/dev-mode';
 import {
   renderContextDataElements,
@@ -482,11 +483,62 @@ export async function injectContent(
   // Prettify all head tags with consistent indentation
   const compactedHead = prettifyHeadTags(headContent);
 
+  // Normalize CDN base URL (strip trailing slash) so it's consistent everywhere.
+  //
+  // The shared helper rather than a local copy, because whatever this produces
+  // is what gets substituted below and then hashed for CSP by
+  // resolveTemplateCSPHashes. Two spellings that disagreed by a character would
+  // publish a digest for a URL the page does not contain.
+  const normalizedCDN = normalizeCDNBaseURL(CDNBaseURL);
+
+  // Resolve the CDN placeholder here, on the template alone, before anything
+  // else is read out of it or spliced into it.
+  //
+  // It used to run at the end, across the finished document, and the extra
+  // reach was spillover from a whole-document replace rather than a feature.
+  // Three things came with it, none of them wanted:
+  //
+  // - Rendered inline `<style>` was rewritten *after* its CSP hash was taken
+  //   from the same bytes, so the digest no longer described what shipped and a
+  //   strict `style-src` blocked the block with nothing to explain it.
+  // - Bare text was rewritten, not just URLs, so a page that merely mentioned
+  //   the placeholder had it substituted mid-sentence.
+  // - The JSON data block was rewritten too, so a request-context value that
+  //   happened to carry the literal string came out changed on the client.
+  //
+  // Nothing is lost by narrowing it. The placeholder exists for hand-written
+  // markup in index.html, which is the one place with no React context to read
+  // from, and `format.ts` stamps it onto the build's own `script[src]` and
+  // `link[href]` in the same file. Components have `useCDNBaseURL()`, which
+  // resolves from the same per-request value.
+  //
+  // Still document-wide *within the template*, since a template may write the
+  // placeholder into a URL of its own, and into an inline `<script>` or
+  // `<style>` as well. That last position is the one with a consequence: those
+  // blocks are hashed for CSP, and a hash taken when the template was processed
+  // cannot describe a value this resolves per request. `processTemplate` does
+  // not hash them for that reason, reporting them as `cdnDependent` instead,
+  // and the request path hashes them against the same value substituted here.
+  // See `resolveTemplateCSPHashes` in format.ts.
+  //
+  // First, and that ordering is load-bearing rather than tidy. Both of the
+  // baselines below are read out of the template and travel to the client in
+  // the data block: the `<meta>` baseline the client restores when a page stops
+  // overriding a tag, and the `<html>`/`<body>` attributes it reconciles
+  // against. Reading either before this ran captured the placeholder verbatim,
+  // and the client then restored a `content="__CDN__INJECTION__POINT__/..."`
+  // that no longer resolved. The old whole-document pass hid that by rewriting
+  // the data block too, which is the one thing it did that was worth keeping.
+  const resolvedTemplate = template.replaceAll(
+    CDN_INJECTION_PLACEHOLDER,
+    () => normalizedCDN,
+  );
+
   // Merge the template's meta baseline with the page's own metas, so the page's versions are
   // the only ones served. Done before the body is spliced in, while the template still holds
   // nothing but markers where the rendered markup will go.
   const { template: mergedTemplate, baseline: templateMetas } =
-    mergeTemplateMetas(template, headContent);
+    mergeTemplateMetas(resolvedTemplate, headContent);
 
   // Use cheerio to find React Router's hydration script in the rendered body content.
   // StaticRouterProvider (server) renders window.__staticRouterHydrationData as a React child,
@@ -646,13 +698,6 @@ export async function injectContent(
   let result = replaceLiteral(mergedTemplate, '<!--ss-head-->', compactedHead);
   result = replaceLiteral(result, '<!--ss-outlet-->', cleanBodyContent);
 
-  // Normalize CDN base URL (strip trailing slash) so it's consistent everywhere
-  const normalizedCDN = CDNBaseURL
-    ? CDNBaseURL.endsWith('/')
-      ? CDNBaseURL.slice(0, -1)
-      : CDNBaseURL
-    : '';
-
   // Collect the template's baseline <html> and <body> attributes so client-side
   // DOM reconciliation knows the clean, unmodified values from index.html.
 
@@ -758,36 +803,6 @@ export async function injectContent(
         }
       }
     }
-  }
-
-  // Replace CDN injection placeholder with actual CDN URL or empty string
-  // This allows runtime CDN URL override per request
-  //
-  // Document-wide, unlike the markers above, which are replaced at one known
-  // location each. That is safe because format.ts writes this placeholder only
-  // onto a script[src] or a link[href], and a script carrying a src has no
-  // inline content to hash, so no CSP digest can cover a copy of it.
-  //
-  // Worth knowing before widening where it gets stamped: the digests are taken
-  // at format time and this substitution happens per request, so a placeholder
-  // inside an inline <script> or <style> would be hashed in its unreplaced form
-  // and rewritten afterwards, and the browser would refuse it for a hash
-  // mismatch. Attribute positions have no such problem, which is why a template
-  // may write the placeholder into a URL of its own and have it resolve here,
-  // falling back to a root-relative path when no CDN is configured. There is a
-  // real reason to: format.ts stamps only script[src] and link[href], so an
-  // <img src>, an og:image, or a poster attribute has no other way to follow the
-  // CDN. Treat that as undocumented but usable rather than as an accident. If it
-  // is ever made a real feature, the line to hold is that it belongs in a URL
-  // and never in hashed content.
-  if (normalizedCDN) {
-    result = result.replaceAll(
-      '__CDN__INJECTION__POINT__',
-      () => normalizedCDN,
-    );
-  } else {
-    // No CDN URL provided - remove placeholder to preserve original /assets/... paths
-    result = result.replaceAll('__CDN__INJECTION__POINT__', '');
   }
 
   // Unlike tags inside the <head> (which are collected as raw HTML strings and injected into placeholders),

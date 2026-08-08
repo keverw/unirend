@@ -2,7 +2,11 @@ import { describe, expect, it, spyOn } from 'bun:test';
 import { createHash } from 'node:crypto';
 import * as cheerio from 'cheerio';
 import { prettifyHeadTags, injectContent } from './inject';
-import { processTemplate } from './format';
+import {
+  collectTemplateCSPHashes,
+  processTemplate,
+  resolveTemplateCSPHashes,
+} from './format';
 import { TAB_SPACES } from '../consts';
 import { hashInlineContentForCSP } from '../csp-hash';
 import {
@@ -302,6 +306,178 @@ describe('injectContent', () => {
     );
     expect(result).toContain('href="https://cdn.example.com/favicon.ico"');
     expect(result).not.toContain('__CDN__INJECTION__POINT__');
+  });
+
+  it('should resolve a hand-written CDN placeholder in a template URL', async () => {
+    // The reason the placeholder exists. Markup written by hand in index.html
+    // has no React context to call useCDNBaseURL() from, and processTemplate
+    // stamps only script[src] and link[href], so an <img src> or a
+    // rel="apple-touch-icon" has no other way to follow the CDN.
+    //
+    // Deliberately not an og:image: UnirendHead manages those per page, so
+    // processTemplate strips them from the template whatever their URL says.
+    const template =
+      '<!DOCTYPE html><html><head><link rel="apple-touch-icon" href="__CDN__INJECTION__POINT__/touch.png" /></head><body><img src="__CDN__INJECTION__POINT__/logo.png" /><!--ss-outlet--></body></html>';
+
+    const result = await injectContent(template, '', '', {
+      CDNBaseURL: 'https://cdn.example.com',
+    });
+
+    expect(result).toContain('href="https://cdn.example.com/touch.png"');
+    expect(result).toContain('src="https://cdn.example.com/logo.png"');
+    expect(result).not.toContain('__CDN__INJECTION__POINT__');
+  });
+
+  it('should not resolve the CDN placeholder in rendered body content', async () => {
+    // Scoped to the template on purpose. The substitution used to run across
+    // the finished document, which reached rendered markup as spillover rather
+    // than by design, and rewrote an inline <style> after its CSP hash had
+    // already been taken from the same bytes. Components use useCDNBaseURL().
+    const template =
+      '<!DOCTYPE html><html><head><script src="__CDN__INJECTION__POINT__/assets/main.js"></script></head><body><div id="root"><!--ss-outlet--></div></body></html>';
+
+    const body =
+      '<img src="__CDN__INJECTION__POINT__/hero.png" /><style>.a{background:url(__CDN__INJECTION__POINT__/bg.png)}</style>';
+
+    const result = await injectContent(template, '', body, {
+      CDNBaseURL: 'https://cdn.example.com',
+    });
+
+    // The template half still resolves.
+    expect(result).toContain('src="https://cdn.example.com/assets/main.js"');
+
+    // The rendered half is left exactly as the page rendered it.
+    expect(result).toContain('src="__CDN__INJECTION__POINT__/hero.png"');
+    expect(result).toContain(
+      '.a{background:url(__CDN__INJECTION__POINT__/bg.png)}',
+    );
+  });
+
+  it('should keep the rendered style hash matching what ships', async () => {
+    // The failure the scoping fixes: the hash was taken from the rendered
+    // bytes and the substitution rewrote them afterwards, so a strict
+    // style-src refused a block whose digest the policy already carried.
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><div id="root"><!--ss-outlet--></div></body></html>';
+
+    const body =
+      '<style>.a{background:url(__CDN__INJECTION__POINT__/bg.png)}</style>';
+
+    const collected: string[] = [];
+
+    const result = await injectContent(template, '', body, {
+      CDNBaseURL: 'https://cdn.example.com',
+      addCSPSources: (sources) => collected.push(...(sources.styleSrc ?? [])),
+    });
+
+    // No `cdnPlaceholderPending`, deliberately: this is a finished document, so
+    // whatever placeholder text survived into it is literal and ships as
+    // written, which is exactly what the hash has to cover.
+    const shipped = await collectTemplateCSPHashes(result);
+
+    expect(collected.length).toBe(1);
+    expect(shipped.styleSrc).toContain(collected[0]);
+    expect(shipped.cdnDependent).toEqual([]);
+  });
+
+  it('should hash a deferred template style to match the served page', async () => {
+    // The end-to-end invariant the whole deferral exists for: what the policy
+    // carries and what the browser receives are the same bytes, for a value
+    // neither side knew when the template was processed.
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--><style>.a{background:url(__CDN__INJECTION__POINT__/bg.png)}</style></head><body><!--ss-outlet--></body></html>';
+
+    const processed = await processTemplate(template, 'ssr', false, false);
+
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    // Nothing hashable at startup, since the bytes are not decided yet.
+    expect(processed.cspHashes.styleSrc).toEqual([]);
+    expect(processed.cspHashes.cdnDependent).toHaveLength(1);
+
+    for (const cdn of ['https://eu.example.com', 'https://apac.example.com']) {
+      const policy = resolveTemplateCSPHashes(processed.cspHashes, cdn);
+
+      const served = await injectContent(processed.html, '', '', {
+        CDNBaseURL: cdn,
+      });
+
+      const shipped = await collectTemplateCSPHashes(served);
+
+      expect(policy.styleSrc).toHaveLength(1);
+      expect(shipped.styleSrc).toContain(policy.styleSrc[0]);
+    }
+  });
+
+  it('should hash a deferred template style to match with no CDN set', async () => {
+    // The placeholder resolves to nothing, leaving the original root-relative
+    // path, and the hash has to follow it there too.
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--><style>.a{background:url(__CDN__INJECTION__POINT__/bg.png)}</style></head><body><!--ss-outlet--></body></html>';
+
+    const processed = await processTemplate(template, 'ssr', false, false);
+
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    const policy = resolveTemplateCSPHashes(processed.cspHashes, '');
+    const served = await injectContent(processed.html, '', '');
+    const shipped = await collectTemplateCSPHashes(served);
+
+    expect(served).toContain('url(/bg.png)');
+    expect(shipped.styleSrc).toContain(policy.styleSrc[0]);
+  });
+
+  it('should resolve the placeholder in the template meta baseline', async () => {
+    // The baseline travels to the client, which restores these tags when a
+    // page stops overriding them. Read before the substitution ran, it carried
+    // the placeholder verbatim and the restored tag pointed nowhere.
+    //
+    // A template-owned meta, not an og:* one: UnirendHead manages those per
+    // page and processTemplate strips them, so a test written on one would
+    // assert a path no served page reaches.
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--><meta name="msapplication-TileImage" content="__CDN__INJECTION__POINT__/tile.png" /></head><body><!--ss-outlet--></body></html>';
+
+    const result = await injectContent(template, '', '', {
+      CDNBaseURL: 'https://cdn.example.com',
+    });
+
+    expect(result).not.toContain('__CDN__INJECTION__POINT__');
+    expect(result).toContain('"content":"https://cdn.example.com/tile.png"');
+  });
+
+  it('should resolve the placeholder in the template attribute baseline', async () => {
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body data-bg="__CDN__INJECTION__POINT__/b.png"><!--ss-outlet--></body></html>';
+
+    const result = await injectContent(template, '', '', {
+      CDNBaseURL: 'https://cdn.example.com',
+    });
+
+    expect(result).not.toContain('__CDN__INJECTION__POINT__');
+    expect(result).toContain('"data-bg":"https://cdn.example.com/b.png"');
+  });
+
+  it('should not rewrite a placeholder carried in request context data', async () => {
+    // The data block is user data, not markup. A whole-document replace
+    // rewrote a value that merely contained the string.
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
+
+    const result = await injectContent(template, '', '', {
+      CDNBaseURL: 'https://cdn.example.com',
+      context: { request: { note: '__CDN__INJECTION__POINT__/kept' } },
+    });
+
+    expect(result).toContain('__CDN__INJECTION__POINT__/kept');
   });
 
   it('should carry the CDN URL in the data block when provided', async () => {

@@ -2407,12 +2407,14 @@ describe('securityHeaders', () => {
       description: '<button> has onclick=',
       kind: 'script',
       hash: ONCLICK_HASH,
+      value: "alert('x')",
     };
 
     const STYLE_ATTR: InlineAttributeFinding = {
       description: '<div> has style=',
       kind: 'style',
       hash: STYLE_HASH,
+      value: 'color: red',
     };
 
     async function warningsFor(
@@ -2555,6 +2557,7 @@ describe('securityHeaders', () => {
         description: '<button> has onclick=',
         kind: 'script',
         hash: `'${hashInlineContentForCSP('other()')}'`,
+        value: 'other()',
       };
 
       return warningsFor({ scriptSrc: ["'self'"] }, [ONCLICK, second]).then(
@@ -2576,6 +2579,7 @@ describe('securityHeaders', () => {
         description: '<button> has onclick=',
         kind: 'script',
         hash: `'${hashInlineContentForCSP('other()')}'`,
+        value: 'other()',
       };
 
       return warningsFor(
@@ -2744,6 +2748,7 @@ describe('securityHeaders', () => {
             description: '<button> has onclick=',
             kind: 'script',
             hash: `'${hashInlineContentForCSP('different()')}'`,
+            value: 'different()',
           },
         ],
       });

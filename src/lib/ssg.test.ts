@@ -133,6 +133,7 @@ describe('generateSSG CSP hashes', () => {
         description: '<button> has onclick=',
         kind: 'script',
         hash: `'${hashInlineContentForCSP(handler)}'`,
+        value: handler,
       },
     ]);
   });
@@ -156,6 +157,32 @@ describe('generateSSG CSP hashes', () => {
       styleSrc: [],
       inlineAttributes: [],
     });
+  });
+
+  it('hashes a CDN placeholder in generated output literally', async () => {
+    // A prerendered page is final bytes. injectContent has already resolved the
+    // template's placeholders, so anything still spelling one out is text the
+    // page really ships and has to be hashed as written. Deferring it would
+    // drop the hash and leave the block blocked under a strict policy, and
+    // there is no request left to settle it against.
+    const placeholder = '__CDN__INJECTION__POINT__';
+    const css = `.a{background:url(${placeholder}/bg.png)}`;
+
+    const report = await generateSSG(buildDir, [
+      {
+        type: 'html',
+        path: '/',
+        filename: 'index.html',
+        html: `<html><head><style>${css}</style></head><body></body></html>`,
+      },
+    ]);
+
+    expect(report.generationFailed).toBe(false);
+    expect(report.cspHashes.styleSrc).toContain(
+      `'${hashInlineContentForCSP(css)}'`,
+    );
+    // The deferral list is internal and must never reach a caller.
+    expect('cdnDependent' in report.cspHashes).toBe(false);
   });
 
   it('covers a noscript style, which a scripting parser hides', async () => {

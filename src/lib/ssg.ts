@@ -20,12 +20,10 @@ import {
 import {
   collectTemplateCSPHashes,
   processTemplate,
-  type TemplateCSPHashes,
+  type ResolvedTemplateCSPHashes,
 } from './internal/html-utils/format';
-import {
-  normalizeCDNBaseURL,
-  computeDomainInfo,
-} from './internal/server-utils';
+import { computeDomainInfo } from './internal/server-utils';
+import { normalizeCDNBaseURL } from './internal/cdn';
 import { deepFreeze } from './internal/utils';
 import { injectContent } from './internal/html-utils/inject';
 import { getDevMode } from 'lifecycleion/dev-mode';
@@ -73,7 +71,7 @@ class CSPHashCollector {
   private readonly styleSrc = new Set<string>();
   private readonly inlineAttributes = new Map<
     string,
-    TemplateCSPHashes['inlineAttributes'][number]
+    ResolvedTemplateCSPHashes['inlineAttributes'][number]
   >();
 
   /**
@@ -84,6 +82,12 @@ class CSPHashCollector {
    * would then block the very script the hash was meant to allow.
    */
   public async add(html: string): Promise<void> {
+    // No `cdnDependent` to settle, and that is a property of when this runs
+    // rather than luck. The bytes handed over here are the ones written to
+    // disk, so injectContent has already resolved the CDN placeholder and there
+    // is nothing left holding a value that varies. A prerendered site has no
+    // per-request anything, which is the whole reason its policy can be a fixed
+    // list of hashes.
     const hashes = await collectTemplateCSPHashes(html);
 
     for (const source of hashes.scriptSrc) {
@@ -102,7 +106,7 @@ class CSPHashCollector {
     }
   }
 
-  public result(): TemplateCSPHashes {
+  public result(): ResolvedTemplateCSPHashes {
     return {
       scriptSrc: [...this.scriptSrc],
       styleSrc: [...this.styleSrc],
@@ -131,7 +135,7 @@ function createSSGReport({
   successCount?: number;
   errorCount?: number;
   notFoundCount?: number;
-  cspHashes?: TemplateCSPHashes;
+  cspHashes?: ResolvedTemplateCSPHashes;
 }): SSGReport {
   return {
     cspHashes,

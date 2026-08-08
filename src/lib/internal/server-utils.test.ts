@@ -22,7 +22,6 @@ import {
   sendClosingPayload,
   isSplitHandler,
   prepareWebResponse,
-  normalizeCDNBaseURL,
   computeDomainInfo,
 } from './server-utils';
 import type {
@@ -2081,34 +2080,6 @@ describe('resolveClosingResponse', () => {
     expect(state.statusCode).toBe(503);
     expect(state.headers['cache-control']).toBe('no-store');
     expect(state.contentType).toBe('text/html');
-  });
-});
-
-describe('normalizeCDNBaseURL', () => {
-  it('strips a trailing slash', () => {
-    expect(normalizeCDNBaseURL('https://cdn.example.com/')).toBe(
-      'https://cdn.example.com',
-    );
-  });
-
-  it('leaves a URL without a trailing slash unchanged', () => {
-    expect(normalizeCDNBaseURL('https://cdn.example.com')).toBe(
-      'https://cdn.example.com',
-    );
-  });
-
-  it('returns empty string for undefined', () => {
-    expect(normalizeCDNBaseURL(undefined)).toBe('');
-  });
-
-  it('returns empty string for empty string', () => {
-    expect(normalizeCDNBaseURL('')).toBe('');
-  });
-
-  it('strips only a single trailing slash (not double)', () => {
-    expect(normalizeCDNBaseURL('https://cdn.example.com//')).toBe(
-      'https://cdn.example.com/',
-    );
   });
 });
 

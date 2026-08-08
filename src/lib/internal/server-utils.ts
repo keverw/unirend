@@ -1203,23 +1203,6 @@ export function buildFastifyHTTPSOptions(
 }
 
 /**
- * Normalizes a CDN base URL by stripping a trailing slash, so the value is
- * consistent whether it comes from server config, per-request override, or
- * the injected `window.__CDN_BASE_URL__` global read by the client.
- *
- * Must be applied before the URL is placed into `unirendContext.cdnBaseURL`
- * so that `useCDNBaseURL()` returns the same value on server and client —
- * avoiding React hydration mismatches when a trailing-slash URL is configured.
- */
-export function normalizeCDNBaseURL(url: string | undefined): string {
-  if (!url) {
-    return '';
-  }
-
-  return url.endsWith('/') ? url.slice(0, -1) : url;
-}
-
-/**
  * Computes domain info from a request hostname using the public suffix list.
  * - `hostname`: the bare hostname (port stripped)
  * - `rootDomain`: the apex domain without a leading dot (e.g. `'example.com'`),

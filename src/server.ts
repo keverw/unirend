@@ -87,6 +87,13 @@ export type { APIEndpointConfig } from './lib/types';
 // Server-safe functions
 export { serveSSRWithHMR, serveSSRBuilt } from './lib/ssr';
 export { generateSSG } from './lib/ssg';
+// The shape of `SSGReport.cspHashes`, so a caller can name it. Handing back a
+// value whose type has no exported name means anyone writing a function that
+// takes it has to restate the shape by hand or reach into internals.
+export type {
+  ResolvedTemplateCSPHashes,
+  InlineAttributeFinding,
+} from './lib/internal/html-utils/format';
 export { unirendBaseRender } from './lib/base-render';
 export { serveAPI, servePlain } from './lib/api';
 export { serveRedirect, RedirectServer } from './lib/redirect';

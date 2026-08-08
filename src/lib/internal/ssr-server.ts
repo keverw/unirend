@@ -29,8 +29,10 @@ import {
 import {
   collectTemplateCSPHashes,
   processTemplate,
+  resolveTemplateCSPHashes,
   type TemplateCSPHashes,
 } from './html-utils/format';
+import { normalizeCDNBaseURL } from './cdn';
 import { injectContent } from './html-utils/inject';
 import path from 'path';
 import type {
@@ -43,7 +45,6 @@ import {
   classifyRequest,
   normalizeAPIPrefix,
   normalizePageDataEndpoint,
-  normalizeCDNBaseURL,
   computeDomainInfo,
   createDefaultAPIErrorResponse,
   createDefaultAPINotFoundResponse,
@@ -1367,6 +1368,23 @@ export class SSRServer<
 
           let template: string;
 
+          // The CDN base URL in force for this request, resolved once.
+          //
+          // Needed before the render rather than only at it, because the
+          // template's CSP hashes depend on it: a template may write
+          // __CDN__INJECTION__POINT__ into an inline <style>, and injectContent
+          // resolves that per request, so the hash has to be taken against the
+          // same value. `request.CDNBaseURL` is populated before preHandler, so
+          // it is already settled here.
+          //
+          // `??` rather than `||` so an explicit empty-string override, which is
+          // how a hook disables the CDN for one request, is honored instead of
+          // falling through to the app-level default.
+          const requestCDNBaseURL = normalizeCDNBaseURL(
+            request.CDNBaseURL ??
+              ('CDNBaseURL' in appConfig ? appConfig.CDNBaseURL : undefined),
+          );
+
           if (
             this.serverMode === 'development' &&
             'viteDevServer' in appConfig &&
@@ -1392,7 +1410,17 @@ export class SSRServer<
             // absent unless securityHeaders is registered with a csp policy, so
             // a dev server that is not using CSP pays nothing for this.
             if (request.addCSPSources) {
-              request.addCSPSources(await collectTemplateCSPHashes(template));
+              request.addCSPSources(
+                resolveTemplateCSPHashes(
+                  // Still a template at this point, so injectContent has yet to
+                  // resolve the CDN placeholder in it and any inline block
+                  // carrying one has to be held back rather than hashed here.
+                  await collectTemplateCSPHashes(template, {
+                    cdnPlaceholderPending: true,
+                  }),
+                  requestCDNBaseURL,
+                ),
+              );
             }
 
             // Load server entry using Vite's SSR loader (from src)
@@ -1438,9 +1466,19 @@ export class SSRServer<
             template = appConfig.cachedHTMLTemplate;
             render = appConfig.cachedRenderFunction;
 
-            // Hashed once at startup, so this is a lookup rather than work.
+            // Hashed once at startup, so this is a lookup rather than work,
+            // except for any inline block carrying the CDN placeholder. Those
+            // could not be hashed then, since the value they resolve to is
+            // per request, so resolveTemplateCSPHashes settles them here. It
+            // returns the cached object untouched when there are none, which is
+            // the usual case.
             if (request.addCSPSources && appConfig.cachedTemplateCSPHashes) {
-              request.addCSPSources(appConfig.cachedTemplateCSPHashes);
+              request.addCSPSources(
+                resolveTemplateCSPHashes(
+                  appConfig.cachedTemplateCSPHashes,
+                  requestCDNBaseURL,
+                ),
+              );
             }
           }
 
@@ -1545,13 +1583,10 @@ export class SSRServer<
 
           // --- Render the App ---
           try {
-            // Resolve CDN URL before render so it's available via useCDNBaseURL() in components
-            // and the HTML global. request.CDNBaseURL was populated before preHandler.
-            // Use ?? so that an explicit empty-string override (disabling CDN for this request)
-            // is honoured rather than silently falling through to the app-level default.
-            const CDNBaseURL =
-              request.CDNBaseURL ??
-              ('CDNBaseURL' in appConfig ? appConfig.CDNBaseURL : undefined);
+            // Resolved once above, before the template's CSP hashes were
+            // settled against it, so the value the components see through
+            // useCDNBaseURL() is the same one those hashes were taken with.
+            const CDNBaseURL = requestCDNBaseURL;
 
             const renderResult = await render({
               type: 'ssr',

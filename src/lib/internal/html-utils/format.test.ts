@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'bun:test';
 import * as cheerio from 'cheerio';
-import { prettifyHTML, processTemplate } from './format';
+import {
+  collectTemplateCSPHashes,
+  prettifyHTML,
+  processTemplate,
+  resolveTemplateCSPHashes,
+} from './format';
 import type { TemplateSlots } from '../../types';
 import { hashInlineContentForCSP } from '../csp-hash';
 
@@ -1157,6 +1162,252 @@ describe('processTemplate with CDN placeholder injection', () => {
       expect(result.html).toContain('href="/assets/styles.css"');
       expect(result.html).not.toContain('__CDN__INJECTION__POINT__');
     }
+  });
+});
+
+describe('processTemplate defers hashing CDN-dependent inline content', () => {
+  // These blocks cannot be hashed when the template is processed, because the
+  // value they resolve to is decided per request. They come back as
+  // cdnDependent and are hashed by resolveTemplateCSPHashes once it is known.
+  const wrap = (head: string, body = '') => `
+      <html>
+        <head>
+          <!--ss-head-->
+          ${head}
+        </head>
+        <body>
+          ${body}
+          <div id="root"><!--ss-outlet--></div>
+        </body>
+      </html>
+    `;
+
+  async function hashesFor(head: string, body = '') {
+    const result = await processTemplate(
+      wrap(head, body),
+      'ssr',
+      false,
+      false,
+      'root',
+    );
+
+    expect(result.success).toBe(true);
+
+    if (!result.success) {
+      throw new Error(result.error);
+    }
+
+    return result.cspHashes;
+  }
+
+  it('holds back an inline <style> carrying the placeholder', async () => {
+    const css = '.a{background:url(__CDN__INJECTION__POINT__/bg.png)}';
+    const hashes = await hashesFor(`<style>${css}</style>`);
+
+    expect(hashes.styleSrc).toEqual([]);
+    expect(hashes.cdnDependent).toHaveLength(1);
+    expect(hashes.cdnDependent[0].kind).toBe('style');
+    // Contains rather than equals: the prettifier indents inline content, and
+    // that whitespace is inside the digest, so the deferred text has to be the
+    // serialized form rather than what the source wrote.
+    expect(hashes.cdnDependent[0].content).toContain(css);
+  });
+
+  it('holds back an inline <script> carrying the placeholder', async () => {
+    const js = 'var u = "__CDN__INJECTION__POINT__/x.js";';
+    const hashes = await hashesFor(`<script>${js}</script>`);
+
+    expect(hashes.scriptSrc).toEqual([]);
+    expect(hashes.cdnDependent).toHaveLength(1);
+    expect(hashes.cdnDependent[0].kind).toBe('script');
+    expect(hashes.cdnDependent[0].content).toContain(js);
+  });
+
+  it('holds back a <noscript> style carrying the placeholder', async () => {
+    // cheerio parses with scripting enabled, so the selectors alone see nothing
+    // in here. A browser with JavaScript off applies it, so it is hashed and
+    // has to be deferred for the same reason.
+    const css = '.n{background:url(__CDN__INJECTION__POINT__/y.png)}';
+    const hashes = await hashesFor(
+      '',
+      `<noscript><style>${css}</style></noscript>`,
+    );
+
+    expect(hashes.styleSrc).toEqual([]);
+    expect(hashes.cdnDependent).toHaveLength(1);
+    expect(hashes.cdnDependent[0].kind).toBe('style');
+    expect(hashes.cdnDependent[0].content).toContain(css);
+  });
+
+  it('hashes inline content without the placeholder as usual', async () => {
+    const hashes = await hashesFor(`<style>.a{color:red}</style>`);
+
+    expect(hashes.cdnDependent).toEqual([]);
+    expect(hashes.styleSrc).toHaveLength(1);
+  });
+
+  it('leaves a placeholder in a URL attribute fully hashed', async () => {
+    // No digest covers an attribute URL, so nothing has to be deferred for it.
+    const hashes = await hashesFor(
+      `<link rel="icon" href="__CDN__INJECTION__POINT__/favicon.ico" />`,
+      `<img src="__CDN__INJECTION__POINT__/logo.png" />`,
+    );
+
+    expect(hashes.cdnDependent).toEqual([]);
+  });
+
+  it('carries a style attribute value so its hash can be resettled', async () => {
+    const value = 'background:url(__CDN__INJECTION__POINT__/x.png)';
+    const hashes = await hashesFor('', `<div style="${value}"></div>`);
+
+    expect(hashes.inlineAttributes).toHaveLength(1);
+    expect(hashes.inlineAttributes[0].value).toBe(value);
+  });
+});
+
+describe('collectTemplateCSPHashes CDN deferral is opt-in', () => {
+  const html = (inner: string) =>
+    `<html><head>${inner}</head><body></body></html>`;
+
+  const css = '.a{background:url(__CDN__INJECTION__POINT__/bg.png)}';
+
+  it('hashes a placeholder literally when nothing will resolve it', async () => {
+    // The default, and the one that matters for SSG and for rendered markup:
+    // those bytes ship exactly as they are, placeholder and all, so the hash
+    // has to cover the placeholder text. Deferring here would drop the hash
+    // for content nothing rewrites and the browser would block it.
+    const hashes = await collectTemplateCSPHashes(
+      html(`<style>${css}</style>`),
+    );
+
+    expect(hashes.cdnDependent).toEqual([]);
+    expect(hashes.styleSrc).toEqual([`'${hashInlineContentForCSP(css)}'`]);
+  });
+
+  it('defers the same content when the caller will resolve it', async () => {
+    const hashes = await collectTemplateCSPHashes(
+      html(`<style>${css}</style>`),
+      { cdnPlaceholderPending: true },
+    );
+
+    expect(hashes.styleSrc).toEqual([]);
+    expect(hashes.cdnDependent).toEqual([{ kind: 'style', content: css }]);
+  });
+
+  it('carries two identical deferred blocks once', async () => {
+    const hashes = await collectTemplateCSPHashes(
+      html(`<style>${css}</style><style>${css}</style>`),
+      { cdnPlaceholderPending: true },
+    );
+
+    expect(hashes.cdnDependent).toEqual([{ kind: 'style', content: css }]);
+  });
+
+  it('keeps a script and a style with identical text apart', async () => {
+    // Same bytes, different directives, so collapsing them on content alone
+    // would put a style hash in script-src or lose one of the two.
+    const shared = '/*__CDN__INJECTION__POINT__*/';
+
+    const hashes = await collectTemplateCSPHashes(
+      html(`<style>${shared}</style><script>${shared}</script>`),
+      { cdnPlaceholderPending: true },
+    );
+
+    expect(hashes.cdnDependent).toHaveLength(2);
+    expect(hashes.cdnDependent.map((entry) => entry.kind).sort()).toEqual([
+      'script',
+      'style',
+    ]);
+  });
+});
+
+describe('resolveTemplateCSPHashes', () => {
+  const css = '.a{background:url(__CDN__INJECTION__POINT__/bg.png)}';
+
+  const deferred = {
+    scriptSrc: [],
+    styleSrc: [],
+    inlineAttributes: [],
+    cdnDependent: [{ kind: 'style' as const, content: css }],
+  };
+
+  it('hashes the resolved bytes, not the placeholder', () => {
+    const resolved = resolveTemplateCSPHashes(
+      deferred,
+      'https://cdn.example.com',
+    );
+
+    expect(resolved.styleSrc).toEqual([
+      `'${hashInlineContentForCSP('.a{background:url(https://cdn.example.com/bg.png)}')}'`,
+    ]);
+  });
+
+  it('resolves to a root-relative path when no CDN is configured', () => {
+    const resolved = resolveTemplateCSPHashes(deferred, '');
+
+    expect(resolved.styleSrc).toEqual([
+      `'${hashInlineContentForCSP('.a{background:url(/bg.png)}')}'`,
+    ]);
+  });
+
+  it('gives two CDN values two different hashes', () => {
+    // The reason this cannot be cached at startup. A per-request override sends
+    // different bytes to different requests off one processed template.
+    const eu = resolveTemplateCSPHashes(deferred, 'https://eu.example.com');
+    const apac = resolveTemplateCSPHashes(deferred, 'https://apac.example.com');
+
+    expect(eu.styleSrc[0]).not.toBe(apac.styleSrc[0]);
+  });
+
+  it('passes the settled hashes through when nothing was deferred', () => {
+    const settled = {
+      scriptSrc: ["'sha256-a'"],
+      styleSrc: ["'sha256-b'"],
+      inlineAttributes: [],
+      cdnDependent: [],
+    };
+
+    const resolved = resolveTemplateCSPHashes(
+      settled,
+      'https://cdn.example.com',
+    );
+
+    expect(resolved).toEqual({
+      scriptSrc: ["'sha256-a'"],
+      styleSrc: ["'sha256-b'"],
+      inlineAttributes: [],
+    });
+
+    // The declared return type has no cdnDependent, so the value must not carry
+    // one either. SSGReport.cspHashes is public and may well be serialized.
+    expect('cdnDependent' in resolved).toBe(false);
+  });
+
+  it('resettles an inline attribute hash and its value', () => {
+    const value = 'background:url(__CDN__INJECTION__POINT__/x.png)';
+    const expected = 'background:url(https://cdn.example.com/x.png)';
+
+    const resolved = resolveTemplateCSPHashes(
+      {
+        scriptSrc: [],
+        styleSrc: [],
+        inlineAttributes: [
+          {
+            description: '<div> has style=',
+            kind: 'style',
+            hash: `'${hashInlineContentForCSP(value)}'`,
+            value,
+          },
+        ],
+        cdnDependent: [],
+      },
+      'https://cdn.example.com',
+    );
+
+    expect(resolved.inlineAttributes[0].value).toBe(expected);
+    expect(resolved.inlineAttributes[0].hash).toBe(
+      `'${hashInlineContentForCSP(expected)}'`,
+    );
   });
 });
 
@@ -2355,6 +2606,7 @@ describe('template CSP hashes inside <noscript>', () => {
         description: '<button> has onclick=',
         kind: 'script',
         hash: `'${hashInlineContentForCSP("alert('x')")}'`,
+        value: "alert('x')",
       });
     });
 
@@ -2366,6 +2618,7 @@ describe('template CSP hashes inside <noscript>', () => {
         description: '<div> has style=',
         kind: 'style',
         hash: `'${hashInlineContentForCSP('color: red')}'`,
+        value: 'color: red',
       });
     });
 

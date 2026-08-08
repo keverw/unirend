@@ -106,6 +106,8 @@ async function main() {
     },
     // Optional: CDN base URL — baked into generated HTML at generation time (not per-request).
     // Rewrites asset URLs and injected as window.__CDN_BASE_URL__ (useCDNBaseURL() in components).
+    // A __CDN__INJECTION__POINT__ written by hand in index.html is resolved too, in the template
+    // only. See "CDN support" in docs/ssr.md — the same rules apply here.
     // CDNBaseURL: process.env.CDN_BASE_URL,  // e.g., 'https://cdn.example.com' (build-time env var)
     // Optional: site hostname — used to compute window.__DOMAIN_INFO__ (hostname + rootDomain).
     // Enables useDomainInfo() in components. Without it, useDomainInfo() returns null.

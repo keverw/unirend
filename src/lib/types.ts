@@ -26,6 +26,7 @@ import type { UnirendContextValue } from './internal/UnirendContext';
 import type { DomainInfo } from './internal/domain-info';
 import type {
   InlineAttributeFinding,
+  ResolvedTemplateCSPHashes,
   TemplateCSPHashes,
 } from './internal/html-utils/format';
 import type {
@@ -2598,7 +2599,7 @@ export interface SSGReport {
    * });
    * ```
    */
-  cspHashes: TemplateCSPHashes;
+  cspHashes: ResolvedTemplateCSPHashes;
 }
 
 /**
