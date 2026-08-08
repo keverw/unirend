@@ -922,6 +922,20 @@ function collectTrustedTypesIssues(config: CSPConfig): CSPIssue[] {
     return issues;
   }
 
+  // `'none'` is the directive's exclusive branch, not another policy name.
+  // Once anything sits beside it, the value no longer means "allow no
+  // policies": the browser can still match the named entries. Accepting that
+  // combination would let a policy that reads as a total prohibition permit
+  // creation after all, so hold it to the same exclusivity rule as `'none'` in
+  // a source list.
+  if (policies.includes("'none'") && policies.length > 1) {
+    issues.push({
+      path: 'csp.trustedTypes',
+      message:
+        "Invalid securityHeaders config: csp.trustedTypes combines 'none' with other entries. 'none' must be the only value because it means no Trusted Types policy may be created.",
+    });
+  }
+
   for (const policy of policies) {
     if (typeof policy !== 'string' || policy.trim() === '') {
       issues.push({

@@ -964,6 +964,10 @@ describe('nonces, Trusted Types, and removed directives', () => {
     expectRejected({ requireTrustedTypesFor: [] }, /is empty/);
     expectRejected({ trustedTypes: ["'nope'"] }, /is quoted but is not one of/);
     expectRejected({ trustedTypes: ['bad name'] }, /not a valid policy name/);
+    expectRejected(
+      { trustedTypes: ["'none'", 'allowed'] },
+      /'none' must be the only value/,
+    );
   });
 
   it('serializes a bare trusted-types for an empty list', () => {
