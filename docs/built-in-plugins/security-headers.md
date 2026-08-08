@@ -27,6 +27,7 @@
   - [`frameAncestors` and `frameOptions` Together](#frameancestors-and-frameoptions-together)
   - [Inline Attributes Take More Than a Hash](#inline-attributes-take-more-than-a-hash)
   - [`'unsafe-inline'` and Automatic Hashes](#unsafe-inline-and-automatic-hashes)
+  - [Contributing Sources at Request Time](#contributing-sources-at-request-time)
   - [Presets](#presets)
   - [Config-Time Validation](#config-time-validation)
 - [Per-Request Policy With `resolve`](#per-request-policy-with-resolve)
@@ -773,6 +774,57 @@ The decision is per directive. `scriptSrc: ["'unsafe-inline'"]` alongside a stri
 Sources you wrote in the directive yourself are always kept. Only unirend's automatic additions are ever withheld.
 
 The same "in effect" rule decides the [inline attribute warning](#inline-attributes-take-more-than-a-hash) above, so a policy pairing `'unsafe-inline'` with a hash still warns about an `onclick=` that the browser will block.
+
+### Contributing Sources at Request Time
+
+Unirend covers the inline content it can see: everything in your template, its own bootstrap and error pages, and the inline `<style>` your components render. For anything it cannot see, `request.addCSPSources()` contributes source expressions to the response being assembled.
+
+The realistic case is content whose bytes change per request. A custom error page returned as raw HTML never passes through the render unirend scans, and an inline `<script>` a component renders is [deliberately not hashed](#your-own-inline-content-is-hashed-too). For content that is fixed, put the hash in your policy with `hashInlineContentForCSP()` instead, which says it once and deliberately rather than on every response.
+
+```ts
+import type { ServerPlugin } from 'unirend/server';
+import { hashInlineContentForCSP } from 'unirend/utils';
+
+const coverMyInlineStyle: ServerPlugin<'ssr'> = (pluginHost) => {
+  pluginHost.addHook('onRequest', async (request) => {
+    // Absent unless a policy is in force for this request, so feature-detect.
+    // That absence is also the signal not to compute the hash at all.
+    if (!request.addCSPSources) {
+      return;
+    }
+
+    const css = await buildPerRequestCSS(request);
+
+    request.addCSPSources({
+      styleSrc: [`'${hashInlineContentForCSP(css)}'`],
+    });
+  });
+};
+
+const server = serveSSRBuilt(buildDir, {
+  plugins: [headers, coverMyInlineStyle],
+});
+```
+
+Register it after `securityHeaders`, so the decoration exists by the time your hook runs. See [Where to Put the Plugin](#where-to-put-the-plugin-and-when-resolve-runs).
+
+Quote the hashes. `hashInlineContentForCSP()` returns the bare expression, because a source list has unquoted members too, and an unquoted `sha256-…` is read as a host name, matches nothing, and blocks the content it was meant to allow.
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> This is not an append to the header. A source is contributed to whichever directive governs that kind of content, and it follows the same rules as unirend's own hashes, so it can legitimately go nowhere.
+
+Three cases where a contributed source is dropped, all of them the same rules described above:
+
+| Policy | Result |
+| --- | --- |
+| No directive set anywhere in the chain for that kind | Dropped, since there is no directive a browser would consult |
+| The governing directive is `["'none'"]` | Dropped, because you said allow nothing |
+| The governing directive's `'unsafe-inline'` is [in effect](#unsafe-inline-and-automatic-hashes) | Dropped, since adding a hash would revoke it |
+
+Otherwise it lands in `script-src` and `script-src-elem`, or `style-src` and `style-src-elem`, and in `default-src` for whichever half of the chain ends there. Duplicates are collapsed, so contributing the same source twice is harmless.
+
+Two more things worth knowing. The header is assembled as the response is sent, so call this any time before that. And it is folded into the policy **in force for this request**, so a [`resolve`](#per-request-policy-with-resolve) callback that handed this tenant a different policy is the one your source joins. If a route sets its own `Content-Security-Policy` header, unirend leaves that header alone and the contribution is dropped with it.
 
 ### Presets
 
