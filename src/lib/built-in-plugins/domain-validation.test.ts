@@ -64,6 +64,7 @@ const createMockPluginHost = () => {
   }> = [];
 
   const decorations: Record<string, unknown> = {};
+  const requestDecorations: Record<string, unknown> = {};
 
   const mockHost = {
     addHook: mock(
@@ -74,14 +75,24 @@ const createMockPluginHost = () => {
     decorate: mock((property: string, value: unknown) => {
       decorations[property] = value;
     }),
+    // Recorded rather than applied. On a real server this declares the property
+    // on the Request constructor so the hook's assignment does not reshape every
+    // request; the mock hands the hook a plain object, where there is nothing to
+    // declare. Kept so this stands in for the full PluginHostInstance instead of
+    // the part the plugin happened to use when it was written.
+    decorateRequest: mock((property: string, value: unknown) => {
+      requestDecorations[property] = value;
+    }),
     getHooks: () => hooks,
     getDecorations: () => decorations,
+    getRequestDecorations: () => requestDecorations,
   };
 
   // Cast to PluginHostInstance through unknown to satisfy TypeScript
   return mockHost as unknown as PluginHostInstance & {
     getHooks: () => typeof hooks;
     getDecorations: () => Record<string, unknown>;
+    getRequestDecorations: () => Record<string, unknown>;
   };
 };
 
@@ -460,6 +471,28 @@ describe('domainValidation', () => {
       );
 
       expect(pluginHost.getDecorations().domainValidationRegistered).toBe(true);
+    });
+
+    it('should declare both request flags rather than adding them per request', async () => {
+      // Fastify builds a Request constructor per server and folds decorations
+      // into it, so a flag the hook assigns without declaring gives every
+      // request a shape of its own. Declared as undefined on purpose: both are
+      // documented as tri-state and every reader compares against true, so
+      // seeding false would make the two spellings of "unset" differ for
+      // anything that later reached for `in` or `??`.
+      const pluginHost = createMockPluginHost();
+
+      await domainValidation({ validProductionDomains: ['example.com'] })(
+        pluginHost,
+        createMockOptions(),
+      );
+
+      const declared = pluginHost.getRequestDecorations();
+
+      expect(Object.hasOwn(declared, 'domainValidationChecked')).toBe(true);
+      expect(Object.hasOwn(declared, 'domainValidationRejected')).toBe(true);
+      expect(declared.domainValidationChecked).toBeUndefined();
+      expect(declared.domainValidationRejected).toBeUndefined();
     });
 
     it('should throw, not answer with a 403, when the validator throws', async () => {

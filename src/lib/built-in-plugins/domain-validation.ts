@@ -329,6 +329,22 @@ export function domainValidation(
     // reveal on an error page.
     pluginHost.decorate('domainValidationRegistered', true);
 
+    // Declared up front so the hook below assigns to a property the Request
+    // object already has, rather than adding one per request. Fastify builds a
+    // Request constructor per server and decorations become part of it, so an
+    // undeclared assignment gives every request a shape of its own and costs
+    // the optimization the decoration exists for. `securityHeaders` declares
+    // `addCSPSources` the same way.
+    //
+    // `undefined` rather than `false`, so this stays a pure shape declaration
+    // and changes no reading anywhere. Both flags are documented as tri-state,
+    // where "unset" means the hook did not get this far, and every reader
+    // compares against `true` for exactly that reason. Seeding `false` would
+    // behave identically today and would quietly make the two spellings of
+    // "unset" different for anything that later reached for `in` or `??`.
+    pluginHost.decorateRequest('domainValidationChecked', undefined);
+    pluginHost.decorateRequest('domainValidationRejected', undefined);
+
     // Register onRequest hook for domain security checks
     pluginHost.addHook('onRequest', async (request, reply) => {
       // Every path that answers the request returns `reply`, and in an async
