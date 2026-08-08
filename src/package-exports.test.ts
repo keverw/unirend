@@ -3,6 +3,40 @@ import { readFileSync } from 'fs';
 import { basename, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import tsupConfig from '../tsup.config';
+import type {
+  CSPConfig,
+  CSPPreset,
+  CrossOriginEmbedderPolicy,
+  CrossOriginEmbedderPolicySetting,
+  CrossOriginOpenerPolicy,
+  CrossOriginOpenerPolicySetting,
+  CrossOriginPolicySetting,
+  CrossOriginResourcePolicy,
+  PermissionsPolicyConfig,
+  ReferrerPolicyToken,
+  ReportingEndpointsConfig,
+  SecurityHeadersConfig,
+  SecurityHeadersPlugin,
+} from './plugins';
+
+type PublicSecurityHeadersTypeSurface = {
+  config: SecurityHeadersConfig;
+  plugin: SecurityHeadersPlugin;
+  csp: CSPConfig;
+  preset: CSPPreset;
+  referrerPolicy: ReferrerPolicyToken;
+  permissionsPolicy: PermissionsPolicyConfig;
+  crossOriginPolicy: CrossOriginPolicySetting<'same-origin'>;
+  openerPolicy: CrossOriginOpenerPolicy;
+  openerSetting: CrossOriginOpenerPolicySetting;
+  resourcePolicy: CrossOriginResourcePolicy;
+  embedderPolicy: CrossOriginEmbedderPolicy;
+  embedderSetting: CrossOriginEmbedderPolicySetting;
+  reportingEndpoints: ReportingEndpointsConfig;
+};
+
+const publicSecurityHeadersTypeSurface: PublicSecurityHeadersTypeSurface | null =
+  null;
 
 type PackageExport = {
   types: string;
@@ -69,5 +103,9 @@ const expectedExports = Object.fromEntries(
 describe('package exports', () => {
   it('registers every public tsup library entrypoint', () => {
     expect(packageJSON.exports).toEqual(expectedExports);
+  });
+
+  it('exports the named types needed to build reusable security policies', () => {
+    expect(publicSecurityHeadersTypeSurface).toBeNull();
   });
 });

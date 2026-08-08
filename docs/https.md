@@ -431,8 +431,10 @@ async function main() {
           enforceHTTPS: true, // Redirect HTTP → HTTPS (backup layer)
           wwwHandling: 'remove', // Redirect www.example.com → example.com
         }),
-        // Note: Cross-origin requests are blocked by default (secure)
-        // Add securityHeaders() plugin only if you need to allow cross-origin API access
+        // Browsers restrict cross-origin response reads by default. Configure
+        // CORS only for origins that need access. State-changing routes that
+        // authenticate with cookies still require CSRF protection.
+        // Add securityHeaders() for CORS and other browser security headers.
         // See docs/built-in-plugins/security-headers.md for configuration
       ],
 

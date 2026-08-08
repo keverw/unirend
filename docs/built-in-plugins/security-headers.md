@@ -4,6 +4,8 @@
 
 - [About](#about)
 - [Key Features](#key-features)
+- [Production Quickstart](#production-quickstart)
+  - [Production Checklist](#production-checklist)
 - [Usage](#usage)
 - [Configuration](#configuration)
   - [`cors`](#cors)
@@ -48,29 +50,81 @@
 
 ## About
 
-The `securityHeaders` plugin provides dynamic CORS (Cross-Origin Resource Sharing) handling with advanced features not available in standard CORS libraries. Unlike `@fastify/cors`, this plugin supports dynamic credentials based on origin, allowing you to create public APIs while restricting credential access to trusted domains.
+The `securityHeaders` plugin applies the browser-enforced response policies a production app commonly needs: Content Security Policy (CSP), HSTS, framing protection, MIME-sniffing protection, referrer and permissions policies, cross-origin isolation headers, reporting endpoints, and optional CORS negotiation. It validates configuration at startup and integrates with Unirend's SSR, SSG, error, static-content, and raw-response paths so the policy covers more than the happy-path HTML response.
 
 ## Key Features
 
-- **Dynamic credentials**: Allow credentials only for specific origins while optionally accepting requests from any origin
-- **Function-based validation**: Use custom logic to determine allowed origins and credential permissions
-- **Separate policies**: Different rules for origin validation vs credential permissions
-- **Request-aware decisions**: `origin` and `credentials` can be functions that receive the full Fastify request, so you can base decisions on path, headers, method, cookies, etc.
-- **Request-level caching**: Origin validation is computed once per request and reused within that request lifecycle (e.g., across hooks)
+- **Strict CSP without breaking Unirend output**: Hashes framework and application template content automatically, with separate SSR and SSG workflows
+- **Safe rollout tools**: CSP, COOP, and COEP report-only modes plus validated reporting endpoints
+- **Production transport policy**: HSTS respects secure transport, trusted proxies, rejected hosts, first-party domains, and tenant-specific overrides
+- **Config-time validation**: Refuses malformed or silently ineffective header values before the server starts
+- **Per-request policies**: Resolve non-CORS headers by tenant or domain while preserving an explicit, validated baseline
+- **Request-aware CORS**: Independently decide which origins may read responses and which may read credentialed responses, with validated wildcard patterns and private-network preflight support
+- **Lifecycle coverage**: Applies policy to normal, error, short-circuited, static, and Unirend-managed raw responses
+
+## Production Quickstart
+
+Start with the broadly compatible headers, rehearse CSP against real traffic, and keep CORS off unless a browser application on another origin needs to read responses:
+
+```typescript
+import { securityHeaders } from 'unirend/plugins';
+import { serveSSRBuilt } from 'unirend/server';
+
+const headers = securityHeaders({
+  contentTypeOptions: true,
+  referrerPolicy: 'strict-origin-when-cross-origin',
+  frameOptions: 'DENY',
+
+  // Begin short. Raise this after HTTPS is stable, and add includeSubDomains
+  // only when every subdomain is under your control and HTTPS-only.
+  hsts: { maxAge: 86400 },
+
+  reportingEndpoints: {
+    csp: 'https://reports.example.com/csp',
+  },
+  csp: {
+    preset: 'strict',
+    reportOnly: true,
+    reportTo: 'csp',
+    reportURI: 'https://reports.example.com/csp',
+  },
+});
+
+const server = serveSSRBuilt('./build', {
+  plugins: [headers],
+});
+```
+
+Review violation reports, add only the sources the application genuinely needs, then remove `reportOnly`. Raise HSTS deliberately after verifying HTTPS and proxy handling. Configure `cors` separately when another origin must read the application or API.
+
+### Production Checklist
+
+- Roll CSP, COOP, and COEP changes out in report-only mode where a report-only header exists.
+- Verify the deployed headers at the browser-facing edge. A CDN or reverse proxy can remove, replace, or combine what the application emitted.
+- Set `fastifyOptions.trustProxy` narrowly when TLS terminates upstream, otherwise HSTS and HTTPS redirects cannot read the original protocol correctly.
+- Register `domainValidation` before `securityHeaders` when using HSTS, so an unchecked or rejected host is never pinned.
+- Start HSTS with a short `maxAge`. Add `includeSubDomains` and `preload` only for domains and subdomains you control permanently.
+- Keep CORS off unless another origin needs to read responses. CORS does not prevent cross-origin requests and does not replace CSRF protection on cookie-authenticated, state-changing endpoints.
+- Exercise authentication popups, payments, third-party widgets, fonts, workers, and CDN assets before enforcing COOP, COEP, CORP, or a strict CSP.
+- Make the reporting collector abuse-resistant and rate-limited, monitor delivery failures, and avoid placing secrets in report URLs.
 
 ## Usage
 
 ```typescript
 import { securityHeaders } from 'unirend/plugins';
+import { serveSSRBuilt } from 'unirend/server';
 
-const server = serveSSRBuilt(buildDir, {
+const server = serveSSRBuilt('./build', {
   plugins: [
     securityHeaders({
       cors: {
         // CORS is off until you set this. Name the origins you mean;
         // '*' is available but has to be written out.
         origin: ['https://myapp.com', 'https://admin.myapp.com'],
-        credentials: ['https://myapp.com'], // Only this one may send cookies
+        // Only this origin may expose a credentialed response to browser code.
+        // The client still chooses its credentials mode, and the server still
+        // needs CSRF protection for state-changing cookie-authenticated routes.
+        credentials: ['https://myapp.com'],
         methods: ['GET', 'POST', 'PUT', 'DELETE'],
         allowedHeaders: ['Content-Type', 'Authorization'],
       },
@@ -129,19 +183,20 @@ Setting any other CORS field without an `origin` is refused at startup. With not
       - Disallowed: `["*", "apple.com"]`, `["https://*", "*.example.com"]`, or multiple wildcard tokens
     - The string literal `"null"` does not match wildcards, include it explicitly if you wish to allow sandboxed/file contexts
 
-- `credentials` (default: `false`): Which origins may send credentials (cookies, auth headers)
+- `credentials` (default: `false`): Which allowed origins receive `Access-Control-Allow-Credentials`, permitting browser code to read a response when the request used credentials
   - `boolean`:
-    - `true`: allow credentials for the same origins that pass the `origin` policy.
+    - `true`: send the header for the same origins that pass the `origin` policy.
       - Safeguards: `origin: "*"` is rejected with `credentials: true`, protocol wildcards (e.g., `"https://*"`) require `allowCredentialsWithProtocolWildcard: true`.
-    - `false`: never allow credentials.
-  - `string[]`: explicit allowlist (exact origins only by default). Subdomain wildcards (e.g., `"*.example.com"`) are permitted only when `credentialsAllowWildcardSubdomains: true`. Use a separate credentials list when your API should be broadly accessible (e.g., third‑party apps using bearer tokens) but only your first‑party apps (your domains) should receive cookies/auth headers.
+    - `false`: never send the header.
+  - `string[]`: explicit allowlist (exact origins only by default). Subdomain wildcards (e.g., `"*.example.com"`) are permitted only when `credentialsAllowWildcardSubdomains: true`. Use a separate credentials list when your API should be broadly readable, for example by third-party apps using bearer tokens, but only your first-party browser apps should be able to read responses to credentialed requests.
   - `function`: per-request decision `(origin, request) => boolean | Promise<boolean)`
     - Not allowed with `origin: "*"`: combining a global origin wildcard with a dynamic credentials function is rejected for safety.
   - Auto-merge behavior: When `credentials` is an array, its origins are automatically merged into `origin` (even if `origin` is a single string) so credentialed origins are always allowed for CORS. Skipped when `origin` already carries a wildcard token (`"*"`, `"https://*"`, `"http://*"`), written either as a bare string or alone in an array, since those allow them already and a wildcard may only be paired with `"null"`.
-  - Setting `credentials` without an `origin` is refused at startup, along with every other CORS field. With CORS off no browser ever attaches credentials, so the block would read as "these origins may send cookies" and allow nothing.
+  - Setting `credentials` without an `origin` is refused at startup, along with every other CORS field. With CORS off no response receives `Access-Control-Allow-Origin`, so `Access-Control-Allow-Credentials` cannot make a response readable and the field would be inert.
 
 - `methods` (default: `["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]`): Allowed HTTP methods
   - Preflight handling: On OPTIONS requests, the plugin responds with `Access-Control-Allow-Methods` built from the configured methods, upper-cased. A repeat is not collapsed here, it is refused at startup, so what the configuration lists is what ships.
+  - `"*"` has wildcard meaning only for requests without credentials. On a credentialed request the browser treats it as the literal method name `*`, so list the actual methods when any allowed origin may receive `Access-Control-Allow-Credentials`.
   - Every entry has to be a valid method name, checked at startup. See the note under `allowedHeaders` below: the list is written into the response header verbatim, so one malformed entry costs the whole header.
 - `allowedHeaders` (default: `["Content-Type", "Authorization", "X-Requested-With"]`): Allowed request headers
   - A concrete list is advertised in full on every preflight, whatever that preflight asked for. It describes the server rather than the request, so the answer does not vary and a shared preflight cache entry stays as wide as the policy it stands for. A header the list does not name is never echoed back.
@@ -149,7 +204,7 @@ Setting any other CORS field without an `origin` is refused at startup. With not
   - `"*"` may not be combined with named headers, and this is refused at startup. The wildcard already reflects everything a request asks for, so the named entries would be consulted only for a preflight that requested nothing, and would read as an allowlist while doing nothing on every request that matters. Write `["*"]`, or write the names without it.
   - Every name has to be a valid header name, checked at startup, as do `methods` and `exposedHeaders` entries. All three lists go into their response header verbatim, and a browser drops a header value it cannot parse rather than the offending entry, so one name spelled `"Content Type"` takes every other name in the list down with it and the request fails cross-origin under a policy that reads as though it permits exactly what was asked for. Method and field names share one grammar, the RFC 9110 `token`. A bare `"*"` satisfies it in all three fields, since `*` is a legal token character. Whitespace around an entry is refused rather than trimmed, so what the configuration says is what ships. A repeated entry is refused too, compared without regard to case, since field names are case-insensitive and methods are upper-cased on the way out: a second copy adds nothing to the header and usually means a list assembled from two places.
   - `[]` is valid and means what it says: no `Access-Control-Allow-Headers` is sent, so a browser permits the CORS-safelisted request headers and nothing else. This is unlike `origin: []`, which is refused, because that one switches CORS on and then allows nobody.
-- `exposedHeaders` (default: `[]`): Headers exposed to the client. Every entry has to be a valid header name, checked at startup, for the same reason `methods` and `allowedHeaders` are.
+- `exposedHeaders` (default: `[]`): Headers exposed to the client. Every entry has to be a valid header name, checked at startup, for the same reason `methods` and `allowedHeaders` are. `"*"` exposes every response header only on requests without credentials. On a credentialed request it exposes only a header literally named `*`, so list the response headers browser code needs to read.
 - An empty list means the same thing in all three of `methods`, `allowedHeaders`, and `exposedHeaders`: the header is not sent. A header carrying an empty value is not how HTTP says "nothing", so leaving it off is the only correct reading. What a browser then permits is whatever it permits without that header: for `methods`, the CORS-safelisted ones, so simple requests still work and ones that trigger a preflight do not; for `allowedHeaders`, the safelisted request headers only; for `exposedHeaders`, the safelisted response headers only.
 - `maxAge` (default: `86400` - 24 hours): Max age for preflight cache, in whole seconds. A fraction is refused at startup rather than rounded: `Access-Control-Max-Age` carries `delta-seconds`, a run of digits, so a browser cannot parse `1.5`, drops the header, and falls back to its own preflight cache default of a few seconds. `0` is valid and means "do not cache the preflight".
 - `preflightContinue` (default: `false`): Controls whether the plugin short-circuits preflight OPTIONS requests. Only relevant when CORS is on; with it off the plugin does not handle `OPTIONS` at all. When `false` (default), the plugin fully handles the preflight and responds with `optionsSuccessStatus`. When `true`, CORS headers are still set but control passes to the next handler instead of ending the request.
@@ -257,7 +312,7 @@ The enforcing headers take `{ policy, reportTo }` too, so you can keep collectin
   - Apex domains do not match wildcard patterns, include the apex explicitly alongside subdomain patterns.
 - **Punycode Normalization**: Handles international domains (IDN) safely with punycode conversion
 - **Origin Normalization**: Case-robust matching, scheme and port are considered for origin comparisons (`https://app.com/` vs `https://app.com`)
-- **Secure Credentials**: Raw wildcard tokens (`*`, `https://*`, `http://*`) are NOT allowed in credentials arrays. Subdomain wildcards (like `*.example.com`) are supported only when `credentialsAllowWildcardSubdomains: true`
+- **Credentialed response safeguards**: Raw wildcard tokens (`*`, `https://*`, `http://*`) are not allowed in credentials arrays. Subdomain wildcards like `*.example.com` are supported only when `credentialsAllowWildcardSubdomains: true`.
   - The string literal `"null"` origin is never allowed in `credentials` arrays and will be rejected.
   - Even when using a credentials function, the literal `"null"` origin will never receive `Access-Control-Allow-Credentials: true`.
 - **Header Preservation**: Maintains configured header casing (e.g., "Content-Type")
@@ -268,11 +323,11 @@ The enforcing headers take `{ policy, reportTo }` too, so you can keep collectin
 **Examples:**
 
 ```typescript
-// Wildcard origins with explicit credentials (recommended)
+// Wildcard origins with explicit credentialed-response access
 securityHeaders({
   cors: {
     origin: ['**.myapp.com', 'https://myapp.com'], // All subdomains + explicit apex
-    credentials: ['https://app.myapp.com', 'https://admin.myapp.com'], // Explicit only
+    credentials: ['https://app.myapp.com', 'https://admin.myapp.com'], // Only these receive Access-Control-Allow-Credentials
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   },
@@ -336,7 +391,7 @@ securityHeaders({
 securityHeaders({
   cors: {
     origin: ['https://myapp.com', 'https://www.myapp.com'],
-    credentials: true, // Allow credentials for all allowed origins
+    credentials: true, // Expose credentialed responses to every allowed origin
     methods: ['GET', 'POST'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     exposedHeaders: ['X-Total-Count'],
@@ -358,14 +413,19 @@ securityHeaders({
 
 ## Security Notes
 
-- **Credentials Security**: Raw wildcard patterns (`*`, `https://*`, `http://*`) are NOT allowed in `credentials` arrays and will throw an error. Only subdomain patterns like `*.example.com` are permitted when `credentialsAllowWildcardSubdomains: true`
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> CORS controls whether browser code can read a cross-origin response. It does not prevent the browser from sending a request and is not CSRF protection. State-changing endpoints authenticated with cookies require a CSRF defense such as validated tokens or strict `Origin` checks, with appropriate `SameSite` cookies as an additional safeguard.
+
+- **Credentialed response security**: Raw wildcard patterns (`*`, `https://*`, `http://*`) are not allowed in `credentials` arrays and will throw an error. Only subdomain patterns like `*.example.com` are permitted when `credentialsAllowWildcardSubdomains: true`.
 - **Wildcard Patterns**:
   - `*.example.com` matches direct subdomains only (`api.example.com` ✅, `app.api.example.com` ❌)
   - `**.example.com` matches all subdomains including nested (`api.example.com` ✅, `app.api.example.com` ✅)
   - Protocol-specific: `https://*`, `https://*.example.com` for protocol-aware matching
 - **International Domains**: All domains normalized with punycode for safe Unicode/IDN handling
 - **Auto-Merging**: Credentials origins are merged into the origin list to prevent configuration mistakes, except where `origin` already carries a wildcard token, which allows them all along. See the note under `credentials` for the exact rule.
-- **Credentials Behavior**: The `credentials` option controls the `Access-Control-Allow-Credentials` header, which tells browsers whether to include cookies/auth headers in requests. When credentials are enabled, the browser automatically handles the `Cookie` header - you don't need to add "Cookie" to `allowedHeaders`. The client must still opt-in with `credentials: 'include'` in their fetch request.
+- **Credentials behavior**: The `credentials` option controls `Access-Control-Allow-Credentials`, which lets browser code read a response when the request's credentials mode is `include`. It does not cause credentials to be sent. The client chooses its credentials mode, while cookie attributes and browser authentication rules determine which credentials are attached. `Cookie` is not a script-set request header and does not belong in `allowedHeaders`.
+- **Iframes use different controls**: CORS `credentials` does not decide whether a page may be embedded or whether an embedded page receives cookies. Use [`csp.frameAncestors`](#frameancestors-and-frameoptions-together) or `frameOptions` to control embedding, and see the cookies plugin's [SameSite and Secure matrix](cookies.md#samesite-and-secure-matrix) for cross-site cookie behavior.
 - **Response Headers**: CORS-safelisted response headers (`Cache-Control`, `Content-Language`, `Content-Length`, `Content-Type`, `Expires`, `Last-Modified`, `Pragma`) are always accessible to clients. Use `exposedHeaders` to expose additional response headers like `X-Total-Count` or `Authorization`.
 - **Protocol Wildcards + Credentials**: Using `credentials: true` with protocol wildcard origins (e.g., `"https://*"`) is blocked by default, set `allowCredentialsWithProtocolWildcard: true` to opt-in deliberately.
 - Partial-label wildcards are invalid: Patterns like `"*foo.com"`, `"ex*.example.com"`, or `"foo*bar.com"` are rejected. Use full-label wildcards only: `"*.example.com"` (direct subdomains) or `"**.example.com"` (any depth).
@@ -1171,13 +1231,27 @@ Unirend's built-in static content cache does this by calling the plugin's shared
 ```typescript
 // Comprehensive production setup
 securityHeaders({
+  contentTypeOptions: true,
+  referrerPolicy: 'strict-origin-when-cross-origin',
+  frameOptions: 'DENY',
+  hsts: { maxAge: 31536000, includeSubDomains: true },
+  reportingEndpoints: {
+    csp: 'https://reports.example.com/csp',
+  },
+  csp: {
+    preset: 'strict',
+    reportOnly: true,
+    reportTo: 'csp',
+    reportURI: 'https://reports.example.com/csp',
+    imgSrc: ["'self'", 'https://cdn.myapp.com'],
+  },
   cors: {
     origin: ['**.myapp.com', 'https://myapp.com'], // All subdomains + explicit apex
     credentials: [
       'https://app.myapp.com',
       'https://admin.myapp.com',
       'https://myapp.com',
-    ], // Explicit credentials only - cookies sent automatically by browser
+    ], // Only these origins may read credentialed responses
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization'], // No need for "Cookie" header
     exposedHeaders: ['X-Total-Count', 'X-Rate-Limit'], // Non-safelisted headers need explicit exposure
@@ -1186,9 +1260,9 @@ securityHeaders({
   },
 });
 
-// Client-side usage (cookies included automatically when credentials allowed)
+// Client-side usage
 fetch('https://api.myapp.com/data', {
-  credentials: 'include', // Required to send cookies
+  credentials: 'include', // Requests that the browser permits may include cookies
   headers: {
     'Content-Type': 'application/json',
     Authorization: 'Bearer token123', // Custom auth headers need to be in allowedHeaders
@@ -1216,9 +1290,8 @@ securityHeaders({
   },
 });
 
-// Non-CORS security headers (off by default)
+// Focused HSTS example
 securityHeaders({
-  cors: { origin: ['**.myapp.com', 'https://myapp.com'] },
   frameOptions: 'SAMEORIGIN', // or "DENY"
   hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
   // HSTS is sent only on requests that arrived over HTTPS. Behind a
@@ -1226,12 +1299,14 @@ securityHeaders({
 });
 ```
 
+The comprehensive example assumes every `myapp.com` subdomain is under the same operator's control and HTTPS-only. Leave out `includeSubDomains` otherwise. Keep `reportOnly` on until CSP reports show the application is ready, then remove it to enforce the policy.
+
 ## Advanced Use Cases
 
-The dynamic nature of this plugin's CORS handling makes it perfect for:
+The dynamic CORS handling supports:
 
-- **Public APIs**: Accept requests from any origin while restricting credentials
-- **Dynamic credentials**: Control cookie/auth header access per origin and request
+- **Public APIs**: Let selected origins read responses while limiting which may read credentialed ones
+- **Dynamic credentialed responses**: Control `Access-Control-Allow-Credentials` per origin and request
 - **Request-aware validation**: Different CORS rules based on URL path or headers
 - **Granular control**: Mix wildcard origins with specific credential origins
 - **Wildcard domains**: `*.example.com` supports subdomains with proper security
@@ -1239,13 +1314,13 @@ The dynamic nature of this plugin's CORS handling makes it perfect for:
 - **Header aesthetics**: Preserves configured header casing in responses
 - **Environment detection**: Different CORS rules based on environment detection
 - **API versioning**: Different CORS rules for different API versions
-- **Authentication flows**: Allow credentials only for authentication endpoints
+- **Authentication flows**: Expose credentialed responses only to the intended browser applications
 
 ## Security Benefits
 
 Unlike traditional CORS libraries that apply the same credential policy to all allowed origins, this plugin lets you:
 
-- Allow public API access without exposing user cookies to third parties
-- Implement fine-grained security policies based on request context
-- Prevent credential leakage while maintaining API accessibility
+- Allow public API reads without exposing credentialed responses to third-party browser code
+- Implement fine-grained response-access policies based on request context
+- Limit which browser origins can read sensitive responses while maintaining API accessibility
 - Support complex authentication flows with multiple trusted domains

@@ -83,13 +83,16 @@ export interface CORSConfig {
   origin?: CORSOrigin | false;
 
   /**
-   * Origins that are allowed to send credentials (cookies, auth headers)
-   * This enables more granular control than standard CORS libraries
+   * Origins whose credentialed CORS responses may be exposed to browser code.
+   * This controls `Access-Control-Allow-Credentials`, not whether the browser
+   * sends cookies or authorization. The request's credentials mode, cookie
+   * attributes, and authentication behavior decide that. CORS is not a CSRF
+   * defense, so protect state-changing credentialed endpoints separately.
    *
-   * - string[]: List of trusted origins that can send credentials
-   * - function: Dynamic credential validation based on origin
-   * - true: Allow credentials for all allowed origins (same as @fastify/cors)
-   * - false: Never allow credentials
+   * - string[]: Send the header for these trusted origins
+   * - function: Dynamic decision based on origin and request
+   * - true: Send it for all allowed origins (same as @fastify/cors)
+   * - false: Never send it
    *
    * @default false
    */
@@ -518,9 +521,9 @@ function hasProtocolWildcard(value: CORSOrigin | false): boolean {
  * Every problem with a credentials allowlist.
  *
  * The rules are stricter than the ones origin entries get, and deliberately so.
- * An origin on this list may send cookies and Authorization headers, so a
- * pattern matching more than the author pictured is a session handed to
- * whoever registered the domain that also matches.
+ * An origin on this list may receive `Access-Control-Allow-Credentials`, so a
+ * pattern matching more than the author pictured exposes credentialed
+ * responses to whoever registered the domain that also matches.
  */
 export function collectCredentialsOriginIssues(
   credentials: readonly string[],
@@ -1146,8 +1149,9 @@ export function collectCORSIssues(input: unknown): {
 
   // Auto-merge credentials origins into origin list for safety
   // This prevents common configuration mistakes where credentials origins aren't included in the origin list
-  // Note: credentials controls Access-Control-Allow-Credentials header, which tells browsers
-  // whether to include cookies/auth headers in requests - it doesn't automatically allow cookies
+  // `credentials` controls Access-Control-Allow-Credentials, which determines
+  // whether browser code may read a response to a credentialed request. It
+  // does not decide whether the browser sends cookies or authorization.
   //
   // Skipped when the origin already carries a wildcard token, since every
   // credentialed origin is allowed by it already. Appending anyway produced a

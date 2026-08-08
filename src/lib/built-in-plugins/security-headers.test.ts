@@ -3194,6 +3194,23 @@ describe('securityHeaders', () => {
       );
     });
 
+    // The 100-entry cap belongs only to client-controlled reflection. A
+    // configured list is trusted policy, and silently dropping its last entry
+    // makes a request using that header fail under a config that permits it.
+    it('does not apply the reflection cap to a configured list', async () => {
+      const configured = Array.from(
+        { length: 101 },
+        (_, index) => `X-Configured-${index + 1}`,
+      );
+
+      expect(
+        await preflightAllowHeaders(
+          { origin: 'https://example.com', allowedHeaders: configured },
+          'X-Configured-101',
+        ),
+      ).toBe(configured.join(', '));
+    });
+
     // The security-relevant half. A name the client asks for and the operator
     // never configured must not come back, and it does not, because nothing on
     // this path copies a requested name into the response. Written as its own

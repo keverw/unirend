@@ -69,7 +69,7 @@ import {
   type ResolvedCORSConfig,
 } from '../internal/cors-validation';
 
-export type { CSPConfig } from '../internal/csp-policy';
+export type { CSPConfig, CSPPreset } from '../internal/csp-policy';
 
 // The CORS types live next to the rules that judge them, so the collectors can
 // be written against them without the plugin and the validator importing each
@@ -819,9 +819,7 @@ async function isOriginAllowed(
   return false;
 }
 
-/**
- * Check if credentials are allowed for an origin
- */
+/** Decide whether this origin receives Access-Control-Allow-Credentials. */
 async function areCredentialsAllowed(
   origin: string | undefined,
   credentialsConfig: CORSConfig['credentials'],
@@ -930,7 +928,8 @@ async function resolveOriginAllowed(
 }
 
 /**
- * Decide whether this request's origin may send credentials, once per request.
+ * Decide whether this request's origin receives
+ * Access-Control-Allow-Credentials, once per request.
  *
  * Same fail-closed rule as the origin decision, and the stakes are higher: the
  * header this gates is what lets a cross-origin caller read a response made
@@ -1639,7 +1638,7 @@ async function applyCORSActualResponseHeaders(
 
     const isCredentialsAllowed = await resolveCredentialsAllowed(request, cors);
 
-    // Never send credentials for the special 'null' origin
+    // Never expose a credentialed response to the special 'null' origin.
     if (isCredentialsAllowed && origin !== 'null') {
       writeSecurityHeader(
         reply,
@@ -1671,7 +1670,7 @@ async function applyCORSActualResponseHeaders(
  * plus the non-negotiated headers such as X-Frame-Options and HSTS.
  *
  * Provides more flexible CORS handling than @fastify/cors, specifically:
- * - Dynamic credentials based on origin
+ * - Dynamic credentialed-response access based on origin
  * - Function-based origin validation
  * - Separate credential and origin policies
  *
@@ -1681,13 +1680,15 @@ async function applyCORSActualResponseHeaders(
  *
  * @example
  * ```typescript
- * // Allow public API access but only credentials for trusted origins.
+ * // Allow public API reads but expose credentialed responses only to trusted
+ * // origins. Pair state-changing cookie-authenticated routes with CSRF
+ * // protection, since CORS is not a CSRF defense.
  * // The two lists are independent: '*' decides who may read a response,
  * // the credentials list decides who may do it with cookies attached.
  * securityHeaders({
  *   cors: {
  *     origin: "*", // Written out, never inherited: this is every origin
- *     credentials: ["https://myapp.com", "https://admin.myapp.com"], // Only these can send cookies
+ *     credentials: ["https://myapp.com", "https://admin.myapp.com"], // Only these receive credentialed responses
  *     methods: ["GET", "POST"],
  *   },
  * })
@@ -2377,7 +2378,7 @@ export function securityHeaders(
           // never add a header, since the list it was appending to already held
           // every configured name. What keeps an unwanted name off the response
           // is that it was never configured.
-          let allowedHeaders: string[] =
+          const allowedHeaders: string[] =
             resolvedConfig.cors.allowedHeaders.includes('*')
               ? requestedHeaders
                 ? reflectRequestedHeaders(requestedHeaders)
@@ -2389,11 +2390,6 @@ export function securityHeaders(
                   // headers.
                   []
               : [...resolvedConfig.cors.allowedHeaders];
-
-          // Cap to avoid sending excessive header lists
-          if (allowedHeaders.length > MAX_ALLOWED_HEADERS) {
-            allowedHeaders = allowedHeaders.slice(0, MAX_ALLOWED_HEADERS);
-          }
 
           // Set preflight response headers.
           //

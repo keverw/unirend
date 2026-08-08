@@ -10,9 +10,21 @@ import {
 // Re-export browser security headers plugin (CORS negotiation, HSTS, X-Frame-Options)
 export {
   type SecurityHeadersConfig,
+  type SecurityHeadersPlugin,
   type CORSConfig,
   type CORSOrigin,
+  type CSPConfig,
+  type CSPPreset,
   type HSTSConfig,
+  type ReferrerPolicyToken,
+  type PermissionsPolicyConfig,
+  type CrossOriginPolicySetting,
+  type CrossOriginOpenerPolicy,
+  type CrossOriginOpenerPolicySetting,
+  type CrossOriginResourcePolicy,
+  type CrossOriginEmbedderPolicy,
+  type CrossOriginEmbedderPolicySetting,
+  type ReportingEndpointsConfig,
   // The resolver's own types, so a resolver written as a named function rather
   // than inline in the config can be annotated without reaching into internals.
   // `SecurityHeadersBaseline` is what it receives, `SecurityHeadersOverride`
