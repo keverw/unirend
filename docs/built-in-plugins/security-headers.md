@@ -810,19 +810,28 @@ Register it after `securityHeaders`, so the decoration exists by the time your h
 
 Quote the hashes. `hashInlineContentForCSP()` returns the bare expression, because a source list has unquoted members too, and an unquoted `sha256-…` is read as a host name, matches nothing, and blocks the content it was meant to allow.
 
+What you pass is appended to the directive that governs that kind of content, after the sources you wrote yourself. Calls accumulate across the request, and duplicates collapse, so contributing the same source twice is harmless.
+
+Which directive it lands in follows CSP's own fallback, and one source can land in more than one:
+
+| Your policy | `scriptSrc: ["'sha256-yours'"]` becomes |
+| --- | --- |
+| `scriptSrc: ["'self'"]` | `script-src 'self' 'sha256-yours'` |
+| `scriptSrc` and `scriptSrcElem` both set | appended to **both**, since `script-src-elem` is what a browser consults for an inline `<script>` when it is present |
+| `defaultSrc` only | `default-src 'self' 'sha256-yours'` |
+| `defaultSrc` and `scriptSrc` set | `script-src` only, because fallback stops at the first directive that is set |
+
 <!-- prettier-ignore -->
 > [!IMPORTANT]
-> This is not an append to the header. A source is contributed to whichever directive governs that kind of content, and it follows the same rules as unirend's own hashes, so it can legitimately go nowhere.
+> A contributed source is not appended unconditionally. It obeys the same rules as unirend's own hashes, and if every directive that governs it refuses, the source lands nowhere at all rather than creating a directive you did not write.
 
-Three cases where a contributed source is dropped, all of them the same rules described above:
-
-| Policy | Result |
+| Governing directive | Result |
 | --- | --- |
-| No directive set anywhere in the chain for that kind | Dropped, since there is no directive a browser would consult |
-| The governing directive is `["'none'"]` | Dropped, because you said allow nothing |
-| The governing directive's `'unsafe-inline'` is [in effect](#unsafe-inline-and-automatic-hashes) | Dropped, since adding a hash would revoke it |
+| Not set anywhere in the chain | Dropped, since there is no directive a browser would consult and inventing one would override `default-src` |
+| `["'none'"]` | Dropped, because you said allow nothing |
+| Its `'unsafe-inline'` is [in effect](#unsafe-inline-and-automatic-hashes) | Dropped, since adding a hash would revoke it |
 
-Otherwise it lands in `script-src` and `script-src-elem`, or `style-src` and `style-src-elem`, and in `default-src` for whichever half of the chain ends there. Duplicates are collapsed, so contributing the same source twice is harmless.
+The first row is the one to watch. Contributing a `styleSrc` hash to a policy that sets no style directive and no `defaultSrc` is silently a no-op, because there is nothing for it to join.
 
 Two more things worth knowing. The header is assembled as the response is sent, so call this any time before that. And it is folded into the policy **in force for this request**, so a [`resolve`](#per-request-policy-with-resolve) callback that handed this tenant a different policy is the one your source joins. If a route sets its own `Content-Security-Policy` header, unirend leaves that header alone and the contribution is dropped with it.
 
