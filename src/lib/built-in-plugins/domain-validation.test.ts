@@ -1670,6 +1670,57 @@ describe('domainValidation', () => {
       expect(reply.code).not.toHaveBeenCalled();
       expect(reply.redirect).not.toHaveBeenCalled();
     });
+
+    // Standalone, with no canonicalDomain. The other 'remove' test pairs the
+    // two, where the canonical redirect reaches the apex on its own and this
+    // option contributes nothing, so it passed while 'remove' did nothing.
+    it('should remove www with no canonicalDomain configured', async () => {
+      const config: DomainValidationConfig = {
+        validProductionDomains: ['example.com', '*.example.com'],
+        wwwHandling: 'remove',
+      };
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        headers: { host: 'www.example.com' },
+        url: '/test',
+      });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.redirect).toHaveBeenCalledWith('https://example.com/test');
+    });
+
+    // A canonicalDomain that disagrees with wwwHandling has each rule undoing
+    // the other, so the target comes out identical to the request. Serving it
+    // is the safe answer, since redirecting is what loops the browser.
+    it('should not redirect when canonicalDomain contradicts wwwHandling', async () => {
+      const config: DomainValidationConfig = {
+        validProductionDomains: ['example.com', 'www.example.com'],
+        canonicalDomain: 'www.example.com',
+        wwwHandling: 'remove',
+      };
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        headers: { host: 'example.com' },
+        url: '/test',
+      });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.redirect).not.toHaveBeenCalled();
+    });
   });
 
   describe('port preservation edge cases', () => {

@@ -52,10 +52,11 @@ export interface UnirendContextData {
  * Serialize the payload for embedding in a `<script type="application/json">`
  * element.
  *
- * Every `<` is written as its `<` escape, which is what stops a value
+ * Every `<` is written as its `\u003c` escape, which is what stops a value
  * containing a closing script tag from ending the element early. JSON treats
  * the escape as the character it names, so `JSON.parse` on the client gets the
  * original text back.
+ *
  * This is the same escaping the seven separate assignment scripts used, and it
  * matters at least as much here, since the whole payload now travels in one
  * element.

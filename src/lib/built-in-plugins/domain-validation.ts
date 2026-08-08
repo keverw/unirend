@@ -611,15 +611,35 @@ export function domainValidation(
       }
 
       // 3. Apply WWW handling (only for apex domains)
+      //
+      // The apex test is applied to the domain *without* the www label in both
+      // directions, which is the same host in each case: the one "add" starts
+      // from and the one "remove" arrives at. Asking it of `finalDomain` as it
+      // stands made the two modes ask different questions. It was right for
+      // "add", which starts from a host with no www label anyway, and never
+      // true for "remove", since `www.example.com` carries a subdomain and so
+      // is not an apex domain. That left `wwwHandling: 'remove'` a silent no-op
+      // unless a `canonicalDomain` had already rewritten the host to the apex,
+      // in which case the canonical redirect was doing the whole job and this
+      // option contributed nothing.
+      //
+      // It also stops "remove" at a public suffix. `isApexDomain('www.co.uk')`
+      // is true, `co.uk` being the registrable apex, so the old gate opened for
+      // a `www.co.uk` host and redirected to the bare suffix.
       const wwwMode = config.wwwHandling || 'preserve';
 
-      if (wwwMode !== 'preserve' && isApexDomain(finalDomain)) {
+      if (wwwMode !== 'preserve') {
         const hasWww = finalHost.startsWith('www.');
-        if (wwwMode === 'add' && !hasWww) {
+
+        if (wwwMode === 'add' && !hasWww && isApexDomain(finalDomain)) {
           finalHost = `www.${finalHost}`;
           finalDomain = `www.${finalDomain}`; // keep in sync
           shouldRedirect = true;
-        } else if (wwwMode === 'remove' && hasWww) {
+        } else if (
+          wwwMode === 'remove' &&
+          hasWww &&
+          isApexDomain(finalDomain.substring(4))
+        ) {
           finalHost = finalHost.substring(4);
           finalDomain = finalDomain.substring(4); // keep in sync
           shouldRedirect = true;
@@ -639,18 +659,35 @@ export function domainValidation(
       // Perform single redirect if needed
       if (shouldRedirect) {
         // Bracket IPv6 literals in the host component; append preserved port if any
-        let hostForURL = finalHost;
+        const bracketed = (host: string): string =>
+          host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
 
-        if (hostForURL.includes(':') && !hostForURL.startsWith('[')) {
-          hostForURL = `[${hostForURL}]`;
+        const redirectURL = `${finalProtocol}://${bracketed(finalHost)}${finalPortPart}${request.url}`;
+
+        // Never send a request back to the URL it already arrived at.
+        //
+        // The steps above each decide independently, so a configuration that
+        // contradicts itself assembles a target identical to the request.
+        // `canonicalDomain: 'www.example.com'` alongside `wwwHandling: 'remove'`
+        // asks for the www host and the apex at once, and whichever one the
+        // request already has, the other rewrites it back. A browser follows
+        // that until it gives up with ERR_TOO_MANY_REDIRECTS, on a server that
+        // looks healthy and a config whose two halves each read as reasonable.
+        //
+        // Checked on the assembled string rather than on the individual
+        // decisions, because the decisions are what disagree: any pair of them
+        // can cancel out, and only the result knows. Failing this way round is
+        // the safe one, since serving the request the client asked for is what
+        // would have happened had neither rule been configured.
+        const currentURL = `${protocol}://${bracketed(domain)}${port ? `:${port}` : ''}${request.url}`;
+
+        if (redirectURL !== currentURL) {
+          const statusCode = config.redirectStatusCode || 301;
+
+          reply.code(statusCode).redirect(redirectURL);
+
+          return reply;
         }
-
-        const redirectURL = `${finalProtocol}://${hostForURL}${finalPortPart}${request.url}`;
-        const statusCode = config.redirectStatusCode || 301;
-
-        reply.code(statusCode).redirect(redirectURL);
-
-        return reply;
       }
 
       // Continue to next handler - no redirects needed
