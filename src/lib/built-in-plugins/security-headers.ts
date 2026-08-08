@@ -25,7 +25,7 @@ import {
 } from '../internal/csp-policy';
 import { UNIREND_ERROR_PAGE_STYLE_HASHES } from '../internal/error-page-utils';
 import { UNIREND_BOOTSTRAP_SCRIPT_HASH } from '../internal/html-utils/context-data-block';
-import type { InlineAttributeFinding } from '../internal/html-utils/format';
+import type { InlineAttributeReport } from '../internal/html-utils/format';
 import {
   collectFrameOptionsIssues,
   collectFramingIssues,
@@ -1156,7 +1156,7 @@ function effectiveAttributeSources(
  */
 function permitsInlineAttribute(
   policy: CSPConfig,
-  finding: InlineAttributeFinding,
+  finding: InlineAttributeReport,
 ): boolean {
   const sources = effectiveAttributeSources(policy, finding.kind);
 
@@ -1983,12 +1983,12 @@ export function securityHeaders(
   // template carries several times over.
   const reportedInlineAttributes = new LRUCache<string, true>(512);
 
-  const findingKey = (finding: InlineAttributeFinding) =>
+  const findingKey = (finding: InlineAttributeReport) =>
     `${finding.description}|${finding.hash}`;
 
   const reportInlineAttributes = (
     request: FastifyRequest,
-    findings: readonly InlineAttributeFinding[] | undefined,
+    findings: readonly InlineAttributeReport[] | undefined,
   ): void => {
     if (!findings?.length) {
       return;
@@ -2271,7 +2271,7 @@ export function securityHeaders(
               addCSPSources?: (sources: {
                 scriptSrc?: readonly string[];
                 styleSrc?: readonly string[];
-                inlineAttributes?: readonly InlineAttributeFinding[];
+                inlineAttributes?: readonly InlineAttributeReport[];
               }) => void;
               cspExtraSources?: { scriptSrc: string[]; styleSrc: string[] };
             }

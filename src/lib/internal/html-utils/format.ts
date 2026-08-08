@@ -534,13 +534,14 @@ export interface TemplateCSPHashes extends ResolvedTemplateCSPHashes {
 }
 
 /**
- * One inline attribute, with everything needed to judge and report it.
+ * One inline attribute, described well enough to judge and report it.
  *
- * Carries the hash rather than only the attribute's name because the two
- * questions downstream are "would the policy block this" and "what would fix
- * it", and both need the exact value.
+ * This is the shape a *caller* supplies, through `request.addCSPSources`, and
+ * it is everything the reporting path reads. Carries the hash rather than only
+ * the attribute's name because the two questions downstream are "would the
+ * policy block this" and "what would fix it", and both need the exact digest.
  */
-export interface InlineAttributeFinding {
+export interface InlineAttributeReport {
   /** Names the element and attribute, e.g. `<button> has onclick=`. */
   description: string;
   /**
@@ -556,6 +557,21 @@ export interface InlineAttributeFinding {
    * and no normalization, the same way an element hash covers its text content.
    */
   hash: string;
+}
+
+/**
+ * An inline attribute unirend's own scan found, which additionally remembers
+ * the raw value the hash was taken over.
+ *
+ * Split from {@link InlineAttributeReport} rather than adding an optional field
+ * to it, because the two directions want opposite things. Anything *reading*
+ * findings, `SSGReport.cspHashes` being the public one, benefits from `value`
+ * being guaranteed. Anything *constructing* one to hand to `addCSPSources`
+ * would be forced to invent a value that nothing on that path ever reads: it is
+ * consumed only by {@link resolveTemplateCSPHashes}, which runs over the
+ * template scan's own output before any of this reaches a caller.
+ */
+export interface InlineAttributeFinding extends InlineAttributeReport {
   /**
    * The attribute's value as parsed, kept so the hash can be recomputed once the
    * CDN placeholder is resolved.

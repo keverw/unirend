@@ -16,7 +16,7 @@ import type {
   ServerPlugin,
   UnirendServerMode,
 } from '../types';
-import type { InlineAttributeFinding } from '../internal/html-utils/format';
+import type { InlineAttributeReport } from '../internal/html-utils/format';
 import { hashInlineContentForCSP } from '../internal/csp-hash';
 import { UNIREND_BOOTSTRAP_SCRIPT_HASH } from '../internal/html-utils/context-data-block';
 import { UNIREND_ERROR_PAGE_STYLE_HASHES } from '../internal/error-page-utils';
@@ -2403,23 +2403,21 @@ describe('securityHeaders', () => {
     const ONCLICK_HASH = `'${hashInlineContentForCSP("alert('x')")}'`;
     const STYLE_HASH = `'${hashInlineContentForCSP('color: red')}'`;
 
-    const ONCLICK: InlineAttributeFinding = {
+    const ONCLICK: InlineAttributeReport = {
       description: '<button> has onclick=',
       kind: 'script',
       hash: ONCLICK_HASH,
-      value: "alert('x')",
     };
 
-    const STYLE_ATTR: InlineAttributeFinding = {
+    const STYLE_ATTR: InlineAttributeReport = {
       description: '<div> has style=',
       kind: 'style',
       hash: STYLE_HASH,
-      value: 'color: red',
     };
 
     async function warningsFor(
       csp: CSPConfig,
-      inlineAttributes: readonly InlineAttributeFinding[] = [ONCLICK],
+      inlineAttributes: readonly InlineAttributeReport[] = [ONCLICK],
     ): Promise<unknown[]> {
       const pluginHost = createMockPluginHost();
 
@@ -2434,7 +2432,7 @@ describe('securityHeaders', () => {
         log: { warn: (...args: unknown[]) => warnings.push(args) },
       }) as ReturnType<typeof createMockRequest> & {
         addCSPSources?: (sources: {
-          inlineAttributes?: readonly InlineAttributeFinding[];
+          inlineAttributes?: readonly InlineAttributeReport[];
         }) => void;
       };
 
@@ -2553,11 +2551,10 @@ describe('securityHeaders', () => {
       // Same description, different values, so they need different hashes to
       // fix. Deduping on the description would report the first and swallow the
       // second, leaving a blocked handler with nothing said about it.
-      const second: InlineAttributeFinding = {
+      const second: InlineAttributeReport = {
         description: '<button> has onclick=',
         kind: 'script',
         hash: `'${hashInlineContentForCSP('other()')}'`,
-        value: 'other()',
       };
 
       return warningsFor({ scriptSrc: ["'self'"] }, [ONCLICK, second]).then(
@@ -2575,11 +2572,10 @@ describe('securityHeaders', () => {
     it('warns about a second handler the policy does not cover', () => {
       // The case the collapse hid entirely: one handler hashed, the other not.
       // Judging the template by the first would call it clean.
-      const uncovered: InlineAttributeFinding = {
+      const uncovered: InlineAttributeReport = {
         description: '<button> has onclick=',
         kind: 'script',
         hash: `'${hashInlineContentForCSP('other()')}'`,
-        value: 'other()',
       };
 
       return warningsFor(
@@ -2720,7 +2716,7 @@ describe('securityHeaders', () => {
         log: { warn: (...args: unknown[]) => warnings.push(args) },
       }) as ReturnType<typeof createMockRequest> & {
         addCSPSources?: (sources: {
-          inlineAttributes?: readonly InlineAttributeFinding[];
+          inlineAttributes?: readonly InlineAttributeReport[];
         }) => void;
       };
 
@@ -2748,7 +2744,6 @@ describe('securityHeaders', () => {
             description: '<button> has onclick=',
             kind: 'script',
             hash: `'${hashInlineContentForCSP('different()')}'`,
-            value: 'different()',
           },
         ],
       });

@@ -92,7 +92,11 @@ export { generateSSG } from './lib/ssg';
 // takes it has to restate the shape by hand or reach into internals.
 export type {
   ResolvedTemplateCSPHashes,
+  // The read shape, carried on the SSG report, and the write shape a caller
+  // hands to `request.addCSPSources`. The write one omits the raw attribute
+  // value, which nothing on that path reads.
   InlineAttributeFinding,
+  InlineAttributeReport,
 } from './lib/internal/html-utils/format';
 export { unirendBaseRender } from './lib/base-render';
 export { serveAPI, servePlain } from './lib/api';

@@ -25,7 +25,7 @@ import type {
 import type { UnirendContextValue } from './internal/UnirendContext';
 import type { DomainInfo } from './internal/domain-info';
 import type {
-  InlineAttributeFinding,
+  InlineAttributeReport,
   ResolvedTemplateCSPHashes,
   TemplateCSPHashes,
 } from './internal/html-utils/format';
@@ -2894,7 +2894,7 @@ declare module 'fastify' {
        * `securityHeaders` warns about them only when the policy in force for
        * the request would actually block them.
        */
-      inlineAttributes?: readonly InlineAttributeFinding[];
+      inlineAttributes?: readonly InlineAttributeReport[];
     }) => void;
     /**
      * Set to `true` by the built-in `domainValidation` plugin when it rejects
