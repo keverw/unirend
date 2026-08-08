@@ -598,8 +598,18 @@ export class SSRServer<
       }
 
       // Clear cached templates and render functions (defensive programming)
+      //
+      // The template's CSP hashes go with it, in the same branch rather than
+      // one of their own. They describe that exact template's inline content,
+      // so a cleared template that left them behind would be a set of hashes
+      // for bytes nothing is serving. Nothing reads them in that state today,
+      // since the request path refuses to serve without a template at all, but
+      // the two are written together when the template loads and keeping them
+      // cleared together is what stops that from depending on a guard
+      // elsewhere.
       if ('cachedHTMLTemplate' in appConfig) {
         appConfig.cachedHTMLTemplate = undefined;
+        appConfig.cachedTemplateCSPHashes = undefined;
       }
 
       if ('cachedRenderFunction' in appConfig) {
@@ -1979,9 +1989,12 @@ export class SSRServer<
         }
       }
 
-      // Clear cached templates and render functions (production mode)
+      // Clear cached templates and render functions (production mode).
+      // The template's CSP hashes are cleared with it, for the reason given
+      // where the same thing happens before a start.
       if ('cachedHTMLTemplate' in appConfig) {
         appConfig.cachedHTMLTemplate = undefined;
+        appConfig.cachedTemplateCSPHashes = undefined;
       }
 
       if ('cachedRenderFunction' in appConfig) {
