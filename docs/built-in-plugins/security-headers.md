@@ -810,16 +810,18 @@ Register it after `securityHeaders`, so the decoration exists by the time your h
 
 Quote the hashes. `hashInlineContentForCSP()` returns the bare expression, because a source list has unquoted members too, and an unquoted `sha256-…` is read as a host name, matches nothing, and blocks the content it was meant to allow.
 
-What you pass is appended to the directive that governs that kind of content, after the sources you wrote yourself. Calls accumulate across the request, and duplicates collapse, so contributing the same source twice is harmless.
+What you pass is appended to the directive that governs that kind of content, after the sources you wrote yourself. Calls accumulate across the request, and the final source list is deduplicated against your own sources as well as across calls, so contributing a hash you already listed in the policy, or contributing the same one twice, is a no-op rather than a repeated entry.
 
-Which directive it lands in follows CSP's own fallback, and one source can land in more than one:
+Which directive it lands in is decided by where a browser will actually look. For an inline `<script>` it reads `script-src-elem` if you set one, otherwise `script-src`, otherwise `default-src`, and it **stops at the first of those you set rather than combining them**. Styles follow the same chain through `style-src-elem` and `style-src`. So setting `script-src` does not add to `default-src`, it replaces it for scripts.
+
+A contributed source goes wherever that lands, which can be more than one directive:
 
 | Your policy | `scriptSrc: ["'sha256-yours'"]` becomes |
 | --- | --- |
 | `scriptSrc: ["'self'"]` | `script-src 'self' 'sha256-yours'` |
-| `scriptSrc` and `scriptSrcElem` both set | appended to **both**, since `script-src-elem` is what a browser consults for an inline `<script>` when it is present |
-| `defaultSrc` only | `default-src 'self' 'sha256-yours'` |
-| `defaultSrc` and `scriptSrc` set | `script-src` only, because fallback stops at the first directive that is set |
+| `defaultSrc` only | `default-src 'self' 'sha256-yours'`, since that is what the browser reads for scripts |
+| `defaultSrc` and `scriptSrc` set | `script-src` only, since `default-src` is never consulted for scripts once `script-src` exists |
+| `scriptSrc` and `scriptSrcElem` both set | **both**, since modern browsers read `script-src-elem` while older ones read past it to `script-src`, and a hash in a directive nobody consults costs nothing |
 
 <!-- prettier-ignore -->
 > [!IMPORTANT]
