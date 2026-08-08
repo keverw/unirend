@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'bun:test';
 import * as cheerio from 'cheerio';
-import { prettifyHTML, processTemplate } from './format';
+import {
+  collectTemplateCSPHashes,
+  prettifyHTML,
+  processTemplate,
+  resolveTemplateCSPHashes,
+} from './format';
 import type { TemplateSlots } from '../../types';
+import { hashInlineContentForCSP } from '../csp-hash';
 
 // Helper: split output by new lines (trim the trailing \n added by prettifyHTML)
 // and assert that each expected line appears in the output **in the given order**.
@@ -311,7 +317,7 @@ describe('processTemplate', () => {
 
     if (result.success) {
       expect(result.html).toContain(
-        'React hydration relies on data attributes',
+        'React hydration relies on the data attributes',
       );
       expect(result.html).toContain('<div id="root">');
       expect(result.html).toContain('Content');
@@ -334,7 +340,7 @@ describe('processTemplate', () => {
 
     if (result.success) {
       expect(result.html).not.toContain(
-        'React hydration relies on data attributes',
+        'React hydration relies on the data attributes',
       );
       expect(result.html).toContain('<div id="root">');
       expect(result.html).toContain('Content');
@@ -766,7 +772,7 @@ describe('processTemplate', () => {
 
       // Should add development comment and preserve it
       expect(result.html).toContain(
-        'React hydration relies on data attributes',
+        'React hydration relies on the data attributes',
       );
 
       // Should move script after root
@@ -1159,6 +1165,252 @@ describe('processTemplate with CDN placeholder injection', () => {
   });
 });
 
+describe('processTemplate defers hashing CDN-dependent inline content', () => {
+  // These blocks cannot be hashed when the template is processed, because the
+  // value they resolve to is decided per request. They come back as
+  // cdnDependent and are hashed by resolveTemplateCSPHashes once it is known.
+  const wrap = (head: string, body = '') => `
+      <html>
+        <head>
+          <!--ss-head-->
+          ${head}
+        </head>
+        <body>
+          ${body}
+          <div id="root"><!--ss-outlet--></div>
+        </body>
+      </html>
+    `;
+
+  async function hashesFor(head: string, body = '') {
+    const result = await processTemplate(
+      wrap(head, body),
+      'ssr',
+      false,
+      false,
+      'root',
+    );
+
+    expect(result.success).toBe(true);
+
+    if (!result.success) {
+      throw new Error(result.error);
+    }
+
+    return result.cspHashes;
+  }
+
+  it('holds back an inline <style> carrying the placeholder', async () => {
+    const css = '.a{background:url(__CDN__INJECTION__POINT__/bg.png)}';
+    const hashes = await hashesFor(`<style>${css}</style>`);
+
+    expect(hashes.styleSrc).toEqual([]);
+    expect(hashes.cdnDependent).toHaveLength(1);
+    expect(hashes.cdnDependent[0].kind).toBe('style');
+    // Contains rather than equals: the prettifier indents inline content, and
+    // that whitespace is inside the digest, so the deferred text has to be the
+    // serialized form rather than what the source wrote.
+    expect(hashes.cdnDependent[0].content).toContain(css);
+  });
+
+  it('holds back an inline <script> carrying the placeholder', async () => {
+    const js = 'var u = "__CDN__INJECTION__POINT__/x.js";';
+    const hashes = await hashesFor(`<script>${js}</script>`);
+
+    expect(hashes.scriptSrc).toEqual([]);
+    expect(hashes.cdnDependent).toHaveLength(1);
+    expect(hashes.cdnDependent[0].kind).toBe('script');
+    expect(hashes.cdnDependent[0].content).toContain(js);
+  });
+
+  it('holds back a <noscript> style carrying the placeholder', async () => {
+    // cheerio parses with scripting enabled, so the selectors alone see nothing
+    // in here. A browser with JavaScript off applies it, so it is hashed and
+    // has to be deferred for the same reason.
+    const css = '.n{background:url(__CDN__INJECTION__POINT__/y.png)}';
+    const hashes = await hashesFor(
+      '',
+      `<noscript><style>${css}</style></noscript>`,
+    );
+
+    expect(hashes.styleSrc).toEqual([]);
+    expect(hashes.cdnDependent).toHaveLength(1);
+    expect(hashes.cdnDependent[0].kind).toBe('style');
+    expect(hashes.cdnDependent[0].content).toContain(css);
+  });
+
+  it('hashes inline content without the placeholder as usual', async () => {
+    const hashes = await hashesFor(`<style>.a{color:red}</style>`);
+
+    expect(hashes.cdnDependent).toEqual([]);
+    expect(hashes.styleSrc).toHaveLength(1);
+  });
+
+  it('leaves a placeholder in a URL attribute fully hashed', async () => {
+    // No digest covers an attribute URL, so nothing has to be deferred for it.
+    const hashes = await hashesFor(
+      `<link rel="icon" href="__CDN__INJECTION__POINT__/favicon.ico" />`,
+      `<img src="__CDN__INJECTION__POINT__/logo.png" />`,
+    );
+
+    expect(hashes.cdnDependent).toEqual([]);
+  });
+
+  it('carries a style attribute value so its hash can be resettled', async () => {
+    const value = 'background:url(__CDN__INJECTION__POINT__/x.png)';
+    const hashes = await hashesFor('', `<div style="${value}"></div>`);
+
+    expect(hashes.inlineAttributes).toHaveLength(1);
+    expect(hashes.inlineAttributes[0].value).toBe(value);
+  });
+});
+
+describe('collectTemplateCSPHashes CDN deferral is opt-in', () => {
+  const html = (inner: string) =>
+    `<html><head>${inner}</head><body></body></html>`;
+
+  const css = '.a{background:url(__CDN__INJECTION__POINT__/bg.png)}';
+
+  it('hashes a placeholder literally when nothing will resolve it', async () => {
+    // The default, and the one that matters for SSG and for rendered markup:
+    // those bytes ship exactly as they are, placeholder and all, so the hash
+    // has to cover the placeholder text. Deferring here would drop the hash
+    // for content nothing rewrites and the browser would block it.
+    const hashes = await collectTemplateCSPHashes(
+      html(`<style>${css}</style>`),
+    );
+
+    expect(hashes.cdnDependent).toEqual([]);
+    expect(hashes.styleSrc).toEqual([`'${hashInlineContentForCSP(css)}'`]);
+  });
+
+  it('defers the same content when the caller will resolve it', async () => {
+    const hashes = await collectTemplateCSPHashes(
+      html(`<style>${css}</style>`),
+      { cdnPlaceholderPending: true },
+    );
+
+    expect(hashes.styleSrc).toEqual([]);
+    expect(hashes.cdnDependent).toEqual([{ kind: 'style', content: css }]);
+  });
+
+  it('carries two identical deferred blocks once', async () => {
+    const hashes = await collectTemplateCSPHashes(
+      html(`<style>${css}</style><style>${css}</style>`),
+      { cdnPlaceholderPending: true },
+    );
+
+    expect(hashes.cdnDependent).toEqual([{ kind: 'style', content: css }]);
+  });
+
+  it('keeps a script and a style with identical text apart', async () => {
+    // Same bytes, different directives, so collapsing them on content alone
+    // would put a style hash in script-src or lose one of the two.
+    const shared = '/*__CDN__INJECTION__POINT__*/';
+
+    const hashes = await collectTemplateCSPHashes(
+      html(`<style>${shared}</style><script>${shared}</script>`),
+      { cdnPlaceholderPending: true },
+    );
+
+    expect(hashes.cdnDependent).toHaveLength(2);
+    expect(hashes.cdnDependent.map((entry) => entry.kind).sort()).toEqual([
+      'script',
+      'style',
+    ]);
+  });
+});
+
+describe('resolveTemplateCSPHashes', () => {
+  const css = '.a{background:url(__CDN__INJECTION__POINT__/bg.png)}';
+
+  const deferred = {
+    scriptSrc: [],
+    styleSrc: [],
+    inlineAttributes: [],
+    cdnDependent: [{ kind: 'style' as const, content: css }],
+  };
+
+  it('hashes the resolved bytes, not the placeholder', () => {
+    const resolved = resolveTemplateCSPHashes(
+      deferred,
+      'https://cdn.example.com',
+    );
+
+    expect(resolved.styleSrc).toEqual([
+      `'${hashInlineContentForCSP('.a{background:url(https://cdn.example.com/bg.png)}')}'`,
+    ]);
+  });
+
+  it('resolves to a root-relative path when no CDN is configured', () => {
+    const resolved = resolveTemplateCSPHashes(deferred, '');
+
+    expect(resolved.styleSrc).toEqual([
+      `'${hashInlineContentForCSP('.a{background:url(/bg.png)}')}'`,
+    ]);
+  });
+
+  it('gives two CDN values two different hashes', () => {
+    // The reason this cannot be cached at startup. A per-request override sends
+    // different bytes to different requests off one processed template.
+    const eu = resolveTemplateCSPHashes(deferred, 'https://eu.example.com');
+    const apac = resolveTemplateCSPHashes(deferred, 'https://apac.example.com');
+
+    expect(eu.styleSrc[0]).not.toBe(apac.styleSrc[0]);
+  });
+
+  it('passes the settled hashes through when nothing was deferred', () => {
+    const settled = {
+      scriptSrc: ["'sha256-a'"],
+      styleSrc: ["'sha256-b'"],
+      inlineAttributes: [],
+      cdnDependent: [],
+    };
+
+    const resolved = resolveTemplateCSPHashes(
+      settled,
+      'https://cdn.example.com',
+    );
+
+    expect(resolved).toEqual({
+      scriptSrc: ["'sha256-a'"],
+      styleSrc: ["'sha256-b'"],
+      inlineAttributes: [],
+    });
+
+    // The declared return type has no cdnDependent, so the value must not carry
+    // one either. SSGReport.cspHashes is public and may well be serialized.
+    expect('cdnDependent' in resolved).toBe(false);
+  });
+
+  it('resettles an inline attribute hash and its value', () => {
+    const value = 'background:url(__CDN__INJECTION__POINT__/x.png)';
+    const expected = 'background:url(https://cdn.example.com/x.png)';
+
+    const resolved = resolveTemplateCSPHashes(
+      {
+        scriptSrc: [],
+        styleSrc: [],
+        inlineAttributes: [
+          {
+            description: '<div> has style=',
+            kind: 'style',
+            hash: `'${hashInlineContentForCSP(value)}'`,
+            value,
+          },
+        ],
+        cdnDependent: [],
+      },
+      'https://cdn.example.com',
+    );
+
+    expect(resolved.inlineAttributes[0].value).toBe(expected);
+    expect(resolved.inlineAttributes[0].hash).toBe(
+      `'${hashInlineContentForCSP(expected)}'`,
+    );
+  });
+});
+
 describe('processTemplate templateSlots', () => {
   const baseHTML = `
       <html>
@@ -1345,7 +1597,12 @@ describe('processTemplate templateSlots', () => {
     }
   });
 
-  it('should keep the development comment first in body when bodyPrepend is set', async () => {
+  it('should keep the development comment next to the container, not above bodyPrepend', async () => {
+    // It used to be prepended to <body>, which put it immediately above
+    // whatever bodyPrepend contributed. Reading top-down, a note saying
+    // "hydration relies on these, do not remove them" directly above a noscript
+    // block describes the noscript block, and the element it means was far
+    // below. It now sits where its subject is.
     const result = await processTemplate(baseHTML, 'ssr', true, true, 'root', {
       bodyPrepend: '<noscript><p>JavaScript is required.</p></noscript>',
     });
@@ -1353,9 +1610,32 @@ describe('processTemplate templateSlots', () => {
     expect(result.success).toBe(true);
 
     if (result.success) {
-      expect(
-        result.html.indexOf('React hydration relies on data attributes'),
-      ).toBeLessThan(result.html.indexOf('<noscript>'));
+      const commentIndex = result.html.indexOf(
+        'React hydration relies on the data attributes',
+      );
+
+      expect(commentIndex).toBeGreaterThan(result.html.indexOf('<noscript>'));
+      expect(commentIndex).toBeLessThan(result.html.indexOf('<div id="root">'));
+    }
+  });
+
+  it('should fall back to prepending the development comment when the container is missing', async () => {
+    // Not a valid template, but the note is worth keeping anyway rather than
+    // silently dropping it because the anchor it wanted was absent.
+    const result = await processTemplate(
+      '<html><head><!--ss-head--></head><body><!--ss-outlet--></body></html>',
+      'ssr',
+      true,
+      true,
+      'nonexistent-container',
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain(
+        'React hydration relies on the data attributes',
+      );
     }
   });
 
@@ -1978,6 +2258,468 @@ describe('processTemplate templateSlots', () => {
       expect(result.html).toContain('<noscript>');
       expect(result.html).toContain('No JS');
       expect(result.html).toContain('widget-mount');
+    }
+  });
+});
+
+describe('template CSP hashes', () => {
+  const template =
+    '<!doctype html><html><head><title>t</title><!--ss-head--></head><body><div id="root"><!--ss-outlet--></div></body></html>';
+
+  it('hashes the inline scripts and styles the template ships with', async () => {
+    const result = await processTemplate(
+      '<!doctype html><html><head><title>t</title><style>body{margin:0}</style><script>window.x=1</script><!--ss-head--></head><body><div id="root"><!--ss-outlet--></div></body></html>',
+      'ssr',
+      false,
+      false,
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.cspHashes.scriptSrc).toHaveLength(1);
+      expect(result.cspHashes.styleSrc).toHaveLength(1);
+      expect(result.cspHashes.scriptSrc[0]).toMatch(/^'sha256-.+'$/);
+    }
+  });
+
+  it('hashes slot content too', async () => {
+    const result = await processTemplate(
+      template,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        headInlineScripts: 'window.fromSlot = true',
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.cspHashes.scriptSrc).toHaveLength(1);
+    }
+  });
+
+  it('hashes what shipped, not what was passed in', async () => {
+    // The whole reason this happens here rather than in the caller. The
+    // pipeline parses and rewrites everything it touches, so a hash taken
+    // from the slot value can differ from a hash of the delivered bytes, and
+    // CSP would then block the script the hash was meant to allow.
+    const source = '  window.fromSlot = true  ';
+    const result = await processTemplate(
+      template,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        headInlineScripts: source,
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      const delivered = /<script>([\s\S]*?)<\/script>/.exec(result.html)?.[1];
+
+      expect(delivered).toBeDefined();
+      expect(result.cspHashes.scriptSrc).toContain(
+        `'${hashInlineContentForCSP(delivered ?? '')}'`,
+      );
+      // And that is not the same as hashing the value handed in.
+      expect(result.cspHashes.scriptSrc).not.toContain(
+        `'${hashInlineContentForCSP(source)}'`,
+      );
+    }
+  });
+
+  it('skips external scripts and non-executable types', async () => {
+    // A src script has no inline content to cover, and a non-JavaScript type is
+    // never executed, so script-src does not govern it.
+    const result = await processTemplate(
+      '<!doctype html><html><head><title>t</title><script src="/a.js"></script><script type="application/ld+json">{"@type":"Thing"}</script><!--ss-head--></head><body><div id="root"><!--ss-outlet--></div></body></html>',
+      'ssr',
+      false,
+      false,
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.cspHashes.scriptSrc).toHaveLength(0);
+    }
+  });
+
+  it('skips a type carrying MIME parameters, which is also not executed', async () => {
+    // Pinned because this one reads as a bug and has been reported as one. The
+    // tempting fix is to parse the MIME type and compare the essence before the
+    // ";", which would be wrong: the HTML standard compares the attribute
+    // against a JavaScript MIME type *essence match*, and an essence carries no
+    // parameters, so this element is inert and script-src never governs it.
+    // Hashing it would publish a source expression matching nothing.
+    //
+    // The standard uses this exact string as its worked example. Verified in
+    // Chrome through both the parser and createElement.
+    const inert = 'window.__never = true;';
+    const result = await processTemplate(
+      `<!doctype html><html><head><title>t</title><script type="text/javascript; charset=utf-8">${inert}</script><!--ss-head--></head><body><div id="root"><!--ss-outlet--></div></body></html>`,
+      'ssr',
+      false,
+      false,
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.cspHashes.scriptSrc).toHaveLength(0);
+
+      // Asserted against the digest itself, not just the count, so the test
+      // still means something if the template ever grows another inline script.
+      expect(result.cspHashes.scriptSrc).not.toContain(
+        `'${hashInlineContentForCSP(inert)}'`,
+      );
+    }
+  });
+
+  it.each([
+    [
+      'importmap',
+      '{"imports":{"dep":"/assets/dep.js"}}',
+      // Verified in Chrome. Under `script-src 'self'` the map is refused with
+      // "Executing inline script violates the following Content Security Policy
+      // directive", naming this very hash, and every `import 'dep'` on the page
+      // then fails to resolve its specifier, which reads like a bundler fault
+      // rather than a CSP one. Adding the hash makes both work.
+    ],
+    [
+      'speculationrules',
+      '{"prerender":[{"urls":["/next"]}]}',
+      // Also verified in Chrome, refused with "Applying inline speculation
+      // rules violates ...". Losing this one is invisible: nothing breaks, the
+      // site just quietly stops prerendering.
+    ],
+  ])(
+    'hashes an inline %s block, which is JSON that script-src governs',
+    async (type, content) => {
+      // The intuition these two defeat is "it is not JavaScript, so script-src
+      // cannot apply". Type determination happens before the inline check in
+      // "prepare the script element", and the check runs for any script with no
+      // src whatever its type, so both are governed and both are hash-allowable.
+      const result = await processTemplate(
+        `<!doctype html><html><head><title>t</title><script type="${type}">${content}</script><!--ss-head--></head><body><div id="root"><!--ss-outlet--></div></body></html>`,
+        'ssr',
+        false,
+        false,
+      );
+
+      expect(result.success).toBe(true);
+
+      if (result.success) {
+        // Read back out of the serialized output rather than hashed from the
+        // input. The prettifier indents a head script's contents, so the bytes
+        // that ship are not the bytes passed in, and a CSP hash covers an
+        // element's text content exactly. Asserting against the input would fail
+        // here for the right reason and pass nowhere useful.
+        const open = `<script type="${type}">`;
+        const from = result.html.indexOf(open) + open.length;
+        const shipped = result.html.slice(
+          from,
+          result.html.indexOf('</script>', from),
+        );
+
+        expect(shipped).toContain(content);
+        expect(result.cspHashes.scriptSrc).toEqual([
+          `'${hashInlineContentForCSP(shipped)}'`,
+        ]);
+      }
+    },
+  );
+
+  it('still skips a JSON data block, which script-src does not govern', async () => {
+    // The control for the pair above, and the reason the predicate cannot
+    // simply be "hash every inline script". A data block is never applied by
+    // the browser in any sense, so a hash for it matches nothing. This is also
+    // what lets unirend carry its own server context in one.
+    const data = '{"@context":"https://schema.org","@type":"Article"}';
+    const result = await processTemplate(
+      `<!doctype html><html><head><title>t</title><script type="application/ld+json">${data}</script><!--ss-head--></head><body><div id="root"><!--ss-outlet--></div></body></html>`,
+      'ssr',
+      false,
+      false,
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // Asserted as empty rather than as "does not contain the input's hash".
+      // The latter passes for the wrong reason, since the prettifier re-indents
+      // the block and so the input's hash was never going to appear anyway.
+      expect(result.cspHashes.scriptSrc).toEqual([]);
+    }
+  });
+
+  it('hashes the same script once the parameters come off', async () => {
+    // The control for the case above. Identical content and an identical
+    // element apart from the parameters, so a future change that stopped
+    // hashing executable scripts outright could not pass both.
+    const live = 'window.__never = true;';
+    const result = await processTemplate(
+      `<!doctype html><html><head><title>t</title><script type="text/javascript">${live}</script><!--ss-head--></head><body><div id="root"><!--ss-outlet--></div></body></html>`,
+      'ssr',
+      false,
+      false,
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // Read back out of the output rather than hashing `live`, since the
+      // prettifier re-indents script content and the digest covers what ships.
+      // Same reason as "hashes what shipped, not what was passed in" above.
+      const delivered = /<script[^>]*>([\s\S]*?)<\/script>/.exec(
+        result.html,
+      )?.[1];
+
+      expect(delivered).toContain(live);
+      expect(result.cspHashes.scriptSrc).toEqual([
+        `'${hashInlineContentForCSP(delivered ?? '')}'`,
+      ]);
+    }
+  });
+
+  it('deduplicates identical blocks', async () => {
+    const result = await processTemplate(
+      template,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        headInlineScripts: ['window.same = 1', 'window.same = 1'],
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.cspHashes.scriptSrc).toHaveLength(1);
+    }
+  });
+});
+
+describe('template CSP hashes inside <noscript>', () => {
+  it('hashes a <style> inside a <noscript>', async () => {
+    // Missing this is silent in the worst way. Cheerio parses with scripting
+    // enabled, so noscript contents are raw text and the normal selectors see
+    // nothing in there. A browser with JavaScript disabled parses the same
+    // bytes as markup, so the style goes live and a strict style-src without
+    // its hash blocks it: the noscript fallback renders unstyled for exactly
+    // the users it exists for, and nobody testing with JavaScript on would see
+    // it. Both the starter template and the demos put a style in theirs.
+    const result = await processTemplate(
+      '<!doctype html><html><head><title>t</title><!--ss-head--></head><body><noscript><style>.ns{color:red}</style></noscript><div id="root"><!--ss-outlet--></div></body></html>',
+      'ssr',
+      false,
+      false,
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.cspHashes.styleSrc).toContain(
+        `'${hashInlineContentForCSP('.ns{color:red}')}'`,
+      );
+    }
+  });
+
+  it('hashes an empty <style>, and still skips an empty <script>', async () => {
+    // An empty style element is not nothing. A CSS-in-JS runtime emits one
+    // whenever it has no rules to write yet, and a browser applies it, so a
+    // strict style-src blocks it and names the empty-string digest as the hash
+    // that would allow it. An empty script draws no violation, which is why the
+    // two arms of the scanner are guarded differently and why this pins both
+    // directions rather than only the one that changed.
+    const result = await processTemplate(
+      '<!doctype html><html><head><title>t</title><!--ss-head--><style></style><script></script></head><body><div id="root"><!--ss-outlet--></div></body></html>',
+      'ssr',
+      false,
+      false,
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.cspHashes.styleSrc).toEqual([
+        `'${hashInlineContentForCSP('')}'`,
+      ]);
+
+      expect(result.cspHashes.scriptSrc).toHaveLength(0);
+    }
+  });
+
+  it('leaves a <noscript> without inline content alone', async () => {
+    const result = await processTemplate(
+      '<!doctype html><html><head><title>t</title><!--ss-head--></head><body><noscript><p>JavaScript is required.</p></noscript><div id="root"><!--ss-outlet--></div></body></html>',
+      'ssr',
+      false,
+      false,
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.cspHashes.styleSrc).toHaveLength(0);
+      expect(result.cspHashes.scriptSrc).toHaveLength(0);
+    }
+  });
+
+  describe('inline attribute findings', () => {
+    async function findingsFor(body: string) {
+      const result = await processTemplate(
+        `<!doctype html><html><head><title>t</title><!--ss-head--></head><body>${body}<div id="root"><!--ss-outlet--></div></body></html>`,
+        'ssr',
+        false,
+        false,
+      );
+
+      if (!result.success) {
+        throw new Error(`template failed: ${result.error}`);
+      }
+
+      return result.cspHashes.inlineAttributes;
+    }
+
+    it('reports an on* handler as a script finding with its hash', async () => {
+      // The hash covers the attribute value exactly, the same way an element
+      // hash covers its text content. It is carried here because this is the
+      // only place the value is in hand, and securityHeaders needs it to tell a
+      // policy that covers the attribute from one that merely mentions
+      // 'unsafe-hashes'.
+      const findings = await findingsFor(
+        `<button onclick="alert('x')">go</button>`,
+      );
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]).toEqual({
+        description: '<button> has onclick=',
+        kind: 'script',
+        hash: `'${hashInlineContentForCSP("alert('x')")}'`,
+        value: "alert('x')",
+      });
+    });
+
+    it('reports a style attribute as a style finding with its hash', async () => {
+      const findings = await findingsFor(`<div style="color: red">x</div>`);
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]).toEqual({
+        description: '<div> has style=',
+        kind: 'style',
+        hash: `'${hashInlineContentForCSP('color: red')}'`,
+        value: 'color: red',
+      });
+    });
+
+    it('hashes the decoded value, which is what a browser matches', async () => {
+      // The parser has already resolved entity references by the time the value
+      // is read, and so has the browser before it hashes the handler. Hashing
+      // the source bytes would produce a digest that never matches.
+      const findings = await findingsFor(
+        `<button onclick="a &amp;&amp; b()">go</button>`,
+      );
+
+      expect(findings[0].hash).toBe(`'${hashInlineContentForCSP('a && b()')}'`);
+    });
+
+    it('keeps two handlers on the same element type apart', async () => {
+      // Deduping on the element and attribute name alone would collapse these
+      // onto whichever came first. They need different hashes to fix, so the
+      // survivor would make the template look covered while the other handler
+      // stayed blocked with nothing said about it.
+      const findings = await findingsFor(
+        `<button onclick="first()">a</button><button onclick="second()">b</button>`,
+      );
+
+      expect(findings).toHaveLength(2);
+      expect(findings.map((finding) => finding.hash)).toEqual([
+        `'${hashInlineContentForCSP('first()')}'`,
+        `'${hashInlineContentForCSP('second()')}'`,
+      ]);
+
+      // Same description, which is the reason keying on it alone loses one.
+      expect(new Set(findings.map((finding) => finding.description)).size).toBe(
+        1,
+      );
+    });
+
+    it('still collapses two identical handlers', async () => {
+      // Identical values need one hash and one message, so the dedupe still has
+      // a job to do.
+      const findings = await findingsFor(
+        `<button onclick="same()">a</button><button onclick="same()">b</button>`,
+      );
+
+      expect(findings).toHaveLength(1);
+    });
+
+    it('reports nothing for a template with no inline attributes', async () => {
+      const findings = await findingsFor('<p>clean</p>');
+
+      expect(findings).toHaveLength(0);
+    });
+  });
+});
+
+describe('templateSlots and the context data block ID', () => {
+  const baseTemplate =
+    '<!doctype html><html><head><title>t</title><!--ss-head--></head><body><div id="root"><!--ss-outlet--></div></body></html>';
+
+  it('rejects a body slot declaring the data block ID', async () => {
+    // The client bootstrap finds the block with getElementById, so a second
+    // element with that ID earlier in the document would be read instead and
+    // every injected global would come from whatever it happened to contain.
+    const result = await processTemplate(
+      baseTemplate,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        bodyPrepend:
+          '<script type="application/json" id="__unirend_data__">{}</script>',
+      },
+    );
+
+    expect(result.success).toBe(false);
+
+    if (!result.success) {
+      expect(result.error).toContain('__unirend_data__');
+    }
+  });
+
+  it('allows other application/json blocks, which is the common case', async () => {
+    // JSON-LD structured data is the one people actually have. The lookup is by
+    // ID rather than by type, so any number of these are fine.
+    const result = await processTemplate(
+      baseTemplate,
+      'ssr',
+      false,
+      false,
+      'root',
+      {
+        bodyAppend:
+          '<script type="application/ld+json">{"@context":"https://schema.org"}</script>',
+      },
+    );
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.html).toContain('application/ld+json');
+      // And it is inert, so it contributes no hash.
+      expect(result.cspHashes.scriptSrc).toHaveLength(0);
     }
   });
 });

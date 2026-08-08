@@ -13,55 +13,47 @@ import type { LoggerFunction } from '../../types';
  *
  * No per-project substitutions — fully static. Template-literal escaping
  * required for:
- *  • The outer `return \`...\`` backtick pair and the nested isDevelopment
- *    ternary backtick pair (4 backtick escapes total).
- *  • Eight runtime `\${...}` interpolations: `preference` (class attr),
- *    `JSON.stringify(preference)` (script block), `isDevelopment` (card class),
- *    the ternary `\${...}` block itself, `safeMessage`, `safeStack`,
- *    `escapeHTML(request.url)`, `request.method`.
- *  • Two `\\s` regex patterns inside the return template literal — each needs
- *    `\\\\s` in the generator so the emitted file contains `\\s` (which the
- *    browser evaluates to `\s` when running the inline script).
+ *  • The `PAGE_STYLES` and `PAGE_SCRIPT` backtick pairs, the outer
+ *    `return \`...\`` backtick pair, and the nested isDevelopment ternary
+ *    backtick pair (8 backtick escapes total).
+ *  • Runtime `\${...}` interpolations: `PAGE_STYLES` (style element),
+ *    `PAGE_DATA_BLOCK_ID` and `serializePageData(...)` (JSON block),
+ *    `PAGE_SCRIPT` (script element), `preference` (class attr),
+ *    `isDevelopment` (card class), the ternary `\${...}` block itself,
+ *    `safeMessage`, `safeStack`, `escapeHTML(request.url)`, `request.method`.
+ *  • Two `\\s` regex patterns inside `PAGE_SCRIPT` — each needs `\\\\s` in the
+ *    generator so the emitted file contains `\\s` (which the browser evaluates
+ *    to `\s` when running the inline script). The `\\u003c` escape in
+ *    `serializePageData` needs the same doubling.
+ *
+ * The emitted page is CSP-clean without `'unsafe-inline'`. Its one per-request
+ * value rides in a `<script type="application/json">` block, which no browser
+ * executes and `script-src` therefore does not govern, leaving a fixed style
+ * block and a fixed script block that each hash once. `ERROR_PAGE_STYLE_HASH`
+ * and `ERROR_PAGE_SCRIPT_HASH` are exported for the app to place in its policy,
+ * since a page returned as raw HTML never passes through unirend's scans. This
+ * mirrors the framework's own bootstrap in `html-utils/context-data-block.ts`.
  */
 const GET_500_ERROR_PAGE_SRC = `import type { FastifyRequest } from 'unirend/server';
-import { escapeHTML } from 'unirend/utils';
+import { isHostUnverified } from 'unirend/server';
+import { escapeHTML, hashInlineContentForCSP } from 'unirend/utils';
 
 /**
- * Custom 500 error page generator.
- * Mirrored from the SGGs template static 500.html page style and functionality,
- * but adapted for SSR and customized to display error details in development mode.
+ * The page's inline CSS, kept as its own constant so it can be hashed for a
+ * Content-Security-Policy.
+ *
+ * A CSP hash covers the element's text content exactly, so the only way to
+ * publish one that matches is to hash the exact value the page interpolates.
+ * (Line endings are the one exception, and they are handled for you: the hash
+ * helper normalizes them the way a browser does, so a checkout of this file
+ * with CRLFs still produces a digest that matches.) That is why the markup below writes
+ * \`<style>\${PAGE_STYLES}</style>\` with nothing between the tags and the
+ * value, and why this constant keeps its own leading newline and trailing
+ * indent: that whitespace is what makes the rendered page readable, and it is
+ * inside the digest either way, so it belongs here where it is hashed rather
+ * than in the markup where it would not be.
  */
-export function get500ErrorPage(
-  request: FastifyRequest,
-  error: Error,
-  isDevelopment: boolean,
-): string {
-  const requestContext = (
-    request as FastifyRequest & {
-      requestContext?: Record<string, unknown>;
-    }
-  ).requestContext;
-
-  const preference =
-    requestContext?.themePreference === 'dark' ||
-    requestContext?.themePreference === 'light' ||
-    requestContext?.themePreference === 'auto'
-      ? requestContext.themePreference
-      : 'auto';
-
-  const safeMessage = escapeHTML(error.message || 'Unexpected server error');
-  const safeStack = error.stack
-    ? escapeHTML(error.stack)
-    : 'No stack trace available';
-
-  return \`<!doctype html>
-<html lang="en"\${preference === 'dark' ? ' class="dark"' : ''}>
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>500 - Server Error</title>
-    <meta name="description" content="An unexpected server error occurred." />
-    <style>
+const PAGE_STYLES = \`
       *,
       *::before,
       *::after {
@@ -205,21 +197,55 @@ export function get500ErrorPage(
         max-height: 250px;
         overflow-y: auto;
       }
-    </style>
-    <script>
-      window.__FRONTEND_REQUEST_CONTEXT__ = {
-        themePreference: \${JSON.stringify(preference)}
-      };
-    </script>
-    <script>
+    \`;
+
+/**
+ * \`id\` of the JSON block carrying this request's values to the theme script.
+ */
+const PAGE_DATA_BLOCK_ID = 'error-page-data';
+
+/**
+ * The page's inline theme script, kept as its own constant for the same reason
+ * \`PAGE_STYLES\` is: a hash has to be taken from the exact text the element will
+ * contain.
+ *
+ * Nothing in here varies per request, and that is the point rather than a
+ * coincidence. The theme preference the page needs is the one value that does
+ * vary, so it travels in the JSON block above instead of being written into
+ * executable JavaScript. A script whose text changes every request cannot be
+ * hashed at all, which would leave a strict \`script-src\` with nonces as the
+ * only option. This mirrors what unirend does with its own bootstrap.
+ *
+ * Written to survive a missing or malformed block rather than throwing. A throw
+ * here happens while the head is still parsing and takes out every later script
+ * on the page, so a data problem would become a blank page on the one page that
+ * exists for when things have already gone wrong.
+ */
+const PAGE_SCRIPT = \`
       (function () {
         // Mirrors the flash-prevention script in index.html: cookie-first, then
-        // __FRONTEND_REQUEST_CONTEXT__ (injected by the get500ErrorPage handler), then OS.
+        // this page's JSON data block, then OS.
         // Unlike the main app (index.html + React bundle) there is no React or full theme system here, so we
         // mirror ThemeProvider's sync strategy: matchMedia for OS changes (auto mode),
         // BroadcastChannel for real-time cross-tab updates, and visibilitychange to
         // re-read the cookie when the tab comes back into focus.
         const valid = ['light', 'dark', 'auto'];
+
+        // The server's preference, read from the data block rather than from a
+        // global an inline assignment would have had to set.
+        let serverPref = null;
+
+        try {
+          const el = document.getElementById(\${JSON.stringify(PAGE_DATA_BLOCK_ID)});
+          const data = el && el.textContent ? JSON.parse(el.textContent) : {};
+
+          if (valid.includes(data.themePreference)) {
+            serverPref = data.themePreference;
+          }
+        } catch (e) {
+          // Leave serverPref null and fall through to the cookie or the OS.
+        }
+
         const cookieMatch = document.cookie.match(
           /(?:^|;\\\\s*)themePreference=([^;]+)/,
         );
@@ -228,10 +254,7 @@ export function get500ErrorPage(
           ? cookieMatch[1]
           : null;
 
-        let currentPref =
-          cookiePref ||
-          window.__FRONTEND_REQUEST_CONTEXT__?.themePreference ||
-          'auto';
+        let currentPref = cookiePref || serverPref || 'auto';
 
         const mq =
           typeof window.matchMedia === 'function'
@@ -248,7 +271,7 @@ export function get500ErrorPage(
           document.documentElement.classList.toggle('dark', shouldUseDarkTheme);
         }
 
-        // Apply the initial cookie/context/OS-derived preference before the page renders.
+        // Apply the initial cookie/data-block/OS-derived preference before the page renders.
         applyPref(currentPref);
 
         // Keep auto mode in sync with OS preference changes for the duration of this page load.
@@ -279,7 +302,145 @@ export function get500ErrorPage(
           applyPref((valid.includes(m?.[1]) ? m[1] : null) || 'auto');
         });
       })();
-    </script>
+    \`;
+
+/**
+ * Serialize this page's per-request values for the JSON block.
+ *
+ * Every \`<\` is written as its \`\\u003c\` escape, which is what stops a value
+ * containing a closing script tag from ending the element early. JSON reads the
+ * escape as the character it names, so \`JSON.parse\` gets the original text
+ * back. The values here are the server's own, but the escape costs nothing and
+ * survives someone widening this block later.
+ */
+function serializePageData(data: { themePreference: string }): string {
+  return JSON.stringify(data).replace(/</g, '\\\\u003c');
+}
+
+/**
+ * CSP source expressions for this page's inline \`<style>\` and \`<script>\`.
+ *
+ * A strict policy blocks inline content, and an error page is the worst place
+ * to find that out: it only renders on requests where something has already
+ * gone wrong, so it looks fine right up until it matters. Unstyled is the
+ * obvious failure. The quieter one is the theme script never running, which
+ * shows a light-themed page to someone whose whole session has been dark.
+ *
+ * Nothing can hash these for you. This page is returned as raw HTML when SSR
+ * fails before React runs, so it never passes through the render that unirend
+ * scans, which is why the hashes are exported here for you to place:
+ *
+ * \`\`\`ts
+ * import {
+ *   ERROR_PAGE_STYLE_HASH,
+ *   ERROR_PAGE_SCRIPT_HASH,
+ * } from './get-500-error-page';
+ *
+ * securityHeaders({
+ *   csp: {
+ *     defaultSrc: ["'self'"],
+ *     scriptSrc: ["'self'", \`'\${ERROR_PAGE_SCRIPT_HASH}'\`],
+ *     styleSrc: ["'self'", \`'\${ERROR_PAGE_STYLE_HASH}'\`],
+ *   },
+ * });
+ * \`\`\`
+ *
+ * The quotes are yours to add, since a source list has unquoted members too.
+ * The JSON data block needs nothing: \`script-src\` governs only what a browser
+ * executes, and a \`<script>\` with a non-JavaScript type is never executed.
+ * Unirend's own error pages are covered without any of this, so these are only
+ * for the page in this file.
+ *
+ * Recompute rather than hardcode. This file is yours to edit, and a hash pasted
+ * in as a literal goes stale the moment you change a color or a line of script.
+ */
+export const ERROR_PAGE_STYLE_HASH = hashInlineContentForCSP(PAGE_STYLES);
+export const ERROR_PAGE_SCRIPT_HASH = hashInlineContentForCSP(PAGE_SCRIPT);
+
+/**
+ * Custom 500 error page generator.
+ * Mirrored from the SGGs template static 500.html page style and functionality,
+ * but adapted for SSR and customized to display error details in development mode.
+ *
+ * Worth knowing about which hosts can see this page. It renders for any request
+ * that fails, and that includes a request that failed before domainValidation
+ * had a chance to run. A hook registered above that plugin ends the request when
+ * it throws, and this page answers on its behalf, so your branding can be served
+ * on a host the server never validated.
+ *
+ * The isHostUnverified check below detects exactly that case and returns a plain
+ * page instead. Ordering is still the real fix, so keep every plugin that
+ * registers a per-request hook below domainValidation, but this costs one
+ * comparison and covers you when something slips.
+ */
+export function get500ErrorPage(
+  request: FastifyRequest,
+  error: Error,
+  isDevelopment: boolean,
+): string {
+  const requestContext = (
+    request as FastifyRequest & {
+      requestContext?: Record<string, unknown>;
+    }
+  ).requestContext;
+
+  const preference =
+    requestContext?.themePreference === 'dark' ||
+    requestContext?.themePreference === 'light' ||
+    requestContext?.themePreference === 'auto'
+      ? requestContext.themePreference
+      : 'auto';
+
+  // Unbranded, and no development details either. Nothing has vouched for this
+  // host: either the request failed before domainValidation ran, or the check
+  // ran and could not confirm the domain. So this says as little as it can
+  // while still being a valid page. Delete this block if you would rather show
+  // the full page everywhere. Returns false when domainValidation is not
+  // registered, so a server that does not validate hosts is unaffected.
+  if (isHostUnverified(request)) {
+    return \`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>500 - Server Error</title>
+  </head>
+  <body>
+    <h1>500</h1>
+    <p>The server encountered an error and could not complete the request.</p>
+  </body>
+</html>\`;
+  }
+
+  const safeMessage = escapeHTML(error.message || 'Unexpected server error');
+  const safeStack = error.stack
+    ? escapeHTML(error.stack)
+    : 'No stack trace available';
+
+  // request.url appears below as escaped text in the development panel, which
+  // is safe. Do not move it into an href when customizing this page.
+  //
+  // Fastify hands over the request target verbatim, so the client chooses it. A
+  // request line of "GET //evil.example/p" or the absolute-form
+  // "GET http://evil.example/p" leaves request.url pointing at another origin,
+  // and so does "/\\/evil.example", because a URL parser folds backslashes into
+  // forward slashes for http(s). In an anchor any of those navigate off site.
+  // Escaping does not help: none of those characters are escaped, and the
+  // problem is what the URL means rather than how it is spelled.
+  //
+  // A "reload" control wants href="" (the current document) or the static
+  // href="/" used below, never the request's own URL.
+
+  return \`<!doctype html>
+<html lang="en"\${preference === 'dark' ? ' class="dark"' : ''}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>500 - Server Error</title>
+    <meta name="description" content="An unexpected server error occurred." />
+    <style>\${PAGE_STYLES}</style>
+    <script type="application/json" id="\${PAGE_DATA_BLOCK_ID}">\${serializePageData({ themePreference: preference })}</script>
+    <script>\${PAGE_SCRIPT}</script>
   </head>
   <body>
     <div class="card\${isDevelopment ? ' dev-card' : ''}">

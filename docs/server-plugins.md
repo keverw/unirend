@@ -279,7 +279,7 @@ Request-level values attached in `onRequest`, like `requestID`, `clientIP`, `isD
 The built-in framework features that need final headers in this path are already handled:
 
 - The built-in `responseTimeHeader` support patches `reply.hijack()` so `reply.getHeaders()` includes the header before a subsequent `writeHead(...)`. For hijacked/raw replies that header is measured at hijack time, while access logging still measures the full time until the raw response finishes, so streamed/raw responses can legitimately show a lower header value than the access log.
-- The built-in `cors` plugin exposes a request-scoped `request.applyCORSHeaders(reply)` helper when that plugin is registered. Internal or advanced raw-response paths can feature-detect it and apply the same actual-response CORS/security headers before `writeHead(...)`. Call it before `reply.hijack()` so failures still go through Fastify's normal error handling. The built-in static content router already does this for its hijacked file responses.
+- The built-in `securityHeaders` plugin exposes a request-scoped `request.applySecurityHeaders(reply)` helper when that plugin is registered. Internal or advanced raw-response paths can feature-detect it and apply the same actual-response CORS/security headers before `writeHead(...)`. Call it before `reply.hijack()` so failures still go through Fastify's normal error handling. The built-in static content router already does this for its hijacked file responses.
 
 If you write your own plugin that sets headers in an `onSend` hook and also uses `reply.hijack()` in the same response path, those headers won't be applied automatically. The pattern is the same: apply the headers explicitly before `writeHead(...)` instead of expecting `onSend` to run.
 
@@ -461,7 +461,7 @@ pluginHost.pageDataHandler.register('home', 2, (request, reply, params) => {
 });
 ```
 
-For controlled API/page-data handlers, helper-sent error envelopes now use the same hijack/raw-write pattern as other early-terminated framework responses. That means `await APIResponseHelpers.sendErrorEnvelope(...)` and the async `ensure*Body(...)` helpers end the response immediately after applying shared headers such as built-in CORS. Because these helpers terminate through the raw hijack path, normal Fastify `onSend` hooks do not run for those failure responses.
+For controlled API/page-data handlers, helper-sent error envelopes now use the same hijack/raw-write pattern as other early-terminated framework responses. That means `await APIResponseHelpers.sendErrorEnvelope(...)` and the async `ensure*Body(...)` helpers end the response immediately after applying shared headers such as the built-in securityHeaders plugin. Because these helpers terminate through the raw hijack path, normal Fastify `onSend` hooks do not run for those failure responses.
 
 ## Example Plugins
 
@@ -880,8 +880,8 @@ pluginHost.get('/download/:file', async (request, reply) => {
     .header('Content-Type', 'application/octet-stream')
     .header('Content-Disposition', `attachment; filename="${file}"`);
 
-  // Apply CORS headers before hijacking (if the cors plugin is registered)
-  await request.applyCORSHeaders?.(reply);
+  // Apply security headers before hijacking (if the securityHeaders plugin is registered)
+  await request.applySecurityHeaders?.(reply);
 
   // Take full ownership — Fastify will not touch this reply after this point
   reply.hijack();
@@ -920,6 +920,10 @@ pluginHost.addHook('preHandler', async (request, reply) => {
 **Why this matters:** `onSend` is late in the lifecycle. It works for normal Fastify replies, but it is bypassed by `reply.hijack()` and other raw-response paths. It also cannot help responses already sent by an earlier hook or helper, which can lead to missing headers or "headers already sent" errors. Use `onRequest` or `preHandler` for headers that must be present on every response.
 
 `onSend` is still useful when you intentionally want normal-response-only behavior. For example, renewing a cookie for HTML/API responses while skipping hijacked static assets is a good `onSend` use case. See the theme cookie example in [Unirend Context](./unirend-context.md#theme-management-hydration-safe) and the `request.isStaticAsset` guidance in [staticContent](./built-in-plugins/staticContent.md#hook-ordering-and-cookie-renewal).
+
+**Where your plugin sits in the array still matters, for your own hooks.** An `onRequest` hook only covers what runs after it, so a plugin listed earlier that ends the request never reaches yours. If your plugin must see every response, either register it first or use the combination that [`securityHeaders`](./built-in-plugins/security-headers.md#plugin-order-and-short-circuited-responses) uses: an early `onRequest` for the normal path, an `onSend` backstop for responses that ended before it, and `request.applySecurityHeaders()`-style explicit application for hijacked paths that bypass `onSend` entirely.
+
+That combination makes ordinary `securityHeaders` response coverage order-independent. The exception is its unchecked-host HSTS safeguard, which requires `domainValidation` to be registered first. It is not automatic for a plugin you write.
 
 ## Limitations
 

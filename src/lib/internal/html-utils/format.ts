@@ -1,7 +1,14 @@
 import type { RenderType, TemplateSlots } from '../../types';
-import type { CheerioAPI } from 'cheerio';
+import type { CheerioAPI, load as cheerioLoad } from 'cheerio';
 import type { AnyNode, Comment, Document, Element, Text } from 'domhandler';
 import { escapeHTMLAttr, escapeHTMLText } from './escape';
+import { hashInlineContentForCSP, isCSPGovernedScriptType } from '../csp-hash';
+import { CDN_INJECTION_PLACEHOLDER } from '../cdn';
+// Type-only, so this pulls nothing into the HTML pipeline at runtime. Imported
+// rather than redeclared because csp-policy owns the CSP vocabulary, and two
+// exported types with the same name would eventually disagree.
+import type { CSPInlineKind } from '../csp-policy';
+import { UNIREND_DATA_BLOCK_ID } from './context-data-block';
 
 // cheerio's load(), narrowed to the fragment-parsing call validateTemplateSlots() makes.
 // Passed in rather than imported so the dynamic import in processTemplate() stays the only
@@ -32,9 +39,11 @@ const isElementNode = (node: AnyNode): node is Element => {
   return type === 'tag' || type === 'script' || type === 'style';
 };
 
-// Development comment that should be preserved
+// Development comment that should be preserved. Names the element it is about,
+// because it is emitted next to that element and a bare "them" reads as though
+// it refers to whatever markup happens to follow.
 const DEVELOPMENT_COMMENT =
-  'React hydration relies on data attributes. Do not remove them.';
+  'React hydration relies on the data attributes on the app container below. Do not remove them.';
 
 // <meta> tags UnirendHead manages per page, and so strips from the template: the page's
 // content metadata (description) and its social preview tags (OpenGraph, Twitter cards),
@@ -243,6 +252,25 @@ function validateTemplateSlots(
 
     if (hasContainerID) {
       return `templateSlots.${name} declares id="${containerID}", which is the container element's ID. The app would have two mount points.`;
+    }
+
+    // Same failure as above, for the element carrying the server context. The
+    // client bootstrap finds it with getElementById, so a second element with
+    // that ID earlier in the document would be read instead, and every injected
+    // global would come from whatever that element happened to contain.
+    //
+    // A page may hold any number of other `application/json` blocks, JSON-LD
+    // structured data being the usual one, and none of them are a problem: the
+    // lookup is by ID, not by type. Only this exact ID collides.
+    const hasDataBlockID = fragment('*')
+      .toArray()
+      .some(
+        (el) =>
+          isElementNode(el) && el.attribs?.['id'] === UNIREND_DATA_BLOCK_ID,
+      );
+
+    if (hasDataBlockID) {
+      return `templateSlots.${name} declares id="${UNIREND_DATA_BLOCK_ID}", which unirend uses for the element carrying server context to the client. The client would read this element instead, and every injected global would be wrong.`;
     }
   }
 
@@ -484,8 +512,423 @@ export function prettifyHTML($: CheerioAPI, containerID = 'root'): string {
   return html;
 }
 
+/**
+ * CSP source expressions covering the inline content of a processed template,
+ * quoted and ready to drop into a directive.
+ *
+ * Computed from the **final serialized output**, never from the slot values the
+ * caller passed in. The pipeline parses and rewrites everything it touches, so
+ * a hash of the input can differ from a hash of what ships, and CSP would then
+ * block the very script the hash was meant to allow, silently.
+ */
+export interface TemplateCSPHashes extends ResolvedTemplateCSPHashes {
+  /**
+   * Inline `<script>` and `<style>` whose text carries the CDN placeholder, so
+   * their bytes are not known until a request resolves it.
+   *
+   * Empty for anything hashed after resolution, which is every SSG page and any
+   * template that does not use the placeholder. See
+   * {@link CDNDependentInlineContent}.
+   */
+  cdnDependent: CDNDependentInlineContent[];
+}
+
+/**
+ * One inline attribute, described well enough to judge and report it.
+ *
+ * This is the shape a *caller* supplies, through `request.addCSPSources`, and
+ * it is everything the reporting path reads. Carries the hash rather than only
+ * the attribute's name because the two questions downstream are "would the
+ * policy block this" and "what would fix it", and both need the exact digest.
+ */
+export interface InlineAttributeReport {
+  /** Names the element and attribute, e.g. `<button> has onclick=`. */
+  description: string;
+  /**
+   * Which directive chain governs it, so this decides which policy half is
+   * consulted.
+   */
+  kind: CSPInlineKind;
+  /**
+   * CSP source expression for the attribute's value, quoted and ready to paste,
+   * e.g. `'sha256-...'`.
+   *
+   * The digest covers the attribute value exactly as written, with no trimming
+   * and no normalization, the same way an element hash covers its text content.
+   */
+  hash: string;
+}
+
+/**
+ * An inline attribute unirend's own scan found, which additionally remembers
+ * the raw value the hash was taken over.
+ *
+ * Split from {@link InlineAttributeReport} rather than adding an optional field
+ * to it, because the two directions want opposite things. Anything *reading*
+ * findings, `SSGReport.cspHashes` being the public one, benefits from `value`
+ * being guaranteed. Anything *constructing* one to hand to `addCSPSources`
+ * would be forced to invent a value that nothing on that path ever reads: it is
+ * consumed only by {@link resolveTemplateCSPHashes}, which runs over the
+ * template scan's own output before any of this reaches a caller.
+ */
+export interface InlineAttributeFinding extends InlineAttributeReport {
+  /**
+   * The attribute's value as parsed, kept so the hash can be recomputed once the
+   * CDN placeholder is resolved.
+   *
+   * Only meaningful for a value carrying the placeholder, which is rare enough
+   * that it would be easy to leave stale. It is not: a `style=` attribute
+   * pointing at a CDN asset is the same timing problem an inline `<style>` has,
+   * and while the consequence is smaller, an advisory warning printing a hash
+   * that would not work is worse than no hash at all.
+   */
+  value: string;
+}
+
+export interface CollectTemplateCSPHashesOptions {
+  /**
+   * Whether the caller is going to resolve {@link CDN_INJECTION_PLACEHOLDER} in
+   * this content after hashing it.
+   *
+   * Off by default, and that default is the honest one: most content handed to
+   * this function is final, so a placeholder in it is literal text that ships
+   * as written and has to be hashed as written. Turning this on wrongly drops
+   * the hash for content nothing will ever rewrite, and the page is blocked
+   * with the policy silently missing a source it should have carried.
+   *
+   * On for the two callers that really do substitute afterwards: the template
+   * scan in `processTemplate`, and the development SSR path, which re-hashes
+   * the Vite-transformed template before `injectContent` resolves it. Off for
+   * SSG, which hashes the bytes it has already written to disk, and off for the
+   * rendered-body scan, which is never substituted at all.
+   */
+  cdnPlaceholderPending?: boolean;
+}
+
+/**
+ * Inline content whose bytes are not settled until a request resolves
+ * {@link CDN_INJECTION_PLACEHOLDER}, kept as text so it can be hashed then.
+ *
+ * The template scan cannot hash these, and that is a timing problem rather than
+ * a limitation. A template is processed once, at startup in production, while
+ * the CDN base URL is decided per request: `request.CDNBaseURL` may be set in an
+ * `onRequest` hook, so a single cached digest could not describe what ships to
+ * every request. Held back here and hashed by {@link resolveTemplateCSPHashes}
+ * once the value is known.
+ *
+ * Only blocks actually carrying the placeholder land here, so a template that
+ * does not use it pays nothing and the per-request work stays proportional to
+ * how much of it there is.
+ */
+export interface CDNDependentInlineContent {
+  /** Which directive the resolved hash belongs in. */
+  kind: CSPInlineKind;
+  /**
+   * The element's text content exactly as the processed template holds it, with
+   * the placeholder still unresolved.
+   *
+   * Substituted and hashed rather than re-parsed, which is what keeps this
+   * cheap: the bytes here already came out of the serialized template, so the
+   * only thing standing between them and a correct digest is one string
+   * replacement.
+   */
+  content: string;
+}
+
+/**
+ * Hashes for content whose bytes are fully settled, ready to go into a policy.
+ *
+ * The shape a caller receives once nothing is left to resolve, which is what
+ * `SSGReport` carries and what the request path builds per response. Separate
+ * from {@link TemplateCSPHashes} so neither of them has to carry a field that
+ * is meaningless for it.
+ */
+export interface ResolvedTemplateCSPHashes {
+  scriptSrc: string[];
+  styleSrc: string[];
+  inlineAttributes: InlineAttributeFinding[];
+}
+
 export type ProcessTemplateResult =
-  { success: true; html: string } | { success: false; error: string };
+  | { success: true; html: string; cspHashes: TemplateCSPHashes }
+  | { success: false; error: string };
+
+/**
+ * Hash every inline `<script>` and `<style>` in a finished template.
+ *
+ * Parsing back what was just serialized looks wasteful, and is the point: it reads
+ * the same bytes a browser will, so there is no way for the hash and the
+ * delivered content to disagree. Runs once per app at startup, not per request.
+ *
+ * Scripts with a `src` are skipped, having no inline content to cover, and so
+ * are data blocks such as `application/json`, which `script-src` does not
+ * govern. Which types those are is `isCSPGovernedScriptType`'s question, and it
+ * is not the same as "is this JavaScript": an import map and a speculation
+ * rules block are both inert JSON that a strict `script-src` still blocks.
+ */
+export async function collectTemplateCSPHashes(
+  html: string,
+  options: CollectTemplateCSPHashesOptions = {},
+): Promise<TemplateCSPHashes> {
+  // Dynamic import for the same reason processTemplate uses one: cheerio must
+  // not be pulled into client bundles.
+  const cheerio = await import('cheerio');
+
+  return collectTemplateCSPHashesWith(html, cheerio.load, options);
+}
+
+/**
+ * Hash the inline `<script>` and `<style>` elements of an already-parsed
+ * template, and report its inline attributes.
+ *
+ * Reads content with cheerio's `.html()` rather than from source offsets, and
+ * that is safe **here specifically** because the template was serialized out of
+ * a parse: `processTemplate` prettifies the document and then hashes what it
+ * just wrote, so the tree and the bytes already agree.
+ *
+ * Rendered SSR markup is the opposite case and deliberately does not come
+ * through here. It is spliced into the page verbatim without round-tripping
+ * through a serializer, so the tokenizer's normalizations, CRLF to LF inside
+ * raw-text elements being the one that bites, leave the tree and the bytes
+ * disagreeing. That path reads digests from the original source offsets
+ * instead. See `collectRenderedInlineHashes` in `inject.ts`.
+ */
+function collectInlineCSPHashes(
+  $: CheerioAPI,
+  load: typeof cheerioLoad,
+  options: CollectTemplateCSPHashesOptions,
+): TemplateCSPHashes {
+  const scriptSrc = new Set<string>();
+  const styleSrc = new Set<string>();
+  // Keyed by kind and text, so the same block appearing twice is carried once.
+  // Deduplicated here rather than after resolution because the substitution is
+  // the same everywhere, so equal inputs stay equal outputs.
+  const cdnDependent = new Map<string, CDNDependentInlineContent>();
+
+  /**
+   * Hash this content now, or hold it back for the request that will settle it.
+   *
+   * Returns whether it was handled here, so each caller can skip its own
+   * hashing without repeating the placeholder test.
+   */
+  const deferIfCDNDependent = (
+    kind: CSPInlineKind,
+    content: string,
+  ): boolean => {
+    if (
+      !options.cdnPlaceholderPending ||
+      !content.includes(CDN_INJECTION_PLACEHOLDER)
+    ) {
+      return false;
+    }
+
+    cdnDependent.set(`${kind}|${content}`, { kind, content });
+
+    return true;
+  };
+
+  // Keyed by description *and* hash, so two <button onclick> with different
+  // handlers stay two findings. Keying on the description alone would collapse
+  // them onto whichever value was seen first, and a policy covering that one
+  // would then read as covering the template: the second handler is blocked and
+  // nothing says so.
+  const inlineAttributes = new Map<string, InlineAttributeFinding>();
+  const collectFrom = ($: CheerioAPI): void => {
+    collectAttributesFrom($);
+
+    $('script').each((_, el) => {
+      const element = $(el);
+
+      if (element.attr('src')) {
+        return;
+      }
+
+      if (!isCSPGovernedScriptType(element.attr('type'))) {
+        return;
+      }
+
+      const content = element.html();
+
+      if (content && !deferIfCDNDependent('script', content)) {
+        scriptSrc.add(`'${hashInlineContentForCSP(content)}'`);
+      }
+    });
+
+    $('style').each((_, el) => {
+      const content = $(el).html();
+
+      // Compared against null rather than read as truthy, because the empty
+      // string is a real `<style></style>` and has to be hashed. A placeholder
+      // or a CSS-in-JS tag that produced no rules is one, and a browser applies
+      // it: Chrome blocks it under a strict style-src and names the
+      // empty-string digest as the hash that would allow it. Reading the value
+      // as truthy dropped exactly that case.
+      //
+      // The null branch cannot be reached from here, since `.html()` only
+      // returns null for an empty selection and this is inside `.each`. It is
+      // written out anyway so the guard says what it is testing for rather than
+      // relying on the reader knowing that.
+      //
+      // The `<script>` arm above is deliberately left on a truthiness test,
+      // since an empty inline script draws no violation.
+      if (content !== null && !deferIfCDNDependent('style', content)) {
+        styleSrc.add(`'${hashInlineContentForCSP(content)}'`);
+      }
+    });
+
+    // <noscript> has to be parsed separately, and missing this is silent in the
+    // worst way. A parser with scripting enabled, which is what cheerio is,
+    // treats the element's contents as raw text, so the selectors above see
+    // nothing inside it. A browser with JavaScript *disabled* parses the same
+    // bytes as real markup, so a <style> in there becomes a live style element
+    // and a strict style-src without its hash blocks it.
+    //
+    // The result would be a noscript fallback rendering unstyled for exactly
+    // the users it exists for, and invisible to anyone testing with JavaScript
+    // on. Both the starter template and the demos put a <style> in theirs.
+    $('noscript').each((_, el) => {
+      const inner = $(el).html();
+
+      if (inner && /<(?:script|style)\b/i.test(inner)) {
+        collectFrom(load(inner, null, false));
+      }
+    });
+  };
+
+  const collectAttributesFrom = ($: CheerioAPI): void => {
+    $('*').each((_, el) => {
+      if (!isElementNode(el)) {
+        return;
+      }
+
+      for (const [name, value] of Object.entries(el.attribs ?? {})) {
+        // on* is the event-handler namespace. `style` is the other attribute a
+        // plain hash source cannot cover on its own. Both need 'unsafe-hashes'
+        // alongside a hash of the value, and the better fix is usually not to
+        // write them inline at all.
+        const kind = /^on[a-z]+$/i.test(name)
+          ? 'script'
+          : name.toLowerCase() === 'style'
+            ? 'style'
+            : undefined;
+
+        if (!kind) {
+          continue;
+        }
+
+        const attribute = kind === 'style' ? 'style' : name;
+        const description = `<${el.tagName}> has ${attribute}=`;
+
+        // Hashed from the attribute value as parsed, which is what a browser
+        // matches against: entity references are already decoded here and are
+        // decoded there too, so the digest agrees with the one the browser
+        // computes rather than with the source bytes.
+        const hash = `'${hashInlineContentForCSP(value)}'`;
+        const key = `${description}|${hash}`;
+
+        if (!inlineAttributes.has(key)) {
+          inlineAttributes.set(key, { description, kind, hash, value });
+        }
+      }
+    });
+  };
+
+  collectFrom($);
+
+  return {
+    scriptSrc: [...scriptSrc],
+    styleSrc: [...styleSrc],
+    inlineAttributes: [...inlineAttributes.values()],
+    cdnDependent: [...cdnDependent.values()],
+  };
+}
+
+/**
+ * Settle a template's hashes against the CDN base URL in force for a request.
+ *
+ * Everything already hashed passes through untouched. What was held back is
+ * substituted and hashed now, which is the whole per-request cost: one string
+ * replacement and one digest per block that uses the placeholder, with no
+ * re-parse. A template that does not use it does no work here at all.
+ *
+ * Inline attributes are settled the same way, and for a smaller reason. A
+ * `style=` carrying a CDN URL is never added to the policy, only reported, but
+ * a report naming a hash that would not match is worse than one naming none.
+ *
+ * @param hashes What `processTemplate` produced, cached or not
+ * @param normalizedCDN The base URL, already through `normalizeCDNBaseURL`, so
+ *   this hashes the exact bytes `injectContent` substitutes
+ */
+export function resolveTemplateCSPHashes(
+  hashes: TemplateCSPHashes,
+  normalizedCDN: string,
+): ResolvedTemplateCSPHashes {
+  const resolve = (content: string) =>
+    content.replaceAll(CDN_INJECTION_PLACEHOLDER, () => normalizedCDN);
+
+  const isAttributePending = hashes.inlineAttributes.some((finding) =>
+    finding.value.includes(CDN_INJECTION_PLACEHOLDER),
+  );
+
+  // The common case by a wide margin, and worth returning early for: it is
+  // every template that does not write the placeholder into inline content,
+  // and every SSG page, which is hashed after resolution and so never has any.
+  //
+  // Both halves are asked about, not just `cdnDependent`. An attribute is
+  // reported rather than deferred, since its hash never enters a policy, so a
+  // template whose only placeholder sits in a `style=` has nothing in
+  // `cdnDependent` and still has a finding to resettle. Keying the early return
+  // on the deferred list alone returned that finding with the unresolved hash
+  // still on it, which is the stale advice this resettling exists to avoid.
+  //
+  // The scan is free in the usual case, since a template with no inline
+  // attributes has an empty array to test.
+  //
+  // Rebuilt rather than returned by identity, and only because the return type
+  // says `cdnDependent` is not there. Handing back the input leaves the field
+  // on the object at runtime, which is invisible to every current reader, since
+  // they all read named fields, and wrong the moment one serializes the value:
+  // `SSGReport.cspHashes` is public, and JSON.stringify would emit a key its
+  // type denies. Three property references is not a cost worth that.
+  if (!hashes.cdnDependent.length && !isAttributePending) {
+    return {
+      scriptSrc: hashes.scriptSrc,
+      styleSrc: hashes.styleSrc,
+      inlineAttributes: hashes.inlineAttributes,
+    };
+  }
+
+  const scriptSrc = new Set(hashes.scriptSrc);
+  const styleSrc = new Set(hashes.styleSrc);
+
+  for (const { kind, content } of hashes.cdnDependent) {
+    const source = `'${hashInlineContentForCSP(resolve(content))}'`;
+
+    (kind === 'script' ? scriptSrc : styleSrc).add(source);
+  }
+
+  return {
+    scriptSrc: [...scriptSrc],
+    styleSrc: [...styleSrc],
+    inlineAttributes: hashes.inlineAttributes.map((finding) =>
+      finding.value.includes(CDN_INJECTION_PLACEHOLDER)
+        ? {
+            ...finding,
+            value: resolve(finding.value),
+            hash: `'${hashInlineContentForCSP(resolve(finding.value))}'`,
+          }
+        : finding,
+    ),
+  };
+}
+
+function collectTemplateCSPHashesWith(
+  html: string,
+  load: typeof cheerioLoad,
+  options: CollectTemplateCSPHashesOptions = {},
+): TemplateCSPHashes {
+  return collectInlineCSPHashes(load(html), load, options);
+}
 
 export async function processTemplate(
   html: string,
@@ -576,14 +1019,14 @@ export async function processTemplate(
       $('script[src]').each((_, el) => {
         const src = $(el).attr('src');
         if (src && isLocalAssetURL(src)) {
-          $(el).attr('src', `__CDN__INJECTION__POINT__${src}`);
+          $(el).attr('src', `${CDN_INJECTION_PLACEHOLDER}${src}`);
         }
       });
 
       $('link[href]').each((_, el) => {
         const href = $(el).attr('href');
         if (href && isLocalAssetURL(href)) {
-          $(el).attr('href', `__CDN__INJECTION__POINT__${href}`);
+          $(el).attr('href', `${CDN_INJECTION_PLACEHOLDER}${href}`);
         }
       });
     }
@@ -727,15 +1170,48 @@ export async function processTemplate(
       $('body').prepend(templateSlots.bodyPrepend);
     }
 
-    // Prepended after the slot content so the note stays the first thing in <body>, which is
-    // where a developer reading source expects it. Nothing below it depends on the position.
+    // Emitted directly above the app container, which is what it is about.
+    //
+    // It used to be prepended to <body> instead, on the reasoning that a note is
+    // easiest to find at the top. In practice that put it immediately above
+    // whatever bodyPrepend contributed — a noscript block in both the starter
+    // template and the demos — so top-down it read as a note about that, and the
+    // element it actually describes was hundreds of lines further down.
+    //
+    // Falls back to the old position if the container is missing, which is not a
+    // valid template but is not worth losing the note over.
     if (isDevelopment) {
-      $('body').prepend(`<!-- ${DEVELOPMENT_COMMENT} -->\n`);
+      const container = $(`#${containerID}`);
+
+      if (container.length > 0) {
+        container.before(`<!-- ${DEVELOPMENT_COMMENT} -->\n`);
+      } else {
+        $('body').prepend(`<!-- ${DEVELOPMENT_COMMENT} -->\n`);
+      }
     }
+
+    // Serialize first, then hash what came out. Anything that reformats the
+    // document has already run by this point, so these hashes describe the
+    // bytes that ship.
+    //
+    // What injectContent does afterwards cannot disturb them. It merges the
+    // template's <meta> tags, replaces the markers, resolves
+    // CDN_INJECTION_PLACEHOLDER, and rewrites the <html>/<body> attributes.
+    // The placeholder is the one worth spelling out, since it is resolved
+    // across the whole template rather than at a known location and so can
+    // reach inline content. The scan handles that by not hashing those blocks
+    // here at all: they come back as `cdnDependent` and are hashed per request,
+    // once the value they resolve to is known.
+    const processedHTML = prettifyHTML($, containerID);
 
     return {
       success: true,
-      html: prettifyHTML($, containerID),
+      html: processedHTML,
+      cspHashes: collectTemplateCSPHashesWith(processedHTML, cheerio.load, {
+        // injectContent resolves the placeholder in this template per request,
+        // so any inline block carrying it is held back and hashed there.
+        cdnPlaceholderPending: true,
+      }),
     };
   } catch (error) {
     return {

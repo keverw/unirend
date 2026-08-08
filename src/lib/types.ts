@@ -25,6 +25,11 @@ import type {
 import type { UnirendContextValue } from './internal/UnirendContext';
 import type { DomainInfo } from './internal/domain-info';
 import type {
+  InlineAttributeReport,
+  ResolvedTemplateCSPHashes,
+  TemplateCSPHashes,
+} from './internal/html-utils/format';
+import type {
   ClientInfo,
   ClientInfoConfig,
 } from './internal/client-info-resolution';
@@ -515,7 +520,7 @@ export interface ControlledReply {
    *
    * This is installed by the framework's controlled-reply wrapper so helpers
    * can terminate with the same raw/hijacked path while still reusing shared
-   * header logic such as CORS application.
+   * header logic such as security header application.
    *
    * ControlledReply intentionally does not expose general-purpose send/write
    * methods to user handlers. This internal escape hatch exists only so
@@ -1502,6 +1507,15 @@ export interface SSRInternalAppConfigBuilt extends SSRInternalAppConfigBase {
   ) => Promise<RenderResult>;
   /** Cached HTML template (INTERNAL - cached by framework) */
   cachedHTMLTemplate?: string;
+  /**
+   * CSP hashes for the cached template's inline scripts and styles (INTERNAL).
+   *
+   * Computed alongside the template at startup, since both are fixed for the
+   * life of the process in production. Development recomputes per request
+   * instead, because the template is re-read and Vite may add inline content of
+   * its own after unirend is done with it.
+   */
+  cachedTemplateCSPHashes?: TemplateCSPHashes;
 }
 
 /**
@@ -2556,6 +2570,36 @@ export interface SSGReport {
   fatalError?: Error;
   /** Page generation reports (always present, even on error) */
   pagesReport: SSGPagesReport;
+  /**
+   * CSP source expressions covering the inline content of every page that was
+   * written, deduplicated across the whole site and quoted ready to paste.
+   *
+   * Generation is the only moment these can be known. A prerendered site is a
+   * directory of files, and whatever serves it afterwards has no template to
+   * hash and no render to hook into. That is true of unirend's own static
+   * server and just as true of nginx, Apache, or a PHP host, so the hashes are
+   * handed back as data rather than wired into one particular way of serving
+   * them.
+   *
+   * Taken from the bytes actually written, so they cover the template's own
+   * inline blocks and unirend's bootstrap script together, and they stay
+   * correct through anything the pipeline rewrote on the way out.
+   *
+   * Empty when no page was written.
+   *
+   * ```ts
+   * const report = await generateSSG(buildDir, pages);
+   *
+   * securityHeaders({
+   *   csp: {
+   *     defaultSrc: ["'self'"],
+   *     scriptSrc: ["'self'", ...report.cspHashes.scriptSrc],
+   *     styleSrc: ["'self'", ...report.cspHashes.styleSrc],
+   *   },
+   * });
+   * ```
+   */
+  cspHashes: ResolvedTemplateCSPHashes;
 }
 
 /**
@@ -2812,13 +2856,83 @@ declare module 'fastify' {
      */
     CDNBaseURL?: string;
     /**
-     * Optional request-scoped helper installed by the built-in CORS plugin.
+     * Optional request-scoped helper installed by the built-in securityHeaders
+     * plugin.
      *
      * Raw/hijacked response paths can call this before `writeHead(...)` to
      * apply the same actual-response CORS/security headers that normal
      * Fastify-managed responses receive.
      */
-    applyCORSHeaders?: (reply: FastifyReply) => void | Promise<void>;
+    applySecurityHeaders?: (reply: FastifyReply) => void | Promise<void>;
+    /**
+     * Optional request-scoped helper installed by the built-in securityHeaders
+     * plugin, but only when a `csp` policy is configured.
+     *
+     * Contributes extra source expressions to this response's
+     * `Content-Security-Policy`. The SSR renderer uses it to add hashes for the
+     * inline scripts and styles the active app's template carries, which are
+     * not knowable at config time because the app is chosen per request.
+     *
+     * Sources must be written exactly as they appear in the header, hashes
+     * included quotes: `"'sha256-...'"`.
+     *
+     * Absent when the plugin is not registered or no policy is configured, so
+     * feature-detect it. That absence is also the signal not to compute hashes
+     * in the first place, which is what keeps the work off servers that are not
+     * using CSP.
+     */
+    addCSPSources?: (sources: {
+      scriptSrc?: readonly string[];
+      styleSrc?: readonly string[];
+      /**
+       * Inline `on*=` handlers and `style=""` attributes found in the content
+       * being contributed.
+       *
+       * Reported rather than added to the policy, because covering one needs
+       * `'unsafe-hashes'` in the directive as well as the hash, and that is the
+       * caller's decision to make rather than something to switch on for them.
+       * `securityHeaders` warns about them only when the policy in force for
+       * the request would actually block them.
+       */
+      inlineAttributes?: readonly InlineAttributeReport[];
+    }) => void;
+    /**
+     * Set to `true` by the built-in `domainValidation` plugin when it rejects
+     * the request's host, either because the host failed
+     * `validProductionDomains` or because the `Host` header was missing or
+     * unparseable.
+     *
+     * It means the server does not claim this host, which is narrower than "the
+     * response was a 403". An application's own authorization failure, on a
+     * domain the server does serve, never sets it. `securityHeaders` reads it to
+     * suppress HSTS, and your own hooks can read it for the same reason: a
+     * policy header that binds a domain should not be sent for a domain this
+     * server has just disclaimed.
+     *
+     * Unset when `domainValidation` is not registered or did not reject.
+     */
+    domainValidationRejected?: boolean;
+    /**
+     * Whether `domainValidation`'s hook ran for this request.
+     *
+     * Set as the first thing the hook does, so it answers "was this host
+     * examined at all", separately from what the examination concluded. The two
+     * together give three states:
+     *
+     * - `checked` unset: the gate never ran. Either the plugin is not
+     *   registered, or something above it in `plugins` ended the request first,
+     *   which includes a hook that threw. The host is unverified.
+     * - `checked` set, `rejected` unset: the host passed.
+     * - `checked` set, `rejected` set: the host was refused, or could not be
+     *   confirmed because the validator failed.
+     *
+     * The first state is the one worth handling. An error page rendered there
+     * is being served on a host nothing has vouched for, so it is a reasonable
+     * place to withhold branding and detail. Read it alongside
+     * `server.domainValidationRegistered` to tell "the plugin is not in use"
+     * from "the plugin is in use but never got to run".
+     */
+    domainValidationChecked?: boolean;
     /**
      * Internal request-start timestamp captured by the framework.
      *
@@ -2869,5 +2983,25 @@ declare module 'fastify' {
      * not on every `.js` or `.css` file request.
      */
     isStaticAsset: boolean;
+  }
+
+  interface FastifyInstance {
+    /**
+     * Whether the `domainValidation` plugin was registered on this server.
+     *
+     * Set once at registration, so it is a fact about the server rather than
+     * about a request. It exists to disambiguate an unset
+     * `request.domainValidationChecked`, which otherwise reads the same whether
+     * the plugin is not in use at all or is in use and never got to run:
+     *
+     * ```typescript
+     * const hostUnverified =
+     *   request.server.domainValidationRegistered === true &&
+     *   request.domainValidationChecked !== true;
+     * ```
+     *
+     * Unset when the plugin is not registered.
+     */
+    domainValidationRegistered?: boolean;
   }
 }

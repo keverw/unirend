@@ -26,7 +26,13 @@ import {
   getServerEntryFromManifest,
   validateDevPaths,
 } from './fs-utils';
-import { processTemplate } from './html-utils/format';
+import {
+  collectTemplateCSPHashes,
+  processTemplate,
+  resolveTemplateCSPHashes,
+  type TemplateCSPHashes,
+} from './html-utils/format';
+import { normalizeCDNBaseURL } from './cdn';
 import { injectContent } from './html-utils/inject';
 import path from 'path';
 import type {
@@ -39,7 +45,6 @@ import {
   classifyRequest,
   normalizeAPIPrefix,
   normalizePageDataEndpoint,
-  normalizeCDNBaseURL,
   computeDomainInfo,
   createDefaultAPIErrorResponse,
   createDefaultAPINotFoundResponse,
@@ -593,8 +598,18 @@ export class SSRServer<
       }
 
       // Clear cached templates and render functions (defensive programming)
+      //
+      // The template's CSP hashes go with it, in the same branch rather than
+      // one of their own. They describe that exact template's inline content,
+      // so a cleared template that left them behind would be a set of hashes
+      // for bytes nothing is serving. Nothing reads them in that state today,
+      // since the request path refuses to serve without a template at all, but
+      // the two are written together when the template loads and keeping them
+      // cleared together is what stops that from depending on a guard
+      // elsewhere.
       if ('cachedHTMLTemplate' in appConfig) {
         appConfig.cachedHTMLTemplate = undefined;
+        appConfig.cachedTemplateCSPHashes = undefined;
       }
 
       if ('cachedRenderFunction' in appConfig) {
@@ -636,6 +651,9 @@ export class SSRServer<
             const templateResult = await this.loadHTMLTemplate(appConfig);
             // CDN rewriting is now handled inside processTemplate() during loadHTMLTemplate()
             appConfig.cachedHTMLTemplate = templateResult.content;
+            // Fixed for the life of the process alongside the template itself,
+            // so hashing happens once here rather than per response.
+            appConfig.cachedTemplateCSPHashes = templateResult.cspHashes;
           } catch (loadError) {
             throw new Error(
               `Failed to load HTML template for app "${appKey}": ${loadError instanceof Error ? loadError.message : String(loadError)}`,
@@ -1360,6 +1378,23 @@ export class SSRServer<
 
           let template: string;
 
+          // The CDN base URL in force for this request, resolved once.
+          //
+          // Needed before the render rather than only at it, because the
+          // template's CSP hashes depend on it: a template may write
+          // __CDN__INJECTION__POINT__ into an inline <style>, and injectContent
+          // resolves that per request, so the hash has to be taken against the
+          // same value. `request.CDNBaseURL` is populated before preHandler, so
+          // it is already settled here.
+          //
+          // `??` rather than `||` so an explicit empty-string override, which is
+          // how a hook disables the CDN for one request, is honored instead of
+          // falling through to the app-level default.
+          const requestCDNBaseURL = normalizeCDNBaseURL(
+            request.CDNBaseURL ??
+              ('CDNBaseURL' in appConfig ? appConfig.CDNBaseURL : undefined),
+          );
+
           if (
             this.serverMode === 'development' &&
             'viteDevServer' in appConfig &&
@@ -1375,6 +1410,28 @@ export class SSRServer<
               request.url,
               template,
             );
+
+            // Hash after Vite, not before. transformIndexHtml runs after
+            // processTemplate and adds inline content of its own, the React
+            // refresh preamble among it, so hashes taken earlier would be
+            // missing exactly the scripts that only exist in development.
+            //
+            // Guarded on the decoration rather than on a mode flag: it is
+            // absent unless securityHeaders is registered with a csp policy, so
+            // a dev server that is not using CSP pays nothing for this.
+            if (request.addCSPSources) {
+              request.addCSPSources(
+                resolveTemplateCSPHashes(
+                  // Still a template at this point, so injectContent has yet to
+                  // resolve the CDN placeholder in it and any inline block
+                  // carrying one has to be held back rather than hashed here.
+                  await collectTemplateCSPHashes(template, {
+                    cdnPlaceholderPending: true,
+                  }),
+                  requestCDNBaseURL,
+                ),
+              );
+            }
 
             // Load server entry using Vite's SSR loader (from src)
             const entryServer = await appConfig.viteDevServer.ssrLoadModule(
@@ -1418,6 +1475,21 @@ export class SSRServer<
 
             template = appConfig.cachedHTMLTemplate;
             render = appConfig.cachedRenderFunction;
+
+            // Hashed once at startup, so this is a lookup rather than work,
+            // except for any inline block carrying the CDN placeholder. Those
+            // could not be hashed then, since the value they resolve to is
+            // per request, so resolveTemplateCSPHashes settles them here. It
+            // returns the cached object untouched when there are none, which is
+            // the usual case.
+            if (request.addCSPSources && appConfig.cachedTemplateCSPHashes) {
+              request.addCSPSources(
+                resolveTemplateCSPHashes(
+                  appConfig.cachedTemplateCSPHashes,
+                  requestCDNBaseURL,
+                ),
+              );
+            }
           }
 
           // Create Fetch API Request object for React Router
@@ -1521,13 +1593,10 @@ export class SSRServer<
 
           // --- Render the App ---
           try {
-            // Resolve CDN URL before render so it's available via useCDNBaseURL() in components
-            // and the HTML global. request.CDNBaseURL was populated before preHandler.
-            // Use ?? so that an explicit empty-string override (disabling CDN for this request)
-            // is honoured rather than silently falling through to the app-level default.
-            const CDNBaseURL =
-              request.CDNBaseURL ??
-              ('CDNBaseURL' in appConfig ? appConfig.CDNBaseURL : undefined);
+            // Resolved once above, before the template's CSP hashes were
+            // settled against it, so the value the components see through
+            // useCDNBaseURL() is the same one those hashes were taken with.
+            const CDNBaseURL = requestCDNBaseURL;
 
             const renderResult = await render({
               type: 'ssr',
@@ -1605,6 +1674,18 @@ export class SSRServer<
                   domainInfo: request.domainInfo,
                   htmlAttrs: renderResult.head?.htmlAttrs,
                   bodyAttrs: renderResult.head?.bodyAttrs,
+                  // Covers the inline content whose bytes are decided by this
+                  // render rather than by the template: anything the page
+                  // rendered itself, a React 19 hoistable `<style>` among the
+                  // likeliest, plus a React Router hydration script in a shape
+                  // injectContent declined to lift into the data block and so
+                  // passes through verbatim. The template hashes above were
+                  // contributed before rendering and cannot know about any of
+                  // it. Guarded on the same decoration they are, so a server
+                  // without a CSP does no work for it.
+                  addCSPSources: request.addCSPSources
+                    ? (sources) => request.addCSPSources?.(sources)
+                    : undefined,
                 },
               );
 
@@ -1908,9 +1989,12 @@ export class SSRServer<
         }
       }
 
-      // Clear cached templates and render functions (production mode)
+      // Clear cached templates and render functions (production mode).
+      // The template's CSP hashes are cleared with it, for the reason given
+      // where the same thing happens before a start.
       if ('cachedHTMLTemplate' in appConfig) {
         appConfig.cachedHTMLTemplate = undefined;
+        appConfig.cachedTemplateCSPHashes = undefined;
       }
 
       if ('cachedRenderFunction' in appConfig) {
@@ -2206,9 +2290,11 @@ export class SSRServer<
    * @returns Promise that resolves to the processed template content and path
    * @private
    */
-  private async loadHTMLTemplate(
-    appConfig: SSRInternalAppConfig,
-  ): Promise<{ content: string; path: string }> {
+  private async loadHTMLTemplate(appConfig: SSRInternalAppConfig): Promise<{
+    content: string;
+    path: string;
+    cspHashes: TemplateCSPHashes;
+  }> {
     // Determine template path based on mode
     let htmlTemplatePath: string;
 
@@ -2280,6 +2366,7 @@ export class SSRServer<
     return {
       content: processResult.html,
       path: htmlTemplatePath,
+      cspHashes: processResult.cspHashes,
     };
   }
 

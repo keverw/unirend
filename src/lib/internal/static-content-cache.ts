@@ -856,7 +856,7 @@ export class StaticContentCache {
         .header('ETag', result.etag)
         .header('Last-Modified', result.lastModified);
 
-      await req.applyCORSHeaders?.(reply);
+      await req.applySecurityHeaders?.(reply);
       markStaticAsset();
       reply.hijack();
       reply.raw.writeHead(304, reply.getHeaders() as OutgoingHttpHeaders);
@@ -919,7 +919,7 @@ export class StaticContentCache {
           .header('Cache-Control', 'no-store')
           .type('application/json')
           .header('Content-Length', String(Buffer.byteLength(body)));
-        await req.applyCORSHeaders?.(reply);
+        await req.applySecurityHeaders?.(reply);
         markStaticAsset();
         reply.hijack();
         reply.raw.writeHead(400, reply.getHeaders() as OutgoingHttpHeaders);
@@ -933,7 +933,7 @@ export class StaticContentCache {
           .type('application/json')
           .header('Content-Range', `bytes */${result.stat.size}`)
           .header('Content-Length', String(Buffer.byteLength(body)));
-        await req.applyCORSHeaders?.(reply);
+        await req.applySecurityHeaders?.(reply);
         markStaticAsset();
         reply.hijack();
         reply.raw.writeHead(416, reply.getHeaders() as OutgoingHttpHeaders);
@@ -953,7 +953,7 @@ export class StaticContentCache {
         .header('Content-Range', `bytes ${start}-${end}/${result.stat.size}`)
         .header('Content-Length', chunkSize.toString());
 
-      await req.applyCORSHeaders?.(reply);
+      await req.applySecurityHeaders?.(reply);
       markStaticAsset();
       reply.hijack();
       reply.raw.writeHead(206, reply.getHeaders() as OutgoingHttpHeaders);
@@ -979,7 +979,7 @@ export class StaticContentCache {
           ? result.content.data.length
           : result.stat.size;
       reply.header('Content-Length', headContentLength.toString());
-      await req.applyCORSHeaders?.(reply);
+      await req.applySecurityHeaders?.(reply);
       markStaticAsset();
       reply.hijack();
       reply.raw.writeHead(
@@ -999,7 +999,7 @@ export class StaticContentCache {
       await waitForReadStreamOpen(fullFileStream);
     }
 
-    await req.applyCORSHeaders?.(reply);
+    await req.applySecurityHeaders?.(reply);
 
     if (!result.content.shouldStream) {
       // reply.raw.end(buffer) does not get Fastify's normal Content-Length

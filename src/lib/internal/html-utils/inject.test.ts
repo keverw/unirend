@@ -1,8 +1,56 @@
 import { describe, expect, it, spyOn } from 'bun:test';
+import { createHash } from 'node:crypto';
 import * as cheerio from 'cheerio';
 import { prettifyHeadTags, injectContent } from './inject';
-import { processTemplate } from './format';
+import {
+  collectTemplateCSPHashes,
+  processTemplate,
+  resolveTemplateCSPHashes,
+} from './format';
 import { TAB_SPACES } from '../consts';
+import { hashInlineContentForCSP } from '../csp-hash';
+import {
+  renderContextDataElements,
+  UNIREND_DATA_BLOCK_ID,
+  type UnirendContextData,
+} from './context-data-block';
+
+/**
+ * The two elements injectContent emits in place of the seven per-global
+ * assignment scripts it used to.
+ *
+ * Built through the same renderer the implementation uses, deliberately. These
+ * tests are about placement and the surrounding markup; restating the
+ * bootstrap's minified source in an expected string would make every one of
+ * them fail on an unrelated edit to it, which is how a suite stops being worth
+ * reading.
+ */
+function contextElements(overrides: Partial<UnirendContextData> = {}): string {
+  return renderContextDataElements({
+    isDev: false,
+    cdnBaseURL: '',
+    domainInfo: null,
+    templateAttrs: { html: {}, body: {} },
+    templateMetas: [],
+    ...overrides,
+  }).join('\n');
+}
+
+/**
+ * Read the JSON data block back out of rendered HTML, the way the client
+ * bootstrap does.
+ */
+function dataBlockPayload(html: string): Record<string, unknown> {
+  const match = new RegExp(
+    `<script type="application/json" id="${UNIREND_DATA_BLOCK_ID}">([\\s\\S]*?)</script>`,
+  ).exec(html);
+
+  if (!match) {
+    throw new Error('no unirend data block found in output');
+  }
+
+  return JSON.parse(match[1]) as Record<string, unknown>;
+}
 
 describe('prettifyHeadTags', () => {
   it('should prettify head tags with default indentation', () => {
@@ -64,11 +112,7 @@ describe('injectContent', () => {
       '<!DOCTYPE html><html><head>' +
       `<title>Test Title</title>\n` +
       `${TAB_SPACES}<meta name="description" content="Test">` +
-      '<script>globalThis.__lifecycleion_is_dev__=false;</script>\n' +
-      '<script>window.__CDN_BASE_URL__="";</script>\n' +
-      '<script>window.__DOMAIN_INFO__=null;</script>\n' +
-      '<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>\n' +
-      '<script>window.__UNIREND_TEMPLATE_METAS__=[];</script>' +
+      contextElements() +
       '</head><body><div>Hello World</div></body></html>';
 
     expect(await injectContent(template, headContent, bodyContent)).toBe(
@@ -81,7 +125,9 @@ describe('injectContent', () => {
       '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
 
     const expected =
-      '<!DOCTYPE html><html><head><script>globalThis.__lifecycleion_is_dev__=false;</script>\n<script>window.__CDN_BASE_URL__="";</script>\n<script>window.__DOMAIN_INFO__=null;</script>\n<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>\n<script>window.__UNIREND_TEMPLATE_METAS__=[];</script></head><body></body></html>';
+      '<!DOCTYPE html><html><head>' +
+      contextElements() +
+      '</head><body></body></html>';
 
     expect(await injectContent(template, '', '')).toBe(expected);
   });
@@ -97,11 +143,7 @@ describe('injectContent', () => {
       '<!DOCTYPE html><html><head>' +
       `<title>React App</title>` +
       '</head><body><div id="root" data-reactroot=""><div>React Content</div></div>' +
-      '<script>globalThis.__lifecycleion_is_dev__=false;</script>\n' +
-      '<script>window.__CDN_BASE_URL__="";</script>\n' +
-      '<script>window.__DOMAIN_INFO__=null;</script>\n' +
-      '<script>window.__UNIREND_TEMPLATE_ATTRS__={"html":{},"body":{}};</script>\n' +
-      '<script>window.__UNIREND_TEMPLATE_METAS__=[];</script>' +
+      contextElements() +
       '</body></html>';
 
     expect(await injectContent(template, headContent, bodyContent)).toBe(
@@ -163,8 +205,15 @@ describe('injectContent', () => {
     const result = await injectContent(template, '', '');
 
     expect(result).not.toContain('<!--context-scripts-injection-point-->');
-    expect(result).not.toContain('window.__FRONTEND_REQUEST_CONTEXT__');
-    expect(result).not.toContain('window.__PUBLIC_APP_CONFIG__');
+
+    // The bootstrap is fixed text, so it names both globals whether or not
+    // they were provided. What says "not provided" is the key being absent
+    // from the payload, which is what makes the bootstrap skip the assignment
+    // and leave the global undefined rather than defining it as undefined.
+    const payload = dataBlockPayload(result);
+
+    expect(payload).not.toHaveProperty('requestContext');
+    expect(payload).not.toHaveProperty('appConfig');
   });
 
   it('should inject both app config and request context', async () => {
@@ -259,7 +308,179 @@ describe('injectContent', () => {
     expect(result).not.toContain('__CDN__INJECTION__POINT__');
   });
 
-  it('should inject window.__CDN_BASE_URL__ with the CDN URL when provided', async () => {
+  it('should resolve a hand-written CDN placeholder in a template URL', async () => {
+    // The reason the placeholder exists. Markup written by hand in index.html
+    // has no React context to call useCDNBaseURL() from, and processTemplate
+    // stamps only script[src] and link[href], so an <img src> or a
+    // rel="apple-touch-icon" has no other way to follow the CDN.
+    //
+    // Deliberately not an og:image: UnirendHead manages those per page, so
+    // processTemplate strips them from the template whatever their URL says.
+    const template =
+      '<!DOCTYPE html><html><head><link rel="apple-touch-icon" href="__CDN__INJECTION__POINT__/touch.png" /></head><body><img src="__CDN__INJECTION__POINT__/logo.png" /><!--ss-outlet--></body></html>';
+
+    const result = await injectContent(template, '', '', {
+      CDNBaseURL: 'https://cdn.example.com',
+    });
+
+    expect(result).toContain('href="https://cdn.example.com/touch.png"');
+    expect(result).toContain('src="https://cdn.example.com/logo.png"');
+    expect(result).not.toContain('__CDN__INJECTION__POINT__');
+  });
+
+  it('should not resolve the CDN placeholder in rendered body content', async () => {
+    // Scoped to the template on purpose. The substitution used to run across
+    // the finished document, which reached rendered markup as spillover rather
+    // than by design, and rewrote an inline <style> after its CSP hash had
+    // already been taken from the same bytes. Components use useCDNBaseURL().
+    const template =
+      '<!DOCTYPE html><html><head><script src="__CDN__INJECTION__POINT__/assets/main.js"></script></head><body><div id="root"><!--ss-outlet--></div></body></html>';
+
+    const body =
+      '<img src="__CDN__INJECTION__POINT__/hero.png" /><style>.a{background:url(__CDN__INJECTION__POINT__/bg.png)}</style>';
+
+    const result = await injectContent(template, '', body, {
+      CDNBaseURL: 'https://cdn.example.com',
+    });
+
+    // The template half still resolves.
+    expect(result).toContain('src="https://cdn.example.com/assets/main.js"');
+
+    // The rendered half is left exactly as the page rendered it.
+    expect(result).toContain('src="__CDN__INJECTION__POINT__/hero.png"');
+    expect(result).toContain(
+      '.a{background:url(__CDN__INJECTION__POINT__/bg.png)}',
+    );
+  });
+
+  it('should keep the rendered style hash matching what ships', async () => {
+    // The failure the scoping fixes: the hash was taken from the rendered
+    // bytes and the substitution rewrote them afterwards, so a strict
+    // style-src refused a block whose digest the policy already carried.
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><div id="root"><!--ss-outlet--></div></body></html>';
+
+    const body =
+      '<style>.a{background:url(__CDN__INJECTION__POINT__/bg.png)}</style>';
+
+    const collected: string[] = [];
+
+    const result = await injectContent(template, '', body, {
+      CDNBaseURL: 'https://cdn.example.com',
+      addCSPSources: (sources) => collected.push(...(sources.styleSrc ?? [])),
+    });
+
+    // No `cdnPlaceholderPending`, deliberately: this is a finished document, so
+    // whatever placeholder text survived into it is literal and ships as
+    // written, which is exactly what the hash has to cover.
+    const shipped = await collectTemplateCSPHashes(result);
+
+    expect(collected.length).toBe(1);
+    expect(shipped.styleSrc).toContain(collected[0]);
+    expect(shipped.cdnDependent).toEqual([]);
+  });
+
+  it('should hash a deferred template style to match the served page', async () => {
+    // The end-to-end invariant the whole deferral exists for: what the policy
+    // carries and what the browser receives are the same bytes, for a value
+    // neither side knew when the template was processed.
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--><style>.a{background:url(__CDN__INJECTION__POINT__/bg.png)}</style></head><body><!--ss-outlet--></body></html>';
+
+    const processed = await processTemplate(template, 'ssr', false, false);
+
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    // Nothing hashable at startup, since the bytes are not decided yet.
+    expect(processed.cspHashes.styleSrc).toEqual([]);
+    expect(processed.cspHashes.cdnDependent).toHaveLength(1);
+
+    for (const cdn of ['https://eu.example.com', 'https://apac.example.com']) {
+      const policy = resolveTemplateCSPHashes(processed.cspHashes, cdn);
+
+      const served = await injectContent(processed.html, '', '', {
+        CDNBaseURL: cdn,
+      });
+
+      const shipped = await collectTemplateCSPHashes(served);
+
+      expect(policy.styleSrc).toHaveLength(1);
+      expect(shipped.styleSrc).toContain(policy.styleSrc[0]);
+    }
+  });
+
+  it('should hash a deferred template style to match with no CDN set', async () => {
+    // The placeholder resolves to nothing, leaving the original root-relative
+    // path, and the hash has to follow it there too.
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--><style>.a{background:url(__CDN__INJECTION__POINT__/bg.png)}</style></head><body><!--ss-outlet--></body></html>';
+
+    const processed = await processTemplate(template, 'ssr', false, false);
+
+    expect(processed.success).toBe(true);
+
+    if (!processed.success) {
+      throw new Error(processed.error);
+    }
+
+    const policy = resolveTemplateCSPHashes(processed.cspHashes, '');
+    const served = await injectContent(processed.html, '', '');
+    const shipped = await collectTemplateCSPHashes(served);
+
+    expect(served).toContain('url(/bg.png)');
+    expect(shipped.styleSrc).toContain(policy.styleSrc[0]);
+  });
+
+  it('should resolve the placeholder in the template meta baseline', async () => {
+    // The baseline travels to the client, which restores these tags when a
+    // page stops overriding them. Read before the substitution ran, it carried
+    // the placeholder verbatim and the restored tag pointed nowhere.
+    //
+    // A template-owned meta, not an og:* one: UnirendHead manages those per
+    // page and processTemplate strips them, so a test written on one would
+    // assert a path no served page reaches.
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--><meta name="msapplication-TileImage" content="__CDN__INJECTION__POINT__/tile.png" /></head><body><!--ss-outlet--></body></html>';
+
+    const result = await injectContent(template, '', '', {
+      CDNBaseURL: 'https://cdn.example.com',
+    });
+
+    expect(result).not.toContain('__CDN__INJECTION__POINT__');
+    expect(result).toContain('"content":"https://cdn.example.com/tile.png"');
+  });
+
+  it('should resolve the placeholder in the template attribute baseline', async () => {
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body data-bg="__CDN__INJECTION__POINT__/b.png"><!--ss-outlet--></body></html>';
+
+    const result = await injectContent(template, '', '', {
+      CDNBaseURL: 'https://cdn.example.com',
+    });
+
+    expect(result).not.toContain('__CDN__INJECTION__POINT__');
+    expect(result).toContain('"data-bg":"https://cdn.example.com/b.png"');
+  });
+
+  it('should not rewrite a placeholder carried in request context data', async () => {
+    // The data block is user data, not markup. A whole-document replace
+    // rewrote a value that merely contained the string.
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
+
+    const result = await injectContent(template, '', '', {
+      CDNBaseURL: 'https://cdn.example.com',
+      context: { request: { note: '__CDN__INJECTION__POINT__/kept' } },
+    });
+
+    expect(result).toContain('__CDN__INJECTION__POINT__/kept');
+  });
+
+  it('should carry the CDN URL in the data block when provided', async () => {
     const template =
       '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
 
@@ -267,21 +488,21 @@ describe('injectContent', () => {
       CDNBaseURL: 'https://cdn.example.com',
     });
 
-    expect(result).toContain(
-      'window.__CDN_BASE_URL__="https://cdn.example.com"',
-    );
+    expect(dataBlockPayload(result).cdnBaseURL).toBe('https://cdn.example.com');
   });
 
-  it('should inject window.__CDN_BASE_URL__ as empty string when no CDN URL provided', async () => {
+  it('should carry an empty CDN URL when none is provided', async () => {
     const template =
       '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
 
     const result = await injectContent(template, '', '');
 
-    expect(result).toContain('window.__CDN_BASE_URL__=""');
+    // Empty string rather than absent, so client code can read it
+    // unconditionally without guarding against undefined.
+    expect(dataBlockPayload(result).cdnBaseURL).toBe('');
   });
 
-  it('should strip trailing slash from CDN URL in window.__CDN_BASE_URL__', async () => {
+  it('should strip a trailing slash from the CDN URL', async () => {
     const template =
       '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><!--ss-outlet--></body></html>';
 
@@ -289,12 +510,7 @@ describe('injectContent', () => {
       CDNBaseURL: 'https://cdn.example.com/',
     });
 
-    expect(result).toContain(
-      'window.__CDN_BASE_URL__="https://cdn.example.com"',
-    );
-    expect(result).not.toContain(
-      'window.__CDN_BASE_URL__="https://cdn.example.com/"',
-    );
+    expect(dataBlockPayload(result).cdnBaseURL).toBe('https://cdn.example.com');
   });
 
   it('should extract React Router hydration script from body and move it to head', async () => {
@@ -321,6 +537,312 @@ describe('injectContent', () => {
     expect(result).toContain(
       '<div data-wrap="true"><main>content</main></div>',
     );
+  });
+
+  describe('React Router hydration payload', () => {
+    const template =
+      '<!DOCTYPE html><html><head><!--ss-head--><!--context-scripts-injection-point--></head><body><div id="root"><!--ss-outlet--></div></body></html>';
+
+    it('carries the payload in the data block rather than an executable script', async () => {
+      // The reason this matters: the payload changes on every SSR response, so
+      // as executable JavaScript no CSP hash can ever cover it and only a nonce
+      // would do — which prerendered output cannot have, there being no request
+      // to mint one for. In the data block it is not executable at all.
+      const payload = '{"loaderData":{"root":{"id":7}},"errors":null}';
+      const bodyContent = `<div><script>window.__staticRouterHydrationData = JSON.parse(${JSON.stringify(
+        payload,
+      )});</script></div>`;
+
+      const result = await injectContent(template, '', bodyContent);
+
+      expect(dataBlockPayload(result).routerHydration).toBe(payload);
+      expect(result).not.toContain('JSON.parse("{\\"loaderData');
+    });
+
+    it('carries the payload characters exactly as React Router encoded them', async () => {
+      // Nothing here re-encodes a payload this code does not own. The string
+      // that goes out is the one that came in.
+      const payload = '{"loaderData":{"note":"a \\"quoted\\" <tag>"}}';
+      const bodyContent = `<div><script>window.__staticRouterHydrationData = JSON.parse(${JSON.stringify(
+        payload,
+      )});</script></div>`;
+
+      const result = await injectContent(template, '', bodyContent);
+
+      expect(dataBlockPayload(result).routerHydration).toBe(payload);
+      // And the < inside it is still escaped out of the element.
+      expect(result).not.toContain('<tag>');
+    });
+
+    it('omits the key when the page has no hydration script', async () => {
+      const result = await injectContent(template, '', '<div>plain</div>');
+
+      expect(dataBlockPayload(result)).not.toHaveProperty('routerHydration');
+    });
+
+    it('emits an unrecognized hydration script verbatim instead of guessing', async () => {
+      // React Router owns that output and may change it. Declining to take
+      // apart a shape we do not recognize costs only the data block; guessing
+      // wrong would break hydration.
+      const odd =
+        '<script>window.__staticRouterHydrationData = someOtherThing();</script>';
+
+      const result = await injectContent(template, '', `<div>${odd}</div>`);
+
+      expect(dataBlockPayload(result)).not.toHaveProperty('routerHydration');
+      expect(result).toContain(odd);
+    });
+
+    it('reports no CSP hash for a hydration script it emits verbatim', async () => {
+      // This branch used to publish a hash, so that an enforcing script-src
+      // would not block the one script hydration cannot start without. The
+      // trouble is how an element gets here: a substring test, which any
+      // rendered markup can satisfy, so the hash was available to an injected
+      // script for the price of naming the global in a comment. See the
+      // dedicated test for that case below.
+      //
+      // Unhashed is therefore the answer, and the cost is real but bounded: on
+      // a page with no strict policy nothing changes, and on one with a strict
+      // policy the script is blocked and reported rather than silently trusted.
+      const inner = 'window.__staticRouterHydrationData = someOtherThing();';
+      const sources: string[] = [];
+
+      const result = await injectContent(
+        template,
+        '',
+        `<div><script>${inner}</script></div>`,
+        { addCSPSources: (s) => sources.push(...(s.scriptSrc ?? [])) },
+      );
+
+      expect(sources).toEqual([]);
+
+      // Still emitted byte for byte. Declining to vouch for it is not the same
+      // as dropping it, and a cheerio round trip here would mangle a payload
+      // this code does not own.
+      // Anchored off one index. The bootstrap script mentions the same global,
+      // so searching for the close tag independently finds that element's
+      // instead of this one's.
+      const openAt = result.indexOf(
+        '<script>window.__staticRouterHydrationData',
+      );
+      const contentAt = openAt + '<script>'.length;
+      const shipped = result.slice(
+        contentAt,
+        result.indexOf('</script>', contentAt),
+      );
+
+      expect(shipped).toBe(inner);
+    });
+
+    it('reports no hash for a hydration script it lifted into the data block', async () => {
+      // The payload is not executable in there, so there is nothing for
+      // script-src to govern and nothing to hash.
+      const payload = '{"loaderData":{}}';
+      const sources: string[] = [];
+
+      await injectContent(
+        template,
+        '',
+        `<div><script>window.__staticRouterHydrationData = JSON.parse(${JSON.stringify(
+          payload,
+        )});</script></div>`,
+        { addCSPSources: (s) => sources.push(...(s.scriptSrc ?? [])) },
+      );
+
+      expect(sources).toEqual([]);
+    });
+
+    it("hashes the rendered page's own inline style and never its script", async () => {
+      // Two decisions in one test, because the asymmetry between them is the
+      // whole design and a change to either belongs here.
+      //
+      // React 19 renders a hoistable <style> inline in the SSR stream and a
+      // CSS-in-JS runtime emits one directly, so a page's inline style is
+      // decided per render. The template hashes are contributed before
+      // rendering and cannot cover it, which left a strict style-src rendering
+      // the page unstyled.
+      //
+      // The script gets no hash, because nothing in the finished markup
+      // distinguishes one a component rendered from one that arrived as
+      // untrusted HTML through dangerouslySetInnerHTML. Hashing it would hand
+      // an injected script a valid source expression at the sink CSP is there
+      // to backstop. An application that really does render an inline script
+      // hashes it with hashInlineContentForCSP and says so in its policy.
+      const css = '.card{color:red}';
+      const js = 'window.__pageFlag = 1;';
+      const collected: { scriptSrc: string[]; styleSrc: string[] } = {
+        scriptSrc: [],
+        styleSrc: [],
+      };
+
+      const result = await injectContent(
+        template,
+        '',
+        `<div><style>${css}</style><p>hi</p><script>${js}</script></div>`,
+        {
+          addCSPSources: (s) => {
+            collected.scriptSrc.push(...(s.scriptSrc ?? []));
+            collected.styleSrc.push(...(s.styleSrc ?? []));
+          },
+        },
+      );
+
+      expect(collected.styleSrc).toContain(`'${hashInlineContentForCSP(css)}'`);
+      expect(collected.scriptSrc).not.toContain(
+        `'${hashInlineContentForCSP(js)}'`,
+      );
+
+      // The hash has to cover the bytes that ship, not something adjacent to
+      // them. The body is spliced in verbatim, so these are the same
+      // characters. The script is still emitted untouched either way: what
+      // changes is whether the policy vouches for it, not whether it ships.
+      expect(result).toContain(`<style>${css}</style>`);
+      expect(result).toContain(`<script>${js}</script>`);
+    });
+
+    it('leaves a JSON data block out of the page hashes', async () => {
+      // JSON-LD structured data is the common case. A browser never applies it
+      // in any sense, so script-src does not govern it and a hash is noise.
+      const collected: string[] = [];
+
+      await injectContent(
+        template,
+        '',
+        '<div><script type="application/ld+json">{"@type":"Article"}</script></div>',
+        { addCSPSources: (s) => collected.push(...(s.scriptSrc ?? [])) },
+      );
+
+      expect(collected).toEqual([]);
+    });
+
+    it.each([
+      ['importmap', '{"imports":{"dep":"/assets/dep.js"}}'],
+      ['speculationrules', '{"prerender":[{"urls":["/next"]}]}'],
+    ])(
+      'leaves a rendered inline %s block out of the page hashes',
+      async (type, content) => {
+        // Neither is JavaScript, which makes them tempting to carve out of the
+        // rule that rendered scripts go unhashed. They are not carved out, and
+        // being non-executable is exactly why: an injected import map remaps
+        // every bare specifier on the page to a URL of the attacker's choosing,
+        // and injected speculation rules make the browser fetch URLs it chooses.
+        // Both are governed by script-src, and neither needs to execute to do
+        // damage. The template scanner still hashes them, since a template is
+        // authored by hand.
+        const collected: string[] = [];
+        let wasCalled = false;
+
+        // A style block rides along as the positive anchor. Without it, a
+        // `not.toContain` on an array nothing ever wrote to would pass just as
+        // happily if the scan had been deleted outright, which is no test at
+        // all.
+        const css = '.anchor{color:red}';
+        const styles: string[] = [];
+
+        await injectContent(
+          template,
+          '',
+          `<div><style>${css}</style><script type="${type}">${content}</script></div>`,
+          {
+            addCSPSources: (s) => {
+              wasCalled = true;
+              collected.push(...(s.scriptSrc ?? []));
+              styles.push(...(s.styleSrc ?? []));
+            },
+          },
+        );
+
+        expect(wasCalled).toBe(true);
+        expect(styles).toContain(`'${hashInlineContentForCSP(css)}'`);
+        expect(collected).not.toContain(
+          `'${hashInlineContentForCSP(content)}'`,
+        );
+      },
+    );
+
+    it('does not hash an unrecognized hydration script, however it is labeled', async () => {
+      // The pass that lifts React Router's hydration payload finds its
+      // candidates with a substring test, which is a guess about where markup
+      // came from rather than proof of it. Anything rendered into the body can
+      // contain that substring, a comment included, so an unrecognized shape
+      // reaching this branch is not evidence that React Router wrote it.
+      //
+      // It used to be hashed here, on the reasoning that a blocked hydration
+      // script fails silently. That handed any injected script a valid source
+      // expression for the cost of thirty characters, undoing the rule that
+      // rendered scripts go unhashed. It now ships unhashed like any other
+      // rendered script: forgiving on a page with no strict policy, and failing
+      // closed with a violation report on one that has it.
+      const injected = '/*__staticRouterHydrationData*/alert(document.cookie)';
+      const collected: string[] = [];
+
+      const result = await injectContent(
+        template,
+        '',
+        `<div>hi<script>${injected}</script></div>`,
+        { addCSPSources: (s) => collected.push(...(s.scriptSrc ?? [])) },
+      );
+
+      expect(collected).toEqual([]);
+
+      // Still emitted, so this is about what the policy vouches for rather
+      // than about dropping content the page asked for.
+      expect(result).toContain(injected);
+    });
+
+    it('hashes inline content inside a rendered <noscript>', async () => {
+      // cheerio parses with scripting enabled, so a <noscript> body is raw text
+      // and the selectors see nothing in it. A browser with JavaScript disabled
+      // parses the same bytes as markup, which is the one audience the fallback
+      // exists for.
+      const css = '.no-js{display:block}';
+      const collected: string[] = [];
+
+      await injectContent(
+        template,
+        '',
+        `<div><noscript><style>${css}</style></noscript></div>`,
+        { addCSPSources: (s) => collected.push(...(s.styleSrc ?? [])) },
+      );
+
+      expect(collected).toContain(`'${hashInlineContentForCSP(css)}'`);
+    });
+
+    it('does not report inline attributes from rendered markup', async () => {
+      // React renders a `style` prop as a style="" attribute, so scanning
+      // rendered markup for inline attributes would fire on an ordinary styled
+      // component on every single request. The template scan is where that
+      // report belongs, because a template is authored by hand and fixed.
+      let received: Record<string, unknown> = {};
+
+      await injectContent(
+        template,
+        '',
+        '<div style="color:red"><button onclick="go()">go</button></div>',
+        {
+          addCSPSources: (s) => {
+            received = s;
+          },
+        },
+      );
+
+      expect(received).not.toHaveProperty('inlineAttributes');
+    });
+
+    it('computes nothing when no callback is supplied', async () => {
+      // The absence of a callback is what keeps this work off servers that are
+      // not using CSP, so the scan must be behind it rather than merely having
+      // its result dropped. Asserted through the output being unchanged, since
+      // there is no observable call to count.
+      const body = '<div><style>.a{color:red}</style></div>';
+
+      const withoutCallback = await injectContent(template, '', body);
+      const withCallback = await injectContent(template, '', body, {
+        addCSPSources: () => {},
+      });
+
+      expect(withoutCallback).toBe(withCallback);
+    });
   });
 
   it('should preserve React hydration markers while moving router hydration data', async () => {
@@ -423,11 +945,14 @@ describe('injectContent', () => {
         result.indexOf('</body>'),
       );
 
-      // The script is NOT moved to the head, and remains in the body
-      expect(headContentResult).not.toContain(
-        'window.__staticRouterHydrationData',
-      );
+      // The script is NOT touched, and remains in the body untouched.
       expect(bodyContentResult).toContain(hydrationScript);
+
+      // Nothing was lifted into the data block either. Asserting on the payload
+      // rather than on the global's name, since the bootstrap in the head names
+      // it unconditionally.
+      expect(dataBlockPayload(result)).not.toHaveProperty('routerHydration');
+      expect(headContentResult).not.toContain(hydrationScript);
     } finally {
       loadSpy.mockRestore();
     }
@@ -467,9 +992,14 @@ describe('injectContent', () => {
     expect(result).toContain('data-name="A &amp; B"');
     expect(result).toContain('data-label="A\u00A0B"');
     expect(result).toContain('data-copy="©"');
-    expect(result).toContain(
-      'window.__UNIREND_TEMPLATE_ATTRS__={"html":{"lang":"en"},"body":{"data-name":"A & B","data-label":"A\u00A0B","data-copy":"©"}}',
-    );
+    expect(dataBlockPayload(result).templateAttrs).toEqual({
+      html: { lang: 'en' },
+      body: {
+        'data-name': 'A & B',
+        'data-label': 'A\u00A0B',
+        'data-copy': '©',
+      },
+    });
   });
 
   it('should correctly handle tags containing > inside attribute quotes without corrupting the document', async () => {
@@ -486,7 +1016,7 @@ describe('injectContent', () => {
     const template =
       '<!DOCTYPE html><html><head><!--ss-head--></head><body><!--ss-outlet--></body></html>';
     const result = await injectContent(template, '', '');
-    expect(result).toContain('window.__UNIREND_TEMPLATE_ATTRS__=');
+    expect(dataBlockPayload(result).templateAttrs).toBeDefined();
     expect(result).toContain('</head>');
   });
 
@@ -741,13 +1271,7 @@ describe('template head baseline merge', () => {
       '<div>App</div>',
     );
 
-    const globalMatch = html.match(
-      /window\.__UNIREND_TEMPLATE_METAS__=(\[.*?\]);/,
-    );
-
-    expect(globalMatch).not.toBeNull();
-
-    const baseline = JSON.parse(globalMatch?.[1] ?? '[]') as Array<
+    const baseline = dataBlockPayload(html).templateMetas as Array<
       Record<string, string>
     >;
     const names = baseline.map((attrs) => attrs.name ?? attrs.property);
@@ -889,10 +1413,7 @@ describe('template head baseline merge', () => {
     );
 
     // And it is not in the baseline the client would restore from twice over.
-    const globalMatch = html.match(
-      /window\.__UNIREND_TEMPLATE_METAS__=(\[.*?\]);/,
-    );
-    const baseline = JSON.parse(globalMatch?.[1] ?? '[]') as Array<
+    const baseline = dataBlockPayload(html).templateMetas as Array<
       Record<string, string>
     >;
     expect(baseline).toHaveLength(1);
@@ -936,10 +1457,7 @@ describe('template head baseline merge', () => {
     expect($('meta[name="theme-color"]').attr('content')).toBe('#page');
 
     // Both are still in the baseline the client restores from, media attribute included.
-    const globalMatch = html.match(
-      /window\.__UNIREND_TEMPLATE_METAS__=(\[.*?\]);/,
-    );
-    const baseline = JSON.parse(globalMatch?.[1] ?? '[]') as Array<
+    const baseline = dataBlockPayload(html).templateMetas as Array<
       Record<string, string>
     >;
     const themeColors = baseline.filter(
@@ -1089,5 +1607,139 @@ describe('template head baseline merge', () => {
     );
     expect($('meta[http-equiv="content-language"]').length).toBe(1);
     expect($('meta[name="app-version"]').length).toBe(1);
+  });
+});
+
+describe('literal splicing and byte-exact rendered hashes', () => {
+  const template =
+    '<!DOCTYPE html><html><head><meta charset="utf-8"><title>t</title><!--ss-head--><!--context-scripts-injection-point--></head><body><div id="root"><!--ss-outlet--></div></body></html>';
+
+  it('does not expand $ patterns in rendered content', async () => {
+    // String.prototype.replace expands $&, $`, $' and $1 *in the replacement*,
+    // and every replacement here is a rendered page. `$&nbsp;` is an ordinary
+    // price followed by a non-breaking space and it substituted the marker back
+    // into the output; `$\`` spliced the entire preceding document into the
+    // body. Not attacker-controlled text, but silent document corruption, and
+    // it left the rendered-body CSP hashes describing bytes other than the ones that shipped.
+    const body = "<p>Cost: $&nbsp;5 and $` and $' and $1</p>";
+    const result = await injectContent(template, '', body);
+
+    expect(result).toContain(body);
+    expect(result).not.toContain('<!--ss-outlet-->nbsp;');
+  });
+
+  it('does not expand $ patterns coming from the context data block', async () => {
+    // The worst of the three, because this replacement carries the JSON data
+    // block, which holds the request context and the app config.
+    const result = await injectContent(template, '', '<p>hi</p>', {
+      context: { request: { note: "$` and $& and $'" } },
+    });
+
+    expect(result).toContain('<div id="root"><p>hi</p></div>');
+    expect(result).toContain('__unirend_data__');
+  });
+
+  it('hashes rendered inline content as the browser reads it, not as it ships', async () => {
+    // A CSP hash covers the element's child text content, which is a DOM value.
+    // The HTML input stream is preprocessed before tokenization, so CRLF becomes
+    // LF and a CR never reaches the DOM: the browser hashes the normalized text
+    // even though the response body still carries the CRLFs. Hashing the bytes
+    // literally published a digest nothing could match, and the style was then
+    // blocked under a strict style-src with nothing anywhere mentioning line
+    // endings. Reachable through dangerouslySetInnerHTML with content from a
+    // file read on Windows or a CMS field.
+    const css = 'body{\r\n  margin:0\r\n}';
+    const reported: string[] = [];
+
+    const result = await injectContent(
+      template,
+      '',
+      `<div><style>${css}</style></div>`,
+      { addCSPSources: (s) => reported.push(...(s.styleSrc ?? [])) },
+    );
+
+    const open = '<style>';
+    const from = result.indexOf(open) + open.length;
+    const shipped = result.slice(from, result.indexOf('</style>', from));
+
+    // The body is still spliced in verbatim: normalizing is what the digest is
+    // computed over, not something done to the page.
+    expect(shipped).toBe(css);
+    expect(reported).toContain(
+      `'${hashInlineContentForCSP('body{\n  margin:0\n}')}'`,
+    );
+
+    // And the literal digest of the shipped bytes is *not* reported. Computed
+    // here rather than through hashInlineContentForCSP, which normalizes, so
+    // this stays a real assertion rather than a comparison of a value with
+    // itself.
+    const literal = createHash('sha256')
+      .update(Buffer.from(css, 'utf8'))
+      .digest('base64');
+
+    expect(reported).not.toContain(`'sha256-${literal}'`);
+  });
+
+  it('hashes a rendered NUL the way the tokenizer replaces it', async () => {
+    // The other half of the input-stream preprocessing: a NUL never reaches the
+    // DOM either, it is replaced with U+FFFD, so that is what the browser
+    // hashes. Written as an escape rather than a raw byte, which the repo's
+    // check:null-bytes gate also requires.
+    const css = 'body{content:"\0"}';
+    const reported: string[] = [];
+
+    await injectContent(template, '', `<div><style>${css}</style></div>`, {
+      addCSPSources: (s) => reported.push(...(s.styleSrc ?? [])),
+    });
+
+    expect(reported).toContain(
+      `'${hashInlineContentForCSP('body{content:"�"}')}'`,
+    );
+  });
+
+  it('still reaches inline content inside a rendered <noscript>', async () => {
+    // The offset rebasing has to survive the rewrite: a noscript body is raw
+    // text to a scripting-enabled parser, so it is re-parsed with offsets of
+    // its own which are then rebased onto the outer document.
+    const css = '.no-js{display:block}';
+    const reported: string[] = [];
+
+    await injectContent(
+      template,
+      '',
+      `<div><p>x</p><noscript><style>${css}</style></noscript></div>`,
+      { addCSPSources: (s) => reported.push(...(s.styleSrc ?? [])) },
+    );
+
+    expect(reported).toContain(`'${hashInlineContentForCSP(css)}'`);
+  });
+
+  it('hashes an empty rendered <style>, and still skips an empty <script>', async () => {
+    // React 19 renders a hoistable style element inline in the SSR stream, and
+    // a CSS-in-JS runtime emits one with nothing in it whenever the render
+    // produced no rules. A browser applies it either way, so a strict style-src
+    // blocks it and names the empty-string digest as the hash that would allow
+    // it. An empty script draws no violation, which is why the two arms of the
+    // scanner are guarded differently and why this pins both directions rather
+    // than only the one that changed.
+    const reported: { scriptSrc: string[]; styleSrc: string[] } = {
+      scriptSrc: [],
+      styleSrc: [],
+    };
+
+    await injectContent(
+      template,
+      '',
+      '<div><style data-emotion="css"></style><script></script></div>',
+      {
+        addCSPSources: (s) => {
+          reported.scriptSrc.push(...(s.scriptSrc ?? []));
+          reported.styleSrc.push(...(s.styleSrc ?? []));
+        },
+      },
+    );
+
+    expect(reported.styleSrc).toEqual([`'${hashInlineContentForCSP('')}'`]);
+    expect(reported.scriptSrc).toHaveLength(0);
   });
 });

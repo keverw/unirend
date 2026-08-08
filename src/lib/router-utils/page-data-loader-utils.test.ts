@@ -4,7 +4,7 @@ import {
   applyCustomHTTPStatusHandler,
   createBaseHeaders,
   createErrorResponse,
-  decorateWithSsrOnlyData,
+  decorateWithSSROnlyData,
   fetchWithTimeout,
   isSafeRedirect,
 } from './page-data-loader-utils';
@@ -99,9 +99,9 @@ describe('createBaseHeaders', () => {
   });
 });
 
-describe('decorateWithSsrOnlyData', () => {
+describe('decorateWithSSROnlyData', () => {
   it('adds __ssOnly on the server', () => {
-    const result = decorateWithSsrOnlyData(sampleEnvelope, {
+    const result = decorateWithSSROnlyData(sampleEnvelope, {
       cookies: ['a=1'],
     });
 
@@ -118,7 +118,7 @@ describe('decorateWithSsrOnlyData', () => {
     });
 
     try {
-      const result = decorateWithSsrOnlyData(sampleEnvelope, {
+      const result = decorateWithSSROnlyData(sampleEnvelope, {
         cookies: ['a=1'],
       });
 

@@ -25,7 +25,7 @@ export function createBaseHeaders() {
   return headers;
 }
 
-export function decorateWithSsrOnlyData(
+export function decorateWithSSROnlyData(
   response: PageResponseEnvelope,
   // eslint-disable-next-line @typescript-eslint/naming-convention
   SSR_ONLY_DATA: Record<string, unknown>,
@@ -258,5 +258,5 @@ export function applyCustomHTTPStatusHandler(
   }
 
   // Automatically decorate PageResponseEnvelope with SSR-only data
-  return decorateWithSsrOnlyData(customResult, ssrOnlyData);
+  return decorateWithSSROnlyData(customResult, ssrOnlyData);
 }

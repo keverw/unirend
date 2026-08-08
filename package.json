@@ -195,7 +195,7 @@
     "@fastify/websocket": "^11.3.0",
     "cheerio": "^1.2.0",
     "entities": "^8.0.0",
-    "fastify": "^5.10.0",
+    "fastify": "^5.11.2",
     "ignore": "^7.0.6",
     "picomatch": "^4.0.5",
     "punycode": "^2.3.1",
@@ -206,8 +206,6 @@
     "ulid": "^3.0.2"
   },
   "overrides": {
-    "brace-expansion": "^5.0.8",
-    "esbuild": "^0.28.1",
-    "js-yaml": "^4.3.0"
+    "esbuild": "^0.28.1"
   }
 }

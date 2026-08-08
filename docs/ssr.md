@@ -728,6 +728,28 @@ server.fastifyInstance.addHook('onRequest', async (request, reply) => {
 
 The effective CDN URL for each SSR request is also available as `request.CDNBaseURL` after `onRequest` hooks have run. Use `useCDNBaseURL()` in components (works on both server and client, see [Unirend Context](../docs/unirend-context.md)), or `window.__CDN_BASE_URL__` in non-component code. Guard with `typeof window !== 'undefined'` since `window` is not available during SSR.
 
+Unirend rewrites the build's own `<script src>` and `<link href>` for you. For markup you write by hand in `index.html`, there is no component to call the hook from, so write the literal `__CDN__INJECTION__POINT__` at the start of the URL and unirend resolves it per request, or to nothing when no CDN is configured, which leaves the original root-relative path:
+
+```html
+<link rel="icon" href="__CDN__INJECTION__POINT__/favicon.ico" />
+<link rel="apple-touch-icon" href="__CDN__INJECTION__POINT__/touch-icon.png" />
+<style>
+  body {
+    background-image: url('__CDN__INJECTION__POINT__/hero.avif');
+  }
+</style>
+```
+
+The inline `<style>` works as shown, and so does an inline `<script>`, including one inside a `<noscript>`, and both stay correct under a strict CSP. Unirend cannot hash those blocks when it processes the template, because the URL they resolve to is chosen per request, so it hashes them per response instead, and only for the blocks that actually use the placeholder.
+
+<!-- prettier-ignore -->
+> [!NOTE]
+> Social preview tags are the exception, and not because of the placeholder. `UnirendHead` manages `description`, `og:*`, and `twitter:*` per page, so unirend strips those from the template regardless of what their URL says. Set an `og:image` through `UnirendHead` or your loader's `pageMetadata` and build the URL with `useCDNBaseURL()`. Only `og:site_name` stays as a template baseline.
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> The placeholder is resolved in the template only. It has no effect in markup your components render, where you should use `useCDNBaseURL()`. It is also not resolved inside the injected client data block, so a request-context value that happens to contain the literal string reaches the client unchanged. This applies to prerendered output as well, since [SSG](ssg.md) runs the same injection.
+
 HTML Template:
 
 - **Production mode**:
@@ -796,6 +818,7 @@ Notes:
 - HMR is available. Stack traces are mapped for easier debugging.
 - `publicAppConfig` is injected in both development and production when using `serveSSRWithHMR` or `serveSSRBuilt`.
 - All context globals (`window.__PUBLIC_APP_CONFIG__`, `window.__FRONTEND_REQUEST_CONTEXT__`, `window.__CDN_BASE_URL__`, `window.__DOMAIN_INFO__`) are injected into `<head>` before any of your app scripts, so they are available to inline `<head>` scripts, body scripts, and all module code that runs after page load.
+- They arrive as a `<script type="application/json">` data block followed by a small fixed script that reads it and assigns the globals. React Router's hydration payload (`window.__staticRouterHydrationData`) travels in the same block, so a rendered page carries two elements in total rather than one per value. Two elements rather than one per global, and the per-request values sit in the data block rather than in executable JavaScript. That is what lets the whole thing work under a strict `script-src`: a script element with a non-JavaScript type is never executed, so CSP does not govern it, and the one script that is executable is the same text on every request and can be covered by a hash. The alternative would be a nonce per request, which cannot work for prerendered output at all, since there is no request to mint one for. Nothing changes for your code: read the same globals in the same places.
 - `window.__DOMAIN_INFO__` contains `{ hostname, rootDomain }` computed from the request hostname server-side. Access it in components via `useDomainInfo()` (see [Unirend Context](../docs/unirend-context.md)). Useful for setting cookies that span subdomains without hardcoding the domain.
 - **HTML Template**: The `template` path in development mode is fully customizable. Specify any HTML file path (e.g., `./index.html`, `./src/app.html`, etc.). The template is read fresh on each request and transformed by Vite for HMR support.
 

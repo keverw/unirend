@@ -1,24 +1,50 @@
 import { describe, it, expect, mock } from 'bun:test';
+import fastify from 'fastify';
+import type { FastifyServerOptions } from 'fastify';
 import { domainValidation } from './domain-validation';
-import type { DomainValidationConfig } from './domain-validation';
-import type { PluginOptions, PluginHostInstance } from '../types';
+import type {
+  DomainValidationConfig,
+  InvalidDomainResponse,
+} from './domain-validation';
+import type {
+  PluginOptions,
+  PluginHostInstance,
+  UnirendServerMode,
+} from '../types';
 
 // Mock Fastify request/reply objects
 interface MockRequestOverrides {
   url?: string;
   headers?: Record<string, string>;
   protocol?: string;
+  host?: string;
 }
 
-const createMockRequest = (overrides: MockRequestOverrides = {}): unknown => ({
-  url: '/test',
-  headers: {
+/**
+ * The plugin reads Fastify's resolved `request.host` and `request.protocol`
+ * rather than parsing forwarded headers itself. Fastify consults
+ * x-forwarded-host / x-forwarded-proto only when `fastifyOptions.trustProxy`
+ * vouches for the peer, so these unit mocks model the untrusted case by
+ * default: `host` comes from the plain Host header. Pass `host` or `protocol`
+ * explicitly to stand in for what Fastify would resolve behind a trusted
+ * proxy. Real trust and multi-value parsing are covered by the integration
+ * tests at the bottom of this file, which run against an actual Fastify
+ * instance.
+ */
+const createMockRequest = (overrides: MockRequestOverrides = {}): unknown => {
+  const headers = {
     host: 'example.com',
     ...overrides.headers,
-  },
-  protocol: 'https',
-  ...overrides,
-});
+  };
+
+  return {
+    url: '/test',
+    protocol: 'https',
+    ...overrides,
+    headers,
+    host: overrides.host ?? headers.host ?? '',
+  };
+};
 
 const createMockReply = () => {
   const reply = {
@@ -37,18 +63,36 @@ const createMockPluginHost = () => {
     handler: (req: any, reply: any) => Promise<void>;
   }> = [];
 
+  const decorations: Record<string, unknown> = {};
+  const requestDecorations: Record<string, unknown> = {};
+
   const mockHost = {
     addHook: mock(
       (event: string, handler: (req: any, reply: any) => Promise<void>) => {
         hooks.push({ event, handler });
       },
     ),
+    decorate: mock((property: string, value: unknown) => {
+      decorations[property] = value;
+    }),
+    // Recorded rather than applied. On a real server this declares the property
+    // on the Request constructor so the hook's assignment does not reshape every
+    // request; the mock hands the hook a plain object, where there is nothing to
+    // declare. Kept so this stands in for the full PluginHostInstance instead of
+    // the part the plugin happened to use when it was written.
+    decorateRequest: mock((property: string, value: unknown) => {
+      requestDecorations[property] = value;
+    }),
     getHooks: () => hooks,
+    getDecorations: () => decorations,
+    getRequestDecorations: () => requestDecorations,
   };
 
   // Cast to PluginHostInstance through unknown to satisfy TypeScript
   return mockHost as unknown as PluginHostInstance & {
     getHooks: () => typeof hooks;
+    getDecorations: () => Record<string, unknown>;
+    getRequestDecorations: () => Record<string, unknown>;
   };
 };
 
@@ -162,14 +206,15 @@ describe('domainValidation', () => {
       expect(reply.code).not.toHaveBeenCalled();
     });
 
-    it('should accept x-forwarded-host with port when domain matches (trusted)', async () => {
+    it('should accept a resolved host that carries a port when the domain matches', async () => {
       const config: DomainValidationConfig = {
         validProductionDomains: ['example.com'],
-        trustProxyHeaders: true,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
+        // What Fastify resolves from a trusted x-forwarded-host.
+        host: 'example.com:8443',
         headers: {
           host: 'internal.proxy',
           'x-forwarded-host': 'example.com:8443',
@@ -186,10 +231,12 @@ describe('domainValidation', () => {
       expect(reply.redirect).not.toHaveBeenCalled();
       expect(reply.code).not.toHaveBeenCalled();
     });
-    it('should ignore x-forwarded-host when not trusted (default)', async () => {
+
+    it('should ignore x-forwarded-host when the proxy is not trusted', async () => {
       const config: DomainValidationConfig = {
+        // No fastifyOptions.trustProxy, so Fastify resolves host from the
+        // plain Host header and the forwarded value is never consulted.
         validProductionDomains: ['example.com'],
-        // trustProxyHeaders: false by default
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
@@ -372,33 +419,286 @@ describe('domainValidation', () => {
       );
     });
 
-    it('should propagate function-based validation errors', async () => {
-      const error = new Error('validator failed');
+    it('should report that the host was checked, for each verdict', async () => {
+      // The flag says the host was examined, not what was concluded, so it is
+      // true across a pass, a rejection, and a validator that failed. What it
+      // distinguishes is a request that never reached the gate at all, which
+      // no verdict here can produce.
+      const cases: Array<[string, DomainValidationConfig, string]> = [
+        ['passes', { validProductionDomains: ['example.com'] }, 'example.com'],
+        ['rejects', { validProductionDomains: ['other.com'] }, 'example.com'],
+        [
+          'fails',
+          {
+            validProductionDomains: () => {
+              throw new Error('validator failed');
+            },
+          },
+          'example.com',
+        ],
+      ];
+
+      for (const [label, config, host] of cases) {
+        const pluginHost = createMockPluginHost();
+        const request = createMockRequest({ headers: { host } });
+        const reply = createMockReply();
+
+        await domainValidation(config)(pluginHost, createMockOptions());
+
+        // The failing case propagates, which is not what this test is about.
+        await pluginHost
+          .getHooks()[0]
+          .handler(request, reply)
+          .catch(() => undefined);
+
+        expect(
+          (request as { domainValidationChecked?: boolean })
+            .domainValidationChecked,
+          `expected the host to be marked checked when validation ${label}`,
+        ).toBe(true);
+      }
+    });
+
+    it('should announce itself on the server so an unset flag can be read', async () => {
+      // Without this, an unset domainValidationChecked means either "no host
+      // validation on this server" or "validation never ran", which are
+      // opposite situations for an error page deciding what to reveal.
+      const pluginHost = createMockPluginHost();
+
+      await domainValidation({ validProductionDomains: ['example.com'] })(
+        pluginHost,
+        createMockOptions(),
+      );
+
+      expect(pluginHost.getDecorations().domainValidationRegistered).toBe(true);
+    });
+
+    it('should declare both request flags rather than adding them per request', async () => {
+      // Fastify builds a Request constructor per server and folds decorations
+      // into it, so a flag the hook assigns without declaring gives every
+      // request a shape of its own. Declared as undefined on purpose: both are
+      // documented as tri-state and every reader compares against true, so
+      // seeding false would make the two spellings of "unset" differ for
+      // anything that later reached for `in` or `??`.
+      const pluginHost = createMockPluginHost();
+
+      await domainValidation({ validProductionDomains: ['example.com'] })(
+        pluginHost,
+        createMockOptions(),
+      );
+
+      const declared = pluginHost.getRequestDecorations();
+
+      expect(Object.hasOwn(declared, 'domainValidationChecked')).toBe(true);
+      expect(Object.hasOwn(declared, 'domainValidationRejected')).toBe(true);
+      expect(declared.domainValidationChecked).toBeUndefined();
+      expect(declared.domainValidationRejected).toBeUndefined();
+    });
+
+    it('should throw, not answer with a 403, when the validator throws', async () => {
+      // Access still fails closed, but the failure has to say what happened. A
+      // 403 is a statement about the caller, that they were understood and
+      // refused, and a lookup that never completed established nothing about
+      // them. Sending one logs an outage as an authorization failure and sends
+      // whoever reads it after credentials instead of the store that is down.
+      //
+      // It throws rather than sending its own 500 so the failure reaches the
+      // application's error handler, and therefore its error reporting and its
+      // own error page, like any other server-side failure.
       const config: DomainValidationConfig = {
         validProductionDomains: () => {
-          throw error;
+          throw new Error('validator failed');
+        },
+      };
+
+      const pluginHost = createMockPluginHost();
+      const request = createMockRequest({ headers: { host: 'example.com' } });
+      const reply = createMockReply();
+
+      await domainValidation(config)(pluginHost, createMockOptions());
+
+      const hook = pluginHost.getHooks()[0];
+
+      expect(hook.handler(request, reply)).rejects.toThrow(
+        /could not verify the host "example.com"/,
+      );
+
+      expect(reply.code).not.toHaveBeenCalledWith(403);
+    });
+
+    it('should keep the original validator error as the cause', async () => {
+      // Wrapped rather than rethrown bare, so the log says which host could not
+      // be verified, but the underlying failure is still there to inspect.
+      const underlying = new Error('tenant store timed out');
+
+      const config: DomainValidationConfig = {
+        validProductionDomains: () => {
+          throw underlying;
+        },
+      };
+
+      const pluginHost = createMockPluginHost();
+      const request = createMockRequest({ headers: { host: 'example.com' } });
+      const reply = createMockReply();
+
+      await domainValidation(config)(pluginHost, createMockOptions());
+
+      let caught: unknown;
+
+      try {
+        await pluginHost.getHooks()[0].handler(request, reply);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect((caught as Error).cause).toBe(underlying);
+    });
+
+    it('should disclaim the host before the validator failure propagates', async () => {
+      // Order matters. The throw unwinds into the error path, which applies
+      // security headers, so the disclaim has to already be recorded or the
+      // response picks up HSTS for a host nothing confirmed.
+      const config: DomainValidationConfig = {
+        validProductionDomains: () => {
+          throw new Error('validator failed');
+        },
+      };
+
+      const pluginHost = createMockPluginHost();
+      const request = createMockRequest({ headers: { host: 'example.com' } });
+      const reply = createMockReply();
+
+      await domainValidation(config)(pluginHost, createMockOptions());
+
+      await pluginHost
+        .getHooks()[0]
+        .handler(request, reply)
+        .catch(() => undefined);
+
+      expect(
+        (request as { domainValidationRejected?: boolean })
+          .domainValidationRejected,
+      ).toBe(true);
+    });
+
+    it('should not call invalidDomainHandler when the validator throws', async () => {
+      // That handler phrases "this domain is not authorized", which is not what
+      // happened. Nothing was decided about the domain at all.
+      let handlerCalls = 0;
+
+      const config: DomainValidationConfig = {
+        validProductionDomains: () => {
+          throw new Error('validator failed');
+        },
+        invalidDomainHandler: () => {
+          handlerCalls += 1;
+
+          return { contentType: 'text', content: 'custom rejection wording' };
+        },
+      };
+
+      const pluginHost = createMockPluginHost();
+      const request = createMockRequest({ headers: { host: 'example.com' } });
+      const reply = createMockReply();
+
+      await domainValidation(config)(pluginHost, createMockOptions());
+
+      await pluginHost
+        .getHooks()[0]
+        .handler(request, reply)
+        .catch(() => undefined);
+
+      expect(handlerCalls).toBe(0);
+    });
+
+    it('should send the default rejection when invalidDomainHandler throws', async () => {
+      // The rejection already happened and is not in question. The handler was
+      // only asked to phrase it, so a throw costs the custom wording and
+      // nothing else.
+      const config: DomainValidationConfig = {
+        validProductionDomains: ['allowed.example.com'],
+        invalidDomainHandler: () => {
+          throw new Error('handler failed');
         },
       };
 
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
-      const request = createMockRequest({ headers: { host: 'example.com' } });
+      const request = createMockRequest({ headers: { host: 'blocked.com' } });
       const reply = createMockReply();
 
       const plugin = domainValidation(config);
       await plugin(pluginHost, options);
 
       const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
 
-      try {
+      expect(reply.code).toHaveBeenCalledWith(403);
+      expect(reply.send).toHaveBeenCalledWith(
+        'Access denied: Domain "blocked.com" is not authorized',
+      );
+    });
+
+    it('should send the default rejection when invalidDomainHandler returns nothing', async () => {
+      // Same class of mistake as the throw above, and the same answer. This one
+      // used to be assigned straight through, so the contentType read below it
+      // threw on undefined and the 403 became a 500, on the one path whose job
+      // is to reject cleanly.
+      for (const bad of [undefined, null]) {
+        const config: DomainValidationConfig = {
+          validProductionDomains: ['allowed.example.com'],
+          invalidDomainHandler: (() => bad) as unknown as NonNullable<
+            DomainValidationConfig['invalidDomainHandler']
+          >,
+        };
+
+        const pluginHost = createMockPluginHost();
+        const options = createMockOptions();
+        const request = createMockRequest({ headers: { host: 'blocked.com' } });
+        const reply = createMockReply();
+
+        const plugin = domainValidation(config);
+        await plugin(pluginHost, options);
+
+        const hook = pluginHost.getHooks()[0];
         await hook.handler(request, reply);
-        throw new Error('Expected domain validator to throw');
-      } catch (error_) {
-        expect(error_).toBe(error);
-      }
 
-      expect(reply.code).not.toHaveBeenCalled();
-      expect(reply.send).not.toHaveBeenCalled();
+        expect(reply.code, String(bad)).toHaveBeenCalledWith(403);
+        expect(reply.send, String(bad)).toHaveBeenCalledWith(
+          'Access denied: Domain "blocked.com" is not authorized',
+        );
+      }
+    });
+
+    it('should send the default rejection for an unsupported contentType', async () => {
+      // TypeScript rules this out for a typed caller, so the handlers that
+      // reach here are the untyped ones. Before, no branch matched and nothing
+      // was sent at all, leaving the request hanging until the client gave up.
+      const config: DomainValidationConfig = {
+        validProductionDomains: ['allowed.example.com'],
+        invalidDomainHandler: () =>
+          ({
+            contentType: 'xml',
+            content: '<denied/>',
+          }) as unknown as InvalidDomainResponse,
+      };
+
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({ headers: { host: 'blocked.com' } });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.code).toHaveBeenCalledWith(403);
+      expect(reply.type).toHaveBeenCalledWith('text/plain');
+      expect(reply.send).toHaveBeenCalledWith(
+        'Access denied: Domain "blocked.com" is not authorized',
+      );
     });
 
     it('should support wildcard subdomains', async () => {
@@ -693,14 +993,15 @@ describe('domainValidation', () => {
       expect(reply.redirect).toHaveBeenCalledWith('https://example.com/test');
     });
 
-    it('should respect x-forwarded-proto header when trusted', async () => {
+    it('should redirect when a trusted proxy reports the request arrived over HTTP', async () => {
       const config: DomainValidationConfig = {
         enforceHTTPS: true,
-        trustProxyHeaders: true,
       };
       const pluginHost = createMockPluginHost();
       const options = createMockOptions();
       const request = createMockRequest({
+        // What Fastify resolves from a trusted x-forwarded-proto: http.
+        protocol: 'http',
         headers: {
           host: 'example.com',
           'x-forwarded-proto': 'http',
@@ -1122,60 +1423,6 @@ describe('domainValidation', () => {
     });
   });
 
-  describe('proxy headers', () => {
-    it('should respect x-forwarded-host header', async () => {
-      const config: DomainValidationConfig = {
-        validProductionDomains: ['example.com'],
-        trustProxyHeaders: true,
-      };
-      const pluginHost = createMockPluginHost();
-      const options = createMockOptions();
-      const request = createMockRequest({
-        headers: {
-          host: 'internal.proxy.com',
-          'x-forwarded-host': 'example.com',
-        },
-      });
-      const reply = createMockReply();
-
-      const plugin = domainValidation(config);
-      await plugin(pluginHost, options);
-
-      const hook = pluginHost.getHooks()[0];
-      await hook.handler(request, reply);
-
-      expect(reply.code).not.toHaveBeenCalled();
-      expect(reply.redirect).not.toHaveBeenCalled();
-    });
-
-    it('should handle comma-separated forwarded headers', async () => {
-      const config: DomainValidationConfig = {
-        validProductionDomains: ['example.com'],
-        trustProxyHeaders: true,
-      };
-
-      const pluginHost = createMockPluginHost();
-      const options = createMockOptions();
-      const request = createMockRequest({
-        headers: {
-          host: 'internal.proxy.com',
-          'x-forwarded-host': 'example.com, proxy.internal.com',
-        },
-      });
-
-      const reply = createMockReply();
-
-      const plugin = domainValidation(config);
-      await plugin(pluginHost, options);
-
-      const hook = pluginHost.getHooks()[0];
-      await hook.handler(request, reply);
-
-      expect(reply.code).not.toHaveBeenCalled();
-      expect(reply.redirect).not.toHaveBeenCalled();
-    });
-  });
-
   describe('configuration validation', () => {
     it("should reject global wildcard '*' in validProductionDomains", () => {
       const config: DomainValidationConfig = {
@@ -1217,6 +1464,127 @@ describe('domainValidation', () => {
       expect(plugin(pluginHost, options)).rejects.toThrow(
         /protocols are not allowed in domain context/i,
       );
+    });
+
+    /**
+     * Register with this config, as a promise either way.
+     *
+     * `Promise.resolve` because a plugin may return either a value or a
+     * promise, and both `.rejects` and `await` below want one shape.
+     */
+    const register = (config: DomainValidationConfig): Promise<unknown> =>
+      Promise.resolve(
+        domainValidation(config)(createMockPluginHost(), createMockOptions()),
+      );
+
+    // Every one of these used to register cleanly and then do nothing at
+    // request time, which is the failure mode this whole plugin exists to
+    // avoid: a rule that reads as configured and is not in force.
+    describe('canonicalDomain', () => {
+      // The redirect reads normalizeDomain(canonicalDomain) and skips its whole
+      // branch when the result is empty, and normalizeDomain answers with an
+      // empty string for anything that is not a bare host. So a URL here did
+      // not redirect somewhere slightly wrong, it switched canonical redirects
+      // off entirely.
+      it('rejects a URL where a host belongs', () => {
+        expect(
+          register({ canonicalDomain: 'https://example.com' }),
+        ).rejects.toThrow(/canonicalDomain "https:\/\/example\.com"/i);
+      });
+
+      it('rejects something that is not a host at all', () => {
+        expect(register({ canonicalDomain: 'not a host' })).rejects.toThrow(
+          /canonicalDomain "not a host"/i,
+        );
+      });
+
+      // Accepted by the shared domain validator, since it is a legitimate
+      // pattern, and still not a host. It normalizes to nothing and fails as
+      // quietly as the others, so it gets a message naming the distinction:
+      // patterns say which hosts are allowed, this says which one they go to.
+      it('rejects a wildcard pattern, which the allow list accepts', () => {
+        expect(register({ canonicalDomain: '*.example.com' })).rejects.toThrow(
+          /cannot be a wildcard pattern/i,
+        );
+
+        expect(register({ canonicalDomain: '**.example.com' })).rejects.toThrow(
+          /cannot be a wildcard pattern/i,
+        );
+      });
+
+      it('accepts a concrete host', async () => {
+        await register({ canonicalDomain: 'example.com' });
+        await register({ canonicalDomain: 'www.example.com' });
+      });
+    });
+
+    describe('wwwHandling', () => {
+      // A near miss clears the `!== 'preserve'` gate and then matches neither
+      // branch, so www handling silently does nothing.
+      it('rejects a mode that is not one of the three', () => {
+        expect(register({ wwwHandling: 'Remove' as 'remove' })).rejects.toThrow(
+          /wwwHandling "Remove"/i,
+        );
+
+        expect(register({ wwwHandling: 'strip' as 'remove' })).rejects.toThrow(
+          /Expected "remove", "add", "preserve"/i,
+        );
+      });
+
+      it('accepts each of the three', async () => {
+        for (const mode of ['remove', 'add', 'preserve'] as const) {
+          await register({ wwwHandling: mode });
+        }
+      });
+    });
+
+    describe('redirectStatusCode', () => {
+      // Fastify's redirect() honors a status already set on the reply, so a
+      // non-redirect status sends a Location header no browser follows. That
+      // cancels HTTPS enforcement and the canonical redirect at once.
+      it('rejects a status outside the redirect range', () => {
+        expect(register({ redirectStatusCode: 200 as 301 })).rejects.toThrow(
+          /redirectStatusCode 200/i,
+        );
+
+        expect(register({ redirectStatusCode: 404 as 301 })).rejects.toThrow(
+          /Expected 301, 302, 307, 308/i,
+        );
+      });
+
+      it('accepts each redirect status', async () => {
+        for (const code of [301, 302, 307, 308] as const) {
+          await register({ redirectStatusCode: code });
+        }
+      });
+    });
+
+    describe('flags', () => {
+      // Read as conditions at their use sites, so the string "false" out of a
+      // JSON config would be treated as true. For skipInDevelopment that means
+      // skipping host validation altogether.
+      it('rejects a non-boolean flag', () => {
+        expect(
+          register({ skipInDevelopment: 'false' as unknown as boolean }),
+        ).rejects.toThrow(/skipInDevelopment: expected a boolean/i);
+
+        expect(
+          register({ enforceHTTPS: 1 as unknown as boolean }),
+        ).rejects.toThrow(/enforceHTTPS: expected a boolean/i);
+
+        expect(
+          register({ preservePort: 'yes' as unknown as boolean }),
+        ).rejects.toThrow(/preservePort: expected a boolean/i);
+      });
+
+      it('accepts booleans and an absent flag', async () => {
+        await register({});
+        await register({
+          enforceHTTPS: false,
+          preservePort: true,
+          skipInDevelopment: false,
+        });
+      });
     });
   });
 
@@ -1333,6 +1701,57 @@ describe('domainValidation', () => {
       await hook.handler(request, reply);
 
       expect(reply.code).not.toHaveBeenCalled();
+      expect(reply.redirect).not.toHaveBeenCalled();
+    });
+
+    // Standalone, with no canonicalDomain. The other 'remove' test pairs the
+    // two, where the canonical redirect reaches the apex on its own and this
+    // option contributes nothing, so it passed while 'remove' did nothing.
+    it('should remove www with no canonicalDomain configured', async () => {
+      const config: DomainValidationConfig = {
+        validProductionDomains: ['example.com', '*.example.com'],
+        wwwHandling: 'remove',
+      };
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        headers: { host: 'www.example.com' },
+        url: '/test',
+      });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
+      expect(reply.redirect).toHaveBeenCalledWith('https://example.com/test');
+    });
+
+    // A canonicalDomain that disagrees with wwwHandling has each rule undoing
+    // the other, so the target comes out identical to the request. Serving it
+    // is the safe answer, since redirecting is what loops the browser.
+    it('should not redirect when canonicalDomain contradicts wwwHandling', async () => {
+      const config: DomainValidationConfig = {
+        validProductionDomains: ['example.com', 'www.example.com'],
+        canonicalDomain: 'www.example.com',
+        wwwHandling: 'remove',
+      };
+      const pluginHost = createMockPluginHost();
+      const options = createMockOptions();
+      const request = createMockRequest({
+        headers: { host: 'example.com' },
+        url: '/test',
+      });
+      const reply = createMockReply();
+
+      const plugin = domainValidation(config);
+      await plugin(pluginHost, options);
+
+      const hook = pluginHost.getHooks()[0];
+      await hook.handler(request, reply);
+
       expect(reply.redirect).not.toHaveBeenCalled();
     });
   });
@@ -1460,33 +1879,235 @@ describe('domainValidation', () => {
     });
   });
 
-  describe('comma-separated proxy headers', () => {
-    it('should honor first value in comma-separated x-forwarded-proto', async () => {
-      const config: DomainValidationConfig = {
-        validProductionDomains: ['example.com'],
-        enforceHTTPS: true,
-        trustProxyHeaders: true,
-      };
-      const pluginHost = createMockPluginHost();
-      const options = createMockOptions();
-      const request = createMockRequest({
-        headers: {
-          host: 'example.com',
-          'x-forwarded-proto': 'http, https',
+  /**
+   * These run against a real Fastify instance rather than the mocks above,
+   * because the behavior under test is Fastify's own proxy trust: whether a
+   * forwarded header is believed at all, and which comma-separated entry wins.
+   * A mock that asserted those answers would be asserting its own definition.
+   *
+   * The helper never lets the plugin short-circuit. It allows every domain and
+   * records what the plugin was handed, which is the value the whole trust
+   * question comes down to. That is deliberate: under Bun, an async onRequest
+   * hook that calls reply.send() does not stop the hook chain the way it does
+   * on Node, so a test that asserted on a 403 or a redirect here would trip a
+   * double-send inside the test runner rather than measure the plugin. Node is
+   * the runtime target and behaves correctly; the short-circuit paths are
+   * covered by the mock-based tests above.
+   */
+  describe('proxy trust (real Fastify)', () => {
+    async function resolvedBy(
+      headers: Record<string, string>,
+      fastifyOptions: FastifyServerOptions = {},
+    ) {
+      const seen: Array<{ domain: string; protocol: string }> = [];
+      const app = fastify(fastifyOptions);
+
+      const plugin = domainValidation({
+        enforceHTTPS: false,
+        validProductionDomains: (domain, request) => {
+          seen.push({ domain, protocol: request.protocol });
+          return true;
         },
-        url: '/test',
-        protocol: 'https',
       });
-      const reply = createMockReply();
 
-      const plugin = domainValidation(config);
-      await plugin(pluginHost, options);
+      await plugin(app as unknown as PluginHostInstance, createMockOptions());
 
-      const hook = pluginHost.getHooks()[0];
-      await hook.handler(request, reply);
+      app.get('/test', () => ({ ok: true }));
+      await app.ready();
 
-      expect(reply.code).toHaveBeenCalledWith(301);
-      expect(reply.redirect).toHaveBeenCalledWith('https://example.com/test');
+      await app.inject({ method: 'GET', url: '/test', headers });
+      await app.close();
+
+      return seen[0];
+    }
+
+    it('reads the last x-forwarded-host entry, which is the one the proxy appended', async () => {
+      // A client sends "evil.com"; a proxy that appends rather than replaces
+      // leaves "evil.com, real.example.com". The trusted proxy wrote the last
+      // entry, so that is the one that counts. Reading the first entry, as the
+      // plugin used to, would have validated the attacker's value instead.
+      const resolved = await resolvedBy(
+        {
+          host: 'internal.upstream',
+          'x-forwarded-host': 'evil.com, real.example.com',
+        },
+        { trustProxy: true },
+      );
+
+      expect(resolved.domain).toBe('real.example.com');
     });
+
+    it('honors a single trusted x-forwarded-host', async () => {
+      const resolved = await resolvedBy(
+        {
+          host: 'internal.upstream',
+          'x-forwarded-host': 'example.com',
+        },
+        { trustProxy: true },
+      );
+
+      expect(resolved.domain).toBe('example.com');
+    });
+
+    it('ignores a forged x-forwarded-host when no proxy is trusted', async () => {
+      const resolved = await resolvedBy({
+        host: 'internal.upstream',
+        'x-forwarded-host': 'example.com',
+      });
+
+      expect(resolved.domain).toBe('internal.upstream');
+    });
+
+    it('ignores a forged x-forwarded-host when the peer is not the trusted proxy', async () => {
+      // inject() presents 127.0.0.1 as the peer, which is not in the trusted
+      // set, so the forwarded header must be disregarded even though
+      // trustProxy is configured.
+      const resolved = await resolvedBy(
+        {
+          host: 'internal.upstream',
+          'x-forwarded-host': 'example.com',
+        },
+        { trustProxy: '10.0.0.1' },
+      );
+
+      expect(resolved.domain).toBe('internal.upstream');
+    });
+
+    it('reads the last x-forwarded-proto entry', async () => {
+      // Client claims https, proxy appends the truth. Reading the first entry
+      // would report https and skip HTTPS enforcement entirely.
+      const resolved = await resolvedBy(
+        {
+          host: 'example.com',
+          'x-forwarded-proto': 'https, http',
+        },
+        { trustProxy: true },
+      );
+
+      expect(resolved.protocol).toBe('http');
+    });
+
+    it('ignores x-forwarded-proto when no proxy is trusted', async () => {
+      const resolved = await resolvedBy({
+        host: 'example.com',
+        'x-forwarded-proto': 'https',
+      });
+
+      expect(resolved.protocol).toBe('http');
+    });
+
+    it('honors a trusted x-forwarded-proto', async () => {
+      const resolved = await resolvedBy(
+        {
+          host: 'example.com',
+          'x-forwarded-proto': 'https',
+        },
+        { trustProxy: true },
+      );
+
+      expect(resolved.protocol).toBe('https');
+    });
+  });
+});
+
+describe('the gate actually stops the lifecycle', () => {
+  function createMockOptions(): PluginOptions {
+    return {
+      mode: 'ssr' as UnirendServerMode,
+      isDevelopment: false,
+      serverType: 'ssr',
+    } as unknown as PluginOptions;
+  }
+
+  it('runs no later onRequest hook once it has refused the host', async () => {
+    // Fastify advances the lifecycle when an async hook resolves, and stops
+    // early only when the resolved value is the reply. Returning `undefined`
+    // after reply.send() sent the response *and then kept running the rest of
+    // the onRequest chain*, so every plugin registered below this one still ran
+    // on a request that had already been refused, doing whatever work they do.
+    //
+    // A gate that does not gate is the one thing this plugin must not be, and
+    // the symptom was almost impossible to trace: the first hook below it to touch the
+    // reply produced an ERR_HTTP_HEADERS_SENT deep inside Fastify's error
+    // handling, naming nothing in this file.
+    const app = fastify({ trustProxy: true });
+    const ranAfter: string[] = [];
+
+    await domainValidation({
+      enforceHTTPS: false,
+      validProductionDomains: ['allowed.example.com'],
+    })(app as unknown as PluginHostInstance, createMockOptions());
+
+    app.addHook('onRequest', () => {
+      ranAfter.push('below-the-gate');
+
+      return Promise.resolve();
+    });
+
+    app.get('/t', () => ({ ok: true }));
+    await app.listen({ port: 0, host: '127.0.0.1' });
+
+    const address = app.server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    try {
+      const refused = await fetch(`http://127.0.0.1:${port}/t`, {
+        headers: { 'x-forwarded-host': 'evil.example.com' },
+      });
+
+      expect(refused.status).toBe(403);
+      expect(ranAfter).toEqual([]);
+
+      // The control: a host that passes must still reach everything below.
+      const allowed = await fetch(`http://127.0.0.1:${port}/t`, {
+        headers: { 'x-forwarded-host': 'allowed.example.com' },
+      });
+
+      expect(allowed.status).toBe(200);
+      expect(ranAfter).toEqual(['below-the-gate']);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('runs no later onRequest hook after a 400 or a redirect either', async () => {
+    // The same rule on the other two terminal paths, since each returned
+    // undefined in its own right.
+    const app = fastify({ trustProxy: true });
+    const ranAfter: string[] = [];
+
+    await domainValidation({
+      enforceHTTPS: false,
+      validProductionDomains: [
+        'allowed.example.com',
+        'www.allowed.example.com',
+      ],
+      canonicalDomain: 'allowed.example.com',
+    })(app as unknown as PluginHostInstance, createMockOptions());
+
+    app.addHook('onRequest', () => {
+      ranAfter.push('below-the-gate');
+
+      return Promise.resolve();
+    });
+
+    app.get('/t', () => ({ ok: true }));
+    await app.listen({ port: 0, host: '127.0.0.1' });
+
+    const address = app.server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    try {
+      const redirected = await fetch(`http://127.0.0.1:${port}/t`, {
+        headers: { 'x-forwarded-host': 'www.allowed.example.com' },
+        redirect: 'manual',
+      });
+
+      expect(redirected.status).toBeGreaterThanOrEqual(300);
+      expect(redirected.status).toBeLessThan(400);
+      expect(ranAfter).toEqual([]);
+    } finally {
+      await app.close();
+    }
   });
 });

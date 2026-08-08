@@ -63,7 +63,18 @@ export default [
       },
     },
     rules: {
-      // Enforce naming conventions
+      // Enforce naming conventions.
+      //
+      // The acronym list repeated through the rules below is a list of
+      // *rejected* spellings: each entry is the title-case form, so matching it
+      // means someone wrote \`CspConfig\` where the house style is \`CSPConfig\`.
+      // Adding an acronym here is what makes the uppercase spelling the only
+      // one, rather than merely the one most of the file happens to use.
+      //
+      // Three entries double as ordinary English words: Coop, Corp, and Spa.
+      // They are here because COOP, CORP, and SPA are web vocabulary you are
+      // likely to meet, but it does mean \`myCorp\` is refused too. This file is
+      // yours: drop an entry you do not want.
       '@typescript-eslint/naming-convention': [
         'error',
         // Types and Interfaces: Must be PascalCase, no I prefix (except IO, IP, ID), uppercase acronyms (ID not Id, IP not Ip, etc.)
@@ -73,7 +84,7 @@ export default [
           custom: {
             // Reject: I-prefix (but not IO, IP, ID) OR lowercase acronyms anywhere (Id, Ip, Api, etc.)
             regex:
-              '^I(?!O|P|D)[A-Z]|(^|[A-Z][a-z]+)(Id|Ip|Io|Ui|Api|Url|Html|Css|Json|Xml|Svg|Pdf|Uri|Uuid|Jwt|Sql|Http|Https|Ws|Wss|Sse|Db|Os|Cpu|Gpu|Ram|Usb|Ms)([A-Z]|$)',
+              '^I(?!O|P|D)[A-Z]|(^|[A-Z][a-z]+)(Id|Ip|Io|Ui|Api|Url|Html|Css|Json|Xml|Svg|Pdf|Uri|Uuid|Jwt|Sql|Http|Https|Ws|Wss|Sse|Db|Os|Cpu|Gpu|Ram|Usb|Ms|Csp|Cors|Csrf|Xss|Sri|Hsts|Coop|Coep|Corp|Cdn|Ssr|Ssg|Spa|Tls|Ssl)([A-Z]|$)',
             match: false,
           },
         },
@@ -84,7 +95,7 @@ export default [
           custom: {
             // Reject: lowercase acronyms anywhere (Id, Ip, Api, etc.)
             regex:
-              '(^|[A-Z][a-z]+)(Id|Ip|Io|Ui|Api|Url|Html|Css|Json|Xml|Svg|Pdf|Uri|Uuid|Jwt|Sql|Http|Https|Ws|Wss|Sse|Db|Os|Cpu|Gpu|Ram|Usb|Ms)([A-Z]|$)',
+              '(^|[A-Z][a-z]+)(Id|Ip|Io|Ui|Api|Url|Html|Css|Json|Xml|Svg|Pdf|Uri|Uuid|Jwt|Sql|Http|Https|Ws|Wss|Sse|Db|Os|Cpu|Gpu|Ram|Usb|Ms|Csp|Cors|Csrf|Xss|Sri|Hsts|Coop|Coep|Corp|Cdn|Ssr|Ssg|Spa|Tls|Ssl)([A-Z]|$)',
             match: false,
           },
         },
@@ -102,7 +113,7 @@ export default [
             // Reject: lowercase acronyms in camelCase/PascalCase (but allow snake_case like user_id)
             // Matches: userId, getUserId but NOT user_id, USER_ID, or PascalCase like ComponentType
             regex:
-              '[a-z](?!_)(Id|Ip|Io|Ui|Api|Url|Html|Css|Json|Xml|Svg|Pdf|Uri|Uuid|Jwt|Sql|Http|Https|Ws|Wss|Sse|Db|Os|Cpu|Gpu|Ram|Usb|Ms)([A-Z_]|$)',
+              '[a-z](?!_)(Id|Ip|Io|Ui|Api|Url|Html|Css|Json|Xml|Svg|Pdf|Uri|Uuid|Jwt|Sql|Http|Https|Ws|Wss|Sse|Db|Os|Cpu|Gpu|Ram|Usb|Ms|Csp|Cors|Csrf|Xss|Sri|Hsts|Coop|Coep|Corp|Cdn|Ssr|Ssg|Spa|Tls|Ssl)([A-Z_]|$)',
             match: false,
           },
           leadingUnderscore: 'allow',
@@ -116,7 +127,7 @@ export default [
             // Reject: lowercase acronyms in camelCase/PascalCase (but allow PascalCase variables)
             // Matches: userId, getUserId but NOT userID, UserID, UPPER_CASE
             regex:
-              '[a-z](Id|Ip|Io|Ui|Api|Url|Html|Css|Json|Xml|Svg|Pdf|Uri|Uuid|Jwt|Sql|Http|Https|Ws|Wss|Sse|Db|Os|Cpu|Gpu|Ram|Usb|Ms)([A-Z]|$)',
+              '[a-z](Id|Ip|Io|Ui|Api|Url|Html|Css|Json|Xml|Svg|Pdf|Uri|Uuid|Jwt|Sql|Http|Https|Ws|Wss|Sse|Db|Os|Cpu|Gpu|Ram|Usb|Ms|Csp|Cors|Csrf|Xss|Sri|Hsts|Coop|Coep|Corp|Cdn|Ssr|Ssg|Spa|Tls|Ssl)([A-Z]|$)',
             match: false,
           },
           leadingUnderscore: 'allow',
@@ -128,7 +139,7 @@ export default [
           custom: {
             // Reject: lowercase acronyms after lowercase letter (userId, getUserId, etc.)
             regex:
-              '[a-z](Id|Ip|Io|Ui|Api|Url|Html|Css|Json|Xml|Svg|Pdf|Uri|Uuid|Jwt|Sql|Http|Https|Ws|Wss|Sse|Db|Os|Cpu|Gpu|Ram|Usb|Ms)([A-Z]|$)',
+              '[a-z](Id|Ip|Io|Ui|Api|Url|Html|Css|Json|Xml|Svg|Pdf|Uri|Uuid|Jwt|Sql|Http|Https|Ws|Wss|Sse|Db|Os|Cpu|Gpu|Ram|Usb|Ms|Csp|Cors|Csrf|Xss|Sri|Hsts|Coop|Coep|Corp|Cdn|Ssr|Ssg|Spa|Tls|Ssl)([A-Z]|$)',
             match: false,
           },
           leadingUnderscore: 'allow',
@@ -155,7 +166,7 @@ export default [
           // Enforce acronyms stay uppercase
           custom: {
             regex:
-              '(Id|Ip|Io|Ui|Api|Url|Html|Css|Json|Xml|Svg|Pdf|Uri|Uuid|Jwt|Sql|Http|Https|Ws|Wss|Sse|Db|Os|Cpu|Gpu|Ram|Usb|Ms)([A-Z]|$)',
+              '(Id|Ip|Io|Ui|Api|Url|Html|Css|Json|Xml|Svg|Pdf|Uri|Uuid|Jwt|Sql|Http|Https|Ws|Wss|Sse|Db|Os|Cpu|Gpu|Ram|Usb|Ms|Csp|Cors|Csrf|Xss|Sri|Hsts|Coop|Coep|Corp|Cdn|Ssr|Ssg|Spa|Tls|Ssl)([A-Z]|$)',
             match: false,
           },
           // Allow UPPER_CASE without prefix for constants
@@ -191,7 +202,7 @@ export default [
           // Enforce acronyms stay uppercase
           custom: {
             regex:
-              '(Id|Ip|Io|Ui|Api|Url|Html|Css|Json|Xml|Svg|Pdf|Uri|Uuid|Jwt|Sql|Http|Https|Ws|Wss|Sse|Db|Os|Cpu|Gpu|Ram|Usb|Ms)([A-Z]|$)',
+              '(Id|Ip|Io|Ui|Api|Url|Html|Css|Json|Xml|Svg|Pdf|Uri|Uuid|Jwt|Sql|Http|Https|Ws|Wss|Sse|Db|Os|Cpu|Gpu|Ram|Usb|Ms|Csp|Cors|Csrf|Xss|Sri|Hsts|Coop|Coep|Corp|Cdn|Ssr|Ssg|Spa|Tls|Ssl)([A-Z]|$)',
             match: false,
           },
           // Allow unused parameters prefixed with _ to bypass the naming requirement

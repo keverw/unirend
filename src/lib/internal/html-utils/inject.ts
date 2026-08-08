@@ -1,15 +1,82 @@
-import {
-  TAB_SPACES,
-  TEMPLATE_META_MARKER_ATTRIBUTE,
-  TEMPLATE_METAS_GLOBAL,
-} from '../consts';
+import { TAB_SPACES, TEMPLATE_META_MARKER_ATTRIBUTE } from '../consts';
+import { CDN_INJECTION_PLACEHOLDER, normalizeCDNBaseURL } from '../cdn';
 import { getDevMode } from 'lifecycleion/dev-mode';
+import {
+  renderContextDataElements,
+  type UnirendContextData,
+} from './context-data-block';
 import {
   escapeHTMLAttr,
   decodeHTMLAttributeValue,
   isRemovedBooleanAttribute,
 } from './escape';
 import { getMetaKeys } from './meta-key';
+import { hashInlineContentForCSP } from '../csp-hash';
+import type { AnyNode } from 'domhandler';
+import type { CheerioAPI, load as cheerioLoad } from 'cheerio';
+
+/**
+ * The parse5 source offsets cheerio attaches under `sourceCodeLocationInfo`.
+ *
+ * The tag offsets are what make an element's *text content* addressable, as
+ * opposed to the whole element: everything between the open tag's end and the
+ * close tag's start, byte for byte in the original source. That is exactly what
+ * a CSP hash covers, so a digest taken from this range is one the browser will
+ * agree with.
+ */
+interface ScriptSourceLocation {
+  startOffset: number;
+  endOffset: number;
+  startTag?: { endOffset: number };
+  endTag?: { startOffset: number };
+}
+
+/**
+ * React Router's hydration script, as it emits it:
+ *
+ * ```html
+ * <script>window.__staticRouterHydrationData = JSON.parse("{\"loaderData\":…}");</script>
+ * ```
+ *
+ * The argument is a JSON string token whose contents are themselves JSON. That
+ * double encoding is deliberate on React Router's part, since parsing one large
+ * string beats parsing an equivalent object literal.
+ *
+ * Matching the whole element rather than just the call keeps this from firing on
+ * anything else that happens to mention the global.
+ */
+const ROUTER_HYDRATION_SCRIPT =
+  /^<script(?:\s[^>]*)?>\s*window\.__staticRouterHydrationData\s*=\s*JSON\.parse\(\s*("(?:[^"\\]|\\.)*")\s*\)\s*;?\s*<\/script>$/;
+
+/**
+ * Pull the hydration payload out of React Router's assignment script.
+ *
+ * Returns the inner JSON **text**, character for character as React Router
+ * encoded it, so it can be handed to the client to `JSON.parse` exactly as the
+ * original script would have. Nothing here re-encodes the payload.
+ *
+ * Returns `null` when the script is not the expected shape, which is the signal
+ * to leave it alone and emit it verbatim. React Router owns that output and may
+ * change it; guessing at a shape we do not recognize would break hydration,
+ * where declining costs only the ability to cover it with a CSP hash.
+ */
+function extractRouterHydrationPayload(script: string): string | null {
+  const match = ROUTER_HYDRATION_SCRIPT.exec(script.trim());
+
+  if (!match) {
+    return null;
+  }
+
+  try {
+    // The captured group is a JSON string token, so parsing it yields the inner
+    // JSON text. A non-string result means the shape is not what it looked like.
+    const payload: unknown = JSON.parse(match[1]);
+
+    return typeof payload === 'string' ? payload : null;
+  } catch {
+    return null;
+  }
+}
 
 // Prettify all head tags: each tag (<title>, <meta>, <link>, etc.) on its own line, indented
 export function prettifyHeadTags(head: string, indent = TAB_SPACES): string {
@@ -341,6 +408,60 @@ export interface InjectContentOptions {
   domainInfo?: { hostname: string; rootDomain: string } | null;
   htmlAttrs?: Record<string, string>;
   bodyAttrs?: Record<string, string>;
+  /**
+   * Receives CSP source expressions, quoted and ready to drop into a directive,
+   * for the inline content this function emits that nothing earlier could have
+   * hashed.
+   *
+   * Two kinds reach it, and both exist for the same reason: the caller
+   * contributes a request's hashes from the *template* before rendering, and
+   * neither of these is in the template.
+   *
+   * The rendered body is the larger of the two. React 19 renders a hoistable
+   * `<style>` or `<script>` inline in the SSR stream, and anything using
+   * `dangerouslySetInnerHTML` can put one there directly, so a page's own
+   * inline content is decided per render and lands in the `<!--ss-outlet-->`
+   * splice. Without this it is served under a policy that never heard of it,
+   * which for a `<style>` means an unstyled page and for a `<script>` means one
+   * that silently never runs.
+   *
+   * The other is a React Router hydration script in a shape
+   * `extractRouterHydrationPayload` declined to take apart, which is then
+   * passed through verbatim rather than lifted into the data block.
+   *
+   * Not needed by a caller that hashes the finished document itself, which is
+   * what SSG does, so it is optional. Its absence is also what keeps the extra
+   * hashing off servers that are not using CSP: nothing here is computed unless
+   * a callback is supplied.
+   */
+  addCSPSources?: (sources: {
+    scriptSrc?: readonly string[];
+    styleSrc?: readonly string[];
+  }) => void;
+}
+
+/**
+ * Replace the first occurrence of `marker` with `value`, treating `value` as
+ * literal text.
+ *
+ * `String.prototype.replace` expands `$&`, `` $` ``, `$'`, and `$1` **in the
+ * replacement**, which is a disaster when the replacement is a rendered page.
+ * `$&` alone is enough: `<p>Cost: $&nbsp;5</p>` is an ordinary price followed
+ * by a non-breaking space, and it substituted the marker back into the output.
+ * `` $` `` is worse, splicing the entire preceding document into the body.
+ *
+ * Passing a function bypasses the substitution rules entirely, which is the
+ * documented way to say "this is literal". Every replacement here is untrusted
+ * in the relevant sense: the rendered body is whatever the app rendered, the
+ * head is whatever the page declared, and the context scripts carry the JSON
+ * data block, which holds the request context and the app config.
+ *
+ * It also protected the CSP hashes. A corrupted body no longer matches the
+ * digest taken from it, so a `<style>` downstream of a stray `$&` was blocked
+ * with nothing to explain it.
+ */
+function replaceLiteral(source: string, marker: string, value: string): string {
+  return source.replace(marker, () => value);
 }
 
 // Utility to inject content, preserving React attributes
@@ -350,15 +471,74 @@ export async function injectContent(
   bodyContent: string,
   options: InjectContentOptions = {},
 ): Promise<string> {
-  const { context, CDNBaseURL, domainInfo, htmlAttrs, bodyAttrs } = options;
+  const {
+    context,
+    CDNBaseURL,
+    domainInfo,
+    htmlAttrs,
+    bodyAttrs,
+    addCSPSources,
+  } = options;
+
   // Prettify all head tags with consistent indentation
   const compactedHead = prettifyHeadTags(headContent);
+
+  // Normalize CDN base URL (strip trailing slash) so it's consistent everywhere.
+  //
+  // The shared helper rather than a local copy, because whatever this produces
+  // is what gets substituted below and then hashed for CSP by
+  // resolveTemplateCSPHashes. Two spellings that disagreed by a character would
+  // publish a digest for a URL the page does not contain.
+  const normalizedCDN = normalizeCDNBaseURL(CDNBaseURL);
+
+  // Resolve the CDN placeholder here, on the template alone, before anything
+  // else is read out of it or spliced into it.
+  //
+  // It used to run at the end, across the finished document, and the extra
+  // reach was spillover from a whole-document replace rather than a feature.
+  // Three things came with it, none of them wanted:
+  //
+  // - Rendered inline `<style>` was rewritten *after* its CSP hash was taken
+  //   from the same bytes, so the digest no longer described what shipped and a
+  //   strict `style-src` blocked the block with nothing to explain it.
+  // - Bare text was rewritten, not just URLs, so a page that merely mentioned
+  //   the placeholder had it substituted mid-sentence.
+  // - The JSON data block was rewritten too, so a request-context value that
+  //   happened to carry the literal string came out changed on the client.
+  //
+  // Nothing is lost by narrowing it. The placeholder exists for hand-written
+  // markup in index.html, which is the one place with no React context to read
+  // from, and `format.ts` stamps it onto the build's own `script[src]` and
+  // `link[href]` in the same file. Components have `useCDNBaseURL()`, which
+  // resolves from the same per-request value.
+  //
+  // Still document-wide *within the template*, since a template may write the
+  // placeholder into a URL of its own, and into an inline `<script>` or
+  // `<style>` as well. That last position is the one with a consequence: those
+  // blocks are hashed for CSP, and a hash taken when the template was processed
+  // cannot describe a value this resolves per request. `processTemplate` does
+  // not hash them for that reason, reporting them as `cdnDependent` instead,
+  // and the request path hashes them against the same value substituted here.
+  // See `resolveTemplateCSPHashes` in format.ts.
+  //
+  // First, and that ordering is load-bearing rather than tidy. Both of the
+  // baselines below are read out of the template and travel to the client in
+  // the data block: the `<meta>` baseline the client restores when a page stops
+  // overriding a tag, and the `<html>`/`<body>` attributes it reconciles
+  // against. Reading either before this ran captured the placeholder verbatim,
+  // and the client then restored a `content="__CDN__INJECTION__POINT__/..."`
+  // that no longer resolved. The old whole-document pass hid that by rewriting
+  // the data block too, which is the one thing it did that was worth keeping.
+  const resolvedTemplate = template.replaceAll(
+    CDN_INJECTION_PLACEHOLDER,
+    () => normalizedCDN,
+  );
 
   // Merge the template's meta baseline with the page's own metas, so the page's versions are
   // the only ones served. Done before the body is spliced in, while the template still holds
   // nothing but markers where the rendered markup will go.
   const { template: mergedTemplate, baseline: templateMetas } =
-    mergeTemplateMetas(template, headContent);
+    mergeTemplateMetas(resolvedTemplate, headContent);
 
   // Use cheerio to find React Router's hydration script in the rendered body content.
   // StaticRouterProvider (server) renders window.__staticRouterHydrationData as a React child,
@@ -379,11 +559,17 @@ export async function injectContent(
   const routerHydrationScripts: string[] = [];
   const removalRanges: Array<{ start: number; end: number }> = [];
 
+  // The hydration payload, lifted out of React Router's assignment script so it
+  // can ride in the JSON data block with everything else. Left undefined when
+  // there is no hydration script, or when one was found in a shape this cannot
+  // safely take apart.
+  let routerHydration: string | undefined;
+
   $body('script').each((_, el) => {
     if (($body(el).html() ?? '').includes('__staticRouterHydrationData')) {
       const location = (
         el as {
-          sourceCodeLocation?: { startOffset: number; endOffset: number };
+          sourceCodeLocation?: ScriptSourceLocation;
         }
       ).sourceCodeLocation;
 
@@ -391,11 +577,43 @@ export async function injectContent(
         return;
       }
 
-      // Keep the script exactly as React Router emitted it. Do not use
-      // $body.html(el), because serializer output is not hydration-safe.
-      routerHydrationScripts.push(
-        bodyContent.slice(location.startOffset, location.endOffset),
+      // Read the raw source rather than $body.html(el): cheerio's serializer
+      // output is not hydration-safe, and re-serializing a payload this file
+      // does not own is exactly the thing to avoid.
+      const rawScript = bodyContent.slice(
+        location.startOffset,
+        location.endOffset,
       );
+
+      const payload = extractRouterHydrationPayload(rawScript);
+
+      if (payload === null) {
+        // Unrecognized shape, so leave it alone and emit it verbatim as before.
+        // Better a script that CSP has to be told about than a hydration
+        // payload mangled by a guess at what React Router meant.
+        routerHydrationScripts.push(rawScript);
+
+        // Deliberately not hashed, and this is the one branch where that needs
+        // saying out loud, because it used to be.
+        //
+        // What lands here is decided by the substring test above, which is a
+        // guess about provenance rather than proof of it. Anything rendered
+        // into the body containing `__staticRouterHydrationData`, a comment
+        // included, reaches this branch when its shape is not recognized. That
+        // is reachable by whatever HTML a page renders, so a hash here is a
+        // hash an injected script can ask for by including thirty characters,
+        // which would give back exactly what refusing to hash rendered scripts
+        // took away.
+        //
+        // Emitting it unhashed keeps the forgiving behavior this branch exists
+        // for on a page with no strict policy, and fails closed on one that has
+        // it: the script is blocked, the page still renders, and hydration does
+        // not start. That failure is at least visible, since a strict policy is
+        // rolled out with `reportOnly` first and this shows up as a violation
+        // report naming the script.
+      } else {
+        routerHydration = payload;
+      }
 
       removalRanges.push({
         start: location.startOffset,
@@ -403,6 +621,67 @@ export async function injectContent(
       });
     }
   });
+
+  // The rendered page's own inline `<style>`.
+  //
+  // This is not a corner case. React 19 renders a hoistable `<style>` inline in
+  // the SSR stream and a CSS-in-JS runtime emits one directly, both decided per
+  // render, so the template hashes the caller contributed before rendering
+  // cannot possibly cover them. Left out, the page ships under a policy that
+  // never heard of them and renders unstyled, on a header that reads as though
+  // it allows same-origin content.
+  //
+  // Only asked for when a caller wants the answer, which keeps the scan off
+  // servers that are not using CSP.
+  //
+  // Rendered inline `<script>` deliberately gets no hash here, and that
+  // asymmetry is the point rather than an omission. A hash read from finished
+  // markup cannot distinguish a script a component rendered from one that
+  // arrived as untrusted HTML and went out through `dangerouslySetInnerHTML`,
+  // so hashing what the render produced would hand an injected script a valid
+  // source expression at the one sink a policy is there to backstop.
+  //
+  // Style is hashed anyway, and that is a compatibility trade rather than a
+  // claim that injected CSS is harmless. It can conceal or restyle trusted UI
+  // and can pull permitted resources. Two things decide it against script.
+  // React hoistables and CSS-in-JS output are how an ordinary page ships style
+  // at all, so refusing them leaves real applications unstyled under a strict
+  // style-src with no error anywhere, where a rendered inline script is rare.
+  // And an attacker already able to inject HTML can overlay and deceive with
+  // plain markup and the page's own class names, so the hash gives up a subset
+  // of what they keep regardless. A script hash is the difference between
+  // injected markup and injected code execution, which is not the same shape.
+  //
+  // Little is given up by that. React Router's hydration payload is hashed
+  // above on its own path, a `<script src>` needs a host source rather than a
+  // hash, and a data block such as `application/ld+json` is outside `script-src`
+  // to begin with. What remains is a component rendering an inline script of
+  // its own, such as an analytics snippet, whose content is fixed and known
+  // before any request: hash it with `hashInlineContentForCSP` and put it in
+  // the policy, which says once and deliberately what this scan would otherwise
+  // have said for every script it happened to find. A template's inline scripts
+  // are unaffected and still hashed, slots included, since those are authored
+  // by hand and fixed for the life of the process.
+  //
+  // SSG keeps hashing both, and the difference is not an inconsistency: a
+  // prerender has no request data to inject, its input is the same content an
+  // author already controls, and its output is a directory of files with no
+  // server left to contribute hashes per response.
+  if (addCSPSources) {
+    const pageHashes = collectRenderedInlineHashes(
+      $body,
+      bodyContent,
+      cheerio.load,
+      parseOptions,
+    );
+
+    // No `scriptSrc` member at all, rather than an empty array, because a
+    // render now contributes nothing to it and saying so is clearer than
+    // handing back an empty list every time.
+    addCSPSources({
+      styleSrc: [...pageHashes.styleSrc],
+    });
+  }
 
   let cleanBodyContent = bodyContent;
 
@@ -416,67 +695,11 @@ export async function injectContent(
   // Start with head and body replacement
   // The <!--ss-outlet--> marker should be directly replaced with the content
   // without any additional or changed comments/whitespace that could cause hydration issues
-  let result = mergedTemplate
-    .replace('<!--ss-head-->', compactedHead)
-    .replace('<!--ss-outlet-->', cleanBodyContent);
+  let result = replaceLiteral(mergedTemplate, '<!--ss-head-->', compactedHead);
+  result = replaceLiteral(result, '<!--ss-outlet-->', cleanBodyContent);
 
-  // Build context scripts array
-  const contextScripts: string[] = [];
-
-  // Inject dev mode global so the client always matches the server
-  contextScripts.push(
-    `<script>globalThis.__lifecycleion_is_dev__=${String(getDevMode())};</script>`,
-  );
-
-  // Add __FRONTEND_REQUEST_CONTEXT__ if provided (even if empty object)
-  if (context?.request !== undefined) {
-    const safeContextJSON = JSON.stringify(context.request).replace(
-      /</g,
-      '\\u003c',
-    );
-
-    contextScripts.push(
-      `<script>window.__FRONTEND_REQUEST_CONTEXT__=${safeContextJSON};</script>`,
-    );
-  }
-
-  // Add __PUBLIC_APP_CONFIG__ if provided (even if empty object)
-  if (context?.app !== undefined) {
-    const safeConfigJSON = JSON.stringify(context.app).replace(/</g, '\\u003c');
-
-    contextScripts.push(
-      `<script>window.__PUBLIC_APP_CONFIG__=${safeConfigJSON};</script>`,
-    );
-  }
-
-  // Normalize CDN base URL (strip trailing slash) so it's consistent everywhere
-  const normalizedCDN = CDNBaseURL
-    ? CDNBaseURL.endsWith('/')
-      ? CDNBaseURL.slice(0, -1)
-      : CDNBaseURL
-    : '';
-
-  // Always inject __CDN_BASE_URL__ — empty string when no CDN configured so client
-  // code can read it unconditionally without guarding against undefined
-  const safeCDNJSON = JSON.stringify(normalizedCDN).replace(/</g, '\\u003c');
-
-  contextScripts.push(
-    `<script>window.__CDN_BASE_URL__=${safeCDNJSON};</script>`,
-  );
-
-  // Inject __DOMAIN_INFO__ — null when hostname not known (SSG without hostname configured, or SPA)
-  // so client code can check for null rather than guarding against undefined
-  const safeDomainJSON = JSON.stringify(domainInfo ?? null).replace(
-    /</g,
-    '\\u003c',
-  );
-
-  contextScripts.push(
-    `<script>window.__DOMAIN_INFO__=${safeDomainJSON};</script>`,
-  );
-
-  // Inject __UNIREND_TEMPLATE_ATTRS__ so client-side DOM reconciliation
-  // knows the clean, unmodified attributes from the original index.html template.
+  // Collect the template's baseline <html> and <body> attributes so client-side
+  // DOM reconciliation knows the clean, unmodified values from index.html.
 
   // 1. Locate the opening <html> and <body> tags in the raw HTML template string.
   const htmlTagMatch = findOpeningTag(mergedTemplate, 'html');
@@ -490,31 +713,48 @@ export async function injectContent(
     ? parseAttributesString(bodyTagMatch.attrsStr)
     : {};
 
-  // 3. Serialize the parsed baseline attributes into a JSON string and escape '<' characters
-  //    to prevent closing-script-tag XSS injection vulnerabilities.
-  const safeTemplateAttrsJSON = JSON.stringify({
-    html: templateHTMLAttrs,
-    body: templateBodyAttrs,
-  }).replace(/</g, '\\u003c');
+  // Build the single payload the client bootstrap reads.
+  //
+  // This used to be seven separate inline scripts, one per global, each with
+  // the value written directly into executable JavaScript. That made the script
+  // text different on every request, so no CSP hash could cover it and nonces
+  // were the only way to allow it — which in turn rules out prerendered output,
+  // where there is no request to mint a nonce for. Moving the varying bytes into
+  // a non-executable JSON block leaves one fixed bootstrap script that hashes
+  // once. Consolidating seven elements into two is a small win on its own.
+  //
+  // request and app stay conditional, since "not provided" and "provided as
+  // empty" are different: JSON.stringify drops an undefined member entirely,
+  // and the bootstrap tests for the key rather than its value.
+  const contextData: UnirendContextData = {
+    // Dev mode comes from the server so the client always agrees with it
+    isDev: getDevMode(),
+    requestContext: context?.request,
+    appConfig: context?.app,
+    // Empty string when no CDN is configured, so client code can read it
+    // unconditionally without guarding against undefined
+    cdnBaseURL: normalizedCDN,
+    // null when hostname is not known (SSG without a configured hostname, or
+    // SPA), so client code can check for null rather than undefined
+    domainInfo: domainInfo ?? null,
+    templateAttrs: {
+      html: templateHTMLAttrs,
+      body: templateBodyAttrs,
+    },
+    // The template's <meta> baseline. The client reconciles template metas
+    // across navigations and needs them as the template authored them: the ones
+    // this page overrides are absent from the served head, so the DOM alone
+    // cannot describe it, and without this there would be nothing to restore
+    // when the user navigates to a page that does not override them.
+    templateMetas,
+    // React Router's hydration payload, when it was in a shape we could lift
+    // out of its assignment script. Undefined otherwise, and the script is
+    // emitted verbatim below instead.
+    routerHydration,
+  };
 
-  // 4. Push the global variable declaration script into the contextScripts list.
-  contextScripts.push(
-    `<script>window.__UNIREND_TEMPLATE_ATTRS__=${safeTemplateAttrsJSON};</script>`,
-  );
-
-  // Inject the template's <meta> baseline for the same reason: the client reconciles template
-  // metas across navigations, and it needs the baseline as the template authored it. The metas
-  // this page overrides are absent from the served head, so the DOM alone can't describe it —
-  // without this the client would have nothing to restore when the user navigates to a page
-  // that doesn't override them.
-  const safeTemplateMetasJSON = JSON.stringify(templateMetas).replace(
-    /</g,
-    '\\u003c',
-  );
-
-  contextScripts.push(
-    `<script>window.${TEMPLATE_METAS_GLOBAL}=${safeTemplateMetasJSON};</script>`,
-  );
+  // Build context scripts array
+  const contextScripts: string[] = renderContextDataElements(contextData);
 
   // Router hydration data last — only needed once the client module runs, order relative
   // to other head scripts doesn't matter since all head scripts run before any module script
@@ -535,7 +775,8 @@ export async function injectContent(
         /^([ \t]*)<!--context-scripts-injection-point-->/m,
       );
       const indent = indentMatch ? indentMatch[1] : '';
-      result = result.replace(
+      result = replaceLiteral(
+        result,
         '<!--context-scripts-injection-point-->',
         contextScripts.join('\n' + indent),
       );
@@ -564,15 +805,6 @@ export async function injectContent(
     }
   }
 
-  // Replace CDN injection placeholder with actual CDN URL or empty string
-  // This allows runtime CDN URL override per request
-  if (normalizedCDN) {
-    result = result.replace(/__CDN__INJECTION__POINT__/g, normalizedCDN);
-  } else {
-    // No CDN URL provided - remove placeholder to preserve original /assets/... paths
-    result = result.replace(/__CDN__INJECTION__POINT__/g, '');
-  }
-
   // Unlike tags inside the <head> (which are collected as raw HTML strings and injected into placeholders),
   // <html> and <body> attributes are resolved as key-value objects from React context.
   // We locate these existing tags in the template and merge the new attributes in-place.
@@ -580,6 +812,119 @@ export async function injectContent(
   result = updateTagAttributes(result, 'body', bodyAttrs);
 
   return result;
+}
+
+/**
+ * Hash the inline `<style>` of rendered markup, reading every digest from the
+ * **original source bytes** rather than from the parsed tree.
+ *
+ * Style and not script, which is the one thing to understand before changing
+ * this. See the call site for the reasoning: a hash taken from finished markup
+ * cannot tell a `<script>` a component rendered from one that arrived as
+ * untrusted HTML, so rendered scripts are left to be covered deliberately
+ * rather than authorized by having been rendered. `<style>` is hashed because
+ * React 19 hoists it into the stream as a matter of course and CSS-in-JS emits
+ * it directly, which is a compatibility trade made with open eyes rather than a
+ * belief that injected CSS is harmless.
+ *
+ * That distinction is the whole function. The template scanner can read the
+ * parsed tree, because the template was serialized *out of* a parse, so the
+ * bytes and the tree already agree. Rendered body content is spliced into the
+ * page verbatim and never round-trips through a serializer, so cheerio's
+ * serializer is free to rewrite it on the way back out, and a digest taken from
+ * what it hands back can cover something the browser never receives.
+ *
+ * The bytes are not hashed quite as they are found, though, and that is the
+ * other half of getting this right. A CSP hash covers the element's *child text
+ * content*, a DOM value, so a `<style>` written with Windows line endings, which
+ * is what a file read on Windows or a CMS field will hand you, ships with its
+ * CRLFs intact and is hashed by the browser without them. `normalizeForCSPHash`
+ * closes exactly that gap and `hashInlineContentForCSP` applies it, so the
+ * slices here stay raw. Nothing else in a raw-text element differs between the
+ * bytes and the tree, entity references included.
+ *
+ * `<noscript>` needs the same treatment one level down. cheerio parses with
+ * scripting enabled, so a `<noscript>` body is a single raw-text node and the
+ * selectors see nothing inside it, while a browser with JavaScript disabled
+ * parses the same bytes as markup. Its contents are re-parsed here with source
+ * offsets of their own, which are then rebased onto the outer document so the
+ * slice still comes from the original bytes.
+ *
+ * @param $body The already-parsed body, loaded with `sourceCodeLocationInfo`
+ * @param source The exact bytes `$body` was parsed from, which are also the
+ *   bytes that ship
+ * @param baseOffset Added to every location, for a re-parsed `<noscript>` whose
+ *   offsets are relative to its own inner text
+ */
+function collectRenderedInlineHashes(
+  $body: CheerioAPI,
+  source: string,
+  load: typeof cheerioLoad,
+  parseOptions: Parameters<typeof cheerioLoad>[1],
+  baseOffset = 0,
+): { styleSrc: Set<string> } {
+  const styleSrc = new Set<string>();
+
+  /** The element's text content, taken from the bytes rather than the tree. */
+  const rawContentOf = (el: AnyNode): string | undefined => {
+    const location = (el as { sourceCodeLocation?: ScriptSourceLocation })
+      .sourceCodeLocation;
+    const start = location?.startTag?.endOffset;
+    const end = location?.endTag?.startOffset;
+
+    if (start === undefined || end === undefined || end < start) {
+      return undefined;
+    }
+
+    return source.slice(baseOffset + start, baseOffset + end);
+  };
+
+  $body('style').each((_, el) => {
+    const content = rawContentOf(el);
+
+    // Compared against undefined rather than read as truthy, because the two
+    // falsy answers here mean opposite things. `undefined` is "no usable source
+    // range", where there is nothing to hash. An empty string is a real
+    // `<style></style>`, which a CSS-in-JS runtime or a React 19 hoistable
+    // emits whenever it has no rules to write yet, and a browser still applies
+    // it: Chrome blocks one under a strict style-src and names the empty-string
+    // digest as the hash that would allow it. Skipping it left that hash out of
+    // the policy for content the page really does ship.
+    if (content !== undefined) {
+      styleSrc.add(`'${hashInlineContentForCSP(content)}'`);
+    }
+  });
+
+  $body('noscript').each((_, el) => {
+    const location = (el as { sourceCodeLocation?: ScriptSourceLocation })
+      .sourceCodeLocation;
+    const start = location?.startTag?.endOffset;
+    const end = location?.endTag?.startOffset;
+
+    if (start === undefined || end === undefined || end < start) {
+      return;
+    }
+
+    const inner = source.slice(baseOffset + start, baseOffset + end);
+
+    if (!/<style\b/i.test(inner)) {
+      return;
+    }
+
+    const nested = collectRenderedInlineHashes(
+      load(inner, parseOptions, false),
+      source,
+      load,
+      parseOptions,
+      baseOffset + start,
+    );
+
+    for (const hash of nested.styleSrc) {
+      styleSrc.add(hash);
+    }
+  });
+
+  return { styleSrc };
 }
 
 interface TagMatch {

@@ -11,7 +11,7 @@ import type {
 import {
   applyCustomHTTPStatusHandler,
   createErrorResponse,
-  decorateWithSsrOnlyData,
+  decorateWithSSROnlyData,
   isSafeRedirect,
 } from './page-data-loader-utils';
 import {
@@ -31,7 +31,7 @@ export function processRedirectResponse(
 
   if (!target) {
     // If no target provided, return an error
-    return decorateWithSsrOnlyData(
+    return decorateWithSSROnlyData(
       createErrorResponse(
         config,
         400,
@@ -46,7 +46,7 @@ export function processRedirectResponse(
 
   // Validate redirect safety if allowedRedirectOrigins is configured
   if (!isSafeRedirect(target, config.allowedRedirectOrigins)) {
-    return decorateWithSsrOnlyData(
+    return decorateWithSSROnlyData(
       createErrorResponse(
         config,
         400,
@@ -119,7 +119,7 @@ export async function processAPIResponse(
       );
     }
 
-    return decorateWithSsrOnlyData(
+    return decorateWithSSROnlyData(
       createErrorResponse(
         config,
         statusCode,
@@ -210,7 +210,7 @@ export async function processAPIResponse(
       responseData.type === 'page'
     ) {
       // successful page response as is
-      return decorateWithSsrOnlyData(
+      return decorateWithSSROnlyData(
         responseData as PageResponseEnvelope,
         ssrOnlyData,
       );
@@ -222,7 +222,7 @@ export async function processAPIResponse(
         'type' in responseData &&
         responseData.type === 'page'
       ) {
-        return decorateWithSsrOnlyData(
+        return decorateWithSSROnlyData(
           responseData as PageResponseEnvelope,
           ssrOnlyData,
         );
@@ -270,7 +270,7 @@ export async function processAPIResponse(
         // Validate login redirect safety if allowedRedirectOrigins is configured.
         // `return_to` remains application-owned data and is intentionally not validated here.
         if (!isSafeRedirect(config.loginURL, config.allowedRedirectOrigins)) {
-          return decorateWithSsrOnlyData(
+          return decorateWithSSROnlyData(
             createErrorResponse(
               config,
               400,
@@ -319,7 +319,7 @@ export async function processAPIResponse(
                 : DEFAULT_FALLBACK_REQUEST_ID_GENERATOR('error'));
 
             if (statusCode === 404) {
-              return decorateWithSsrOnlyData(
+              return decorateWithSSROnlyData(
                 createErrorResponse(
                   config,
                   404,
@@ -332,7 +332,7 @@ export async function processAPIResponse(
                 ssrOnlyData,
               );
             } else if (statusCode === 500) {
-              return decorateWithSsrOnlyData(
+              return decorateWithSSROnlyData(
                 createErrorResponse(
                   config,
                   500,
@@ -348,7 +348,7 @@ export async function processAPIResponse(
               );
             } else if (statusCode === 403) {
               // access denied is different from the auth required error, meaning logged out
-              return decorateWithSsrOnlyData(
+              return decorateWithSSROnlyData(
                 createErrorResponse(
                   config,
                   403,
@@ -364,7 +364,7 @@ export async function processAPIResponse(
               );
             } else {
               // Generic error response
-              return decorateWithSsrOnlyData(
+              return decorateWithSSROnlyData(
                 createErrorResponse(
                   config,
                   statusCode,
@@ -387,7 +387,7 @@ export async function processAPIResponse(
               meta?: Record<string, unknown>;
             };
 
-            return decorateWithSsrOnlyData(
+            return decorateWithSSROnlyData(
               createErrorResponse(
                 config,
                 500,
@@ -402,7 +402,7 @@ export async function processAPIResponse(
         } else {
           // Not an API response, create appropriate page error
           if (statusCode === 404) {
-            return decorateWithSsrOnlyData(
+            return decorateWithSSROnlyData(
               createErrorResponse(
                 config,
                 404,
@@ -412,7 +412,7 @@ export async function processAPIResponse(
               ssrOnlyData,
             );
           } else if (statusCode === 500) {
-            return decorateWithSsrOnlyData(
+            return decorateWithSSROnlyData(
               createErrorResponse(
                 config,
                 500,
@@ -429,7 +429,7 @@ export async function processAPIResponse(
             const httpErrorCode = httpError?.code ?? 'http_error';
             const httpErrorMessage = `${httpError?.message ?? 'HTTP Error'}: ${statusCode}`;
 
-            return decorateWithSsrOnlyData(
+            return decorateWithSSROnlyData(
               createErrorResponse(
                 config,
                 statusCode,
@@ -478,7 +478,7 @@ export async function processAPIResponse(
     }
 
     // Not valid JSON response
-    return decorateWithSsrOnlyData(
+    return decorateWithSSROnlyData(
       createErrorResponse(
         config,
         statusCode || 500,

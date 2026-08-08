@@ -156,8 +156,9 @@ export class APIServerComponent extends BaseComponent {
           // clientInfo: { /* trustForwardedHeaders, setResponseHeaders, ... */ },
           // clientInfo: false, // disable resolution entirely
 
-          // Register server plugins. Unirend includes built-in plugins (like cors,
-          // cookies, domainValidation, etc.) and supports creating your own custom plugins.
+          // Register server plugins. Unirend includes built-in plugins (like
+          // securityHeaders, cookies, domainValidation, etc.) and supports creating
+          // your own custom plugins.
           // See: https://github.com/keverw/unirend/blob/main/docs/built-in-plugins.md (Built-in)
           // See: https://github.com/keverw/unirend/blob/main/docs/server-plugins.md (Custom)
           plugins: [cookies()],
@@ -197,12 +198,27 @@ export class APIServerComponent extends BaseComponent {
           //     });
           //   }
 
+          //   // A special case worth detecting: isHostUnverified (from
+          //   // 'unirend/server') is true when nothing has vouched for this request's
+          //   // host, either because domainValidation could not confirm it or because
+          //   // the request failed before that plugin ran at all, which happens when a
+          //   // plugin registered above it throws. Anything echoed back here is then
+          //   // going to a domain you have not established is yours, so this withholds
+          //   // the stack trace. It returns false when domainValidation is not
+          //   // registered, so a server that does not validate hosts is unaffected.
+          //   const hostUnverified = isHostUnverified(request);
+
           //   return params.APIResponseHelpers.createAPIErrorResponse({
           //     request,
           //     statusCode: 500,
-          //     errorCode: 'internal_server_error',
+          //     errorCode: hostUnverified
+          //       ? 'unverified_host_error'
+          //       : 'internal_server_error',
           //     errorMessage: isDevelopment ? error.message : 'Internal server error',
-          //     errorDetails: isDevelopment ? { stack: error.stack } : undefined,
+          //     errorDetails:
+          //       isDevelopment && !hostUnverified
+          //         ? { stack: error.stack }
+          //         : undefined,
           //   });
           // },
           //

@@ -394,10 +394,21 @@ export class StaticWebServer {
         'public, max-age=31536000, immutable',
     });
 
-    // 5. Create plugins array (pass cache instance rather than raw config)
+    // 5. Create plugins array (pass cache instance rather than raw config).
+    //
+    // Static serving goes LAST, after the app's own plugins. It used to go
+    // first, which meant a plugin passed in options.plugins never ran for any
+    // request that matched a file — on a static server, nearly all real
+    // traffic. Domain validation, auth, and anything else the app registered
+    // gated only the paths this server did not handle, so an unauthorized host
+    // got a 403 on a 404 and the actual content everywhere else.
+    //
+    // Hooks run in registration order, so putting serving last is the whole
+    // fix: a gating plugin gets to reject the request before any file is
+    // opened. This is also the order the SSR server has always used.
     const plugins: ServerPlugin<'plain'>[] = [
-      staticContent(this.cache, 'static-web-server'),
       ...(this.options.plugins || []),
+      staticContent(this.cache, 'static-web-server'),
     ];
 
     // 6. Create APIServer with web-only configuration

@@ -87,6 +87,17 @@ export type { APIEndpointConfig } from './lib/types';
 // Server-safe functions
 export { serveSSRWithHMR, serveSSRBuilt } from './lib/ssr';
 export { generateSSG } from './lib/ssg';
+// The shape of `SSGReport.cspHashes`, so a caller can name it. Handing back a
+// value whose type has no exported name means anyone writing a function that
+// takes it has to restate the shape by hand or reach into internals.
+export type {
+  ResolvedTemplateCSPHashes,
+  // The read shape, carried on the SSG report, and the write shape a caller
+  // hands to `request.addCSPSources`. The write one omits the raw attribute
+  // value, which nothing on that path reads.
+  InlineAttributeFinding,
+  InlineAttributeReport,
+} from './lib/internal/html-utils/format';
 export { unirendBaseRender } from './lib/base-render';
 export { serveAPI, servePlain } from './lib/api';
 export { serveRedirect, RedirectServer } from './lib/redirect';
@@ -126,3 +137,33 @@ export type {
   UploadError,
   UploadResult,
 } from './lib/server/process-file-upload-types';
+
+// Host verification
+// For error pages and error handlers, which run on the one path where the
+// request may have failed before the host was ever checked.
+export { isHostUnverified } from './lib/internal/host-verification';
+
+// Security-headers policy validation
+// For policies that arrive from a database, an API request, or an admin form
+// rather than from the repository. Reports every problem as data instead of
+// throwing on the first, so a stored policy can be checked when it is saved
+// rather than failing per request once a resolver returns it.
+export { validateSecurityHeadersPolicy } from './lib/internal/security-headers-validation';
+export type {
+  SecurityHeadersPolicyIssue,
+  SecurityHeadersPolicyValidation,
+  SecurityHeadersPolicyInput,
+  SecurityHeadersPolicyBaseline,
+  SecurityHeadersBaseline,
+} from './lib/internal/security-headers-validation';
+
+// CORS validation
+// The companion to the above, for the half of the configuration a resolver
+// cannot replace. Same rules the plugin applies at startup, reported as data,
+// so an admin form or a config loader can check a CORS block before a server
+// is built out of it.
+export { validateCORSPolicy } from './lib/internal/cors-validation';
+export type {
+  CORSPolicyIssue,
+  CORSPolicyValidation,
+} from './lib/internal/cors-validation';
