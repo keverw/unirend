@@ -1842,6 +1842,25 @@ export function securityHeaders(
   const ownScriptSources = [quote(UNIREND_BOOTSTRAP_SCRIPT_HASH)];
   const ownStyleSources = UNIREND_ERROR_PAGE_STYLE_HASHES.map(quote);
 
+  // Held on the factory rather than per registration, and that is deliberate
+  // even though `isGateRegisteredAbove` below had to go the other way. The two
+  // look like the same question and are not.
+  //
+  // That variable is a fact *about a server*, its plugin order, so one copy
+  // shared by every registration meant the last one wrote over the first one's
+  // answer and changed what the first server sent. This is keyed by its own
+  // content: the serialized base policy plus every source contributed, and the
+  // `own*Sources` folded into both halves come from module constants, so they
+  // are the same in every server in the process. Two registrations reaching the
+  // same key are asking the same question and get the same string. Sharing is
+  // then a small win rather than a risk, since a multi-app SSR server, or an
+  // HTTP and HTTPS pair on one policy, serializes once instead of twice.
+  //
+  // `reportOnly` is absent from the key on purpose, which looks wrong until you
+  // follow it. It is not part of the serialized value either, so an enforcing
+  // and a report-only policy with identical directives really do have identical
+  // values, and the entry holds only the value. Which header name it goes under
+  // is read from the compiled policy at the call site, never from here.
   const policyBySources = new LRUCache<string, string>(64);
 
   /**
@@ -1981,6 +2000,16 @@ export function securityHeaders(
   // microseconds. This one is the only thing standing between a real finding
   // and a log nobody reads, so it is sized to hold every attribute a realistic
   // template carries several times over.
+  //
+  // On the factory rather than per registration, for the reason given at
+  // `policyBySources`, and with one thing extra worth saying because this half
+  // of it reads as a lost warning. Registering one plugin value on two servers
+  // means a finding reported by the first is not reported again by the second.
+  // That is the intended behavior rather than a leak: the key is the attribute's
+  // description and the hash of its exact value, so two servers collide only
+  // when the finding is literally the same attribute carrying the same value,
+  // and saying so twice is the noise the dedupe exists to prevent. Two servers
+  // on genuinely different templates produce different keys and never meet.
   const reportedInlineAttributes = new LRUCache<string, true>(512);
 
   const findingKey = (finding: InlineAttributeReport) =>
@@ -2242,6 +2271,45 @@ export function securityHeaders(
     // exactly those tenants' templates without hashes, under a policy strict enough
     // to block the very content the hashes were for.
     fastify.decorateRequest('addCSPSources', undefined);
+
+    // The rest of the per-request state this plugin keeps, declared for the
+    // same reason `addCSPSources` is and not for any of its own.
+    //
+    // Fastify builds one Request constructor per server and folds every
+    // decoration into it, so a property that is only ever assigned inside a
+    // hook is a property the constructor never had. Each request then gets a
+    // hidden class of its own, which costs the optimization the decoration
+    // exists for on every request the server handles, whether or not this
+    // plugin ends up assigning anything.
+    //
+    // None of these is part of the public request surface, which is why they
+    // are read through local casts rather than declared in the `fastify` module
+    // augmentation. Declaring the shape here and keeping the types local is the
+    // combination that gets both: the constructor knows the properties, and
+    // nothing outside this file is invited to use them.
+    //
+    // `undefined` rather than a seeded value, so this stays a pure shape
+    // declaration and changes no reading anywhere. Every one of them is
+    // tri-state in the same way, where "unset" means the decision has not been
+    // made yet, and every reader compares against that. `domainValidation`
+    // declares its two flags the same way and says the same thing about it.
+    for (const property of [
+      // Whether the onRequest pass below reached the negotiation, which is what
+      // tells the onSend backstop it has nothing left to do.
+      'securityHeadersApplied',
+      // The effective policy for this request, cached so a resolver runs at
+      // most once and a failed one has something correct to fall back on.
+      'securityHeadersEffective',
+      // Sources contributed during the request, folded into the header in
+      // onSend.
+      'cspExtraSources',
+      // The two origin-negotiated decisions, cached so a caller's callback is
+      // never invoked twice for one request.
+      'corsOriginAllowed',
+      'corsCredentialsAllowed',
+    ]) {
+      fastify.decorateRequest(property, undefined);
+    }
 
     // Handle preflight OPTIONS requests
     fastify.addHook(
