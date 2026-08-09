@@ -179,6 +179,43 @@ export interface FileFoundResult {
   isImmutableAsset: boolean;
 }
 
+/**
+ * The representation headers serveFile() stages before a file's body is known
+ * to be sendable, and therefore the only ones it may undo afterwards.
+ */
+const stagedFileHeaderNames = [
+  'Last-Modified',
+  'ETag',
+  'Cache-Control',
+  'Content-Type',
+  'Content-Encoding',
+  'Accept-Ranges',
+] as const;
+
+type StagedFileHeaderSnapshot = Record<
+  (typeof stagedFileHeaderNames)[number],
+  number | string | string[] | undefined
+>;
+
+/**
+ * Records what the staged representation headers held before serveFile() wrote
+ * its own, so a failed stream open can restore the caller's values.
+ *
+ * @param reply The Fastify reply about to receive staged headers
+ * @returns The prior value of each staged header, undefined when it was unset
+ */
+function snapshotStagedFileHeaders(
+  reply: FastifyReply,
+): StagedFileHeaderSnapshot {
+  const snapshot = {} as StagedFileHeaderSnapshot;
+
+  for (const name of stagedFileHeaderNames) {
+    snapshot[name] = reply.getHeader(name);
+  }
+
+  return snapshot;
+}
+
 function waitForReadStreamOpen(stream: fs.ReadStream): Promise<void> {
   if (
     stream.pending === false ||
@@ -884,6 +921,11 @@ export class StaticContentCache {
       ? this.immutableCacheControl
       : this.cacheControl;
 
+    // Capture what these headers held before this method stages its own, so a
+    // failed stream open can put the caller's values back instead of deleting
+    // headers an earlier onRequest hook set on the same reply.
+    const stagedHeaderSnapshot = snapshotStagedFileHeaders(reply);
+
     // Representation selection depends on Accept-Encoding, so advertise that
     // caches must keep separate variants when compression is in play.
     if (result.varyByAcceptEncoding) {
@@ -949,17 +991,26 @@ export class StaticContentCache {
 
       const [start, end] = range;
       const chunkSize = end - start + 1;
-      const rangeStream = result.content.createStream({ start, end });
 
-      const rangeOpenFailure = await this.openReadStream(
-        rangeStream,
-        resolvedPath,
-      );
+      // HEAD — every header below comes from the cached stat, so no stream is
+      // created and no fd is opened. Creating one anyway would leak it: the
+      // HEAD branch ends the response without reading or destroying it.
+      const rangeStream =
+        req.method === 'HEAD'
+          ? null
+          : result.content.createStream({ start, end });
 
-      if (rangeOpenFailure) {
-        this.clearStagedFileHeaders(reply);
+      if (rangeStream) {
+        const rangeOpenFailure = await this.openReadStream(
+          rangeStream,
+          resolvedPath,
+        );
 
-        return rangeOpenFailure;
+        if (rangeOpenFailure) {
+          this.clearStagedFileHeaders(reply, stagedHeaderSnapshot);
+
+          return rangeOpenFailure;
+        }
       }
 
       // Set headers for partial content response
@@ -973,8 +1024,8 @@ export class StaticContentCache {
       reply.hijack();
       reply.raw.writeHead(206, reply.getHeaders() as OutgoingHttpHeaders);
 
-      // HEAD — headers are set; skip stream creation entirely (no fd opened, no disk I/O)
-      if (req.method === 'HEAD') {
+      // HEAD — headers are set; no stream was created above (no fd opened, no disk I/O)
+      if (!rangeStream) {
         reply.raw.end();
         return { served: true, statusCode: 206 };
       }
@@ -1017,7 +1068,7 @@ export class StaticContentCache {
       );
 
       if (openFailure) {
-        this.clearStagedFileHeaders(reply);
+        this.clearStagedFileHeaders(reply, stagedHeaderSnapshot);
 
         return openFailure;
       }
@@ -1450,15 +1501,28 @@ export class StaticContentCache {
    * other hooks (CORS adds `Origin` to it) and compression never applies to a
    * streamed response anyway.
    *
+   * Each header is restored to the value the snapshot recorded rather than
+   * simply removed, because these names are not private to static serving: an
+   * earlier onRequest hook may have set its own `Cache-Control` or
+   * `Content-Type` for every response, and deleting it here would drop it from
+   * the fall-through response with nothing left to put it back.
+   *
    * @param reply The Fastify reply whose headers should be reset
+   * @param snapshot The values captured before the headers were staged
    */
-  private clearStagedFileHeaders(reply: FastifyReply): void {
-    reply.removeHeader('Last-Modified');
-    reply.removeHeader('ETag');
-    reply.removeHeader('Cache-Control');
-    reply.removeHeader('Content-Type');
-    reply.removeHeader('Content-Encoding');
-    reply.removeHeader('Accept-Ranges');
+  private clearStagedFileHeaders(
+    reply: FastifyReply,
+    snapshot: StagedFileHeaderSnapshot,
+  ): void {
+    for (const name of stagedFileHeaderNames) {
+      const previous = snapshot[name];
+
+      if (previous === undefined) {
+        reply.removeHeader(name);
+      } else {
+        reply.header(name, previous);
+      }
+    }
   }
 
   /**
