@@ -1,6 +1,6 @@
 # Asset Request Paths
 
-**Status: Proposed advanced SSR feature.** This is reference documentation and an implementation plan, not starter-template guidance. The intended implementation should ship with its own focused demo and tests. It should not alter existing applications unless they explicitly opt in.
+**Status: Proposed advanced SSR feature.** This is reference documentation and an implementation plan. The intended implementation should ship with its own focused demo and tests. The SSR starter should include a clearly marked, commented example, but it must not enable the feature or change existing applications unless they explicitly opt in.
 
 ## Why This Exists
 
@@ -126,7 +126,7 @@ The handler should not reveal filesystem paths, asset names that are not already
 
 ## Demo and Documentation Plan
 
-Create one advanced demo, for example `demos/asset-request-paths-demo.ts`, rather than adding this configuration to generated starters. It should use a built SSR fixture with these observable requests:
+Create one advanced demo, for example `demos/asset-request-paths-demo.ts`. The SSR starter should also contain a commented advanced configuration example near its server options, following the existing pattern for optional implemented features. It should show `staticRequestPaths` and `getStaticNotFoundPage`, explain that tenant selection and security plugins must still run, and leave both features disabled by default. The focused demo should use a built SSR fixture with these observable requests:
 
 - An app-selection plugin that always runs and chooses one of two apps.
 - A session plugin that records work and skips only when `isStaticRequest` is true.
@@ -135,7 +135,7 @@ Create one advanced demo, for example `demos/asset-request-paths-demo.ts`, rathe
 - An unknown application route that still renders the normal React 404.
 - An API miss that still returns its normal envelope.
 
-The published SSR documentation should gain an "Advanced Asset Request Paths" section that links to this demo and covers the SaaS ordering rule, pattern semantics, the static-404 boundary, and the HMR limitation. `docs/error-handling.md` should add a short distinction between the normal application 404 and this pre-render static asset 404. The README can link to the SSR section, but it should not turn the feature into starter-template configuration.
+The published SSR documentation should gain an "Advanced Asset Request Paths" section that links to this demo and covers the SaaS ordering rule, pattern semantics, the static-404 boundary, and the HMR limitation. `docs/error-handling.md` should add a short distinction between the normal application 404 and this pre-render static asset 404. The README can link to the SSR section without making the feature part of the starter's live configuration.
 
 ## Implementation Checklist
 
@@ -144,5 +144,5 @@ The published SSR documentation should gain an "Advanced Asset Request Paths" se
 - [ ] Add the production-only per-app `getStaticNotFoundPage` option and a CSP-safe built-in fallback.
 - [ ] Extend the static cache/hook result so SSR can distinguish unmatched paths from matched-but-missing files without extra filesystem work.
 - [ ] Add SSR tests for selection, status, headers, handler fallback, ordinary routes, API paths, `HEAD`, static-router disablement, and multi-app selection.
-- [ ] Add the focused advanced demo and its runnable package script.
+- [ ] Add the focused advanced demo and its runnable package script, plus a commented advanced example in the SSR starter's server options.
 - [ ] Add the SSR and error-handling reference documentation, then a concise `Unreleased` changelog entry when the API ships.
