@@ -196,6 +196,15 @@ export class SSRServerComponent extends BaseComponent {
           // Your ApplicationError component should use a consistent style with whatever you put here.
           get500ErrorPage,
           //
+          // Advanced static asset request paths (disabled by default): a server-wide
+          // early hint for common infrastructure paths, not an app-specific
+          // static mapping or app-selection mechanism. A later individual-user
+          // plugin, such as session resolution, can skip its own work, but
+          // tenant selection and security plugins must still run for every request.
+          // staticRequestPaths: ['/favicon.ico', '/robots.txt', '/assets/**'],
+          // getStaticNotFoundPage: async (request, isDevelopment) =>
+          //   '<!doctype html><title>404 - Asset Not Found</title><h1>404 - Asset Not Found</h1>',
+          //
           // Customize API error and not-found responses (both page-data data loader and plain API routes).
           // Handlers return API envelopes (JSON), not raw HTML — use get500ErrorPage above for
           // the raw-HTML fallback when SSR rendering itself fails before React can run.

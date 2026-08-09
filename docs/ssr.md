@@ -20,6 +20,7 @@
       - [Pattern: DB Request Tracing](#pattern-db-request-tracing)
 - [HTTPS Configuration](#https-configuration)
 - [Create SSR Server](#create-ssr-server)
+- [Advanced Asset Request Paths](#advanced-asset-request-paths)
   - [Create Production SSR Server](#create-production-ssr-server)
   - [Create Development SSR Server](#create-development-ssr-server)
   - [Asset Serving vs Runtime Behavior](#asset-serving-vs-runtime-behavior)
@@ -598,6 +599,24 @@ Both server classes support HTTPS with static certificates, SNI callbacks for mu
 See the full HTTPS Configuration guide: [https.md](./https.md)
 
 ## Create SSR Server
+
+## Advanced Asset Request Paths
+
+`staticRequestPaths` is an opt-in SSR, API, plain-web, and static-web server option for classifying request URL paths before user plugins run. It uses picomatch patterns, matches only the URL path, and defaults `request.isStaticRequest` to `false`. It does not inspect static mappings or the filesystem, and it never skips plugins.
+
+This is one server-wide early hint, not an app-specific static mapping or an app-selection mechanism. Use it for paths with the same meaning across the server, such as `/favicon.ico`, `/robots.txt`, or a shared `/assets/**` convention. It remains separate from the selected app's `staticContentRouter`, `publicFiles`, and filesystem lookup.
+
+```ts
+serveSSRBuilt('./build', {
+  staticRequestPaths: ['/favicon.ico', '/robots.txt', '/assets/**'],
+});
+```
+
+In a multi-tenant server, keep host validation and tenant/app selection first, including plugins that call `request.setActiveSSRApp()`. A later session or profile plugin may return early when `request.isStaticRequest` is true. Do not classify a URL whose handler depends on the user state you would skip.
+
+Built SSR apps can also configure `getStaticNotFoundPage(request, isDevelopment)`. When configured, it returns standalone, non-hydrated HTML with a `404`, `Content-Type: text/html; charset=utf-8`, and `Cache-Control: no-store` when a selected app's `staticContentRouter` matches a configured mapping whose target is missing or not a regular file. A configured `folderMap` match that is rejected as OS junk, including `.DS_Store` and `._*`, also uses this asset-specific 404 without resolving or serving the path. Traversal-rejected URLs retain their normal 404 behavior. A dotfile is not rejected solely because it begins with `.`. If the handler throws, the request follows normal SSR error handling and returns a `500` page, including `get500ErrorPage` when configured. Without this opt-in handler, the request keeps the normal SSR and React 404 behavior.
+
+Ordinary routes, API misses, traversal-rejected URLs, non-GET/HEAD requests, and servers with `staticContentRouter: false` retain their normal behavior. This option is production built SSR only. Vite owns asset handling in HMR mode, so `serveSSRWithHMR()` and `registerHMRApp()` do not offer it.
 
 Vite config:
 

@@ -88,6 +88,7 @@ export interface CreateStreamOptions {
  */
 export type ServeFileResult =
   | { served: false; reason: 'not-found' }
+  | { served: false; reason: 'matched-not-found' }
   | { served: false; reason: 'error'; error: Error }
   | {
       served: true;
@@ -1362,7 +1363,13 @@ export class StaticContentCache {
             // '/.DS_Store' → renamed file), because that map is an exact-match
             // opt-in the caller chose — the sole escape hatch.
             if (isOSJunkPath(url)) {
-              return { served: false, reason: 'not-found' };
+              // This remains an asset-specific miss for the configured folder
+              // mapping, even though the guard deliberately avoids resolving
+              // or serving it. SSR can use its opt-in static 404 and API/plain
+              // not-found handlers can identify it without inspecting paths.
+              (req as { isStaticContentMatch?: boolean }).isStaticContentMatch =
+                true;
+              return { served: false, reason: 'matched-not-found' };
             }
 
             resolved = path.join(folderConfig.path, safeRelativePath);
@@ -1375,7 +1382,22 @@ export class StaticContentCache {
     // If we found a file to serve, serve it
     // otherwise: return not-found (let hook fall through)
     if (resolved) {
-      return this.serveFile(req, reply, resolved, { shouldDetectImmutable });
+      // This is deliberately different from isStaticAsset. A configured static
+      // mapping matched, but the target may still be missing or fail to serve.
+      // Normal API/plain not-found handlers can use this late marker to choose
+      // an asset-specific response without treating arbitrary paths as static
+      // requests.
+      (req as { isStaticContentMatch?: boolean }).isStaticContentMatch = true;
+
+      const result = await this.serveFile(req, reply, resolved, {
+        shouldDetectImmutable,
+      });
+
+      if (!result.served && result.reason === 'not-found') {
+        return { served: false, reason: 'matched-not-found' };
+      }
+
+      return result;
     }
 
     return { served: false, reason: 'not-found' };

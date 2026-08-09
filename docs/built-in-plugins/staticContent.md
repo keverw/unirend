@@ -483,6 +483,37 @@ Everything in this section applies to both ways Unirend serves static files:
 
 In both cases, static responses use `reply.hijack()`, bypass `onSend`, and set `request.isStaticAsset` before taking ownership of the response. Hook ordering still follows Fastify registration order.
 
+`request.isStaticContentMatch` is a related late marker. It starts as `false` and becomes `true` only after a configured static mapping matches. It remains true if the mapping's target is missing or is not a regular file, or when a folder mapping rejects OS junk before touching disk, while `isStaticAsset` remains false because no static response was sent. This lets API and plain-server `notFoundHandler` functions recognize an intended static URL without inferring it from the pathname:
+
+| Request Outcome | `isStaticRequest` | `isStaticContentMatch` | `isStaticAsset` |
+| --- | --- | --- | --- |
+| Ordinary URL with no configured static match | `false` | `false` | `false` |
+| Early-classified URL with no static mapping | `true` | `false` | `false` |
+| Configured static mapping matched and served | Depends on `staticRequestPaths` | `true` | `true` |
+| Configured static mapping matched, target missing or not a file, or OS junk rejected under a folder mapping | Depends on `staticRequestPaths` | `true` | `false` |
+
+`isStaticContentMatch` is therefore a mapping-match marker, not a miss marker. It is true for served and missing mapped targets, plus OS junk rejected under a folder mapping. In a not-found handler, it identifies the asset-specific miss because a served static response never reaches that handler.
+
+```typescript
+notFoundHandler: (request) => {
+  if (request.isStaticContentMatch) {
+    return {
+      contentType: 'html',
+      content: '<h1>Asset Not Found</h1>',
+      statusCode: 404,
+    };
+  }
+
+  return {
+    contentType: 'html',
+    content: '<h1>Page Not Found</h1>',
+    statusCode: 404,
+  };
+};
+```
+
+`isStaticContentMatch` is set during static routing, after user `onRequest` plugins, so it is not an early skip-work signal. By contrast, `isStaticRequest` is an early pathname-pattern classification, set before user plugins only when the server opts into `staticRequestPaths`. The two markers are independent: the early classification does not inspect static mappings, and the late mapping match does not depend on the classification.
+
 Static file serving uses `reply.hijack()` internally, which bypasses Fastify's `onSend` pipeline entirely. This has two practical consequences for plugins that register hooks alongside `staticContent`:
 
 **`onRequest` hooks run in registration order**. Static content handling is installed as an `onRequest` hook:

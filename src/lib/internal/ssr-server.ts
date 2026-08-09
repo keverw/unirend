@@ -96,6 +96,10 @@ import { EventEmitter } from 'node:events';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { hmrPathForApp, isViteHMRUpgrade } from './hmr-upgrade-utils';
+import {
+  createStaticRequestMatcher,
+  setStaticRequestClassification,
+} from './static-request-paths';
 
 type SSRServerConfigDev<H extends APIResponseHelpersClass> = {
   mode: 'development';
@@ -278,6 +282,7 @@ export class SSRServer<
   // false means API handling is disabled (matches config type)
   private readonly normalizedAPIPrefix: string | false;
   private readonly normalizedPageDataEndpoint: string;
+  private readonly isStaticRequestPath: (pathname: string) => boolean;
 
   /**
    * Creates a new SSR server instance
@@ -291,6 +296,9 @@ export class SSRServer<
     this.serverMode = config.mode;
     this.sharedOptions = config.options;
     this.serverLabel = config.options.serverLabel ?? 'SSR';
+    this.isStaticRequestPath = createStaticRequestMatcher(
+      config.options.staticRequestPaths,
+    );
     this._accessLog = new AccessLogPlugin(
       this.serverLabel,
       config.options.accessLog,
@@ -340,6 +348,7 @@ export class SSRServer<
             containerID: config.options.containerID,
             templateSlots: config.options.templateSlots,
             get500ErrorPage: config.options.get500ErrorPage,
+            getStaticNotFoundPage: config.options.getStaticNotFoundPage,
           };
 
     this.apps.set('__default__', defaultApp);
@@ -538,6 +547,7 @@ export class SSRServer<
       containerID: opts.containerID,
       templateSlots: opts.templateSlots,
       get500ErrorPage: opts.get500ErrorPage,
+      getStaticNotFoundPage: opts.getStaticNotFoundPage,
     };
 
     this.apps.set(trimmedAppKey, appConfig);
@@ -764,6 +774,7 @@ export class SSRServer<
       // Decorate requests with environment info
       // The default here is just a shape hint for Fastify; the live value is set per-request in the onRequest hook below.
       this.fastifyInstance.decorateRequest('isDevelopment', false);
+      this.fastifyInstance.decorateRequest('isStaticRequest', false);
       this.fastifyInstance.decorateRequest('serverLabel', this.serverLabel);
 
       // Decorate active app routing (defaults to '__default__') and app-derived request values.
@@ -825,6 +836,13 @@ export class SSRServer<
         // whether that's the built-in /assets serving or a staticContent plugin
         // registered by the app. Lets onResponse hooks detect static asset requests.
         (request as { isStaticAsset?: boolean }).isStaticAsset = false;
+
+        // Set later only when a configured static mapping matches. It stays
+        // true for a mapped file that is missing and reaches a 404 path.
+        (request as { isStaticContentMatch?: boolean }).isStaticContentMatch =
+          false;
+
+        setStaticRequestClassification(request, this.isStaticRequestPath);
 
         const activeSSRAppInternal: ActiveSSRAppInternalState = {};
         request.setDecorator<ActiveSSRAppInternalState>(
@@ -1336,8 +1354,47 @@ export class SSRServer<
 
             if (cache) {
               // Use shared static content handler (includes GET check and URL validation)
-              await staticContentHookHandler(cache, request, reply);
-              // If file was served, reply was sent and hook returns early automatically
+              const result = await staticContentHookHandler(
+                cache,
+                request,
+                reply,
+              );
+
+              // Successful static responses hijack Fastify and own the socket.
+              // Do not let later hooks or the catch-all SSR route handle them.
+              if (result?.served) {
+                return;
+              }
+
+              // Get the active app config for static not-found handling.
+              // setActiveSSRApp validates app keys, so the default fallback is
+              // defensive for unexpected internal state, matching 500 errors.
+              const appConfig =
+                this.apps.get(appKey) || this.apps.get('__default__');
+
+              // Only an opt-in handler intercepts a mapped target that is
+              // missing or not a regular file, or OS junk rejected from a
+              // configured folder mapping. Every other result falls through
+              // to normal API or React 404/error handling.
+              if (
+                result &&
+                !result.served &&
+                result.reason === 'matched-not-found' &&
+                appConfig?.getStaticNotFoundPage
+              ) {
+                const page = await appConfig.getStaticNotFoundPage(
+                  request,
+                  (request as FastifyRequest & { isDevelopment: boolean })
+                    .isDevelopment,
+                );
+
+                reply
+                  .code(404)
+                  .header('Content-Type', 'text/html; charset=utf-8')
+                  .header('Cache-Control', 'no-store');
+
+                return reply.send(page);
+              }
             }
           });
         }

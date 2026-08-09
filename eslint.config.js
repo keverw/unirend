@@ -16,6 +16,8 @@ export default [
       // Build outputs
       '**/dist/**',
       '**/build/**',
+      '**/build-a/**',
+      '**/build-b/**',
       '**/build-app-b/**',
       '**/coverage/**',
       '**/tmp/**',

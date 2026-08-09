@@ -786,12 +786,30 @@ describe('StaticContentCache', () => {
   });
 
   describe('handleRequest()', () => {
+    it('distinguishes a missing mapped target from an unmapped URL', async () => {
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/assets/missing.js': '/missing.js' },
+      });
+      const { reply } = createMockReply();
+      const request = createMockRequest('/assets/missing.js') as FastifyRequest;
+      (request as { isStaticContentMatch?: boolean }).isStaticContentMatch =
+        false;
+      const result = await cache.handleRequest(
+        '/assets/missing.js',
+        request,
+        reply as FastifyReply,
+      );
+      expect(result).toEqual({ served: false, reason: 'matched-not-found' });
+      expect(request.isStaticContentMatch).toBe(true);
+    });
+
     it('returns not-found for unmapped URLs', async () => {
       const cache = new StaticContentCache({
         singleAssetMap: { '/test.txt': '/path/to/test.txt' },
       });
 
       const req = createMockRequest('/other.txt');
+      (req as { isStaticContentMatch?: boolean }).isStaticContentMatch = false;
       const { reply } = createMockReply();
 
       const result = await cache.handleRequest(
@@ -804,6 +822,7 @@ describe('StaticContentCache', () => {
       if (!result.served) {
         expect(result.reason).toBe('not-found');
       }
+      expect(req.isStaticContentMatch).toBe(false);
     });
 
     it('serves files from singleAssetMap', async () => {
@@ -897,7 +916,7 @@ describe('StaticContentCache', () => {
       }
     });
 
-    it('returns not-found for OS junk files under a folder mount', async () => {
+    it('returns a matched static miss for OS junk files under a folder mount', async () => {
       // A .DS_Store that slips into a mounted directory must never be served,
       // even though it exists on disk — the folder mount resolves requests
       // straight from the URL, so this is the only guard at runtime.
@@ -906,6 +925,7 @@ describe('StaticContentCache', () => {
       });
 
       const req = createMockRequest('/assets/.DS_Store');
+      (req as { isStaticContentMatch?: boolean }).isStaticContentMatch = false;
       const { reply } = createMockReply();
 
       // Stat would succeed if we reached disk; the junk guard must short-
@@ -924,15 +944,13 @@ describe('StaticContentCache', () => {
         reply as FastifyReply,
       );
 
-      expect(result.served).toBe(false);
-      if (!result.served) {
-        expect(result.reason).toBe('not-found');
-      }
+      expect(result).toEqual({ served: false, reason: 'matched-not-found' });
+      expect(req.isStaticContentMatch).toBe(true);
 
       expect(mockFs.stat).not.toHaveBeenCalled();
     });
 
-    it('returns not-found for a file inside an OS junk directory segment', async () => {
+    it('returns a matched static miss for a file inside an OS junk directory segment', async () => {
       // Several junk names (.AppleDouble, .Trashes, .fseventsd, ...) are
       // directories, so a request whose basename is clean but whose path runs
       // through one must still be blocked before it reaches disk.
@@ -941,6 +959,7 @@ describe('StaticContentCache', () => {
       });
 
       const req = createMockRequest('/assets/.AppleDouble/metadata');
+      (req as { isStaticContentMatch?: boolean }).isStaticContentMatch = false;
       const { reply } = createMockReply();
 
       mockFs.stat.mockResolvedValue({
@@ -957,15 +976,13 @@ describe('StaticContentCache', () => {
         reply as FastifyReply,
       );
 
-      expect(result.served).toBe(false);
-      if (!result.served) {
-        expect(result.reason).toBe('not-found');
-      }
+      expect(result).toEqual({ served: false, reason: 'matched-not-found' });
+      expect(req.isStaticContentMatch).toBe(true);
 
       expect(mockFs.stat).not.toHaveBeenCalled();
     });
 
-    it('returns not-found when the folder mount prefix itself is OS junk', async () => {
+    it('returns a matched static miss when the folder mount prefix itself is OS junk', async () => {
       // The whole matched URL is checked, not just the part after the prefix,
       // so a junk-named mount can't launder junk. singleAssetMap remains the
       // sole escape hatch.
@@ -974,6 +991,7 @@ describe('StaticContentCache', () => {
       });
 
       const req = createMockRequest('/.AppleDouble/metadata');
+      (req as { isStaticContentMatch?: boolean }).isStaticContentMatch = false;
       const { reply } = createMockReply();
 
       mockFs.stat.mockResolvedValue({
@@ -990,20 +1008,19 @@ describe('StaticContentCache', () => {
         reply as FastifyReply,
       );
 
-      expect(result.served).toBe(false);
-      if (!result.served) {
-        expect(result.reason).toBe('not-found');
-      }
+      expect(result).toEqual({ served: false, reason: 'matched-not-found' });
+      expect(req.isStaticContentMatch).toBe(true);
 
       expect(mockFs.stat).not.toHaveBeenCalled();
     });
 
-    it('returns not-found for OS junk in a nested folder path, matching case-insensitively', async () => {
+    it('returns a matched static miss for OS junk in a nested folder path, matching case-insensitively', async () => {
       const cache = new StaticContentCache({
         folderMap: { '/files': '/path/to/files' },
       });
 
       const req = createMockRequest('/files/sub/Thumbs.DB');
+      (req as { isStaticContentMatch?: boolean }).isStaticContentMatch = false;
       const { reply } = createMockReply();
 
       mockFs.stat.mockResolvedValue({
@@ -1020,10 +1037,8 @@ describe('StaticContentCache', () => {
         reply as FastifyReply,
       );
 
-      expect(result.served).toBe(false);
-      if (!result.served) {
-        expect(result.reason).toBe('not-found');
-      }
+      expect(result).toEqual({ served: false, reason: 'matched-not-found' });
+      expect(req.isStaticContentMatch).toBe(true);
 
       expect(mockFs.stat).not.toHaveBeenCalled();
     });

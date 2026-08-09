@@ -501,6 +501,16 @@ What this shows:
 - `LifecycleManager` + `BaseComponent` for graceful shutdown with configurable timeouts (`serve-hmr.ts` / `serve-built.ts` → `server/start.ts` → `server/ssr-component.ts`).
 - `src/components/AppLayout.tsx` owns the shared route chrome and route-change scroll-to-top behavior.
 
+### Asset Request Paths Demo
+
+Files live in `demos/asset-request-paths` with a production server in `demos/asset-request-paths-demo.ts`.
+
+```bash
+bun run asset-request-paths-demo
+```
+
+This focused two-app demo includes a visible server request audit showing early `staticRequestPaths` classification without skipping tenant selection, while user-session work skips only classified requests. It also shows app-specific static files, a standalone `getStaticNotFoundPage` response for a mapped missing asset, normal React 404 behavior for application routes, and the normal API envelope for API misses. See [SSR advanced asset request paths](docs/ssr.md#advanced-asset-request-paths) for the API and safety boundaries.
+
 ### Multi-App SSR Demo
 
 Files live in `demos/multi-app-ssr`. Demonstrates running two independently-built React apps (App A and App B) behind a single SSR server, with cookie-based routing to switch between them, plus App C as an intentionally non-existent app that triggers a 500 error page with a cookie-clear button.

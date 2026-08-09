@@ -914,6 +914,37 @@ describe('StaticWebServer', () => {
   // ─── HTTP response behavior ─────────────────────────────────────────────────
 
   describe('HTTP response behavior', () => {
+    it('classifies configured static request paths before static-web plugins run', async () => {
+      setReadFileMock({
+        'page-map.json': VALID_PAGE_MAP,
+        'index.html': '<!doctype html><html><body>home</body></html>',
+      });
+      const observed: Array<{ url: string; isStaticRequest: boolean }> = [];
+      server = makeServer({
+        staticRequestPaths: ['/assets/**'],
+        accessLog: { events: 'none' },
+        plugins: [
+          (pluginHost) => {
+            pluginHost.addHook('onRequest', (request) => {
+              observed.push({
+                url: request.url,
+                isStaticRequest: request.isStaticRequest,
+              });
+            });
+          },
+        ],
+      });
+
+      await server.listen(testPort);
+      await fetch(`http://localhost:${testPort}/assets/main.js?v=1`);
+      await fetch(`http://localhost:${testPort}/ordinary-route`);
+
+      expect(observed).toEqual([
+        { url: '/assets/main.js?v=1', isStaticRequest: true },
+        { url: '/ordinary-route', isStaticRequest: false },
+      ]);
+    });
+
     it('passes responseTimeHeader through to the underlying APIServer', async () => {
       setReadFileMock({
         'page-map.json': VALID_PAGE_MAP,

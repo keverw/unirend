@@ -116,6 +116,8 @@ demos/ssr/build
 demos/ssr/current-build-info.ts
 demos/multi-app-ssr/build
 demos/multi-app-ssr/build-app-b
+demos/asset-request-paths/build-a
+demos/asset-request-paths/build-b
 
 # PHP / Composer (unirend-php)
 unirend-php/vendor/
