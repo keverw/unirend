@@ -493,7 +493,7 @@ In both cases, static responses use `reply.hijack()`, bypass `onSend`, and set `
 | Configured static mapping matched, target missing or not a file, or OS junk rejected under a folder mapping | Depends on `staticRequestPaths` | `true` | `false` |
 | Configured static mapping matched, but reading the target failed | Depends on `staticRequestPaths` | `true` | `false` |
 
-`isStaticContentMatch` is therefore a mapping-match marker, not a miss marker. It is true for served and missing mapped targets, plus OS junk rejected under a folder mapping. In a not-found handler, it identifies the asset-specific miss because a served static response never reaches that handler. A read failure is an error rather than a miss, so it keeps normal error handling and never reaches the SSR `getStaticNotFoundPage` handler, even though the marker is true.
+`isStaticContentMatch` is therefore a mapping-match marker, not a miss marker. It is true for served and missing mapped targets, plus OS junk rejected under a folder mapping. In a not-found handler, it identifies the asset-specific miss because a served static response never reaches that handler. A read failure is an error rather than a miss, so it never reaches the SSR `getStaticNotFoundPage` handler, even though the marker is true. A file at or under `smallFileMaxSize` is buffered, and its read failure returns `reason: 'error'` without sending a response, so the request falls through to the ordinary SSR render, or on an API or plain server to the `notFoundHandler`, where `isStaticContentMatch` is still true. A larger file is streamed, and its failure surfaces when the read stream is opened, which propagates into the server's normal error handling and returns a 500.
 
 ```typescript
 notFoundHandler: (request) => {
