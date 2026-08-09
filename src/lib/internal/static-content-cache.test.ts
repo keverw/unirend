@@ -637,6 +637,45 @@ describe('StaticContentCache', () => {
       expect(sentData.headers).toEqual({});
     });
 
+    it('restores a caller header of its own name when the stream open fails', async () => {
+      // These header names are not private to static serving. An earlier
+      // onRequest hook may set its own Cache-Control or Content-Type for every
+      // response, so taking the staged values back off means restoring what
+      // was there rather than deleting the name outright — nothing downstream
+      // knows to put the caller's value back.
+      const cache = new StaticContentCache({
+        smallFileMaxSize: 10,
+      });
+      const req = createMockRequest('/test.txt');
+      const { reply, sentData } = createMockReply();
+
+      // Stand in for a plugin that sets a blanket policy in onRequest, before
+      // static routing runs.
+      reply.header?.('Cache-Control', 'no-store');
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: 1000,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.createReadStream.mockImplementation(() =>
+        createMockFSReadStream([], new Error('stream open failed')),
+      );
+
+      await cache.serveFile(
+        req as FastifyRequest,
+        reply as FastifyReply,
+        '/path/to/file.txt',
+      );
+
+      // The caller's value survives, and the names it never set are gone
+      // rather than left holding this file's validators.
+      expect(sentData.headers).toEqual({ 'Cache-Control': 'no-store' });
+    });
+
     it('reports compressed Content-Length for HEAD requests on compressible files', async () => {
       const cache = new StaticContentCache({});
       const req = createMockRequest('/test.txt', 'HEAD', {
@@ -2173,6 +2212,46 @@ describe('StaticContentCache', () => {
         expect(result.statusCode).toBe(206);
       }
       expect(sentData.headers['Content-Range']).toBe('bytes 0-99/1000');
+    });
+
+    it('opens no stream for a HEAD range request', async () => {
+      // Every header of a 206 comes from the cached stat, and the HEAD branch
+      // ends the response without reading or destroying a stream. Creating one
+      // anyway leaks its file descriptor on every request, so a client that
+      // probes ranges with HEAD walks the server into its descriptor limit.
+      const cache = new StaticContentCache({
+        smallFileMaxSize: 10,
+      });
+
+      const req = createMockRequest('/test.txt', 'HEAD', {
+        range: 'bytes=0-99',
+      });
+      const { reply, sentData } = createMockReply();
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: 1000,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      const result = await cache.serveFile(
+        req as FastifyRequest,
+        reply as FastifyReply,
+        '/path/to/test.txt',
+      );
+
+      expect(result.served).toBe(true);
+      if (result.served) {
+        expect(result.statusCode).toBe(206);
+      }
+
+      // The response is still a complete 206, it just has no body behind it.
+      expect(sentData.headers['Content-Range']).toBe('bytes 0-99/1000');
+      expect(sentData.headers['Content-Length']).toBe('100');
+      expect(sentData.body).toBeUndefined();
+      expect(mockFs.createReadStream).not.toHaveBeenCalled();
     });
 
     it('does not hijack range streams before the file stream opens', async () => {
