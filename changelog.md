@@ -182,7 +182,9 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 ## Unreleased
 
 - Updated Fastify and its transitive dependencies to patched releases so production installs and the release toolchain avoid known denial-of-service and URI parsing vulnerabilities.
-- Added opt-in `staticRequestPaths` request classification for SSR, API, plain-web, and static-web servers, exposing the early `request.isStaticRequest` marker. Static routing exposes the later `request.isStaticContentMatch` marker for configured mapping matches. Built SSR apps can configure `getStaticNotFoundPage` for mapped static assets that are missing or rejected as OS junk, while API and plain-server not-found handlers can use `isStaticContentMatch` for asset-specific 404 responses.
+- Added opt-in `staticRequestPaths` request classification for SSR, API, plain-web, and static-web servers. Configured picomatch path patterns set `request.isStaticRequest` before user plugins run, so a plugin can skip its own per-user work for asset URLs.
+- Static routing now sets `request.isStaticContentMatch` whenever a configured mapping matches, including matches whose target is missing, so API and plain-server not-found handlers can return an asset-specific 404 without inspecting pathnames.
+- Built SSR apps can configure `getStaticNotFoundPage` to answer a mapped static asset that is missing or rejected as OS junk with standalone HTML instead of a React render.
 
 **Breaking:** The built-in `cors` plugin is now `securityHeaders`. Move CORS options under `cors`, rename `xFrameOptions` to `frameOptions`, and replace `request.applyCORSHeaders()` with `request.applySecurityHeaders()`. `CORSConfig` now describes the nested CORS block, while `SecurityHeadersConfig` describes the full configuration. See [securityHeaders](docs/built-in-plugins/security-headers.md) for the current configuration reference.
 

@@ -491,8 +491,9 @@ In both cases, static responses use `reply.hijack()`, bypass `onSend`, and set `
 | Early-classified URL with no static mapping | `true` | `false` | `false` |
 | Configured static mapping matched and served | Depends on `staticRequestPaths` | `true` | `true` |
 | Configured static mapping matched, target missing or not a file, or OS junk rejected under a folder mapping | Depends on `staticRequestPaths` | `true` | `false` |
+| Configured static mapping matched, but reading the target failed | Depends on `staticRequestPaths` | `true` | `false` |
 
-`isStaticContentMatch` is therefore a mapping-match marker, not a miss marker. It is true for served and missing mapped targets, plus OS junk rejected under a folder mapping. In a not-found handler, it identifies the asset-specific miss because a served static response never reaches that handler.
+`isStaticContentMatch` is therefore a mapping-match marker, not a miss marker. It is true for served and missing mapped targets, plus OS junk rejected under a folder mapping. In a not-found handler, it identifies the asset-specific miss because a served static response never reaches that handler. A read failure is an error rather than a miss, so it keeps normal error handling and never reaches the SSR `getStaticNotFoundPage` handler, even though the marker is true.
 
 ```typescript
 notFoundHandler: (request) => {

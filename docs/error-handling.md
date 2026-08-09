@@ -28,10 +28,6 @@ This document describes how Unirend handles and recommends handling errors acros
 
 ## Overview
 
-### Static Asset 404s
-
-An application's ordinary React 404 remains the response for unknown routes. In built SSR only, `getStaticNotFoundPage` is a separate pre-render path for a configured static mapping whose target is missing, or for OS junk that is rejected within a configured folder mapping. It returns standalone HTML for asset callers and does not run React SSR. Without that opt-in handler, the request falls through to the ordinary React 404. If the configured handler throws, it follows normal SSR error handling and returns a 500 page. It does not affect API misses, unmapped URLs, traversal-rejected URLs, or static routing disabled with `staticContentRouter: false`.
-
 Unirend distinguishes between:
 
 - **Thrown errors**: Uncaught exceptions (`throw new Error(...)`).
@@ -42,6 +38,10 @@ Behavior also depends on both the error path and when it occurs:
 1. Thrown route, loader, or render errors
 2. Returned or framework-converted page error envelopes
 3. The final environment where the error is surfaced, such as SSR, SSG, or after hydration on the client
+
+### Static Asset 404s
+
+An application's ordinary React 404 remains the response for unknown routes. In built SSR only, `getStaticNotFoundPage` is a separate pre-render path for a configured static mapping whose target is missing or is not a regular file, or for OS junk that is rejected within a configured folder mapping. It returns standalone HTML for asset callers and does not run React SSR. Without that opt-in handler, the request falls through to the ordinary React 404. If the configured handler throws, it follows normal SSR error handling and returns a 500 page. It does not affect unmapped API misses, unmapped URLs, traversal-rejected URLs, or static routing disabled with `staticContentRouter: false`.
 
 ## Recommended Setup
 

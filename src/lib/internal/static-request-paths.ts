@@ -20,7 +20,10 @@ export function createStaticRequestMatcher(
       pattern.includes('\0')
     ) {
       throw new Error(
-        'staticRequestPaths entries must be absolute URL paths without query strings, fragments, or null bytes',
+        // `?` is rejected on purpose even though picomatch reads it as a
+        // single-character wildcard: a pattern only ever sees the pathname, so
+        // a `?` in one is far more likely to be a query string than a wildcard.
+        'staticRequestPaths entries must be absolute URL paths and cannot contain "?" (unsupported here, including query strings), fragments, or null bytes',
       );
     }
   }
@@ -40,7 +43,11 @@ export function setStaticRequestClassification(
   matchesPath: StaticRequestMatcher,
 ): void {
   try {
-    const pathname = new URL(request.url, 'http://unirend.local').pathname;
+    // The origin is prefixed rather than passed as a base URL: a request path
+    // that starts with '//' is a path here, not an authority, so resolving it
+    // against a base would classify '//host/assets/x' as '/assets/x' while
+    // Fastify still routes the original path.
+    const pathname = new URL(`http://unirend.local${request.url}`).pathname;
     request.isStaticRequest = matchesPath(pathname);
   } catch {
     request.isStaticRequest = false;

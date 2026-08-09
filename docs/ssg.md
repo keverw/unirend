@@ -492,6 +492,7 @@ Dev mode (stack traces in built-in 500 page, not custom error page provided) is 
 
 **Server Configuration:**
 
+- `staticRequestPaths` - Opt-in picomatch patterns that set `request.isStaticRequest` before user plugins run. See [Advanced Asset Request Paths](./ssr.md#advanced-asset-request-paths)
 - `https` - HTTPS/SSL configuration with key, cert, and optional SNI callback
 - `logging` - Framework-level logging options (Unirend logger abstraction)
 - `fastifyOptions` - Fastify server options (logger, trustProxy, bodyLimit, keepAliveTimeout, etc.)

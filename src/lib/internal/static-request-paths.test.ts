@@ -38,4 +38,17 @@ describe('createStaticRequestMatcher()', () => {
     );
     expect(request.isStaticRequest).toBe(true);
   });
+
+  it('treats a leading double slash as a path, not an authority', () => {
+    // '//evil.com/assets/x.js' is routed by Fastify as that whole path, so
+    // reading an authority out of it would classify a request that actually
+    // reaches the catch-all route as a static asset.
+    const matches = createStaticRequestMatcher(['/assets/**']);
+
+    for (const url of ['//evil.com/assets/x.js', '//assets/x.js']) {
+      const request = { url, isStaticRequest: false } as FastifyRequest;
+      setStaticRequestClassification(request, matches);
+      expect(request.isStaticRequest).toBe(false);
+    }
+  });
 });
