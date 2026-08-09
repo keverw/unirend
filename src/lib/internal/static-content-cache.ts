@@ -527,6 +527,18 @@ export class StaticContentCache {
               // Cast to NodeJS.ErrnoException to access error codes if needed
               const fsError = error as NodeJS.ErrnoException;
 
+              // A file that disappeared after its stat was cached is a miss,
+              // not a server fault. The stat cache outlives the ETag/content
+              // caches (more entries), so this read is reached with a stale
+              // positive stat whenever the ETag entry was evicted first.
+              // Without invalidating here, the stale stat would keep sending
+              // this path to error handling for the rest of its TTL.
+              if (fsError.code === 'ENOENT') {
+                this.markFileMissing(resolvedPath);
+
+                return { status: 'not-found' };
+              }
+
               if (this.logger) {
                 this.logger.warn(
                   {
@@ -945,6 +957,8 @@ export class StaticContentCache {
       );
 
       if (rangeOpenFailure) {
+        this.clearStagedFileHeaders(reply);
+
         return rangeOpenFailure;
       }
 
@@ -1003,6 +1017,8 @@ export class StaticContentCache {
       );
 
       if (openFailure) {
+        this.clearStagedFileHeaders(reply);
+
         return openFailure;
       }
     }
@@ -1420,6 +1436,29 @@ export class StaticContentCache {
     this.statCache.set(resolvedPath, { notFound: true }, this.negativeCacheTtl);
     this.etagCache.delete(resolvedPath);
     this.contentCache.delete(resolvedPath);
+  }
+
+  /**
+   * Removes the representation headers staged for a file that is no longer
+   * going to be served.
+   *
+   * They are set before the stream opens, so a failed open would otherwise
+   * hand them to whatever answers instead: a fall-through page render keeps
+   * the asset's Cache-Control (`immutable` for a fingerprinted name) and its
+   * now-stale ETag, and an asset 404 or an error page keeps the validators of
+   * a file it did not send. `Vary` is left alone because it is shared with
+   * other hooks (CORS adds `Origin` to it) and compression never applies to a
+   * streamed response anyway.
+   *
+   * @param reply The Fastify reply whose headers should be reset
+   */
+  private clearStagedFileHeaders(reply: FastifyReply): void {
+    reply.removeHeader('Last-Modified');
+    reply.removeHeader('ETag');
+    reply.removeHeader('Cache-Control');
+    reply.removeHeader('Content-Type');
+    reply.removeHeader('Content-Encoding');
+    reply.removeHeader('Accept-Ranges');
   }
 
   /**

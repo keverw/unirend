@@ -605,6 +605,38 @@ describe('StaticContentCache', () => {
       expect((req as { isStaticAsset?: boolean }).isStaticAsset).toBe(false);
     });
 
+    it('clears the staged file headers when the stream open fails', async () => {
+      // The representation headers are set before the stream opens, so a
+      // failed open has to take them back off. Otherwise whatever answers
+      // instead — a fall-through page render, an asset 404, an error page —
+      // inherits this file's Cache-Control and its now-stale ETag.
+      const cache = new StaticContentCache({
+        smallFileMaxSize: 10,
+      });
+      const req = createMockRequest('/test.txt');
+      const { reply, sentData } = createMockReply();
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: 1000,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.createReadStream.mockImplementation(() =>
+        createMockFSReadStream([], new Error('stream open failed')),
+      );
+
+      await cache.serveFile(
+        req as FastifyRequest,
+        reply as FastifyReply,
+        '/path/to/file.txt',
+      );
+
+      expect(sentData.headers).toEqual({});
+    });
+
     it('reports compressed Content-Length for HEAD requests on compressible files', async () => {
       const cache = new StaticContentCache({});
       const req = createMockRequest('/test.txt', 'HEAD', {
@@ -809,6 +841,54 @@ describe('StaticContentCache', () => {
       );
       expect(result).toEqual({ served: false, reason: 'matched-not-found' });
       expect(request.isStaticContentMatch).toBe(true);
+    });
+
+    it('treats a small file that vanished before its ETag read as a matched miss', async () => {
+      // The stat cache holds more entries than the ETag cache, so a small
+      // file can reach the ETag read with a live stat and no cached ETag. A
+      // file deleted in that window is still a miss, and the stale positive
+      // stat has to be invalidated or every later request repeats the failure
+      // until its TTL runs out.
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/a.js': '/path/to/a.js' },
+      });
+      const request = createMockRequest('/a.js') as FastifyRequest;
+      (request as { isStaticContentMatch?: boolean }).isStaticContentMatch =
+        false;
+      const { reply } = createMockReply();
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: 12,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockRejectedValue(
+        Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' }),
+      );
+
+      const result = await cache.handleRequest(
+        '/a.js',
+        request,
+        reply as FastifyReply,
+      );
+
+      expect(result).toEqual({ served: false, reason: 'matched-not-found' });
+
+      // The negative cache entry replaced the stale stat, so the repeat
+      // request answers without touching disk again.
+      mockFs.stat.mockClear();
+
+      const repeat = await cache.handleRequest(
+        '/a.js',
+        request,
+        reply as FastifyReply,
+      );
+
+      expect(repeat).toEqual({ served: false, reason: 'matched-not-found' });
+      expect(mockFs.stat).not.toHaveBeenCalled();
     });
 
     it('treats a streamed file that vanished after stat as a matched miss', async () => {
