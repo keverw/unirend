@@ -557,14 +557,14 @@ describe('StaticContentCache', () => {
       );
     });
 
-    it('does not hijack full-file streams before the file stream opens', () => {
+    it('does not hijack full-file streams before the file stream opens', async () => {
       const cache = new StaticContentCache({
         smallFileMaxSize: 10,
       });
       const req = createMockRequest('/test.txt');
       (req as { isStaticAsset?: boolean }).isStaticAsset = false;
       const { reply } = createMockReply();
-      const openError = new Error('ENOENT during stream open');
+      const openError = new Error('stream open failed');
 
       mockFs.stat.mockResolvedValue({
         isFile: () => true,
@@ -578,13 +578,21 @@ describe('StaticContentCache', () => {
         createMockFSReadStream([], openError),
       );
 
-      expect(
-        cache.serveFile(
-          req as FastifyRequest,
-          reply as FastifyReply,
-          '/path/to/file.txt',
-        ),
-      ).rejects.toThrow('ENOENT during stream open');
+      // A failed open is reported, not thrown: getFile() converts the
+      // equivalent buffered read failure to a result, so the streamed path
+      // has to reach callers the same way.
+      const result = await cache.serveFile(
+        req as FastifyRequest,
+        reply as FastifyReply,
+        '/path/to/file.txt',
+      );
+
+      expect(result.served).toBe(false);
+      if (!result.served && result.reason === 'error') {
+        expect(result.error.message).toBe('stream open failed');
+      } else {
+        throw new Error(`Expected an error result, got ${result.served}`);
+      }
 
       expect((reply as { sent: boolean }).sent).toBe(false);
       expect(
@@ -799,6 +807,44 @@ describe('StaticContentCache', () => {
         request,
         reply as FastifyReply,
       );
+      expect(result).toEqual({ served: false, reason: 'matched-not-found' });
+      expect(request.isStaticContentMatch).toBe(true);
+    });
+
+    it('treats a streamed file that vanished after stat as a matched miss', async () => {
+      // getFile() never reads a large file, so a target lost between stat()
+      // and open() first shows up at the stream. It has to land on the same
+      // miss the buffered read path already reports for a vanished file.
+      const cache = new StaticContentCache({
+        smallFileMaxSize: 10,
+        singleAssetMap: { '/big.bin': '/path/to/big.bin' },
+      });
+      const request = createMockRequest('/big.bin') as FastifyRequest;
+      (request as { isStaticContentMatch?: boolean }).isStaticContentMatch =
+        false;
+      const { reply } = createMockReply();
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: 1000,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.createReadStream.mockImplementation(() =>
+        createMockFSReadStream(
+          [],
+          Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' }),
+        ),
+      );
+
+      const result = await cache.handleRequest(
+        '/big.bin',
+        request,
+        reply as FastifyReply,
+      );
+
       expect(result).toEqual({ served: false, reason: 'matched-not-found' });
       expect(request.isStaticContentMatch).toBe(true);
     });
@@ -2049,7 +2095,7 @@ describe('StaticContentCache', () => {
       expect(sentData.headers['Content-Range']).toBe('bytes 0-99/1000');
     });
 
-    it('does not hijack range streams before the file stream opens', () => {
+    it('does not hijack range streams before the file stream opens', async () => {
       const cache = new StaticContentCache({
         smallFileMaxSize: 10,
       });
@@ -2073,13 +2119,18 @@ describe('StaticContentCache', () => {
         createMockFSReadStream([], openError),
       );
 
-      expect(
-        cache.serveFile(
-          req as FastifyRequest,
-          reply as FastifyReply,
-          '/path/to/test.txt',
-        ),
-      ).rejects.toThrow('range stream open failed');
+      const result = await cache.serveFile(
+        req as FastifyRequest,
+        reply as FastifyReply,
+        '/path/to/test.txt',
+      );
+
+      expect(result.served).toBe(false);
+      if (!result.served && result.reason === 'error') {
+        expect(result.error.message).toBe('range stream open failed');
+      } else {
+        throw new Error(`Expected an error result, got ${result.served}`);
+      }
 
       expect((reply as { sent: boolean }).sent).toBe(false);
       expect(

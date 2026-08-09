@@ -587,14 +587,7 @@ export class StaticContentCache {
             // If file no longer exists, treat as not-found
             if (fsError.code === 'ENOENT') {
               // Invalidate caches since file disappeared
-              this.statCache.set(
-                resolvedPath,
-                { notFound: true },
-                this.negativeCacheTtl,
-              );
-
-              this.etagCache.delete(resolvedPath);
-              this.contentCache.delete(resolvedPath);
+              this.markFileMissing(resolvedPath);
 
               return { status: 'not-found' };
             }
@@ -946,7 +939,14 @@ export class StaticContentCache {
       const chunkSize = end - start + 1;
       const rangeStream = result.content.createStream({ start, end });
 
-      await waitForReadStreamOpen(rangeStream);
+      const rangeOpenFailure = await this.openReadStream(
+        rangeStream,
+        resolvedPath,
+      );
+
+      if (rangeOpenFailure) {
+        return rangeOpenFailure;
+      }
 
       // Set headers for partial content response
       reply
@@ -997,7 +997,14 @@ export class StaticContentCache {
       : null;
 
     if (fullFileStream) {
-      await waitForReadStreamOpen(fullFileStream);
+      const openFailure = await this.openReadStream(
+        fullFileStream,
+        resolvedPath,
+      );
+
+      if (openFailure) {
+        return openFailure;
+      }
     }
 
     await req.applySecurityHeaders?.(reply);
@@ -1401,6 +1408,72 @@ export class StaticContentCache {
     }
 
     return { served: false, reason: 'not-found' };
+  }
+
+  /**
+   * Records that a previously known file is gone, so later requests take the
+   * negative-cache path instead of failing against stale stat/ETag entries.
+   *
+   * @param resolvedPath The absolute path that disappeared
+   */
+  private markFileMissing(resolvedPath: string): void {
+    this.statCache.set(resolvedPath, { notFound: true }, this.negativeCacheTtl);
+    this.etagCache.delete(resolvedPath);
+    this.contentCache.delete(resolvedPath);
+  }
+
+  /**
+   * Opens a read stream and reports a failure as a ServeFileResult.
+   *
+   * Small files are read inside getFile(), so their failures are already
+   * converted to a result there. A large file is never read by getFile() (its
+   * weak ETag comes from stat alone and its body is deferred to a stream
+   * factory so ranges can open just the slice they need), so the open is the
+   * first time the body is touched. Mapping the failure here keeps both size
+   * classes on the same contract: a vanished file is a miss, and anything else
+   * is an error the caller can escalate.
+   *
+   * @param stream The read stream to open
+   * @param resolvedPath The absolute path being opened, for cache invalidation
+   * @returns A failure result, or undefined once the stream is open
+   */
+  private async openReadStream(
+    stream: fs.ReadStream,
+    resolvedPath: string,
+  ): Promise<ServeFileResult | undefined> {
+    try {
+      await waitForReadStreamOpen(stream);
+      return undefined;
+    } catch (error) {
+      stream.destroy();
+
+      const fsError = error as NodeJS.ErrnoException;
+
+      // Lost between stat() and open(), the streamed counterpart of the
+      // ENOENT the buffered read path already reports as not-found.
+      if (fsError.code === 'ENOENT') {
+        this.markFileMissing(resolvedPath);
+
+        return { served: false, reason: 'not-found' };
+      }
+
+      if (this.logger) {
+        this.logger.warn(
+          {
+            err: fsError,
+            path: resolvedPath,
+            code: fsError.code,
+          },
+          'Error opening static file stream',
+        );
+      }
+
+      return {
+        served: false,
+        reason: 'error',
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
   }
 
   /**
