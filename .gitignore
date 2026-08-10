@@ -28,6 +28,11 @@ bun.lockb
 # AI Development Tools
 # Claude Code local settings (personal preferences not shared with team)
 .claude/**/*.local*
+# Machine-local Claude Code state: launch.json is a generated dev server command
+# and port, and worktrees holds throwaway agent checkouts. Shared config such as
+# settings.json, agents, commands, and skills stays committed.
+.claude/launch.json
+.claude/worktrees/
 
 # Build outputs
 dist/

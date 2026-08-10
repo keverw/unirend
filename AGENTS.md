@@ -40,6 +40,10 @@ Guidelines and constraints for AI coding agents working in this repository.
 
 - **Bun is the toolchain, Node is the runtime:** Bun runs the dev and CI commands here (`bun install`, `bun test`, the `package.json` scripts), but the published package has to run on plain Node, and so does the app code the starter templates emit into a user's repo. Keep shipped code on standard web and Node APIs. `Bun.*` globals, `bun:*` imports, and Bun-only extensions to standard APIs belong in `scripts/`, in `*.test.ts` files, and in the demos, which only ever run under `bun`. They do not belong anywhere under `src/` that ends up in `dist/`, including the template strings in `src/lib/starter-templates/` that become a generated repo's source. `@types/bun` is installed repo-wide, so `bun run type-check` will not catch a Bun-only call in shipped code. The failure shows up when someone runs it on Node. When you need something Bun offers, reach for the Node equivalent, or feature-detect and fall back.
 
+## Preview & Dev Servers
+
+- **Don't create `.claude/launch.json` on your own:** This repo has no single dev command. Each demo has its own script, so a launch entry only ever describes whichever demo you happened to be looking at, and it is machine-local, which is why `.gitignore` excludes it. Start the demo you need with its own script from the root `package.json` (`ssr:serve:dev`, `ssg:serve:dev`, and so on) as a background command, then open the browser by passing a `url` rather than a launch entry `name`. Read build errors from that command's own output. Creating or editing the file is fine when the user asks for it.
+
 ## Source Files
 
 - **Never embed a raw NUL byte in a text file:** It is invisible in virtually every editor, and it makes git treat the file as binary (no more diffs) and grep silently find nothing in it, so the file drops out of reviews and searches with no error anywhere. If you need a NUL as a value, write the escape in source instead of the raw byte. `bun run check:null-bytes` fails on it.
