@@ -56,8 +56,8 @@ coverage/
 # OS-generated files
 # Kept in sync with the section scaffolded into generated repos
 # (src/lib/starter-templates/base-files/ensure-prettier-ignore.ts). Unlike
-# .gitignore, this file does NOT re-include the junk-named test fixtures: they
-# should stay out of formatting (e.g. ._app.js is not valid JavaScript).
+# .gitignore, this file does NOT re-include the junk-named test fixtures. They
+# are opaque static test data and should stay out of formatting.
 
 # macOS
 .DS_Store

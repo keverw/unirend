@@ -1,1 +1,1 @@
-AppleDouble resource fork junk
+// AppleDouble resource fork junk

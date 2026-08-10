@@ -26,9 +26,9 @@ export default [
       // Repo-specific: Composer dependencies for the unirend-php companion package
       'unirend-php/vendor/**',
       // Repo-specific: unirend-php test fixtures are static test data, not source
-      // to lint. Some are deliberately named/shaped like OS junk (e.g. an
-      // AppleDouble `._app.js` stub that is not valid JavaScript) for the static
-      // server's junk-filter tests, so ESLint must not try to parse them.
+      // to lint. Some are deliberately named and shaped like OS junk, such as an
+      // AppleDouble `._app.js` stub, for the static server's junk-filter tests,
+      // so ESLint must not treat them as application code.
       'unirend-php/tests/fixtures/**',
       // Config files
       '*.config.js',
