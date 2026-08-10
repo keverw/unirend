@@ -1408,6 +1408,74 @@ describe('StaticContentCache', () => {
       expect(cache.getCacheStats().etag.items).toBe(1);
     });
 
+    it('drops the cached ETag when a file becomes a directory', async () => {
+      // The stat cache is sized on its own, and by default holds more entries
+      // than the ETag cache, so a path can lose its stat entry while its ETag
+      // survives. If the path is no longer a regular file by the time the next
+      // stat runs, that ETag has to go with it rather than waiting out its own
+      // TTL and validating against a file that is not there.
+      const cache = new StaticContentCache({
+        // One stat entry, so the second file's stat evicts the first's, while
+        // both ETags stay.
+        statCacheEntries: 1,
+        cacheEntries: 4,
+        singleAssetMap: {
+          '/a.js': '/path/to/a.js',
+          '/b.js': '/path/to/b.js',
+        },
+      });
+      const request = createMockRequest('/a.js') as FastifyRequest;
+      (request as { isStaticContentMatch?: boolean }).isStaticContentMatch =
+        false;
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: 5,
+        mtime: new Date(1700000000000),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: 1700000000000,
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(Buffer.from('bytes'));
+
+      const { reply: aReply } = createMockReply();
+      await cache.handleRequest('/a.js', request, aReply as FastifyReply);
+
+      // B's stat evicts A's, leaving A with an ETag and no stat.
+      const { reply: bReply } = createMockReply();
+      await cache.handleRequest(
+        '/b.js',
+        createMockRequest('/b.js') as FastifyRequest,
+        bReply as FastifyReply,
+      );
+
+      expect(cache.getCacheStats().etag.items).toBe(2);
+      expect(cache.getCacheStats().stat.items).toBe(1);
+
+      // A is a directory now, which the fresh stat is the first to see.
+      mockFs.stat.mockImplementation((path: string) =>
+        Promise.resolve({
+          isFile: () => path !== '/path/to/a.js',
+          size: 5,
+          mtime: new Date(1700000000000),
+          // eslint-disable-next-line @typescript-eslint/naming-convention
+          mtimeMs: 1700000000000,
+        } as fs.Stats),
+      );
+
+      const { reply: missReply } = createMockReply();
+      const miss = await cache.handleRequest(
+        '/a.js',
+        request,
+        missReply as FastifyReply,
+      );
+
+      expect(miss).toEqual({ served: false, reason: 'matched-not-found' });
+
+      // A's ETag went with it; B's is untouched.
+      expect(cache.getCacheStats().etag.items).toBe(1);
+    });
+
     it('returns not-found for unmapped URLs', async () => {
       const cache = new StaticContentCache({
         singleAssetMap: { '/test.txt': '/path/to/test.txt' },

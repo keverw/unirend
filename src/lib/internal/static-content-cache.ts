@@ -610,12 +610,13 @@ export class StaticContentCache {
 
           // Only serve regular files, not directories or special files
           if (!fullStat.isFile()) {
-            // Cache as negative entry with specific TTL
-            this.statCache.set(
-              resolvedPath,
-              { notFound: true },
-              this.negativeCacheTtl,
-            );
+            // A path that used to be a regular file can still have a cached
+            // ETag and body, since the stat cache is sized separately (and by
+            // default larger) than the ETag and content caches, so its entry
+            // can be the one that went. Recording this the same way every other
+            // vanished path is recorded keeps those from outliving the file
+            // they describe.
+            this.markFileMissing(resolvedPath);
 
             return { status: 'not-found' };
           }
