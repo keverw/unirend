@@ -182,6 +182,11 @@ export interface FileFoundResult {
 /**
  * The representation headers serveFile() stages before a file's body is known
  * to be sendable, and therefore the only ones it may undo afterwards.
+ *
+ * `Content-Range` and `Content-Length` are staged by the 206 branch alone, and
+ * only after the range stream is open. Restoring them is still part of the
+ * same job, because applying the hijacked-response security headers happens
+ * after that and can throw.
  */
 const stagedFileHeaderNames = [
   'Last-Modified',
@@ -190,6 +195,8 @@ const stagedFileHeaderNames = [
   'Content-Type',
   'Content-Encoding',
   'Accept-Ranges',
+  'Content-Range',
+  'Content-Length',
 ] as const;
 
 type StagedFileHeaderSnapshot = Record<
@@ -199,7 +206,8 @@ type StagedFileHeaderSnapshot = Record<
 
 /**
  * Records what the staged representation headers held before serveFile() wrote
- * its own, so a failed stream open can restore the caller's values.
+ * its own, so a file that ends up not being sent can restore the caller's
+ * values.
  *
  * @param reply The Fastify reply about to receive staged headers
  * @returns The prior value of each staged header, undefined when it was unset
@@ -250,29 +258,80 @@ function isMissingPathError(error: NodeJS.ErrnoException): boolean {
 }
 
 /**
- * Applies the hijacked-response security headers, closing an already-open file
- * stream if that fails.
+ * Puts the representation headers back to what they were before serveFile()
+ * staged this file's own, for a file that is no longer going to be served.
  *
- * The stream is opened before these headers are written, on purpose, so a
- * failed open can still take the normal error path. That leaves a live file
- * descriptor sitting behind a call that can throw, since a per-request CSP or
- * CORS resolver is application code. The error still propagates untouched, but
- * nothing references the stream once it does, and an unreferenced
- * `fs.ReadStream` never releases its descriptor on its own.
+ * They are set before the body is known to be sendable, so a failed stream
+ * open or a failed security-header pass would otherwise hand them to whatever
+ * answers instead: a fall-through page render keeps the asset's Cache-Control
+ * (`immutable` for a fingerprinted name) and its now-stale ETag, and an asset
+ * 404 or an error page keeps the validators, and on the 206 path the range
+ * headers, of a file it did not send. `Vary` is left alone because it is
+ * shared with other hooks (CORS adds `Origin` to it) and compression never
+ * applies to a streamed response anyway.
+ *
+ * Each header is restored to the value the snapshot recorded rather than
+ * simply removed, because these names are not private to static serving: an
+ * earlier onRequest hook may have set its own `Cache-Control` or
+ * `Content-Type` for every response, and deleting it here would drop it from
+ * the fall-through response with nothing left to put it back.
+ *
+ * @param reply The Fastify reply whose headers should be reset
+ * @param snapshot The values captured before the headers were staged
+ */
+function restoreStagedFileHeaders(
+  reply: FastifyReply,
+  snapshot: StagedFileHeaderSnapshot,
+): void {
+  for (const name of stagedFileHeaderNames) {
+    const previous = snapshot[name];
+
+    if (previous === undefined) {
+      reply.removeHeader(name);
+    } else {
+      reply.header(name, previous);
+    }
+  }
+}
+
+/**
+ * Applies the hijacked-response security headers, undoing this file's staged
+ * response if that fails.
+ *
+ * Every branch of serveFile() stages its headers and then calls this, the last
+ * thing that can throw before the reply is hijacked. A per-request CSP or CORS
+ * resolver is application code, so it does throw in practice. The error
+ * propagates untouched and the server's error handling answers, but the file
+ * is not going to be sent, which leaves two things behind for that response to
+ * inherit.
+ *
+ * The stream is one, on the branches that have one. It is opened before these
+ * headers are written, on purpose, so a failed open can still take the normal
+ * error path. Nothing references it once the error propagates, and an
+ * unreferenced `fs.ReadStream` never releases its descriptor on its own.
+ *
+ * The staged headers are the other, on every branch. Rolling them back makes
+ * this path match a failed stream open, so an error response never carries the
+ * validators, `Cache-Control`, or range headers of a file it did not send.
+ * That matters most for `HEAD`, where Fastify keeps a `Content-Length` the
+ * reply already has instead of recomputing it for the payload it sends.
  *
  * @param req The Fastify request carrying the hijack-path helper
  * @param reply The Fastify reply about to receive the headers
- * @param stream The open read stream, or null when no body will be streamed
+ * @param stream The open read stream, or null on a branch that has no body
+ * @param snapshot The header values captured before this file staged its own
  */
-async function applySecurityHeadersForStream(
+async function applySecurityHeadersOrRollBack(
   req: FastifyRequest,
   reply: FastifyReply,
   stream: fs.ReadStream | null,
+  snapshot: StagedFileHeaderSnapshot,
 ): Promise<void> {
   try {
     await req.applySecurityHeaders?.(reply);
   } catch (error) {
     stream?.destroy();
+    restoreStagedFileHeaders(reply, snapshot);
 
     throw error;
   }
@@ -905,6 +964,13 @@ export class StaticContentCache {
       (req as { isStaticAsset?: boolean }).isStaticAsset = true;
     };
 
+    // Capture what these headers held before this method stages its own, so a
+    // response that never gets sent can put the caller's values back instead of
+    // deleting headers an earlier onRequest hook set on the same reply. Taken
+    // ahead of the 304 branch because every branch below stages headers and
+    // then calls out to application code that can throw.
+    const stagedHeaderSnapshot = snapshotStagedFileHeaders(reply);
+
     if (result.status === 'not-modified') {
       // Client's cache is still valid, send 304.
       // Return HTTP 304 Not Modified response (no body). This saves bandwidth
@@ -932,7 +998,12 @@ export class StaticContentCache {
         .header('ETag', result.etag)
         .header('Last-Modified', result.lastModified);
 
-      await req.applySecurityHeaders?.(reply);
+      await applySecurityHeadersOrRollBack(
+        req,
+        reply,
+        null,
+        stagedHeaderSnapshot,
+      );
       markStaticAsset();
       reply.hijack();
       reply.raw.writeHead(304, reply.getHeaders() as OutgoingHttpHeaders);
@@ -953,11 +1024,6 @@ export class StaticContentCache {
     const headerCacheControl = result.isImmutableAsset
       ? this.immutableCacheControl
       : this.cacheControl;
-
-    // Capture what these headers held before this method stages its own, so a
-    // failed stream open can put the caller's values back instead of deleting
-    // headers an earlier onRequest hook set on the same reply.
-    const stagedHeaderSnapshot = snapshotStagedFileHeaders(reply);
 
     // Representation selection depends on Accept-Encoding, so advertise that
     // caches must keep separate variants when compression is in play.
@@ -1000,7 +1066,12 @@ export class StaticContentCache {
           .header('Cache-Control', 'no-store')
           .type('application/json')
           .header('Content-Length', String(Buffer.byteLength(body)));
-        await req.applySecurityHeaders?.(reply);
+        await applySecurityHeadersOrRollBack(
+          req,
+          reply,
+          null,
+          stagedHeaderSnapshot,
+        );
         markStaticAsset();
         reply.hijack();
         reply.raw.writeHead(400, reply.getHeaders() as OutgoingHttpHeaders);
@@ -1014,7 +1085,12 @@ export class StaticContentCache {
           .type('application/json')
           .header('Content-Range', `bytes */${result.stat.size}`)
           .header('Content-Length', String(Buffer.byteLength(body)));
-        await req.applySecurityHeaders?.(reply);
+        await applySecurityHeadersOrRollBack(
+          req,
+          reply,
+          null,
+          stagedHeaderSnapshot,
+        );
         markStaticAsset();
         reply.hijack();
         reply.raw.writeHead(416, reply.getHeaders() as OutgoingHttpHeaders);
@@ -1040,7 +1116,7 @@ export class StaticContentCache {
         );
 
         if (rangeOpenFailure) {
-          this.clearStagedFileHeaders(reply, stagedHeaderSnapshot);
+          restoreStagedFileHeaders(reply, stagedHeaderSnapshot);
 
           return rangeOpenFailure;
         }
@@ -1052,7 +1128,12 @@ export class StaticContentCache {
         .header('Content-Range', `bytes ${start}-${end}/${result.stat.size}`)
         .header('Content-Length', chunkSize.toString());
 
-      await applySecurityHeadersForStream(req, reply, rangeStream);
+      await applySecurityHeadersOrRollBack(
+        req,
+        reply,
+        rangeStream,
+        stagedHeaderSnapshot,
+      );
       markStaticAsset();
       reply.hijack();
       reply.raw.writeHead(206, reply.getHeaders() as OutgoingHttpHeaders);
@@ -1078,7 +1159,12 @@ export class StaticContentCache {
           ? result.content.data.length
           : result.stat.size;
       reply.header('Content-Length', headContentLength.toString());
-      await req.applySecurityHeaders?.(reply);
+      await applySecurityHeadersOrRollBack(
+        req,
+        reply,
+        null,
+        stagedHeaderSnapshot,
+      );
       markStaticAsset();
       reply.hijack();
       reply.raw.writeHead(
@@ -1101,13 +1187,18 @@ export class StaticContentCache {
       );
 
       if (openFailure) {
-        this.clearStagedFileHeaders(reply, stagedHeaderSnapshot);
+        restoreStagedFileHeaders(reply, stagedHeaderSnapshot);
 
         return openFailure;
       }
     }
 
-    await applySecurityHeadersForStream(req, reply, fullFileStream);
+    await applySecurityHeadersOrRollBack(
+      req,
+      reply,
+      fullFileStream,
+      stagedHeaderSnapshot,
+    );
 
     if (!result.content.shouldStream) {
       // reply.raw.end(buffer) does not get Fastify's normal Content-Length
@@ -1520,42 +1611,6 @@ export class StaticContentCache {
     this.statCache.set(resolvedPath, { notFound: true }, this.negativeCacheTtl);
     this.etagCache.delete(resolvedPath);
     this.contentCache.delete(resolvedPath);
-  }
-
-  /**
-   * Removes the representation headers staged for a file that is no longer
-   * going to be served.
-   *
-   * They are set before the stream opens, so a failed open would otherwise
-   * hand them to whatever answers instead: a fall-through page render keeps
-   * the asset's Cache-Control (`immutable` for a fingerprinted name) and its
-   * now-stale ETag, and an asset 404 or an error page keeps the validators of
-   * a file it did not send. `Vary` is left alone because it is shared with
-   * other hooks (CORS adds `Origin` to it) and compression never applies to a
-   * streamed response anyway.
-   *
-   * Each header is restored to the value the snapshot recorded rather than
-   * simply removed, because these names are not private to static serving: an
-   * earlier onRequest hook may have set its own `Cache-Control` or
-   * `Content-Type` for every response, and deleting it here would drop it from
-   * the fall-through response with nothing left to put it back.
-   *
-   * @param reply The Fastify reply whose headers should be reset
-   * @param snapshot The values captured before the headers were staged
-   */
-  private clearStagedFileHeaders(
-    reply: FastifyReply,
-    snapshot: StagedFileHeaderSnapshot,
-  ): void {
-    for (const name of stagedFileHeaderNames) {
-      const previous = snapshot[name];
-
-      if (previous === undefined) {
-        reply.removeHeader(name);
-      } else {
-        reply.header(name, previous);
-      }
-    }
   }
 
   /**

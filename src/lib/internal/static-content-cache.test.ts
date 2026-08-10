@@ -713,34 +713,67 @@ describe('StaticContentCache', () => {
       expect(sentData.headers).toEqual({ 'Cache-Control': 'no-store' });
     });
 
-    it('closes an opened file stream when applying security headers fails', async () => {
-      // The stream is opened before these headers are written so a failed open
-      // can still take the normal error path, which leaves a live fd behind a
-      // call that can throw: a per-request CSP or CORS resolver is application
-      // code. The error still propagates, but nothing references the stream
-      // afterwards, and an unreferenced read stream never closes on its own.
-      const headerCases: Array<Record<string, string>> = [
-        {},
-        { range: 'bytes=0-99' },
+    it('unwinds the staged response when applying security headers fails', async () => {
+      // This is the last call that can throw before the reply is hijacked, and
+      // a per-request CSP or CORS resolver is application code. The file is
+      // then never sent, so nothing it staged may reach the error response:
+      // not an open fd, and not this file's validators, Cache-Control, or
+      // range headers. Every branch is covered, including the ones with no
+      // stream behind them, because they stage headers just the same.
+      // Fixed so the weak validator a 1000-byte file gets is predictable, and
+      // the 304 branch can be reached with a matching If-None-Match.
+      const mtimeMilliseconds = 1700000000000;
+      const weakETag = `W/"1000-${mtimeMilliseconds}"`;
+
+      const branches: Array<{
+        method: string;
+        headers: Record<string, string>;
+        opensStream: boolean;
+      }> = [
+        { method: 'GET', headers: {}, opensStream: true },
+        { method: 'GET', headers: { range: 'bytes=0-99' }, opensStream: true },
+        { method: 'HEAD', headers: {}, opensStream: false },
+        {
+          method: 'HEAD',
+          headers: { range: 'bytes=0-99' },
+          opensStream: false,
+        },
+        { method: 'GET', headers: { range: 'bytes=abc' }, opensStream: false },
+        {
+          method: 'GET',
+          headers: { range: 'bytes=5000-6000' },
+          opensStream: false,
+        },
+        {
+          method: 'GET',
+          headers: { 'if-none-match': weakETag },
+          opensStream: false,
+        },
       ];
 
-      for (const headers of headerCases) {
+      for (const branch of branches) {
         const cache = new StaticContentCache({
           smallFileMaxSize: 10,
         });
-        const req = createMockRequest('/test.txt', 'GET', headers);
+        const req = createMockRequest('/test.txt', branch.method, {
+          ...branch.headers,
+        });
         const failure = new Error('security header resolution failed');
         (
           req as { applySecurityHeaders?: () => Promise<void> }
         ).applySecurityHeaders = mock(() => Promise.reject(failure));
-        const { reply } = createMockReply();
+        const { reply, sentData } = createMockReply();
+
+        // Stand in for a plugin that sets a blanket policy in onRequest. Its
+        // value has to survive, since nothing downstream knows to restore it.
+        reply.header?.('Cache-Control', 'private, no-cache');
 
         mockFs.stat.mockResolvedValue({
           isFile: () => true,
           size: 1000,
-          mtime: new Date(),
+          mtime: new Date(mtimeMilliseconds),
           // eslint-disable-next-line @typescript-eslint/naming-convention
-          mtimeMs: Date.now(),
+          mtimeMs: mtimeMilliseconds,
         } as fs.Stats);
 
         let openedStream: fs.ReadStream | undefined;
@@ -762,8 +795,19 @@ describe('StaticContentCache', () => {
           });
 
         expect(caught).toBe(failure);
-        expect(openedStream?.destroyed).toBe(true);
         expect((reply as { sent: boolean }).sent).toBe(false);
+
+        // No ETag, Content-Length, or Content-Range for a body that was never
+        // sent, and the caller's own header is back.
+        expect(sentData.headers).toEqual({
+          'Cache-Control': 'private, no-cache',
+        });
+
+        if (branch.opensStream) {
+          expect(openedStream?.destroyed).toBe(true);
+        } else {
+          expect(openedStream).toBeUndefined();
+        }
       }
     });
 
