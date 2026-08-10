@@ -81,6 +81,7 @@ CLI note: The Unirend project generator (CLI) requires Bun for a simple, out‑o
 - [Demos](#demos)
   - [SSG Demo: Build and Serve](#ssg-demo-build-and-serve)
   - [SSR Demo: Dev and Prod](#ssr-demo-dev-and-prod)
+  - [Asset Request Paths Demo](#asset-request-paths-demo)
   - [Multi-App SSR Demo](#multi-app-ssr-demo)
   - [API Server Demo](#api-server-demo)
   - [Static Content Demo](#static-content-demo)
