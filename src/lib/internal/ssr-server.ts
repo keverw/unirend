@@ -775,6 +775,7 @@ export class SSRServer<
       // The default here is just a shape hint for Fastify; the live value is set per-request in the onRequest hook below.
       this.fastifyInstance.decorateRequest('isDevelopment', false);
       this.fastifyInstance.decorateRequest('isStaticRequest', false);
+      this.fastifyInstance.decorateRequest('isStaticContentMatch', false);
       this.fastifyInstance.decorateRequest('serverLabel', this.serverLabel);
 
       // Decorate active app routing (defaults to '__default__') and app-derived request values.
@@ -1360,8 +1361,11 @@ export class SSRServer<
                 reply,
               );
 
-              // Successful static responses hijack Fastify and own the socket.
-              // Do not let later hooks or the catch-all SSR route handle them.
+              // A served static response already hijacked the reply and owns
+              // the socket, so nothing below applies to it. Returning here does
+              // not end the hook chain — returning undefined from an onRequest
+              // hook always continues it, and only the hijack keeps later hooks
+              // and the catch-all SSR route from writing to the same response.
               if (result?.served) {
                 return;
               }
