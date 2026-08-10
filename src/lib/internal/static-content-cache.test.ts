@@ -245,8 +245,10 @@ describe('StaticContentCache', () => {
 
     it('returns an error for a stat failure and does not negative-cache it', async () => {
       const cache = new StaticContentCache({});
-      const error = new Error('Permission denied');
-      (error as NodeJS.ErrnoException).code = 'EACCES';
+      // Not EACCES/EPERM: a stat() never consults the target file's own mode,
+      // so those two mean an unsearchable directory above it and are misses.
+      const error = new Error('I/O error');
+      (error as NodeJS.ErrnoException).code = 'EIO';
 
       mockFs.stat.mockRejectedValueOnce(error);
 
@@ -662,6 +664,58 @@ describe('StaticContentCache', () => {
       expect((req as { isStaticAsset?: boolean }).isStaticAsset).toBe(false);
     });
 
+    it('revalidates a streamed file before answering 304', async () => {
+      // A streamed file's weak ETag comes from the stat alone, so nothing has
+      // established that it can still be read by the time If-None-Match
+      // matches. Without opening it, a conditional request would keep telling
+      // a client its stale copy is current for the rest of the stat TTL, while
+      // the same URL without the validator reports the target as missing or
+      // escalates the fault.
+      const mtimeMilliseconds = 1700000000000;
+      const weakETag = `W/"1000-${mtimeMilliseconds}"`;
+
+      const branches: Array<{ code: string; reason: 'not-found' | 'error' }> = [
+        { code: 'ENOENT', reason: 'not-found' },
+        { code: 'EACCES', reason: 'error' },
+      ];
+
+      for (const branch of branches) {
+        const cache = new StaticContentCache({
+          smallFileMaxSize: 10,
+        });
+        const req = createMockRequest('/test.txt', 'GET', {
+          'if-none-match': weakETag,
+        });
+        const { reply } = createMockReply();
+        const openError = new Error(`open failed with ${branch.code}`);
+        (openError as NodeJS.ErrnoException).code = branch.code;
+
+        mockFs.stat.mockResolvedValue({
+          isFile: () => true,
+          size: 1000,
+          mtime: new Date(mtimeMilliseconds),
+          // eslint-disable-next-line @typescript-eslint/naming-convention
+          mtimeMs: mtimeMilliseconds,
+        } as fs.Stats);
+
+        mockFs.createReadStream.mockImplementation(() =>
+          createMockFSReadStream([], openError),
+        );
+
+        const result = await cache.serveFile(
+          req as FastifyRequest,
+          reply as FastifyReply,
+          '/path/to/file.txt',
+        );
+
+        expect(result.served).toBe(false);
+        expect(!result.served && result.reason).toBe(branch.reason);
+        expect(
+          (reply as { hijack: ReturnType<typeof mock> }).hijack,
+        ).not.toHaveBeenCalled();
+      }
+    });
+
     it('clears the staged file headers when the stream open fails', async () => {
       // The representation headers are set before the stream opens, so a
       // failed open has to take them back off. Otherwise whatever answers
@@ -766,10 +820,12 @@ describe('StaticContentCache', () => {
           headers: { range: 'bytes=5000-6000' },
           opensStream: false,
         },
+        // A 304 for a streamed file opens it too, for the same readability
+        // check, and destroys the stream before this call.
         {
           method: 'GET',
           headers: { 'if-none-match': weakETag },
-          opensStream: false,
+          opensStream: true,
         },
       ];
 
@@ -3153,8 +3209,8 @@ describe('StaticContentCache', () => {
       };
 
       const cache = new StaticContentCache({}, logger);
-      const error = new Error('Permission denied');
-      (error as NodeJS.ErrnoException).code = 'EACCES';
+      const error = new Error('I/O error');
+      (error as NodeJS.ErrnoException).code = 'EIO';
 
       mockFs.stat.mockRejectedValue(error);
 
@@ -3177,9 +3233,81 @@ describe('StaticContentCache', () => {
 
       const result = await cache.getFile('/path/to/missing.txt');
 
-      // A miss, unlike the EACCES case above, which escalates as an error.
+      // A miss, unlike the EIO case above, which escalates as an error.
       expect(result.status).toBe('not-found');
       expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('treats a stat permission failure as a miss and negative-caches it', async () => {
+      // A stat() needs search permission on the path's directories and never
+      // consults the target file's own mode, so EACCES/EPERM here always means
+      // an ancestor directory cannot be traversed. Nothing under it resolves,
+      // whether or not a file is there, so an unbounded set of client-chosen
+      // URLs would each cost a 500 and a log line if this escalated.
+      const logger = {
+        warn: mock(() => {}),
+      };
+
+      for (const code of ['EACCES', 'EPERM']) {
+        const cache = new StaticContentCache({}, logger);
+        const error = new Error(`stat failed with ${code}`);
+        (error as NodeJS.ErrnoException).code = code;
+
+        mockFs.stat.mockRejectedValue(error);
+
+        expect((await cache.getFile('/locked/nothing-here.js')).status).toBe(
+          'not-found',
+        );
+
+        // Negative-cached, so a repeat is answered without another syscall.
+        mockFs.stat.mockClear();
+
+        expect((await cache.getFile('/locked/nothing-here.js')).status).toBe(
+          'not-found',
+        );
+        expect(mockFs.stat).not.toHaveBeenCalled();
+      }
+    });
+
+    it('warns once per directory that cannot be searched', async () => {
+      // The one miss worth logging: it means a configured directory cannot be
+      // entered, so a whole subtree answers 404 with nothing else to notice it
+      // by. It is per-directory, not per-request, since the URLs that resolve
+      // under it are unbounded.
+      const logger = {
+        warn: mock(() => {}),
+      };
+
+      const cache = new StaticContentCache({}, logger);
+      const error = new Error('permission denied');
+      (error as NodeJS.ErrnoException).code = 'EACCES';
+
+      mockFs.stat.mockRejectedValue(error);
+
+      for (const url of ['/locked/a.js', '/locked/b.js', '/locked/c.js']) {
+        expect((await cache.getFile(url)).status).toBe('not-found');
+      }
+
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(
+        (logger.warn.mock.calls[0] as unknown as [{ path: string }])[0].path,
+      ).toBe('/locked');
+
+      // A second unsearchable directory is its own warning.
+      expect((await cache.getFile('/other-locked/a.js')).status).toBe(
+        'not-found',
+      );
+      expect(logger.warn).toHaveBeenCalledTimes(2);
+
+      // An ordinary miss stays silent.
+      const missing = new Error('ENOENT');
+      (missing as NodeJS.ErrnoException).code = 'ENOENT';
+      mockFs.stat.mockRejectedValue(missing);
+
+      expect((await cache.getFile('/plain/missing.js')).status).toBe(
+        'not-found',
+      );
+      expect(logger.warn).toHaveBeenCalledTimes(2);
     });
   });
 

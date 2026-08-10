@@ -254,6 +254,24 @@ function waitForReadStreamOpen(stream: fs.ReadStream): Promise<void> {
 }
 
 /**
+ * Closes a read stream that is not going to be consumed, without letting a
+ * failure to close crash the process.
+ *
+ * waitForReadStreamOpen() removes its own listeners once the open resolves, so
+ * a stream discarded after a successful open has no 'error' handler left on it.
+ * fs.ReadStream reports a failed close (EBADF, or EIO on a network mount)
+ * through an 'error' event, and an 'error' with no listener is rethrown out of
+ * the microtask queue and takes the process down. Nothing is going to read
+ * these bytes, so the close failure has no bearing on the response.
+ *
+ * @param stream The read stream to discard
+ */
+function destroyUnusedReadStream(stream: fs.ReadStream): void {
+  stream.on('error', () => {});
+  stream.destroy();
+}
+
+/**
  * Whether a filesystem error means the requested path cannot exist, as opposed
  * to the server being unable to read something that does.
  *
@@ -276,6 +294,10 @@ function waitForReadStreamOpen(stream: fs.ReadStream): Promise<void> {
  * `ERROR_BAD_PATHNAME` to `ENOENT` and `ERROR_FILENAME_EXCED_RANGE` to
  * `ENAMETOOLONG`, so a URL Windows cannot name arrives as a code already
  * listed above rather than as `EINVAL`.
+ *
+ * `EACCES` and `EPERM` have one exception, applied at the `stat()` call site
+ * rather than here because it is true only there. See
+ * isUnsearchablePathError() below.
  */
 function isMissingPathError(error: NodeJS.ErrnoException): boolean {
   return (
@@ -283,6 +305,38 @@ function isMissingPathError(error: NodeJS.ErrnoException): boolean {
     error.code === 'ENOTDIR' ||
     error.code === 'ENAMETOOLONG'
   );
+}
+
+/**
+ * Whether a `stat()` failure means the path could not be walked at all, rather
+ * than naming something the server cannot read.
+ *
+ * On POSIX this is exact. `stat()` needs search permission on every directory
+ * in the path and consults nothing about the target file itself, so
+ * `EACCES`/`EPERM` from it means an ancestor directory cannot be traversed.
+ * Nothing under such a directory can be resolved, whether or not a file is
+ * there, which makes it indistinguishable from a miss to the caller and
+ * reachable from an unbounded set of client-chosen URLs: one unsearchable
+ * folder inside a mount turns every URL beneath it, including ones naming no
+ * file, into a fault. Escalating those is the per-request 500 and log line that
+ * isMissingPathError() exists to avoid, so they take the miss path and get
+ * negative-cached like any other unresolvable path.
+ *
+ * On Windows the mapping is not exact, and the miss is chosen anyway. Libuv
+ * implements `stat()` there by opening a handle to the target for its
+ * attributes, so a deny ACL on the file itself surfaces as `EACCES` too and is
+ * classified as a miss rather than as the unreadable-target fault it is. The
+ * ambiguity is unavoidable at this call site, and answering an asset 404 is the
+ * better of the two, since the alternative reinstates the unbounded 500s for
+ * the traversal case, which Windows reports identically. Both cases warn once
+ * per directory from the call site, so the misconfiguration is still visible.
+ *
+ * On POSIX a configured file that really is unreadable still escalates. Its own
+ * mode is first consulted when the body is read or its stream is opened, and
+ * `EACCES` there is not treated as a miss.
+ */
+function isUnsearchablePathError(error: NodeJS.ErrnoException): boolean {
+  return error.code === 'EACCES' || error.code === 'EPERM';
 }
 
 /**
@@ -358,7 +412,10 @@ async function applySecurityHeadersOrRollBack(
   try {
     await req.applySecurityHeaders?.(reply);
   } catch (error) {
-    stream?.destroy();
+    if (stream) {
+      destroyUnusedReadStream(stream);
+    }
+
     restoreStagedFileHeaders(reply, snapshot);
 
     throw error;
@@ -489,6 +546,14 @@ export class StaticContentCache {
 
   // Optional logger
   private readonly logger?: StaticContentWarnLoggerObject;
+
+  // Directories already reported as unsearchable, so the warning stays one per
+  // directory rather than one per request. Capped because the entries come from
+  // request paths: once it is full the warning simply stops, which is the right
+  // trade for a diagnostic that has already fired for the first
+  // maxUnsearchableDirectoryWarnings directories.
+  private readonly warnedUnsearchableDirectories: Set<string> = new Set();
+  private static readonly maxUnsearchableDirectoryWarnings = 64;
 
   /**
    * Creates a new StaticContentCache instance
@@ -641,7 +706,20 @@ export class StaticContentCache {
           // code is a miss. Permission, I/O, and other stat failures are server
           // faults, and caching them as misses would hide the fault behind
           // asset 404s until the negative TTL expires.
-          if (isMissingPathError(fsError)) {
+          // A stat() failure on an unsearchable ancestor directory is a miss
+          // too, and only at this call site — see isUnsearchablePathError().
+          if (isUnsearchablePathError(fsError)) {
+            // The one miss worth a log line. Every other miss is a URL the
+            // client chose, but this one means a directory the deployment
+            // configured cannot be entered, so a whole subtree answers 404 with
+            // nothing else to notice it by: `dist/` shipped without its execute
+            // bit takes every asset down silently. Warned once per directory
+            // and capped, since the fault is per-directory while the URLs that
+            // reach it are unbounded.
+            this.warnUnsearchableDirectoryOnce(resolvedPath, fsError);
+          }
+
+          if (isMissingPathError(fsError) || isUnsearchablePathError(fsError)) {
             this.markFileMissing(resolvedPath);
 
             return { status: 'not-found' };
@@ -887,6 +965,35 @@ export class StaticContentCache {
         : etag;
 
       if (clientETag && matchesIfNoneMatch(clientETag, responseETag)) {
+        // A streamed file's body is never touched above — its weak ETag comes
+        // from the stat alone — so nothing so far has established that it can
+        // still be read. Open it here, exactly as the 200/206/HEAD paths do,
+        // and release the descriptor right away. Without this a conditional
+        // request keeps revalidating a target that a plain GET would now report
+        // as missing or escalate as a fault, so a client holding the validator
+        // is told its stale copy is current for the rest of the stat TTL. A
+        // buffered file needed no probe: it was read while its ETag was built.
+        if (fileContent.shouldStream) {
+          const probeStream = fileContent.createStream();
+
+          try {
+            await waitForReadStreamOpen(probeStream);
+            destroyUnusedReadStream(probeStream);
+          } catch (error) {
+            destroyUnusedReadStream(probeStream);
+
+            if (isMissingPathError(error as NodeJS.ErrnoException)) {
+              this.markFileMissing(resolvedPath);
+
+              return { status: 'not-found' };
+            }
+
+            // Escalates as a fault through the outer catch, matching what an
+            // unconditional request for the same unreadable target does.
+            throw error;
+          }
+        }
+
         return {
           status: 'not-modified',
           etag: responseETag,
@@ -1135,7 +1242,7 @@ export class StaticContentCache {
       }
 
       if (isHeadRange) {
-        rangeStream.destroy();
+        destroyUnusedReadStream(rangeStream);
       }
 
       // Set headers for partial content response
@@ -1186,7 +1293,7 @@ export class StaticContentCache {
           return headOpenFailure;
         }
 
-        headStream.destroy();
+        destroyUnusedReadStream(headStream);
       }
 
       // When the response would be compressed, report the compressed size so
@@ -1640,6 +1747,49 @@ export class StaticContentCache {
   }
 
   /**
+   * Warns that a directory cannot be searched, at most once per directory.
+   *
+   * A stat() permission failure is answered as a miss, so without this the
+   * deployment mistake behind it (a directory shipped without its execute bit,
+   * or owned by another user) would produce a subtree of asset 404s and no
+   * record anywhere. It is not the per-request fault logging that this module
+   * leaves to the server's error handling: it fires once for the directory, not
+   * once for each of the unbounded URLs that resolve under it.
+   *
+   * @param resolvedPath The absolute path whose stat() was denied
+   * @param error The originating filesystem error
+   */
+  private warnUnsearchableDirectoryOnce(
+    resolvedPath: string,
+    error: NodeJS.ErrnoException,
+  ): void {
+    if (!this.logger) {
+      return;
+    }
+
+    const directory = path.dirname(resolvedPath);
+
+    if (
+      this.warnedUnsearchableDirectories.has(directory) ||
+      this.warnedUnsearchableDirectories.size >=
+        StaticContentCache.maxUnsearchableDirectoryWarnings
+    ) {
+      return;
+    }
+
+    this.warnedUnsearchableDirectories.add(directory);
+
+    this.logger.warn(
+      {
+        err: error,
+        path: directory,
+        code: error.code,
+      },
+      'Static content cannot search a mapped directory, so every file under it is answered as not found. Check its permissions and ownership.',
+    );
+  }
+
+  /**
    * Records that a previously known file is gone, so later requests take the
    * negative-cache path instead of failing against stale stat/ETag entries.
    *
@@ -1674,7 +1824,7 @@ export class StaticContentCache {
       await waitForReadStreamOpen(stream);
       return undefined;
     } catch (error) {
-      stream.destroy();
+      destroyUnusedReadStream(stream);
 
       const fsError = error as NodeJS.ErrnoException;
 
