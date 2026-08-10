@@ -81,6 +81,7 @@ CLI note: The Unirend project generator (CLI) requires Bun for a simple, out‑o
 - [Demos](#demos)
   - [SSG Demo: Build and Serve](#ssg-demo-build-and-serve)
   - [SSR Demo: Dev and Prod](#ssr-demo-dev-and-prod)
+  - [Asset Request Paths Demo](#asset-request-paths-demo)
   - [Multi-App SSR Demo](#multi-app-ssr-demo)
   - [API Server Demo](#api-server-demo)
   - [Static Content Demo](#static-content-demo)
@@ -500,6 +501,16 @@ What this shows:
 - Custom standalone 500 page handling via `get500ErrorPage` in `server/ssr-component.ts`.
 - `LifecycleManager` + `BaseComponent` for graceful shutdown with configurable timeouts (`serve-hmr.ts` / `serve-built.ts` → `server/start.ts` → `server/ssr-component.ts`).
 - `src/components/AppLayout.tsx` owns the shared route chrome and route-change scroll-to-top behavior.
+
+### Asset Request Paths Demo
+
+Files live in `demos/asset-request-paths` with a production server in `demos/asset-request-paths-demo.ts`.
+
+```bash
+bun run asset-request-paths-demo
+```
+
+This focused two-app demo includes a visible server request audit showing early `staticRequestPaths` classification without skipping tenant selection, while user-session work skips only classified requests. It also shows app-specific static files, a standalone `getStaticNotFoundPage` response for a mapped missing asset, normal React 404 behavior for application routes, and the normal API envelope for API misses. See [SSR advanced asset request paths](docs/ssr.md#advanced-asset-request-paths) for the API and safety boundaries.
 
 ### Multi-App SSR Demo
 

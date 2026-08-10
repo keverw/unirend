@@ -422,6 +422,7 @@ export class StaticWebServer {
       getConnectionIP: this.options.getConnectionIP,
       getRequestID: this.options.getRequestID,
       clientInfo: this.options.clientInfo,
+      staticRequestPaths: this.options.staticRequestPaths,
       responseCompression: this.options.responseCompression,
       responseTimeHeader: this.options.responseTimeHeader,
       closingHandler: this.options.closingHandler

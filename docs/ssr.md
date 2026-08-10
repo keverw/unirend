@@ -46,6 +46,7 @@
     - [API Route Handler Signature and Parameters:](#api-route-handler-signature-and-parameters)
   - [Param Source Parity (Data Loader vs API Routes):](#param-source-parity-data-loader-vs-api-routes)
   - [Request Context Injection](#request-context-injection)
+- [Advanced Asset Request Paths](#advanced-asset-request-paths)
 - [Multi-App SSR Support](#multi-app-ssr-support)
   - [Monorepo Structure Tip](#monorepo-structure-tip)
   - [Usage Example](#usage-example)
@@ -120,6 +121,8 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - `pageDataEndpoint?: string` - Endpoint name for page data loader handlers (default: `"page_data"`)
 - `plugins?: ServerPlugin[]`
   - Register Fastify plugins via a controlled interface (see [plugins](./server-plugins.md)).
+- `staticRequestPaths?: string[]`
+  - Opt-in picomatch patterns that set `request.isStaticRequest` before user plugins run. Also accepted by `StaticWebServer`. See [Advanced Asset Request Paths](#advanced-asset-request-paths).
 - `fileUploads?: { enabled: boolean; limits?: { fileSize?, files?, fields?, fieldSize? }; allowedRoutes?: string[]; preValidation?: Function }`
   - Enable built-in multipart file upload support.
   - Set global limits that can be overridden per-route using `processFileUpload()`.
@@ -988,6 +991,9 @@ In addition to the [shared server configuration](#shared-server-configuration), 
     - The incoming request URL is normalized to ensure a leading slash before matching.
     - The relative path slice is guarded against accidental leading `/` to prevent absolute path resolution on POSIX.
 
+- `getStaticNotFoundPage?: (request, isDevelopment) => string | Promise<string>`
+  - Standalone HTML for a static mapping that matched but has no servable file. Per-app like `get500ErrorPage`, and only used by apps that configure it. See [Advanced Asset Request Paths](#advanced-asset-request-paths).
+
 ### Template Slots
 
 `templateSlots` lets an app add content to its HTML template from server config instead of from the template file.
@@ -1178,6 +1184,8 @@ Set to `true` before any response is sent for a static file. Defaults to `false`
 `isStaticAsset` is also available as an access-log field. Use `{{isStaticAsset}}` in finish/response templates, or read `ctx.isStaticAsset` in `accessLog.onResponse`. Request/start access logs run before static content has marked the request, so they always see `false`.
 
 See [Hook Ordering and Cookie Renewal](./built-in-plugins/staticContent.md#hook-ordering-and-cookie-renewal) in the `staticContent` plugin docs for full details on `onSend` vs `onResponse` patterns and the `isStaticAsset` guard.
+
+Two related markers exist, and neither is an access-log field: `request.isStaticRequest` is the opt-in early pathname classification described in [Advanced Asset Request Paths](#advanced-asset-request-paths), and `request.isStaticContentMatch` is set later when a configured static mapping matches, whether or not a file was served. The `staticContent` docs linked above compare all three.
 
 ### Page Data Loader Handlers and Versioning
 
@@ -1673,6 +1681,26 @@ For example, session information can live primarily in API page data loaders eve
 **Common Use Cases:**
 
 For production-ready patterns including CSRF token management and hydration-safe theme consistency between server and client, see the [Advanced Patterns section](./unirend-context.md#advanced-patterns) in the Unirend Context documentation.
+
+## Advanced Asset Request Paths
+
+`staticRequestPaths` is an opt-in SSR, API, plain-web, and static-web server option for classifying request URL paths before user plugins run. It uses picomatch patterns, matches only the URL path, and defaults `request.isStaticRequest` to `false`. Wildcards match path segments that begin with a dot, so `/**` covers `/.well-known/acme-challenge/token`. Matching runs on the routed path with the query and fragment removed and no other normalization, so a URL containing `..` is classified exactly as it is routed rather than as the path it would resolve to. Entries must start with `/` and cannot contain `#` or null bytes, or `?`, which is rejected at startup rather than read as picomatch's single-character wildcard, since a `?` in a path pattern is almost always a stray query string. It does not inspect static mappings or the filesystem, and it never skips plugins.
+
+This is one server-wide early hint, not an app-specific static mapping or an app-selection mechanism. Use it for paths with the same meaning across the server, such as `/favicon.ico`, `/robots.txt`, or a shared `/assets/**` convention. It remains separate from the selected app's `staticContentRouter`, `publicFiles`, and filesystem lookup.
+
+```ts
+serveSSRBuilt('./build', {
+  staticRequestPaths: ['/favicon.ico', '/robots.txt', '/assets/**'],
+});
+```
+
+In a multi-tenant server, keep host validation and tenant/app selection first, including plugins that call `request.setActiveSSRApp()`. A later session or profile plugin may return early when `request.isStaticRequest` is true. Do not classify a URL whose handler depends on the user state you would skip.
+
+Built SSR apps can also configure `getStaticNotFoundPage(request, isDevelopment)`. When configured, it returns standalone, non-hydrated HTML with a `404`, `Content-Type: text/html; charset=utf-8`, and `Cache-Control: no-store` when a selected app's `staticContentRouter` matches a configured mapping whose target is missing or not a regular file. A configured `folderMap` match that is rejected as OS junk, including `.DS_Store` and `._*`, also uses this asset-specific 404 without resolving or serving the path. Traversal-rejected URLs retain their normal 404 behavior. A dotfile is not rejected solely because it begins with `.`. If the handler throws, the request follows normal SSR error handling and returns a `500` page, including `get500ErrorPage` when configured. Without this opt-in handler, the request keeps the normal SSR and React 404 behavior.
+
+What selects this handler is the mapping match, not the shape of the path, so a `folderMap` prefix that overlaps your application's routes sends the routes under it here instead of to the React 404. Every prefix is normalized to a trailing slash, so a `/about` mount covers `/about/team` but not `/about` itself. Mount folders on prefixes the app does not route. Built SSR rejects a root `/` folder mount at startup because it would inspect the filesystem for every page request and could expose build metadata. The underlying mapping match also drives `request.isStaticContentMatch`, which is set whether or not `getStaticNotFoundPage` is configured.
+
+Ordinary unmapped routes, unmapped API misses, traversal-rejected URLs, non-GET/HEAD requests, and servers with `staticContentRouter: false` retain their normal behavior. A mapped target that exists but fails to read is a server fault rather than a miss, so it never reaches `getStaticNotFoundPage`. It follows normal SSR error handling and returns a `500` page, including `get500ErrorPage` when configured, at any file size. A target that disappears between the stat and the read is one exception, since a vanished file is a miss and takes the asset 404 like any other missing target. A path under a directory the server cannot search is the other, since nothing under it resolves at all. `getStaticNotFoundPage` is production built SSR only, since Vite owns asset handling in HMR mode, so `serveSSRWithHMR()` and `registerHMRApp()` do not offer it. `staticRequestPaths` is not limited that way and applies in both HMR and built mode.
 
 ## Multi-App SSR Support
 

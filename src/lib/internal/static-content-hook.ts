@@ -21,6 +21,8 @@ import type { StaticContentRouterOptions } from '../types';
  * @param req Fastify request object
  * @param reply Fastify reply object
  * @returns Promise that resolves to ServeFileResult, or undefined if request was filtered out
+ * @throws The underlying error when a mapped target exists but cannot be read,
+ * so the server's error handling answers instead of a page render or a 404
  * @internal Shared handler logic used by createStaticContentHook and SSRServer
  */
 export async function staticContentHookHandler(
@@ -39,7 +41,20 @@ export async function staticContentHookHandler(
   }
 
   // Delegate to cache to handle URL cleaning, resolution, and file serving
-  return cache.handleRequest(req.raw.url, req, reply);
+  const result = await cache.handleRequest(req.raw.url, req, reply);
+
+  // A mapped target that exists but cannot be read is a server fault, not a
+  // miss, so hand it to the server's normal error handling. Rethrowing here
+  // rather than in the cache keeps the ServeFileResult contract intact for
+  // direct callers, and keeps every caller of this hook consistent: without
+  // it, the request would fall through to an ordinary page render or a 404
+  // that hides a real filesystem problem. Both failures reach this point
+  // before reply.hijack(), so normal error handling can still respond.
+  if (!result.served && result.reason === 'error') {
+    throw result.error;
+  }
+
+  return result;
 }
 
 /**
@@ -60,7 +75,7 @@ export async function staticContentHookHandler(
  * instances to be registered with different configurations.
  *
  * @param optionsOrCache Static content configuration OR an existing StaticContentCache instance
- * @param logger Optional logger (e.g., fastify.log) for error logging (ignored if cache instance provided)
+ * @param logger Optional logger (e.g., fastify.log) for configuration warnings (ignored if cache instance provided)
  * @returns Fastify onRequest hook handler function
  * @internal Used by SSRServer (internal) and staticContent() plugin (public API)
  */

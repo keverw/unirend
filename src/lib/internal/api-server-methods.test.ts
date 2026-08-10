@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createTempDir } from 'lifecycleion/tmp-dir';
 import type { TmpDir } from 'lifecycleion/tmp-dir';
 import { serveAPI, servePlain } from '../api';
+import { staticContent } from '../built-in-plugins/static-content';
 import type { APIServer } from './api-server';
 import { APIResponseHelpers } from '../../api-envelope';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -377,6 +378,84 @@ describe('APIServer public methods', () => {
   });
 
   describe('plain web server mode', () => {
+    it('classifies configured static request paths before plain plugins run', async () => {
+      const observed: Array<{ url: string; isStaticRequest: boolean }> = [];
+      server = servePlain({
+        staticRequestPaths: ['/favicon.ico', '/assets/**'],
+        plugins: [
+          (pluginHost: PluginHostInstance<'plain'>) => {
+            pluginHost.addHook('onRequest', (request) => {
+              observed.push({
+                url: request.url,
+                isStaticRequest: request.isStaticRequest,
+              });
+            });
+          },
+        ],
+      }) as APIServer;
+      await server.listen(port, 'localhost');
+
+      const fastify = (
+        server as unknown as { fastifyInstance: FastifyInstance }
+      ).fastifyInstance;
+      await fastify.inject({ method: 'GET', url: '/favicon.ico' });
+      await fastify.inject({ method: 'GET', url: '/assets/main.js?v=1' });
+      await fastify.inject({ method: 'GET', url: '/ordinary-route' });
+
+      expect(observed).toEqual([
+        { url: '/favicon.ico', isStaticRequest: true },
+        { url: '/assets/main.js?v=1', isStaticRequest: true },
+        { url: '/ordinary-route', isStaticRequest: false },
+      ]);
+    });
+
+    it('rejects invalid static request paths at construction', () => {
+      expect(() => servePlain({ staticRequestPaths: ['assets/**'] })).toThrow(
+        'staticRequestPaths entries must be absolute URL paths',
+      );
+    });
+
+    it('exposes static mapping matches to the plain not-found handler', async () => {
+      server = servePlain({
+        plugins: [
+          staticContent({
+            singleAssetMap: { '/assets/missing.js': '/not-a-real-file.js' },
+          }),
+        ],
+        notFoundHandler: (request) => ({
+          contentType: 'json',
+          content: {
+            staticContentMatch: request.isStaticContentMatch,
+            staticAsset: request.isStaticAsset,
+          },
+          statusCode: 404,
+        }),
+      }) as APIServer;
+      await server.listen(port, 'localhost');
+
+      const fastify = (
+        server as unknown as { fastifyInstance: FastifyInstance }
+      ).fastifyInstance;
+      const staticMiss = await fastify.inject({
+        method: 'GET',
+        url: '/assets/missing.js',
+      });
+      const ordinaryMiss = await fastify.inject({
+        method: 'GET',
+        url: '/ordinary-missing',
+      });
+
+      expect(staticMiss.statusCode).toBe(404);
+      expect(JSON.parse(staticMiss.body)).toEqual({
+        staticContentMatch: true,
+        staticAsset: false,
+      });
+      expect(JSON.parse(ordinaryMiss.body)).toEqual({
+        staticContentMatch: false,
+        staticAsset: false,
+      });
+    });
+
     it('uses function-form WebResponse error handlers when API handling is disabled', async () => {
       server = serveAPI({
         apiEndpoints: { apiEndpointPrefix: false },

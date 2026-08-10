@@ -38,7 +38,7 @@ interface MinimalStatInfo {
 }
 
 /**
- * Negative cache entry type (for 404s and access errors)
+ * Negative cache entry type for missing paths and non-file targets
  */
 interface NegativeCacheEntry {
   notFound: true;
@@ -88,6 +88,7 @@ export interface CreateStreamOptions {
  */
 export type ServeFileResult =
   | { served: false; reason: 'not-found' }
+  | { served: false; reason: 'matched-not-found' }
   | { served: false; reason: 'error'; error: Error }
   | {
       served: true;
@@ -178,6 +179,51 @@ export interface FileFoundResult {
   isImmutableAsset: boolean;
 }
 
+/**
+ * The representation headers serveFile() stages before a file's body is known
+ * to be sendable, and therefore the only ones it may undo afterwards.
+ *
+ * `Content-Range` and `Content-Length` are staged by the 206 branch alone, and
+ * only after the range stream is open. Restoring them is still part of the
+ * same job, because applying the hijacked-response security headers happens
+ * after that and can throw.
+ */
+const stagedFileHeaderNames = [
+  'Last-Modified',
+  'ETag',
+  'Cache-Control',
+  'Content-Type',
+  'Content-Encoding',
+  'Accept-Ranges',
+  'Content-Range',
+  'Content-Length',
+] as const;
+
+type StagedFileHeaderSnapshot = Record<
+  (typeof stagedFileHeaderNames)[number],
+  number | string | string[] | undefined
+>;
+
+/**
+ * Records what the staged representation headers held before serveFile() wrote
+ * its own, so a file that ends up not being sent can restore the caller's
+ * values.
+ *
+ * @param reply The Fastify reply about to receive staged headers
+ * @returns The prior value of each staged header, undefined when it was unset
+ */
+function snapshotStagedFileHeaders(
+  reply: FastifyReply,
+): StagedFileHeaderSnapshot {
+  const snapshot = {} as StagedFileHeaderSnapshot;
+
+  for (const name of stagedFileHeaderNames) {
+    snapshot[name] = reply.getHeader(name);
+  }
+
+  return snapshot;
+}
+
 function waitForReadStreamOpen(stream: fs.ReadStream): Promise<void> {
   if (
     stream.pending === false ||
@@ -205,6 +251,175 @@ function waitForReadStreamOpen(stream: fs.ReadStream): Promise<void> {
     stream.once('open', onOpen);
     stream.once('error', onError);
   });
+}
+
+/**
+ * Closes a read stream that is not going to be consumed, without letting a
+ * failure to close crash the process.
+ *
+ * waitForReadStreamOpen() removes its own listeners once the open resolves, so
+ * a stream discarded after a successful open has no 'error' handler left on it.
+ * fs.ReadStream reports a failed close (EBADF, or EIO on a network mount)
+ * through an 'error' event, and an 'error' with no listener is rethrown out of
+ * the microtask queue and takes the process down. Nothing is going to read
+ * these bytes, so the close failure has no bearing on the response.
+ *
+ * @param stream The read stream to discard
+ */
+function destroyUnusedReadStream(stream: fs.ReadStream): void {
+  stream.on('error', () => {});
+  stream.destroy();
+}
+
+/**
+ * Whether a filesystem error means the requested path cannot exist, as opposed
+ * to the server being unable to read something that does.
+ *
+ * All three codes are reachable from a URL a client chose, so all three have to
+ * stay on the miss path. Escalating any of them hands an anonymous caller a 500
+ * and a log line per request, since a fault is deliberately not written to the
+ * negative cache and so is never answered from it.
+ *
+ * - `ENOENT`: nothing at the path.
+ * - `ENOTDIR`: an intermediate component is a file, so the full path cannot
+ *   resolve.
+ * - `ENAMETOOLONG`: a segment is over `NAME_MAX` (255 bytes on Linux and
+ *   macOS) or the whole path is over `PATH_MAX`. No such file can exist, and
+ *   either a single long URL segment or enough short ones produces it.
+ *
+ * `EACCES`, `EPERM`, `ELOOP`, and `EIO` are deliberately absent. Those describe
+ * a path the server was configured to serve and cannot, which is the fault this
+ * module escalates on purpose. A malformed path is not among them on any
+ * platform we target: libuv maps Windows' `ERROR_INVALID_NAME` and
+ * `ERROR_BAD_PATHNAME` to `ENOENT` and `ERROR_FILENAME_EXCED_RANGE` to
+ * `ENAMETOOLONG`, so a URL Windows cannot name arrives as a code already
+ * listed above rather than as `EINVAL`.
+ *
+ * `EACCES` and `EPERM` have one exception, applied at the `stat()` call site
+ * rather than here because it is true only there. See
+ * isUnsearchablePathError() below.
+ */
+function isMissingPathError(error: NodeJS.ErrnoException): boolean {
+  return (
+    error.code === 'ENOENT' ||
+    error.code === 'ENOTDIR' ||
+    error.code === 'ENAMETOOLONG'
+  );
+}
+
+/**
+ * Whether a `stat()` failure means the path could not be walked at all, rather
+ * than naming something the server cannot read.
+ *
+ * On POSIX this is exact. `stat()` needs search permission on every directory
+ * in the path and consults nothing about the target file itself, so
+ * `EACCES`/`EPERM` from it means an ancestor directory cannot be traversed.
+ * Nothing under such a directory can be resolved, whether or not a file is
+ * there, which makes it indistinguishable from a miss to the caller and
+ * reachable from an unbounded set of client-chosen URLs: one unsearchable
+ * folder inside a mount turns every URL beneath it, including ones naming no
+ * file, into a fault. Escalating those is the per-request 500 and log line that
+ * isMissingPathError() exists to avoid, so they take the miss path and get
+ * negative-cached like any other unresolvable path.
+ *
+ * On Windows the mapping is not exact, and the miss is chosen anyway. Libuv
+ * implements `stat()` there by opening a handle to the target for its
+ * attributes, so a deny ACL on the file itself surfaces as `EACCES` too and is
+ * classified as a miss rather than as the unreadable-target fault it is. The
+ * ambiguity is unavoidable at this call site, and answering an asset 404 is the
+ * better of the two, since the alternative reinstates the unbounded 500s for
+ * the traversal case, which Windows reports identically. Both cases warn once
+ * per directory from the call site, so the misconfiguration is still visible.
+ *
+ * On POSIX a configured file that really is unreadable still escalates. Its own
+ * mode is first consulted when the body is read or its stream is opened, and
+ * `EACCES` there is not treated as a miss.
+ */
+function isUnsearchablePathError(error: NodeJS.ErrnoException): boolean {
+  return error.code === 'EACCES' || error.code === 'EPERM';
+}
+
+/**
+ * Puts the representation headers back to what they were before serveFile()
+ * staged this file's own, for a file that is no longer going to be served.
+ *
+ * They are set before the body is known to be sendable, so a failed stream
+ * open or a failed security-header pass would otherwise hand them to whatever
+ * answers instead: a fall-through page render keeps the asset's Cache-Control
+ * (`immutable` for a fingerprinted name) and its now-stale ETag, and an asset
+ * 404 or an error page keeps the validators, and on the 206 path the range
+ * headers, of a file it did not send. `Vary` is left alone because it is
+ * shared with other hooks (CORS adds `Origin` to it) and compression never
+ * applies to a streamed response anyway.
+ *
+ * Each header is restored to the value the snapshot recorded rather than
+ * simply removed, because these names are not private to static serving: an
+ * earlier onRequest hook may have set its own `Cache-Control` or
+ * `Content-Type` for every response, and deleting it here would drop it from
+ * the fall-through response with nothing left to put it back.
+ *
+ * @param reply The Fastify reply whose headers should be reset
+ * @param snapshot The values captured before the headers were staged
+ */
+function restoreStagedFileHeaders(
+  reply: FastifyReply,
+  snapshot: StagedFileHeaderSnapshot,
+): void {
+  for (const name of stagedFileHeaderNames) {
+    const previous = snapshot[name];
+
+    if (previous === undefined) {
+      reply.removeHeader(name);
+    } else {
+      reply.header(name, previous);
+    }
+  }
+}
+
+/**
+ * Applies the hijacked-response security headers, undoing this file's staged
+ * response if that fails.
+ *
+ * Every branch of serveFile() stages its headers and then calls this, the last
+ * thing that can throw before the reply is hijacked. A per-request CSP or CORS
+ * resolver is application code, so it does throw in practice. The error
+ * propagates untouched and the server's error handling answers, but the file
+ * is not going to be sent, which leaves two things behind for that response to
+ * inherit.
+ *
+ * The stream is one, on the branches that have one. It is opened before these
+ * headers are written, on purpose, so a failed open can still take the normal
+ * error path. Nothing references it once the error propagates, and an
+ * unreferenced `fs.ReadStream` never releases its descriptor on its own.
+ *
+ * The staged headers are the other, on every branch. Rolling them back makes
+ * this path match a failed stream open, so an error response never carries the
+ * validators, `Cache-Control`, or range headers of a file it did not send.
+ * That matters most for `HEAD`, where Fastify keeps a `Content-Length` the
+ * reply already has instead of recomputing it for the payload it sends.
+ *
+ * @param req The Fastify request carrying the hijack-path helper
+ * @param reply The Fastify reply about to receive the headers
+ * @param stream The open read stream, or null on a branch that has no body
+ * @param snapshot The header values captured before this file staged its own
+ */
+async function applySecurityHeadersOrRollBack(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  stream: fs.ReadStream | null,
+  snapshot: StagedFileHeaderSnapshot,
+): Promise<void> {
+  try {
+    await req.applySecurityHeaders?.(reply);
+  } catch (error) {
+    if (stream) {
+      destroyUnusedReadStream(stream);
+    }
+
+    restoreStagedFileHeaders(reply, snapshot);
+
+    throw error;
+  }
 }
 
 /**
@@ -332,11 +547,22 @@ export class StaticContentCache {
   // Optional logger
   private readonly logger?: StaticContentWarnLoggerObject;
 
+  // Directories already reported as unsearchable, so the warning stays one per
+  // directory rather than one per request. Capped because the entries come from
+  // request paths: once it is full the warning simply stops, which is the right
+  // trade for a diagnostic that has already fired for the first
+  // maxUnsearchableDirectoryWarnings directories.
+  private readonly warnedUnsearchableDirectories: Set<string> = new Set();
+  private static readonly maxUnsearchableDirectoryWarnings = 64;
+
   /**
    * Creates a new StaticContentCache instance
    *
    * @param options Static content configuration (file mappings, cache settings, etc.)
-   * @param logger Optional logger (e.g., fastify.log) for error logging
+   * @param logger Optional logger (e.g., fastify.log) for configuration
+   * warnings such as a map entry skipped for a null byte. Per-request faults
+   * are reported to the caller instead, so the server's error handling stays
+   * the single log point for them.
    */
   constructor(
     options: StaticContentRouterOptions,
@@ -449,12 +675,13 @@ export class StaticContentCache {
 
           // Only serve regular files, not directories or special files
           if (!fullStat.isFile()) {
-            // Cache as negative entry with specific TTL
-            this.statCache.set(
-              resolvedPath,
-              { notFound: true },
-              this.negativeCacheTtl,
-            );
+            // A path that used to be a regular file can still have a cached
+            // ETag and body, since the stat cache is sized separately (and by
+            // default larger) than the ETag and content caches, so its entry
+            // can be the one that went. Recording this the same way every other
+            // vanished path is recorded keeps those from outliving the file
+            // they describe.
+            this.markFileMissing(resolvedPath);
 
             return { status: 'not-found' };
           }
@@ -472,32 +699,41 @@ export class StaticContentCache {
           // The TTL was already set when creating the cache
           this.statCache.set(resolvedPath, stat);
         } catch (error) {
-          // File doesn't exist or can't be accessed
-          // Cache as negative entry with specific TTL
-          this.statCache.set(
-            resolvedPath,
-            { notFound: true },
-            this.negativeCacheTtl,
-          );
+          const fsError = error as NodeJS.ErrnoException;
 
-          // Log unexpected errors (like permission issues) but not 'file not found' errors
-          // ENOENT is expected for files that don't exist and shouldn't be logged
-          if (
-            error instanceof Error &&
-            'code' in error &&
-            (error as NodeJS.ErrnoException).code !== 'ENOENT' &&
-            this.logger
-          ) {
-            this.logger.warn(
-              {
-                err: error,
-                path: resolvedPath,
-              },
-              'Unexpected error accessing static file',
-            );
+          // Only a path that cannot exist belongs in the negative cache, which
+          // covers more than ENOENT — see isMissingPathError() for why each
+          // code is a miss. Permission, I/O, and other stat failures are server
+          // faults, and caching them as misses would hide the fault behind
+          // asset 404s until the negative TTL expires.
+          // A stat() failure on an unsearchable ancestor directory is a miss
+          // too, and only at this call site — see isUnsearchablePathError().
+          if (isUnsearchablePathError(fsError)) {
+            // The one miss worth a log line. Every other miss is a URL the
+            // client chose, but this one means a directory the deployment
+            // configured cannot be entered, so a whole subtree answers 404 with
+            // nothing else to notice it by: `dist/` shipped without its execute
+            // bit takes every asset down silently. Warned once per directory
+            // and capped, since the fault is per-directory while the URLs that
+            // reach it are unbounded.
+            this.warnUnsearchableDirectoryOnce(resolvedPath, fsError);
           }
 
-          return { status: 'not-found' };
+          if (isMissingPathError(fsError) || isUnsearchablePathError(fsError)) {
+            this.markFileMissing(resolvedPath);
+
+            return { status: 'not-found' };
+          }
+
+          // Deliberately not logged here. The error is handed back to the
+          // caller, and the static hook rethrows it into the server's error
+          // handling, which already logs it once per request with the method,
+          // url, and requestID. A warn at this level would be a second record
+          // for the same fault on every request, carrying strictly less
+          // context: the serialized error brings its own `code`, `path`, and
+          // `syscall` along with the stack. Config-time problems still warn
+          // from the normalizers below, since nothing downstream reports those.
+          throw error;
         }
       }
 
@@ -522,22 +758,25 @@ export class StaticContentCache {
               buf = await fs.promises.readFile(resolvedPath);
               this.contentCache.set(resolvedPath, buf);
             } catch (error) {
-              // Log unexpected errors when reading file content
               // Cast to NodeJS.ErrnoException to access error codes if needed
               const fsError = error as NodeJS.ErrnoException;
 
-              if (this.logger) {
-                this.logger.warn(
-                  {
-                    err: fsError,
-                    path: resolvedPath,
-                    code: fsError.code,
-                  },
-                  'Error reading static file content',
-                );
+              // A file that disappeared after its stat was cached is a miss,
+              // not a server fault. The stat cache outlives the ETag/content
+              // caches (more entries), so this read is reached with a stale
+              // positive stat whenever the ETag entry was evicted first.
+              // Without invalidating here, the stale stat would keep sending
+              // this path to error handling for the rest of its TTL.
+              if (isMissingPathError(fsError)) {
+                this.markFileMissing(resolvedPath);
+
+                return { status: 'not-found' };
               }
 
-              // Re-throw to be handled by outer error handling
+              // Re-throw to be handled by outer error handling. Not logged
+              // here for the same reason as the stat failure above: the
+              // server's error handling is the single log point for a static
+              // fault that escalates.
               throw error;
             }
           }
@@ -583,33 +822,16 @@ export class StaticContentCache {
             // File disappeared or became inaccessible
             const fsError = error as NodeJS.ErrnoException;
 
-            // If file no longer exists, treat as not-found
-            if (fsError.code === 'ENOENT') {
-              // Invalidate caches since file disappeared
-              this.statCache.set(
-                resolvedPath,
-                { notFound: true },
-                this.negativeCacheTtl,
-              );
-
-              this.etagCache.delete(resolvedPath);
-              this.contentCache.delete(resolvedPath);
+            // If the requested path can no longer exist, treat it as not-found
+            if (isMissingPathError(fsError)) {
+              // Invalidate caches since the path became unavailable
+              this.markFileMissing(resolvedPath);
 
               return { status: 'not-found' };
             }
 
-            // Other errors - log and re-throw
-            if (this.logger) {
-              this.logger.warn(
-                {
-                  err: fsError,
-                  path: resolvedPath,
-                  code: fsError.code,
-                },
-                'Error reading static file content',
-              );
-            }
-
+            // Other errors re-throw unlogged, leaving the server's error
+            // handling as the single log point for the request.
             throw error;
           }
         }
@@ -743,6 +965,35 @@ export class StaticContentCache {
         : etag;
 
       if (clientETag && matchesIfNoneMatch(clientETag, responseETag)) {
+        // A streamed file's body is never touched above — its weak ETag comes
+        // from the stat alone — so nothing so far has established that it can
+        // still be read. Open it here, exactly as the 200/206/HEAD paths do,
+        // and release the descriptor right away. Without this a conditional
+        // request keeps revalidating a target that a plain GET would now report
+        // as missing or escalate as a fault, so a client holding the validator
+        // is told its stale copy is current for the rest of the stat TTL. A
+        // buffered file needed no probe: it was read while its ETag was built.
+        if (fileContent.shouldStream) {
+          const probeStream = fileContent.createStream();
+
+          try {
+            await waitForReadStreamOpen(probeStream);
+            destroyUnusedReadStream(probeStream);
+          } catch (error) {
+            destroyUnusedReadStream(probeStream);
+
+            if (isMissingPathError(error as NodeJS.ErrnoException)) {
+              this.markFileMissing(resolvedPath);
+
+              return { status: 'not-found' };
+            }
+
+            // Escalates as a fault through the outer catch, matching what an
+            // unconditional request for the same unreadable target does.
+            throw error;
+          }
+        }
+
         return {
           status: 'not-modified',
           etag: responseETag,
@@ -829,6 +1080,13 @@ export class StaticContentCache {
       (req as { isStaticAsset?: boolean }).isStaticAsset = true;
     };
 
+    // Capture what these headers held before this method stages its own, so a
+    // response that never gets sent can put the caller's values back instead of
+    // deleting headers an earlier onRequest hook set on the same reply. Taken
+    // ahead of the 304 branch because every branch below stages headers and
+    // then calls out to application code that can throw.
+    const stagedHeaderSnapshot = snapshotStagedFileHeaders(reply);
+
     if (result.status === 'not-modified') {
       // Client's cache is still valid, send 304.
       // Return HTTP 304 Not Modified response (no body). This saves bandwidth
@@ -856,7 +1114,12 @@ export class StaticContentCache {
         .header('ETag', result.etag)
         .header('Last-Modified', result.lastModified);
 
-      await req.applySecurityHeaders?.(reply);
+      await applySecurityHeadersOrRollBack(
+        req,
+        reply,
+        null,
+        stagedHeaderSnapshot,
+      );
       markStaticAsset();
       reply.hijack();
       reply.raw.writeHead(304, reply.getHeaders() as OutgoingHttpHeaders);
@@ -919,7 +1182,12 @@ export class StaticContentCache {
           .header('Cache-Control', 'no-store')
           .type('application/json')
           .header('Content-Length', String(Buffer.byteLength(body)));
-        await req.applySecurityHeaders?.(reply);
+        await applySecurityHeadersOrRollBack(
+          req,
+          reply,
+          null,
+          stagedHeaderSnapshot,
+        );
         markStaticAsset();
         reply.hijack();
         reply.raw.writeHead(400, reply.getHeaders() as OutgoingHttpHeaders);
@@ -933,7 +1201,12 @@ export class StaticContentCache {
           .type('application/json')
           .header('Content-Range', `bytes */${result.stat.size}`)
           .header('Content-Length', String(Buffer.byteLength(body)));
-        await req.applySecurityHeaders?.(reply);
+        await applySecurityHeadersOrRollBack(
+          req,
+          reply,
+          null,
+          stagedHeaderSnapshot,
+        );
         markStaticAsset();
         reply.hijack();
         reply.raw.writeHead(416, reply.getHeaders() as OutgoingHttpHeaders);
@@ -943,9 +1216,34 @@ export class StaticContentCache {
 
       const [start, end] = range;
       const chunkSize = end - start + 1;
+
+      // Every header below comes from the cached stat, but the stream is still
+      // opened on HEAD, because the open is the only point at which a streamed
+      // file's readability is checked at all — getFile() never touches its
+      // body. Skipping it would answer a HEAD for an unreadable asset with a
+      // 206 while the matching GET escalates to the server's error handling,
+      // and would put the same size-dependent split back that this module
+      // removes elsewhere, since a small file is read while its ETag is built.
+      // The descriptor is released immediately afterwards: a HEAD response has
+      // no body, and leaving the stream unread and undestroyed is exactly the
+      // leak that a range-probing client used to walk into the fd limit.
+      const isHeadRange = req.method === 'HEAD';
       const rangeStream = result.content.createStream({ start, end });
 
-      await waitForReadStreamOpen(rangeStream);
+      const rangeOpenFailure = await this.openReadStream(
+        rangeStream,
+        resolvedPath,
+      );
+
+      if (rangeOpenFailure) {
+        restoreStagedFileHeaders(reply, stagedHeaderSnapshot);
+
+        return rangeOpenFailure;
+      }
+
+      if (isHeadRange) {
+        destroyUnusedReadStream(rangeStream);
+      }
 
       // Set headers for partial content response
       reply
@@ -953,13 +1251,18 @@ export class StaticContentCache {
         .header('Content-Range', `bytes ${start}-${end}/${result.stat.size}`)
         .header('Content-Length', chunkSize.toString());
 
-      await req.applySecurityHeaders?.(reply);
+      await applySecurityHeadersOrRollBack(
+        req,
+        reply,
+        isHeadRange ? null : rangeStream,
+        stagedHeaderSnapshot,
+      );
       markStaticAsset();
       reply.hijack();
       reply.raw.writeHead(206, reply.getHeaders() as OutgoingHttpHeaders);
 
-      // HEAD — headers are set; skip stream creation entirely (no fd opened, no disk I/O)
-      if (req.method === 'HEAD') {
+      // HEAD — headers are set and the validating stream is already destroyed
+      if (isHeadRange) {
         reply.raw.end();
         return { served: true, statusCode: 206 };
       }
@@ -971,6 +1274,28 @@ export class StaticContentCache {
 
     // HEAD — set Content-Length from stat, then end without a body
     if (req.method === 'HEAD') {
+      // A streamed file's body is never touched by getFile(), so open it here
+      // to confirm it can be read and release the descriptor right away, the
+      // same way the range branch above does. A buffered file was already read
+      // while its ETag was built, so it needs nothing extra, and without this
+      // the answer for an unreadable asset would depend on its size.
+      if (result.content.shouldStream) {
+        const headStream = result.content.createStream();
+
+        const headOpenFailure = await this.openReadStream(
+          headStream,
+          resolvedPath,
+        );
+
+        if (headOpenFailure) {
+          restoreStagedFileHeaders(reply, stagedHeaderSnapshot);
+
+          return headOpenFailure;
+        }
+
+        destroyUnusedReadStream(headStream);
+      }
+
       // When the response would be compressed, report the compressed size so
       // the Content-Length matches what a GET would actually transfer.
       // Compressed responses are always buffered (!shouldStream), so narrow first.
@@ -979,7 +1304,12 @@ export class StaticContentCache {
           ? result.content.data.length
           : result.stat.size;
       reply.header('Content-Length', headContentLength.toString());
-      await req.applySecurityHeaders?.(reply);
+      await applySecurityHeadersOrRollBack(
+        req,
+        reply,
+        null,
+        stagedHeaderSnapshot,
+      );
       markStaticAsset();
       reply.hijack();
       reply.raw.writeHead(
@@ -996,10 +1326,24 @@ export class StaticContentCache {
       : null;
 
     if (fullFileStream) {
-      await waitForReadStreamOpen(fullFileStream);
+      const openFailure = await this.openReadStream(
+        fullFileStream,
+        resolvedPath,
+      );
+
+      if (openFailure) {
+        restoreStagedFileHeaders(reply, stagedHeaderSnapshot);
+
+        return openFailure;
+      }
     }
 
-    await req.applySecurityHeaders?.(reply);
+    await applySecurityHeadersOrRollBack(
+      req,
+      reply,
+      fullFileStream,
+      stagedHeaderSnapshot,
+    );
 
     if (!result.content.shouldStream) {
       // reply.raw.end(buffer) does not get Fastify's normal Content-Length
@@ -1362,7 +1706,13 @@ export class StaticContentCache {
             // '/.DS_Store' → renamed file), because that map is an exact-match
             // opt-in the caller chose — the sole escape hatch.
             if (isOSJunkPath(url)) {
-              return { served: false, reason: 'not-found' };
+              // This remains an asset-specific miss for the configured folder
+              // mapping, even though the guard deliberately avoids resolving
+              // or serving it. SSR can use its opt-in static 404 and API/plain
+              // not-found handlers can identify it without inspecting paths.
+              (req as { isStaticContentMatch?: boolean }).isStaticContentMatch =
+                true;
+              return { served: false, reason: 'matched-not-found' };
             }
 
             resolved = path.join(folderConfig.path, safeRelativePath);
@@ -1375,10 +1725,126 @@ export class StaticContentCache {
     // If we found a file to serve, serve it
     // otherwise: return not-found (let hook fall through)
     if (resolved) {
-      return this.serveFile(req, reply, resolved, { shouldDetectImmutable });
+      // This is deliberately different from isStaticAsset. A configured static
+      // mapping matched, but the target may still be missing or fail to serve.
+      // Normal API/plain not-found handlers can use this late marker to choose
+      // an asset-specific response without treating arbitrary paths as static
+      // requests.
+      (req as { isStaticContentMatch?: boolean }).isStaticContentMatch = true;
+
+      const result = await this.serveFile(req, reply, resolved, {
+        shouldDetectImmutable,
+      });
+
+      if (!result.served && result.reason === 'not-found') {
+        return { served: false, reason: 'matched-not-found' };
+      }
+
+      return result;
     }
 
     return { served: false, reason: 'not-found' };
+  }
+
+  /**
+   * Warns that a directory cannot be searched, at most once per directory.
+   *
+   * A stat() permission failure is answered as a miss, so without this the
+   * deployment mistake behind it (a directory shipped without its execute bit,
+   * or owned by another user) would produce a subtree of asset 404s and no
+   * record anywhere. It is not the per-request fault logging that this module
+   * leaves to the server's error handling: it fires once for the directory, not
+   * once for each of the unbounded URLs that resolve under it.
+   *
+   * @param resolvedPath The absolute path whose stat() was denied
+   * @param error The originating filesystem error
+   */
+  private warnUnsearchableDirectoryOnce(
+    resolvedPath: string,
+    error: NodeJS.ErrnoException,
+  ): void {
+    if (!this.logger) {
+      return;
+    }
+
+    const directory = path.dirname(resolvedPath);
+
+    if (
+      this.warnedUnsearchableDirectories.has(directory) ||
+      this.warnedUnsearchableDirectories.size >=
+        StaticContentCache.maxUnsearchableDirectoryWarnings
+    ) {
+      return;
+    }
+
+    this.warnedUnsearchableDirectories.add(directory);
+
+    this.logger.warn(
+      {
+        err: error,
+        path: directory,
+        code: error.code,
+      },
+      'Static content cannot search a mapped directory, so every file under it is answered as not found. Check its permissions and ownership.',
+    );
+  }
+
+  /**
+   * Records that a previously known file is gone, so later requests take the
+   * negative-cache path instead of failing against stale stat/ETag entries.
+   *
+   * @param resolvedPath The absolute path that disappeared
+   */
+  private markFileMissing(resolvedPath: string): void {
+    this.statCache.set(resolvedPath, { notFound: true }, this.negativeCacheTtl);
+    this.etagCache.delete(resolvedPath);
+    this.contentCache.delete(resolvedPath);
+  }
+
+  /**
+   * Opens a read stream and reports a failure as a ServeFileResult.
+   *
+   * Small files are read inside getFile(), so their failures are already
+   * converted to a result there. A large file is never read by getFile() (its
+   * weak ETag comes from stat alone and its body is deferred to a stream
+   * factory so ranges can open just the slice they need), so the open is the
+   * first time the body is touched. Mapping the failure here keeps both size
+   * classes on the same contract: a vanished file is a miss, and anything else
+   * is an error the caller can escalate.
+   *
+   * @param stream The read stream to open
+   * @param resolvedPath The absolute path being opened, for cache invalidation
+   * @returns A failure result, or undefined once the stream is open
+   */
+  private async openReadStream(
+    stream: fs.ReadStream,
+    resolvedPath: string,
+  ): Promise<ServeFileResult | undefined> {
+    try {
+      await waitForReadStreamOpen(stream);
+      return undefined;
+    } catch (error) {
+      destroyUnusedReadStream(stream);
+
+      const fsError = error as NodeJS.ErrnoException;
+
+      // Lost or obstructed between stat() and open(), the streamed counterpart
+      // of the missing-path errors the buffered read reports as not-found.
+      if (isMissingPathError(fsError)) {
+        this.markFileMissing(resolvedPath);
+
+        return { served: false, reason: 'not-found' };
+      }
+
+      // Reported to the caller rather than logged here, matching getFile():
+      // the hook rethrows this into the server's error handling, which is the
+      // single log point for the request.
+      return {
+        served: false,
+        reason: 'error',
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
   }
 
   /**

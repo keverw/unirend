@@ -196,6 +196,16 @@ export class SSRServerComponent extends BaseComponent {
           // Your ApplicationError component should use a consistent style with whatever you put here.
           get500ErrorPage,
           //
+          // Advanced static asset request paths (disabled by default): a server-wide
+          // early hint for common infrastructure paths, not an app-specific
+          // static mapping or app-selection mechanism. A later individual-user
+          // plugin, such as session resolution, can skip its own work, but
+          // tenant selection and security plugins must still run for every request.
+          // staticRequestPaths: ['/favicon.ico', '/robots.txt', '/assets/**'],
+          //
+          // A standalone 404 for a mapped asset that is missing is built-mode
+          // only, so it lives in the serveSSRBuilt branch below rather than here.
+          //
           // Customize API error and not-found responses (both page-data data loader and plain API routes).
           // Handlers return API envelopes (JSON), not raw HTML — use get500ErrorPage above for
           // the raw-HTML fallback when SSR rendering itself fails before React can run.
@@ -323,6 +333,12 @@ export class SSRServerComponent extends BaseComponent {
             // public/ itself. Undeclared public/ files 404 on the built server.
             publicFiles: PUBLIC_FILES,
             publicFolders: PUBLIC_FOLDERS,
+            // Standalone HTML for a mapped static asset whose file is absent,
+            // instead of the React 404. Production only, for the same reason as
+            // publicFiles above: in HMR mode Vite owns asset handling, so
+            // serveSSRWithHMR does not accept this option.
+            // getStaticNotFoundPage: async (request, isDevelopment) =>
+            //   '<!doctype html><title>404 - Asset Not Found</title><h1>404 - Asset Not Found</h1>',
             // See 'unirend/plugins' for built-in plugins (securityHeaders, domainValidation, cookies, etc.).
             // Adding securityHeaders with a csp? See the note above this branch.
             plugins: [cookies(), themePlugin()],

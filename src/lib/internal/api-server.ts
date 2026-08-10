@@ -65,6 +65,10 @@ import {
   registerResponseTimeHijackPatch,
 } from './response-time-header';
 import { deepFreeze } from './utils';
+import {
+  createStaticRequestMatcher,
+  setStaticRequestClassification,
+} from './static-request-paths';
 
 function createDisabledAPIRouteShortcuts(): PluginAPIRouteShortcuts {
   const throwDisabled = () => {
@@ -121,6 +125,7 @@ export class APIServer<
   // Can be false if API handling is disabled (server becomes a plain web server)
   private readonly normalizedAPIPrefix: string | false;
   private readonly normalizedPageDataEndpoint: string;
+  private readonly isStaticRequestPath: (pathname: string) => boolean;
 
   // Options are spread from a conditional tuple rather than declared optional,
   // so omitting them is a compile error once `H` is a custom helpers class.
@@ -139,6 +144,9 @@ export class APIServer<
 
     this.serverLabel = options.serverLabel ?? 'API';
     this._accessLog = new AccessLogPlugin(this.serverLabel, options.accessLog);
+    this.isStaticRequestPath = createStaticRequestMatcher(
+      options.staticRequestPaths,
+    );
 
     // Normalize API endpoint config once at construction
     this.normalizedAPIPrefix = normalizeAPIPrefix(
@@ -288,6 +296,9 @@ export class APIServer<
       // Decorate requests with environment info
       // The default here is just a shape hint for Fastify; the live value is set per-request in the onRequest hook below.
       this.fastifyInstance.decorateRequest('isDevelopment', false);
+      this.fastifyInstance.decorateRequest('isStaticAsset', false);
+      this.fastifyInstance.decorateRequest('isStaticRequest', false);
+      this.fastifyInstance.decorateRequest('isStaticContentMatch', false);
       this.fastifyInstance.decorateRequest('serverLabel', this.serverLabel);
       this.fastifyInstance.decorateRequest('publicAppConfig', undefined);
 
@@ -320,6 +331,13 @@ export class APIServer<
         // Default false — set true by the static content handler if a static file is served
         // (e.g. via the staticContent plugin from unirend/plugins).
         (request as { isStaticAsset?: boolean }).isStaticAsset = false;
+
+        // Becomes true later only when a configured static mapping matches.
+        // Unlike isStaticAsset, it remains true for a mapped file that falls
+        // through to this server's not-found handler.
+        (request as { isStaticContentMatch?: boolean }).isStaticContentMatch =
+          false;
+        setStaticRequestClassification(request, this.isStaticRequestPath);
 
         request.publicAppConfig = this.options.publicAppConfig
           ? deepFreeze(structuredClone(this.options.publicAppConfig))

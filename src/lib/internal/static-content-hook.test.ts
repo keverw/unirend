@@ -366,5 +366,44 @@ describe('createStaticContentHook', () => {
       // an empty body (no stream created, no file I/O wasted)
       expect(result).toBeDefined();
     });
+
+    it('rethrows a read failure instead of reporting it as a miss', async () => {
+      // A mapped target that exists but cannot be read is a server fault. If
+      // the result were returned, SSR would fall through to an ordinary page
+      // render and an API server to its notFoundHandler, both hiding a real
+      // filesystem problem behind a normal-looking response.
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/test.txt': '/path/to/test.txt' },
+      });
+
+      const failure = new Error('EACCES reading static file');
+
+      cache.handleRequest = mock(() =>
+        Promise.resolve({
+          served: false as const,
+          reason: 'error' as const,
+          error: failure,
+        }),
+      );
+
+      const req = createMockRequest('/test.txt');
+      const reply = createMockReply();
+
+      // Awaited rather than left floating, so the assertion cannot outlive
+      // the test. The original Error instance has to survive the rethrow for
+      // an error handler to report anything useful about it.
+      await staticContentHookHandler(
+        cache,
+        req as FastifyRequest,
+        reply as FastifyReply,
+      ).then(
+        () => {
+          throw new Error('Expected the handler to rethrow the read failure');
+        },
+        (error: unknown) => {
+          expect(error).toBe(failure);
+        },
+      );
+    });
   });
 });
