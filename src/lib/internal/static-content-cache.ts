@@ -250,6 +250,35 @@ function isMissingPathError(error: NodeJS.ErrnoException): boolean {
 }
 
 /**
+ * Applies the hijacked-response security headers, closing an already-open file
+ * stream if that fails.
+ *
+ * The stream is opened before these headers are written, on purpose, so a
+ * failed open can still take the normal error path. That leaves a live file
+ * descriptor sitting behind a call that can throw, since a per-request CSP or
+ * CORS resolver is application code. The error still propagates untouched, but
+ * nothing references the stream once it does, and an unreferenced
+ * `fs.ReadStream` never releases its descriptor on its own.
+ *
+ * @param req The Fastify request carrying the hijack-path helper
+ * @param reply The Fastify reply about to receive the headers
+ * @param stream The open read stream, or null when no body will be streamed
+ */
+async function applySecurityHeadersForStream(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  stream: fs.ReadStream | null,
+): Promise<void> {
+  try {
+    await req.applySecurityHeaders?.(reply);
+  } catch (error) {
+    stream?.destroy();
+
+    throw error;
+  }
+}
+
+/**
  * Union type for all possible getFile() results
  */
 export type FileResult =
@@ -1023,7 +1052,7 @@ export class StaticContentCache {
         .header('Content-Range', `bytes ${start}-${end}/${result.stat.size}`)
         .header('Content-Length', chunkSize.toString());
 
-      await req.applySecurityHeaders?.(reply);
+      await applySecurityHeadersForStream(req, reply, rangeStream);
       markStaticAsset();
       reply.hijack();
       reply.raw.writeHead(206, reply.getHeaders() as OutgoingHttpHeaders);
@@ -1078,7 +1107,7 @@ export class StaticContentCache {
       }
     }
 
-    await req.applySecurityHeaders?.(reply);
+    await applySecurityHeadersForStream(req, reply, fullFileStream);
 
     if (!result.content.shouldStream) {
       // reply.raw.end(buffer) does not get Fastify's normal Content-Length

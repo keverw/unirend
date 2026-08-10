@@ -713,6 +713,60 @@ describe('StaticContentCache', () => {
       expect(sentData.headers).toEqual({ 'Cache-Control': 'no-store' });
     });
 
+    it('closes an opened file stream when applying security headers fails', async () => {
+      // The stream is opened before these headers are written so a failed open
+      // can still take the normal error path, which leaves a live fd behind a
+      // call that can throw: a per-request CSP or CORS resolver is application
+      // code. The error still propagates, but nothing references the stream
+      // afterwards, and an unreferenced read stream never closes on its own.
+      const headerCases: Array<Record<string, string>> = [
+        {},
+        { range: 'bytes=0-99' },
+      ];
+
+      for (const headers of headerCases) {
+        const cache = new StaticContentCache({
+          smallFileMaxSize: 10,
+        });
+        const req = createMockRequest('/test.txt', 'GET', headers);
+        const failure = new Error('security header resolution failed');
+        (
+          req as { applySecurityHeaders?: () => Promise<void> }
+        ).applySecurityHeaders = mock(() => Promise.reject(failure));
+        const { reply } = createMockReply();
+
+        mockFs.stat.mockResolvedValue({
+          isFile: () => true,
+          size: 1000,
+          mtime: new Date(),
+          // eslint-disable-next-line @typescript-eslint/naming-convention
+          mtimeMs: Date.now(),
+        } as fs.Stats);
+
+        let openedStream: fs.ReadStream | undefined;
+        mockFs.createReadStream.mockImplementation(() => {
+          openedStream = createMockFSReadStream(['file bytes']);
+
+          return openedStream;
+        });
+
+        let caught: unknown;
+        await cache
+          .serveFile(
+            req as FastifyRequest,
+            reply as FastifyReply,
+            '/path/to/file.txt',
+          )
+          .catch((error: unknown) => {
+            caught = error;
+          });
+
+        expect(caught).toBe(failure);
+        expect(openedStream?.destroyed).toBe(true);
+        expect((reply as { sent: boolean }).sent).toBe(false);
+      }
+    });
+
     it('reports compressed Content-Length for HEAD requests on compressible files', async () => {
       const cache = new StaticContentCache({});
       const req = createMockRequest('/test.txt', 'HEAD', {

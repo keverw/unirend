@@ -73,6 +73,50 @@ describe('createStaticRequestMatcher()', () => {
     expect(matches('/assets/../secret')).toBe(false);
   });
 
+  it('treats a backslash as an ordinary character on a Windows host', () => {
+    // Picomatch picks its mode from the host platform unless told otherwise,
+    // and its Windows mode rewrites a backslash in the input to '/' before
+    // matching. Fastify routes '/assets\\main.js' as that literal path, so
+    // reading it as '/assets/main.js' would classify a request that really
+    // reaches the catch-all route.
+    //
+    // The host has to be faked, because on a POSIX machine the unpinned
+    // default is already POSIX and this passes whether or not the matcher
+    // pins it. Picomatch reads `navigator.platform` before `process.platform`
+    // and does the detection when the matcher is built, so stubbing the
+    // global around the call is enough.
+    const originalNavigator = Object.getOwnPropertyDescriptor(
+      globalThis,
+      'navigator',
+    );
+
+    Object.defineProperty(globalThis, 'navigator', {
+      value: { platform: 'Win32' },
+      configurable: true,
+      writable: true,
+    });
+
+    try {
+      const matches = createStaticRequestMatcher(['/assets/**']);
+
+      expect(matches('/assets\\main.js')).toBe(false);
+      expect(matches('/assets/main.js')).toBe(true);
+
+      const request = {
+        url: '/assets\\main.js',
+        isStaticRequest: false,
+      } as FastifyRequest;
+      setStaticRequestClassification(request, matches);
+      expect(request.isStaticRequest).toBe(false);
+    } finally {
+      if (originalNavigator) {
+        Object.defineProperty(globalThis, 'navigator', originalNavigator);
+      } else {
+        delete (globalThis as { navigator?: unknown }).navigator;
+      }
+    }
+  });
+
   it('matches dot segments in a path, unlike picomatch defaults', () => {
     const matches = createStaticRequestMatcher(['/assets/**', '/**']);
 

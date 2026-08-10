@@ -32,7 +32,16 @@ export function createStaticRequestMatcher(
     // `dot: true` so a segment beginning with '.' is matched by '*' and '**'.
     // Picomatch's default hides paths like '/.well-known/acme-challenge/token'
     // from a '/**' pattern, which is surprising for URL path matching.
-    return picomatch(patterns, { dot: true });
+    //
+    // `windows: false` because these are URL paths, never filesystem paths.
+    // Picomatch otherwise picks the mode from `process.platform`, and its
+    // Windows mode rewrites a backslash in the input to '/' before matching.
+    // Fastify routes '/assets\main.js' as that literal path, so letting it be
+    // read as '/assets/main.js' would classify a request that really reaches
+    // the catch-all route, and only on a Windows host. Pinning POSIX also
+    // keeps pattern parsing identical everywhere, since the two modes disagree
+    // on whether a backslash is an escape or a separator.
+    return picomatch(patterns, { dot: true, windows: false });
   } catch (error) {
     throw new Error(
       `Invalid staticRequestPaths pattern: ${error instanceof Error ? error.message : String(error)}`,
