@@ -72,7 +72,11 @@ The `__ssOnly` field is reserved for Unirend internals. It is set and consumed b
 
 #### How It Works
 
-1. **Status Codes**: Unirend checks for `status_code` in loader data and uses it for the HTTP response
+1. **Status Codes**: The status starts as React Router's own verdict, which is `404` when no route matched, a thrown error's own status or `500` when a loader threw, and `200` otherwise. Unirend then checks for `status_code` in loader data and uses it for the HTTP response, but only while the status is still `200`, so an envelope can set a status without overriding a router `404` or an error status
 2. **Error Handling**: The `error.message` and `error.details.stack` are extracted for error reporting
 3. **Server-Only Data**: `__ssOnly` data is available during rendering but removed before client hydration
 4. **Priority**: React Router errors take precedence over envelope errors
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> A wildcard `path: '*'` route matches every URL, so React Router reports `200` rather than its automatic `404`. Give that route a loader returning a `404` envelope, which is what the SSR starter template does, or the page renders as a soft 404 that crawlers and uptime checks read as success.

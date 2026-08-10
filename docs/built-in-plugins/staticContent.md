@@ -712,7 +712,7 @@ pkill -HUP -f "node.*serve"
 npm run ssg:build && kill -HUP $(cat server.pid)
 ```
 
-See [SSG documentation](./ssg.md#page-map-output) for details on generating `page-map.json`.
+See [SSG documentation](../ssg.md#page-map-output) for details on generating `page-map.json`.
 
 ## Plugin Dependencies
 
