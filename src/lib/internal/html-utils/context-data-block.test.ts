@@ -147,7 +147,7 @@ describe('renderContextDataElements', () => {
 
   it('publishes a bootstrap hash matching the delivered script content', () => {
     const [, bootstrap] = renderContextDataElements(BASE);
-    const match = /<script>([\s\S]*)<\/script>/.exec(bootstrap);
+    const match = /<script>([\s\S]*)<\/script>/i.exec(bootstrap);
 
     expect(match).not.toBeNull();
     expect(hashInlineContentForCSP(match?.[1] ?? '')).toBe(

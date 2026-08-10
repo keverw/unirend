@@ -2322,7 +2322,7 @@ describe('template CSP hashes', () => {
     expect(result.success).toBe(true);
 
     if (result.success) {
-      const delivered = /<script>([\s\S]*?)<\/script>/.exec(result.html)?.[1];
+      const delivered = /<script>([\s\S]*?)<\/script>/i.exec(result.html)?.[1];
 
       expect(delivered).toBeDefined();
       expect(result.cspHashes.scriptSrc).toContain(
@@ -2478,7 +2478,7 @@ describe('template CSP hashes', () => {
       // Read back out of the output rather than hashing `live`, since the
       // prettifier re-indents script content and the digest covers what ships.
       // Same reason as "hashes what shipped, not what was passed in" above.
-      const delivered = /<script[^>]*>([\s\S]*?)<\/script>/.exec(
+      const delivered = /<script[^>]*>([\s\S]*?)<\/script>/i.exec(
         result.html,
       )?.[1];
 
