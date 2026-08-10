@@ -213,6 +213,16 @@ describe('StaticContentCache', () => {
       expect(result.status).toBe('not-found');
     });
 
+    it('returns not-found when an intermediate path component is not a directory', async () => {
+      const cache = new StaticContentCache({});
+
+      mockFs.stat.mockRejectedValue({ code: 'ENOTDIR' });
+
+      const result = await cache.getFile('/assets/file/child.js');
+
+      expect(result.status).toBe('not-found');
+    });
+
     it('returns an error for a stat failure and does not negative-cache it', async () => {
       const cache = new StaticContentCache({});
       const error = new Error('Permission denied');
@@ -911,90 +921,95 @@ describe('StaticContentCache', () => {
       expect(request.isStaticContentMatch).toBe(true);
     });
 
-    it('treats a small file that vanished before its ETag read as a matched miss', async () => {
+    it('treats a small file that becomes unavailable before its ETag read as a matched miss', async () => {
       // The stat cache holds more entries than the ETag cache, so a small
       // file can reach the ETag read with a live stat and no cached ETag. A
-      // file deleted in that window is still a miss, and the stale positive
-      // stat has to be invalidated or every later request repeats the failure
-      // until its TTL runs out.
-      const cache = new StaticContentCache({
-        singleAssetMap: { '/a.js': '/path/to/a.js' },
-      });
-      const request = createMockRequest('/a.js') as FastifyRequest;
-      (request as { isStaticContentMatch?: boolean }).isStaticContentMatch =
-        false;
-      const { reply } = createMockReply();
+      // file deleted in that window, or hidden when an ancestor becomes a
+      // regular file, is still a miss. The stale positive stat has to be
+      // invalidated or every later request repeats the failure until its TTL
+      // runs out.
+      for (const code of ['ENOENT', 'ENOTDIR'] as const) {
+        const cache = new StaticContentCache({
+          singleAssetMap: { '/a.js': '/path/to/a.js' },
+        });
+        const request = createMockRequest('/a.js') as FastifyRequest;
+        (request as { isStaticContentMatch?: boolean }).isStaticContentMatch =
+          false;
+        const { reply } = createMockReply();
 
-      mockFs.stat.mockResolvedValue({
-        isFile: () => true,
-        size: 12,
-        mtime: new Date(),
-        // eslint-disable-next-line @typescript-eslint/naming-convention
-        mtimeMs: Date.now(),
-      } as fs.Stats);
+        mockFs.stat.mockResolvedValue({
+          isFile: () => true,
+          size: 12,
+          mtime: new Date(),
+          // eslint-disable-next-line @typescript-eslint/naming-convention
+          mtimeMs: Date.now(),
+        } as fs.Stats);
 
-      mockFs.readFile.mockRejectedValue(
-        Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' }),
-      );
+        mockFs.readFile.mockRejectedValue(
+          Object.assign(new Error(`${code}: path unavailable`), { code }),
+        );
 
-      const result = await cache.handleRequest(
-        '/a.js',
-        request,
-        reply as FastifyReply,
-      );
+        const result = await cache.handleRequest(
+          '/a.js',
+          request,
+          reply as FastifyReply,
+        );
 
-      expect(result).toEqual({ served: false, reason: 'matched-not-found' });
+        expect(result).toEqual({ served: false, reason: 'matched-not-found' });
 
-      // The negative cache entry replaced the stale stat, so the repeat
-      // request answers without touching disk again.
-      mockFs.stat.mockClear();
+        // The negative cache entry replaced the stale stat, so the repeat
+        // request answers without touching disk again.
+        mockFs.stat.mockClear();
 
-      const repeat = await cache.handleRequest(
-        '/a.js',
-        request,
-        reply as FastifyReply,
-      );
+        const repeat = await cache.handleRequest(
+          '/a.js',
+          request,
+          reply as FastifyReply,
+        );
 
-      expect(repeat).toEqual({ served: false, reason: 'matched-not-found' });
-      expect(mockFs.stat).not.toHaveBeenCalled();
+        expect(repeat).toEqual({ served: false, reason: 'matched-not-found' });
+        expect(mockFs.stat).not.toHaveBeenCalled();
+      }
     });
 
-    it('treats a streamed file that vanished after stat as a matched miss', async () => {
+    it('treats a streamed file that becomes unavailable after stat as a matched miss', async () => {
       // getFile() never reads a large file, so a target lost between stat()
       // and open() first shows up at the stream. It has to land on the same
-      // miss the buffered read path already reports for a vanished file.
-      const cache = new StaticContentCache({
-        smallFileMaxSize: 10,
-        singleAssetMap: { '/big.bin': '/path/to/big.bin' },
-      });
-      const request = createMockRequest('/big.bin') as FastifyRequest;
-      (request as { isStaticContentMatch?: boolean }).isStaticContentMatch =
-        false;
-      const { reply } = createMockReply();
+      // miss the buffered read path reports for an unavailable path.
+      for (const code of ['ENOENT', 'ENOTDIR'] as const) {
+        const cache = new StaticContentCache({
+          smallFileMaxSize: 10,
+          singleAssetMap: { '/big.bin': '/path/to/big.bin' },
+        });
+        const request = createMockRequest('/big.bin') as FastifyRequest;
+        (request as { isStaticContentMatch?: boolean }).isStaticContentMatch =
+          false;
+        const { reply } = createMockReply();
 
-      mockFs.stat.mockResolvedValue({
-        isFile: () => true,
-        size: 1000,
-        mtime: new Date(),
-        // eslint-disable-next-line @typescript-eslint/naming-convention
-        mtimeMs: Date.now(),
-      } as fs.Stats);
+        mockFs.stat.mockResolvedValue({
+          isFile: () => true,
+          size: 1000,
+          mtime: new Date(),
+          // eslint-disable-next-line @typescript-eslint/naming-convention
+          mtimeMs: Date.now(),
+        } as fs.Stats);
 
-      mockFs.createReadStream.mockImplementation(() =>
-        createMockFSReadStream(
-          [],
-          Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' }),
-        ),
-      );
+        mockFs.createReadStream.mockImplementation(() =>
+          createMockFSReadStream(
+            [],
+            Object.assign(new Error(`${code}: path unavailable`), { code }),
+          ),
+        );
 
-      const result = await cache.handleRequest(
-        '/big.bin',
-        request,
-        reply as FastifyReply,
-      );
+        const result = await cache.handleRequest(
+          '/big.bin',
+          request,
+          reply as FastifyReply,
+        );
 
-      expect(result).toEqual({ served: false, reason: 'matched-not-found' });
-      expect(request.isStaticContentMatch).toBe(true);
+        expect(result).toEqual({ served: false, reason: 'matched-not-found' });
+        expect(request.isStaticContentMatch).toBe(true);
+      }
     });
 
     it('returns not-found for unmapped URLs', async () => {

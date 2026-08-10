@@ -245,6 +245,10 @@ function waitForReadStreamOpen(stream: fs.ReadStream): Promise<void> {
   });
 }
 
+function isMissingPathError(error: NodeJS.ErrnoException): boolean {
+  return error.code === 'ENOENT' || error.code === 'ENOTDIR';
+}
+
 /**
  * Union type for all possible getFile() results
  */
@@ -513,10 +517,12 @@ export class StaticContentCache {
           const fsError = error as NodeJS.ErrnoException;
 
           // Only a path that is genuinely absent belongs in the negative
-          // cache. Permission, I/O, and other stat failures are server faults,
+          // cache. ENOTDIR is also a miss for the requested target, since an
+          // intermediate component being a file means the full path cannot
+          // exist. Permission, I/O, and other stat failures are server faults,
           // and caching them as misses would hide the fault behind asset 404s
           // until the negative TTL expires.
-          if (fsError.code === 'ENOENT') {
+          if (isMissingPathError(fsError)) {
             this.markFileMissing(resolvedPath);
 
             return { status: 'not-found' };
@@ -568,7 +574,7 @@ export class StaticContentCache {
               // positive stat whenever the ETag entry was evicted first.
               // Without invalidating here, the stale stat would keep sending
               // this path to error handling for the rest of its TTL.
-              if (fsError.code === 'ENOENT') {
+              if (isMissingPathError(fsError)) {
                 this.markFileMissing(resolvedPath);
 
                 return { status: 'not-found' };
@@ -631,9 +637,9 @@ export class StaticContentCache {
             // File disappeared or became inaccessible
             const fsError = error as NodeJS.ErrnoException;
 
-            // If file no longer exists, treat as not-found
-            if (fsError.code === 'ENOENT') {
-              // Invalidate caches since file disappeared
+            // If the requested path can no longer exist, treat it as not-found
+            if (isMissingPathError(fsError)) {
+              // Invalidate caches since the path became unavailable
               this.markFileMissing(resolvedPath);
 
               return { status: 'not-found' };
@@ -1550,9 +1556,9 @@ export class StaticContentCache {
 
       const fsError = error as NodeJS.ErrnoException;
 
-      // Lost between stat() and open(), the streamed counterpart of the
-      // ENOENT the buffered read path already reports as not-found.
-      if (fsError.code === 'ENOENT') {
+      // Lost or obstructed between stat() and open(), the streamed counterpart
+      // of the missing-path errors the buffered read reports as not-found.
+      if (isMissingPathError(fsError)) {
         this.markFileMissing(resolvedPath);
 
         return { served: false, reason: 'not-found' };
