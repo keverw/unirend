@@ -206,9 +206,9 @@ Setting any other CORS field without an `origin` is refused at startup. With not
   - Every name has to be a valid header name, checked at startup, as do `methods` and `exposedHeaders` entries. All three lists go into their response header verbatim, and a browser drops a header value it cannot parse rather than the offending entry, so one name spelled `"Content Type"` takes every other name in the list down with it and the request fails cross-origin under a policy that reads as though it permits exactly what was asked for. Method and field names share one grammar, the RFC 9110 `token`. A bare `"*"` satisfies it in all three fields, since `*` is a legal token character. Whitespace around an entry is refused rather than trimmed, so what the configuration says is what ships. A repeated entry is refused too, compared without regard to case, since field names are case-insensitive and methods are upper-cased on the way out: a second copy adds nothing to the header and usually means a list assembled from two places.
   - `[]` is valid and means what it says: no `Access-Control-Allow-Headers` is sent, so a browser permits the CORS-safelisted request headers and nothing else. This is unlike `origin: []`, which is refused, because that one switches CORS on and then allows nobody.
 - `exposedHeaders` (default: `[]`): Headers exposed to the client. Every entry has to be a valid header name, checked at startup, for the same reason `methods` and `allowedHeaders` are. `"*"` exposes every response header only on requests without credentials. On a credentialed request it exposes only a header literally named `*`, so list the response headers browser code needs to read.
-- An empty list means the same thing in all three of `methods`, `allowedHeaders`, and `exposedHeaders`: the header is not sent. A header carrying an empty value is not how HTTP says "nothing", so leaving it off is the only correct reading. What a browser then permits is whatever it permits without that header: for `methods`, the CORS-safelisted ones, so simple requests still work and ones that trigger a preflight do not; for `allowedHeaders`, the safelisted request headers only; for `exposedHeaders`, the safelisted response headers only.
+- An empty list means the same thing in all three of `methods`, `allowedHeaders`, and `exposedHeaders`: the header is not sent. A header carrying an empty value is not how HTTP says "nothing", so leaving it off is the only correct reading. What a browser then permits is whatever it permits without that header. For `methods`, that means the CORS-safelisted ones, so simple requests still work and ones that trigger a preflight do not. For `allowedHeaders`, it means the safelisted request headers only. For `exposedHeaders`, it means the safelisted response headers only.
 - `maxAge` (default: `86400` - 24 hours): Max age for preflight cache, in whole seconds. A fraction is refused at startup rather than rounded: `Access-Control-Max-Age` carries `delta-seconds`, a run of digits, so a browser cannot parse `1.5`, drops the header, and falls back to its own preflight cache default of a few seconds. `0` is valid and means "do not cache the preflight".
-- `preflightContinue` (default: `false`): Controls whether the plugin short-circuits preflight OPTIONS requests. Only relevant when CORS is on; with it off the plugin does not handle `OPTIONS` at all. When `false` (default), the plugin fully handles the preflight and responds with `optionsSuccessStatus`. When `true`, CORS headers are still set but control passes to the next handler instead of ending the request.
+- `preflightContinue` (default: `false`): Controls whether the plugin short-circuits preflight OPTIONS requests. It is only relevant when CORS is on. With CORS off, the plugin does not handle `OPTIONS` at all. When `false` (default), the plugin fully handles the preflight and responds with `optionsSuccessStatus`. When `true`, CORS headers are still set but control passes to the next handler instead of ending the request.
 - `optionsSuccessStatus` (default: `204`): Status code for successful preflight responses. Must be 2xx. A browser reads any non-2xx preflight as a failed one and does not follow a redirect from one, so a 3xx, 4xx, or 5xx here would not customize the response, it would stop every cross-origin request that needs a preflight.
 - `allowPrivateNetwork` (default: `false`): Whether to allow private network requests (Chrome feature)
 - `credentialsAllowWildcardSubdomains` (default: `false`): Allow wildcard subdomain patterns (e.g., `"*.example.com"`, `"**.example.com"`) in `credentials` arrays. Apex domains never match wildcards, include the apex explicitly (e.g., `"https://example.com"`).
@@ -848,8 +848,8 @@ csp: {
 }
 ```
 
-- **`strict`** — everything same-origin, `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`, `form-action 'self'`. The one to start from, with `reportOnly: true` on, widening only where the reports say you must.
-- **`strict-with-cdn`** — the same, plus `data:`/`blob:` images, `data:` fonts, and `blob:` workers, which is where a `strict` policy usually first meets reality. It still names no third-party host: add your CDN yourself, so it appears in your config rather than hiding inside a preset.
+- **`strict`** keeps everything same-origin, with `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`, and `form-action 'self'`. This is the one to start from, with `reportOnly: true` on, widening only where the reports say you must.
+- **`strict-with-cdn`** does the same, plus `data:`/`blob:` images, `data:` fonts, and `blob:` workers, which is where a `strict` policy usually first meets reality. It still names no third-party host: add your CDN yourself, so it appears in your config rather than hiding inside a preset.
 
 Directives you set **replace** the preset's for that directive rather than adding to it. Writing `imgSrc` means your `imgSrc`, not the preset's plus yours, so a preset can never quietly widen something you narrowed.
 
@@ -1051,8 +1051,8 @@ The startup case is different, and is the one `setResolver` exists for: the reso
 
 **What `resolve` can rely on.** It runs in this plugin's `onRequest`, so it sees whatever exists at that point. These are set by the server before any plugin runs, so they are available no matter where you put it:
 
-- `request.domainInfo` — `{ hostname, rootDomain }`, which is what the examples key on
-- `request.requestContext` — present but empty unless an earlier plugin filled it
+- `request.domainInfo`: `{ hostname, rootDomain }`, which is what the examples key on
+- `request.requestContext`: present but empty unless an earlier plugin filled it
 - `request.requestID`, `request.clientIP`, `request.connectionIP`, `request.serverLabel`
 - Everything on the raw request: `request.headers`, `request.url`, `request.method`, `request.hostname`, `request.protocol`, `request.cookies` if the cookies plugin is registered earlier
 
@@ -1244,7 +1244,7 @@ The reason is that "a response is being sent" is not the same as "every `onReque
 
 An explicit rejection is unambiguous either way and always drops the header.
 
-Ordering is also still the real fix rather than a mitigation, and [`domainValidation` belongs first](domainValidation.md#plugin-order). The request still fails; this only keeps the failure from leaving a year-long promise behind.
+Ordering is also still the real fix rather than a mitigation, and [`domainValidation` belongs first](domainValidation.md#plugin-order). The request still fails. This only keeps the failure from leaving a year-long promise behind.
 
 Neither of these is keyed on the status code. A 403 from your own authorization logic, on a domain the server does serve, gets HSTS like any other response. The host is yours, the user simply is not allowed in. And a server with no `domainValidation` registered is unaffected by all of it: an unset verdict there means the question is not being asked, not that it was asked and went unanswered.
 

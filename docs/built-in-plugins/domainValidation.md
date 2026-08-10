@@ -99,7 +99,7 @@ So the two are complementary rather than inconsistent: register `domainValidatio
   - Provide a hostname or IP (IPv4 or IPv6), with no protocol
   - Use `wwwHandling` to add or remove the `www` prefix, and point this at the host that agrees with the mode you chose
   - IPv6 hosts are bracketed automatically in redirects (you can pass either `2001:db8::1` or `[2001:db8::1]`)
-  - Validated at startup, and it has to be a concrete host: a URL such as `https://example.com` and a pattern such as `*.example.com` are both refused. A value that is not a bare host normalizes to nothing, and the redirect skips its whole branch when that happens, so an unchecked one did not send requests somewhere slightly wrong, it switched canonical redirects off entirely. Patterns belong in `validProductionDomains`, which decides which hosts are allowed; this decides which one they are sent to.
+  - Validated at startup, and it has to be a concrete host: a URL such as `https://example.com` and a pattern such as `*.example.com` are both refused. A value that is not a bare host normalizes to nothing, and the redirect skips its whole branch when that happens, so an unchecked one did not send requests somewhere slightly wrong, it switched canonical redirects off entirely. Patterns belong in `validProductionDomains`, which decides which hosts are allowed. This decides which one they are sent to.
 - `enforceHTTPS` (default: `true`): Whether to redirect HTTP requests to HTTPS
 - `wwwHandling` (default: `"preserve"`): How to handle www prefix:
   - `"add"`: Add the `www` prefix to an apex domain

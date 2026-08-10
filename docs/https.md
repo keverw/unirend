@@ -93,7 +93,7 @@ Given `trustProxy: true` and a request carrying `Host: internal.upstream:8080`, 
 | Resolved client IP | `request.ip` | `9.9.9.9` |
 | Full IP chain | `request.ips` | `['127.0.0.1', '10.0.0.5', '9.9.9.9']` |
 
-Note which end of a multi-value header wins. For host and protocol the **last** entry is the one the trusted proxy appended, so that is what Fastify resolves, and the leading `evil.com` and `https` here are whatever the client sent. `X-Forwarded-For` runs the other way by convention, with the client leftmost, which is why `request.ip` is the first entry rather than the last. `request.ips` is the only ready-made chain accessor; for hosts you would split the raw header yourself.
+Note which end of a multi-value header wins. For host and protocol the **last** entry is the one the trusted proxy appended, so that is what Fastify resolves, and the leading `evil.com` and `https` here are whatever the client sent. `X-Forwarded-For` runs the other way by convention, with the client leftmost, which is why `request.ip` is the first entry rather than the last. `request.ips` is the only ready-made chain accessor. For hosts, you would split the raw header yourself.
 
 See [domainValidation](./built-in-plugins/domainValidation.md#proxy-support) for the plugin-side details.
 
