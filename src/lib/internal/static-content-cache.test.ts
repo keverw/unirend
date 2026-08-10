@@ -2711,7 +2711,12 @@ describe('StaticContentCache', () => {
   });
 
   describe('logger integration', () => {
-    it('logs unexpected file access errors', async () => {
+    it('reports unexpected file access errors without logging them', async () => {
+      // The error escalates to the caller, and the static hook rethrows it
+      // into the server's error handling, which logs it once per request with
+      // the method, url, and requestID. Warning here too would put a second,
+      // less informative record in the log for every request that hits the
+      // same fault.
       const logger = {
         warn: mock(() => {}),
       };
@@ -2722,9 +2727,10 @@ describe('StaticContentCache', () => {
 
       mockFs.stat.mockRejectedValue(error);
 
-      await cache.getFile('/path/to/file.txt');
+      const result = await cache.getFile('/path/to/file.txt');
 
-      expect(logger.warn).toHaveBeenCalled();
+      expect(result.status).toBe('error');
+      expect(logger.warn).not.toHaveBeenCalled();
     });
 
     it('does not log ENOENT errors', async () => {
@@ -2738,8 +2744,10 @@ describe('StaticContentCache', () => {
 
       mockFs.stat.mockRejectedValue(error);
 
-      await cache.getFile('/path/to/missing.txt');
+      const result = await cache.getFile('/path/to/missing.txt');
 
+      // A miss, unlike the EACCES case above, which escalates as an error.
+      expect(result.status).toBe('not-found');
       expect(logger.warn).not.toHaveBeenCalled();
     });
   });

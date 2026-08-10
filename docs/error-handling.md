@@ -41,7 +41,7 @@ Behavior also depends on both the error path and when it occurs:
 
 ### Static Asset 404s
 
-An application's ordinary React 404 remains the response for unknown routes. In built SSR only, `getStaticNotFoundPage` is a separate pre-render path for a configured static mapping whose target is missing or is not a regular file, or for OS junk that is rejected within a configured folder mapping. It returns standalone HTML for asset callers and does not run React SSR. Without that opt-in handler, the request falls through to the ordinary React 404. If the configured handler throws, it follows normal SSR error handling and returns a 500 page. It does not affect unmapped API misses, unmapped URLs, traversal-rejected URLs, or static routing disabled with `staticContentRouter: false`.
+An application's ordinary React 404 remains the response for unknown routes that no static mapping covers. In built SSR only, `getStaticNotFoundPage` is a separate pre-render path for a configured static mapping whose target is missing or is not a regular file, or for OS junk that is rejected within a configured folder mapping. It returns standalone HTML for asset callers and does not run React SSR. Without that opt-in handler, the request falls through to the ordinary React 404. If the configured handler throws, it follows normal SSR error handling and returns a 500 page. It does not affect unmapped API misses, unmapped URLs, traversal-rejected URLs, or static routing disabled with `staticContentRouter: false`.
 
 ## Recommended Setup
 

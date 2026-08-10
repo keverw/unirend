@@ -75,7 +75,7 @@ export async function staticContentHookHandler(
  * instances to be registered with different configurations.
  *
  * @param optionsOrCache Static content configuration OR an existing StaticContentCache instance
- * @param logger Optional logger (e.g., fastify.log) for error logging (ignored if cache instance provided)
+ * @param logger Optional logger (e.g., fastify.log) for configuration warnings (ignored if cache instance provided)
  * @returns Fastify onRequest hook handler function
  * @internal Used by SSRServer (internal) and staticContent() plugin (public API)
  */

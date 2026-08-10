@@ -466,7 +466,10 @@ export class StaticContentCache {
    * Creates a new StaticContentCache instance
    *
    * @param options Static content configuration (file mappings, cache settings, etc.)
-   * @param logger Optional logger (e.g., fastify.log) for error logging
+   * @param logger Optional logger (e.g., fastify.log) for configuration
+   * warnings such as a map entry skipped for a null byte. Per-request faults
+   * are reported to the caller instead, so the server's error handling stays
+   * the single log point for them.
    */
   constructor(
     options: StaticContentRouterOptions,
@@ -616,17 +619,14 @@ export class StaticContentCache {
             return { status: 'not-found' };
           }
 
-          if (this.logger) {
-            this.logger.warn(
-              {
-                err: fsError,
-                path: resolvedPath,
-                code: fsError.code,
-              },
-              'Unexpected error accessing static file',
-            );
-          }
-
+          // Deliberately not logged here. The error is handed back to the
+          // caller, and the static hook rethrows it into the server's error
+          // handling, which already logs it once per request with the method,
+          // url, and requestID. A warn at this level would be a second record
+          // for the same fault on every request, carrying strictly less
+          // context: the serialized error brings its own `code`, `path`, and
+          // `syscall` along with the stack. Config-time problems still warn
+          // from the normalizers below, since nothing downstream reports those.
           throw error;
         }
       }
@@ -652,7 +652,6 @@ export class StaticContentCache {
               buf = await fs.promises.readFile(resolvedPath);
               this.contentCache.set(resolvedPath, buf);
             } catch (error) {
-              // Log unexpected errors when reading file content
               // Cast to NodeJS.ErrnoException to access error codes if needed
               const fsError = error as NodeJS.ErrnoException;
 
@@ -668,18 +667,10 @@ export class StaticContentCache {
                 return { status: 'not-found' };
               }
 
-              if (this.logger) {
-                this.logger.warn(
-                  {
-                    err: fsError,
-                    path: resolvedPath,
-                    code: fsError.code,
-                  },
-                  'Error reading static file content',
-                );
-              }
-
-              // Re-throw to be handled by outer error handling
+              // Re-throw to be handled by outer error handling. Not logged
+              // here for the same reason as the stat failure above: the
+              // server's error handling is the single log point for a static
+              // fault that escalates.
               throw error;
             }
           }
@@ -733,18 +724,8 @@ export class StaticContentCache {
               return { status: 'not-found' };
             }
 
-            // Other errors - log and re-throw
-            if (this.logger) {
-              this.logger.warn(
-                {
-                  err: fsError,
-                  path: resolvedPath,
-                  code: fsError.code,
-                },
-                'Error reading static file content',
-              );
-            }
-
+            // Other errors re-throw unlogged, leaving the server's error
+            // handling as the single log point for the request.
             throw error;
           }
         }
@@ -1648,17 +1629,9 @@ export class StaticContentCache {
         return { served: false, reason: 'not-found' };
       }
 
-      if (this.logger) {
-        this.logger.warn(
-          {
-            err: fsError,
-            path: resolvedPath,
-            code: fsError.code,
-          },
-          'Error opening static file stream',
-        );
-      }
-
+      // Reported to the caller rather than logged here, matching getFile():
+      // the hook rethrows this into the server's error handling, which is the
+      // single log point for the request.
       return {
         served: false,
         reason: 'error',
