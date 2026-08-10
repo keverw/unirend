@@ -752,11 +752,13 @@ describe('StaticContentCache', () => {
       }> = [
         { method: 'GET', headers: {}, opensStream: true },
         { method: 'GET', headers: { range: 'bytes=0-99' }, opensStream: true },
-        { method: 'HEAD', headers: {}, opensStream: false },
+        // A HEAD opens the file to check that it can be read and destroys the
+        // stream before this call, so the assertion below holds for it too.
+        { method: 'HEAD', headers: {}, opensStream: true },
         {
           method: 'HEAD',
           headers: { range: 'bytes=0-99' },
-          opensStream: false,
+          opensStream: true,
         },
         { method: 'GET', headers: { range: 'bytes=abc' }, opensStream: false },
         {
@@ -2412,13 +2414,23 @@ describe('StaticContentCache', () => {
       expect(sentData.headers['Content-Range']).toBe('bytes 0-99/1000');
     });
 
-    it('opens no stream for a HEAD range request', async () => {
-      // Every header of a 206 comes from the cached stat, and the HEAD branch
-      // ends the response without reading or destroying a stream. Creating one
-      // anyway leaks its file descriptor on every request, so a client that
-      // probes ranges with HEAD walks the server into its descriptor limit.
+    it('destroys the stream it opens for a HEAD range request', async () => {
+      // Every header of a 206 comes from the cached stat, but the open is the
+      // only readability check a streamed file gets, so HEAD still performs it
+      // and then releases the descriptor. Leaving the stream open is what leaks
+      // one per request, letting a client that probes ranges with HEAD walk the
+      // server into its descriptor limit.
       const cache = new StaticContentCache({
         smallFileMaxSize: 10,
+      });
+
+      const streams: fs.ReadStream[] = [];
+
+      mockFs.createReadStream.mockImplementation(() => {
+        const stream = createMockFSReadStream();
+        streams.push(stream);
+
+        return stream;
       });
 
       const req = createMockRequest('/test.txt', 'HEAD', {
@@ -2449,7 +2461,62 @@ describe('StaticContentCache', () => {
       expect(sentData.headers['Content-Range']).toBe('bytes 0-99/1000');
       expect(sentData.headers['Content-Length']).toBe('100');
       expect(sentData.body).toBeUndefined();
-      expect(mockFs.createReadStream).not.toHaveBeenCalled();
+      expect(streams).toHaveLength(1);
+      expect(streams[0].destroyed).toBe(true);
+    });
+
+    it('escalates an unreadable streamed file for HEAD, with and without a range', async () => {
+      // getFile() never touches a streamed file's body, so the open is the only
+      // place its readability is checked. Answering HEAD from the cached stat
+      // alone would report an unreadable asset as healthy while the matching
+      // GET escalates, and would make the response depend on file size again,
+      // since a buffered file is read while its ETag is built.
+      const headerVariants: Array<Record<string, string>> = [
+        {},
+        { range: 'bytes=0-99' },
+      ];
+
+      for (const headers of headerVariants) {
+        const cache = new StaticContentCache({
+          smallFileMaxSize: 10,
+        });
+
+        const openError = new Error('Permission denied');
+        (openError as NodeJS.ErrnoException).code = 'EACCES';
+
+        mockFs.stat.mockResolvedValue({
+          isFile: () => true,
+          size: 1000,
+          mtime: new Date(),
+          // eslint-disable-next-line @typescript-eslint/naming-convention
+          mtimeMs: Date.now(),
+        } as fs.Stats);
+
+        mockFs.createReadStream.mockImplementation(() =>
+          createMockFSReadStream([], openError),
+        );
+
+        const req = createMockRequest('/test.txt', 'HEAD', headers);
+        const { reply, sentData } = createMockReply();
+
+        const result = await cache.serveFile(
+          req as FastifyRequest,
+          reply as FastifyReply,
+          '/path/to/test.txt',
+        );
+
+        expect(result.served).toBe(false);
+
+        if (!result.served) {
+          expect(result.reason).toBe('error');
+        }
+
+        // Nothing was sent, and the staged representation headers are gone so
+        // the error response does not inherit them.
+        expect(reply.hijack).not.toHaveBeenCalled();
+        expect(sentData.headers['ETag']).toBeUndefined();
+        expect(sentData.headers['Content-Range']).toBeUndefined();
+      }
     });
 
     it('does not hijack range streams before the file stream opens', async () => {

@@ -1109,25 +1109,32 @@ export class StaticContentCache {
       const [start, end] = range;
       const chunkSize = end - start + 1;
 
-      // HEAD — every header below comes from the cached stat, so no stream is
-      // created and no fd is opened. Creating one anyway would leak it: the
-      // HEAD branch ends the response without reading or destroying it.
-      const rangeStream =
-        req.method === 'HEAD'
-          ? null
-          : result.content.createStream({ start, end });
+      // Every header below comes from the cached stat, but the stream is still
+      // opened on HEAD, because the open is the only point at which a streamed
+      // file's readability is checked at all — getFile() never touches its
+      // body. Skipping it would answer a HEAD for an unreadable asset with a
+      // 206 while the matching GET escalates to the server's error handling,
+      // and would put the same size-dependent split back that this module
+      // removes elsewhere, since a small file is read while its ETag is built.
+      // The descriptor is released immediately afterwards: a HEAD response has
+      // no body, and leaving the stream unread and undestroyed is exactly the
+      // leak that a range-probing client used to walk into the fd limit.
+      const isHeadRange = req.method === 'HEAD';
+      const rangeStream = result.content.createStream({ start, end });
 
-      if (rangeStream) {
-        const rangeOpenFailure = await this.openReadStream(
-          rangeStream,
-          resolvedPath,
-        );
+      const rangeOpenFailure = await this.openReadStream(
+        rangeStream,
+        resolvedPath,
+      );
 
-        if (rangeOpenFailure) {
-          restoreStagedFileHeaders(reply, stagedHeaderSnapshot);
+      if (rangeOpenFailure) {
+        restoreStagedFileHeaders(reply, stagedHeaderSnapshot);
 
-          return rangeOpenFailure;
-        }
+        return rangeOpenFailure;
+      }
+
+      if (isHeadRange) {
+        rangeStream.destroy();
       }
 
       // Set headers for partial content response
@@ -1139,15 +1146,15 @@ export class StaticContentCache {
       await applySecurityHeadersOrRollBack(
         req,
         reply,
-        rangeStream,
+        isHeadRange ? null : rangeStream,
         stagedHeaderSnapshot,
       );
       markStaticAsset();
       reply.hijack();
       reply.raw.writeHead(206, reply.getHeaders() as OutgoingHttpHeaders);
 
-      // HEAD — headers are set; no stream was created above (no fd opened, no disk I/O)
-      if (!rangeStream) {
+      // HEAD — headers are set and the validating stream is already destroyed
+      if (isHeadRange) {
         reply.raw.end();
         return { served: true, statusCode: 206 };
       }
@@ -1159,6 +1166,28 @@ export class StaticContentCache {
 
     // HEAD — set Content-Length from stat, then end without a body
     if (req.method === 'HEAD') {
+      // A streamed file's body is never touched by getFile(), so open it here
+      // to confirm it can be read and release the descriptor right away, the
+      // same way the range branch above does. A buffered file was already read
+      // while its ETag was built, so it needs nothing extra, and without this
+      // the answer for an unreadable asset would depend on its size.
+      if (result.content.shouldStream) {
+        const headStream = result.content.createStream();
+
+        const headOpenFailure = await this.openReadStream(
+          headStream,
+          resolvedPath,
+        );
+
+        if (headOpenFailure) {
+          restoreStagedFileHeaders(reply, stagedHeaderSnapshot);
+
+          return headOpenFailure;
+        }
+
+        headStream.destroy();
+      }
+
       // When the response would be compressed, report the compressed size so
       // the Content-Length matches what a GET would actually transfer.
       // Compressed responses are always buffered (!shouldStream), so narrow first.
