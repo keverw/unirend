@@ -27,6 +27,21 @@ describe('createStaticRequestMatcher()', () => {
     }
   });
 
+  it('wraps a pattern picomatch itself refuses to compile', () => {
+    // Picomatch caps a pattern at 65536 characters and throws a SyntaxError
+    // past that. The entry clears every check above (a string, absolute, no
+    // '?', '#', or null byte), so this is the compile failure the try/catch
+    // exists for, and the wrapper names the option the bad entry came from.
+    const overLongPattern = `/${'x'.repeat(70000)}`;
+
+    expect(() => createStaticRequestMatcher([overLongPattern])).toThrow(
+      'Invalid staticRequestPaths pattern:',
+    );
+    expect(() => createStaticRequestMatcher([overLongPattern])).toThrow(
+      'exceeds maximum allowed length',
+    );
+  });
+
   it('classifies the pathname without considering the query string', () => {
     const request = {
       url: '/assets/main.js?v=1',
