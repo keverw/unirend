@@ -774,6 +774,7 @@ export class SSRServer<
       // Decorate requests with environment info
       // The default here is just a shape hint for Fastify; the live value is set per-request in the onRequest hook below.
       this.fastifyInstance.decorateRequest('isDevelopment', false);
+      this.fastifyInstance.decorateRequest('isStaticAsset', false);
       this.fastifyInstance.decorateRequest('isStaticRequest', false);
       this.fastifyInstance.decorateRequest('isStaticContentMatch', false);
       this.fastifyInstance.decorateRequest('serverLabel', this.serverLabel);
