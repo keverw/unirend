@@ -297,6 +297,8 @@ if (result.status === 'ok') {
 
 Serves a static file via HTTP with conditional responses (304 Not Modified, 206 Partial Content).
 
+When no file can be served, this method returns `reason: 'not-found'`. It does not perform URL mapping, so it never returns `reason: 'matched-not-found'`.
+
 ```typescript
 const result = await cache.serveFile(request, reply, '/path/to/file.js', {
   shouldDetectImmutable: true,
@@ -310,6 +312,8 @@ if (result.served) {
 #### `handleRequest(rawUrl, req, reply): Promise<ServeFileResult>`
 
 Convenience method that resolves URL to file path and serves it.
+
+When a configured URL mapping resolves a target but that target is missing, is not a regular file, or is rejected as OS junk under a folder mapping, this method returns `reason: 'matched-not-found'`. It returns `reason: 'not-found'` when no mapping resolves a target, including a folder mapping whose relative path is rejected for traversal.
 
 ```typescript
 const result = await cache.handleRequest('/assets/main.js', request, reply);
@@ -470,6 +474,7 @@ type FileContent =
 
 type ServeFileResult =
   | { served: false; reason: 'not-found' }
+  | { served: false; reason: 'matched-not-found' }
   | { served: false; reason: 'error'; error: Error }
   | {
       served: true;
