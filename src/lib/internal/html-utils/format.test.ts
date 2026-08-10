@@ -27,6 +27,31 @@ function expectLinesInOrder(result: string, expected: string[]) {
   }
 }
 
+/**
+ * Read the first script's exact content from processTemplate()'s canonical output.
+ * This deliberately slices the serialized bytes instead of parsing them again, since
+ * CSP hashes cover those bytes and an HTML parser may normalize raw-text content.
+ */
+function firstSerializedScriptContent(html: string): string | undefined {
+  const openStart = html.indexOf('<script');
+
+  if (openStart === -1) {
+    return undefined;
+  }
+
+  const contentStart = html.indexOf('>', openStart);
+
+  if (contentStart === -1) {
+    return undefined;
+  }
+
+  const contentEnd = html.indexOf('</script>', contentStart + 1);
+
+  return contentEnd === -1
+    ? undefined
+    : html.slice(contentStart + 1, contentEnd);
+}
+
 describe('prettifyHTML', () => {
   it('should format simple HTML correctly', () => {
     const $ = cheerio.load('<div>Hello World</div>');
@@ -2322,7 +2347,7 @@ describe('template CSP hashes', () => {
     expect(result.success).toBe(true);
 
     if (result.success) {
-      const delivered = /<script>([\s\S]*?)<\/script>/.exec(result.html)?.[1];
+      const delivered = firstSerializedScriptContent(result.html);
 
       expect(delivered).toBeDefined();
       expect(result.cspHashes.scriptSrc).toContain(
@@ -2478,9 +2503,7 @@ describe('template CSP hashes', () => {
       // Read back out of the output rather than hashing `live`, since the
       // prettifier re-indents script content and the digest covers what ships.
       // Same reason as "hashes what shipped, not what was passed in" above.
-      const delivered = /<script[^>]*>([\s\S]*?)<\/script>/.exec(
-        result.html,
-      )?.[1];
+      const delivered = firstSerializedScriptContent(result.html);
 
       expect(delivered).toContain(live);
       expect(result.cspHashes.scriptSrc).toEqual([

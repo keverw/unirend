@@ -147,10 +147,15 @@ describe('renderContextDataElements', () => {
 
   it('publishes a bootstrap hash matching the delivered script content', () => {
     const [, bootstrap] = renderContextDataElements(BASE);
-    const match = /<script>([\s\S]*)<\/script>/.exec(bootstrap);
+    const openTag = '<script>';
+    const closeTag = '</script>';
 
-    expect(match).not.toBeNull();
-    expect(hashInlineContentForCSP(match?.[1] ?? '')).toBe(
+    expect(bootstrap.startsWith(openTag)).toBe(true);
+    expect(bootstrap.endsWith(closeTag)).toBe(true);
+
+    const delivered = bootstrap.slice(openTag.length, -closeTag.length);
+
+    expect(hashInlineContentForCSP(delivered)).toBe(
       UNIREND_BOOTSTRAP_SCRIPT_HASH,
     );
   });
