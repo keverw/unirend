@@ -1084,7 +1084,7 @@ describe('StaticContentCache', () => {
       // regular file, is still a miss. The stale positive stat has to be
       // invalidated or every later request repeats the failure until its TTL
       // runs out.
-      for (const code of ['ENOENT', 'ENOTDIR'] as const) {
+      for (const code of ['ENOENT', 'ENOTDIR', 'ENAMETOOLONG'] as const) {
         const cache = new StaticContentCache({
           singleAssetMap: { '/a.js': '/path/to/a.js' },
         });
@@ -1132,7 +1132,7 @@ describe('StaticContentCache', () => {
       // getFile() never reads a large file, so a target lost between stat()
       // and open() first shows up at the stream. It has to land on the same
       // miss the buffered read path reports for an unavailable path.
-      for (const code of ['ENOENT', 'ENOTDIR'] as const) {
+      for (const code of ['ENOENT', 'ENOTDIR', 'ENAMETOOLONG'] as const) {
         const cache = new StaticContentCache({
           smallFileMaxSize: 10,
           singleAssetMap: { '/big.bin': '/path/to/big.bin' },
@@ -1166,6 +1166,246 @@ describe('StaticContentCache', () => {
         expect(result).toEqual({ served: false, reason: 'matched-not-found' });
         expect(request.isStaticContentMatch).toBe(true);
       }
+    });
+
+    it('reports a mapped target that cannot be read as an error, not a miss', async () => {
+      // Only a path that cannot exist is folded into 'matched-not-found'. A
+      // permission or I/O fault on a target that does exist has to keep its own
+      // reason, because the hook rethrows it into the server's error handling.
+      // Widening the mapping here would turn every filesystem fault into a
+      // silent asset 404 that hides the problem for as long as it lasts.
+      for (const size of [12, 1000]) {
+        const cache = new StaticContentCache({
+          smallFileMaxSize: 10,
+          singleAssetMap: { '/a.js': '/path/to/a.js' },
+        });
+        const request = createMockRequest('/a.js') as FastifyRequest;
+        (request as { isStaticContentMatch?: boolean }).isStaticContentMatch =
+          false;
+        const { reply } = createMockReply();
+
+        const denied = Object.assign(new Error('Permission denied'), {
+          code: 'EACCES',
+        });
+
+        mockFs.stat.mockResolvedValue({
+          isFile: () => true,
+          size,
+          mtime: new Date(),
+          // eslint-disable-next-line @typescript-eslint/naming-convention
+          mtimeMs: Date.now(),
+        } as fs.Stats);
+
+        // A file at or under smallFileMaxSize fails at the ETag read, a larger
+        // one at the stream open. Both have to reach the same reason.
+        mockFs.readFile.mockRejectedValue(denied);
+        mockFs.createReadStream.mockImplementation(() =>
+          createMockFSReadStream([], denied),
+        );
+
+        const result = await cache.handleRequest(
+          '/a.js',
+          request,
+          reply as FastifyReply,
+        );
+
+        expect(result.served).toBe(false);
+
+        if (!result.served) {
+          expect(result.reason).toBe('error');
+
+          if (result.reason === 'error') {
+            expect(result.error).toBe(denied);
+          }
+        }
+
+        // The mapping still matched, even though the outcome is a fault.
+        expect(request.isStaticContentMatch).toBe(true);
+
+        // A fault is deliberately never written to the negative cache, so it
+        // keeps escalating instead of degrading into an asset 404 that would
+        // then be answered from the cache for the rest of its TTL.
+        const repeat = await cache.handleRequest(
+          '/a.js',
+          request,
+          reply as FastifyReply,
+        );
+
+        expect(repeat.served).toBe(false);
+
+        if (!repeat.served) {
+          expect(repeat.reason).toBe('error');
+        }
+      }
+    });
+
+    it('marks a served file as a static content match', async () => {
+      // The marker is a mapping-match marker, not a miss marker, so it is set
+      // on the way to a real response too. A not-found handler relies on that
+      // being the same flag it sees for a missing target.
+      const cache = new StaticContentCache({
+        singleAssetMap: { '/test.txt': '/path/to/test.txt' },
+      });
+
+      const request = createMockRequest('/test.txt') as FastifyRequest;
+      (request as { isStaticContentMatch?: boolean }).isStaticContentMatch =
+        false;
+      const { reply } = createMockReply();
+
+      const fileContent = Buffer.from('served bytes');
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      const result = await cache.handleRequest(
+        '/test.txt',
+        request,
+        reply as FastifyReply,
+      );
+
+      expect(result.served).toBe(true);
+      expect(request.isStaticContentMatch).toBe(true);
+      expect(request.isStaticAsset).toBe(true);
+    });
+
+    it('drops the cached ETag of a streamed file that goes missing', async () => {
+      // The negative stat entry alone is not enough. A stale ETag left behind
+      // outlives it, so the file can come back with different bytes and still
+      // be validated against the version that vanished. A streamed file is the
+      // clean case: its weak ETag is cached while its body never is, and the
+      // vanished target first shows up at the stream open.
+      const cache = new StaticContentCache({
+        smallFileMaxSize: 10,
+        singleAssetMap: { '/big.bin': '/path/to/big.bin' },
+      });
+      const request = createMockRequest('/big.bin') as FastifyRequest;
+      (request as { isStaticContentMatch?: boolean }).isStaticContentMatch =
+        false;
+
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: 1000,
+        mtime: new Date(1700000000000),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: 1700000000000,
+      } as fs.Stats);
+
+      const { reply: firstReply, sentData: firstSent } = createMockReply();
+      const first = await cache.handleRequest(
+        '/big.bin',
+        request,
+        firstReply as FastifyReply,
+      );
+
+      expect(first.served).toBe(true);
+      expect(firstSent.headers['ETag']).toBe(`W/"1000-1700000000000"`);
+      expect(cache.getCacheStats().etag.items).toBe(1);
+
+      // Lost between the cached stat and the open, which has to clear the ETag
+      // alongside writing the negative stat entry.
+      mockFs.createReadStream.mockImplementation(() =>
+        createMockFSReadStream(
+          [],
+          Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' }),
+        ),
+      );
+
+      const { reply: missReply } = createMockReply();
+      const miss = await cache.handleRequest(
+        '/big.bin',
+        request,
+        missReply as FastifyReply,
+      );
+
+      expect(miss).toEqual({ served: false, reason: 'matched-not-found' });
+
+      // Nothing is left to validate a returning file against. Once the
+      // negative stat entry lapses, the next request rebuilds the ETag from the
+      // stat it finds then, rather than reusing the one cached here.
+      expect(cache.getCacheStats().etag.items).toBe(0);
+    });
+
+    it('drops the cached ETag when a buffered body read finds the file gone', async () => {
+      // The content cache is capped by bytes and the ETag cache by count, so a
+      // second file's body can push the first one's out while its ETag stays.
+      // A request in that window reloads the body with a live cached stat, and
+      // a file deleted by then has to take its ETag with it.
+      const cache = new StaticContentCache({
+        // Two entries by count, but only enough bytes for one body.
+        cacheEntries: 4,
+        contentCacheMaxSize: 20,
+        singleAssetMap: {
+          '/a.js': '/path/to/a.js',
+          '/b.js': '/path/to/b.js',
+        },
+      });
+      const request = createMockRequest('/a.js') as FastifyRequest;
+      (request as { isStaticContentMatch?: boolean }).isStaticContentMatch =
+        false;
+
+      const contentByPath: Record<string, Buffer<ArrayBuffer>> = {
+        '/path/to/a.js': Buffer.from('a'.repeat(15)),
+        '/path/to/b.js': Buffer.from('b'.repeat(15)),
+      };
+
+      mockFs.stat.mockImplementation((path: string) =>
+        Promise.resolve({
+          isFile: () => true,
+          size: contentByPath[path].length,
+          mtime: new Date(1700000000000),
+          // eslint-disable-next-line @typescript-eslint/naming-convention
+          mtimeMs: 1700000000000,
+        } as fs.Stats),
+      );
+
+      mockFs.readFile.mockImplementation((path: string) =>
+        Promise.resolve(contentByPath[path]),
+      );
+
+      const { reply: aReply } = createMockReply();
+      await cache.handleRequest('/a.js', request, aReply as FastifyReply);
+
+      // B's body evicts A's, since together they exceed contentCacheMaxSize.
+      const { reply: bReply } = createMockReply();
+      await cache.handleRequest(
+        '/b.js',
+        createMockRequest('/b.js') as FastifyRequest,
+        bReply as FastifyReply,
+      );
+
+      expect(cache.getCacheStats().etag.items).toBe(2);
+      expect(cache.getCacheStats().content.items).toBe(1);
+
+      // A is requested again with its stat and ETag live but its body gone,
+      // and the reload finds the file deleted.
+      mockFs.readFile.mockImplementation((path: string) =>
+        path === '/path/to/a.js'
+          ? Promise.reject(
+              Object.assign(new Error('ENOENT: no such file'), {
+                code: 'ENOENT',
+              }),
+            )
+          : Promise.resolve(contentByPath[path]),
+      );
+
+      const { reply: missReply } = createMockReply();
+      const miss = await cache.handleRequest(
+        '/a.js',
+        request,
+        missReply as FastifyReply,
+      );
+
+      expect(miss).toEqual({ served: false, reason: 'matched-not-found' });
+
+      // A's ETag went with it; B's is untouched.
+      expect(cache.getCacheStats().etag.items).toBe(1);
     });
 
     it('returns not-found for unmapped URLs', async () => {

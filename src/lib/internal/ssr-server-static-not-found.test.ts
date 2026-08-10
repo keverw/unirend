@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdir, writeFile } from 'fs/promises';
+import { chmod, mkdir, writeFile } from 'fs/promises';
 import { join } from 'path';
 import getPort from 'get-port';
 import { createTempDir } from 'lifecycleion/tmp-dir';
@@ -79,7 +79,7 @@ const selectAppByHeader: ServerPlugin<'ssr'> = (pluginHost) => {
 
 describe('SSR static not-found page for a mapped missing asset', () => {
   let tmpDir: TmpDir;
-  let server: SSRServer;
+  let server: SSRServer | undefined;
   let port: number;
 
   async function startServer(
@@ -96,6 +96,22 @@ describe('SSR static not-found page for a mapped missing asset', () => {
 
     server.registerBuiltApp('b', join(tmpDir.path, 'app-b'), {
       getStaticNotFoundPage: () => '<p>app B asset 404</p>',
+    });
+
+    port = await getPort();
+    await server.listen(port, '127.0.0.1');
+  }
+
+  /**
+   * Starts a single-app server without a static not-found handler, for the
+   * cases about fall-through, classification, and error handling rather than
+   * about the handler itself.
+   */
+  async function startBareServer(plugins: Array<ServerPlugin<'ssr'>> = []) {
+    server = serveSSRBuilt(join(tmpDir.path, 'app-a'), {
+      get500ErrorPage: () => '<p>custom 500</p>',
+      staticRequestPaths: ['/assets/**', '/favicon.ico'],
+      plugins,
     });
 
     port = await getPort();
@@ -126,7 +142,12 @@ describe('SSR static not-found page for a mapped missing asset', () => {
   });
 
   afterEach(async () => {
-    await server.stop();
+    // Guarded because a test may assert on construction alone and never listen.
+    if (server) {
+      await server.stop();
+      server = undefined;
+    }
+
     await tmpDir.cleanup();
   });
 
@@ -188,5 +209,130 @@ describe('SSR static not-found page for a mapped missing asset', () => {
 
     expect(response.status).toBe(500);
     expect(response.body).toContain('custom 500');
+  });
+
+  it('keeps the React 404 for a mapped missing asset when no handler is configured', async () => {
+    // The interception is opt-in. Without a handler the request has to keep
+    // falling through to the catch-all route, which is the behavior every app
+    // that never configures one depends on.
+    await startBareServer();
+
+    const response = await get('/assets/missing.js');
+
+    expect(response.body).toContain('app A rendered');
+    expect(response.contentType).toContain('text/html');
+  });
+
+  it('escalates a mapped asset that exists but cannot be read', async () => {
+    // A read fault is a server fault, not a miss, so it has to reach normal SSR
+    // error handling rather than an asset 404 or a page render that would hide
+    // a real filesystem problem.
+    const locked = join(tmpDir.path, 'app-a', 'client', 'assets', 'locked.js');
+
+    await writeFile(locked, 'export const locked = 1;');
+    await chmod(locked, 0o000);
+
+    try {
+      await startBareServer();
+
+      const response = await get('/assets/locked.js');
+
+      expect(response.status).toBe(500);
+      expect(response.body).toContain('custom 500');
+    } finally {
+      // Restored so the temp directory cleanup is not left fighting the mode.
+      await chmod(locked, 0o644);
+    }
+  });
+
+  it('classifies configured static paths before user plugins run', async () => {
+    // staticRequestPaths is the early hint, so it has to be set by the time a
+    // user onRequest hook sees the request. isStaticContentMatch is the late
+    // mapping marker and must still be false there, even for an asset that is
+    // about to be served, or the two markers would be indistinguishable.
+    const observed: Array<{
+      url: string;
+      isStaticRequest: boolean;
+      isStaticContentMatch: boolean;
+    }> = [];
+
+    const recordClassification: ServerPlugin<'ssr'> = (pluginHost) => {
+      pluginHost.addHook('onRequest', (request: FastifyRequest) => {
+        observed.push({
+          url: request.url,
+          isStaticRequest: request.isStaticRequest,
+          isStaticContentMatch: request.isStaticContentMatch,
+        });
+
+        return Promise.resolve();
+      });
+    };
+
+    await startBareServer([recordClassification]);
+
+    await get('/assets/present.js');
+    await get('/assets/missing.js');
+    await get('/some/page');
+
+    expect(observed).toEqual([
+      {
+        url: '/assets/present.js',
+        isStaticRequest: true,
+        isStaticContentMatch: false,
+      },
+      {
+        url: '/assets/missing.js',
+        isStaticRequest: true,
+        isStaticContentMatch: false,
+      },
+      {
+        url: '/some/page',
+        isStaticRequest: false,
+        isStaticContentMatch: false,
+      },
+    ]);
+  });
+
+  it('rejects an invalid staticRequestPaths entry when the server is constructed', () => {
+    // A bad pattern is a configuration error, so it fails at startup instead of
+    // silently classifying nothing for the life of the process.
+    expect(() =>
+      serveSSRBuilt(join(tmpDir.path, 'app-a'), {
+        staticRequestPaths: ['assets/**'],
+      }),
+    ).toThrow('staticRequestPaths entries must be absolute URL paths');
+  });
+
+  it('stops the request pipeline once a static asset is served', async () => {
+    // A served static response hijacks the socket, so nothing after the static
+    // hook may run for it. preHandler is the first stage past that point, and it
+    // still has to run for an ordinary route.
+    //
+    // What enforces this is the hijack itself: Fastify skips the remaining hooks
+    // and the route handler once `reply.sent` is true. The explicit early return
+    // in the static hook is belt-and-braces on top of that, so removing it does
+    // not change the observable behavior this test pins.
+    const preHandlerURLs: string[] = [];
+
+    const recordPreHandler: ServerPlugin<'ssr'> = (pluginHost) => {
+      pluginHost.addHook('preHandler', (request: FastifyRequest) => {
+        preHandlerURLs.push(request.url);
+
+        return Promise.resolve();
+      });
+    };
+
+    await startBareServer([recordPreHandler]);
+
+    const asset = await get('/assets/present.js');
+
+    expect(asset.status).toBe(200);
+    expect(asset.body).toContain('export const a=1;');
+    expect(preHandlerURLs).toEqual([]);
+
+    // The same hook still fires for a request the static hook does not answer.
+    await get('/some/page');
+
+    expect(preHandlerURLs).toEqual(['/some/page']);
   });
 });

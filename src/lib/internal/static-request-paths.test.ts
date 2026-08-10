@@ -20,10 +20,28 @@ describe('createStaticRequestMatcher()', () => {
   });
 
   it('rejects non-path patterns at startup', () => {
-    for (const pattern of ['assets/**', '/assets/**?v=1', '/assets/#hash']) {
+    for (const pattern of [
+      'assets/**',
+      '/assets/**?v=1',
+      '/assets/#hash',
+      // A null byte truncates a path for the C library underneath the
+      // filesystem calls, so a pattern carrying one must never compile.
+      '/assets/\0/x.js',
+      '/assets/**\0',
+    ]) {
       expect(() => createStaticRequestMatcher([pattern])).toThrow(
         'staticRequestPaths entries must be absolute URL paths',
       );
+    }
+  });
+
+  it('rejects an entry that is not a string', () => {
+    // The option is typed as string[], so this guards a value arriving from
+    // JSON config or plain JavaScript, where the type is not enforced.
+    for (const pattern of [42, null, undefined, {}, ['/assets/**']]) {
+      expect(() =>
+        createStaticRequestMatcher([pattern] as unknown as string[]),
+      ).toThrow('staticRequestPaths entries must be absolute URL paths');
     }
   });
 
