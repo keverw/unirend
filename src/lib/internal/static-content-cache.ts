@@ -253,8 +253,36 @@ function waitForReadStreamOpen(stream: fs.ReadStream): Promise<void> {
   });
 }
 
+/**
+ * Whether a filesystem error means the requested path cannot exist, as opposed
+ * to the server being unable to read something that does.
+ *
+ * All three codes are reachable from a URL a client chose, so all three have to
+ * stay on the miss path. Escalating any of them hands an anonymous caller a 500
+ * and a log line per request, since a fault is deliberately not written to the
+ * negative cache and so is never answered from it.
+ *
+ * - `ENOENT`: nothing at the path.
+ * - `ENOTDIR`: an intermediate component is a file, so the full path cannot
+ *   resolve.
+ * - `ENAMETOOLONG`: a segment is over `NAME_MAX` (255 bytes on Linux and
+ *   macOS) or the whole path is over `PATH_MAX`. No such file can exist, and
+ *   either a single long URL segment or enough short ones produces it.
+ *
+ * `EACCES`, `EPERM`, `ELOOP`, and `EIO` are deliberately absent. Those describe
+ * a path the server was configured to serve and cannot, which is the fault this
+ * module escalates on purpose. A malformed path is not among them on any
+ * platform we target: libuv maps Windows' `ERROR_INVALID_NAME` and
+ * `ERROR_BAD_PATHNAME` to `ENOENT` and `ERROR_FILENAME_EXCED_RANGE` to
+ * `ENAMETOOLONG`, so a URL Windows cannot name arrives as a code already
+ * listed above rather than as `EINVAL`.
+ */
 function isMissingPathError(error: NodeJS.ErrnoException): boolean {
-  return error.code === 'ENOENT' || error.code === 'ENOTDIR';
+  return (
+    error.code === 'ENOENT' ||
+    error.code === 'ENOTDIR' ||
+    error.code === 'ENAMETOOLONG'
+  );
 }
 
 /**
@@ -607,12 +635,11 @@ export class StaticContentCache {
         } catch (error) {
           const fsError = error as NodeJS.ErrnoException;
 
-          // Only a path that is genuinely absent belongs in the negative
-          // cache. ENOTDIR is also a miss for the requested target, since an
-          // intermediate component being a file means the full path cannot
-          // exist. Permission, I/O, and other stat failures are server faults,
-          // and caching them as misses would hide the fault behind asset 404s
-          // until the negative TTL expires.
+          // Only a path that cannot exist belongs in the negative cache, which
+          // covers more than ENOENT — see isMissingPathError() for why each
+          // code is a miss. Permission, I/O, and other stat failures are server
+          // faults, and caching them as misses would hide the fault behind
+          // asset 404s until the negative TTL expires.
           if (isMissingPathError(fsError)) {
             this.markFileMissing(resolvedPath);
 

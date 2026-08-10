@@ -223,6 +223,26 @@ describe('StaticContentCache', () => {
       expect(result.status).toBe('not-found');
     });
 
+    it('returns not-found when the path itself cannot be named', async () => {
+      // Stat reports ENAMETOOLONG both for a single segment over NAME_MAX and
+      // for a path over PATH_MAX built from short ones. Either describes a
+      // path no file can occupy, and either comes straight off a URL the
+      // client chose, so escalating it would let any caller trade a 404 for a
+      // 500 and an error log line on every request.
+      for (const resolvedPath of [
+        `/assets/${'a'.repeat(300)}.js`,
+        `/assets/${'seg/'.repeat(400)}x.js`,
+      ]) {
+        const cache = new StaticContentCache({});
+
+        mockFs.stat.mockRejectedValue({ code: 'ENAMETOOLONG' });
+
+        const result = await cache.getFile(resolvedPath);
+
+        expect(result.status).toBe('not-found');
+      }
+    });
+
     it('returns an error for a stat failure and does not negative-cache it', async () => {
       const cache = new StaticContentCache({});
       const error = new Error('Permission denied');
@@ -1017,6 +1037,42 @@ describe('StaticContentCache', () => {
       );
       expect(result).toEqual({ served: false, reason: 'matched-not-found' });
       expect(request.isStaticContentMatch).toBe(true);
+    });
+
+    it('treats an unnameable URL under a folder mapping as a matched miss', async () => {
+      // A URL segment longer than NAME_MAX reaches stat as ENAMETOOLONG. It is
+      // a miss like any other absent target, and it is negative-cached like
+      // one, so a client cannot replay it for a 500 and an error log per
+      // request by lengthening the segment past what any file can be called.
+      const cache = new StaticContentCache({
+        folderMap: { '/assets/': '/build/assets' },
+      });
+      const url = `/assets/${'a'.repeat(300)}.js`;
+      const { reply } = createMockReply();
+      const request = createMockRequest(url) as FastifyRequest;
+      (request as { isStaticContentMatch?: boolean }).isStaticContentMatch =
+        false;
+      mockFs.stat.mockRejectedValue({ code: 'ENAMETOOLONG' });
+
+      const result = await cache.handleRequest(
+        url,
+        request,
+        reply as FastifyReply,
+      );
+
+      expect(result).toEqual({ served: false, reason: 'matched-not-found' });
+      expect(request.isStaticContentMatch).toBe(true);
+
+      mockFs.stat.mockClear();
+
+      const repeat = await cache.handleRequest(
+        url,
+        request,
+        reply as FastifyReply,
+      );
+
+      expect(repeat).toEqual({ served: false, reason: 'matched-not-found' });
+      expect(mockFs.stat).not.toHaveBeenCalled();
     });
 
     it('treats a small file that becomes unavailable before its ETag read as a matched miss', async () => {
