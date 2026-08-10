@@ -213,6 +213,33 @@ describe('StaticContentCache', () => {
       expect(result.status).toBe('not-found');
     });
 
+    it('returns an error for a stat failure and does not negative-cache it', async () => {
+      const cache = new StaticContentCache({});
+      const error = new Error('Permission denied');
+      (error as NodeJS.ErrnoException).code = 'EACCES';
+
+      mockFs.stat.mockRejectedValueOnce(error);
+
+      const failedResult = await cache.getFile('/path/to/file.txt');
+
+      expect(failedResult).toEqual({ status: 'error', error });
+
+      const fileContent = Buffer.from('now readable');
+      mockFs.stat.mockResolvedValue({
+        isFile: () => true,
+        size: fileContent.length,
+        mtime: new Date(),
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        mtimeMs: Date.now(),
+      } as fs.Stats);
+      mockFs.readFile.mockResolvedValue(fileContent);
+
+      const retryResult = await cache.getFile('/path/to/file.txt');
+
+      expect(retryResult.status).toBe('ok');
+      expect(mockFs.stat).toHaveBeenCalledTimes(2);
+    });
+
     it('returns not-found for directories', async () => {
       const cache = new StaticContentCache({});
 
@@ -873,6 +900,8 @@ describe('StaticContentCache', () => {
       const request = createMockRequest('/assets/missing.js') as FastifyRequest;
       (request as { isStaticContentMatch?: boolean }).isStaticContentMatch =
         false;
+      mockFs.stat.mockRejectedValue({ code: 'ENOENT' });
+
       const result = await cache.handleRequest(
         '/assets/missing.js',
         request,

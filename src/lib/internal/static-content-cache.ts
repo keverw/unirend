@@ -38,7 +38,7 @@ interface MinimalStatInfo {
 }
 
 /**
- * Negative cache entry type (for 404s and access errors)
+ * Negative cache entry type for missing paths and non-file targets
  */
 interface NegativeCacheEntry {
   notFound: true;
@@ -510,32 +510,30 @@ export class StaticContentCache {
           // The TTL was already set when creating the cache
           this.statCache.set(resolvedPath, stat);
         } catch (error) {
-          // File doesn't exist or can't be accessed
-          // Cache as negative entry with specific TTL
-          this.statCache.set(
-            resolvedPath,
-            { notFound: true },
-            this.negativeCacheTtl,
-          );
+          const fsError = error as NodeJS.ErrnoException;
 
-          // Log unexpected errors (like permission issues) but not 'file not found' errors
-          // ENOENT is expected for files that don't exist and shouldn't be logged
-          if (
-            error instanceof Error &&
-            'code' in error &&
-            (error as NodeJS.ErrnoException).code !== 'ENOENT' &&
-            this.logger
-          ) {
+          // Only a path that is genuinely absent belongs in the negative
+          // cache. Permission, I/O, and other stat failures are server faults,
+          // and caching them as misses would hide the fault behind asset 404s
+          // until the negative TTL expires.
+          if (fsError.code === 'ENOENT') {
+            this.markFileMissing(resolvedPath);
+
+            return { status: 'not-found' };
+          }
+
+          if (this.logger) {
             this.logger.warn(
               {
-                err: error,
+                err: fsError,
                 path: resolvedPath,
+                code: fsError.code,
               },
               'Unexpected error accessing static file',
             );
           }
 
-          return { status: 'not-found' };
+          throw error;
         }
       }
 
