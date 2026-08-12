@@ -1,4 +1,4 @@
-# Unirend v0.4.0
+# Unirend v0.4.1
 
 [![npm version](https://badge.fury.io/js/unirend.svg)](https://badge.fury.io/js/unirend)
 

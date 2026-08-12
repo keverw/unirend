@@ -4,4 +4,4 @@
  * Run 'bun run sync-version' to update
  */
 
-export const PKG_VERSION = '0.4.0';
+export const PKG_VERSION = '0.4.1';
