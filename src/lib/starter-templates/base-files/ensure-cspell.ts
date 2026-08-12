@@ -22,6 +22,10 @@ export interface EnsureCspellOptions {
 const defaultWords = [
   'bradlc',
   'bunx',
+  // Acronyms from the naming-convention regexes in eslint.config.js that no
+  // cspell dictionary knows. Written lowercase so every casing is accepted.
+  'coep',
+  'hsts',
   'dbaeumer',
   'esbenp',
   'eslintcache',

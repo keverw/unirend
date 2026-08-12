@@ -17,6 +17,7 @@
 - [0.3.0 (July 28, 2026)](#030-july-28-2026)
 - [0.3.1 (August 1, 2026)](#031-august-1-2026)
 - [0.4.0 (August 10, 2026)](#040-august-10-2026)
+- [Unreleased](#unreleased)
 
 <!-- tocstop -->
 
@@ -199,3 +200,7 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 - The scaffolded SSR 500 error page now works under a strict CSP without `'unsafe-inline'`. Its theme preference travels in a `<script type="application/json">` block instead of a per-request inline assignment, leaving fixed style and script blocks exported as `ERROR_PAGE_STYLE_HASH` and `ERROR_PAGE_SCRIPT_HASH` for your policy. Existing generated apps are unchanged, since the file is only created when missing.
 - Newly scaffolded `AGENTS.md` files require agents to open draft pull requests and obtain explicit approval before making a pull request ready or merging it, and tell them to start an app with its own `package.json` script and preview it by URL rather than writing a `.claude/launch.json` entry. Newly scaffolded projects also strengthen ESLint acronym handling, and `cleanCspell()` correctly retains words used only with trailing numbers.
 - The scaffolded `.gitignore` and `.prettierignore` now ignore `.claude/launch.json` and `.claude/worktrees/`, which are machine-local Claude Code state rather than project configuration. Shared `.claude` config such as `settings.json`, agents, commands, and skills is still committed. The new lines belong to the base file that is written only when the file is created, so an existing repo needs them added by hand.
+
+## Unreleased
+
+- Newly scaffolded projects pass their own `bun run spellcheck` again. The generated `cspell.json` was missing the `Coep` and `Hsts` acronyms that the generated `eslint.config.js` naming-convention rules use, so a fresh repo reported 10 spelling issues out of the box. An existing generated repo can add `coep` and `hsts` to its `cspell.json` words.

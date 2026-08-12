@@ -8,6 +8,8 @@ describe('ensureCspell', () => {
   const expectedDefaultWords = [
     'bradlc',
     'bunx',
+    'coep',
+    'hsts',
     'dbaeumer',
     'esbenp',
     'eslintcache',
