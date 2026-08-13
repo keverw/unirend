@@ -58,25 +58,28 @@ Add a small private `notFoundResolutionConfig(): APINotFoundResolutionConfig` to
 
 ## 2. Close the SSR not-found gap — `src/lib/internal/ssr-server.ts`
 
-Add `setupNotFoundHandler()` and call it right after `setErrorHandler` ([ssr-server.ts:976](src/lib/internal/ssr-server.ts:976)), mirroring the split the `GET '*'` catch-all already performs:
+SSR has no not-found handler at all today; the `GET '*'` catch-all does double duty, classifying and then either returning the JSON envelope or rendering React. Phase 2 makes that same split reachable for everything the catch-all does not claim, by **extracting the catch-all's non-API body into a private `handleSSRRequest(request, reply)`** and calling it from both places:
 
 ```ts
+// setupNotFoundHandler(), registered right after setErrorHandler (ssr-server.ts:976)
 const { isAPI } = classifyRequest(request.url, this.normalizedAPIPrefix, this.normalizedPageDataEndpoint);
 
-if (isAPI && this.normalizedAPIPrefix) {
-  return this.handleAPINotFound(request, reply);
-}
-
-return prepareWebResponse(
-  reply,
-  { contentType: 'html', content: generateDefault404NotFoundPage(request), statusCode: 404 },
-  404,
-);
+return isAPI && this.normalizedAPIPrefix
+  ? this.handleAPINotFound(request, reply)   // our 404 config → JSON envelope
+  : this.handleSSRRequest(request, reply);   // same React render a GET would get
 ```
 
-Only non-GET requests reach it (the catch-all already claims every GET). API/page-data misses now get the envelope instead of Fastify's stock body — the fix this feature needs. `POST /some-page` now returns unirend's HTML 404 (the same page APIServer's plain-web mode serves, [error-page-utils.ts:279](src/lib/internal/error-page-utils.ts:279)) instead of Fastify's stock JSON; a deliberate behavior change for the changelog.
+One implementation behind both entry points, so the classified path can never drift from the catch-all.
 
-This also closes the loop for **raw plugin routes**: a route registered through the plugin surface has a real `FastifyReply`, so it can call `reply.callNotFound()` and — now that both servers register a not-found handler — land in the same shared resolver. Document that as the raw-route equivalent of `trigger404()`.
+Only requests the catch-all does not match reach it — every non-GET, plus any plugin-route miss. Both currently fall to Fastify's stock `{"message":"Route POST:… not found",…}`. After this:
+
+- `POST /api/v1/page_data/nope` and other non-GET API misses get the envelope — the fix this feature needs.
+- `POST /some-page` renders the app's own 404 page, identical to `GET /some-page`. Deliberate behavior change for the changelog.
+- Plugin-route misses get classified the same way. Plugins are handed a controlled wrapper over the **root** instance ([ssr-server.ts:2228](src/lib/internal/ssr-server.ts:2228)) rather than being `register`ed into an encapsulated scope, and that wrapper exposes no `setNotFoundHandler`, so every plugin miss lands here and no plugin can shadow it.
+
+**This also fixes a bug that ships today, independent of `trigger404()`.** `reply.callNotFound()` is already first-class inside plugin route handlers: `guardRouteHandler` ([server-utils.ts:572](src/lib/internal/server-utils.ts:572)) gives it a dedicated deferred-action path alongside `reply.redirect()`, and its docblock blesses `return reply.callNotFound(); // ✓`. But on an SSR server there is no not-found handler, so that documented call lands in Fastify's stock JSON 404 — on a server whose entire premise is that 404s render React. A plugin author following the docs gets the wrong response shape today, and the only reason it is rarely noticed is that the `GET '*'` catch-all makes ordinary GET misses unreachable, leaving `callNotFound()` and non-GET as the only ways in.
+
+After this phase it classifies like everything else: an API path gets the envelope, a web path renders the app's 404. Treat it as a fix bullet in the changelog, not just a behavior change.
 
 ## 3. The sentinel — new `src/lib/internal/trigger-404.ts`
 
@@ -251,10 +254,12 @@ Behavioral:
 
 ### Phase 2 — Close the SSR not-found gap (§2)
 
-- [ ] Add `SSRServer.setupNotFoundHandler()`, called right after `setErrorHandler`
-- [ ] Import `generateDefault404NotFoundPage` into `ssr-server.ts`
-- [ ] Tests: `POST /api/v1/page_data/nope` and `DELETE /api/v1/nope` return the envelope; `POST /some-page` returns the HTML 404
-- [ ] Confirm `reply.callNotFound()` from a raw plugin route reaches the resolver on both servers
+- [ ] Extract the `GET '*'` catch-all's non-API body into a private `handleSSRRequest(request, reply)`; catch-all calls it
+- [ ] Add `SSRServer.setupNotFoundHandler()`, called right after `setErrorHandler`, classifying to `handleAPINotFound` or `handleSSRRequest`
+- [ ] Tests: `POST /api/v1/page_data/nope` and `DELETE /api/v1/nope` return the envelope; `POST /some-page` renders the same 404 page as `GET /some-page`
+- [ ] Test: a plugin-route miss is classified the same way (it reaches the root not-found handler, since plugins get a controlled root wrapper with no `setNotFoundHandler`)
+- [ ] Test `return reply.callNotFound()` from a plugin route on SSR, both classifications — the bug fix above. Pin today's broken behavior in the test first so the fix is visible in the diff
+- [ ] Check `APIServer` for the same gap (it has a not-found handler, so `callNotFound()` should already be correct there — confirm, don't assume)
 
 ### Phase 3 — Sentinel, decoration, wrappers (§3–§5)
 
@@ -291,7 +296,7 @@ Behavioral:
 - [ ] `trigger404()` reference under the page-data and API-route handler sections, plus the standalone `APIServer` section (gating on host/header)
 - [ ] Internal short-circuit caveat in `docs/data-loaders.md`; SSR non-GET 404 change in `docs/error-handling.md`
 - [ ] `bun run update-docs` to regenerate TOCs
-- [ ] `## Unreleased` in `changelog.md`: `trigger404()`, the SSR non-GET behavior change, the handler return-union widening
+- [ ] `## Unreleased` in `changelog.md`: `trigger404()`; the SSR not-found fix (`reply.callNotFound()` from a plugin route, and non-GET misses, now classified instead of returning Fastify's stock JSON); the handler return-union widening
 
 ### Phase 6 — Close out
 
