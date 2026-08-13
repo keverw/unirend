@@ -229,6 +229,39 @@ Behavioral:
 - Type-level `@ts-expect-error` / `satisfies` checks in the style already at the top of `api-server-methods.test.ts`: the sentinel is assignable to both handler return types, and a bare discarded `request.trigger404()` is flagged.
 - Update `src/package-exports.test.ts` for the new `Trigger404Signal` export.
 
+## 9. Typed app bundle keys
+
+`request.activeSSRApp` is `string` today ([types.ts:2770](src/lib/types.ts:2770)), so the gating pattern this feature exists for — `if (request.activeSSRApp !== 'app-shell')` — silently accepts a typo and fails open, quietly serving the handler to every bundle. Typing the key closes that.
+
+**Why a registration interface and not a generic.** `activeSSRApp` and `setActiveSSRApp` are declared in a global Fastify module augmentation. A generic threaded through `SSRServer` would type our own handler signatures but would never reach `request` inside a raw plugin route or a middleware hook, which is exactly where bundle selection happens. A user-augmented interface is global, so all three surfaces — raw Fastify routes via plugins, page-data/API handlers, and middleware — get the same union from one declaration. Same pattern as React Router v7's `Register` and Vitest's config augmentation.
+
+```ts
+// unirend
+export interface UnirendRegister {}
+
+export type AppBundleKey =
+  UnirendRegister extends { appBundles: infer K extends string }
+    ? K | '__default__'
+    : string;
+```
+
+```ts
+// user, once, anywhere in their project
+declare module 'unirend/server' {
+  interface UnirendRegister {
+    appBundles: 'marketing' | 'app-shell';
+  }
+}
+```
+
+Then `activeSSRApp: AppBundleKey`, `setActiveSSRApp(key: AppBundleKey)`, and both `registerBuiltApp` / `registerHMRApp` take the declared union. Unirend unions in `'__default__'` on the read side itself, since the primary app registered through `serveSSRBuilt` carries that key and users should not have to remember it. Registration is the narrower set — check what `validateAppKey` ([ssr-server.ts:2192](src/lib/internal/ssr-server.ts:2192)) already does with `'__default__'` and match it rather than inventing a second rule.
+
+**Fully opt-in.** With no augmentation the conditional resolves to `string`, so nothing changes for single-bundle users and nothing in the existing tests moves. It narrows only for people who declare their bundles.
+
+**The one piece of new infra.** `bun run type-check` is `tsc --noEmit` across the whole project, so a `declare module` inside a test file leaks its union into every other file and would break unrelated tests that use arbitrary keys. So type tests split in two: assert the resolver type directly (`AppBundleKeyFrom<{ appBundles: 'a' | 'b' }>`) in an ordinary test file, which has no global effect and covers the logic; and prove the real augmentation path end to end in a small isolated fixture with its own tsconfig, excluded from the root one and run as a separate `check:types:bundles` script. Only the second needs new setup, and it is the only thing that actually exercises what a user writes.
+
+This is independently shippable. If the PR gets heavy, it can drop to its own branch without disturbing Phases 1–4.
+
 ## Working Agreement
 
 - Branch: `feat/trigger-404`, cut from `main`.
@@ -287,10 +320,21 @@ Behavioral:
 - [ ] Drift guard + comment above `resolveAPINotFoundResponse` pointing at it
 - [ ] Type-level `@ts-expect-error` / `satisfies` checks
 
-### Phase 5 — Docs and changelog (§7)
+### Phase 5 — Typed app bundle keys (§9)
+
+- [ ] Add the `UnirendRegister` registration interface + `AppBundleKey` resolver type, exported from the same specifier users import from (verify the path against the `exports` map in `package.json`)
+- [ ] Retype `activeSSRApp`, `setActiveSSRApp`, `registerBuiltApp`, `registerHMRApp` onto it
+- [ ] Confirm the fallback: with no augmentation, everything resolves to `string` exactly as today — zero breakage for single-bundle users
+- [ ] Check whether `validateAppKey` rejects `'__default__'` at registration, and make the registration type match whatever runtime already does
+- [ ] Type tests: exercise the resolver type directly (`AppBundleKeyFrom<{…}>`) in a normal test file — safe, no global effect
+- [ ] Isolated fixture project that performs a real `declare module` augmentation with its own tsconfig, excluded from the root one, run via a `check:types:bundles` script
+- [ ] Runtime test that a valid key still works and an invalid one still throws — the types narrow, they don't replace `validateAppKey`
+
+### Phase 6 — Docs and changelog (§7)
 
 - [ ] "App bundle" terminology pass over the Multi-App section of `docs/ssr.md`, including the `app-bundles/` layout, build scripts, and `public-assets.config.json` snippets
 - [ ] State up front that handlers, plugins, and `APIResponseHelpers` are server-wide, not per bundle
+- [ ] Document the `UnirendRegister` augmentation in the Multi-App section, and use the typed form in every example below
 - [ ] Example 1: gating a handler on the active app bundle
 - [ ] Example 2: per-bundle response helpers, with the registered-vs-unregistered boundary stated
 - [ ] `trigger404()` reference under the page-data and API-route handler sections, plus the standalone `APIServer` section (gating on host/header)
@@ -298,7 +342,7 @@ Behavioral:
 - [ ] `bun run update-docs` to regenerate TOCs
 - [ ] `## Unreleased` in `changelog.md`: `trigger404()`; the SSR not-found fix (`reply.callNotFound()` from a plugin route, and non-GET misses, now classified instead of returning Fastify's stock JSON); the handler return-union widening
 
-### Phase 6 — Close out
+### Phase 7 — Close out
 
 - [ ] `bun test && bun run type-check && bun run lint` green
 - [ ] Manual multi-bundle `curl -i` check (below)
