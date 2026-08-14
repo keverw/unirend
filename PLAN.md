@@ -292,14 +292,21 @@ Notes:
 - The `APINotFoundHandlerOption` base (non-generic) alias mirrors `ClosingHandlerOption`, so both servers widen their generic-over-helpers option the same way.
 - One subtlety worth remembering for later phases: on an APIServer with API handling **enabled**, a **non-API** miss with the function-form handler still goes through the API envelope branch. That branch is unreachable from the resolver (it only ever runs under `isAPI`), so it stayed in `api-server.ts` verbatim rather than moving.
 
-### Phase 2 — Close the SSR not-found gap (§2)
+### Phase 2 — Close the SSR not-found gap (§2) ✅
 
-- [ ] Extract the `GET '*'` catch-all's non-API body into a private `handleSSRRequest(request, reply)`; catch-all calls it
-- [ ] Add `SSRServer.setupNotFoundHandler()`, called right after `setErrorHandler`, classifying to `handleAPINotFound` or `handleSSRRequest`
-- [ ] Tests: `POST /api/v1/page_data/nope` and `DELETE /api/v1/nope` return the envelope; `POST /some-page` renders the same 404 page as `GET /some-page`
-- [ ] Test: a plugin-route miss is classified the same way (it reaches the root not-found handler, since plugins get a controlled root wrapper with no `setNotFoundHandler`)
-- [ ] Test `return reply.callNotFound()` from a plugin route on SSR, both classifications — the bug fix above. Pin today's broken behavior in the test first so the fix is visible in the diff
-- [ ] Check `APIServer` for the same gap (it has a not-found handler, so `callNotFound()` should already be correct there — confirm, don't assume)
+- [x] Extract the `GET '*'` catch-all's non-API body into a private `handleSSRRequest(request, reply)`; catch-all calls it
+- [x] Add `SSRServer.setupNotFoundHandler()`, called right after `setErrorHandler`, classifying to `handleAPINotFound` or `handleSSRRequest`
+- [x] Tests: `POST /api/v1/page_data/nope` and `DELETE /api/v1/nope` return the envelope; `POST /some-page` renders the same 404 page as `GET /some-page`
+- [x] Test: a plugin-route miss is classified the same way (it reaches the root not-found handler, since plugins get a controlled root wrapper with no `setNotFoundHandler`)
+- [x] Test `return reply.callNotFound()` from a plugin route on SSR, both classifications — the bug fix above. Pin today's broken behavior in the test first so the fix is visible in the diff
+- [x] Check `APIServer` for the same gap (it has a not-found handler, so `callNotFound()` should already be correct there — confirm, don't assume)
+- [x] `## Unreleased` created in `changelog.md` with the not-found fix bullet — 3057 pass / 0 fail (3049 before, +8 new), `type-check` and `lint` clean (Aug 13, 2026)
+
+Notes:
+
+- The classification landed in a third private method, `handleUnmatchedRequest`, called by both the catch-all and the not-found handler. §2 sketched the classification inline in `setupNotFoundHandler`, which would have duplicated it against the catch-all's own copy — the point of the phase is one implementation, so it moved up one level.
+- Pinning run before the fix: 6 of the 8 new tests failed, one per case in §2. The two that passed were the APIServer row, confirming it never had the gap, and the matched-route control.
+- The catch-all's `// Continue with SSR handling for non-API requests` comment was dropped rather than carried into `handleSSRRequest`, since it described control flow that no longer sits there. Everything else moved verbatim.
 
 ### Phase 3 — Sentinel, decoration, wrappers (§3–§5)
 

@@ -204,3 +204,7 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 ## 0.4.1 (August 12, 2026)
 
 - Newly scaffolded projects pass their own `bun run spellcheck` again. The generated `cspell.json` was missing the `Coep` and `Hsts` acronyms that the generated `eslint.config.js` naming-convention rules use, so a fresh repo reported 10 spelling issues out of the box. An existing generated repo can add `coep` and `hsts` to its `cspell.json` words.
+
+## Unreleased
+
+- Fixed SSR servers answering requests no route claimed with Fastify's stock `{"message":"Route POST:… not found"}` JSON. A `GET` miss always rendered the app's own 404 page, but every non-GET miss and every `reply.callNotFound()` returned from a plugin route fell outside the catch-all and got the stock JSON instead. Those requests are now classified the same way a `GET` is: an API or page-data path returns the server's configured 404 envelope, including any custom `APIHandling.notFoundHandler` and `APIResponseHelpersClass`, and a web path renders the app's 404 page. `POST /some-page` therefore now returns your rendered 404 HTML where it previously returned JSON. `APIServer` was never affected.
