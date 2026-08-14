@@ -7,6 +7,7 @@ import type {
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
 import type { APIResponseHelpersClass, ControlledReply } from '../types';
 import {
+  attachHandlerResponseToError,
   createControlledReply,
   type APINotFoundResolutionConfig,
 } from './server-utils';
@@ -419,14 +420,9 @@ export class DataLoaderServerHandlerHelpers<
               (error as unknown as { pageType: string }).pageType = pageType;
 
               (error as unknown as { version: number }).version = version;
-              (
-                error as unknown as { handlerResponse: unknown }
-              ).handlerResponse = result; // Include the actual invalid response
 
-              (
-                error as unknown as { handlerResponseType: string }
-              ).handlerResponseType =
-                typeof result === 'object' ? 'invalid_object' : typeof result;
+              // Type always, the value itself only in development
+              attachHandlerResponseToError(error, result);
 
               (error as unknown as { errorCode: string }).errorCode =
                 'invalid_handler_response';
@@ -649,12 +645,10 @@ export class DataLoaderServerHandlerHelpers<
       );
       (error as unknown as { pageType: string }).pageType = pageType;
       (error as unknown as { version: number }).version = latestVersion;
-      (error as unknown as { handlerResponse: unknown }).handlerResponse =
-        result;
-      (
-        error as unknown as { handlerResponseType: string }
-      ).handlerResponseType =
-        typeof result === 'object' ? 'invalid_object' : typeof result;
+
+      // Type always, the value itself only in development
+      attachHandlerResponseToError(error, result);
+
       (error as unknown as { errorCode: string }).errorCode =
         'invalid_handler_response';
       throw error;

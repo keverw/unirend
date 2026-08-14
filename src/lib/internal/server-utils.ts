@@ -28,6 +28,7 @@ import type { CookieSerializeOptions } from '@fastify/cookie';
 import { DEFAULT_API_PREFIX, DEFAULT_PAGE_DATA_ENDPOINT } from './consts';
 import { generateDefault503ClosingPage } from './error-page-utils';
 import { parseHostHeader, getDomain } from 'lifecycleion/domain-utils';
+import { getDevMode } from 'lifecycleion/dev-mode';
 import { sendRawErrorEnvelopeResponse } from './error-envelope-send';
 import type { DomainInfo } from './domain-info';
 import { ulid } from 'ulid';
@@ -275,6 +276,54 @@ export function createDefaultAPIErrorResponse(
 }
 
 /**
+ * Names the shape of a handler return value without exposing any of it.
+ *
+ * Safe to log anywhere: it carries no application data, only the type. `null`
+ * and arrays are reported distinctly, since `typeof` collapses both to
+ * `'object'` and those are exactly the two cases worth telling apart when
+ * diagnosing what a handler actually returned.
+ */
+export function describeHandlerResult(handlerResult: unknown): string {
+  if (handlerResult === null) {
+    return 'null';
+  }
+
+  if (Array.isArray(handlerResult)) {
+    return 'array';
+  }
+
+  return typeof handlerResult;
+}
+
+/**
+ * Records what a handler returned onto a handler-bug error.
+ *
+ * `handlerResponseType` is always attached, because it is a bare type name and
+ * cannot carry application data. The value itself is attached **only in
+ * development**, because it is arbitrary application data: a handler that
+ * returned the wrong shape may well have returned credentials, tokens, or
+ * personal data, and these errors are serialized into the configured logger,
+ * which commonly forwards to a third-party sink. Production keeps the type,
+ * the message, and the route, which is what identifies the handler; the value
+ * is reproducible locally, where it is safe to look at.
+ *
+ * Every site that reports an offending handler return value goes through here
+ * so the dev/production split cannot drift between them.
+ */
+export function attachHandlerResponseToError(
+  error: Error,
+  handlerResult: unknown,
+): void {
+  (error as unknown as { handlerResponseType: string }).handlerResponseType =
+    describeHandlerResult(handlerResult);
+
+  if (getDevMode()) {
+    (error as unknown as { handlerResponse: unknown }).handlerResponse =
+      handlerResult;
+  }
+}
+
+/**
  * Creates a default JSON 404 not-found response using the envelope pattern.
  * Used by both APIServer and SSRServer for consistent 404 handling.
  * @param request - The Fastify request object
@@ -356,6 +405,15 @@ export interface APINotFoundResolutionConfig {
  * Sets the status code and Cache-Control on the reply when one is given and
  * returns the envelope body. It never calls reply.send() itself, so the caller
  * returning this value keeps wrapThenable's single-send contract intact.
+ *
+ * `request.trigger404()` resolves through here too, which is what makes a
+ * triggered 404 byte-identical to a genuine route miss instead of a lookalike
+ * rebuilt at the call site. Anything added here that only the not-found
+ * handlers should see would break that silently, so the guard is the
+ * `trigger404 byte-equality matrix` describe blocks in trigger-404.test.ts and
+ * trigger-404-ssr.test.ts: they run the same request against a server that
+ * triggers and a server that never registered the route, and compare the raw
+ * bodies.
  */
 export async function resolveAPINotFoundResponse({
   request,

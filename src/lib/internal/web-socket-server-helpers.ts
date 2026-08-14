@@ -9,6 +9,7 @@ import type {
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
 import type { APIResponseHelpersClass, WebSocketOptions } from '../types';
 import { getAPIResponseHelpersClass } from './api-response-helpers-utils';
+import { attachHandlerResponseToError } from './server-utils';
 
 /**
  * Internal Fastify WebSocket plugin options interface
@@ -376,8 +377,8 @@ export class WebSocketServerHelpers<
               `WebSocket preValidation handler returned invalid envelope for path: ${path}`,
             );
             (error as unknown as { path: string }).path = path;
-            (error as unknown as { handlerResponse: unknown }).handlerResponse =
-              envelope;
+            // Type always, the value itself only in development
+            attachHandlerResponseToError(error, envelope);
             (error as unknown as { errorCode: string }).errorCode =
               'websocket_invalid_prevalidation_envelope';
             throw error;

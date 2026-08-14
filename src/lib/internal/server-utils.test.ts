@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, afterEach } from 'bun:test';
 import { isValid as isValidULID } from 'ulid';
 import fastify from 'fastify';
 import type { FastifyReply, FastifyRequest, FastifyInstance } from 'fastify';
@@ -19,6 +19,8 @@ import {
   registerRequestIDDecoration,
   registerClosingResponseHook,
   resolveClosingResponse,
+  attachHandlerResponseToError,
+  describeHandlerResult,
   resolveAPINotFoundResponse,
   sendClosingPayload,
   isSplitHandler,
@@ -31,6 +33,7 @@ import type {
   PluginPageDataHandlerShortcuts,
 } from '../types';
 import { APIResponseHelpers } from '../../api-envelope';
+import { overrideDevMode } from 'lifecycleion/dev-mode';
 
 // cspell:ignore regs apix datax falsey
 
@@ -2084,6 +2087,61 @@ describe('resolveClosingResponse', () => {
   });
 });
 
+describe('attachHandlerResponseToError', () => {
+  // Every site that reports an offending handler return value goes through
+  // here: the API route registry, both page data registry paths, the WebSocket
+  // preValidation check, and the trigger-404 missing-return log. The dev split
+  // is asserted once, here, so it cannot drift between them.
+
+  afterEach(() => {
+    // Every other test in the process expects production mode.
+    overrideDevMode(false);
+  });
+
+  it('withholds the offending value in production and keeps the type', () => {
+    overrideDevMode(false);
+
+    const error = new Error('handler bug');
+
+    attachHandlerResponseToError(error, {
+      apiKey: 'sk-live-SUPER-SECRET',
+      password: 'hunter2',
+    });
+
+    expect(error).not.toHaveProperty('handlerResponse');
+    expect(
+      (error as unknown as { handlerResponseType: string }).handlerResponseType,
+    ).toBe('object');
+
+    // These errors are serialized wholesale into the configured logger, which
+    // commonly forwards to a third-party sink, so nothing of the value may
+    // survive anywhere on the error.
+    expect(JSON.stringify({ ...error })).not.toContain('SUPER-SECRET');
+  });
+
+  it('includes the offending value in development', () => {
+    overrideDevMode(true);
+
+    const error = new Error('handler bug');
+    const handlerResult = { apiKey: 'sk-live-SUPER-SECRET' };
+
+    attachHandlerResponseToError(error, handlerResult);
+
+    expect(
+      (error as unknown as { handlerResponse: unknown }).handlerResponse,
+    ).toBe(handlerResult);
+  });
+
+  it('names null and array distinctly, which typeof collapses', () => {
+    expect(describeHandlerResult(null)).toBe('null');
+    expect(describeHandlerResult([1, 2])).toBe('array');
+    expect(describeHandlerResult({})).toBe('object');
+    expect(describeHandlerResult(undefined)).toBe('undefined');
+    expect(describeHandlerResult('nope')).toBe('string');
+    expect(describeHandlerResult(false)).toBe('boolean');
+  });
+});
+
 describe('resolveAPINotFoundResponse', () => {
   const createReply = () => {
     const state = {
@@ -2250,6 +2308,75 @@ describe('resolveAPINotFoundResponse', () => {
     });
     expect(state.statusCode).toBe(404);
     expect(state.headers['cache-control']).toBe('no-store');
+  });
+
+  it('builds the page envelope when the classification override forces it', async () => {
+    // The SSR internal short-circuit runs on the page request, so the URL here
+    // is the web route. Deriving from it would produce an API envelope where
+    // the HTTP fallback for the same page type produces a page one.
+    const request = createRequest('/dashboard');
+
+    const payload = await resolveAPINotFoundResponse({
+      ...baseConfig,
+      request,
+      classification: { isAPI: true, isPageData: true },
+    });
+
+    expect(payload).toMatchObject({
+      type: 'page',
+      status_code: 404,
+      meta: {
+        page: {
+          title: 'Not Found',
+          description: 'The requested page could not be found',
+        },
+      },
+      error: { code: 'not_found', message: 'Page Not Found' },
+    });
+  });
+
+  it('passes the overridden isPageData to a custom handler', async () => {
+    const request = createRequest('/dashboard');
+    const handler = mock(
+      (
+        handlerRequest: FastifyRequest,
+        _isPageData: boolean | undefined,
+        _params: unknown,
+      ) =>
+        APIResponseHelpers.createPageErrorResponse({
+          request: handlerRequest,
+          statusCode: 404,
+          errorCode: 'custom_not_found',
+          errorMessage: 'Custom page 404',
+          pageMetadata: { title: 'Missing', description: 'Custom' },
+        }),
+    );
+
+    await resolveAPINotFoundResponse({
+      ...baseConfig,
+      handler,
+      request,
+      classification: { isAPI: true, isPageData: true },
+    });
+
+    // Without the override this URL classifies as neither, so the handler would
+    // not have been called at all.
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler.mock.calls[0][1]).toBe(true);
+  });
+
+  it('derives the classification from the URL when no override is given', async () => {
+    // The same URL, without the override: the API branch is what the resolver
+    // reaches, which is exactly why the internal path needs to force it.
+    const payload = await resolveAPINotFoundResponse({
+      ...baseConfig,
+      request: createRequest('/dashboard'),
+    });
+
+    expect(payload).toMatchObject({
+      type: 'api',
+      error: { message: 'Resource Not Found' },
+    });
   });
 
   it('logs handler failures and falls back to the default envelope', async () => {

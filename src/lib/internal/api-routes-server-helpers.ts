@@ -6,6 +6,7 @@ import type {
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
 import type { APIResponseHelpersClass, ControlledReply } from '../types';
 import {
+  attachHandlerResponseToError,
   createControlledReply,
   type APINotFoundResolutionConfig,
 } from './server-utils';
@@ -429,9 +430,7 @@ export class APIRoutesServerHelpers<
                 'invalid_handler_response';
               (error as unknown as { route: string }).route =
                 method + ' ' + fullPath;
-              (
-                error as unknown as { handlerResponse: unknown }
-              ).handlerResponse = envelope;
+              attachHandlerResponseToError(error, envelope);
               throw error;
             }
 

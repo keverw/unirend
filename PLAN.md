@@ -16,7 +16,7 @@ Two things make that harder than returning a 404 envelope:
 - **Return a sentinel, never throw.** `return request.trigger404()` — the `return` carries the control flow, nothing lands in the 500 path or gets logged as an error, and the handler visibly stops.
 - **Byte-equality by construction.** One resolver function, called by the framework's not-found handlers _and_ by `trigger404()`. Tests then guard against drift rather than being the only thing holding the two together.
 - **Identical on `APIServer` and `SSRServer`.** Both host the same two registries, and an SSR app is routinely pointed at a standalone `APIServer`. Every piece below is installed on both; the only difference is that `request.activeSSRApp` exists only on SSR, so an API server gates on host/header instead.
-- **Forgotten `return` fails closed.** If `trigger404()` was called but the handler returned an ordinary value, the 404 wins in both development and production, so the data the handler meant to withhold never ships. Dev and prod responses stay identical, which matters for a feature whose whole point is indistinguishability.
+- **Forgotten `return` fails closed.** If `trigger404()` was called but the handler returned an ordinary value, the 404 wins in both development and production, so the data the handler meant to withhold never ships. Dev and prod responses stay identical, which matters for a feature whose whole point is being indistinguishable.
 - **No `console.warn`.** Loudness goes through `request.log`, which every server already has wired to the configured logger. `console.*` is reserved for the client-side code that has no request logger.
 - **No registration-time `when` predicate.** Dropped per the user: the request object is already handed to every handler, so the trigger method is enough.
 - **Terminology:** docs move to "app bundle" language and an `app-bundles/` layout. No API names change.
@@ -344,18 +344,28 @@ Notes:
 - §3's per-request `active`/`requested` flags could not survive an SSR render. React Router runs its page data loaders in parallel, so several `callHandler()` invocations share one `FastifyRequest` and interleave: the first to finish closed the window on one still awaiting, and a `requested` flag set by one handler could be consumed by another. The state moved to a per-invocation scope carried in `AsyncLocalStorage`, which is the only thing that knows which invocation a `trigger404()` call came from. A stack on the request does not work, since "most recently started" is not "the caller". That also made the `trigger404Internal` decorator unnecessary, so it is gone from both servers and `markTrigger404Requested()` takes no argument. The `trigger404` decoration itself is unchanged in behavior.
 - `APIRouteHandler` had to move its async arm from one `Promise` per union member to a single `Promise` over the whole union. A branching async handler infers `Promise<Envelope | Trigger404Signal>`, which no per-member arm accepts, so the feature's primary use case would not have compiled. `PageDataHandler` was already written that way. The old shape also rejected an async handler that returned an envelope on one branch and `false` on another, so this fixes a latent problem too. Sync and async `satisfies` checks for both handler types guard it.
 
-### Phase 4 — Tests (§8)
+### Phase 4 — Tests (§8) ✅
 
-- [ ] Equality harness (`getRequestID` pinned, timestamp normalized, raw-string comparison + status + headers)
-- [ ] Full matrix: `APIServer` × {API route, page-data} × {default, function-form, split `{api}`, throwing handler, custom helpers class}
-- [ ] Full matrix: `SSRServer` × {API route, page-data} × {default, `APIHandling.notFoundHandler`, custom helpers class}
-- [ ] Custom-handler cells assert the spy args `(request, isPageData, { APIResponseHelpers })`
-- [ ] Forgotten `return`, already-sent, plugin-hook misuse
-- [ ] Sentinel: frozen, stable, structurally-branded clone accepted
-- [ ] Per-request isolation under concurrency
-- [ ] SSR internal short-circuit vs the HTTP fallback, field-by-field
-- [ ] Drift guard + comment above `resolveAPINotFoundResponse` pointing at it
-- [ ] Type-level `@ts-expect-error` / `satisfies` checks
+- [x] Equality harness (`getRequestID` pinned, timestamp normalized, raw-string comparison + status + headers)
+- [x] Full matrix: `APIServer` × {API route, page-data} × {default, function-form, split `{api}`, throwing handler, custom helpers class}
+- [x] Full matrix: `SSRServer` × {API route, page-data} × {default, `APIHandling.notFoundHandler`, custom helpers class}
+- [x] Custom-handler cells assert the spy args `(request, isPageData, { APIResponseHelpers })`
+- [x] Forgotten `return`, already-sent, plugin-hook misuse
+- [x] Sentinel: frozen, stable, structurally-branded clone accepted
+- [x] Per-request isolation under concurrency
+- [x] SSR internal short-circuit vs the HTTP fallback, field-by-field
+- [x] Drift guard + comment above `resolveAPINotFoundResponse` pointing at it
+- [x] Type-level `@ts-expect-error` / `satisfies` checks — 3108 pass / 0 fail (3077 before, +31 new), `type-check`, `lint`, and `format:check` clean (Aug 13, 2026)
+
+Notes:
+
+- The harness lives in a third file, `trigger-404-equality-harness.ts`, because both suites compare responses the same way and a second copy of the comparison is the drift the feature exists to prevent. It is test-only, imports nothing from `bun:test` (the caller passes `expect` in), and is not an entry point in `tsup.config.ts`, so it never reaches `dist/`.
+- The `APIServer` matrix runs the full cross rather than §8's table, which gave page-data only three configs. Split and throwing-handler cells cost nothing extra on that shape and the page-data row is where the `isPageData` branch actually matters.
+- Coverage over the files this branch touches: `trigger-404.ts` 100% functions / 100% lines, `server-utils.ts` 100% / 99.4%, both registry helpers 100% lines. The last uncovered branch in `trigger-404.ts` was the `trigger_404_unconfigured` throw, now reached directly through `checkTrigger404` since no user path gets to it. The two remaining `server-utils.ts` line gaps (572, 948-949) are in `resolveClosingResponse` and the controlled-reply send guard, both pre-existing and unrelated.
+- Unit tests for the resolver: Phase 1 already covered no-reply, function-form args, custom `status_code`, split `.api`, split with only `.web`, and the throwing handler. Phase 4 added only what was missing — the `classification` override, in three cells (default envelope, custom handler, and the same URL without the override to show what it is correcting).
+- Two precedence cells beyond §8, both for a trigger that was called but never returned. A handler that returns nothing at all still gets the 404 rather than an empty body — TypeScript rejects that shape, but a JavaScript consumer can write it. And when the handler also returns `false` without having sent anything, two handler-bug detectors overlap: the trigger check runs first, so the request fails closed into the 404 instead of erroring into the `returned false but did not send a response` 500. That ordering is deliberate — the withheld data is what matters, and a 500 would be distinguishable from a genuine miss anyway.
+- Three cells beyond §8, covering what the sentinel is _not_. Recognition is on the brand and nothing else, so: a handler returning the signal without ever calling `trigger404()` gets its 404 with no log (the dual-bundle case `isTrigger404Signal` is written for, pinned so it cannot regress into a "missing return" false positive); an unbranded 404-shaped return is not a trigger and fails as `invalid_handler_response`; and a hand-built 404 envelope ships as written, distinguishable from a genuine miss, which is the gap `trigger404()` exists to close. The type-level negatives match: a hand-rolled 404 object, an arbitrary object, and the bare brand symbol are all rejected, so the widening admits exactly one new value.
+- **§5's dev-mode gate on the `trigger_404_missing_return` payload survived, and grew to cover four pre-existing sites.** The gate was briefly removed on the reasoning that `invalid_handler_response` already logs the raw return value with no dev gate, so gating only the trigger record would make it the odd one out. A review pass flagged the unguarded payload as a production leak, and a probe settled it: a handler returning `{apiKey, password}` puts both, verbatim, into the configured logger's `err` context in production today, because these errors are serialized wholesale. So the right fix was the opposite of "match the neighbors" — the neighbors were wrong too, and nothing pinned their behavior. New `attachHandlerResponseToError` in `server-utils.ts` is now the single site for this: `handlerResponseType` always, the value only under `getDevMode()`. Wired into `api-routes-server-helpers.ts`, both `data-loader-server-handler-helpers.ts` paths, `web-socket-server-helpers.ts`, and the trigger record. `describeHandlerResult` replaces the old inline `typeof result === 'object' ? 'invalid_object' : typeof result`, so `null` and arrays are now named rather than collapsed. Changelog'd, since it changes what shipped servers log.
 
 ### Phase 5 — Typed app bundle keys (§9)
 

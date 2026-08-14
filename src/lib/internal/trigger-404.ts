@@ -15,11 +15,12 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import { getDevMode } from 'lifecycleion/dev-mode';
 import {
+  describeHandlerResult,
   resolveAPINotFoundResponse,
   type APINotFoundResolutionConfig,
 } from './server-utils';
+import { getDevMode } from 'lifecycleion/dev-mode';
 import { getAPIResponseHelpersClass } from './api-response-helpers-utils';
 
 /**
@@ -238,8 +239,12 @@ export async function checkTrigger404({
         route,
         pageType,
         version,
-        // Only development sees the offending value, matching how the rest of
-        // the codebase gates error detail.
+        // The type always, the value itself only in development. The discarded
+        // value is arbitrary application data — and on this path specifically
+        // it is the data the 404 exists to withhold, which is the last thing
+        // that should reach a log sink in production. Same split as
+        // invalid_handler_response, via the same helper.
+        handlerResponseType: describeHandlerResult(handlerResult),
         ...(getDevMode() ? { handlerResponse: handlerResult } : {}),
       },
       `request.trigger404() was called for ${route} but the handler returned a value instead of returning the signal. The 404 was served anyway and the returned value was discarded. Write: return request.trigger404();`,
