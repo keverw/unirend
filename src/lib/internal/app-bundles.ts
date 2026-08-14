@@ -90,6 +90,45 @@ export interface AppBundles<TKey extends string> {
   ): request is FastifyRequest & { activeSSRApp: TMatch };
 
   /**
+   * Pick a value for the active bundle, falling back when none is listed.
+   *
+   * The shape a chain of `is()` calls turns into once more than one bundle
+   * needs its own copy, title, or configuration:
+   *
+   * ```ts
+   * const brand = bundles.match(
+   *   request,
+   *   { marketing: 'Example Co', 'app-shell': 'Example Workspace' },
+   *   'Example',
+   * );
+   * ```
+   *
+   * Cases are optional, so list only the bundles that differ, and a typo in a
+   * case key is a compile error the same way it is in `is()`. `'__default__'`
+   * is a legal case, since the app the server was created with is selectable.
+   *
+   * **The fallback is required, and that is not a convenience.** It cannot be
+   * dropped in favor of an exhaustive record: `request.activeSSRApp` is a
+   * plain `string`, the reserved key is always reachable, and a list built
+   * from configuration widens `TKey` to `string`. Exhaustiveness is never
+   * provable here, so there is always a value this has to return.
+   *
+   * A bundle is "listed" when the key is present, so a case written with an
+   * explicit `undefined` value returns `undefined` rather than the fallback.
+   * Presence decides, the same way a `switch` case does.
+   *
+   * Throws a `TypeError` when the request has no active bundle, matching
+   * {@link AppBundles.is}, and an `Error` when a case names a bundle that was
+   * never declared. The second check is what still holds once `TKey` has
+   * widened to `string` and the types have stopped checking anything.
+   */
+  match<const TValue>(
+    request: FastifyRequest,
+    cases: Partial<Record<BundleKeyOrDefault<TKey>, TValue>>,
+    fallback: TValue,
+  ): TValue;
+
+  /**
    * The given key, checked against the declared list and returned unchanged.
    *
    * For the registration call, which takes a `string` and would otherwise
@@ -118,6 +157,27 @@ export interface AppBundles<TKey extends string> {
 /** A declared key, or the reserved key of the app the server was created with. */
 type BundleKeyOrDefault<TKey extends string> =
   TKey | typeof DEFAULT_APP_BUNDLE_KEY;
+
+/**
+ * The request's active bundle, or a throw explaining why there isn't one.
+ *
+ * Shared by `is()` and `match()` so the two cannot disagree about what an
+ * `APIServer` request means. Fail-closed is right for a forgotten `return` in
+ * a working setup; a request with no SSR decoration at all is a wiring
+ * mistake, and answering it silently would turn every gated route into a 404
+ * with nothing to explain it.
+ */
+function readActiveBundle(request: FastifyRequest): string {
+  const activeKey: unknown = request.activeSSRApp;
+
+  if (typeof activeKey !== 'string') {
+    throw new TypeError(
+      'request.activeSSRApp is not available on this request, so there is no active app bundle to compare against. App bundles exist only on an SSRServer — on a standalone APIServer, gate on the host or a header instead.',
+    );
+  }
+
+  return activeKey;
+}
 
 /**
  * Declare the app bundles this app knows about.
@@ -209,17 +269,39 @@ export function defineAppBundles<TKey extends string>(
       request: FastifyRequest,
       key: TMatch | readonly TMatch[],
     ): request is FastifyRequest & { activeSSRApp: TMatch } {
-      const activeKey: unknown = request.activeSSRApp;
-
-      if (typeof activeKey !== 'string') {
-        throw new TypeError(
-          'request.activeSSRApp is not available on this request, so there is no active app bundle to compare against. App bundles exist only on an SSRServer — on a standalone APIServer, gate on the host or a header instead.',
-        );
-      }
+      const activeKey = readActiveBundle(request);
 
       return Array.isArray(key)
         ? (key as readonly string[]).includes(activeKey)
         : activeKey === key;
+    },
+
+    match<const TValue>(
+      request: FastifyRequest,
+      cases: Partial<Record<BundleKeyOrDefault<TKey>, TValue>>,
+      fallback: TValue,
+    ): TValue {
+      const activeKey = readActiveBundle(request);
+
+      // Checked before the lookup, so a typo is reported as a typo rather than
+      // silently taking the fallback forever. `is()` gets this from the type
+      // system alone because it takes the key positionally; here the keys are
+      // object properties, and a declaration built from configuration has
+      // widened TKey to `string`, which stops the types checking them at all.
+      for (const caseKey of Object.keys(cases)) {
+        if (caseKey !== DEFAULT_APP_BUNDLE_KEY && !declared.has(caseKey)) {
+          throw new Error(
+            `App bundle key "${caseKey}" was used as a case in match() but was not declared in defineAppBundles(). Declared keys: ${declaredKeys.join(', ')}.`,
+          );
+        }
+      }
+
+      // Presence rather than the value, so a case written as `undefined` is
+      // still a case. Reading the value and testing it for undefined would
+      // make that one spelling silently take the fallback.
+      return Object.prototype.hasOwnProperty.call(cases, activeKey)
+        ? (cases as Record<string, TValue>)[activeKey]
+        : fallback;
     },
 
     key(key) {

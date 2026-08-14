@@ -72,7 +72,48 @@ function _typeLevelChecks(request: FastifyRequest): void {
 
   // @ts-expect-error '__default__' is never registerable, whatever TKey is.
   widened.key('__default__');
+
+  bundles.match(request, { marketing: 'a', 'app-shell': 'b' }, 'c');
+
+  // Cases are optional — list only the bundles that differ.
+  bundles.match(request, { marketing: 'a' }, 'c');
+
+  // Legal as a case for the same reason it is legal in is(). Written as a
+  // computed key because a naming-convention lint rule of the kind this repo
+  // and the starter templates ship rejects `__default__` as a plain property
+  // name — worth knowing, though the fallback usually covers this bundle.
+  bundles.match(request, { ['__default__']: 'a' }, 'c');
+
+  bundles.match(
+    request,
+    // @ts-expect-error 'app-shelf' is not one of this app's bundles.
+    { 'app-shelf': 'a' },
+    'c',
+  );
+
+  bundles.match(
+    request,
+    { marketing: 42 },
+    // @ts-expect-error TValue infers from the cases first, so the mismatch is
+    // reported against the fallback rather than against the offending case.
+    'c',
+  );
 }
+
+// The `const` type parameter is what keeps the result a literal union instead
+// of collapsing to `string`. Without it this annotation would not compile, and
+// match() would be useless for the discriminated-config case it exists for.
+function _matchInfersLiterals(
+  request: FastifyRequest,
+): 'Example Co' | 'Example Workspace' | 'Example' {
+  return bundles.match(
+    request,
+    { marketing: 'Example Co', 'app-shell': 'Example Workspace' },
+    'Example',
+  );
+}
+
+void _matchInfersLiterals;
 
 // `is()` is a type predicate, so a passing check narrows the request's active
 // bundle to what was checked for — inside the guard, and after an early return.
@@ -267,5 +308,117 @@ describe('AppBundles.is()', () => {
     expect(bundles.is(requestWithActiveBundle('marketing'), fromConfig)).toBe(
       true,
     );
+  });
+});
+
+describe('AppBundles.match()', () => {
+  it('returns the case for the active bundle', () => {
+    expect(
+      bundles.match(
+        requestWithActiveBundle('app-shell'),
+        { marketing: 'Example Co', 'app-shell': 'Example Workspace' },
+        'Example',
+      ),
+    ).toBe('Example Workspace');
+  });
+
+  it('returns the fallback when the active bundle is not listed', () => {
+    expect(
+      bundles.match(
+        requestWithActiveBundle('app-shell'),
+        { marketing: 'Example Co' },
+        'Example',
+      ),
+    ).toBe('Example');
+  });
+
+  it('returns the fallback when nothing is listed', () => {
+    expect(
+      bundles.match(requestWithActiveBundle('marketing'), {}, 'Example'),
+    ).toBe('Example');
+  });
+
+  it('matches the primary app as a case', () => {
+    // The reserved key is selectable, so it has to be answerable here even
+    // though it is never declared.
+    expect(
+      bundles.match(
+        requestWithActiveBundle('__default__'),
+        { ['__default__']: 'base' },
+        'other',
+      ),
+    ).toBe('base');
+  });
+
+  it('treats a case present with an undefined value as a case', () => {
+    // Presence decides, the way a switch case does. Reading the value and
+    // testing it for undefined would make this one spelling silently take the
+    // fallback, which is the sort of thing nobody debugs twice.
+    expect(
+      bundles.match(
+        requestWithActiveBundle('marketing'),
+        { marketing: undefined },
+        'Example',
+      ),
+    ).toBeUndefined();
+  });
+
+  it('compares exactly, with no trimming or case folding', () => {
+    // Same rule as is(): a value that reaches here untrimmed is a different
+    // key rather than the same one written loosely, so it takes the fallback.
+    expect(
+      bundles.match(
+        requestWithActiveBundle(' marketing'),
+        { marketing: 'listed' },
+        'fallback',
+      ),
+    ).toBe('fallback');
+  });
+
+  it('throws when the request has no active bundle', () => {
+    // Same wiring mistake is() refuses, and refused the same way — a silent
+    // fallback would make an APIServer request look like normal operation.
+    const apiServerRequest = {} as FastifyRequest;
+
+    expect(() =>
+      bundles.match(apiServerRequest, { marketing: 'a' }, 'b'),
+    ).toThrow(/only on an SSRServer/);
+  });
+
+  it('rejects a case naming an undeclared bundle', () => {
+    // The check that still holds once the declaration came from configuration
+    // and TKey widened to `string`, which stops the types checking case keys
+    // at all. Without it the typo takes the fallback forever, silently.
+    const widened = defineAppBundles(...(['marketing'] as string[]));
+
+    expect(() =>
+      widened.match(
+        requestWithActiveBundle('marketing'),
+        { 'typo-nobody-declared': 'a' },
+        'b',
+      ),
+    ).toThrow(/was used as a case in match\(\)/);
+    expect(() =>
+      widened.match(
+        requestWithActiveBundle('marketing'),
+        { 'typo-nobody-declared': 'a' },
+        'b',
+      ),
+    ).toThrow(/Declared keys: marketing/);
+  });
+
+  it('rejects an undeclared case before looking anything up', () => {
+    // Reported as a typo even when the active bundle would have matched a
+    // different, valid case — otherwise the mistake only surfaces on whichever
+    // bundle happens to hit it.
+    const widened = defineAppBundles(...(['marketing'] as string[]));
+
+    expect(() =>
+      widened.match(
+        requestWithActiveBundle('marketing'),
+        { marketing: 'a', 'typo-nobody-declared': 'b' },
+        'c',
+      ),
+    ).toThrow(/was used as a case in match\(\)/);
   });
 });
