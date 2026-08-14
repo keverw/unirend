@@ -1610,7 +1610,7 @@ Rules for using it:
 
 The return type is an opaque `Trigger404Signal`, exported from `unirend/server` for code that needs to name it. Handlers are unaffected by its presence, but code that consumes a handler's return type sees the extra union member.
 
-One note specific to SSR. During the initial render, a page data handler registered on the same `SSRServer` is [short-circuited](#short-circuit-data-handlers), called in-process rather than over HTTP. A trigger there produces the not-found envelope inline, with no separate HTTP response, and the page renders its 404 state. The envelope carries the SSR request's own `request_id` and `request_timestamp`, since that is the request it was produced for. See [Data Loaders](./data-loaders.md#page-type-handler-fetchshort-circuit-data-loader).
+One note specific to SSR. During the initial render, a page data handler registered on the same `SSRServer` is [short-circuited](#short-circuit-data-handlers), called in-process rather than over HTTP. A trigger there produces the not-found envelope inline, with no separate HTTP response, and the page renders its 404 state. The envelope carries the SSR request's own `request_id` and `request_timestamp`, since that is the request it was produced for. A custom `notFoundHandler` is also called with the page request rather than a page-data one on this path, so a handler that branches on `request.url` or `request.method` is the one thing that can distinguish a trigger from a genuine miss here. See [Data Loaders](./data-loaders.md#page-type-handler-fetchshort-circuit-data-loader). See [Data Loaders](./data-loaders.md#page-type-handler-fetchshort-circuit-data-loader).
 
 ### Request Context Injection
 
