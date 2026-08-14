@@ -1597,7 +1597,9 @@ server.pageDataHandler.register('dashboard', async (request, reply, params) => {
 
 Note: That comparison against a plain string is not checked for you, and a typo in it fails open. See [Checked Bundle Keys](#checked-bundle-keys) for the two ways to make it a compile error.
 
-The response is byte-for-byte what a genuine miss on that route produces, because it is produced by the same not-found resolution: your `APIHandling.notFoundHandler` (or `notFoundHandler` on an `APIServer`) if you configured one, your `APIResponseHelpersClass` if you registered one, the framework default otherwise, with the same status code and the same `Cache-Control: no-store`. Nothing in the response says a handler ran. That is the point, and it is what a hand-built 404 envelope cannot give you: yours will differ in some field from the one a real miss produces, and the difference is a fact about the deployment a caller can probe for.
+Over HTTP, which is every API route handler and every page data request the browser makes, the response is byte-for-byte what a genuine miss on that route produces, because it is produced by the same not-found resolution: your `APIHandling.notFoundHandler` (or `notFoundHandler` on an `APIServer`) if you configured one, your `APIResponseHelpersClass` if you registered one, the framework default otherwise, with the same status code and the same `Cache-Control: no-store`. Nothing in the response says a handler ran. That is the point, and it is what a hand-built 404 envelope cannot give you: yours will differ in some field from the one a real miss produces, and the difference is a fact about the deployment a caller can probe for.
+
+The SSR internal short-circuit is scoped out of that guarantee, and the note at the end of this section says why.
 
 Rules for using it:
 
