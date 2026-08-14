@@ -2528,9 +2528,22 @@ export class SSRServer<
         // 404 page already produced 404 and this changes nothing; the override
         // is what stops a POST to a URL that *does* render (a real page) coming
         // back 200.
-        const statusCode = isUnmatchedNonReadMethod
-          ? 404
-          : renderResult.statusCode || 200;
+        //
+        // A 5xx is the exception, and the only one. The override exists to stop
+        // a success or a redirect being invented for a request no route
+        // claimed; a server error is neither invented nor a leak, it is a true
+        // statement about this server. Masking it as 404 would hide a real
+        // failure from whatever watches status codes, and would skip the
+        // `statusCode === 500` branch below that hands the request to
+        // `get500ErrorPage`. It also keeps the three result branches
+        // consistent: a render that throws lands in `render-error` and answers
+        // 500, so a render that reports the same failure by returning it should
+        // not answer 404 instead.
+        const renderedStatusCode = renderResult.statusCode || 200;
+        const statusCode =
+          isUnmatchedNonReadMethod && renderedStatusCode < 500
+            ? 404
+            : renderedStatusCode;
 
         // ---> Extract cookies from ssOnlyData set by data loader
         // cookies are returned as an array of strings, each string is a cookie header value already formatted
@@ -2630,8 +2643,12 @@ export class SSRServer<
         // the browser does next.
         //
         // Every non-read miss is therefore a plain 404, and the Location is
-        // dropped below so nothing is left for a client to follow.
-        const responseStatusCode = isUnmatchedNonReadMethod
+        // dropped below so nothing is left for a client to follow. A 5xx is
+        // passed through for the same reason as on the page path above.
+        const isForced404 =
+          isUnmatchedNonReadMethod && renderResult.response.status < 500;
+
+        const responseStatusCode = isForced404
           ? 404
           : renderResult.response.status;
 
@@ -2656,7 +2673,7 @@ export class SSRServer<
           // would leave a redirect target on a response whose whole point is
           // that nothing handled the request. Set-Cookie still passes, the
           // same way it does on the page path.
-          if (lowerKey === 'location' && isUnmatchedNonReadMethod) {
+          if (lowerKey === 'location' && isForced404) {
             continue;
           }
 

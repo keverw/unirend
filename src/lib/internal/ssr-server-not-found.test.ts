@@ -80,6 +80,17 @@ async function writeBuild(buildDir: string): Promise<void> {
         };
       }
 
+      if (pathname.includes('boom-500')) {
+        return { resultType: 'page', statusCode: 500, html: '<p>boom</p>' };
+      }
+
+      if (pathname.includes('unavailable')) {
+        return {
+          resultType: 'response',
+          response: new Response('down', { status: 503 }),
+        };
+      }
+
       if (pathname.includes('not-modified')) {
         return {
           resultType: 'response',
@@ -341,6 +352,33 @@ describe('SSR not-found handling for requests the catch-all does not match', () 
       expect(response.location).toBe('');
       expect(response.cacheControl).toBe('no-store');
     }
+  });
+
+  it('does not mask a genuine 500 as a 404 on a non-GET miss', async () => {
+    // The forced 404 stops a success or a redirect being invented for a
+    // request no route claimed. A server error is neither, and hiding one
+    // behind a 404 would both mislead whatever watches status codes and skip
+    // the get500ErrorPage branch. A render that *throws* already answers 500
+    // through the render-error path, so a render that reports the same failure
+    // by returning it has to agree.
+    await startServer();
+
+    const get = await request('GET', '/boom-500');
+    const post = await request('POST', '/boom-500');
+
+    expect(get.status).toBe(500);
+    expect(get.body).toContain('custom 500');
+
+    expect(post.status).toBe(500);
+    expect(post.body).toContain('custom 500');
+  });
+
+  it('does not mask a 5xx Response result as a 404 on a non-GET miss', async () => {
+    await startServer();
+
+    const post = await request('POST', '/unavailable');
+
+    expect(post.status).toBe(503);
   });
 
   it('classifies a web plugin route that returns reply.callNotFound()', async () => {
