@@ -9,6 +9,7 @@ import {
   normalizePageDataEndpoint,
   createDefaultAPIErrorResponse,
   createDefaultAPINotFoundResponse,
+  resolveAPINotFoundResponse,
   registerClosingResponseHook,
   isSplitHandler,
   prepareWebResponse,
@@ -19,7 +20,11 @@ import {
   registerRequestIDDecoration,
   computeDomainInfo,
 } from './server-utils';
-import type { ClosingHandlerOption } from './server-utils';
+import type {
+  ClosingHandlerOption,
+  APINotFoundHandlerOption,
+  APINotFoundResolutionConfig,
+} from './server-utils';
 import { registerClientInfoResolution } from './client-info-resolution';
 import type {
   APIServerOptions,
@@ -796,6 +801,23 @@ export class APIServer<
   }
 
   /**
+   * Assembles the shared API/page-data not-found resolution config in one
+   * place, so every caller resolves 404s identically.
+   * @private
+   */
+  private notFoundResolutionConfig(): APINotFoundResolutionConfig {
+    return {
+      // The resolver invokes the handler with the class configured on this
+      // server, so widening the params type back to the base is safe.
+      handler: this.options.notFoundHandler as APINotFoundHandlerOption,
+      serverLabel: this.serverLabel,
+      HelpersClass: this.APIResponseHelpersClass,
+      apiPrefix: this.normalizedAPIPrefix,
+      pageDataEndpoint: this.normalizedPageDataEndpoint,
+    };
+  }
+
+  /**
    * Setup a default 404 handler that returns standardized envelopes
    * @private
    */
@@ -811,6 +833,18 @@ export class APIServer<
         this.normalizedPageDataEndpoint,
       );
 
+      // API and page-data requests share their not-found resolution with
+      // SSRServer so the two can never drift.
+      if (isAPI && this.normalizedAPIPrefix !== false) {
+        return resolveAPINotFoundResponse({
+          ...this.notFoundResolutionConfig(),
+          request,
+          reply,
+        });
+      }
+
+      // Everything below is the plain-web side, which is APIServer-only.
+
       // If user provided custom not-found handler, use it
       if (this.options.notFoundHandler) {
         try {
@@ -822,20 +856,7 @@ export class APIServer<
           ) {
             const splitHandler = this.options.notFoundHandler;
 
-            if (isAPI && splitHandler.api) {
-              // Use API handler
-              const apiResponse = await Promise.resolve(
-                splitHandler.api(request, isPageData, {
-                  APIResponseHelpers: this.APIResponseHelpersClass,
-                }),
-              );
-
-              // Extract status code from envelope response
-              const statusCode = apiResponse.status_code || 404;
-              reply.code(statusCode).header('Cache-Control', 'no-store');
-
-              return apiResponse;
-            } else if (!isAPI && splitHandler.web) {
+            if (splitHandler.web) {
               // Use web handler
               const webResponse = await Promise.resolve(
                 splitHandler.web(request),

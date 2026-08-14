@@ -278,14 +278,19 @@ This is independently shippable. If the PR gets heavy, it can drop to its own br
 - [x] Copy this plan to `PLAN.md` at the repo root
 - [x] Baseline green: `bun test && bun run type-check && bun run lint` — 3043 pass / 0 fail across 107 files, `tsc --noEmit` and `eslint .` both clean (Aug 13, 2026)
 
-### Phase 1 — Extract the shared resolver (§1)
+### Phase 1 — Extract the shared resolver (§1) ✅
 
-- [ ] Add `APINotFoundResolutionConfig` + `resolveAPINotFoundResponse` to `server-utils.ts`, with the `isAPI`-only precondition comment
-- [ ] Add `notFoundResolutionConfig()` to `APIServer` and `SSRServer`
-- [ ] Rewrite `APIServer.setupNotFoundHandler` API branch onto the resolver; leave the web branches verbatim
-- [ ] Rewrite `SSRServer.handleAPINotFound` as a thin wrapper
-- [ ] Unit tests in `server-utils.test.ts` (no-reply, throwing handler, split-with-only-`.web`, custom `status_code`)
-- [ ] Existing 404 tests still pass unchanged — no behavior change in this phase
+- [x] Add `APINotFoundResolutionConfig` + `resolveAPINotFoundResponse` to `server-utils.ts`, with the `isAPI`-only precondition comment
+- [x] Add `notFoundResolutionConfig()` to `APIServer` and `SSRServer`
+- [x] Rewrite `APIServer.setupNotFoundHandler` API branch onto the resolver; leave the web branches verbatim
+- [x] Rewrite `SSRServer.handleAPINotFound` as a thin wrapper
+- [x] Unit tests in `server-utils.test.ts` (no-reply, throwing handler, split-with-only-`.web`, custom `status_code`, function-form args, custom status code)
+- [x] Existing 404 tests still pass unchanged — no behavior change in this phase — 3049 pass / 0 fail (3043 before, +6 new), `type-check` and `lint` clean (Aug 13, 2026)
+
+Notes:
+
+- The `APINotFoundHandlerOption` base (non-generic) alias mirrors `ClosingHandlerOption`, so both servers widen their generic-over-helpers option the same way.
+- One subtlety worth remembering for later phases: on an APIServer with API handling **enabled**, a **non-API** miss with the function-form handler still goes through the API envelope branch. That branch is unreachable from the resolver (it only ever runs under `isAPI`), so it stayed in `api-server.ts` verbatim rather than moving.
 
 ### Phase 2 — Close the SSR not-found gap (§2)
 

@@ -19,6 +19,7 @@ import {
   registerRequestIDDecoration,
   registerClosingResponseHook,
   resolveClosingResponse,
+  resolveAPINotFoundResponse,
   sendClosingPayload,
   isSplitHandler,
   prepareWebResponse,
@@ -2080,6 +2081,207 @@ describe('resolveClosingResponse', () => {
     expect(state.statusCode).toBe(503);
     expect(state.headers['cache-control']).toBe('no-store');
     expect(state.contentType).toBe('text/html');
+  });
+});
+
+describe('resolveAPINotFoundResponse', () => {
+  const createReply = () => {
+    const state = {
+      statusCode: 0,
+      headers: {} as Record<string, string>,
+    };
+
+    const reply = {
+      code: (statusCode: number) => {
+        state.statusCode = statusCode;
+        return reply;
+      },
+      header: (name: string, value: string) => {
+        state.headers[name.toLowerCase()] = value;
+        return reply;
+      },
+    } as unknown as FastifyReply;
+
+    return { reply, state };
+  };
+
+  const createRequest = (url: string) =>
+    ({
+      url,
+      method: 'GET',
+      log: {
+        error: mock(),
+      },
+    }) as unknown as FastifyRequest;
+
+  const baseConfig = {
+    serverLabel: 'TestServer',
+    HelpersClass: APIResponseHelpers,
+    apiPrefix: '/api',
+    pageDataEndpoint: 'page_data',
+  };
+
+  it('returns the default envelope without a reply on the internal path', async () => {
+    const request = createRequest('/api/v1/missing');
+
+    const payload = await resolveAPINotFoundResponse({
+      ...baseConfig,
+      request,
+    });
+
+    expect(payload).toMatchObject({
+      status_code: 404,
+      error: {
+        code: 'not_found',
+        message: 'Resource Not Found',
+      },
+    });
+  });
+
+  it('passes isPageData and the helpers class to the function form', async () => {
+    const { reply, state } = createReply();
+    const request = createRequest('/api/v1/page_data/dashboard');
+    const handler = mock(
+      (
+        handlerRequest: FastifyRequest,
+        _isPageData: boolean | undefined,
+        _params: unknown,
+      ) =>
+        APIResponseHelpers.createPageErrorResponse({
+          request: handlerRequest,
+          statusCode: 404,
+          errorCode: 'custom_not_found',
+          errorMessage: 'Custom page 404',
+          pageMetadata: { title: 'Missing', description: 'Custom' },
+        }),
+    );
+
+    const payload = await resolveAPINotFoundResponse({
+      ...baseConfig,
+      handler,
+      request,
+      reply,
+    });
+
+    expect(handler.mock.calls[0][1]).toBe(true);
+    expect(handler.mock.calls[0][2]).toEqual({
+      APIResponseHelpers,
+    });
+    expect(payload).toMatchObject({
+      status_code: 404,
+      error: {
+        code: 'custom_not_found',
+        message: 'Custom page 404',
+      },
+    });
+    expect(state.statusCode).toBe(404);
+    expect(state.headers['cache-control']).toBe('no-store');
+  });
+
+  it('honors a custom status code from the handler', async () => {
+    const { reply, state } = createReply();
+    const request = createRequest('/api/v1/missing');
+
+    const payload = await resolveAPINotFoundResponse({
+      ...baseConfig,
+      handler: (handlerRequest: FastifyRequest) =>
+        APIResponseHelpers.createAPIErrorResponse({
+          request: handlerRequest,
+          statusCode: 451,
+          errorCode: 'custom_not_found',
+          errorMessage: 'Gone for legal reasons',
+        }),
+      request,
+      reply,
+    });
+
+    expect(payload).toMatchObject({ status_code: 451 });
+    expect(state.statusCode).toBe(451);
+    expect(state.headers['cache-control']).toBe('no-store');
+  });
+
+  it('uses a split handler api entry', async () => {
+    const { reply, state } = createReply();
+    const request = createRequest('/api/v1/missing');
+
+    const payload = await resolveAPINotFoundResponse({
+      ...baseConfig,
+      handler: {
+        api: (handlerRequest: FastifyRequest) =>
+          APIResponseHelpers.createAPIErrorResponse({
+            request: handlerRequest,
+            statusCode: 404,
+            errorCode: 'split_api_not_found',
+            errorMessage: 'Split API 404',
+          }),
+      },
+      request,
+      reply,
+    });
+
+    expect(payload).toMatchObject({
+      error: { code: 'split_api_not_found' },
+    });
+    expect(state.statusCode).toBe(404);
+  });
+
+  it('falls back to the default envelope for a split handler carrying only web', async () => {
+    const { reply, state } = createReply();
+    const request = createRequest('/api/v1/missing');
+    const webHandler = mock(() => ({
+      contentType: 'text' as const,
+      content: 'Web 404',
+    }));
+
+    const payload = await resolveAPINotFoundResponse({
+      ...baseConfig,
+      handler: { web: webHandler },
+      request,
+      reply,
+    });
+
+    expect(webHandler).not.toHaveBeenCalled();
+    expect(payload).toMatchObject({
+      status_code: 404,
+      error: {
+        code: 'not_found',
+        message: 'Resource Not Found',
+      },
+    });
+    expect(state.statusCode).toBe(404);
+    expect(state.headers['cache-control']).toBe('no-store');
+  });
+
+  it('logs handler failures and falls back to the default envelope', async () => {
+    const { reply, state } = createReply();
+    const request = createRequest('/api/v1/missing');
+
+    const payload = await resolveAPINotFoundResponse({
+      ...baseConfig,
+      handler: () => {
+        throw new Error('handler failed');
+      },
+      request,
+      reply,
+    });
+
+    expect(payload).toMatchObject({
+      status_code: 404,
+      error: {
+        code: 'not_found',
+      },
+    });
+    expect(state.statusCode).toBe(404);
+    expect(
+      (request.log.error as ReturnType<typeof mock>).mock.calls[0],
+    ).toEqual([
+      {
+        err: expect.any(Error),
+        method: 'GET',
+        url: '/api/v1/missing',
+      },
+      '[TestServer] Custom not-found handler failed',
+    ]);
   });
 });
 

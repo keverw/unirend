@@ -21,6 +21,8 @@ import type {
   APIClosingHandlerFn,
   WebClosingHandlerFn,
   SplitClosingHandler,
+  APINotFoundHandlerFn,
+  SplitNotFoundHandler,
 } from '../types';
 import type { CookieSerializeOptions } from '@fastify/cookie';
 import { DEFAULT_API_PREFIX, DEFAULT_PAGE_DATA_ENDPOINT } from './consts';
@@ -313,6 +315,120 @@ export function createDefaultAPINotFoundResponse(
     errorCode: 'not_found',
     errorMessage: 'Resource Not Found',
   });
+}
+
+/**
+ * Not-found handler in its base (non-generic) form.
+ *
+ * Servers that are generic over their APIResponseHelpers class widen to this
+ * when handing the option to resolveAPINotFoundResponse, which invokes the
+ * handler with the class configured on that server.
+ */
+export type APINotFoundHandlerOption =
+  | APINotFoundHandlerFn
+  | SplitNotFoundHandler;
+
+/**
+ * Configuration for the shared API/page-data not-found resolution.
+ *
+ * Scope boundary: this resolver is API/page-data only, and every caller enters
+ * it under `isAPI`. Because classifyRequest reports `isAPI: false` whenever
+ * `apiPrefix === false`, the plain-web branches (a split handler's `.web`, the
+ * web-only function form, and the built-in HTML 404 page) are unreachable from
+ * here and stay in api-server.ts. That precondition is also why there is no
+ * `functionHandlerType` discriminator (unlike ClosingResponseConfig): inside
+ * this resolver a bare function is always an APINotFoundHandlerFn.
+ */
+export interface APINotFoundResolutionConfig {
+  handler?: APINotFoundHandlerOption;
+  serverLabel: string;
+  HelpersClass: APIResponseHelpersClass;
+  apiPrefix: string | false;
+  pageDataEndpoint: string;
+}
+
+/**
+ * Resolves the 404 envelope for an API or page-data request that matched no
+ * route. Called by both servers' not-found handlers so the two can never drift.
+ *
+ * Sets the status code and Cache-Control on the reply when one is given and
+ * returns the envelope body. It never calls reply.send() itself, so the caller
+ * returning this value keeps wrapThenable's single-send contract intact.
+ */
+export async function resolveAPINotFoundResponse({
+  request,
+  reply,
+  handler,
+  serverLabel,
+  HelpersClass,
+  apiPrefix,
+  pageDataEndpoint,
+}: APINotFoundResolutionConfig & {
+  request: FastifyRequest;
+  /** Omitted on the SSR internal short-circuit path, which has no HTTP response of its own */
+  reply?: FastifyReply;
+}): Promise<unknown> {
+  const { isAPI, isPageData } = classifyRequest(
+    request.url,
+    apiPrefix,
+    pageDataEndpoint,
+  );
+
+  if (handler) {
+    try {
+      let customResponse: { status_code?: number } | undefined;
+
+      if (isSplitHandler<Partial<SplitNotFoundHandler>>(handler)) {
+        // Split form lets mixed API + web servers customize each handler
+        // independently. A split carrying only `.web` has nothing for us here
+        // and falls through to the default envelope.
+        if (isAPI && handler.api) {
+          customResponse = await Promise.resolve(
+            handler.api(request, isPageData, {
+              APIResponseHelpers: HelpersClass,
+            }),
+          );
+        }
+      } else if (typeof handler === 'function') {
+        // Function form. Callers only reach this resolver under isAPI, so the
+        // function is always the API/page envelope form.
+        customResponse = await Promise.resolve(
+          handler(request, isPageData, {
+            APIResponseHelpers: HelpersClass,
+          }),
+        );
+      }
+
+      if (customResponse) {
+        const statusCode = customResponse.status_code || 404;
+        reply?.code(statusCode).header('Cache-Control', 'no-store');
+
+        return customResponse;
+      }
+
+      // No handler matched this case - fall through to default
+    } catch (handlerError) {
+      // If custom handler fails, fall back to default
+      request.log.error(
+        { err: handlerError, method: request.method, url: request.url },
+        `[${serverLabel}] Custom not-found handler failed`,
+      );
+    }
+  }
+
+  // Default case (also used when a split handler is missing its api entry)
+  const response = createDefaultAPINotFoundResponse(
+    HelpersClass,
+    request,
+    apiPrefix,
+    pageDataEndpoint,
+  );
+
+  const statusCode = (response as { status_code?: number }).status_code || 404;
+
+  reply?.code(statusCode).header('Cache-Control', 'no-store');
+
+  return response;
 }
 
 /**

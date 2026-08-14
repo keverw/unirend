@@ -47,7 +47,7 @@ import {
   normalizePageDataEndpoint,
   computeDomainInfo,
   createDefaultAPIErrorResponse,
-  createDefaultAPINotFoundResponse,
+  resolveAPINotFoundResponse,
   registerClosingResponseHook,
   createControlledReply,
   validateAndRegisterPlugin,
@@ -56,7 +56,11 @@ import {
   registerConnectionIPDecoration,
   registerRequestIDDecoration,
 } from './server-utils';
-import type { ClosingHandlerOption } from './server-utils';
+import type {
+  ClosingHandlerOption,
+  APINotFoundHandlerOption,
+  APINotFoundResolutionConfig,
+} from './server-utils';
 import { registerClientInfoResolution } from './client-info-resolution';
 import { generateDefault500ErrorPage } from './error-page-utils';
 // See comment in static-content-cache.ts — cross-entry import via unirend/utils.
@@ -2601,7 +2605,27 @@ export class SSRServer<
   }
 
   /**
-   * Handles API 404 not found responses with JSON envelopes
+   * Assembles the shared API/page-data not-found resolution config in one
+   * place, so every caller resolves 404s identically.
+   * @private
+   */
+  private notFoundResolutionConfig(): APINotFoundResolutionConfig {
+    return {
+      // The resolver invokes the handler with the class configured on this
+      // server, so widening the params type back to the base is safe.
+      handler: this.sharedOptions.APIHandling?.notFoundHandler as
+        | APINotFoundHandlerOption
+        | undefined,
+      serverLabel: this.serverLabel,
+      HelpersClass: this.APIResponseHelpersClass,
+      apiPrefix: this.normalizedAPIPrefix,
+      pageDataEndpoint: this.normalizedPageDataEndpoint,
+    };
+  }
+
+  /**
+   * Handles API 404 not found responses with JSON envelopes.
+   * Shares its resolution with APIServer so the two can never drift.
    * @param request The Fastify request object
    * @param reply The Fastify reply object
    * @private
@@ -2610,51 +2634,12 @@ export class SSRServer<
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<unknown> {
-    const { isPageData } = classifyRequest(
-      request.url,
-      this.normalizedAPIPrefix,
-      this.normalizedPageDataEndpoint,
-    );
-
-    // Check for custom API not-found handler
-    if (this.sharedOptions.APIHandling?.notFoundHandler) {
-      try {
-        const customResponse = await Promise.resolve(
-          this.sharedOptions.APIHandling.notFoundHandler(request, isPageData, {
-            APIResponseHelpers: this.APIResponseHelpersClass,
-          }),
-        );
-
-        // Extract status code from envelope response
-        const statusCode = customResponse.status_code || 404;
-        reply.code(statusCode).header('Cache-Control', 'no-store');
-
-        // Return the envelope instead of calling reply.send() directly.
-        // The caller returns this value so wrapThenable makes exactly one reply.send() call.
-        return customResponse;
-      } catch (handlerError) {
-        // If custom handler fails, fall back to default
-        request.log.error(
-          { err: handlerError, method: request.method, url: request.url },
-          `[${this.serverLabel}] Custom API not-found handler failed`,
-        );
-      }
-    }
-
-    // Default case
-    const response = createDefaultAPINotFoundResponse(
-      this.APIResponseHelpersClass,
+    // Returns the envelope instead of calling reply.send() directly.
+    // The caller returns this value so wrapThenable makes exactly one reply.send() call.
+    return resolveAPINotFoundResponse({
+      ...this.notFoundResolutionConfig(),
       request,
-      this.normalizedAPIPrefix,
-      this.normalizedPageDataEndpoint,
-    );
-
-    // Extract status code from envelope response
-    const statusCode =
-      (response as { status_code?: number }).status_code || 404;
-
-    reply.code(statusCode).header('Cache-Control', 'no-store');
-
-    return response;
+      reply,
+    });
   }
 }
