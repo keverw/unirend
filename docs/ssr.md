@@ -716,22 +716,24 @@ Notes:
 You can override the CDN URL per-request in middleware for region-specific CDNs:
 
 ```typescript
-const server = serveSSRBuilt(buildDir, {
-  // Default CDN URL
-  CDNBaseURL: 'https://cdn.example.com',
-});
-
 // Override CDN URL based on user region
-server.fastifyInstance.addHook('onRequest', async (request, reply) => {
-  // Detect region (via IP geolocation, cookie, header, etc.)
-  const region = detectRegion(request);
+const regionCDNPlugin: ServerPlugin = (pluginHost) => {
+  pluginHost.addHook('onRequest', async (request, reply) => {
+    // Detect region (via IP geolocation, cookie, header, etc.)
+    const region = detectRegion(request);
 
-  if (region === 'EU') {
-    request.CDNBaseURL = 'https://eu-cdn.example.com';
-  } else if (region === 'APAC') {
-    request.CDNBaseURL = 'https://apac-cdn.example.com';
-  }
-  // Falls back to default CDNBaseURL if not overridden
+    if (region === 'EU') {
+      request.CDNBaseURL = 'https://eu-cdn.example.com';
+    } else if (region === 'APAC') {
+      request.CDNBaseURL = 'https://apac-cdn.example.com';
+    }
+    // Falls back to default CDNBaseURL if not overridden
+  });
+};
+
+const server = serveSSRBuilt(buildDir, {
+  CDNBaseURL: 'https://cdn.example.com',
+  plugins: [regionCDNPlugin],
 });
 ```
 
@@ -1826,11 +1828,26 @@ The keys are just labels used in the check's error messages. Every field is opti
 #### Production Mode
 
 ```typescript
-import { serveSSRBuilt } from 'unirend/server';
+import { serveSSRBuilt, type ServerPlugin } from 'unirend/server';
+
+// Route requests to the correct app bundle. Middleware runs as a plugin.
+const bundleRoutingPlugin: ServerPlugin = (pluginHost) => {
+  pluginHost.addHook('onRequest', async (request) => {
+    const subdomain = request.hostname.split('.')[0];
+
+    if (subdomain === 'marketing') {
+      request.setActiveSSRApp('marketing');
+    } else if (subdomain === 'admin') {
+      request.setActiveSSRApp('admin');
+    }
+    // Falls back to '__default__' (the server's own bundle) if not set
+  });
+};
 
 // Create the server, which brings its own default app bundle
 const server = serveSSRBuilt('./build-main', {
   publicAppConfig: { api_endpoint: 'https://api.example.com' },
+  plugins: [bundleRoutingPlugin],
 });
 
 // Register additional app bundles - each supports bundle-specific options (excluding server-wide settings like port/host)
@@ -1882,25 +1899,22 @@ server.registerBuiltApp('marketing', './build-marketing', {
   // },
 });
 
-// Route requests to the correct app bundle via middleware
-server.fastifyInstance.addHook('onRequest', async (request, reply) => {
-  const subdomain = request.hostname.split('.')[0];
-
-  if (subdomain === 'marketing') {
-    request.setActiveSSRApp('marketing');
-  } else if (subdomain === 'admin') {
-    request.setActiveSSRApp('admin');
-  }
-  // Falls back to '__default__' (the server's own bundle initially configured) if not set
-});
-
 await server.listen(3000);
 ```
 
 #### Development Mode
 
 ```typescript
-import { serveSSRWithHMR } from 'unirend/server';
+import { serveSSRWithHMR, type ServerPlugin } from 'unirend/server';
+
+// Same idea as production: routing is a plugin, not a hook added afterwards.
+const bundleRoutingPlugin: ServerPlugin = (pluginHost) => {
+  pluginHost.addHook('onRequest', async (request) => {
+    if (request.url.startsWith('/marketing')) {
+      request.setActiveSSRApp('marketing');
+    }
+  });
+};
 
 const server = serveSSRWithHMR(
   {
@@ -1910,6 +1924,7 @@ const server = serveSSRWithHMR(
   },
   {
     publicAppConfig: { api_endpoint: 'http://localhost:3001' },
+    plugins: [bundleRoutingPlugin],
   },
 );
 
@@ -1938,13 +1953,6 @@ server.registerHMRApp(
     // },
   },
 );
-
-// Routing middleware (same as production)
-server.fastifyInstance.addHook('onRequest', async (request, reply) => {
-  if (request.url.startsWith('/marketing')) {
-    request.setActiveSSRApp('marketing');
-  }
-});
 
 await server.listen(3000);
 ```
@@ -2021,36 +2029,40 @@ Beyond offloading traffic, this setup also fixes a correctness problem with roll
 
 ### Routing Strategies
 
-Use `request.setActiveSSRApp(appKey)` in early SSR middleware to select a registered app bundle for the current request. The method validates that the bundle exists, refreshes bundle-derived request values like `request.publicAppConfig`, and updates the bundle-level CDN default unless middleware already overrode `request.CDNBaseURL`. `request.activeSSRApp` is read-only.
+Register your routing middleware as a plugin, through the `plugins` option, and call `request.setActiveSSRApp(appKey)` from an early `onRequest` hook to select a registered app bundle for the current request. Plugins are how unirend exposes hooks and routes. The underlying Fastify instance is internal, and does not exist yet at the point you would reach for it. The method validates that the bundle exists, refreshes bundle-derived request values like `request.publicAppConfig`, and updates the bundle-level CDN default unless middleware already overrode `request.CDNBaseURL`. `request.activeSSRApp` is read-only.
 
 #### 1. Subdomain-Based Routing
 
 ```typescript
-server.fastifyInstance.addHook('onRequest', async (request, reply) => {
-  const subdomain = request.hostname.split('.')[0];
+const bundleRoutingPlugin: ServerPlugin = (pluginHost) => {
+  pluginHost.addHook('onRequest', async (request) => {
+    const subdomain = request.hostname.split('.')[0];
 
-  switch (subdomain) {
-    case 'marketing':
-      request.setActiveSSRApp('marketing');
-      break;
-    case 'app':
-      request.setActiveSSRApp('app');
-      break;
-    // Falls back to '__default__' for main domain
-  }
-});
+    switch (subdomain) {
+      case 'marketing':
+        request.setActiveSSRApp('marketing');
+        break;
+      case 'app':
+        request.setActiveSSRApp('app');
+        break;
+      // Falls back to '__default__' for main domain
+    }
+  });
+};
 ```
 
 #### 2. Path-Based Routing
 
 ```typescript
-server.fastifyInstance.addHook('onRequest', async (request, reply) => {
-  if (request.url.startsWith('/marketing')) {
-    request.setActiveSSRApp('marketing');
-  } else if (request.url.startsWith('/admin')) {
-    request.setActiveSSRApp('admin');
-  }
-});
+const bundleRoutingPlugin: ServerPlugin = (pluginHost) => {
+  pluginHost.addHook('onRequest', async (request) => {
+    if (request.url.startsWith('/marketing')) {
+      request.setActiveSSRApp('marketing');
+    } else if (request.url.startsWith('/admin')) {
+      request.setActiveSSRApp('admin');
+    }
+  });
+};
 ```
 
 **Important**: When using path-based routing, your React Router routes must match the path prefix to avoid hydration errors. For example, if routing to the `marketing` app on `/marketing/*`, define routes like `/marketing/home`, `/marketing/about`, etc.
@@ -2058,29 +2070,31 @@ server.fastifyInstance.addHook('onRequest', async (request, reply) => {
 #### 3. Cookie-Based Routing
 
 ```typescript
-// Set A/B variant cookie
-server.fastifyInstance.addHook('onRequest', async (request, reply) => {
-  // Check for existing variant cookie
-  let variant = request.cookies['ab-variant'];
+// Set A/B variant cookie. Depends on the cookies plugin.
+const variantRoutingPlugin: ServerPlugin = (pluginHost) => {
+  pluginHost.addHook('onRequest', async (request, reply) => {
+    // Check for existing variant cookie
+    let variant = request.cookies['ab-variant'];
 
-  // Assign variant if not set (50/50 split)
-  if (!variant) {
-    variant = Math.random() < 0.5 ? 'a' : 'b';
+    // Assign variant if not set (50/50 split)
+    if (!variant) {
+      variant = Math.random() < 0.5 ? 'a' : 'b';
 
-    reply.setCookie('ab-variant', variant, {
-      maxAge: 30 * 24 * 60 * 60, // 30 days
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: 'auto', // sets Secure when over HTTPS
-    });
-  }
+      reply.setCookie('ab-variant', variant, {
+        maxAge: 30 * 24 * 60 * 60, // 30 days
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: 'auto', // sets Secure when over HTTPS
+      });
+    }
 
-  // Route based on variant
-  if (variant === 'b') {
-    request.setActiveSSRApp('variant-b');
-  }
-  // Falls back to '__default__' for variant A
-});
+    // Route based on variant
+    if (variant === 'b') {
+      request.setActiveSSRApp('variant-b');
+    }
+    // Falls back to '__default__' for variant A
+  });
+};
 ```
 
 **Note**: This approach uses cookies to maintain consistent variant assignment across requests. The cookie settings align with [recommended patterns](./built-in-plugins/cookies.md#recommended-patterns) for first-party session cookies.
