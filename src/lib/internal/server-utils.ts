@@ -280,6 +280,9 @@ export function createDefaultAPIErrorResponse(
  * @param request - The Fastify request object
  * @param apiPrefix - API prefix for request classification (e.g., "/api"), or false if API is disabled
  * @param pageDataEndpoint - Page data endpoint name (e.g., "page_data")
+ * @param isPageDataOverride - Forces the page-data branch instead of deriving
+ *   it from the request URL. Used by the SSR internal short-circuit path, whose
+ *   request URL is the web route rather than the page-data endpoint.
  * @returns JSON 404 response object
  */
 export function createDefaultAPINotFoundResponse(
@@ -287,12 +290,12 @@ export function createDefaultAPINotFoundResponse(
   request: FastifyRequest,
   apiPrefix: string | false,
   pageDataEndpoint: string,
+  isPageDataOverride?: boolean,
 ): unknown {
-  const { isPageData } = classifyRequest(
-    request.url,
-    apiPrefix,
-    pageDataEndpoint,
-  );
+  const { isPageData } =
+    isPageDataOverride === undefined
+      ? classifyRequest(request.url, apiPrefix, pageDataEndpoint)
+      : { isPageData: isPageDataOverride };
 
   const statusCode = 404;
 
@@ -325,8 +328,7 @@ export function createDefaultAPINotFoundResponse(
  * handler with the class configured on that server.
  */
 export type APINotFoundHandlerOption =
-  | APINotFoundHandlerFn
-  | SplitNotFoundHandler;
+  APINotFoundHandlerFn | SplitNotFoundHandler;
 
 /**
  * Configuration for the shared API/page-data not-found resolution.
@@ -358,6 +360,7 @@ export interface APINotFoundResolutionConfig {
 export async function resolveAPINotFoundResponse({
   request,
   reply,
+  classification,
   handler,
   serverLabel,
   HelpersClass,
@@ -367,12 +370,18 @@ export async function resolveAPINotFoundResponse({
   request: FastifyRequest;
   /** Omitted on the SSR internal short-circuit path, which has no HTTP response of its own */
   reply?: FastifyReply;
+  /**
+   * Forces the classification instead of deriving it from `request.url`.
+   *
+   * Only the SSR internal short-circuit path passes this: it runs on the page
+   * request, whose URL is the web route rather than the page-data endpoint, so
+   * deriving would produce an API envelope where the HTTP fallback for the very
+   * same page type produces a page one.
+   */
+  classification?: { isAPI: boolean; isPageData: boolean };
 }): Promise<unknown> {
-  const { isAPI, isPageData } = classifyRequest(
-    request.url,
-    apiPrefix,
-    pageDataEndpoint,
-  );
+  const { isAPI, isPageData } =
+    classification ?? classifyRequest(request.url, apiPrefix, pageDataEndpoint);
 
   if (handler) {
     try {
@@ -422,6 +431,7 @@ export async function resolveAPINotFoundResponse({
     request,
     apiPrefix,
     pageDataEndpoint,
+    classification ? isPageData : undefined,
   );
 
   const statusCode = (response as { status_code?: number }).status_code || 404;

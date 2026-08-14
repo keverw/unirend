@@ -18,6 +18,11 @@ import type {
   SecurityHeadersConfig,
   SecurityHeadersPlugin,
 } from './plugins';
+import type {
+  APIRouteHandler,
+  PageDataHandler,
+  Trigger404Signal,
+} from './server';
 
 type PublicSecurityHeadersTypeSurface = {
   config: SecurityHeadersConfig;
@@ -37,6 +42,17 @@ type PublicSecurityHeadersTypeSurface = {
 
 const publicSecurityHeadersTypeSurface: PublicSecurityHeadersTypeSurface | null =
   null;
+
+// `request.trigger404()` returns an opaque branded value, so handler code that
+// names its own return type needs the name exported alongside the two handler
+// types that now accept it.
+type PublicTrigger404TypeSurface = {
+  signal: Trigger404Signal;
+  apiHandler: APIRouteHandler;
+  pageDataHandler: PageDataHandler;
+};
+
+const publicTrigger404TypeSurface: PublicTrigger404TypeSurface | null = null;
 
 type PackageExport = {
   types: string;
@@ -107,5 +123,9 @@ describe('package exports', () => {
 
   it('exports the named types needed to build reusable security policies', () => {
     expect(publicSecurityHeadersTypeSurface).toBeNull();
+  });
+
+  it('exports the trigger-404 signal type alongside the handler types', () => {
+    expect(publicTrigger404TypeSurface).toBeNull();
   });
 });

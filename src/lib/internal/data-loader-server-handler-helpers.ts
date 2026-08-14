@@ -6,7 +6,17 @@ import type {
 } from '../api-envelope/api-envelope-types';
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
 import type { APIResponseHelpersClass, ControlledReply } from '../types';
-import { createControlledReply } from './server-utils';
+import {
+  createControlledReply,
+  type APINotFoundResolutionConfig,
+} from './server-utils';
+import {
+  checkTrigger404,
+  closeTrigger404Scope,
+  openTrigger404Scope,
+  runInTrigger404Scope,
+  type Trigger404Signal,
+} from './trigger-404';
 import { getAPIResponseHelpersClass } from './api-response-helpers-utils';
 import {
   validateVersion,
@@ -61,6 +71,11 @@ export interface PageDataHandlerParams<
  * APIResponseHelpers.sendErrorEnvelope() or validation helpers like ensureJSONBody).
  * This signals that the handler has already sent the response and the framework
  * should not attempt to send anything.
+ *
+ * **Return `request.trigger404()`** to abandon the request into this server's
+ * not-found path, so the response is exactly what an unregistered page type
+ * would produce. Call it before setting headers or cookies and before any
+ * expensive work.
  */
 export type PageDataHandler<
   T = unknown,
@@ -72,10 +87,16 @@ export type PageDataHandler<
   reply: ControlledReply,
   params: PageDataHandlerParams<H>,
 ) =>
-  | Promise<PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M> | false>
+  | Promise<
+      | PageResponseEnvelope<T, M>
+      | APIResponseEnvelope<T, M>
+      | false
+      | Trigger404Signal
+    >
   | PageResponseEnvelope<T, M>
   | APIResponseEnvelope<T, M>
-  | false;
+  | false
+  | Trigger404Signal;
 
 /**
  * Result returned from callHandler()
@@ -118,6 +139,11 @@ export class DataLoaderServerHandlerHelpers<
   // Stored under the base params type: the server injects the configured class
   // at call time, so `H` only shapes what registrants see, not what we store.
   private handlersByPageType = new Map<string, Map<number, PageDataHandler>>();
+
+  // Installed by the server before registerRoutes(). Backs request.trigger404()
+  // so an abandoned request resolves through the same not-found path a genuine
+  // miss takes.
+  private notFoundResolution?: APINotFoundResolutionConfig;
 
   // pageDataHandler method-specific helpers
   private readonly pageDataHandler = {
@@ -166,6 +192,17 @@ export class DataLoaderServerHandlerHelpers<
    */
   public hasRegisteredHandlers(): boolean {
     return this.handlersByPageType.size > 0;
+  }
+
+  /**
+   * Install the not-found resolution used when a handler calls
+   * request.trigger404().
+   *
+   * Both servers call this on both registries just before registerRoutes(), so
+   * an abandoned request and a genuine miss resolve through the same config.
+   */
+  public setNotFoundResolution(config: APINotFoundResolutionConfig): void {
+    this.notFoundResolution = config;
   }
 
   /**
@@ -299,24 +336,56 @@ export class DataLoaderServerHandlerHelpers<
               });
             }
 
-            const result = await handler(
+            // Opens the window in which request.trigger404() is callable, so a
+            // call from anywhere else throws instead of being ignored. The
+            // scope belongs to this invocation, not to the request.
+            const trigger404Scope = openTrigger404Scope();
+
+            let result;
+
+            try {
+              result = await runInTrigger404Scope(trigger404Scope, () =>
+                handler(request, createControlledReply(request, reply), {
+                  pageType,
+                  version,
+                  invocationOrigin: 'http',
+                  // Extract from POST body (sent by frontend page data loader with React Router context)
+                  // Note: These represent the React Router URL/params, NOT the Fastify request URL
+                  routeParams:
+                    (routeParams as Record<string, string> | undefined) || {},
+                  queryParams:
+                    (queryParams as Record<string, unknown> | undefined) || {},
+                  requestPath: requestPath as string,
+                  originalURL: originalURL as string,
+                  APIResponseHelpers: helpersClass,
+                }),
+              );
+            } finally {
+              closeTrigger404Scope(trigger404Scope);
+            }
+
+            // Must run before the checks below: the sentinel is not a valid
+            // envelope, so checking later would reject it as an invalid
+            // handler response.
+            const trigger404 = await checkTrigger404({
               request,
-              createControlledReply(request, reply),
-              {
-                pageType,
-                version,
-                invocationOrigin: 'http',
-                // Extract from POST body (sent by frontend page data loader with React Router context)
-                // Note: These represent the React Router URL/params, NOT the Fastify request URL
-                routeParams:
-                  (routeParams as Record<string, string> | undefined) || {},
-                queryParams:
-                  (queryParams as Record<string, unknown> | undefined) || {},
-                requestPath: requestPath as string,
-                originalURL: originalURL as string,
-                APIResponseHelpers: helpersClass,
-              },
-            );
+              scope: trigger404Scope,
+              reply,
+              isResponseSent: reply.sent || reply.raw.headersSent,
+              resolution: this.notFoundResolution,
+              handlerResult: result,
+              route: `POST ${endpointPath}`,
+              pageType,
+              version,
+            });
+
+            if (trigger404.triggered) {
+              // The already-sent case has nothing left to send; the resolver
+              // has set the status and headers for the other one.
+              return trigger404.isResponseSent
+                ? undefined
+                : trigger404.envelope;
+            }
 
             // If handler returned false, it has already sent the response
             // (e.g., via reply.sendErrorEnvelope() in a validation helper)
@@ -471,8 +540,18 @@ export class DataLoaderServerHandlerHelpers<
     // Using Promise.resolve().then(() => ...) ensures synchronous throws from
     // the handler become Promise rejections instead of escaping before our
     // timeout race is set up. Non-Promise returns are treated as resolved values.
-    const invocation = Promise.resolve().then(() =>
-      handler(originalRequest, options.controlledReply, finalParams),
+    // Opens the window in which request.trigger404() is callable, so a call
+    // from anywhere else throws instead of being ignored. The scope belongs to
+    // this invocation rather than to the request, which is what keeps the
+    // parallel page data loaders of one SSR render from clearing or consuming
+    // each other's state. Closed in the .finally() on the awaited result
+    // below, which covers the timeout path.
+    const trigger404Scope = openTrigger404Scope();
+
+    const invocation = runInTrigger404Scope(trigger404Scope, () =>
+      Promise.resolve().then(() =>
+        handler(originalRequest, options.controlledReply, finalParams),
+      ),
     );
 
     // Attach a no-op catch when using a timeout to prevent a possible
@@ -486,7 +565,10 @@ export class DataLoaderServerHandlerHelpers<
 
     // Build a single promise that either resolves to the handler result or rejects on timeout
     const resultPromise: Promise<
-      PageResponseEnvelope<T, M> | APIResponseEnvelope<T, M> | false
+      | PageResponseEnvelope<T, M>
+      | APIResponseEnvelope<T, M>
+      | false
+      | Trigger404Signal
     > =
       // Check if a timeout is specified
       !timeoutMS || timeoutMS <= 0
@@ -518,7 +600,42 @@ export class DataLoaderServerHandlerHelpers<
       if (timeoutID) {
         clearTimeout(timeoutID);
       }
+
+      closeTrigger404Scope(trigger404Scope);
     });
+
+    // Must run before the checks below: the sentinel is not a valid envelope,
+    // so checking later would reject it as an invalid handler response.
+    //
+    // No reply here — this is the SSR internal short-circuit, which has no
+    // HTTP response of its own. The classification is forced because this runs
+    // on the page request, whose URL is the web route rather than the
+    // page-data endpoint.
+    const trigger404 = await checkTrigger404({
+      request: originalRequest,
+      scope: trigger404Scope,
+      isResponseSent: options.controlledReply.sent,
+      resolution: this.notFoundResolution,
+      handlerResult: result,
+      route: `page data handler "${normalizedPageType}"`,
+      classification: { isAPI: true, isPageData: true },
+      pageType: normalizedPageType,
+      version: latestVersion,
+    });
+
+    if (trigger404.triggered) {
+      if (trigger404.isResponseSent) {
+        return { exists: true, version: latestVersion, result: false };
+      }
+
+      return {
+        exists: true,
+        version: latestVersion,
+        // The resolver produces the same page envelope the HTTP fallback would
+        // for this page type.
+        result: trigger404.envelope as PageResponseEnvelope<T, M>,
+      };
+    }
 
     // If handler returned false, it has already sent the response
     if (result === false) {

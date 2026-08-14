@@ -17,6 +17,7 @@ import type {
   PageDataHandler,
 } from './internal/data-loader-server-handler-helpers';
 import type { APIRouteHandler } from './internal/api-routes-server-helpers';
+import type { Trigger404Signal } from './internal/trigger-404';
 import type {
   APIErrorResponse,
   PageErrorResponse,
@@ -2776,6 +2777,47 @@ declare module 'fastify' {
      * middleware already overrode `request.CDNBaseURL`.
      */
     setActiveSSRApp: (appKey: string) => void;
+    /**
+     * Abandon this request into the server's not-found path.
+     *
+     * The server answers exactly as if no handler had ever been registered for
+     * the route, including a custom `notFoundHandler` and a custom
+     * `APIResponseHelpers` class, so registered and unregistered are
+     * indistinguishable in the response.
+     *
+     * ```ts
+     * server.pageDataHandler.register('dashboard', async (request) => {
+     *   if (request.activeSSRApp !== 'app-shell') {
+     *     return request.trigger404();
+     *   }
+     *   // …
+     * });
+     * ```
+     *
+     * Return the value — the `return` is what carries the control flow.
+     * Forgetting it still serves the 404 (the handler's value is discarded and
+     * the mistake is logged), but write the `return`.
+     *
+     * Call it first, before setting headers or cookies and before any expensive
+     * work: anything already set on the reply survives onto the 404, and a
+     * response that has already been sent cannot be taken back.
+     *
+     * Available only inside an API route handler or a page data handler,
+     * whether the handler was registered on the server or by a plugin. It
+     * throws everywhere else — from a raw plugin route, a hook, or middleware —
+     * rather than being silently ignored, since nothing there would observe the
+     * returned signal. In a raw plugin route, `return reply.callNotFound()`
+     * instead.
+     *
+     * The method exists on every request of an `SSRServer` or `APIServer`, and
+     * therefore also on `StaticWebServer` and `RedirectServer`, which are built
+     * on `APIServer` in plain web mode. Those two run no envelope handlers, so
+     * it always throws the message above there — a clear error rather than a
+     * missing property. It does not exist during SSG at all, whose local page
+     * data loaders never receive a request; use `createPageErrorResponse`
+     * there.
+     */
+    trigger404: () => Trigger404Signal;
     /**
      * Resolved connection IP — the direct connection.
      *

@@ -5,7 +5,17 @@ import type {
 } from '../api-envelope/api-envelope-types';
 import { APIResponseHelpers } from '../api-envelope/response-helpers';
 import type { APIResponseHelpersClass, ControlledReply } from '../types';
-import { createControlledReply } from './server-utils';
+import {
+  createControlledReply,
+  type APINotFoundResolutionConfig,
+} from './server-utils';
+import {
+  checkTrigger404,
+  closeTrigger404Scope,
+  openTrigger404Scope,
+  runInTrigger404Scope,
+  type Trigger404Signal,
+} from './trigger-404';
 import {
   validateVersion,
   validateSingleVersionWhenDisabled,
@@ -27,6 +37,11 @@ export type HTTPMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
  * APIResponseHelpers.sendErrorEnvelope() or validation helpers like ensureJSONBody).
  * This signals that the handler has already sent the response and the framework
  * should not attempt to send anything.
+ *
+ * **Return `request.trigger404()`** to abandon the request into this server's
+ * not-found path, so the response is exactly what an unregistered route would
+ * produce. Call it before setting headers or cookies and before any expensive
+ * work.
  */
 export type APIRouteHandler<
   T = unknown,
@@ -56,11 +71,17 @@ export type APIRouteHandler<
     APIResponseHelpers: H;
   },
   // Allow either sync or async returns, including false for early-exit cases
+  // and the trigger-404 sentinel for abandoning the request.
+  //
+  // The async arm carries the whole union rather than being one Promise per
+  // member: an async handler that branches — an envelope on one path, `false`
+  // or the sentinel on another — infers a single Promise over the union, which
+  // no per-member Promise arm accepts.
 ) =>
   | APIResponseEnvelope<T, M>
-  | Promise<APIResponseEnvelope<T, M>>
   | false
-  | Promise<false>;
+  | Trigger404Signal
+  | Promise<APIResponseEnvelope<T, M> | false | Trigger404Signal>;
 
 /**
  * Internal structure for storing handlers by method → endpoint → version
@@ -108,6 +129,11 @@ export class APIRoutesServerHelpers<
   H extends APIResponseHelpersClass = APIResponseHelpersClass,
 > {
   private handlersByMethod: MethodToEndpointMap<T, M, H> = new Map();
+
+  // Installed by the server before registerRoutes(). Backs request.trigger404()
+  // so an abandoned request resolves through the same not-found path a genuine
+  // miss takes.
+  private notFoundResolution?: APINotFoundResolutionConfig;
 
   // API Shortcut method-specific helpers
   private readonly api = {
@@ -241,6 +267,17 @@ export class APIRoutesServerHelpers<
   } as const;
 
   /**
+   * Install the not-found resolution used when a handler calls
+   * request.trigger404().
+   *
+   * Both servers call this on both registries just before registerRoutes(), so
+   * an abandoned request and a genuine miss resolve through the same config.
+   */
+  public setNotFoundResolution(config: APINotFoundResolutionConfig): void {
+    this.notFoundResolution = config;
+  }
+
+  /**
    * Register all stored handlers with the Fastify instance.
    *
    * @param fastify - The Fastify instance to register routes on
@@ -309,24 +346,55 @@ export class APIRoutesServerHelpers<
             const originalURL = request.url;
             const requestPath = originalURL.split('?')[0] || originalURL;
 
-            const envelope = await handler(
+            // Opens the window in which request.trigger404() is callable, so a
+            // call from anywhere else throws instead of being ignored. The
+            // scope belongs to this invocation, not to the request.
+            const trigger404Scope = openTrigger404Scope();
+
+            let envelope;
+
+            try {
+              envelope = await runInTrigger404Scope(trigger404Scope, () =>
+                handler(request, createControlledReply(request, reply), {
+                  method,
+                  endpoint,
+                  version,
+                  fullPath,
+                  routeParams,
+                  queryParams,
+                  requestPath,
+                  originalURL,
+                  // The decorated class is the same `H` the handler was
+                  // registered against, but the request decoration is only
+                  // typed as the base class.
+                  APIResponseHelpers: getAPIResponseHelpersClass(request) as H,
+                }),
+              );
+            } finally {
+              closeTrigger404Scope(trigger404Scope);
+            }
+
+            // Must run before the checks below: the sentinel is not a valid
+            // envelope, so checking later would reject it as an invalid
+            // handler response.
+            const trigger404 = await checkTrigger404({
               request,
-              createControlledReply(request, reply),
-              {
-                method,
-                endpoint,
-                version,
-                fullPath,
-                routeParams,
-                queryParams,
-                requestPath,
-                originalURL,
-                // The decorated class is the same `H` the handler was
-                // registered against, but the request decoration is only
-                // typed as the base class.
-                APIResponseHelpers: getAPIResponseHelpersClass(request) as H,
-              },
-            );
+              scope: trigger404Scope,
+              reply,
+              isResponseSent: reply.sent || reply.raw.headersSent,
+              resolution: this.notFoundResolution,
+              handlerResult: envelope,
+              route: `${method} ${fullPath}`,
+              version,
+            });
+
+            if (trigger404.triggered) {
+              // The already-sent case has nothing left to send; the resolver
+              // has set the status and headers for the other one.
+              return trigger404.isResponseSent
+                ? undefined
+                : trigger404.envelope;
+            }
 
             // If handler returned false, it has already sent the response
             // (e.g., via reply.sendErrorEnvelope() in a validation helper)

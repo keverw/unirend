@@ -61,6 +61,7 @@ import type {
   APINotFoundHandlerOption,
   APINotFoundResolutionConfig,
 } from './server-utils';
+import { markTrigger404Requested } from './trigger-404';
 import { registerClientInfoResolution } from './client-info-resolution';
 import { generateDefault500ErrorPage } from './error-page-utils';
 // See comment in static-content-cache.ts — cross-entry import via unirend/utils.
@@ -809,6 +810,15 @@ export class SSRServer<
       this.fastifyInstance.decorateRequest('publicAppConfig', undefined);
       this.fastifyInstance.decorateRequest('CDNBaseURL', undefined);
 
+      // Abandon a request into the not-found path. Fastify puts function
+      // decorators on the Request prototype, so this costs nothing per request
+      // and carries no per-request state: the trigger state lives in the async
+      // context of the handler invocation that called it.
+      this.fastifyInstance.decorateRequest(
+        'trigger404',
+        markTrigger404Requested,
+      );
+
       // Decorate requests with APIResponseHelpersClass for file upload helpers
       this.fastifyInstance.decorateRequest(
         'APIResponseHelpersClass',
@@ -1093,6 +1103,13 @@ export class SSRServer<
           this.pageDataHandlers,
         );
       } else {
+        // Install the not-found resolution on both registries before their
+        // routes exist, so request.trigger404() resolves through exactly the
+        // config a genuine miss resolves through.
+        const notFoundResolution = this.notFoundResolutionConfig();
+        this.pageDataHandlers.setNotFoundResolution(notFoundResolution);
+        this.apiRoutes.setNotFoundResolution(notFoundResolution);
+
         // API is enabled - register page data and API routes
         this.pageDataHandlers.registerRoutes(
           this.fastifyInstance,

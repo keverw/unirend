@@ -77,6 +77,9 @@ export type { PlainServer } from './lib/api';
 // only export the config type as class not used internally
 export type { PageDataHandler } from './lib/internal/data-loader-server-handler-helpers';
 export type { APIRouteHandler } from './lib/internal/api-routes-server-helpers';
+// The opaque value `request.trigger404()` returns, so a handler's return type
+// can be named without restating the union.
+export type { Trigger404Signal } from './lib/internal/trigger-404';
 export type {
   WebSocketHandlerParams,
   WebSocketPreValidationResult,

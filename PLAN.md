@@ -9,12 +9,12 @@ This adds a way for a handler to abandon its request so the server answers **exa
 Two things make that harder than returning a 404 envelope:
 
 1. An app with a custom `notFoundHandler` must get **its** 404 here too, otherwise the feature becomes distinguishable for precisely the apps that customized it. So the response must route through the existing not-found path, not be rebuilt at the call site.
-2. **`SSRServer` never registers a `setNotFoundHandler`** — it only registers `GET '*'` ([ssr-server.ts:1409](src/lib/internal/ssr-server.ts:1409)). Page-data routes are POST, so today an *unregistered* page type on an SSR server falls through to Fastify's stock `{"message":"Route POST:… not found",…}`, not the envelope from `handleAPINotFound`. Byte-equality is unreachable on the exact path this feature targets until that is fixed.
+2. **`SSRServer` never registers a `setNotFoundHandler`** — it only registers `GET '*'` ([ssr-server.ts:1409](src/lib/internal/ssr-server.ts:1409)). Page-data routes are POST, so today an _unregistered_ page type on an SSR server falls through to Fastify's stock `{"message":"Route POST:… not found",…}`, not the envelope from `handleAPINotFound`. Byte-equality is unreachable on the exact path this feature targets until that is fixed.
 
 ## Design decisions
 
 - **Return a sentinel, never throw.** `return request.trigger404()` — the `return` carries the control flow, nothing lands in the 500 path or gets logged as an error, and the handler visibly stops.
-- **Byte-equality by construction.** One resolver function, called by the framework's not-found handlers *and* by `trigger404()`. Tests then guard against drift rather than being the only thing holding the two together.
+- **Byte-equality by construction.** One resolver function, called by the framework's not-found handlers _and_ by `trigger404()`. Tests then guard against drift rather than being the only thing holding the two together.
 - **Identical on `APIServer` and `SSRServer`.** Both host the same two registries, and an SSR app is routinely pointed at a standalone `APIServer`. Every piece below is installed on both; the only difference is that `request.activeSSRApp` exists only on SSR, so an API server gates on host/header instead.
 - **Forgotten `return` fails closed.** If `trigger404()` was called but the handler returned an ordinary value, the 404 wins in both development and production, so the data the handler meant to withhold never ships. Dev and prod responses stay identical, which matters for a feature whose whole point is indistinguishability.
 - **No `console.warn`.** Loudness goes through `request.log`, which every server already has wired to the configured logger. `console.*` is reserved for the client-side code that has no request logger.
@@ -62,11 +62,15 @@ SSR has no not-found handler at all today; the `GET '*'` catch-all does double d
 
 ```ts
 // setupNotFoundHandler(), registered right after setErrorHandler (ssr-server.ts:976)
-const { isAPI } = classifyRequest(request.url, this.normalizedAPIPrefix, this.normalizedPageDataEndpoint);
+const { isAPI } = classifyRequest(
+  request.url,
+  this.normalizedAPIPrefix,
+  this.normalizedPageDataEndpoint,
+);
 
 return isAPI && this.normalizedAPIPrefix
-  ? this.handleAPINotFound(request, reply)   // our 404 config → JSON envelope
-  : this.handleSSRRequest(request, reply);   // same React render a GET would get
+  ? this.handleAPINotFound(request, reply) // our 404 config → JSON envelope
+  : this.handleSSRRequest(request, reply); // same React render a GET would get
 ```
 
 One implementation behind both entry points, so the classified path can never drift from the catch-all.
@@ -84,12 +88,17 @@ After this phase it classifies like everything else: an API path gets the envelo
 ## 3. The sentinel — new `src/lib/internal/trigger-404.ts`
 
 ```ts
-export const TRIGGER_404_BRAND: unique symbol = Symbol.for('unirend.trigger404');
+export const TRIGGER_404_BRAND: unique symbol =
+  Symbol.for('unirend.trigger404');
 
 /** Opaque value returned by `request.trigger404()`. Never construct one yourself. */
-export interface Trigger404Signal { readonly [TRIGGER_404_BRAND]: true }
+export interface Trigger404Signal {
+  readonly [TRIGGER_404_BRAND]: true;
+}
 
-export const TRIGGER_404_SIGNAL: Trigger404Signal = Object.freeze({ [TRIGGER_404_BRAND]: true });
+export const TRIGGER_404_SIGNAL: Trigger404Signal = Object.freeze({
+  [TRIGGER_404_BRAND]: true,
+});
 
 export function isTrigger404Signal(value: unknown): value is Trigger404Signal;
 ```
@@ -104,9 +113,9 @@ interface Trigger404InternalState {
   active: boolean;
   requested: boolean;
 }
-export function markTrigger404Requested(request): Trigger404Signal;  // throws when !active
+export function markTrigger404Requested(request): Trigger404Signal; // throws when !active
 export function setTrigger404Active(request, active: boolean): void;
-export function consumeTrigger404(request): boolean;                  // reads and clears
+export function consumeTrigger404(request): boolean; // reads and clears
 ```
 
 Both the flag and the sentinel exist on purpose: the sentinel is the typed return value, the flag is the evidence that lets us fail closed on a forgotten `return`.
@@ -117,9 +126,12 @@ Following the `activeSSRAppInternal` precedent ([ssr-server.ts:783-800](src/lib/
 
 ```ts
 this.fastifyInstance.decorateRequest('trigger404Internal', undefined);
-this.fastifyInstance.decorateRequest('trigger404', function (this: FastifyRequest) {
-  return markTrigger404Requested(this);
-});
+this.fastifyInstance.decorateRequest(
+  'trigger404',
+  function (this: FastifyRequest) {
+    return markTrigger404Requested(this);
+  },
+);
 ```
 
 A `function`, not an arrow — Fastify puts function decorators on the Request prototype and `this` is the request. No `onRequest` work: state is assigned lazily via `request.setDecorator(...)`, legal because the name was declared with an `undefined` default (Fastify 5 rejects object defaults, which is why the codebase already uses this two-step pattern). Cost is exactly zero for requests that never call it.
@@ -130,7 +142,7 @@ A `function`, not an arrow — Fastify puts function decorators on the Request p
 
 `StaticWebServer` and `RedirectServer` run no envelope handlers and get no decoration — the same asymmetry `setActiveSSRApp` already has; note it in the JSDoc.
 
-Types in [types.ts](src/lib/types.ts): declare `trigger404: () => Trigger404Signal` in the `declare module 'fastify'` block (`:2761`), with the usage example and the "call it before setting headers or cookies" note. Do **not** declare `trigger404Internal` publicly (`activeSSRAppInternal` isn't either). Widen the two handler return unions additively — `APIRouteHandler` ([api-routes-server-helpers.ts:58](src/lib/internal/api-routes-server-helpers.ts:58)) and `PageDataHandler` ([data-loader-server-handler-helpers.ts:73](src/lib/internal/data-loader-server-handler-helpers.ts:73)) each gain `Trigger404Signal` in both the sync and `Promise` arms — and export `Trigger404Signal` from `src/server.ts`. Existing handlers are unaffected; the one real type-level break is code that *consumes* a handler return type (`ReturnType<APIRouteHandler>`, a wrapper doing `if (r === false) … else r.status_code`), which now sees an extra union member. Changelog it.
+Types in [types.ts](src/lib/types.ts): declare `trigger404: () => Trigger404Signal` in the `declare module 'fastify'` block (`:2761`), with the usage example and the "call it before setting headers or cookies" note. Do **not** declare `trigger404Internal` publicly (`activeSSRAppInternal` isn't either). Widen the two handler return unions additively — `APIRouteHandler` ([api-routes-server-helpers.ts:58](src/lib/internal/api-routes-server-helpers.ts:58)) and `PageDataHandler` ([data-loader-server-handler-helpers.ts:73](src/lib/internal/data-loader-server-handler-helpers.ts:73)) each gain `Trigger404Signal` in both the sync and `Promise` arms — and export `Trigger404Signal` from `src/server.ts`. Existing handlers are unaffected; the one real type-level break is code that _consumes_ a handler return type (`ReturnType<APIRouteHandler>`, a wrapper doing `if (r === false) … else r.status_code`), which now sees an extra union member. Changelog it.
 
 ## 5. The three wrapper sites
 
@@ -157,9 +169,9 @@ Sites: [api-routes-server-helpers.ts:295](src/lib/internal/api-routes-server-hel
 - **Reply already sent / streaming begun.** Cannot be undone. Logged as a handler bug; the response stands.
 - **API handlers vs page-data loaders, and `APIServer` vs `SSRServer`.** Identical, because all three sites call the same helper and the same per-registry config, installed the same way on both servers.
 - **SSG.** Out of scope, as expected — `localPageDataLoader` handlers never receive a `FastifyRequest`, so `trigger404` does not exist there. Docs say so and point at `createPageErrorResponse` for a local 404.
-- **Observability.** Status, body, and headers are identical by construction. Response *timing* is not: a triggered 404 ran handler code first — document "call it before any expensive work". `request.routeOptions.url` is also set on the trigger path, so an access-log template or `onSend` hook keyed on the route sees the route where a true miss would not; that is server-side only, not visible to the caller.
+- **Observability.** Status, body, and headers are identical by construction. Response _timing_ is not: a triggered 404 ran handler code first — document "call it before any expensive work". `request.routeOptions.url` is also set on the trigger path, so an access-log template or `onSend` hook keyed on the route sees the route where a true miss would not; that is server-side only, not visible to the caller.
 - **Handler leftovers survive the 404.** Headers and especially cookies set via `reply.setCookie` before `trigger404()` stay on the response, which is a genuine leak against the "never reachable" story. Document "call it first, before setting anything"; a future option could snapshot and restore reply state.
-- **SSR internal short-circuit — the honest guarantee.** For an unregistered page type the loader skips `callHandler` and performs a real HTTP fetch, producing a *second* Fastify request with its own `requestID`/`receivedAt`. So the internal path's guarantee is "the same envelope this server's not-found resolution produces for *this* request": identical `status`, `status_code`, `type`, `error.code`, `error.message`, page metadata, and any custom-handler or custom-helpers output, differing only in `request_id` and `request_timestamp`. Returning `{ exists: false }` to force the real HTTP fallback was rejected — it re-enters the same route and would invoke the user's handler a second time, side effects included.
+- **SSR internal short-circuit — the honest guarantee.** For an unregistered page type the loader skips `callHandler` and performs a real HTTP fetch, producing a _second_ Fastify request with its own `requestID`/`receivedAt`. So the internal path's guarantee is "the same envelope this server's not-found resolution produces for _this_ request": identical `status`, `status_code`, `type`, `error.code`, `error.message`, page metadata, and any custom-handler or custom-helpers output, differing only in `request_id` and `request_timestamp`. Returning `{ exists: false }` to force the real HTTP fallback was rejected — it re-enters the same route and would invoke the user's handler a second time, side effects included.
 
 ## 7. Docs
 
@@ -239,10 +251,11 @@ Behavioral:
 // unirend
 export interface UnirendRegister {}
 
-export type AppBundleKey =
-  UnirendRegister extends { appBundles: infer K extends string }
-    ? K | '__default__'
-    : string;
+export type AppBundleKey = UnirendRegister extends {
+  appBundles: infer K extends string;
+}
+  ? K | '__default__'
+  : string;
 ```
 
 ```ts
@@ -256,7 +269,7 @@ declare module 'unirend/server' {
 
 Then `activeSSRApp: AppBundleKey`, `setActiveSSRApp(key: AppBundleKey)`, and both `registerBuiltApp` / `registerHMRApp` take the declared union. Unirend unions in `'__default__'` on the read side itself, since the primary app registered through `serveSSRBuilt` carries that key and users should not have to remember it. Registration is the narrower set — check what `validateAppKey` ([ssr-server.ts:2192](src/lib/internal/ssr-server.ts:2192)) already does with `'__default__'` and match it rather than inventing a second rule.
 
-**What gets typed, and why nothing needs threading.** The augmentation lands on `FastifyRequest` itself, and every surface hands out a real `FastifyRequest` — `PageDataHandler`'s `originalRequest` (HTTP route and internal short-circuit alike), `APIRouteHandler`'s first param, and the controlled instance's `get`/`post`/`route`/`addHook`, which pass Fastify's request through untouched. So the wrappers we control do not deliver the typing, they simply do not obstruct it, and no generic has to be threaded through `SSRServer`, the registries, or the plugin surface. What our control *does* buy is the registration side: because `registerBuiltApp` / `registerHMRApp` are our methods, an undeclared bundle becomes a compile error there rather than a runtime throw from `validateAppKey`.
+**What gets typed, and why nothing needs threading.** The augmentation lands on `FastifyRequest` itself, and every surface hands out a real `FastifyRequest` — `PageDataHandler`'s `originalRequest` (HTTP route and internal short-circuit alike), `APIRouteHandler`'s first param, and the controlled instance's `get`/`post`/`route`/`addHook`, which pass Fastify's request through untouched. So the wrappers we control do not deliver the typing, they simply do not obstruct it, and no generic has to be threaded through `SSRServer`, the registries, or the plugin surface. What our control _does_ buy is the registration side: because `registerBuiltApp` / `registerHMRApp` are our methods, an undeclared bundle becomes a compile error there rather than a runtime throw from `validateAppKey`.
 
 **Fully opt-in.** With no augmentation the conditional resolves to `string`, so nothing changes for single-bundle users and nothing in the existing tests moves. It narrows only for people who declare their bundles.
 
@@ -308,18 +321,28 @@ Notes:
 - Pinning run before the fix: 6 of the 8 new tests failed, one per case in §2. The two that passed were the APIServer row, confirming it never had the gap, and the matched-route control.
 - The catch-all's `// Continue with SSR handling for non-API requests` comment was dropped rather than carried into `handleSSRRequest`, since it described control flow that no longer sits there. Everything else moved verbatim.
 
-### Phase 3 — Sentinel, decoration, wrappers (§3–§5)
+### Phase 3 — Sentinel, decoration, wrappers (§3–§5) ✅
 
-- [ ] New `src/lib/internal/trigger-404.ts`: `Symbol.for` brand, frozen signal, brand-property `isTrigger404Signal`, per-request `active`/`requested` state helpers
-- [ ] Decorate `trigger404` + `trigger404Internal` on `APIServer` and `SSRServer` (`function`, not arrow)
-- [ ] `trigger404()` throws outside a handler, with the `reply.callNotFound()` pointer in the message
-- [ ] `setNotFoundResolution()` on both registries, called by both servers before `registerRoutes`
-- [ ] Shared post-handler check helper (sentinel / flag / already-sent / forgotten-`return`), used by all three sites
-- [ ] Hook up `api-routes-server-helpers.ts` `wrappedHandler`
-- [ ] Hook up `data-loader-server-handler-helpers.ts` HTTP `wrappedHandler`
-- [ ] Hook up `data-loader-server-handler-helpers.ts` `callHandler` (no reply)
-- [ ] Forgotten-`return` logging via `request.log.error`, dev-only payload detail, no `console.*`
-- [ ] Types: `trigger404` in the Fastify augmentation, widen `APIRouteHandler` and `PageDataHandler`, export `Trigger404Signal` from `src/server.ts`, update `package-exports.test.ts`
+- [x] New `src/lib/internal/trigger-404.ts`: `Symbol.for` brand, frozen signal, brand-property `isTrigger404Signal`, per-invocation scope helpers (`active`/`requested` became per-invocation, not per-request — see the note below)
+- [x] Decorate `trigger404` on `APIServer` and `SSRServer` (`trigger404Internal` dropped — see the note below)
+- [x] `trigger404()` throws outside a handler, with the `reply.callNotFound()` pointer in the message
+- [x] `setNotFoundResolution()` on both registries, called by both servers before `registerRoutes`
+- [x] Shared post-handler check helper (sentinel / flag / already-sent / forgotten-`return`), used by all three sites
+- [x] Hook up `api-routes-server-helpers.ts` `wrappedHandler`
+- [x] Hook up `data-loader-server-handler-helpers.ts` HTTP `wrappedHandler`
+- [x] Hook up `data-loader-server-handler-helpers.ts` `callHandler` (no reply)
+- [x] Forgotten-`return` logging via `request.log.error`, dev-only payload detail, no `console.*`
+- [x] Types: `trigger404` in the Fastify augmentation, widen `APIRouteHandler` and `PageDataHandler`, export `Trigger404Signal` from `src/server.ts`, update `package-exports.test.ts`
+- [x] `## Unreleased` gains the `trigger404()` bullet and the return-union type break — 3077 pass / 0 fail (3057 before, +20 new), `type-check`, `lint`, and `format:check` clean (Aug 13, 2026)
+
+Notes:
+
+- The resolver needed one addition beyond §1 to serve the internal short-circuit: an optional `classification` override on `resolveAPINotFoundResponse` (and a matching `isPageDataOverride` on `createDefaultAPINotFoundResponse`). That path runs on the SSR page request, whose URL is the web route, so deriving the classification from `request.url` would have produced an API envelope where the HTTP fallback for the same page type produces a page one. Only `callHandler` passes it.
+- The two registry unit-test suites build plain-object requests, which have no Fastify `setDecorator`. Rather than making the shipped helper defensive, both mock factories gained a `setDecorator` stand-in.
+- On the already-sent path the wrappers return without sending, which skips the existing `=== false` check entirely. That check only exists to catch a handler returning `false` without sending, and here the response demonstrably went out.
+- §4's claim that `StaticWebServer` and `RedirectServer` get no decoration is wrong: both are `APIServer` in plain web mode, and the decoration is unconditional, so `request.trigger404` exists on their requests too. It always throws there, which is the right outcome — a plugin on a static server gets the documented error rather than a `TypeError` on a missing property. Pinned by tests, and the JSDoc in `types.ts` states it.
+- §3's per-request `active`/`requested` flags could not survive an SSR render. React Router runs its page data loaders in parallel, so several `callHandler()` invocations share one `FastifyRequest` and interleave: the first to finish closed the window on one still awaiting, and a `requested` flag set by one handler could be consumed by another. The state moved to a per-invocation scope carried in `AsyncLocalStorage`, which is the only thing that knows which invocation a `trigger404()` call came from. A stack on the request does not work, since "most recently started" is not "the caller". That also made the `trigger404Internal` decorator unnecessary, so it is gone from both servers and `markTrigger404Requested()` takes no argument. The `trigger404` decoration itself is unchanged in behavior.
+- `APIRouteHandler` had to move its async arm from one `Promise` per union member to a single `Promise` over the whole union. A branching async handler infers `Promise<Envelope | Trigger404Signal>`, which no per-member arm accepts, so the feature's primary use case would not have compiled. `PageDataHandler` was already written that way. The old shape also rejected an async handler that returned an envelope on one branch and `false` on another, so this fixes a latent problem too. Sync and async `satisfies` checks for both handler types guard it.
 
 ### Phase 4 — Tests (§8)
 

@@ -2,6 +2,7 @@ import fastify from 'fastify';
 import qs from 'qs';
 import formbody from '@fastify/formbody';
 import type { FastifyServerOptions, FastifyError } from 'fastify';
+import { markTrigger404Requested } from './trigger-404';
 import {
   createControlledInstance,
   classifyRequest,
@@ -307,6 +308,15 @@ export class APIServer<
       this.fastifyInstance.decorateRequest('serverLabel', this.serverLabel);
       this.fastifyInstance.decorateRequest('publicAppConfig', undefined);
 
+      // Abandon a request into the not-found path. Fastify puts function
+      // decorators on the Request prototype, so this costs nothing per request
+      // and carries no per-request state: the trigger state lives in the async
+      // context of the handler invocation that called it.
+      this.fastifyInstance.decorateRequest(
+        'trigger404',
+        markTrigger404Requested,
+      );
+
       // Decorate requests with APIResponseHelpersClass for file upload helpers
       this.fastifyInstance.decorateRequest(
         'APIResponseHelpersClass',
@@ -441,6 +451,13 @@ export class APIServer<
           this.pageDataHandlers,
         );
       } else {
+        // Install the not-found resolution on both registries before their
+        // routes exist, so request.trigger404() resolves through exactly the
+        // config a genuine miss resolves through.
+        const notFoundResolution = this.notFoundResolutionConfig();
+        this.pageDataHandlers.setNotFoundResolution(notFoundResolution);
+        this.apiRoutes.setNotFoundResolution(notFoundResolution);
+
         // API is enabled - register page data and API routes
         this.pageDataHandlers.registerRoutes(
           this.fastifyInstance,
