@@ -80,6 +80,13 @@ async function writeBuild(buildDir: string): Promise<void> {
         };
       }
 
+      if (pathname.includes('not-modified')) {
+        return {
+          resultType: 'response',
+          response: new Response(null, { status: 304 }),
+        };
+      }
+
       if (pathname.includes('custom-response')) {
         return {
           resultType: 'response',
@@ -292,6 +299,18 @@ describe('SSR not-found handling for requests the catch-all does not match', () 
     const post = await request('POST', '/custom-response');
 
     expect(get.status).toBe(200);
+
+    expect(post.status).toBe(404);
+    expect(post.cacheControl).toBe('no-store');
+  });
+
+  it('forces 404 on a 304, which is not a redirect', async () => {
+    // The trap in a `>= 300 && < 400` range check. 304 tells the client to
+    // reuse a cached representation, so exempting it would let an unmatched
+    // POST escape the 404 and be answered from cache.
+    await startServer();
+
+    const post = await request('POST', '/not-modified');
 
     expect(post.status).toBe(404);
     expect(post.cacheControl).toBe('no-store');
