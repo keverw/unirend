@@ -2612,11 +2612,28 @@ export class SSRServer<
         return finalHTML;
       } else if (renderResult.resultType === 'response') {
         // If React Router returned a Response (redirect/error as a response), handle it
+        //
+        // A `response` result is not only redirects: the type is a bare
+        // `Response`, and a custom server entry may return any status through
+        // it. So the unmatched non-read override has to apply here too, or a
+        // renderer answering 200 this way would defeat the 404 the page path
+        // already forces. A 3xx is left alone, since a redirect is a
+        // deliberate answer and the render ran as a GET, so no action produced
+        // it.
+        const isRedirectResponse =
+          renderResult.response.status >= 300 &&
+          renderResult.response.status < 400;
+
+        const responseStatusCode =
+          isUnmatchedNonReadMethod && !isRedirectResponse
+            ? 404
+            : renderResult.response.status;
+
         // Forward status and headers
-        reply.code(renderResult.response.status);
+        reply.code(responseStatusCode);
 
         // Apply no-store for all 4xx/5xx in SSR Response path
-        if (renderResult.response.status >= 400) {
+        if (responseStatusCode >= 400) {
           reply.header('Cache-Control', 'no-store');
         }
 

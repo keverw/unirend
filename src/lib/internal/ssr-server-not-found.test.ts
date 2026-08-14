@@ -68,6 +68,25 @@ async function writeBuild(buildDir: string): Promise<void> {
       // executing the app's mutation code.
       const method = '<p>method:' + renderRequest.fetchRequest.method + '</p>';
 
+      // A 'response' result is a bare Response, not only redirects, so both
+      // shapes are exercised: one that redirects and one that does not.
+      if (pathname.includes('redirect-me')) {
+        return {
+          resultType: 'response',
+          response: new Response(null, {
+            status: 302,
+            headers: { Location: '/somewhere-else' },
+          }),
+        };
+      }
+
+      if (pathname.includes('custom-response')) {
+        return {
+          resultType: 'response',
+          response: new Response('custom body', { status: 200 }),
+        };
+      }
+
       if (pathname.includes('missing')) {
         return {
           resultType: 'page',
@@ -111,6 +130,7 @@ interface Response {
   status: number;
   contentType: string;
   cacheControl: string;
+  location: string;
   body: string;
 }
 
@@ -132,12 +152,15 @@ describe('SSR not-found handling for requests the catch-all does not match', () 
   async function request(method: string, path: string): Promise<Response> {
     const response = await fetch(`http://127.0.0.1:${port}${path}`, {
       method,
+      // The redirect cases assert the 3xx itself, not wherever it points.
+      redirect: 'manual',
     });
 
     return {
       status: response.status,
       contentType: response.headers.get('content-type') ?? '',
       cacheControl: response.headers.get('cache-control') ?? '',
+      location: response.headers.get('location') ?? '',
       body: await response.text(),
     };
   }
@@ -259,6 +282,32 @@ describe('SSR not-found handling for requests the catch-all does not match', () 
     expect(post.body).toContain('method:GET');
   });
 
+  it('forces 404 on a non-redirect Response result for a non-GET miss', async () => {
+    // `resultType: 'response'` carries a bare Response, so a custom server
+    // entry can answer any status through it. Without the override that path
+    // would hand back 200 and quietly defeat the 404 the page path forces.
+    await startServer();
+
+    const get = await request('GET', '/custom-response');
+    const post = await request('POST', '/custom-response');
+
+    expect(get.status).toBe(200);
+
+    expect(post.status).toBe(404);
+    expect(post.cacheControl).toBe('no-store');
+  });
+
+  it('leaves a redirect Response intact for a non-GET miss', async () => {
+    // A 3xx is a deliberate answer, and the render ran as a GET, so nothing an
+    // action did produced it. Forcing 404 here would break a loader redirect.
+    await startServer();
+
+    const post = await request('POST', '/redirect-me');
+
+    expect(post.status).toBe(302);
+    expect(post.location).toBe('/somewhere-else');
+  });
+
   it('classifies a web plugin route that returns reply.callNotFound()', async () => {
     // The bug this closes: `return reply.callNotFound()` is documented as
     // supported inside a plugin route handler, but with no not-found handler
@@ -363,12 +412,14 @@ describe('APIServer already classifies its not-found path', () => {
   async function request(method: string, path: string): Promise<Response> {
     const response = await fetch(`http://127.0.0.1:${port}${path}`, {
       method,
+      redirect: 'manual',
     });
 
     return {
       status: response.status,
       contentType: response.headers.get('content-type') ?? '',
       cacheControl: response.headers.get('cache-control') ?? '',
+      location: response.headers.get('location') ?? '',
       body: await response.text(),
     };
   }
