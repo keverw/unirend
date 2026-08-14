@@ -20,9 +20,11 @@ import type {
 } from './plugins';
 import type {
   APIRouteHandler,
+  AppBundles,
   PageDataHandler,
   Trigger404Signal,
 } from './server';
+import { defineAppBundles } from './server';
 
 type PublicSecurityHeadersTypeSurface = {
   config: SecurityHeadersConfig;
@@ -53,6 +55,17 @@ type PublicTrigger404TypeSurface = {
 };
 
 const publicTrigger404TypeSurface: PublicTrigger404TypeSurface | null = null;
+
+// The bundle gate `trigger404()` exists for. `defineAppBundles` is a value, not
+// a type, so it has to be exported as one — the named type is what lets a
+// caller pass the result around without restating its shape.
+type PublicAppBundlesTypeSurface = {
+  bundles: AppBundles<'marketing' | 'app-shell'>;
+};
+
+const publicAppBundlesTypeSurface: PublicAppBundlesTypeSurface = {
+  bundles: defineAppBundles('marketing', 'app-shell'),
+};
 
 type PackageExport = {
   types: string;
@@ -127,5 +140,12 @@ describe('package exports', () => {
 
   it('exports the trigger-404 signal type alongside the handler types', () => {
     expect(publicTrigger404TypeSurface).toBeNull();
+  });
+
+  it('exports defineAppBundles as a value, with its type', () => {
+    expect([...publicAppBundlesTypeSurface.bundles.keys]).toEqual([
+      'marketing',
+      'app-shell',
+    ]);
   });
 });

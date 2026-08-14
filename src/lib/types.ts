@@ -2767,6 +2767,10 @@ declare module 'fastify' {
      * Read-only request value. Defaults to `'__default__'`.
      * Use `request.setActiveSSRApp(appKey)` in SSR middleware to select a
      * registered app and refresh app-derived request values.
+     *
+     * Plain `string`, so a comparison against a bundle key is not checked for
+     * you. `defineAppBundles()` gives you that check without a global type
+     * declaration — see its docs.
      */
     readonly activeSSRApp: string;
     /**

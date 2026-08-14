@@ -241,39 +241,28 @@ Behavioral:
 - Type-level `@ts-expect-error` / `satisfies` checks in the style already at the top of `api-server-methods.test.ts`: the sentinel is assignable to both handler return types, and a bare discarded `request.trigger404()` is flagged.
 - Update `src/package-exports.test.ts` for the new `Trigger404Signal` export.
 
-## 9. Typed app bundle keys
+## 9. Checked app bundle keys
 
-`request.activeSSRApp` is `string` today ([types.ts:2770](src/lib/types.ts:2770)), so the gating pattern this feature exists for — `if (request.activeSSRApp !== 'app-shell')` — silently accepts a typo and fails open, quietly serving the handler to every bundle. Typing the key closes that.
+`request.activeSSRApp` is `string` ([types.ts:2770](src/lib/types.ts:2770)), so the gating pattern this feature exists for — `if (request.activeSSRApp !== 'app-shell')` — silently accepts a typo and fails open, quietly serving the handler to every bundle. Closing that needs the comparison to be checked.
 
-**Why a registration interface and not a generic.** `activeSSRApp` and `setActiveSSRApp` are declared in a global Fastify module augmentation. A generic threaded through `SSRServer` would type our own handler signatures but would never reach `request` inside a raw plugin route or a middleware hook, which is exactly where bundle selection happens. A user-augmented interface is global, so all three surfaces — raw Fastify routes via plugins, page-data/API handlers, and middleware — get the same union from one declaration. Same pattern as React Router v7's `Register` and Vitest's config augmentation.
-
-```ts
-// unirend
-export interface UnirendRegister {}
-
-export type AppBundleKey = UnirendRegister extends {
-  appBundles: infer K extends string;
-}
-  ? K | '__default__'
-  : string;
-```
+**Why a helper value and not a type declaration.** Typing `activeSSRApp` itself means augmenting Fastify's `FastifyRequest`, which is the only way Fastify types a decorator. That augmentation is global: one bundle list per TypeScript program, shared by every app compiled together. A generic on `SSRServer` does not rescue it either, since middleware and raw plugin routes are handed Fastify's own request type, and that is exactly where bundle selection happens. An exported const has none of that problem — it is scoped like any other module export, so two apps in one repo keep their own lists.
 
 ```ts
-// user, once, anywhere in their project
-declare module 'unirend/server' {
-  interface UnirendRegister {
-    appBundles: 'marketing' | 'app-shell';
-  }
+// apps/marketing/bundles.ts
+export const bundles = defineAppBundles('marketing', 'app-shell');
+
+// anywhere in that app
+if (!bundles.is(request, 'app-shell')) {
+  return request.trigger404();
 }
+
+// and at registration, which otherwise takes an unchecked string
+server.registerBuiltApp(bundles.key('marketing'), './build-marketing');
 ```
 
-Then `activeSSRApp: AppBundleKey`, `setActiveSSRApp(key: AppBundleKey)`, and both `registerBuiltApp` / `registerHMRApp` take the declared union. Unirend unions in `'__default__'` on the read side itself, since the primary app registered through `serveSSRBuilt` carries that key and users should not have to remember it. Registration is the narrower set — check what `validateAppKey` ([ssr-server.ts:2192](src/lib/internal/ssr-server.ts:2192)) already does with `'__default__'` and match it rather than inventing a second rule.
+`is()` takes one key or an array, so a handler shared by several bundles reads like one gated to a single bundle. `'__default__'` is accepted there — the app the server was created with is selectable — and rejected by `key()`, matching `validateAppKey` ([ssr-server.ts:1748](src/lib/internal/ssr-server.ts:1748)), which throws on it at registration.
 
-**What gets typed, and why nothing needs threading.** The augmentation lands on `FastifyRequest` itself, and every surface hands out a real `FastifyRequest` — `PageDataHandler`'s `originalRequest` (HTTP route and internal short-circuit alike), `APIRouteHandler`'s first param, and the controlled instance's `get`/`post`/`route`/`addHook`, which pass Fastify's request through untouched. So the wrappers we control do not deliver the typing, they simply do not obstruct it, and no generic has to be threaded through `SSRServer`, the registries, or the plugin surface. What our control _does_ buy is the registration side: because `registerBuiltApp` / `registerHMRApp` are our methods, an undeclared bundle becomes a compile error there rather than a runtime throw from `validateAppKey`.
-
-**Fully opt-in.** With no augmentation the conditional resolves to `string`, so nothing changes for single-bundle users and nothing in the existing tests moves. It narrows only for people who declare their bundles.
-
-**The one piece of new infra.** `bun run type-check` is `tsc --noEmit` across the whole project, so a `declare module` inside a test file leaks its union into every other file and would break unrelated tests that use arbitrary keys. So type tests split in two: assert the resolver type directly (`AppBundleKeyFrom<{ appBundles: 'a' | 'b' }>`) in an ordinary test file, which has no global effect and covers the logic; and prove the real augmentation path end to end in a small isolated fixture with its own tsconfig, excluded from the root one and run as a separate `check:types:bundles` script. Only the second needs new setup, and it is the only thing that actually exercises what a user writes.
+Nothing about `SSRServer` changes: no threading, no generics, no augmentation, and `activeSSRApp` stays `string`. The helper is additive, so a project that ignores it is unaffected.
 
 This is independently shippable. If the PR gets heavy, it can drop to its own branch without disturbing Phases 1–4.
 
@@ -367,27 +356,64 @@ Notes:
 - Three cells beyond §8, covering what the sentinel is _not_. Recognition is on the brand and nothing else, so: a handler returning the signal without ever calling `trigger404()` gets its 404 with no log (the dual-bundle case `isTrigger404Signal` is written for, pinned so it cannot regress into a "missing return" false positive); an unbranded 404-shaped return is not a trigger and fails as `invalid_handler_response`; and a hand-built 404 envelope ships as written, distinguishable from a genuine miss, which is the gap `trigger404()` exists to close. The type-level negatives match: a hand-rolled 404 object, an arbitrary object, and the bare brand symbol are all rejected, so the widening admits exactly one new value.
 - **§5's dev-mode gate on the `trigger_404_missing_return` payload survived, and grew to cover four pre-existing sites.** The gate was briefly removed on the reasoning that `invalid_handler_response` already logs the raw return value with no dev gate, so gating only the trigger record would make it the odd one out. A review pass flagged the unguarded payload as a production leak, and a probe settled it: a handler returning `{apiKey, password}` puts both, verbatim, into the configured logger's `err` context in production today, because these errors are serialized wholesale. So the right fix was the opposite of "match the neighbors" — the neighbors were wrong too, and nothing pinned their behavior. New `attachHandlerResponseToError` in `server-utils.ts` is now the single site for this: `handlerResponseType` always, the value only under `getDevMode()`. Wired into `api-routes-server-helpers.ts`, both `data-loader-server-handler-helpers.ts` paths, `web-socket-server-helpers.ts`, and the trigger record. `describeHandlerResult` replaces the old inline `typeof result === 'object' ? 'invalid_object' : typeof result`, so `null` and arrays are now named rather than collapsed. Changelog'd, since it changes what shipped servers log.
 
-### Phase 5 — Typed app bundle keys (§9)
+### Phase 5 — Checked app bundle keys (§9) ✅
 
-- [ ] Add the `UnirendRegister` registration interface + `AppBundleKey` resolver type, exported from the same specifier users import from (verify the path against the `exports` map in `package.json`)
-- [ ] Retype `activeSSRApp`, `setActiveSSRApp`, `registerBuiltApp`, `registerHMRApp` onto it
-- [ ] Confirm the fallback: with no augmentation, everything resolves to `string` exactly as today — zero breakage for single-bundle users
-- [ ] Check whether `validateAppKey` rejects `'__default__'` at registration, and make the registration type match whatever runtime already does
-- [ ] Type tests: exercise the resolver type directly (`AppBundleKeyFrom<{…}>`) in a normal test file — safe, no global effect
-- [ ] Isolated fixture project that performs a real `declare module` augmentation with its own tsconfig, excluded from the root one, run via a `check:types:bundles` script
-- [ ] Runtime test that a valid key still works and an invalid one still throws — the types narrow, they don't replace `validateAppKey`
+- [x] Add `defineAppBundles()` and the `AppBundles<TKey>` type, exported from `unirend/server`
+- [x] `is()` accepts one key or an array, and is a type predicate so a passing check narrows `request.activeSSRApp` to what was checked for; `'__default__'` is comparable but not declarable, matching what `validateAppKey` already does
+- [x] `key()` for the registration call, so a typo there is a compile error rather than a runtime throw — and a runtime check too, since `defineAppBundles(...names)` from a `string[]` widens `TKey` to `string` and every literal then type-checks. The reserved key is refused by a conditional type rather than by membership in `TKey`, which is what survives that widening (`Exclude<string, '__default__'>` is still `string`)
+- [x] Reject at declaration everything the server would refuse or rewrite at registration — surrounding whitespace, path separators, the reserved key, and duplicates — so a declared list is always registerable, and no declaration can produce a gate that type-checks but can never match
+- [x] `## Unreleased` gains the `defineAppBundles()` bullet
+- [x] Type tests for the negatives: an undeclared key, an undeclared key inside an array, `'__default__'` at registration, and one app's list not reaching another's
+- [x] Runtime tests for what the types cannot catch: empty/reserved/blank declarations, exact comparison, and a request with no active bundle
+- [x] `activeSSRApp` stays `string` — nothing in `SSRServer` or `types.ts` changed, and no existing test moved — 3130 pass / 0 fail (3115 before, +15 new), `type-check`, `lint`, `format:check`, `spellcheck`, and `check:null-bytes` clean (Aug 14, 2026)
+
+Notes:
+
+- **This phase was built twice.** The first version followed §9 as originally written: a `UnirendRegister` interface augmented through `declare module 'unirend/server'`. It worked, and it was thrown away, because the augmentation is global in a way that cannot be scoped down — one bundle list per TypeScript program. What settled it was building a two-app scaffold and looking: with `skipLibCheck: true`, which the scaffold sets and which suppresses conflicts reported inside declaration files, two apps declaring their own bundles produced **no error at all**. The declarations merged, one silently won, and which one won depended on the program doing the checking — the root type-check said app A's list while app B's own tsconfig said app B's, giving opposite verdicts on the same line. An editor and a CLI disagreeing about a security gate is worse than either answer being wrong.
+- Everything that version needed is gone with it: the `unirend/app-bundles` export subpath and its tsup entry, the `tsconfig` path, the `UnirendRegister` retyping in `types.ts` and `ssr-server.ts`, both type fixtures, the `check:types:bundles` script, and the scaffolded `unirend-env.d.ts`. The helper needs none of it, and `activeSSRApp` is back to `string`, so the diff against `main` for this phase is one new file plus its export.
+- The augmentation route also turned up a `TS2717` hazard that outlived it, since the Fastify augmentation is copied into four published declaration files and TypeScript requires every declaration of a property to agree. That is no longer our problem for `activeSSRApp`, but it is still live for `trigger404` — see the finding below.
+- `is()` throws rather than returning `false` when the request has no active bundle, which is what an `APIServer` request looks like. Fail-closed is right for a forgotten `return` in a working setup; this is a wiring mistake, and a silent `false` would 404 every gated route with nothing to explain it.
+
+**Fixed here, though it belongs to Phase 3.** `Trigger404Signal` branded with `TRIGGER_404_BRAND: unique symbol`, which is nominal, and each published entry carried its own copy. `skipLibCheck` did not help: it only silences diagnostics inside declaration files, while the nominal split leaks into the consumer's own source, which is always checked. Against a real build, the documented pattern did not compile for a consumer:
+
+```
+error TS2322: Type 'Trigger404Signal' is not assignable to type
+  'false | Trigger404Signal | PageResponseEnvelope<…> | APIResponseEnvelope<…>'.
+```
+
+No plugin import, no augmentation, default settings. `unirend/server` pulls in `unirend/api-envelope`, which carried its own copy of the brand and its own `declare module 'fastify'`, so the merged `trigger404` returned api-envelope's `Trigger404Signal` while `PageDataHandler` expected the server entry's. Nothing in the repo caught it, because every test type-checks against source, where one copy exists.
+
+The brand is now split in two, which is the part worth remembering:
+
+```ts
+// Type-level: structural, so every bundle's copy of the interface is one type.
+export const TRIGGER_404_BRAND = 'unirend.trigger404' as const;
+
+// Runtime: unexported, so the nominal `unique symbol` never reaches a .d.ts.
+const TRIGGER_404_RUNTIME_BRAND: unique symbol =
+  Symbol.for('unirend.trigger404');
+```
+
+The first version used the string for both, and a review caught what that costs: a string key is representable in JSON, so a handler returning upstream data carrying `"unirend.trigger404": true` was read as the sentinel and sent down the not-found path. Reproduced with a literal `JSON.parse` before fixing. Data choosing the server's control flow is a worse bug than the one being fixed, so the sentinel now carries both brands and `isTrigger404Signal` tests only the symbol, which cannot survive `JSON.parse`. The symbol keeps what `Symbol.for` was chosen for originally — one brand across a duplicated install and across a bundler's separate module instances — and stays out of the published types because nothing exported references it. A hand-built object matching the public interface now fails as an invalid handler response rather than quietly serving a 404, which is the right direction to fail.
+
+The two halves also cover each other's blind spot in the logs. A symbol key does not survive `JSON.stringify`, so a symbol-only sentinel reaching a log sink would be recorded as `{}`; with the string brand it records as `{"unirend.trigger404":true}` and names itself. Hard to reach in practice — the sentinel is not publicly exported, `trigger404()` throws outside a handler scope, and every wrapped site consumes it before anything logs — but `attachHandlerResponseToError` does record handler return values in development, so the legible form is the one worth having there.
+
+The alternative, considered and not taken: give the trigger-404 module its own externalized entry, the way `unirend/context` and `unirend/api-envelope` already work. One declaration across all bundles means a single `unique symbol` can serve both roles, since there is nothing left to be nominal _against_ — one brand that neither JSON nor a hand-built object can fake, with no split to explain. It was rejected for the same reason `unirend/app-bundles` was: a public subpath that exists for a reason no reader of the `exports` map will guess. The dual brand's only real cost is that the published type is satisfiable by an object the runtime rejects, which fails loudly as `invalid_handler_response` and is pinned by a test. Revisit if `Trigger404Signal` ever becomes something users construct or match on, where "the type is satisfiable but the value is not" would stop being a footnote.
+
+Verified after each change by rebuilding `dist/` and type-checking a consumer file that uses `defineAppBundles` and returns `request.trigger404()` from both a `PageDataHandler` and an `APIRouteHandler`, while also importing `unirend/plugins` — clean under `skipLibCheck` both true and false. The same file failed both ways before.
 
 ### Phase 6 — Docs and changelog (§7)
 
 - [ ] "App bundle" terminology pass over the Multi-App section of `docs/ssr.md`, including the `app-bundles/` layout, build scripts, and `public-assets.config.json` snippets
 - [ ] State up front that handlers, plugins, and `APIResponseHelpers` are server-wide, not per bundle
-- [ ] Document the `UnirendRegister` augmentation in the Multi-App section, and use the typed form in every example below
+- [ ] Document `defineAppBundles()` in the Multi-App section, and use the checked form in every example below
+- [ ] Document the no-import alternative alongside it: a local `type Bundle = …` union compared with `satisfies`, which catches the same typo with nothing imported and nothing declared globally — `request.activeSSRApp !== ('app-shell' satisfies Bundle)`. Verified to work with `activeSSRApp` as plain `string`. Worth showing because it costs nothing and stays inside one file; the trade is writing `satisfies` at each comparison, no array form, and no check at `registerBuiltApp()`. Say plainly that the helper is the same idea with those three gaps filled, so a reader can pick rather than guess
 - [ ] Example 1: gating a handler on the active app bundle
 - [ ] Example 2: per-bundle response helpers, with the registered-vs-unregistered boundary stated
 - [ ] `trigger404()` reference under the page-data and API-route handler sections, plus the standalone `APIServer` section (gating on host/header)
 - [ ] Internal short-circuit caveat in `docs/data-loaders.md`; SSR non-GET 404 change in `docs/error-handling.md`
 - [ ] `bun run update-docs` to regenerate TOCs
-- [ ] `## Unreleased` in `changelog.md`: `trigger404()`; the SSR not-found fix (`reply.callNotFound()` from a plugin route, and non-GET misses, now classified instead of returning Fastify's stock JSON); the handler return-union widening
+- [ ] `## Unreleased` in `changelog.md` is written as each phase lands — the SSR not-found fix, `trigger404()`, the production logging change, the return-union break, and `defineAppBundles()`. Before merge, reread the five as one release delta rather than five commits, and consolidate anything that reads as branch history. Nothing is owed for the `Trigger404Signal` brand change: it repaired an API that has never shipped, within the same unreleased cycle, so it is not part of the delta a reader sees
 
 ### Phase 7 — Close out
 

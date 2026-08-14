@@ -80,6 +80,13 @@ export type { APIRouteHandler } from './lib/internal/api-routes-server-helpers';
 // The opaque value `request.trigger404()` returns, so a handler's return type
 // can be named without restating the union.
 export type { Trigger404Signal } from './lib/internal/trigger-404';
+// Checked app bundle keys. `request.activeSSRApp` is a plain string, so a
+// bundle gate is not checked for you; declaring the keys once makes a typo a
+// compile error. A value rather than a type declaration on purpose — typing the
+// request itself would mean a Fastify module augmentation, which is global, so
+// every app compiled together would share one list.
+export { defineAppBundles } from './lib/internal/app-bundles';
+export type { AppBundles } from './lib/internal/app-bundles';
 export type {
   WebSocketHandlerParams,
   WebSocketPreValidationResult,
