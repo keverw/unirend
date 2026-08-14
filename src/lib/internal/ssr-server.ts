@@ -241,23 +241,6 @@ async function pageDataServerFetch(
 }
 
 /**
- * The statuses that actually redirect, per the Fetch standard.
- *
- * Not every `3xx` is one. `304 Not Modified` tells the client to reuse a
- * cached representation and `300 Multiple Choices` carries no Location at all,
- * so a range check would wave both through wherever a redirect is meant to be
- * the exception.
- *
- * `processAPIResponse` in `router-utils/page-data-loader-helpers.ts` carries
- * the same list for the loader's own redirect handling. It is duplicated
- * rather than shared because that module runs in the client bundle and does
- * not import from `internal/`.
- */
-const REDIRECT_STATUS_CODES: ReadonlySet<number> = new Set([
-  301, 302, 303, 307, 308,
-]);
-
-/**
  * Internal server class for handling SSR rendering
  * Not intended to be used directly by library consumers
  */
@@ -2632,19 +2615,25 @@ export class SSRServer<
         //
         // A `response` result is not only redirects: the type is a bare
         // `Response`, and a custom server entry may return any status through
-        // it. So the unmatched non-read override has to apply here too, or a
-        // renderer answering 200 this way would defeat the 404 the page path
-        // already forces. A 3xx is left alone, since a redirect is a
-        // deliberate answer and the render ran as a GET, so no action produced
-        // it.
-        const isRedirectResponse = REDIRECT_STATUS_CODES.has(
-          renderResult.response.status,
-        );
-
-        const responseStatusCode =
-          isUnmatchedNonReadMethod && !isRedirectResponse
-            ? 404
-            : renderResult.response.status;
+        // it. So the unmatched non-read override applies here too, with no
+        // exception for redirects.
+        //
+        // A redirect looks like the one status worth forwarding, and it is the
+        // one that must not be. The render ran as a GET, but the *client* sent
+        // a POST or a DELETE and that is what its redirect handling keys on.
+        // A 307 or 308 tells it to repeat the original method and body at the
+        // Location, so a loader redirecting an unknown URL would turn a POST
+        // no route claimed into a POST, body included, against wherever that
+        // Location points. 301 and 302 preserve the method for everything
+        // except POST, so a DELETE follows as a DELETE. Rendering as a GET
+        // stops an action running on this server and does nothing about what
+        // the browser does next.
+        //
+        // Every non-read miss is therefore a plain 404, and the Location is
+        // dropped below so nothing is left for a client to follow.
+        const responseStatusCode = isUnmatchedNonReadMethod
+          ? 404
+          : renderResult.response.status;
 
         // Forward status and headers
         reply.code(responseStatusCode);
@@ -2662,6 +2651,14 @@ export class SSRServer<
 
         for (const [key, value] of Array.from(responseHeaders)) {
           const lowerKey = key.toLowerCase();
+
+          // A forced 404 carries no destination. Forwarding Location here
+          // would leave a redirect target on a response whose whole point is
+          // that nothing handled the request. Set-Cookie still passes, the
+          // same way it does on the page path.
+          if (lowerKey === 'location' && isUnmatchedNonReadMethod) {
+            continue;
+          }
 
           if (lowerKey === 'location' || lowerKey === 'set-cookie') {
             if (lowerKey === 'set-cookie') {

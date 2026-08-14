@@ -316,15 +316,31 @@ describe('SSR not-found handling for requests the catch-all does not match', () 
     expect(post.cacheControl).toBe('no-store');
   });
 
-  it('leaves a redirect Response intact for a non-GET miss', async () => {
-    // A 3xx is a deliberate answer, and the render ran as a GET, so nothing an
-    // action did produced it. Forcing 404 here would break a loader redirect.
+  it('still redirects a GET, which is the case redirects are for', async () => {
     await startServer();
 
-    const post = await request('POST', '/redirect-me');
+    const get = await request('GET', '/redirect-me');
 
-    expect(post.status).toBe(302);
-    expect(post.location).toBe('/somewhere-else');
+    expect(get.status).toBe(302);
+    expect(get.location).toBe('/somewhere-else');
+  });
+
+  it('forces 404 on a redirect Response for a non-GET miss, dropping Location', async () => {
+    // The status that looks most worth forwarding and must not be. The render
+    // ran as a GET, but the client sent a POST and that is what its redirect
+    // handling keys on: a 307 or 308 tells it to repeat the original method
+    // and body at the Location, and 301/302 preserve the method for
+    // everything but POST. Forwarding one would turn a POST no route claimed into a
+    // POST against wherever the loader pointed.
+    await startServer();
+
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      const response = await request(method, '/redirect-me');
+
+      expect(response.status).toBe(404);
+      expect(response.location).toBe('');
+      expect(response.cacheControl).toBe('no-store');
+    }
   });
 
   it('classifies a web plugin route that returns reply.callNotFound()', async () => {
