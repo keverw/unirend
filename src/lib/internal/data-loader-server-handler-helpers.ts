@@ -75,8 +75,9 @@ export interface PageDataHandlerParams<
  *
  * **Return `request.trigger404()`** to abandon the request into this server's
  * not-found path, so the response is exactly what an unregistered page type
- * would produce. Call it before setting headers or cookies and before any
- * expensive work.
+ * would produce. Call it before any expensive work. Headers and cookies set
+ * beforehand are rolled back on the HTTP path, though not on the SSR internal
+ * short-circuit, which shares the page request's reply.
  */
 export type PageDataHandler<
   T = unknown,

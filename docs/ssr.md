@@ -1269,7 +1269,7 @@ Guidance:
 - Use `originalRequest` only for transport/ambient data (cookies, headers, IP, auth tokens)
 - Use `reply` to set additional headers and cookies when needed. HTTP status and JSON content-type are managed by the framework from the envelope
 - Return `false` when you have already sent the response yourself (for example through a validation helper), so the framework does not send a second one
-- Return `request.trigger404()` to decline the request entirely, so the server answers exactly as it would for a page type that was never registered. Call it before setting headers or cookies and before any expensive work. See [Abandoning a Request Into the Not-Found Path](#abandoning-a-request-into-the-not-found-path)
+- Return `request.trigger404()` to decline the request entirely, so the server answers exactly as it would for a page type that was never registered. Call it before any expensive work. See [Abandoning a Request Into the Not-Found Path](#abandoning-a-request-into-the-not-found-path)
 - During SSR, `originalRequest` is the same request that initiated the render. After hydration, client-side loader fetches include their own transport context
 
 Recommendation:

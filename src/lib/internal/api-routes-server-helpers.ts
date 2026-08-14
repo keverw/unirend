@@ -41,8 +41,8 @@ export type HTTPMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
  *
  * **Return `request.trigger404()`** to abandon the request into this server's
  * not-found path, so the response is exactly what an unregistered route would
- * produce. Call it before setting headers or cookies and before any expensive
- * work.
+ * produce. Call it before any expensive work. Headers and cookies set
+ * beforehand are rolled back, so they never ship on the 404.
  */
 export type APIRouteHandler<
   T = unknown,

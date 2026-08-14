@@ -2802,9 +2802,14 @@ declare module 'fastify' {
      * Forgetting it still serves the 404 (the handler's value is discarded and
      * the mistake is logged), but write the `return`.
      *
-     * Call it first, before setting headers or cookies and before any expensive
-     * work: anything already set on the reply survives onto the 404, and a
-     * response that has already been sent cannot be taken back.
+     * Call it before any expensive work. Headers and cookies the handler set
+     * beforehand are rolled back, so they never ship on the 404 and cannot
+     * give the handler away. That covers the HTTP path, meaning API route
+     * handlers and page data requests over HTTP; it does not apply on the SSR
+     * internal short-circuit, whose reply belongs to the page request and is
+     * shared with every loader running in parallel, so a rollback there could
+     * remove a header another loader had just set. A response that has already
+     * been sent cannot be taken back either way.
      *
      * Available only inside an API route handler or a page data handler,
      * whether the handler was registered on the server or by a plugin. It
