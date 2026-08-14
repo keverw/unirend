@@ -3,6 +3,7 @@
 <!-- toc -->
 
 - [Overview](#overview)
+  - [Requests No Route Claimed](#requests-no-route-claimed)
   - [Static Asset 404s](#static-asset-404s)
 - [Recommended Setup](#recommended-setup)
   - [Error Utilities and Recommended Setup](#error-utilities-and-recommended-setup)
@@ -38,6 +39,12 @@ Behavior also depends on both the error path and when it occurs:
 1. Thrown route, loader, or render errors
 2. Returned or framework-converted page error envelopes
 3. The final environment where the error is surfaced, such as SSR, SSG, or after hydration on the client
+
+### Requests No Route Claimed
+
+On an SSR server, every request no route matched is classified the same way, whatever its method. An API or page-data path returns the server's configured 404 envelope, including a custom `APIHandling.notFoundHandler` and a custom `APIResponseHelpersClass`. Any other path renders the app's own 404 page through the normal React SSR path, so `POST /some-page` answers exactly as `GET /some-page` would.
+
+Three things reach that same classification: an unmatched request, `reply.callNotFound()` from a raw plugin route, and [`request.trigger404()`](./ssr.md#abandoning-a-request-into-the-not-found-path) from a page data or API route handler. `APIServer` classifies its own misses the same way.
 
 ### Static Asset 404s
 

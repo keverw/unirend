@@ -402,18 +402,45 @@ The alternative, considered and not taken: give the trigger-404 module its own e
 
 Verified after each change by rebuilding `dist/` and type-checking a consumer file that uses `defineAppBundles` and returns `request.trigger404()` from both a `PageDataHandler` and an `APIRouteHandler`, while also importing `unirend/plugins` — clean under `skipLibCheck` both true and false. The same file failed both ways before.
 
-### Phase 6 — Docs and changelog (§7)
+### Phase 6 — Docs and changelog (§7) ✅
 
-- [ ] "App bundle" terminology pass over the Multi-App section of `docs/ssr.md`, including the `app-bundles/` layout, build scripts, and `public-assets.config.json` snippets
-- [ ] State up front that handlers, plugins, and `APIResponseHelpers` are server-wide, not per bundle
-- [ ] Document `defineAppBundles()` in the Multi-App section, and use the checked form in every example below
-- [ ] Document the no-import alternative alongside it: a local `type Bundle = …` union compared with `satisfies`, which catches the same typo with nothing imported and nothing declared globally — `request.activeSSRApp !== ('app-shell' satisfies Bundle)`. Verified to work with `activeSSRApp` as plain `string`. Worth showing because it costs nothing and stays inside one file; the trade is writing `satisfies` at each comparison, no array form, and no check at `registerBuiltApp()`. Say plainly that the helper is the same idea with those three gaps filled, so a reader can pick rather than guess
-- [ ] Example 1: gating a handler on the active app bundle
-- [ ] Example 2: per-bundle response helpers, with the registered-vs-unregistered boundary stated
-- [ ] `trigger404()` reference under the page-data and API-route handler sections, plus the standalone `APIServer` section (gating on host/header)
-- [ ] Internal short-circuit caveat in `docs/data-loaders.md`; SSR non-GET 404 change in `docs/error-handling.md`
-- [ ] `bun run update-docs` to regenerate TOCs
-- [ ] `## Unreleased` in `changelog.md` is written as each phase lands — the SSR not-found fix, `trigger404()`, the production logging change, the return-union break, and `defineAppBundles()`. Before merge, reread the five as one release delta rather than five commits, and consolidate anything that reads as branch history. Nothing is owed for the `Trigger404Signal` brand change: it repaired an API that has never shipped, within the same unreleased cycle, so it is not part of the delta a reader sees
+- [x] "App bundle" terminology pass over the Multi-App section of `docs/ssr.md`, including the `app-bundles/` layout, build scripts, and `public-assets.config.json` snippets
+- [x] State up front that handlers, plugins, and `APIResponseHelpers` are server-wide, not per bundle
+- [x] Document `defineAppBundles()` in the Multi-App section, and use the checked form in every example below
+- [x] Document the no-import alternative alongside it: a local `type Bundle = …` union compared with `satisfies`, which catches the same typo with nothing imported and nothing declared globally — `request.activeSSRApp !== ('app-shell' satisfies Bundle)`. Verified to work with `activeSSRApp` as plain `string`. Worth showing because it costs nothing and stays inside one file; the trade is writing `satisfies` at each comparison, no array form, and no check at `registerBuiltApp()`. Say plainly that the helper is the same idea with those three gaps filled, so a reader can pick rather than guess
+- [x] Example 1: gating a handler on the active app bundle
+- [x] Example 2: per-bundle response helpers, with the registered-vs-unregistered boundary stated
+- [x] `trigger404()` reference under the page-data and API-route handler sections, plus the standalone `APIServer` section (gating on host/header)
+- [x] Internal short-circuit caveat in `docs/data-loaders.md`; SSR non-GET 404 change in `docs/error-handling.md`
+- [x] `bun run update-docs` to regenerate TOCs
+- [x] `## Unreleased` in `changelog.md` is written as each phase lands — the SSR not-found fix, `trigger404()`, the production logging change, the return-union break, and `defineAppBundles()`. Before merge, reread the five as one release delta rather than five commits, and consolidate anything that reads as branch history. Nothing is owed for the `Trigger404Signal` brand change: it repaired an API that has never shipped, within the same unreleased cycle, so it is not part of the delta a reader sees
+
+Notes:
+
+- Headings in the Multi-App section were left alone. `#multi-app-ssr-support` is linked from `README.md`, `docs/starter-templates.md`, and twice within `docs/ssr.md`, so the terminology pass is prose, layout, and snippets only. The one heading that moved is `#### Per-App Resources` → `#### Per-Bundle Resources`, which nothing links to.
+- Both new gating examples were compiled before shipping, in a throwaway file under `src/lib/internal/` type-checked by `bun run type-check` and then deleted. Two things the prose would have gotten wrong otherwise: `pageMetadata` is required on `createPageErrorResponse`, so the "branch on the bundle" subclass has to rewrite the title rather than supply a default, and the override only stays assignable if it keeps the base method's own `<M extends BaseMeta>` generic. Both negatives were pinned in the same file with `@ts-expect-error`: a typo'd key fails `satisfies Bundle`, and an undeclared key fails `bundles.key()`.
+- The `satisfies Bundle` alternative works as §7 predicted, with `activeSSRApp` still a plain `string`, and is documented alongside the helper with the three gaps named (no array form, no check at `registerBuiltApp()`, `satisfies` at each comparison).
+- `changelog.md` consolidated to five bullets with the type-level break moved to the top, per the AGENTS rule about flagging breaks first. Nothing was dropped as branch history: each of the five is an independently user-visible API, behavior change, or fix. Two doc links added, and one semicolon removed from the `defineAppBundles()` bullet.
+
+### Phase 6.5 — `bundles.match()` (added mid-review) ✅
+
+Not in the original plan. It came out of reviewing Example 2, where per-bundle copy was a ternary that does not survive a third bundle.
+
+- [x] `match(request, cases, fallback)` on `AppBundles<TKey>`, with a `const` type parameter so the result keeps its literal type
+- [x] Cases are `Partial`, so only the bundles that differ are listed, and an undeclared case key is a compile error
+- [x] Required fallback, and a runtime throw on an undeclared case key for the widened-`TKey` case
+- [x] Throws on a request with no active bundle, sharing one `readActiveBundle()` with `is()` so the two cannot disagree
+- [x] Type tests (literal inference, optional cases, reserved key, undeclared case, value/fallback mismatch) and runtime tests (hit, fallback, empty cases, reserved key, explicit `undefined`, exact comparison, no active bundle, undeclared case) — 3148 pass / 0 fail (3139 before, +9 new)
+- [x] Folded into the existing `defineAppBundles()` changelog bullet rather than added as a sixth, since it is the same capability
+- [x] Documented in Checked Bundle Keys, and Example 2 rewritten onto it
+
+Notes:
+
+- The signature was validated by compiling a throwaway probe before any of it was written, which is what settled the shape. `Partial<Record<TKey | '__default__', TValue>>` gets the typo check from excess property checking, and the `const` type parameter is load-bearing: without it the result collapses to `string` and the helper is pointless for a discriminated config. A type test pins the literal union.
+- **The fallback cannot be optional, and that is a property of the domain rather than a design preference.** `activeSSRApp` is `string`, `'__default__'` is always reachable, and a config-built list widens `TKey` to `string`. Exhaustiveness is never provable, so there is always a value to return.
+- A value/fallback type mismatch is caught, but the error lands on the **fallback** argument, since `TValue` infers from the cases first. Pinned with `@ts-expect-error` on that line so nobody later "fixes" the directive onto the case.
+- Presence decides a case, not the value, so `{ marketing: undefined }` returns `undefined` rather than the fallback. Reading the value and testing for undefined would make that one spelling silently fall through.
+- `{ __default__: … }` as a plain property name **fails the `naming-convention` lint rule this repo and the starter templates ship**, found when lint rejected the first draft of the tests. A computed key (`{ ['__default__']: … }`) passes, since the rule does not apply to computed properties. Both the tests and the docs use the computed form and say why. The fallback usually covers that bundle anyway, so the case is rarely needed.
 
 ### Phase 7 — Close out
 
