@@ -2225,7 +2225,28 @@ export class SSRServer<
       return this.handleAPINotFound(request, reply);
     }
 
-    return this.handleSSRRequest(request, reply);
+    // A web path no route claimed. GET and HEAD render normally; anything else
+    // is a method this server has no route for, and must not be handed to
+    // React Router with its original method.
+    //
+    // React Router's static handler runs the matched route's `action` for a
+    // non-GET request, which is how <Form method="post"> is meant to work in a
+    // React Router app. Here it would mean a request Fastify never routed
+    // executing the app's mutation code. And for the far more common route
+    // with no action it answers 405, deciding that from a route object having
+    // matched — so an app with the recommended `path: '*'` catch-all 405s even
+    // a URL that genuinely does not exist, which is not a distinction worth
+    // forwarding.
+    //
+    // So it renders as a GET and answers 404. GET makes running an action
+    // structurally impossible rather than merely discouraged, and the request
+    // gets whatever the app renders for that URL, which for an unknown path is
+    // the app's own 404 page.
+    const isReadMethod = request.method === 'GET' || request.method === 'HEAD';
+
+    return this.handleSSRRequest(request, reply, {
+      isUnmatchedNonReadMethod: !isReadMethod,
+    });
   }
 
   /**
@@ -2242,7 +2263,16 @@ export class SSRServer<
   private async handleSSRRequest(
     request: FastifyRequest,
     reply: FastifyReply,
+    options: {
+      /**
+       * Set for a non-GET/HEAD request that no route claimed. Renders as a GET
+       * so React Router cannot run a route action, and forces the response to
+       * 404 whatever the render produced. See `handleUnmatchedRequest`.
+       */
+      isUnmatchedNonReadMethod?: boolean;
+    } = {},
   ): Promise<unknown> {
+    const { isUnmatchedNonReadMethod = false } = options;
     // Get active app based on request.activeSSRApp (defaults to '__default__')
     const appKey = request.activeSSRApp || '__default__';
     const appConfig = this.apps.get(appKey);
@@ -2374,7 +2404,10 @@ export class SSRServer<
     const fetchRequest = new Request(
       `${request.protocol}://${request.hostname}${request.url}`,
       {
-        method: request.method,
+        // A non-GET/HEAD request that no route claimed renders as a GET, so
+        // React Router's static handler cannot reach a route `action`. No body
+        // is attached to this Request in any case, so nothing is dropped.
+        method: isUnmatchedNonReadMethod ? 'GET' : request.method,
         headers: (() => {
           // Safely construct Headers from Fastify request headers, normalizing string | string[]
           const headers = new Headers();
@@ -2489,7 +2522,15 @@ export class SSRServer<
 
       if (renderResult.resultType === 'page') {
         // ---> Extract status code from render result
-        const statusCode = renderResult.statusCode || 200;
+        //
+        // A non-GET/HEAD request no route claimed is a 404 whatever the render
+        // decided. The render ran as a GET, so for an unknown URL the app's own
+        // 404 page already produced 404 and this changes nothing; the override
+        // is what stops a POST to a URL that *does* render (a real page) coming
+        // back 200.
+        const statusCode = isUnmatchedNonReadMethod
+          ? 404
+          : renderResult.statusCode || 200;
 
         // ---> Extract cookies from ssOnlyData set by data loader
         // cookies are returned as an array of strings, each string is a cookie header value already formatted

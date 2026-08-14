@@ -62,16 +62,21 @@ async function writeBuild(buildDir: string): Promise<void> {
     join(serverDir, 'assets', 'EntrySSR.js'),
     `export async function render(renderRequest) {
       const pathname = new URL(renderRequest.fetchRequest.url).pathname;
+      // Echoed so a test can pin which method actually reached React. React
+      // Router runs a route action for a non-GET request, so the method the
+      // render receives is the whole guard against a request Fastify never routed
+      // executing the app's mutation code.
+      const method = '<p>method:' + renderRequest.fetchRequest.method + '</p>';
 
       if (pathname.includes('missing')) {
         return {
           resultType: 'page',
           statusCode: 404,
-          html: '<p>app 404 page</p>',
+          html: '<p>app 404 page</p>' + method,
         };
       }
 
-      return { resultType: 'page', html: '<p>app rendered</p>' };
+      return { resultType: 'page', html: '<p>app rendered</p>' + method };
     }`,
   );
 
@@ -218,6 +223,40 @@ describe('SSR not-found handling for requests the catch-all does not match', () 
     expect(post.cacheControl).toBe(get.cacheControl);
     expect(post.body).toContain('app 404 page');
     expect(post.body).not.toContain('Route POST:');
+  });
+
+  it('renders an unmatched non-GET as a GET, so no route action can run', async () => {
+    // The guard that matters. React Router's static handler runs the matched
+    // route's `action` for a non-GET request — that is how <Form method="post">
+    // works — so handing it the original method would let a request Fastify
+    // never routed execute the app's mutation code. Rendering as a GET makes
+    // that structurally impossible rather than merely discouraged.
+    await startServer();
+
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      const response = await request(method, '/missing-page');
+
+      expect(response.status).toBe(404);
+      expect(response.body).toContain('method:GET');
+      expect(response.body).not.toContain(`method:${method}`);
+    }
+  });
+
+  it('answers 404 for a non-GET to a path that does render', async () => {
+    // The render ran as a GET, so a URL that is a real page renders normally
+    // and would come back 200 on its own. It is still a method this server has
+    // no route for, so the status is forced to 404.
+    await startServer();
+
+    const get = await request('GET', '/real-page');
+    const post = await request('POST', '/real-page');
+
+    expect(get.status).toBe(200);
+    expect(get.body).toContain('app rendered');
+
+    expect(post.status).toBe(404);
+    expect(post.cacheControl).toBe('no-store');
+    expect(post.body).toContain('method:GET');
   });
 
   it('classifies a web plugin route that returns reply.callNotFound()', async () => {

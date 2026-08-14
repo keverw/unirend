@@ -42,7 +42,9 @@ Behavior also depends on both the error path and when it occurs:
 
 ### Requests No Route Claimed
 
-On an SSR server, every request no route matched is classified the same way, whatever its method. An API or page-data path returns the server's configured 404 envelope, including a custom `APIHandling.notFoundHandler` and a custom `APIResponseHelpersClass`. Any other path renders the app's own 404 page through the normal React SSR path, so `POST /some-page` answers exactly as `GET /some-page` would.
+On an SSR server, every request no route matched is classified the same way, whatever its method. An API or page-data path returns the server's configured 404 envelope, including a custom `APIHandling.notFoundHandler` and a custom `APIResponseHelpersClass`. Any other path renders through the normal React SSR path, so a `GET` to an unknown URL gets the app's own 404 page as it always did.
+
+A non-GET request no route claimed is rendered **as a `GET`** and answered **404**. Two reasons it is not passed through with its original method. React Router's static handler runs the matched route's `action` for a non-GET request, which is how `<Form method="post">` is meant to work, so forwarding the method would let a request the server never routed run the app's mutation code. And for the far more common route with no action it answers `405`, deciding that from a route object having matched, so an app with the recommended `path: '*'` catch-all would answer `405` even for a URL that genuinely does not exist. Rendering as a `GET` makes an action unreachable, and the 404 is the answer regardless of what the render produced, so `POST /about` returns 404 even though `GET /about` is a real page. A redirect returned by a loader still redirects.
 
 Three things reach that same classification: an unmatched request, `reply.callNotFound()` from a raw plugin route, and [`request.trigger404()`](./ssr.md#abandoning-a-request-into-the-not-found-path) from a page data or API route handler. `APIServer` classifies its own misses the same way.
 
