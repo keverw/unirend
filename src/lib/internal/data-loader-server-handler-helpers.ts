@@ -340,7 +340,7 @@ export class DataLoaderServerHandlerHelpers<
             // Opens the window in which request.trigger404() is callable, so a
             // call from anywhere else throws instead of being ignored. The
             // scope belongs to this invocation, not to the request.
-            const trigger404Scope = openTrigger404Scope();
+            const trigger404Scope = openTrigger404Scope(reply);
 
             let result;
 
@@ -542,6 +542,9 @@ export class DataLoaderServerHandlerHelpers<
     // parallel page data loaders of one SSR render from clearing or consuming
     // each other's state. Closed in the .finally() on the awaited result
     // below, which covers the timeout path.
+    // No reply passed on purpose: this shares the page request's reply with
+    // every other loader running in parallel, so rolling it back could remove
+    // a header a different loader had just set.
     const trigger404Scope = openTrigger404Scope();
 
     const invocation = runInTrigger404Scope(trigger404Scope, () =>

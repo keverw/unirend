@@ -62,6 +62,12 @@ const createMockReply = () => {
       (reply as any)._headers[name] = value;
       return reply;
     }),
+    getHeaders: mock(() => ({ ...((reply as any)._headers || {}) })),
+    removeHeader: mock((name: string) => {
+      (reply as any)._headers = (reply as any)._headers || {};
+      delete (reply as any)._headers[name];
+      return reply;
+    }),
     hijack: mock(() => {
       (reply as any).sent = true;
       (reply as any).raw.headersSent = true;

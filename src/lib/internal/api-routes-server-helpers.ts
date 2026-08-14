@@ -350,7 +350,7 @@ export class APIRoutesServerHelpers<
             // Opens the window in which request.trigger404() is callable, so a
             // call from anywhere else throws instead of being ignored. The
             // scope belongs to this invocation, not to the request.
-            const trigger404Scope = openTrigger404Scope();
+            const trigger404Scope = openTrigger404Scope(reply);
 
             let envelope;
 

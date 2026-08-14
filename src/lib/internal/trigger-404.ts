@@ -123,6 +123,21 @@ export interface Trigger404Scope {
   isOpen: boolean;
   /** True once `trigger404()` was called inside this invocation */
   wasRequested: boolean;
+  /**
+   * Reply headers as they stood before the handler ran, restored if the
+   * handler abandons the request.
+   *
+   * A handler that sets a header or a cookie and *then* triggers would
+   * otherwise ship it on the 404, which is exactly the kind of tell this
+   * feature exists to remove: a genuine miss never carries a session cookie.
+   * The docs say to call `trigger404()` first, and this is what makes that
+   * advice rather than a requirement.
+   *
+   * Undefined on the SSR internal short-circuit, whose `reply` belongs to the
+   * page request and is shared with every other loader running in parallel.
+   * Restoring there could remove a header a different loader had just set.
+   */
+  headerSnapshot?: Record<string, unknown>;
 }
 
 /**
@@ -138,9 +153,42 @@ const trigger404Storage = new AsyncLocalStorage<Trigger404Scope>();
 const OUT_OF_HANDLER_MESSAGE =
   'request.trigger404() is only available inside an API route handler or a page data handler. In a plugin route, call reply.callNotFound() instead.';
 
-/** Opens a window in which `trigger404()` may be called. */
-export function openTrigger404Scope(): Trigger404Scope {
-  return { isOpen: true, wasRequested: false };
+/**
+ * Opens a window in which `trigger404()` may be called.
+ *
+ * @param reply - Pass the Fastify reply when it belongs to this invocation
+ *   alone, so reply state can be rolled back if the handler abandons the
+ *   request. Omitted on the SSR internal short-circuit, which shares the page
+ *   request's reply with loaders running in parallel.
+ */
+export function openTrigger404Scope(reply?: FastifyReply): Trigger404Scope {
+  return {
+    isOpen: true,
+    wasRequested: false,
+    headerSnapshot: reply ? { ...reply.getHeaders() } : undefined,
+  };
+}
+
+/**
+ * Puts the reply's headers back the way they were before the handler ran.
+ *
+ * Removes every header currently set and re-applies the snapshot, rather than
+ * diffing: a value may be an array (`Set-Cookie`), which no cheap comparison
+ * gets right, and the snapshot is the whole truth for this reply anyway.
+ */
+function restoreReplyHeaders(
+  reply: FastifyReply,
+  snapshot: Record<string, unknown>,
+): void {
+  for (const name of Object.keys(reply.getHeaders())) {
+    reply.removeHeader(name);
+  }
+
+  for (const [name, value] of Object.entries(snapshot)) {
+    if (value !== undefined) {
+      reply.header(name, value);
+    }
+  }
 }
 
 /**
@@ -306,6 +354,13 @@ export async function checkTrigger404({
       'trigger_404_unconfigured';
     (error as unknown as { route: string }).route = route;
     throw error;
+  }
+
+  // Roll back anything the handler put on the reply before abandoning. Must
+  // run before the resolver, which sets the 404's own status and
+  // `Cache-Control: no-store` and would otherwise be undone by it.
+  if (reply && scope.headerSnapshot) {
+    restoreReplyHeaders(reply, scope.headerSnapshot);
   }
 
   const envelope = await resolveAPINotFoundResponse({

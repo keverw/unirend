@@ -1275,6 +1275,78 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
     });
   });
 
+  describe('reply state set before the trigger', () => {
+    /**
+     * A genuine miss never carries a session cookie, so a triggered 404 must
+     * not either. The docs say to call `trigger404()` first; this is what keeps
+     * that advice rather than a requirement, by rolling the reply back to
+     * where it stood before the handler ran.
+     */
+    const runHeaders = async (
+      register: (server: APIServer) => void,
+      injection: Injection,
+    ) => {
+      const server = serveAPI({ getRequestID: pinnedRequestID });
+
+      register(server);
+      await server.listen(await getPort(), 'localhost');
+
+      try {
+        return await fastifyOf(server).inject(injection);
+      } finally {
+        await server.stop();
+      }
+    };
+
+    it('drops headers and cookies an API route set before triggering', async () => {
+      const response = await runHeaders((server) => {
+        server.api.get('thing', (request, reply) => {
+          reply.header('x-handler-leak', 'seen');
+          reply.header('set-cookie', 'session=secret; Path=/');
+
+          return request.trigger404();
+        });
+      }, apiRouteInjection);
+
+      expect(response.statusCode).toBe(404);
+      expect(response.headers['x-handler-leak']).toBeUndefined();
+      expect(response.headers['set-cookie']).toBeUndefined();
+      // The 404's own headers still land.
+      expect(response.headers['cache-control']).toBe('no-store');
+    });
+
+    it('drops headers a page data handler set before triggering', async () => {
+      const response = await runHeaders((server) => {
+        server.pageDataHandler.register('thing', (request, reply) => {
+          reply.header('x-handler-leak', 'seen');
+
+          return request.trigger404();
+        });
+      }, pageDataInjection);
+
+      expect(response.statusCode).toBe(404);
+      expect(response.headers['x-handler-leak']).toBeUndefined();
+    });
+
+    it('leaves headers alone when the handler does not trigger', async () => {
+      // The rollback is scoped to abandoning the request. A handler that
+      // answers normally still owns its reply.
+      const response = await runHeaders((server) => {
+        server.api.get('thing', (request, reply, params) => {
+          reply.header('x-handler-leak', 'seen');
+
+          return params.APIResponseHelpers.createAPISuccessResponse({
+            request,
+            data: { ok: true },
+          });
+        });
+      }, apiRouteInjection);
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['x-handler-leak']).toBe('seen');
+    });
+  });
+
   describe('handler bugs and concurrency', () => {
     /**
      * The forgotten-`return` and already-sent paths are only fully observable

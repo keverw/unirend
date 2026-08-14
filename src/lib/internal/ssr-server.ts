@@ -2399,15 +2399,40 @@ export class SSRServer<
       }
     }
 
+    // The render never sees a method that could run a route action, whatever
+    // the caller intended.
+    //
+    // React Router's static handler runs the matched route's `action` for any
+    // non-GET request, and route actions are not part of this framework's
+    // model: page data loaders populate page content and mutations go through
+    // API routes or page data handlers. Nothing should reach here with a
+    // non-read method — the catch-all is registered `GET '*'`, and
+    // `handleUnmatchedRequest` is the only other entry — so this is a
+    // backstop, placed at the one point every render passes through rather
+    // than trusting each caller. It coerces rather than throws so a future
+    // path that gets here cannot run an action even once, and logs because a
+    // silent coercion would hide the bug it exists to catch.
+    const isReadMethod = request.method === 'GET' || request.method === 'HEAD';
+
+    if (!isReadMethod && !isUnmatchedNonReadMethod) {
+      request.log.error(
+        {
+          errorCode: 'ssr_render_non_read_method',
+          method: request.method,
+          url: request.url,
+        },
+        `A ${request.method} request reached SSR rendering. It was rendered as a GET so no route action could run. This is a unirend bug.`,
+      );
+    }
+
     // Create Fetch API Request object for React Router
     // Create Request object with appropriate data
     const fetchRequest = new Request(
       `${request.protocol}://${request.hostname}${request.url}`,
       {
-        // A non-GET/HEAD request that no route claimed renders as a GET, so
-        // React Router's static handler cannot reach a route `action`. No body
-        // is attached to this Request in any case, so nothing is dropped.
-        method: isUnmatchedNonReadMethod ? 'GET' : request.method,
+        // No body is attached to this Request in any case, so nothing is
+        // dropped by rendering a non-read method as a GET.
+        method: isReadMethod ? request.method : 'GET',
         headers: (() => {
           // Safely construct Headers from Fastify request headers, normalizing string | string[]
           const headers = new Headers();
