@@ -36,6 +36,7 @@ import {
   pinnedRequestID,
   type CapturedResponse,
 } from './trigger-404-equality-harness';
+import type { Trigger404Signal } from './trigger-404';
 import {
   TRIGGER_404_BRAND,
   checkTrigger404,
@@ -148,9 +149,9 @@ const _arbitraryValueTypeCheck =
   // @ts-expect-error The union gained the sentinel, not unknown.
   (() => ({ anything: 'at all' })) satisfies APIRouteHandler;
 
-const _bareSymbolTypeCheck =
+const _bareBrandTypeCheck =
   // @ts-expect-error The brand is a property on the value, not the value itself.
-  (() => Symbol.for('unirend.trigger404')) satisfies APIRouteHandler;
+  (() => 'unirend.trigger404') satisfies APIRouteHandler;
 
 describe('trigger-404 sentinel', () => {
   it('is frozen and stable across calls', () => {
@@ -160,11 +161,27 @@ describe('trigger-404 sentinel', () => {
 
   it('recognizes a structurally branded clone, not just its own instance', () => {
     // The dual-bundle guard: a second copy of unirend in the tree produces its
-    // own object, and Symbol.for gives both copies the same brand.
+    // own object, and Symbol.for resolves to the same brand in both.
     const clone = { [Symbol.for('unirend.trigger404')]: true };
 
     expect(isTrigger404Signal(TRIGGER_404_SIGNAL)).toBe(true);
     expect(isTrigger404Signal(clone)).toBe(true);
+  });
+
+  it('cannot be faked by returned JSON', () => {
+    // The reason the runtime brand is a symbol and not the string key the
+    // published type uses. A handler returning upstream data verbatim must not
+    // be able to hand control of the request to that data — a symbol cannot
+    // survive JSON.parse, so no payload can carry one.
+    const upstream: unknown = JSON.parse('{"id":1,"unirend.trigger404":true}');
+
+    expect(isTrigger404Signal(upstream)).toBe(false);
+
+    // Nor by an object literal written to match the public interface. The
+    // shape is satisfiable; the sentinel is not.
+    const handRolled: Trigger404Signal = { 'unirend.trigger404': true };
+
+    expect(isTrigger404Signal(handRolled)).toBe(false);
   });
 
   it('rejects everything else a handler could return', () => {
@@ -1473,11 +1490,16 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
     it('honors a returned signal that never went through trigger404()', async () => {
       // The mirror image of the forgotten `return`: the signal comes back but
       // the trigger was never called. This is the dual-bundle case — a second
-      // copy of unirend in the tree marks its own scope, and only the returned
-      // brand reaches this one — so the 404 is served on the return value alone
-      // and nothing is logged as a bug. A handler that hand-builds the brand
-      // gets the same 404 it asked for, which is the only thing returning the
-      // sentinel ever means.
+      // copy of unirend in the tree opens and marks its own scope, and only the
+      // returned value reaches this one — so the 404 is served on the return
+      // value alone and nothing is logged as a bug. That copy's sentinel is
+      // recognized here because `Symbol.for` resolves to one brand across every
+      // copy in the tree, which is what this stands in for.
+      //
+      // It is only a real sentinel that gets this treatment. An object built to
+      // match the published `Trigger404Signal` type carries the string brand
+      // but not the symbol, and takes the invalid-response path instead — see
+      // the test below.
       const { response, records } = await runWithCapturedLog((server) => {
         server.api.get('thing', () => TRIGGER_404_SIGNAL);
       }, apiRouteInjection);
@@ -1492,6 +1514,45 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
       expect(findLogRecord(records, 'trigger_404_after_response_sent')).toEqual(
         [],
       );
+    });
+
+    it('does not accept a hand-built value matching the published type', async () => {
+      // The published `Trigger404Signal` is branded with a string key, so its
+      // shape is satisfiable — deliberately, since that is what keeps the type
+      // identical across unirend's bundles. Recognition is on the symbol brand
+      // the type cannot describe, so a value written to match the type is not
+      // the sentinel and does not get a 404.
+      //
+      // This is the guard against the reverse of the dual-bundle case above: a
+      // handler returning upstream JSON that happens to carry that key must not
+      // be able to hand control of the request to its own payload. The failure
+      // is loud, and it is the same failure any other invalid envelope gets.
+      const { response, records } = await runWithCapturedLog((server) => {
+        server.api.get('thing', () => {
+          // No cast: the published type really does accept this, which is the
+          // asymmetry being pinned. It compiles, and it still is not a trigger.
+          const handBuilt: Trigger404Signal = { 'unirend.trigger404': true };
+
+          return handBuilt;
+        });
+      }, apiRouteInjection);
+
+      expect(response.statusCode).toBe(500);
+      expect(findLogRecord(records, 'trigger_404_missing_return')).toEqual([]);
+
+      // The thrown error carries the code, so it lands under `err` rather than
+      // at the top of the context — which is why `findLogRecord` does not see
+      // it and this reads the nested field directly.
+      const invalid = records.filter(
+        (entry) =>
+          (entry.context?.err as { errorCode?: string } | undefined)
+            ?.errorCode === 'invalid_handler_response',
+      );
+
+      expect(invalid).toHaveLength(1);
+      expect(
+        (invalid[0].context?.err as { route?: string } | undefined)?.route,
+      ).toBe('GET /api/v1/thing');
     });
 
     it('does not mistake an unbranded 404-shaped return for the sentinel', async () => {

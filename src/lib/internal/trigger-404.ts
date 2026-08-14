@@ -26,18 +26,54 @@ import { getAPIResponseHelpersClass } from './api-response-helpers-utils';
 /**
  * Brand carried by the value `request.trigger404()` returns.
  *
- * `Symbol.for` rather than `Symbol()` so the brand is shared across every copy
- * of unirend in a consumer's tree, including a duplicated install and the
- * separate module instances a bundler can produce.
+ * A namespaced string key rather than a symbol, for one reason: a `unique
+ * symbol` is *nominal*, and tsup copies this declaration into every entry that
+ * reaches it — `unirend/server`, `unirend/plugins`, `unirend/api-envelope`,
+ * `unirend/utils`. Each copy declares its own `unique symbol`, so each copy's
+ * `Trigger404Signal` is a distinct type that happens to print the same name.
+ * Since `unirend/server` pulls in `unirend/api-envelope`, and both carry a
+ * `declare module 'fastify'` block declaring `trigger404`, a consumer writing
+ * the documented pattern got `Trigger404Signal is not assignable to
+ * Trigger404Signal` from their own file — with `skipLibCheck: true`, which only
+ * silences the copies' disagreement inside the declaration files themselves.
+ *
+ * A string literal key is structural, so every copy of the interface is the
+ * same type and the bundles agree.
+ *
+ * This key is the *type-level* brand only. What the runtime tests is the symbol
+ * below, for a reason worth keeping straight: a string key is representable in
+ * JSON, so a handler returning upstream data that happened to carry
+ * `"unirend.trigger404": true` would have been read as the sentinel and sent
+ * down the not-found path. Data must not be able to choose the server's control
+ * flow.
  */
-export const TRIGGER_404_BRAND: unique symbol =
+export const TRIGGER_404_BRAND = 'unirend.trigger404' as const;
+
+/**
+ * The brand the runtime actually checks.
+ *
+ * A symbol cannot survive `JSON.parse`, so no returned payload can forge it,
+ * however it was built and wherever it came from. `Symbol.for` rather than
+ * `Symbol()` so the brand is shared across every copy of unirend in a
+ * consumer's tree, including a duplicated install and the separate module
+ * instances a bundler can produce.
+ *
+ * Deliberately **not** exported and never referenced by an exported type, which
+ * is what keeps the nominal `unique symbol` out of the published declaration
+ * files. That is the whole reason the type-level brand above is a string: this
+ * one would be a different type in every bundle.
+ */
+const TRIGGER_404_RUNTIME_BRAND: unique symbol =
   Symbol.for('unirend.trigger404');
 
 /**
  * Opaque value returned by `request.trigger404()`.
  *
  * Return it from an API route handler or a page data handler to abandon the
- * request into the server's not-found path. Never construct one yourself.
+ * request into the server's not-found path. Never construct one yourself: an
+ * object matching this shape is not the sentinel, because the runtime brand is
+ * a symbol this interface cannot describe. A hand-built one is rejected as an
+ * invalid handler response rather than quietly serving a 404.
  */
 export interface Trigger404Signal {
   readonly [TRIGGER_404_BRAND]: true;
@@ -45,7 +81,10 @@ export interface Trigger404Signal {
 
 /** The single sentinel instance every `trigger404()` call returns. */
 export const TRIGGER_404_SIGNAL: Trigger404Signal = Object.freeze({
+  // Carries both brands: the string one so the value satisfies the public
+  // interface, the symbol one so it is recognized.
   [TRIGGER_404_BRAND]: true as const,
+  [TRIGGER_404_RUNTIME_BRAND]: true as const,
 });
 
 /**
@@ -55,12 +94,17 @@ export const TRIGGER_404_SIGNAL: Trigger404Signal = Object.freeze({
  * stop matching the moment two copies of unirend end up in one process, which
  * would turn the sentinel into an "invalid handler response" error rather than
  * a 404 — a failure the deployment would only discover in production.
+ *
+ * The property tested is the symbol, never the string. The string brand exists
+ * so the published type is structural across unirend's bundles; recognizing it
+ * at runtime would let any JSON payload carrying that key take over the
+ * request.
  */
 export function isTrigger404Signal(value: unknown): value is Trigger404Signal {
   return (
     typeof value === 'object' &&
     value !== null &&
-    (value as Record<symbol, unknown>)[TRIGGER_404_BRAND] === true
+    (value as Record<symbol, unknown>)[TRIGGER_404_RUNTIME_BRAND] === true
   );
 }
 
