@@ -1275,6 +1275,72 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
     });
   });
 
+  describe('trigger404() called from inside a notFoundHandler', () => {
+    /**
+     * Re-entry. The not-found handler runs *inside* the resolution that a
+     * trigger routes into, so if a trigger there re-entered that resolution
+     * the failure would be a stack overflow rather than a wrong response.
+     *
+     * It cannot. The scope is closed before `checkTrigger404` calls the
+     * resolver, and a genuine miss never opened one, so `trigger404()` throws
+     * its out-of-handler error. The resolver already catches a throwing custom
+     * handler, so both cases log and fall back to the default envelope.
+     */
+    const runReentrant = async (register?: (server: APIServer) => void) => {
+      const captured = createCapturingLogging();
+      const server = serveAPI({
+        getRequestID: pinnedRequestID,
+        logging: captured.logging,
+        // TypeScript rejects this outright: a not-found handler returns a
+        // web or envelope response and the sentinel is neither, so the
+        // mistake is a compile error for a TypeScript consumer. The cast
+        // reaches the runtime path a JavaScript consumer could still take.
+        notFoundHandler: ((request: FastifyRequest) =>
+          request.trigger404()) as never,
+      });
+
+      register?.(server);
+      await server.listen(await getPort(), 'localhost');
+
+      try {
+        return {
+          response: await fastifyOf(server).inject(apiRouteInjection),
+          records: captured.records,
+        };
+      } finally {
+        await server.stop();
+      }
+    };
+
+    it('falls back to the default envelope on a genuine miss', async () => {
+      const { response, records } = await runReentrant();
+
+      expect(response.statusCode).toBe(404);
+      expect(JSON.parse(response.body).error.code).toBe('not_found');
+      expect(
+        records.some((record) =>
+          String(record.message).includes('Custom not-found handler failed'),
+        ),
+      ).toBe(true);
+    });
+
+    it('falls back to the default envelope on a triggered 404', async () => {
+      // The path that could actually recurse: a handler triggers, the resolver
+      // runs, and the not-found handler triggers again.
+      const { response, records } = await runReentrant((server) => {
+        server.api.get('thing', (request) => request.trigger404());
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(JSON.parse(response.body).error.code).toBe('not_found');
+      expect(
+        records.some((record) =>
+          String(record.message).includes('Custom not-found handler failed'),
+        ),
+      ).toBe(true);
+    });
+  });
+
   describe('reply state set before the trigger', () => {
     /**
      * A genuine miss never carries a session cookie, so a triggered 404 must

@@ -2256,6 +2256,31 @@ export class SSRServer<
    * Extracted from the `GET '*'` catch-all so the not-found handler can serve
    * the identical response for a request the catch-all never saw.
    *
+   * Two callers, and the second one is why the rules below exist. The
+   * catch-all only ever passes a GET. `handleUnmatchedRequest` passes anything
+   * that reached the server, including a POST or a DELETE that no route
+   * claimed, with `isUnmatchedNonReadMethod` set. Those requests are rendered
+   * so the caller gets the app's own 404 page rather than a bare envelope,
+   * which means app code runs for a request the server never routed, and that
+   * is the thing this function has to bound:
+   *
+   * 1. **The render never sees a non-read method.** React Router runs a
+   *    matched route's `action` for any non-GET request, and route actions are
+   *    not part of this framework's model. Coerced to GET below, at the one
+   *    point every render passes through.
+   * 2. **The answer is 404 whatever the render decided.** A POST that no route
+   *    claimed, to a URL that happens to render, must not come back 200, and a redirect
+   *    must not come back at all, since the client sent a POST and a 307 would
+   *    tell it to repeat that POST elsewhere. Applied to both the `page` and
+   *    the `response` result, since a custom server entry can answer through
+   *    either.
+   * 3. **A 5xx is the exception, and the only one.** Rendering runs the app's
+   *    loaders and components, so it can fail the same way a GET of that URL
+   *    would. Answering 404 there would hide a real server error and skip
+   *    `get500ErrorPage`. A render that throws already answers 500 through the
+   *    `render-error` branch, so a render that reports the same failure by
+   *    returning it has to agree.
+   *
    * @param request The Fastify request object
    * @param reply The Fastify reply object
    * @private
