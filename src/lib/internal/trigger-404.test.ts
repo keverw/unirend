@@ -1441,7 +1441,63 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
       }
     };
 
-    /** The same request against a server that never registered the route. */
+    describe('handler throws after triggering', () => {
+      /**
+       * A throw is an error, including after the trigger. The 404 machinery
+       * never ran here: the handler asked to be abandoned and then something
+       * after that call failed, so the request takes the ordinary error path
+       * and answers 500.
+       *
+       * That is a deliberate limit on what the trigger otherwise guarantees,
+       * and it is why the docs say to return immediately. A 500 tells a caller
+       * the route exists where a genuine miss never would, so work placed
+       * after the trigger is work that can give the route away.
+       */
+      it('surfaces the throw as a 500 on an API route', async () => {
+        const { response } = await runWithCapturedLog((server) => {
+          server.api.get('thing', async (request) => {
+            request.trigger404();
+
+            await Promise.resolve();
+
+            throw new Error('boom after the trigger');
+          });
+        }, apiRouteInjection);
+
+        expect(response.statusCode).toBe(500);
+      });
+
+      it('surfaces the throw as a 500 on a page data handler', async () => {
+        const { response } = await runWithCapturedLog((server) => {
+          server.pageDataHandler.register('thing', async (request) => {
+            request.trigger404();
+
+            await Promise.resolve();
+
+            throw new Error('boom after the trigger');
+          });
+        }, pageDataInjection);
+
+        expect(response.statusCode).toBe(500);
+      });
+
+      it('still 404s when the handler triggers and returns without throwing', async () => {
+        // The boundary: only a throw escapes the 404. Returning an ordinary
+        // value after the trigger still fails closed.
+        const { response } = await runWithCapturedLog((server) => {
+          server.api.get('thing', async (request) => {
+            request.trigger404();
+
+            await Promise.resolve();
+
+            return { not: 'an envelope' } as never;
+          });
+        }, apiRouteInjection);
+
+        expect(response.statusCode).toBe(404);
+      });
+    });
+
     const baselineFor = async (injection: Injection) => {
       const server = serveAPI({ getRequestID: pinnedRequestID });
       await server.listen(await getPort(), 'localhost');
