@@ -22,7 +22,7 @@
 - [Create SSR Server](#create-ssr-server)
   - [Create Production SSR Server](#create-production-ssr-server)
   - [Create Development SSR Server](#create-development-ssr-server)
-  - [Asset Serving vs Runtime Behavior](#asset-serving-vs-runtime-behavior)
+  - [Asset Serving vs. Runtime Behavior](#asset-serving-vs-runtime-behavior)
   - [Organization Suggestion](#organization-suggestion)
   - [SSRServer Class](#ssrserver-class)
   - [Construction](#construction)
@@ -44,7 +44,7 @@
     - [Example: TLS Over a Private Network (NodeAdapter)](#example-tls-over-a-private-network-nodeadapter)
   - [Custom API Routes](#custom-api-routes)
     - [API Route Handler Signature and Parameters:](#api-route-handler-signature-and-parameters)
-  - [Param Source Parity (Data Loader vs API Routes):](#param-source-parity-data-loader-vs-api-routes)
+  - [Param Source Parity (Data Loader vs. API Routes):](#param-source-parity-data-loader-vs-api-routes)
   - [Abandoning a Request Into the Not-Found Path](#abandoning-a-request-into-the-not-found-path)
   - [Request Context Injection](#request-context-injection)
 - [Advanced Asset Request Paths](#advanced-asset-request-paths)
@@ -172,7 +172,7 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - Client-identity resolution. **On by default.** Resolves the real end-user `request.clientIP` (the connecting IP, overridden by a trusted `X-SSR-Original-IP`), the resolved end-user `request.clientUserAgent` (the raw header, overridden by a trusted `X-SSR-Forwarded-User-Agent`), a frozen `request.clientInfo` (correlation ID, forwarded-source flags, resolved identity), and emits `X-Request-ID` / `X-Correlation-ID` response headers.
   - Runs before access logging, so `request.clientIP` / `request.clientUserAgent` / `request.clientInfo` are available in access-log templates (`{{ip}}`, `{{userAgent}}`) and both hooks, plus all handlers.
   - Config: `trustForwardedHeaders`, `forwardedRequestIDValidator`, `setResponseHeaders`, `logging`. Pass `false` to disable entirely (then `request.clientIP` equals `request.connectionIP`, `request.clientUserAgent` equals `request.userAgent`, and `request.clientInfo` is `undefined`).
-  - See [Client Identity](./client-identity.md) for the full model and the `connectionIP` vs `clientIP` distinction.
+  - See [Client Identity](./client-identity.md) for the full model and the `connectionIP` vs. `clientIP` distinction.
 - `getRequestID?: (request: FastifyRequest) => string | undefined | Promise<string | undefined>`
   - Custom generator for `request.requestID`, the value the API/Page envelope helpers use for `request_id`. Set once per request before access logging and plugins run, so it is available as the `{{requestID}}` access-log template variable, in access-log hooks (`ctx.request.requestID`), plugins, and all handlers.
   - When not set, the framework generates a ULID (globally unique, safe across instances/restarts). Use the override to adopt an upstream/proxy `X-Request-ID` from a trusted header.
@@ -709,7 +709,7 @@ main().catch(console.error);
 Notes:
 
 - `publicAppConfig` is passed to the Unirend context and available via the `usePublicAppConfig()` hook on both server (during rendering) and client (after HTML injection).
-- For accessing config in components vs non-component code (loaders), fallback patterns, and SPA-only dev mode considerations, see: [Public App Config Pattern](../README.md#public-app-config-pattern).
+- For accessing config in components vs. non-component code (loaders), fallback patterns, and SPA-only dev mode considerations, see: [Public App Config Pattern](../README.md#public-app-config-pattern).
 
 **Per-Request CDN Override Example:**
 
@@ -833,7 +833,7 @@ Notes:
 - `window.__DOMAIN_INFO__` contains `{ hostname, rootDomain }` computed from the request hostname server-side. Access it in components via `useDomainInfo()` (see [Unirend Context](../docs/unirend-context.md)). Useful for setting cookies that span subdomains without hardcoding the domain.
 - **HTML Template**: The `template` path in development mode is fully customizable. Specify any HTML file path (e.g., `./index.html`, `./src/app.html`, etc.). The template is read fresh on each request and transformed by Vite for HMR support.
 
-### Asset Serving vs Runtime Behavior
+### Asset Serving vs. Runtime Behavior
 
 `serveSSRWithHMR` and `serveSSRBuilt` control the **asset serving strategy**, which is how your code is loaded and served:
 
@@ -854,7 +854,7 @@ See [Dev Mode](./dev-mode.md) for full details on `initDevMode()` and `getDevMod
 
 Since your project will most likely use both `serveSSRWithHMR` and `serveSSRBuilt`, consider these options:
 
-- Single entry script that switches on an env/arg (dev vs prod) and calls `serveSSRWithHMR` or `serveSSRBuilt`.
+- Single entry script that switches on an env/arg (dev vs. prod) and calls `serveSSRWithHMR` or `serveSSRBuilt`.
 - Separate scripts (e.g., `serve-hmr.ts` and `serve-built.ts`).
 - For production binaries, you can bundle your server script with a tool like Bun:
   - `bun build serve-built.ts --outdir build/serve --external vite` and `bun run build/serve/serve-built.js`
@@ -909,7 +909,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
     - **Regular API requests** (`isPageData=false`): Standard API endpoints (e.g., `/api/v1/users`, `/api/v1/account/create`) for operations like creating accounts, updating data, etc. These return API Response Envelopes.
 - `publicAppConfig?: Record<string, unknown>`
   - Optional configuration object available via the `usePublicAppConfig()` hook on both server (during SSR/SSG rendering) and client (after HTML injection) in both dev and prod modes.
-  - Use for runtime configuration (API URLs, feature flags, build info, etc.). See [Public App Config Pattern](../README.md#public-app-config-pattern) for usage in components vs loaders.
+  - Use for runtime configuration (API URLs, feature flags, build info, etc.). See [Public App Config Pattern](../README.md#public-app-config-pattern) for usage in components vs. loaders.
   - Within a request, read the config via `usePublicAppConfig()` in components (available on both server and client). Each request receives a deep-cloned, deep-frozen snapshot, so mutations inside a request are isolated and do not affect other requests. If you hold a reference to the object (or a sub-object within it) that you passed here, you can mutate it between requests and the next clone will pick up the change. Updates are global (all subsequent requests, not a specific user). Use `requestContext` for per-user or per-request values.
 - `containerID?: string`
   - Client container element ID (default `"root"`).
@@ -1191,7 +1191,7 @@ Set to `true` before any response is sent for a static file. Defaults to `false`
 
 `isStaticAsset` is also available as an access-log field. Use `{{isStaticAsset}}` in finish/response templates, or read `ctx.isStaticAsset` in `accessLog.onResponse`. Request/start access logs run before static content has marked the request, so they always see `false`.
 
-See [Hook Ordering and Cookie Renewal](./built-in-plugins/staticContent.md#hook-ordering-and-cookie-renewal) in the `staticContent` plugin docs for full details on `onSend` vs `onResponse` patterns and the `isStaticAsset` guard.
+See [Hook Ordering and Cookie Renewal](./built-in-plugins/staticContent.md#hook-ordering-and-cookie-renewal) in the `staticContent` plugin docs for full details on `onSend` vs. `onResponse` patterns and the `isStaticAsset` guard.
 
 Two related markers exist, and neither is an access-log field: `request.isStaticRequest` is the opt-in early pathname classification described in [Advanced Asset Request Paths](#advanced-asset-request-paths), and `request.isStaticContentMatch` is set later when a configured static mapping matches, whether or not a file was served. The `staticContent` docs linked above compare all three.
 
@@ -1378,7 +1378,7 @@ When page data loader handlers are registered on the same `SSRServer` instance i
 When using versioned page data handlers (see [Page Data Loader Handlers and Versioning](#page-data-loader-handlers-and-versioning)), short-circuit and HTTP requests behave differently:
 
 - **Short-circuit (SSR initial load)**: Automatically selects the **highest version** registered for the page type. This ensures SSR always serves fresh HTML with the latest handler logic.
-- **HTTP requests (client-side navigation)**: Explicitly target a specific version via the URL path (e.g., `/api/v1/page_data/home` vs `/api/v2/page_data/home`), determined by your frontend loader's `pageDataEndpoint` configuration.
+- **HTTP requests (client-side navigation)**: Explicitly target a specific version via the URL path (e.g., `/api/v1/page_data/home` vs. `/api/v2/page_data/home`), determined by your frontend loader's `pageDataEndpoint` configuration.
 
 **Version Consistency Considerations:**
 
@@ -1573,7 +1573,7 @@ Notes:
     - `originalURL`: full original URL
     - `APIResponseHelpers`: the helpers class configured on this server. Use this instead of importing directly, so custom subclasses are respected
 
-### Param Source Parity (Data Loader vs API Routes):
+### Param Source Parity (Data Loader vs. API Routes):
 
 - Both handlers receive a `params` object with a similar routing context, but the source differs:
   - Data loader handlers: `params` are produced by the frontend page data loader and sent in the POST body (SSR short-circuit passes the same shape internally for consistency). Treat this as the authoritative routing context for page data.
@@ -1618,7 +1618,7 @@ One note specific to SSR. During the initial render, a page data handler registe
 
 SSR supports injecting per-request context data that will be available on the client.
 
-**Request Context vs Public App Config:**
+**Request Context vs. Public App Config:**
 
 - **Request Context**: Per-page data that can vary between requests and be mutated on the client (e.g., page-specific state, user preferences, theme)
 - **Public App Config**: Safe-to-share configuration shared across all pages (e.g., API URLs, feature flags, build info). Read within a request via `request.publicAppConfig` on SSR/API servers and `usePublicAppConfig()` in components. Each request gets a deep-frozen clone that is immutable within the request. You can mutate the source between requests to update values globally (e.g., rotating an API endpoint, updating a year), but those changes apply to all subsequent requests, not a specific user. Unlike `request.requestContext`, public app config is not forwarded, merged back, or injected by an API server.
@@ -1750,7 +1750,7 @@ Ordinary unmapped routes, unmapped API misses, traversal-rejected URLs, non-GET/
 A single `SSRServer` instance can serve **multiple distinct React applications**, switchable via middleware based on request context (subdomain, path, headers, etc.). This is valuable for:
 
 - **Monorepo deployments**: Serve marketing + app sites from one server
-- **Subdomain routing**: `marketing.example.com` vs `app.example.com` with different builds
+- **Subdomain routing**: `marketing.example.com` vs. `app.example.com` with different builds
 - **A/B testing**: Different frontend builds for experimentation
 - **Resource efficiency**: Consolidate multiple frontend projects into one server process
 
@@ -2259,7 +2259,7 @@ Two things to keep in mind. An override has to keep the base method's own `<M ex
 
 Where the line is:
 
-> Differing **by app bundle** is fine. The active bundle is already determined by the host the caller chose, so a marketing visitor seeing marketing copy reveals nothing they did not already know. What must never differ is **registered vs unregistered within one bundle**, which is the property `trigger404()` exists to protect. A hand-built 404 envelope returned from the handler breaks it, because it is distinguishable from the envelope a genuine miss produces on the same bundle.
+> Differing **by app bundle** is fine. The active bundle is already determined by the host the caller chose, so a marketing visitor seeing marketing copy reveals nothing they did not already know. What must never differ is **registered vs. unregistered within one bundle**, which is the property `trigger404()` exists to protect. A hand-built 404 envelope returned from the handler breaks it, because it is distinguishable from the envelope a genuine miss produces on the same bundle.
 
 ### Important Notes
 
@@ -2352,7 +2352,7 @@ Use it when you don't need server-side React rendering. Common use cases:
 
 - **JSON API server**: AJAX/fetch endpoints with versioned routes and envelope responses, separately from your SSR server
 - **Page data server**: Host page data loader handlers separately from your SSR server
-- **Mixed API + web server**: Serve both JSON APIs and static HTML/assets without React (use split error handlers for HTML vs JSON responses)
+- **Mixed API + web server**: Serve both JSON APIs and static HTML/assets without React (use split error handlers for HTML vs. JSON responses)
 - **Generic HTTP server**: Use as a general-purpose HTTP server (similar to Fastify/Express) with Unirend's plugin system. Set `apiEndpointPrefix: false` to disable API envelope handling and serve custom content via plugins
 
 ### Basic Usage
@@ -2674,7 +2674,7 @@ interface WebResponse {
 
 **Security Note**: When returning HTML with dynamic values (URLs, error messages, etc.), always escape them using `escapeHTML` from `unirend/utils` to prevent XSS attacks. React components automatically escape content, but raw HTML generation in error handlers requires manual escaping.
 
-**API vs Web Detection:**
+**API vs. Web Detection:**
 
 The server uses `apiEndpoints.apiEndpointPrefix` (default `/api`) to detect API requests. This includes versioned paths:
 

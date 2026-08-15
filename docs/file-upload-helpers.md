@@ -390,7 +390,7 @@ If you want "automatic" consistency, treat uploads like a state machine:
 - **Before streaming**: create a DB row per file with `status='pending'` and a generated ID/path/key.
 - **On abort** (`context.onCleanup`): mark the row `status='failed'` and cleanup the partial object (runs automatically after processor completes or is interrupted - including when processor throws errors).
 - **On success**: finalize (move temp → final / commit transaction) and mark `status='complete'`.
-- **Cleanup job**: periodically delete/expire old `pending` uploads and reconcile DB vs storage (e.g. file moved but DB not updated).
+- **Cleanup job**: periodically delete/expire old `pending` uploads and reconcile DB vs. storage (e.g. file moved but DB not updated).
 
 This keeps storage and your DB in sync and makes retries/cleanup straightforward.
 
@@ -549,7 +549,7 @@ curl -X POST http://localhost:3000/api/upload/gallery \
 - **Store outside web root**: don't directly serve uploaded files from the upload directory.
 - **Generate your own filenames/IDs**: avoid path traversal and collisions, don't use the client filename as a path.
 - **Harden permissions**: ensure uploaded files are not executable and are stored with restrictive permissions.
-- **Isolate storage**: consider separate buckets/prefixes/domains for user uploads vs application assets.
+- **Isolate storage**: consider separate buckets/prefixes/domains for user uploads vs. application assets.
 
 ### Image Upload Workflow (Common Pattern)
 

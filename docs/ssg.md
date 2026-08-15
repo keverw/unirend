@@ -219,7 +219,7 @@ The `path` property is optional. If omitted, the URL path is derived from the fi
 
 Both SSG and SPA pages support injecting request context data that will be available on the client.
 
-**Request Context vs Public App Config:**
+**Request Context vs. Public App Config:**
 
 - **Request Context**: Per-page data that can vary between pages and be mutated on the client (e.g., page-specific state, user preferences, theme)
 - **Public App Config**: Global, immutable configuration shared across all pages (e.g., API URLs, feature flags, build info)

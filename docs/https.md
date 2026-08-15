@@ -10,7 +10,7 @@ Both `SSRServer` (via `serveSSRWithHMR`/`serveSSRBuilt`) and `APIServer` (via `s
 - [HSTS](#hsts)
 - [SNI Callback for Multi-Tenant SaaS](#sni-callback-for-multi-tenant-saas)
 - [HTTP to HTTPS Redirect Server](#http-to-https-redirect-server)
-- [Development vs Production](#development-vs-production)
+- [Development vs. Production](#development-vs-production)
 
 <!-- tocstop -->
 
@@ -338,7 +338,7 @@ All invalid domain responses return HTTP 403 status code with `Cache-Control: no
 - Canonical domain enforcement with HTTPS
 - Additional security validations
 
-## Development vs Production
+## Development vs. Production
 
 Use `initDevMode()` to set development mode at startup. Pass a CLI argument (`dev` or `prod`) or use environment detection:
 

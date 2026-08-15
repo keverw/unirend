@@ -4,7 +4,7 @@ Unirend integrates with the **Lifecycleion dev mode convention** via the [`lifec
 
 <!-- toc -->
 
-- [Dev Mode vs `serveSSRWithHMR` / `serveSSRBuilt`](#dev-mode-vs-servessrwithhmr--servessrbuilt)
+- [Dev Mode vs. `serveSSRWithHMR` / `serveSSRBuilt`](#dev-mode-vs-servessrwithhmr--servessrbuilt)
 - [API](#api)
   - [`initDevMode(arg?)`](#initdevmodearg)
   - [`getDevMode(): boolean`](#getdevmode-boolean)
@@ -18,7 +18,7 @@ Unirend integrates with the **Lifecycleion dev mode convention** via the [`lifec
 
 <!-- tocstop -->
 
-## Dev Mode vs `serveSSRWithHMR` / `serveSSRBuilt`
+## Dev Mode vs. `serveSSRWithHMR` / `serveSSRBuilt`
 
 These are **separate concepts**:
 

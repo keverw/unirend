@@ -804,7 +804,7 @@ Unirend’s `pageDataLoader` implements a consistent, envelope-first pattern acr
   - Custom handlers: Runs `statusCodeHandlers` (exact match first, then wildcard `"*"`). If a handler returns a Page envelope, it is used as‑is (redirects supported via `status: "redirect"`, `status_code: 200`).
   - Page-level redirects: If the response is a Page redirect envelope, it is converted to a React Router redirect (preserving query if requested).
   - HTTP redirects: HTTP 3xx from API responses are not followed and are converted to `redirectNotFollowed` errors, preserving `Location` in details.
-  - Page vs API envelopes: Page envelopes are passed through (decorated with SSR‑only data such as cookies on the server). API error envelopes are transformed into Page error envelopes, preserving metadata and optionally extending it via `transformErrorMeta`.
+  - Page vs. API envelopes: Page envelopes are passed through (decorated with SSR‑only data such as cookies on the server). API error envelopes are transformed into Page error envelopes, preserving metadata and optionally extending it via `transformErrorMeta`.
   - Auth flows: 401 with `error.code === "authentication_required"` triggers a redirect to `loginURL` with an optional return parameter (`returnToParam`). `loginURL` is validated against `allowedRedirectOrigins` when configured. The forwarded `return_to` value is not validated by the framework. 403 maps to access denied, 404 to not found, other codes fall back to generic handling.
 
 - Timeouts and resiliency

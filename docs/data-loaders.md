@@ -129,7 +129,7 @@ One boundary if you have a custom `notFoundHandler`. On this path it is called w
 
 Tip:
 
-- If your API base URL differs between server and client (e.g., internal vs public URLs), configure `APIBaseURL` dynamically. Since data loaders run outside the React component tree and don't have access to hooks, access `window.__PUBLIC_APP_CONFIG__` directly at module level on the client, with a server-side fallback (e.g., environment variable) for SSR. See the [Public App Config Pattern](../README.md#public-app-config-pattern) for the complete pattern with examples.
+- If your API base URL differs between server and client (e.g., internal vs. public URLs), configure `APIBaseURL` dynamically. Since data loaders run outside the React component tree and don't have access to hooks, access `window.__PUBLIC_APP_CONFIG__` directly at module level on the client, with a server-side fallback (e.g., environment variable) for SSR. See the [Public App Config Pattern](../README.md#public-app-config-pattern) for the complete pattern with examples.
 
 Configuration (HTTP‑based Loader):
 
@@ -236,7 +236,7 @@ Use `PageSuccessResponse<T>` in a page component because the component renders a
 
 Note: type `T` for the success shape. Error envelopes may still appear in route data (especially rendered page error envelopes), so handle them with `RouteErrorBoundary` and `useDataLoaderEnvelopeError` before assuming the success shape. See [Error Handling (README)](../README.md#error-handling).
 
-`meta.page` comes from the `pageMetadata` returned by your handler or local loader. Pass the full loader envelope to `UnirendHead` to render that metadata. See [UnirendHead - Hardcoded vs loader-driven titles](./unirendhead.md#hardcoded-vs-loader-driven-titles).
+`meta.page` comes from the `pageMetadata` returned by your handler or local loader. Pass the full loader envelope to `UnirendHead` to render that metadata. See [UnirendHead - Hardcoded vs. loader-driven titles](./unirendhead.md#hardcoded-vs-loader-driven-titles).
 
 ### Loading Indicators
 
